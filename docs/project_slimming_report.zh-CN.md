@@ -1724,6 +1724,16 @@
 - 当前 self-audit：完整目录约 `250.95 MB`，不含 `.git` 约 `118.27 MB`，不含 `.git` 和依赖约 `89.08 MB`，Git 跟踪文件约 `19.04 MB / 620` 个；代码范围 `375` 个文件、`199,485` 行、非空 `183,459` 行。默认可清理目标为 `runtime` 约 `25.12 MB / 804` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`883` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
 
+## 2026-06-12 保存点：数据健康轻量诊断调度边界收口
+
+- `public/index.html` 的 `scheduleDataHealthLightDiagnostics()` 从裸 `deferUiTask()` 改为共享 `schedulePostFetchRefresh('data-health-light-diagnostics', ...)`，复用已有去重/延迟调度边界。
+- 轻量诊断刷新新增当前页面和 Tab 校验：离开 `online-data/data-health` 后返回 `null`，不再继续刷新运营日志和公开端点安全状态。
+- 本轮不改数据健康接口、线上数据接口、OTA 采集、持久化、字段口径、AI 分析、权限或数据库结构；只限制非核心诊断后台刷新范围。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求轻量诊断使用共享调度器并带页面/Tab 校验；`verify_e2e_contracts.mjs` 禁止恢复裸 `deferUiTask`。
+- 当前 split-map：`public/index.html` 为 `37,420` 行、`1,579` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,903` 行、`867` 个方法。两者仍是 P2 拆分候选，严格门禁未声明完成。
+- 当前 self-audit：完整目录约 `252.67 MB`，不含 `.git` 约 `119.27 MB`，不含 `.git` 和依赖约 `90.08 MB`，Git 跟踪文件约 `19.04 MB / 620` 个；代码范围 `375` 个文件、`199,495` 行、非空 `183,469` 行。默认可清理目标为 `runtime` 约 `26.11 MB / 837` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`887` checks）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

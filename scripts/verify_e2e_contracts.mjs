@@ -247,6 +247,9 @@ requireText('app/controller/OnlineData.php', "get('include_detail'", 'backend au
 requireText('app/controller/OnlineData.php', "'detail_loaded' => false", 'backend auto-fetch status marks light responses explicitly');
 requireText('public/index.html', 'const buildDataHealthPanelJobs = (normalizedMode) =>', 'entry builds data-health panel jobs outside the main loader');
 requireText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () =>', 'entry defers non-core light data-health diagnostics through a helper');
+requireText('public/index.html', "return schedulePostFetchRefresh('data-health-light-diagnostics', () => {", 'data-health light diagnostics use the shared deduplicated post-fetch scheduler');
+requireText('public/index.html', "if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') return null;", 'data-health light diagnostics do not run after the user leaves the data-health tab');
+requireNoText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () => {\n                deferUiTask(() => Promise.allSettled([', 'data-health light diagnostics must not use a bare deferred task without tab guards');
 requireText('public/index.html', 'const jobs = buildDataHealthPanelJobs(normalizedMode);', 'data-health panel loader uses extracted job composition');
 requireText('public/index.html', 'scheduleDataHealthLightDiagnostics();', 'light data-health refresh defers non-core diagnostics after OTA health returns');
 requireNoText('public/index.html', 'loadCookieStatus(),\n                    loadCollectionReliability(normalizedMode)', 'data-health panel must not call cookie-status and collection-reliability in the same first-paint group');

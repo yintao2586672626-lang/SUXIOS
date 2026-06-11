@@ -759,6 +759,8 @@ if (!fs.existsSync(indexPath)) {
     || !dataHealthPanelSource.includes('loadPublicEndpointSecurity()')
     || !dataHealthPanelSource.includes('loadHotelDataDashboard()')
     || !dataHealthPanelSource.includes('const scheduleDataHealthLightDiagnostics = () => {')
+    || !dataHealthPanelSource.includes("return schedulePostFetchRefresh('data-health-light-diagnostics', () => {")
+    || !dataHealthPanelSource.includes("if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') return null;")
     || !dataHealthPanelSource.includes('const jobs = buildDataHealthPanelJobs(normalizedMode);')
     || !dataHealthPanelSource.includes('scheduleDataHealthLightDiagnostics();')) {
     failures.push('public/index.html must keep data-health panel job composition and deferred light diagnostics out of loadDataHealthPanel.');

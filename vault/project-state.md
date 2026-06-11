@@ -1758,6 +1758,16 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `250.95 MB`, without `.git` about `118.27 MB`, without `.git` and dependencies about `89.08 MB`, tracked files about `19.04 MB` / `620` files; code scope `375` files, `199485` total lines, and `183459` nonblank lines. Runtime cleanup is about `25.12 MB` / `804` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `883` checks; `verify:p0-guards`; `self:split-map`; `self:audit`.
 
+## 2026-06-12 Progress: Data Health Light Diagnostics Scheduling Boundary
+
+- `public/index.html` now routes `scheduleDataHealthLightDiagnostics()` through `schedulePostFetchRefresh('data-health-light-diagnostics', ...)` instead of a bare `deferUiTask()`.
+- The deferred light diagnostics now check `currentPage === 'online-data'` and `onlineDataTab === 'data-health'` before refreshing operation logs and public endpoint security. If the user leaves the data-health tab, the task returns `null`.
+- This does not change data-health APIs, online-data APIs, OTA collection, persistence, field semantics, AI analysis, permissions, or database schema. It only limits non-core diagnostic background work to the active data-health view.
+- Guards now require the shared post-fetch scheduler, require the page/tab guard, and reject restoring a bare deferred task. `verify:e2e-contracts` covers `887` checks.
+- Current split-map: `public/index.html` has `37420` lines, `1579` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26903` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `252.67 MB`, without `.git` about `119.27 MB`, without `.git` and dependencies about `90.08 MB`, tracked files about `19.04 MB` / `620` files; code scope `375` files, `199495` total lines, and `183469` nonblank lines. Runtime cleanup is about `26.11 MB` / `837` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `887` checks; `self:split-map`; `self:audit`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

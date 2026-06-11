@@ -23913,19 +23913,35 @@
             };
 
             const scheduleDataHealthLightDiagnostics = () => {
-                deferUiTask(() => Promise.allSettled([
-                    loadDataHealthOperationLogs(),
-                    loadPublicEndpointSecurity(),
-                ]), 360);
+                return schedulePostFetchRefresh('data-health-light-diagnostics', () => {
+                    if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') return null;
+                    return Promise.allSettled([
+                        loadDataHealthOperationLogs(),
+                        loadPublicEndpointSecurity(),
+                    ]);
+                }, 360);
             };
 
             const loadDataHealthPanel = async (mode = 'light', options = {}) => {
                 const normalizedMode = mode === 'full' ? 'full' : 'light';
                 const force = !!options.force || normalizedMode === 'full';
+                const initialHotelId = String(getAutoFetchHotelId() || '');
+                const initialCacheKey = dataHealthLightCacheKey(initialHotelId);
+                if (normalizedMode === 'light' && !force) {
+                    const now = Date.now();
+                    if (dataHealthLightCache.key === initialCacheKey) {
+                        if (dataHealthLightCache.promise) {
+                            return dataHealthLightCache.promise;
+                        }
+                        if (dataHealthLightCache.expiresAt > now) {
+                            return;
+                        }
+                    }
+                }
                 await syncCtripOverviewTargetHotel({ loadConfig: false });
                 const currentHotelId = String(getAutoFetchHotelId() || '');
                 const cacheKey = dataHealthLightCacheKey(currentHotelId);
-                if (normalizedMode === 'light' && !force) {
+                if (normalizedMode === 'light' && !force && cacheKey !== initialCacheKey) {
                     const now = Date.now();
                     if (dataHealthLightCache.key === cacheKey) {
                         if (dataHealthLightCache.promise) {
