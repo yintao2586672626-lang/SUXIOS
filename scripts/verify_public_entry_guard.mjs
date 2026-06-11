@@ -127,6 +127,22 @@ if (!fs.existsSync(indexPath)) {
   if (!/newPage === ['"]revenue-research-center['"]/.test(content) || !/ensureRevenueResearchReady\(\)/.test(content)) {
     failures.push('public/index.html must load revenue research static data only when revenue-research-center is opened.');
   }
+  if (/<script\s+src=["']expansion-static-options\.js["']/.test(content)) {
+    failures.push('public/index.html must lazy-load expansion-static-options.js; the login and compass shell do not need investment expansion options.');
+  }
+  if (!/const\s+expansionStaticOptionsScript\s*=\s*["']expansion-static-options\.js["']/.test(content) || !/const\s+loadExpansionStaticOptions\s*=\s*\(\)\s*=>/.test(content)) {
+    failures.push('public/index.html must keep an explicit lazy loader for expansion-static-options.js.');
+  }
+  if (!/ensureExpansionStaticReady\(\)/.test(content) || !/isExpansionStaticPage\(newPage\)/.test(content)) {
+    failures.push('public/index.html must load expansion static data only when investment expansion pages are opened.');
+  }
+  const strategyDetailLoader = content.slice(
+    content.indexOf('const loadStrategyDetail = async'),
+    content.indexOf('const reuseStrategyRecord = async')
+  );
+  if (!strategyDetailLoader.includes('await ensureExpansionStaticReady();')) {
+    failures.push('public/index.html must load expansion static data before reusing strategy history input.');
+  }
   if (/<script\s+src=["']operation-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load operation-static.js; it is only required by operation/opening/lifecycle pages.');
   }

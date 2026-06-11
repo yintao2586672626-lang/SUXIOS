@@ -12,7 +12,6 @@
     <script src="vue.global.prod.js"></script>
     <script src="shared-components.js"></script>
     <script src="form-operation-support.js" defer></script>
-    <script src="expansion-static-options.js"></script>
     <script src="ctrip-static.js"></script>
     <script src="meituan-static.js"></script>
     <script src="data-health-static.js"></script>
@@ -24083,6 +24082,9 @@
                 if (newPage === 'revenue-research-center') {
                     runPageLoadOnce(newPage, 'revenue-research-static', () => ensureRevenueResearchReady());
                 }
+                if (isExpansionStaticPage(newPage)) {
+                    runPageLoadOnce(newPage, 'expansion-static-options', () => ensureExpansionStaticReady());
+                }
                 if (newPage === 'ops-analysis' || newPage === 'ops-plan') {
                     runPageLoadOnce(newPage, 'operation-static', () => ensureOperationStaticReady());
                 }
@@ -35352,48 +35354,120 @@
             const aiFeasibilityError = ref('');
 
             const expansionDefaultOnlineDate = formatDate(new Date(Date.now() + 45 * 24 * 60 * 60 * 1000));
-            const expansionStaticOptions = window.SUXI_EXPANSION_STATIC;
-            if (!expansionStaticOptions || typeof expansionStaticOptions !== 'object') {
-                throw new Error('缺少扩张静态选项配置：expansion-static-options.js 未加载');
-            }
+            const expansionStaticOptionsScript = 'expansion-static-options.js';
+            const expansionStaticOptions = ref(window.SUXI_EXPANSION_STATIC && typeof window.SUXI_EXPANSION_STATIC === 'object' ? window.SUXI_EXPANSION_STATIC : null);
+            const expansionStaticLoadError = ref('');
+            let expansionStaticOptionsLoadPromise = null;
+            const setExpansionStaticOptions = (staticOptions) => {
+                if (!staticOptions || typeof staticOptions !== 'object') {
+                    throw new Error('Missing expansion static options: expansion-static-options.js not loaded.');
+                }
+                expansionStaticOptions.value = staticOptions;
+                expansionStaticLoadError.value = '';
+                return staticOptions;
+            };
+            const loadExpansionStaticOptions = () => {
+                if (window.SUXI_EXPANSION_STATIC && typeof window.SUXI_EXPANSION_STATIC === 'object') {
+                    return Promise.resolve(setExpansionStaticOptions(window.SUXI_EXPANSION_STATIC));
+                }
+                if (!expansionStaticOptionsLoadPromise) {
+                    expansionStaticOptionsLoadPromise = new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = expansionStaticOptionsScript;
+                        script.async = true;
+                        script.onload = () => {
+                            if (window.SUXI_EXPANSION_STATIC && typeof window.SUXI_EXPANSION_STATIC === 'object') {
+                                resolve(setExpansionStaticOptions(window.SUXI_EXPANSION_STATIC));
+                                return;
+                            }
+                            reject(new Error('Missing expansion static options: expansion-static-options.js not loaded.'));
+                        };
+                        script.onerror = () => reject(new Error('Missing expansion static options: expansion-static-options.js not loaded.'));
+                        document.head.appendChild(script);
+                    });
+                }
+                return expansionStaticOptionsLoadPromise;
+            };
+            const ensureExpansionStaticReady = async () => {
+                try {
+                    const staticOptions = await loadExpansionStaticOptions();
+                    hydrateExpansionStaticDefaults();
+                    return staticOptions;
+                } catch (error) {
+                    expansionStaticLoadError.value = error.message || 'Expansion static options failed to load.';
+                    console.error('[expansion-static-options] load failed:', error);
+                    showToast(expansionStaticLoadError.value, 'error');
+                    throw error;
+                }
+            };
+            const hasExpansionStaticOptions = computed(() => !!expansionStaticOptions.value);
+            const expansionStaticOption = (key, defaultValue) => {
+                const value = expansionStaticOptions.value?.[key];
+                return value === undefined || value === null ? defaultValue : value;
+            };
+            const requireExpansionStaticFunction = (key) => {
+                const fn = requireExpansionStaticOption(key);
+                if (typeof fn !== 'function') {
+                    throw new Error(`Missing expansion static function: ${key}`);
+                }
+                return fn;
+            };
             const requireExpansionStaticOption = (key) => {
-                const value = expansionStaticOptions[key];
+                const value = expansionStaticOption(key, null);
                 if (value === undefined || value === null) {
                     throw new Error(`扩张静态选项缺失：${key}`);
                 }
                 return value;
             };
-            const marketEvaluationCityTierOptions = requireExpansionStaticOption('marketEvaluationCityTierOptions');
-            const marketEvaluationCityOptions = requireExpansionStaticOption('marketEvaluationCityOptions');
-            const marketEvaluationDecorationOptions = requireExpansionStaticOption('marketEvaluationDecorationOptions');
-            const marketEvaluationCustomerOptions = requireExpansionStaticOption('marketEvaluationCustomerOptions');
-            const marketEvaluationConditionFields = requireExpansionStaticOption('marketEvaluationConditionFields');
-            const marketEvaluationDefaults = requireExpansionStaticOption('marketEvaluationDefaults');
-            const marketEvaluationTierOfCity = requireExpansionStaticOption('marketEvaluationTierOfCity');
-            const strategyCityOptionsForProject = requireExpansionStaticOption('strategyCityOptionsForProject');
-            const strategyDistrictOptionsForProject = requireExpansionStaticOption('strategyDistrictOptionsForProject');
-            const strategyAddressKeywordOptionsForProject = requireExpansionStaticOption('strategyAddressKeywordOptionsForProject');
-            const strategyNextDistrictForProject = requireExpansionStaticOption('strategyNextDistrictForProject');
-            const strategyNextAddressForProject = requireExpansionStaticOption('strategyNextAddressForProject');
-            const estimateStrategyCompetitorCountForProject = requireExpansionStaticOption('estimateStrategyCompetitorCount');
-            const normalizeMarketEvaluationForm = requireExpansionStaticOption('normalizeMarketEvaluationForm');
-            const buildFeasibilityInputCards = requireExpansionStaticOption('buildFeasibilityInputCards');
-            const buildFeasibilityReportCards = requireExpansionStaticOption('buildFeasibilityReportCards');
-            const buildFeasibilityAiEmpowerment = requireExpansionStaticOption('buildFeasibilityAiEmpowerment');
-            const feasibilityDecisionClassForGrade = requireExpansionStaticOption('feasibilityDecisionClassForGrade');
-            const stringifyFeasibilityReportText = requireExpansionStaticOption('stringifyFeasibilityReport');
-            const buildMarketEvaluationAiRiskSuggestions = requireExpansionStaticOption('buildMarketEvaluationAiRiskSuggestions');
-            const buildStrategyScoreCards = requireExpansionStaticOption('buildStrategyScoreCards');
-            const strategyFreshnessLabelForSnapshot = requireExpansionStaticOption('strategyFreshnessLabelForSnapshot');
-            const strategyAiSourceLabelForResult = requireExpansionStaticOption('strategyAiSourceLabelForResult');
-            const strategyAiModelDisplayLabelForSnapshot = requireExpansionStaticOption('strategyAiModelDisplayLabelForSnapshot');
-            const strategyPoiDataSourceLabelForSnapshot = requireExpansionStaticOption('strategyPoiDataSourceLabelForSnapshot');
-            const strategyDataNoticeForSnapshot = requireExpansionStaticOption('strategyDataNoticeForSnapshot');
-            const buildStrategyDataSourceRows = requireExpansionStaticOption('buildStrategyDataSourceRows');
-            const buildStrategyAiEmpowermentCards = requireExpansionStaticOption('buildStrategyAiEmpowermentCards');
-            const marketEvaluationForm = ref({ ...marketEvaluationDefaults });
+            const marketEvaluationCityTierOptions = computed(() => expansionStaticOption('marketEvaluationCityTierOptions', []));
+            const marketEvaluationCityOptions = computed(() => expansionStaticOption('marketEvaluationCityOptions', []));
+            const marketEvaluationDecorationOptions = computed(() => expansionStaticOption('marketEvaluationDecorationOptions', []));
+            const marketEvaluationCustomerOptions = computed(() => expansionStaticOption('marketEvaluationCustomerOptions', []));
+            const marketEvaluationConditionFields = computed(() => expansionStaticOption('marketEvaluationConditionFields', []));
+            const marketEvaluationDefaults = computed(() => expansionStaticOption('marketEvaluationDefaults', {}));
+            const marketEvaluationTierOfCity = (...args) => requireExpansionStaticFunction('marketEvaluationTierOfCity')(...args);
+            const strategyCityOptionsForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyCityOptionsForProject')(project) : [];
+            const strategyDistrictOptionsForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyDistrictOptionsForProject')(project) : [];
+            const strategyAddressKeywordOptionsForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyAddressKeywordOptionsForProject')(project) : [];
+            const strategyNextDistrictForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyNextDistrictForProject')(project) : project?.district || '';
+            const strategyNextAddressForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyNextAddressForProject')(project) : project?.address || '';
+            const estimateStrategyCompetitorCountForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('estimateStrategyCompetitorCount')(project) : Number(project?.competitor_count || 0);
+            const normalizeMarketEvaluationForm = (input) => requireExpansionStaticFunction('normalizeMarketEvaluationForm')(input);
+            const buildFeasibilityInputCards = (payload) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildFeasibilityInputCards')(payload) : [];
+            const buildFeasibilityReportCards = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildFeasibilityReportCards')(result) : [];
+            const buildFeasibilityAiEmpowerment = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildFeasibilityAiEmpowerment')(result) : { headline: '', conclusion: '', sourceLabel: '', isFallback: false, cards: [], nextAction: '', evidenceText: '' };
+            const feasibilityDecisionClassForGrade = (grade) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('feasibilityDecisionClassForGrade')(grade) : '';
+            const stringifyFeasibilityReportText = (result, projectName) => requireExpansionStaticOption('stringifyFeasibilityReport')(result, projectName);
+            const buildMarketEvaluationAiRiskSuggestions = (payload) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationAiRiskSuggestions')(payload) : [];
+            const buildStrategyScoreCards = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildStrategyScoreCards')(result) : [];
+            const strategyFreshnessLabelForSnapshot = (snapshot) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyFreshnessLabelForSnapshot')(snapshot) : '--';
+            const strategyAiSourceLabelForResult = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyAiSourceLabelForResult')(result) : 'AI';
+            const strategyAiModelDisplayLabelForSnapshot = (snapshot) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyAiModelDisplayLabelForSnapshot')(snapshot) : '--';
+            const strategyPoiDataSourceLabelForSnapshot = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyPoiDataSourceLabelForSnapshot')(...args) : '--';
+            const strategyDataNoticeForSnapshot = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyDataNoticeForSnapshot')(...args) : '';
+            const buildStrategyDataSourceRows = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildStrategyDataSourceRows')(...args) : [];
+            const buildStrategyAiEmpowermentCards = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildStrategyAiEmpowermentCards')(...args) : [];
+            const marketEvaluationForm = ref({});
             const marketEvaluationResult = ref(null);
             const marketEvaluationLoading = ref(false);
+            const isExpansionStaticPage = (page) => [
+                'ai-strategy',
+                'ai-feasibility',
+                'market-evaluation',
+                'market-eval',
+                'benchmark-model',
+                'collaboration-efficiency',
+                'sync-efficiency',
+            ].includes(page);
+            const hydrateExpansionStaticDefaults = () => {
+                if (!hasExpansionStaticOptions.value) return;
+                const defaults = marketEvaluationDefaults.value || {};
+                if (Object.keys(defaults).length) {
+                    marketEvaluationForm.value = { ...defaults, ...(marketEvaluationForm.value || {}) };
+                }
+                syncStrategyCompetitorCount();
+                syncStrategyAddressForLocation();
+            };
             const normalizeAiRecommendationDisplay = (item) => {
                 if (item && typeof item === 'object') {
                     const title = String(item.title || '').trim();
@@ -35525,11 +35599,12 @@
                 return estimateStrategyCompetitorCountForProject(aiProject.value);
             };
             const syncStrategyCompetitorCount = () => {
+                if (!hasExpansionStaticOptions.value) return;
                 aiProject.value.competitor_count = estimateStrategyCompetitorCount();
             };
             const filteredMarketEvaluationCityOptions = computed(() => {
-                const tier = marketEvaluationForm.value.city_tier || marketEvaluationDefaults.city_tier;
-                return marketEvaluationCityOptions.filter(item => item.tier === tier);
+                const tier = marketEvaluationForm.value.city_tier || marketEvaluationDefaults.value.city_tier;
+                return marketEvaluationCityOptions.value.filter(item => item.tier === tier);
             });
             const filteredStrategyCityOptions = computed(() => {
                 return strategyCityOptionsForProject(aiProject.value);
@@ -35541,19 +35616,22 @@
                 return strategyAddressKeywordOptionsForProject(aiProject.value);
             });
             const syncStrategyAddressForLocation = () => {
+                if (!hasExpansionStaticOptions.value) return;
                 const nextAddress = strategyNextAddressForProject(aiProject.value);
                 if (nextAddress !== aiProject.value.address) {
                     aiProject.value.address = nextAddress;
                 }
             };
-            const secondaryMarketEvaluationCustomerOptions = computed(() => marketEvaluationCustomerOptions.filter(option => option !== marketEvaluationForm.value.primary_customer));
+            const secondaryMarketEvaluationCustomerOptions = computed(() => marketEvaluationCustomerOptions.value.filter(option => option !== marketEvaluationForm.value.primary_customer));
             watch(() => marketEvaluationForm.value.city_tier, () => {
+                if (!hasExpansionStaticOptions.value) return;
                 const options = filteredMarketEvaluationCityOptions.value;
                 if (options.length > 0 && !options.some(item => item.name === marketEvaluationForm.value.city)) {
                     marketEvaluationForm.value.city = options[0].name;
                 }
             });
             watch(() => aiProject.value.city_tier, () => {
+                if (!hasExpansionStaticOptions.value) return;
                 const options = filteredStrategyCityOptions.value;
                 if (options.length > 0 && !options.some(item => item.name === aiProject.value.city)) {
                     aiProject.value.city = options[0].name;
@@ -35561,6 +35639,7 @@
                 syncStrategyAddressForLocation();
             });
             watch(() => aiProject.value.city, () => {
+                if (!hasExpansionStaticOptions.value) return;
                 const nextDistrict = strategyNextDistrictForProject(aiProject.value);
                 if (nextDistrict !== aiProject.value.district) {
                     aiProject.value.district = nextDistrict;
@@ -35568,12 +35647,14 @@
                 syncStrategyAddressForLocation();
             });
             watch(() => aiProject.value.district, () => {
+                if (!hasExpansionStaticOptions.value) return;
                 syncStrategyAddressForLocation();
             });
             watch(() => [aiProject.value.city_tier, aiProject.value.city, aiProject.value.target_grade], syncStrategyCompetitorCount, { immediate: true });
             watch(() => [marketEvaluationForm.value.primary_customer, marketEvaluationForm.value.secondary_customer], ([primary, secondary]) => {
+                if (!hasExpansionStaticOptions.value) return;
                 if (primary && primary === secondary) {
-                    marketEvaluationForm.value.secondary_customer = secondaryMarketEvaluationCustomerOptions.value[0] || marketEvaluationDefaults.secondary_customer;
+                    marketEvaluationForm.value.secondary_customer = secondaryMarketEvaluationCustomerOptions.value[0] || marketEvaluationDefaults.value.secondary_customer;
                     return;
                 }
                 marketEvaluationForm.value.target_customer = [primary, secondary].filter(Boolean).join('+');
@@ -35881,6 +35962,7 @@
                 if (!id) return;
                 const requestPage = currentPage.value;
                 try {
+                    await ensureExpansionStaticReady();
                     const res = await request(`/expansion/records/${id}`);
                     if (res.code !== 200) throw new Error(res.message || '获取扩张记录详情失败');
                     if (!isStillOnRequestPage(requestPage)) return;
@@ -35952,6 +36034,7 @@
             const handleMarketEvaluation = async () => {
                 marketEvaluationLoading.value = true;
                 try {
+                    await ensureExpansionStaticReady();
                     const payload = normalizeMarketEvaluationForm(marketEvaluationForm.value);
                     marketEvaluationForm.value = payload;
                     const res = await request('/expansion/market-evaluation', {
@@ -35972,6 +36055,7 @@
             const handleBenchmarkModel = async () => {
                 benchmarkModelLoading.value = true;
                 try {
+                    await ensureExpansionStaticReady();
                     const res = await request('/expansion/benchmark-model', {
                         method: 'POST',
                         body: JSON.stringify(benchmarkModelForm.value)
@@ -35990,6 +36074,7 @@
             const handleCollaborationEfficiency = async () => {
                 collaborationEfficiencyLoading.value = true;
                 try {
+                    await ensureExpansionStaticReady();
                     const res = await request('/expansion/collaboration-efficiency', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -36350,6 +36435,7 @@
                 if (aiStrategyLoading.value) return false;
                 aiStrategyLoading.value = true;
                 try {
+                    await ensureExpansionStaticReady();
                     const res = await request('/strategy/simulate', {
                         method: 'POST',
                         body: JSON.stringify(buildStrategyPayload())
@@ -36415,6 +36501,7 @@
                 if (!id) return;
                 const requestPage = currentPage.value;
                 try {
+                    await ensureExpansionStaticReady();
                     const res = await request(`/strategy/records/${id}`);
                     if (res.code !== 200) throw new Error(res.message || '战略推演详情加载失败');
                     if (!isStillOnRequestPage(requestPage)) return;
@@ -36769,6 +36856,7 @@
                 aiFeasibilityLoading.value = true;
                 aiFeasibilityError.value = '';
                 try {
+                    await ensureExpansionStaticReady();
                     const url = aiFeasibilityRecordId.value
                         ? `/agent/feasibility-report/regenerate/${aiFeasibilityRecordId.value}`
                         : '/agent/feasibility-report/generate';
@@ -36794,6 +36882,7 @@
             const copyFeasibilityReport = async () => {
                 if (!aiFeasibilityResult.value) return;
                 try {
+                    await ensureExpansionStaticReady();
                     await navigator.clipboard.writeText(stringifyFeasibilityReport());
                     showToast('报告内容已复制');
                 } catch (err) {
