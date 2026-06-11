@@ -100,11 +100,11 @@ requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialStat
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckRunContext', 'Ctrip static builds Profile recheck run context');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
 requireText('public/ctrip-static.js', 'const runCtripProfileRecheckFlow', 'Ctrip static runs Profile recheck flow');
-requireText('public/index.html', "requireMeituanStatic('buildMeituanBatchFetchTasks')", 'entry uses extracted Meituan batch fetch task builder');
-requireText('public/index.html', "requireMeituanStatic('validateMeituanBatchFetchInput')", 'entry uses extracted Meituan batch fetch input validator');
+requireText('public/index.html', "requireMeituanStatic('runMeituanBatchFetchFlow')", 'entry uses extracted Meituan batch fetch flow runner');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
 requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 'Meituan static validates batch fetch inputs');
+requireText('public/meituan-static.js', 'const runMeituanBatchFetchFlow', 'Meituan static runs batch fetch flow');
 requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
@@ -163,6 +163,10 @@ requireNoText('public/index.html', "const res = await request('/online-data/rech
 requireNoText('public/index.html', 'const recheckResult = buildCtripProfileRecheckSuccessResult({', 'Ctrip Profile recheck success handling is not re-inlined');
 requireNoText('public/index.html', 'const recheckResult = buildCtripProfileRecheckErrorResult({', 'Ctrip Profile recheck error handling is not re-inlined');
 requireNoText('public/index.html', 'buildCtripProfileRecheckInterruptedState({', 'Ctrip Profile recheck interrupted handling is not re-inlined');
+requireNoText('public/index.html', 'const batchInput = validateMeituanBatchFetchInput({', 'Meituan batch fetch validation flow is not re-inlined');
+requireNoText('public/index.html', 'const fetchTasks = buildMeituanBatchFetchTasks({', 'Meituan batch fetch task flow is not re-inlined');
+requireNoText('public/index.html', 'results.push(buildMeituanBatchFetchResultEntry(task, res));', 'Meituan batch fetch result flow is not re-inlined');
+requireNoText('public/index.html', 'body: JSON.stringify(buildMeituanDisplayModelPayload({ results, form: meituanForm.value }))', 'Meituan display model payload flow is not re-inlined');
 requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
@@ -376,15 +380,17 @@ try {
   const buildMeituanBatchFetchResultEntry = meituanStatic.buildMeituanBatchFetchResultEntry;
   const buildMeituanDisplayModelPayload = meituanStatic.buildMeituanDisplayModelPayload;
   const validateMeituanBatchFetchInput = meituanStatic.validateMeituanBatchFetchInput;
+  const runMeituanBatchFetchFlow = meituanStatic.runMeituanBatchFetchFlow;
   if (typeof buildMeituanBatchFetchTasks !== 'function'
     || typeof buildMeituanBatchFetchResultEntry !== 'function'
     || typeof buildMeituanDisplayModelPayload !== 'function'
-    || typeof validateMeituanBatchFetchInput !== 'function') {
+    || typeof validateMeituanBatchFetchInput !== 'function'
+    || typeof runMeituanBatchFetchFlow !== 'function') {
     checks.push({
       file: 'public/meituan-static.js',
       label: 'Meituan static exports batch fetch builders',
       ok: false,
-      detail: 'batch fetch builders',
+      detail: 'batch fetch builders and flow runner',
     });
   } else {
     const tasks = buildMeituanBatchFetchTasks({
@@ -477,6 +483,69 @@ try {
         endDate: '2026-06-10',
       },
     });
+    const flowEvents = [];
+    const flowStates = [];
+    const requestedBodies = [];
+    let flowOnlineResult = null;
+    let flowBusinessSummary = null;
+    let flowDisplayPayload = null;
+    let flowSavedCount = 0;
+    let flowFetchTime = '';
+    const flowResult = await runMeituanBatchFetchFlow({
+      getForm: () => ({
+        url: 'https://example.test/rank',
+        hotelId: '10',
+        partnerId: 'partner-1',
+        poiId: 'poi-1',
+        cookies: ' mt-cookie ',
+        dateRanges: ['1'],
+        auth_data: { token: 'demo' },
+        competitorRoomCount: '20',
+      }),
+      getSelectedConfig: () => ({ hotel_id: '10', cookies: 'mt-cookie' }),
+      ensureMeituanConfigSecret: async config => {
+        flowEvents.push('ensure-config');
+        return config;
+      },
+      applyMeituanHotelConfig: async showMessage => flowEvents.push(`apply:${showMessage}`),
+      notify: (message, level) => flowEvents.push(`notify:${level || 'info'}:${message}`),
+      setFetching: value => flowStates.push(`fetching:${value}`),
+      setOnlineDataResult: value => { flowOnlineResult = value; },
+      setFetchSuccess: value => flowStates.push(`success:${value}`),
+      setHotelsList: value => flowStates.push(`hotels:${value.length}`),
+      getEmptyBusinessSummary: () => ({ status: 'empty', metrics: {}, cards: [] }),
+      setBusinessSummary: value => { flowBusinessSummary = value; },
+      requestFetch: async body => {
+        requestedBodies.push(body);
+        return {
+          code: 200,
+          data: {
+            data: [{ rank: 1, rankType: body.rank_type }],
+            saved_count: 2,
+            display_hotels: [{ poiId: body.poi_id, rankType: body.rank_type }],
+            display_summary: { rankType: body.rank_type },
+            display_hotel_count: 1,
+          },
+        };
+      },
+      requestDisplayModel: async payload => {
+        flowDisplayPayload = payload;
+        return { code: 200, data: { rows: [{ poiId: 'poi-1' }, { poiId: 'poi-2' }] } };
+      },
+      useDisplayModel: data => data.rows,
+      setSavedCount: value => { flowSavedCount = value; },
+      setDataFetchTime: value => { flowFetchTime = value; },
+      getFetchTime: () => '2026-06-11 12:00:00',
+      updateAiAnalysisHotelList: () => flowEvents.push('update-ai-hotels'),
+      refreshOnlineHistory: async () => flowEvents.push('history'),
+      getOnlineDataTab: () => 'data',
+      refreshOnlineData: () => flowEvents.push('refresh-data'),
+    });
+    const guardEvents = [];
+    const guardResult = await runMeituanBatchFetchFlow({
+      getForm: () => ({ hotelId: '', dateRanges: ['1'] }),
+      notify: (message, level) => guardEvents.push(`notify:${level}:${message}`),
+    });
     checks.push({
       file: 'public/meituan-static.js',
       label: 'Meituan batch fetch result and display payload builders preserve response evidence',
@@ -486,7 +555,25 @@ try {
         && Array.isArray(modelPayload.display_hotels)
         && modelPayload.display_hotels.length === 1
         && modelPayload.target_poi_id === 'poi-1'
-        && modelPayload.competitor_room_count === '20',
+        && modelPayload.competitor_room_count === '20'
+        && flowResult.status === 'success'
+        && requestedBodies.length === 4
+        && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.cookies === 'mt-cookie')
+        && flowOnlineResult.length === 4
+        && flowDisplayPayload.display_hotels.length === 4
+        && flowDisplayPayload.target_poi_id === 'poi-1'
+        && flowSavedCount === 8
+        && flowFetchTime === '2026-06-11 12:00:00'
+        && flowBusinessSummary.status === 'empty'
+        && flowStates.join('|') === 'fetching:true|success:false|hotels:0|fetching:false'
+        && flowEvents.includes('ensure-config')
+        && flowEvents.includes('apply:false')
+        && flowEvents.includes('update-ai-hotels')
+        && flowEvents.includes('history')
+        && flowEvents.includes('refresh-data')
+        && flowEvents.some(event => event.includes('批量获取完成！共保存 8 条数据'))
+        && guardResult.status === 'missing_hotel'
+        && guardEvents[0] === 'notify:error:请选择目标酒店',
       detail: 'Meituan batch result sample',
     });
   }

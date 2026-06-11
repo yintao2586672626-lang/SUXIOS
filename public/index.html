@@ -19322,10 +19322,7 @@
             const buildMeituanRankDisplayRows = requireMeituanStatic('buildMeituanRankDisplayRows');
             const buildCompetitorSummaryCoreCards = requireMeituanStatic('buildCompetitorSummaryCoreCards');
             const buildHomeCompetitorSummaryCards = requireMeituanStatic('buildHomeCompetitorSummaryCards');
-            const validateMeituanBatchFetchInput = requireMeituanStatic('validateMeituanBatchFetchInput');
-            const buildMeituanBatchFetchTasks = requireMeituanStatic('buildMeituanBatchFetchTasks');
-            const buildMeituanBatchFetchResultEntry = requireMeituanStatic('buildMeituanBatchFetchResultEntry');
-            const buildMeituanDisplayModelPayload = requireMeituanStatic('buildMeituanDisplayModelPayload');
+            const runMeituanBatchFetchFlow = requireMeituanStatic('runMeituanBatchFetchFlow');
             const meituanRankedHotelsList = computed(() => buildMeituanRankDisplayRows(meituanHotelsList.value, meituanSortField.value));
             const meituanDynamicSelfRankRow = computed(() => meituanRankedHotelsList.value.find(row => row?.isSelf) || null);
             const meituanDisplayedHotelsList = computed(() => [...meituanRankedHotelsList.value].sort((a, b) => {
@@ -31859,91 +31856,34 @@
 
             // 美团ebooking数据获取 - 支持批量获取多个榜单和时间维度
             const fetchMeituanData = async () => {
-                if (!meituanForm.value.hotelId) {
-                    showToast('请选择目标酒店', 'error');
-                    return;
-                }
-                const selectedMeituanConfig = await ensureMeituanConfigSecret(selectedMeituanHotelConfig.value);
-                if (!selectedMeituanConfig) {
-                    showToast('当前酒店未配置美团数据源', 'warning');
-                    return;
-                }
-                await applyMeituanHotelConfig(false);
-                const meituanCookies = String(meituanForm.value.cookies || '').trim();
-                const partnerId = String(meituanForm.value.partnerId || '').trim();
-                const poiId = String(meituanForm.value.poiId || '').trim();
-                const batchInput = validateMeituanBatchFetchInput({
-                    form: meituanForm.value,
-                    cookies: meituanCookies,
-                    partnerId,
-                    poiId,
-                });
-                if (!batchInput.ok) {
-                    showToast(batchInput.message, batchInput.level);
-                    return;
-                }
-
-                fetchingData.value = true;
-                onlineDataResult.value = null;
-                meituanFetchSuccess.value = false;
-                meituanHotelsList.value = [];
-                meituanBusinessSummary.value = emptyMeituanBusinessSummary();
-                const results = [];
-                let totalSavedCount = 0;
-                const fetchTasks = buildMeituanBatchFetchTasks({
-                    form: meituanForm.value,
-                    partnerId,
-                    poiId,
-                    cookies: meituanCookies,
-                });
-
-                try {
-                    // 循环获取每个选中的时间维度和榜单（默认全部4个榜单）
-                    for (const task of fetchTasks) {
-                        showToast(task.toastText);
-                        const res = await request('/online-data/fetch-meituan', {
-                            method: 'POST',
-                            body: JSON.stringify(task.body),
-                        });
-                        results.push(buildMeituanBatchFetchResultEntry(task, res));
-                        if (res.code === 200) {
-                            totalSavedCount += res.data.saved_count || 0;
-                        }
-                    }
-
-                    // 显示汇总结果
-                    onlineDataResult.value = results;
-                    meituanSavedCount.value = totalSavedCount;
-
-                    const modelRes = await request('/online-data/meituan/display-model', {
+                await runMeituanBatchFetchFlow({
+                    getForm: () => meituanForm.value,
+                    getSelectedConfig: () => selectedMeituanHotelConfig.value,
+                    ensureMeituanConfigSecret,
+                    applyMeituanHotelConfig,
+                    notify: showToast,
+                    setFetching: value => { fetchingData.value = value; },
+                    setOnlineDataResult: value => { onlineDataResult.value = value; },
+                    setFetchSuccess: value => { meituanFetchSuccess.value = value; },
+                    setHotelsList: value => { meituanHotelsList.value = value; },
+                    getEmptyBusinessSummary: emptyMeituanBusinessSummary,
+                    setBusinessSummary: value => { meituanBusinessSummary.value = value; },
+                    requestFetch: body => request('/online-data/fetch-meituan', {
                         method: 'POST',
-                        body: JSON.stringify(buildMeituanDisplayModelPayload({ results, form: meituanForm.value })),
-                    });
-                    if (modelRes.code !== 200) {
-                        throw new Error(modelRes.message || '构建美团展示模型失败');
-                    }
-                    const allHotels = useMeituanDisplayModel(modelRes.data || {});
-                    meituanDataFetchTime.value = new Date().toLocaleString('zh-CN'); // 记录数据获取时间
-
-                    // 更新美团AI分析酒店列表
-                    updateMeituanAiAnalysisHotelList();
-
-                    if (totalSavedCount > 0) {
-                        showToast(`批量获取完成！共保存 ${totalSavedCount} 条数据`);
-                        await refreshOnlineHistory();
-                        if (onlineDataTab.value === 'data') {
-                            refreshOnlineData();
-                        }
-                    } else if (allHotels.length > 0) {
-                        showToast(`获取成功！共 ${allHotels.length} 家酒店数据`);
-                    } else {
-                        showToast('获取完成，但未找到有效数据');
-                    }
-                } catch (e) {
-                    showToast('请求失败: ' + e.message, 'error');
-                } finally {
-                    fetchingData.value = false;
-                }
+                        body: JSON.stringify(body),
+                    }),
+                    requestDisplayModel: body => request('/online-data/meituan/display-model', {
+                        method: 'POST',
+                        body: JSON.stringify(body),
+                    }),
+                    useDisplayModel: data => useMeituanDisplayModel(data),
+                    setSavedCount: value => { meituanSavedCount.value = value; },
+                    setDataFetchTime: value => { meituanDataFetchTime.value = value; },
+                    updateAiAnalysisHotelList: updateMeituanAiAnalysisHotelList,
+                    refreshOnlineHistory,
+                    getOnlineDataTab: () => onlineDataTab.value,
+                    refreshOnlineData,
+                });
             };
 
             const useCtripTrafficDisplayRows = (rows, summary = null, sourceRows = [], analysis = null) => {

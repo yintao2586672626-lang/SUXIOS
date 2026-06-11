@@ -239,6 +239,107 @@ window.SUXI_MEITUAN_STATIC = (() => {
         start_date: form.startDate,
         end_date: form.endDate,
     });
+    const runMeituanBatchFetchFlow = async ({
+        getForm = () => ({}),
+        getSelectedConfig = () => null,
+        ensureMeituanConfigSecret = async config => config,
+        applyMeituanHotelConfig = async () => {},
+        notify = () => {},
+        setFetching = () => {},
+        setOnlineDataResult = () => {},
+        setFetchSuccess = () => {},
+        setHotelsList = () => {},
+        getEmptyBusinessSummary = () => ({}),
+        setBusinessSummary = () => {},
+        requestFetch = async () => ({}),
+        requestDisplayModel = async () => ({}),
+        useDisplayModel = rows => rows,
+        setSavedCount = () => {},
+        setDataFetchTime = () => {},
+        getFetchTime = () => new Date().toLocaleString('zh-CN'),
+        updateAiAnalysisHotelList = () => {},
+        refreshOnlineHistory = async () => {},
+        getOnlineDataTab = () => '',
+        refreshOnlineData = () => {},
+    } = {}) => {
+        const form = getForm() || {};
+        if (!form.hotelId) {
+            notify('请选择目标酒店', 'error');
+            return { status: 'missing_hotel' };
+        }
+        const selectedMeituanConfig = await ensureMeituanConfigSecret(getSelectedConfig());
+        if (!selectedMeituanConfig) {
+            notify('当前酒店未配置美团数据源', 'warning');
+            return { status: 'missing_config' };
+        }
+        await applyMeituanHotelConfig(false);
+        const meituanCookies = String(form.cookies || '').trim();
+        const partnerId = String(form.partnerId || '').trim();
+        const poiId = String(form.poiId || '').trim();
+        const batchInput = validateMeituanBatchFetchInput({
+            form,
+            cookies: meituanCookies,
+            partnerId,
+            poiId,
+        });
+        if (!batchInput.ok) {
+            notify(batchInput.message, batchInput.level);
+            return { status: 'invalid_input', batchInput };
+        }
+
+        setFetching(true);
+        setOnlineDataResult(null);
+        setFetchSuccess(false);
+        setHotelsList([]);
+        setBusinessSummary(getEmptyBusinessSummary());
+        const results = [];
+        let totalSavedCount = 0;
+        const fetchTasks = buildMeituanBatchFetchTasks({
+            form,
+            partnerId,
+            poiId,
+            cookies: meituanCookies,
+        });
+
+        try {
+            for (const task of fetchTasks) {
+                notify(task.toastText);
+                const res = await requestFetch(task.body);
+                results.push(buildMeituanBatchFetchResultEntry(task, res));
+                if (res.code === 200) {
+                    totalSavedCount += res.data.saved_count || 0;
+                }
+            }
+
+            setOnlineDataResult(results);
+            setSavedCount(totalSavedCount);
+            const modelRes = await requestDisplayModel(buildMeituanDisplayModelPayload({ results, form }));
+            if (modelRes.code !== 200) {
+                throw new Error(modelRes.message || '构建美团展示模型失败');
+            }
+            const allHotels = useDisplayModel(modelRes.data || {});
+            setDataFetchTime(getFetchTime());
+            updateAiAnalysisHotelList();
+
+            if (totalSavedCount > 0) {
+                notify(`批量获取完成！共保存 ${totalSavedCount} 条数据`);
+                await refreshOnlineHistory();
+                if (getOnlineDataTab() === 'data') {
+                    refreshOnlineData();
+                }
+            } else if (allHotels.length > 0) {
+                notify(`获取成功！共 ${allHotels.length} 家酒店数据`);
+            } else {
+                notify('获取完成，但未找到有效数据');
+            }
+            return { status: 'success', results, totalSavedCount, allHotels };
+        } catch (error) {
+            notify('请求失败: ' + error.message, 'error');
+            return { status: 'error', error, results, totalSavedCount };
+        } finally {
+            setFetching(false);
+        }
+    };
 
     const buildMeituanRankDisplayRows = (rows, field) => {
         const sourceRows = Array.isArray(rows) ? rows : [];
@@ -400,6 +501,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanBatchFetchTasks,
         buildMeituanBatchFetchResultEntry,
         buildMeituanDisplayModelPayload,
+        runMeituanBatchFetchFlow,
         buildMeituanRankDisplayRows,
         buildCompetitorSummaryCoreCards,
         buildHomeCompetitorSummaryCards,
