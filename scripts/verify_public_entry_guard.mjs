@@ -94,6 +94,13 @@ if (!fs.existsSync(indexPath)) {
   if (tailwindOffset < 0 || vueScriptOffset < 0 || tailwindOffset > vueScriptOffset) {
     failures.push('public/index.html must discover core stylesheets before synchronous Vue/static scripts.');
   }
+  const loginBgPreloadOffset = content.indexOf('href="images/login-hotel-lobby-bg.avif"');
+  if (!/<link\s+rel=["']preload["']\s+href=["']images\/login-hotel-lobby-bg\.avif["']\s+as=["']image["']\s+type=["']image\/avif["']\s+fetchpriority=["']high["']/.test(content)) {
+    failures.push('public/index.html must preload the optimized AVIF login background with high fetch priority.');
+  }
+  if (loginBgPreloadOffset < 0 || tailwindOffset < 0 || loginBgPreloadOffset > tailwindOffset) {
+    failures.push('public/index.html must discover the AVIF login background preload before core stylesheets.');
+  }
 
   if (/vue-router\.global\.prod\.js/.test(content)) {
     failures.push('public/index.html must not eagerly load vue-router.global.prod.js; the current shell uses currentPage state navigation.');
