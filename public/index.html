@@ -14796,15 +14796,15 @@
                                                                 <div class="text-xs text-gray-500 mt-1">{{ platform.configName }}</div>
                                                             </div>
                                                         </div>
-                                                        <span :class="['px-2 py-1 rounded text-xs font-medium', platform.configured ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600']">
-                                                            {{ platform.configured ? '可抓取' : '未配置' }}
+                                                        <span :class="['px-2 py-1 rounded text-xs font-medium', platform.statusClass]">
+                                                            {{ platform.statusText }}
                                                         </span>
                                                     </div>
                                                     <div class="mt-3 text-xs text-gray-500">策略：{{ platform.mode }}</div>
                                                     <div class="mt-2 grid grid-cols-3 gap-2 text-xs">
                                                         <div class="rounded bg-white border px-2 py-1">
                                                             <div class="text-gray-400">授权配置</div>
-                                                            <div :class="platform.apiConfigured || platform.taskCount > 0 ? 'text-green-700' : 'text-gray-500'">{{ platform.apiConfigured || platform.taskCount > 0 ? '已配置' : '缺失' }}</div>
+                                                            <div :class="platform.loading ? 'text-blue-700' : (platform.apiConfigured || platform.taskCount > 0 ? 'text-green-700' : 'text-gray-500')">{{ platform.loading ? '读取中' : (platform.apiConfigured || platform.taskCount > 0 ? '已配置' : '缺失') }}</div>
                                                         </div>
                                                         <div class="rounded bg-white border px-2 py-1">
                                                             <div class="text-gray-400">登录会话</div>
@@ -22390,44 +22390,94 @@
                 };
             };
              const autoFetchPlatformStatus = computed(() => autoFetchStatus.value?.platforms || {});
-             const autoFetchPlatformCards = computed(() => [
-                {
-                    key: 'ctrip',
-                    name: '携程',
-                    icon: 'fas fa-plane',
-                    tone: 'blue',
-                    mode: autoFetchPlatformStatus.value?.ctrip?.mode || autoFetchModeLabel(autoFetchStatus.value?.ctrip_auto_fetch_mode || autoFetchMode.value),
-                    configured: !!autoFetchPlatformStatus.value?.ctrip?.configured || hasCtripFetchConfigByHotelId(autoFetchHotelId.value),
-                    configName: autoFetchPlatformStatus.value?.ctrip?.name || getCtripConfigNameByHotelId(autoFetchHotelId.value) || '未关联配置',
-                    entryUrl: autoFetchPlatformStatus.value?.ctrip?.entry_url || defaultCtripLoginUrl,
-                    apiConfigured: !!autoFetchPlatformStatus.value?.ctrip?.cookie_configured,
-                    cookieConfigured: !!autoFetchPlatformStatus.value?.ctrip?.cookie_configured,
-                    profileConfigured: !!autoFetchPlatformStatus.value?.ctrip?.profile_configured,
-                    taskCount: autoFetchPlatformStatus.value?.ctrip?.task_count || 0,
-                    nextAction: autoFetchPlatformStatus.value?.ctrip?.next_action || '',
-                    missingText: '',
-                    modules: autoFetchPlatformStatus.value?.ctrip?.task_modules?.length ? autoFetchPlatformStatus.value.ctrip.task_modules : ['business', 'traffic', 'browser_profile'],
-                },
-                {
-                    key: 'meituan',
-                    name: '美团',
-                    icon: 'fas fa-store',
-                    tone: 'orange',
-                    mode: autoFetchPlatformStatus.value?.meituan?.mode || autoFetchModeLabel(autoFetchStatus.value?.meituan_auto_fetch_mode || autoFetchMode.value),
-                    configured: !!autoFetchPlatformStatus.value?.meituan?.configured || hasMeituanFetchConfigByHotelId(autoFetchHotelId.value),
-                    configName: autoFetchPlatformStatus.value?.meituan?.name || getMeituanConfigNameByHotelId(autoFetchHotelId.value) || '未关联配置',
-                    entryUrl: autoFetchPlatformStatus.value?.meituan?.entry_url || 'https://eb.meituan.com',
-                    apiConfigured: !!autoFetchPlatformStatus.value?.meituan?.api_configured || hasMeituanFetchConfigByHotelId(autoFetchHotelId.value),
-                    cookieConfigured: !!autoFetchPlatformStatus.value?.meituan?.cookie_configured,
-                    partnerIdConfigured: !!autoFetchPlatformStatus.value?.meituan?.partner_id_configured,
-                    poiIdConfigured: !!autoFetchPlatformStatus.value?.meituan?.poi_id_configured,
-                    profileConfigured: !!autoFetchPlatformStatus.value?.meituan?.profile_configured,
-                    taskCount: autoFetchPlatformStatus.value?.meituan?.task_count || 0,
-                    nextAction: autoFetchPlatformStatus.value?.meituan?.next_action || '',
-                    missingText: autoFetchPlatformStatus.value?.meituan?.missing_text || meituanConfigMissingTextByHotelId(autoFetchHotelId.value),
-                    modules: autoFetchPlatformStatus.value?.meituan?.task_modules?.length ? autoFetchPlatformStatus.value.meituan.task_modules : ['ranking', 'traffic', 'comments', 'browser_profile'],
-                },
-            ]);
+             const autoFetchPlatformConfigState = (configured, configName, loading, loaded, failed) => {
+                if (configured) {
+                    return {
+                        configName: configName || '已关联配置',
+                        loading: false,
+                        statusText: '可抓取',
+                        statusClass: 'bg-green-100 text-green-700',
+                    };
+                }
+                if (failed && !configName) {
+                    return {
+                        configName: '配置读取失败',
+                        loading: false,
+                        statusText: '读取失败',
+                        statusClass: 'bg-red-100 text-red-700',
+                    };
+                }
+                if ((loading || !loaded) && !configName) {
+                    return {
+                        configName: '配置待读取',
+                        loading: true,
+                        statusText: '待读取',
+                        statusClass: 'bg-blue-100 text-blue-700',
+                    };
+                }
+                return {
+                    configName: configName || '未关联配置',
+                    loading: false,
+                    statusText: '未配置',
+                    statusClass: 'bg-gray-200 text-gray-600',
+                };
+            };
+             const buildCtripAutoFetchPlatformCard = (status, configured, configState) => ({
+                key: 'ctrip',
+                name: '携程',
+                icon: 'fas fa-plane',
+                tone: 'blue',
+                mode: status.mode || autoFetchModeLabel(autoFetchStatus.value?.ctrip_auto_fetch_mode || autoFetchMode.value),
+                configured,
+                configName: configState.configName,
+                loading: configState.loading,
+                statusText: configState.statusText,
+                statusClass: configState.statusClass,
+                entryUrl: status.entry_url || defaultCtripLoginUrl,
+                apiConfigured: !!status.cookie_configured,
+                cookieConfigured: !!status.cookie_configured,
+                profileConfigured: !!status.profile_configured,
+                taskCount: status.task_count || 0,
+                nextAction: status.next_action || '',
+                missingText: '',
+                modules: status.task_modules?.length ? status.task_modules : ['business', 'traffic', 'browser_profile'],
+            });
+             const buildMeituanAutoFetchPlatformCard = (status, configured, configState) => ({
+                key: 'meituan',
+                name: '美团',
+                icon: 'fas fa-store',
+                tone: 'orange',
+                mode: status.mode || autoFetchModeLabel(autoFetchStatus.value?.meituan_auto_fetch_mode || autoFetchMode.value),
+                configured,
+                configName: configState.configName,
+                loading: configState.loading,
+                statusText: configState.statusText,
+                statusClass: configState.statusClass,
+                entryUrl: status.entry_url || 'https://eb.meituan.com',
+                apiConfigured: !!status.api_configured || hasMeituanFetchConfigByHotelId(autoFetchHotelId.value),
+                cookieConfigured: !!status.cookie_configured,
+                partnerIdConfigured: !!status.partner_id_configured,
+                poiIdConfigured: !!status.poi_id_configured,
+                profileConfigured: !!status.profile_configured,
+                taskCount: status.task_count || 0,
+                nextAction: status.next_action || '',
+                missingText: status.missing_text || meituanConfigMissingTextByHotelId(autoFetchHotelId.value),
+                modules: status.task_modules?.length ? status.task_modules : ['ranking', 'traffic', 'comments', 'browser_profile'],
+            });
+             const autoFetchPlatformCards = computed(() => {
+                const ctripStatus = autoFetchPlatformStatus.value?.ctrip || {};
+                const meituanStatus = autoFetchPlatformStatus.value?.meituan || {};
+                const ctripConfigName = ctripStatus.name || getCtripConfigNameByHotelId(autoFetchHotelId.value);
+                const meituanConfigName = meituanStatus.name || getMeituanConfigNameByHotelId(autoFetchHotelId.value);
+                const ctripConfigured = !!ctripStatus.configured || hasCtripFetchConfigByHotelId(autoFetchHotelId.value);
+                const meituanConfigured = !!meituanStatus.configured || hasMeituanFetchConfigByHotelId(autoFetchHotelId.value);
+                const ctripConfigState = autoFetchPlatformConfigState(ctripConfigured, ctripConfigName, ctripConfigListLoading.value, ctripConfigListLoaded.value, ctripConfigListLoadFailed.value);
+                const meituanConfigState = autoFetchPlatformConfigState(meituanConfigured, meituanConfigName, meituanConfigListLoading.value, meituanConfigListLoaded.value, meituanConfigListLoadFailed.value);
+                return [
+                    buildCtripAutoFetchPlatformCard(ctripStatus, ctripConfigured, ctripConfigState),
+                    buildMeituanAutoFetchPlatformCard(meituanStatus, meituanConfigured, meituanConfigState),
+                ];
+            });
             const autoFetchLegacyItems = computed(() => {
                 const items = new Map();
                 autoFetchMissedDates.value.forEach(date => {
@@ -23164,6 +23214,22 @@
             const resetAutoFetchPanelCache = () => {
                 autoFetchPanelCache = { key: '', expiresAt: 0, promise: null };
             };
+            const buildAutoFetchConfigListPrewarmJobs = () => {
+                const tasks = [];
+                if (!ctripConfigListLoaded.value && (!ctripConfigList.value || ctripConfigList.value.length === 0)) {
+                    tasks.push(loadCtripConfigList());
+                }
+                if (!meituanConfigListLoaded.value && (!meituanConfigList.value || meituanConfigList.value.length === 0)) {
+                    tasks.push(loadMeituanConfigList());
+                }
+                return tasks;
+            };
+            const scheduleAutoFetchConfigListPrewarm = () => {
+                deferUiTask(() => {
+                    const tasks = buildAutoFetchConfigListPrewarmJobs();
+                    return tasks.length > 0 ? Promise.allSettled(tasks) : null;
+                }, 220);
+            };
             const loadAutoFetchPanel = async (options = {}) => {
                 await ensureAutoFetchStaticReady();
                 const force = options && options.force === true;
@@ -23179,17 +23245,16 @@
                 }
 
                 const run = (async () => {
-                    await Promise.all([
-                        (!hotels.value || hotels.value.length === 0) ? loadHotels() : Promise.resolve(),
-                        (!ctripConfigList.value || ctripConfigList.value.length === 0) ? loadCtripConfigList() : Promise.resolve(),
-                        (!meituanConfigList.value || meituanConfigList.value.length === 0) ? loadMeituanConfigList() : Promise.resolve(),
-                    ]);
+                    if (!hotels.value || hotels.value.length === 0) {
+                        await loadHotels();
+                    }
                     if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {
                         autoFetchHotelId.value = hotels.value[0].id;
                     }
                     await loadAutoFetchStatus({ detail: false });
                     scheduleAutoFetchStatusDetailRefresh();
                     schedulePlatformProfileStatusRefresh({ silent: true });
+                    scheduleAutoFetchConfigListPrewarm();
                 })().finally(() => {
                     autoFetchPanelCache = {
                         key: autoFetchPanelCacheKey(),
@@ -24046,6 +24111,16 @@
                 () => loadAutoFetchPanel(options),
                 options.force ? { force: true } : {}
             );
+            const scheduleCtripEbookingDeferredStartupRefresh = () => {
+                deferUiTask(() => {
+                    if (currentPage.value !== 'ctrip-ebooking') return null;
+                    return Promise.allSettled([
+                        loadCtripConfigList().then(() => loadLatestCtripData({ silent: true })),
+                        loadCookiesList(),
+                        loadBookmarklet(),
+                    ]);
+                }, 360);
+            };
             const openPlatformAutoTab = (options = {}) => {
                 onlineDataTab.value = 'platform-auto';
                 return schedulePlatformAutoFetchPanelLoad(options);
@@ -24084,13 +24159,13 @@
                 }
                 if (newPage === 'ctrip-ebooking') {
                     setOnlineDataTabFromPage('data-health');
-                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
-                        loadOnlineDataHotelList(),
-                        loadCtripConfigList().then(() => loadLatestCtripData({ silent: true })),
-                        loadDataHealthPanel('light'),
-                        loadCookiesList(),
-                        loadBookmarklet(),
-                    ]));
+                    runPageLoadOnce(newPage, 'main', async () => {
+                        await Promise.allSettled([
+                            loadOnlineDataHotelList(),
+                            loadDataHealthPanel('light'),
+                        ]);
+                        scheduleCtripEbookingDeferredStartupRefresh();
+                    });
                 }
                 if (newPage === 'meituan-ebooking') {
                     onlineDataTab.value = 'meituan-ranking';
@@ -33574,17 +33649,21 @@
 
             let ctripConfigListLoadingPromise = null;
             const ctripConfigListLoading = ref(false);
+            const ctripConfigListLoaded = ref(false);
+            const ctripConfigListLoadFailed = ref(false);
             const loadCtripConfigList = async () => {
                 if (ctripConfigListLoadingPromise) {
                     return ctripConfigListLoadingPromise;
                 }
                 ctripConfigListLoading.value = true;
+                ctripConfigListLoadFailed.value = false;
                 ctripConfigListLoadingPromise = (async () => {
                     try {
                         const res = await request('/online-data/get-ctrip-config-list');
                         if (res && res.code === 200) {
                             const list = res.data || [];
                             ctripConfigList.value = Array.isArray(list) ? list : Object.values(list);
+                            ctripConfigListLoaded.value = true;
                             const validIds = new Set(ctripConfigList.value.map(item => String(item.id)));
                             selectedCtripConfigIds.value = selectedCtripConfigIds.value.filter(id => validIds.has(String(id)));
                             if (selectedCtripHotelId.value) {
@@ -33592,9 +33671,11 @@
                             }
                             return ctripConfigList.value;
                         } else {
+                            ctripConfigListLoadFailed.value = true;
                             console.error('[CTrip] 加载失败:', res?.message || '接口返回异常');
                         }
                     } catch (e) {
+                        ctripConfigListLoadFailed.value = true;
                         console.error('[CTrip] 异常:', e);
                         showToast('加载携程配置失败', 'error');
                     } finally {
@@ -33878,24 +33959,30 @@
             // 美团配置管理方法
             let meituanConfigListLoadingPromise = null;
             const meituanConfigListLoading = ref(false);
+            const meituanConfigListLoaded = ref(false);
+            const meituanConfigListLoadFailed = ref(false);
             const loadMeituanConfigList = async () => {
                 if (meituanConfigListLoadingPromise) {
                     return meituanConfigListLoadingPromise;
                 }
                 meituanConfigListLoading.value = true;
+                meituanConfigListLoadFailed.value = false;
                 meituanConfigListLoadingPromise = (async () => {
                     try {
                         const res = await request('/online-data/get-meituan-config-list');
                         if (res.code === 200) {
                             meituanConfigList.value = res.data || [];
+                            meituanConfigListLoaded.value = true;
                             if (meituanForm.value.hotelId) {
                                 await applyMeituanHotelConfig(false, { refreshList: false });
                             }
                             return meituanConfigList.value;
                         } else {
+                            meituanConfigListLoadFailed.value = true;
                             console.error('[Debug] API 返回错误:', res.message);
                         }
                     } catch (e) {
+                        meituanConfigListLoadFailed.value = true;
                         console.error('[Debug] 加载美团配置列表失败:', e);
                     } finally {
                         meituanConfigListLoadingPromise = null;

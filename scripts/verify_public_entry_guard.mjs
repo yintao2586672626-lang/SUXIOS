@@ -269,6 +269,20 @@ if (!fs.existsSync(indexPath)) {
     || !/item\.path === ['"]online-data['"] && item\.tab === ['"]data['"][\s\S]{0,180}ensureManualOnlineFetchConfigReady\(\)/.test(content)) {
     failures.push('public/index.html must prewarm saved platform configs when the online-data manual data tab is opened.');
   }
+  const ctripEbookingDefaultLoader = content.slice(
+    content.indexOf("if (newPage === 'ctrip-ebooking')"),
+    content.indexOf("if (newPage === 'meituan-ebooking'")
+  );
+  if (!content.includes('const scheduleCtripEbookingDeferredStartupRefresh = () => {')
+    || !ctripEbookingDefaultLoader.includes('scheduleCtripEbookingDeferredStartupRefresh();')) {
+    failures.push('public/index.html must defer Ctrip eBooking config/latest/cookie/bookmarklet startup refreshes until after the first paint loader.');
+  }
+  if (!/await Promise\.allSettled\(\[\s*loadOnlineDataHotelList\(\),\s*loadDataHealthPanel\(['"]light['"]\),\s*\]\);/.test(ctripEbookingDefaultLoader)) {
+    failures.push('public/index.html Ctrip eBooking first-paint loader must keep only hotel list and light data-health status.');
+  }
+  if (/runPageLoadOnce\(newPage,\s*['"]main['"][\s\S]*Promise\.allSettled\(\[[\s\S]*loadCtripConfigList\(\)[\s\S]*loadCookiesList\(\)[\s\S]*loadBookmarklet\(\)[\s\S]*\]\)/.test(ctripEbookingDefaultLoader)) {
+    failures.push('public/index.html Ctrip eBooking default loader must not start config/latest/cookie/bookmarklet refreshes in the first-paint request group.');
+  }
   const onlineDataDefaultLoader = content.slice(
     content.indexOf("if (newPage === 'online-data' && token.value)"),
     content.indexOf("if (newPage === 'operation-logs'")
@@ -400,6 +414,24 @@ if (!fs.existsSync(indexPath)) {
   if (!/await loadAutoFetchStatus\(\{\s*detail:\s*false\s*\}\);[\s\S]*scheduleAutoFetchStatusDetailRefresh\(\);[\s\S]*schedulePlatformProfileStatusRefresh\(\{ silent: true \}\);/.test(autoFetchPanelLoader)
     || /await Promise\.all\(\[[\s\S]*loadAutoFetchStatus\(\)[\s\S]*loadPlatformProfileStatus/.test(autoFetchPanelLoader)) {
     failures.push('public/index.html must let platform-auto first paint wait only for light auto-fetch status and defer detail/profile refresh.');
+  }
+  if (!content.includes('const scheduleAutoFetchConfigListPrewarm = () => {')
+    || !content.includes('!ctripConfigListLoaded.value && (!ctripConfigList.value || ctripConfigList.value.length === 0)')
+    || !content.includes('!meituanConfigListLoaded.value && (!meituanConfigList.value || meituanConfigList.value.length === 0)')
+    || !autoFetchPanelLoader.includes('scheduleAutoFetchConfigListPrewarm();')) {
+    failures.push('public/index.html must prewarm saved Ctrip/Meituan config lists after platform-auto first paint instead of blocking it.');
+  }
+  if (/await Promise\.all\(\[[\s\S]*loadCtripConfigList\(\)[\s\S]*loadMeituanConfigList\(\)[\s\S]*\]\);[\s\S]*await loadAutoFetchStatus\(\{\s*detail:\s*false\s*\}\);/.test(autoFetchPanelLoader)) {
+    failures.push('public/index.html platform-auto first paint must not synchronously wait for saved Ctrip/Meituan config-list loads before light status.');
+  }
+  if (!content.includes('const autoFetchPlatformConfigState = (configured, configName, loading, loaded, failed) => {')
+    || !content.includes("configName: '配置待读取'")
+    || !content.includes("configName: '配置读取失败'")
+    || !content.includes('const buildCtripAutoFetchPlatformCard = (status, configured, configState) => ({')
+    || !content.includes('const buildMeituanAutoFetchPlatformCard = (status, configured, configState) => ({')
+    || !content.includes('const ctripConfigListLoaded = ref(false);')
+    || !content.includes('const meituanConfigListLoaded = ref(false);')) {
+    failures.push('public/index.html must keep unloaded/failed platform config-list states explicit after platform-auto prewarm is deferred.');
   }
   if (!content.includes('const autoFetchStatusRequestPromises = new Map();')
     || !content.includes("const requestKey = `${String(hotelId || '')}|${includeDetail ? 'full' : 'light'}`;")
