@@ -24811,43 +24811,8 @@
                 status: hotelForm.value.status,
             });
             const userForm = ref({ id: null, username: '', password: '', realname: '', role_id: '', hotel_id: null, status: 1 });
-            const systemConfigForm = ref({
-                system_name: '',
-                logo_url: '',
-                favicon_url: '',
-                system_description: '',
-                system_keywords: '',
-                menu_hotel_name: '',
-                menu_users_name: '',
-                menu_compass_name: '',
-                menu_online_data_name: '',
-                theme: 'light',
-                primary_color: '#3B82F6',
-                date_format: 'Y-m-d',
-                time_format: 'H:i:s',
-                page_size_options: '10,20,50,100',
-                default_page_size: '20',
-                enable_registration: '0',
-                enable_login_log: '1',
-                enable_operation_log: '1',
-                enable_data_backup: '1',
-                enable_wechat_mini: '0',
-                enable_online_data: '1',
-                wechat_mini_appid: '',
-                wechat_mini_secret: '',
-                complaint_mini_page: '',
-                complaint_mini_use_scene: '',
-                login_max_attempts: '5',
-                login_lockout_duration: '15',
-                session_timeout: '1440',
-                password_min_length: '6',
-                password_require_special: '0',
-                notify_email_enabled: '0',
-                notify_email_server: '',
-                notify_email_port: '587',
-                notify_email_user: '',
-                notify_email_pass: ''
-            });
+            const getSystemConfigDefaults = requireSystemStatic('getSystemConfigDefaults');
+            const systemConfigForm = ref(getSystemConfigDefaults());
 
             // 配置分组
             const activeConfigGroup = ref('basic');
@@ -35138,47 +35103,8 @@
 
                 debugLog('systemConfig:', systemConfig.value);
 
-                // 复制数据到表单，确保所有字段都有值
-                const defaults = {
-                    system_name: '宿析OS',
-                    logo_url: '',
-                    favicon_url: '',
-                    system_description: '授权OTA数据驱动的经营诊断、AI建议与动作复盘系统',
-                    system_keywords: '酒店管理,收益分析,数据分析',
-                    menu_hotel_name: '酒店管理',
-                    menu_users_name: '用户管理',
-                    menu_compass_name: '罗盘',
-                    menu_online_data_name: '竞对价格监控',
-                    theme: 'light',
-                    primary_color: '#3B82F6',
-                    date_format: 'Y-m-d',
-                    time_format: 'H:i:s',
-                    page_size_options: '10,20,50,100',
-                    default_page_size: '20',
-                    enable_registration: '0',
-                    enable_login_log: '1',
-                    enable_operation_log: '1',
-                    enable_data_backup: '1',
-                    enable_wechat_mini: '0',
-                    enable_online_data: '1',
-                    wechat_mini_appid: '',
-                    wechat_mini_secret: '',
-                    complaint_mini_page: 'pages/complaint/index',
-                    complaint_mini_use_scene: '1',
-                    login_max_attempts: '5',
-                    login_lockout_duration: '15',
-                    session_timeout: '1440',
-                    password_min_length: '6',
-                    password_require_special: '0',
-                    notify_email_enabled: '0',
-                    notify_email_server: '',
-                    notify_email_port: '587',
-                    notify_email_user: '',
-                    notify_email_pass: ''
-                };
-
                 systemConfigForm.value = {
-                    ...defaults,
+                    ...getSystemConfigDefaults(),
                     ...systemConfig.value
                 };
 

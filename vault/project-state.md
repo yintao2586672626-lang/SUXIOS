@@ -1350,6 +1350,13 @@ Updated: 2026-06-11 Asia/Shanghai
 - `public/index.html` aligns the Ctrip platform card fallback with `autoFetchMode.value`, and `scripts/verify_public_entry_guard.mjs` prevents reintroducing a hard-coded Ctrip `profile_browser` default in the auto-fetch mode payload.
 - Verified with PHP lint for `app/controller/OnlineData.php`, `tests/OnlineDataTest.php --filter "AutoFetch|autoFetch|Ctrip"` (`97` tests, `1246` assertions), `npm.cmd run verify:public-entry`, and `npm.cmd run verify:e2e-contracts` (`521` checks).
 
+## 2026-06-11 Progress: System Config Defaults Static Split
+
+- `public/system-static.js` now owns `getSystemConfigDefaults()` for system name, OTA-oriented description, menu labels, theme/date/page defaults, feature toggles, complaint mini-program defaults, security thresholds, and notification email defaults.
+- `public/index.html` initializes `systemConfigForm` and opens the system-config modal through `requireSystemStatic('getSystemConfigDefaults')`, removing the duplicated inline defaults from the SPA entry. Super-admin gating, `loadSystemConfig()`, save/export/import/reset actions, and `/system-config` payload behavior are unchanged.
+- `scripts/verify_e2e_contracts.mjs` now requires the extracted helper, prevents re-inlining the OTA-oriented system description, and validates product, complaint, security, notification, and fresh-object defaults in VM.
+- Current public split-map for this save point: `public/index.html` has `37323` lines and `1542` frontend function-level blocks; config domain span reduced to `469` lines. E2E contract verification passed with `526` checks.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

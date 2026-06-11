@@ -156,8 +156,10 @@ requireText('public/auto-fetch-static.js', 'const buildAutoFetchRunStartState', 
 requireText('public/auto-fetch-static.js', 'const runAutoFetchTriggerFlow', 'auto-fetch static runs manual trigger flow');
 requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
 requireText('public/index.html', "requireSystemStatic('getDataConfigTypeDefaults')", 'entry uses extracted data config type defaults');
+requireText('public/index.html', "requireSystemStatic('getSystemConfigDefaults')", 'entry uses extracted system config defaults');
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/system-static.js', 'const getDataConfigTypeDefaults', 'system static owns data config type defaults');
+requireText('public/system-static.js', 'const getSystemConfigDefaults', 'system static owns system config defaults');
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
 requireText('public/index.html', "const testIdStaticScript = 'testid-static.js'", 'frontend lazy-loads extracted test id helper');
 requireText('public/index.html', 'const loadTestIdStatic = () =>', 'entry keeps explicit test id helper lazy loader');
@@ -291,6 +293,7 @@ requireNoText('public/index.html', '已提交后端执行。${autoFetchCtripExec
 requireNoText('public/index.html', 'await openCtripProfileFieldsForReview();', 'auto-fetch trigger success refresh flow is not re-inlined');
 requireNoText('public/index.html', 'const getDefaultDataConfigForm = () => ({', 'data config default form is not re-inlined');
 requireNoText('public/index.html', 'const getDataConfigTypeDefaults = (type) => ({', 'data config type defaults are not re-inlined');
+requireNoText('public/index.html', "system_description: '授权OTA数据驱动的经营诊断、AI建议与动作复盘系统'", 'system config defaults are not re-inlined');
 requireNoText('public/index.html', 'const rows = [...globalNotificationBackendItems.value];', 'global notification row aggregation is not re-inlined');
 requireNoText('public/index.html', 'autoFetchRecentRuns.value.slice(0, 3).forEach', 'global notification recent-run loop is not re-inlined');
 requireNoText('public/index.html', 'const readSet = new Set(globalNotificationReadIds.value);', 'global notification read-set mapping is not re-inlined');
@@ -4179,6 +4182,7 @@ try {
   });
   const getDefaultDataConfigForm = context.window.SUXI_SYSTEM_STATIC?.getDefaultDataConfigForm;
   const getDataConfigTypeDefaults = context.window.SUXI_SYSTEM_STATIC?.getDataConfigTypeDefaults;
+  const getSystemConfigDefaults = context.window.SUXI_SYSTEM_STATIC?.getSystemConfigDefaults;
   if (typeof getDefaultDataConfigForm !== 'function') {
     checks.push({
       file: 'public/system-static.js',
@@ -4237,6 +4241,36 @@ try {
       label: 'unknown data config type returns empty defaults',
       ok: Object.keys(getDataConfigTypeDefaults('unknown-platform')).length === 0,
       detail: 'unknown-platform',
+    });
+  }
+  if (typeof getSystemConfigDefaults !== 'function') {
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system static exports system config defaults',
+      ok: false,
+      detail: 'getSystemConfigDefaults',
+    });
+  } else {
+    const first = getSystemConfigDefaults();
+    const second = getSystemConfigDefaults();
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system config defaults preserve product and security defaults',
+      ok: first.system_name === '宿析OS'
+        && first.system_description.includes('授权OTA数据')
+        && first.menu_online_data_name === '竞对价格监控'
+        && first.complaint_mini_page === 'pages/complaint/index'
+        && first.complaint_mini_use_scene === '1'
+        && first.login_max_attempts === '5'
+        && first.notify_email_port === '587',
+      detail: 'getSystemConfigDefaults sample',
+    });
+    first.system_name = 'mutated';
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system config defaults return fresh objects',
+      ok: second.system_name === '宿析OS',
+      detail: 'system_name',
     });
   }
 } catch (error) {

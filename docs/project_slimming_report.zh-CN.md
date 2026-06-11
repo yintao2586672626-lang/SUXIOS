@@ -1314,6 +1314,14 @@
 - `scripts/verify_public_entry_guard.mjs` 新增守卫：自动采集模式 payload 中携程和美团默认都必须跟随当前快速模式，禁止重新硬编码 `ctrip_auto_fetch_mode: 'profile_browser'`。
 - 已验证：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "AutoFetch|autoFetch|Ctrip"`（`97` tests / `1246` assertions）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`521` checks）。
 
+## 2026-06-11 保存点：系统配置默认值静态拆分
+
+- `public/system-static.js` 新增 `getSystemConfigDefaults()`，承载系统名称、OTA 经营诊断描述、菜单名称、主题/日期/分页、功能开关、投诉小程序、安全阈值和通知邮箱默认值。
+- `public/index.html` 的 `systemConfigForm` 初始化和 `openSystemConfigModal()` 都改为读取 `requireSystemStatic('getSystemConfigDefaults')`，移除两处内联系统配置默认值；超级管理员校验、配置加载、保存、导出、导入、重置和 `/system-config` payload 不变。
+- 更新守卫：`verify_e2e_contracts.mjs` 要求入口读取提取后的 helper，禁止 OTA 经营诊断描述重新内联，并在 VM 中校验产品、投诉、安全、通知和 fresh-object 默认值。E2E 合同检查数增至 `526`。
+- 当前 public split-map：`public/index.html` 为 `37,323` 行、`1,542` 个前端函数级块；config 域跨度降至 `469` 行。`app/controller/OnlineData.php` 仍是独立 P2 拆分候选，不属于本保存点。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
