@@ -19049,9 +19049,7 @@
             const createCtripCommentBrowserCaptureForm = requireCtripStatic('createCtripCommentBrowserCaptureForm');
             const buildCtripProfileFieldSmartDefaults = requireCtripStatic('buildCtripProfileFieldSmartDefaults');
             const buildCtripProfileFieldSavePayload = requireCtripStatic('buildCtripProfileFieldSavePayload');
-            const buildCtripBrowserCaptureTargetContext = requireCtripStatic('buildCtripBrowserCaptureTargetContext');
-            const buildCtripBrowserCaptureRequestContext = requireCtripStatic('buildCtripBrowserCaptureRequestContext');
-            const normalizeCtripBrowserCaptureErrorResult = requireCtripStatic('normalizeCtripBrowserCaptureErrorResult');
+            const runCtripBrowserCaptureFlow = requireCtripStatic('runCtripBrowserCaptureFlow');
             const buildCtripFetchRequestContext = requireCtripStatic('buildCtripFetchRequestContext');
             const selectCtripFetchResponsePayload = requireCtripStatic('selectCtripFetchResponsePayload');
             const buildCtripFetchMeta = requireCtripStatic('buildCtripFetchMeta');
@@ -32384,105 +32382,43 @@
                 }
             };
 
-            const runCtripBrowserCapture = async (options = {}) => {
-                const loginOnly = Boolean(options.loginOnly);
-                const silent = Boolean(options.silent);
-                const targetContext = buildCtripBrowserCaptureTargetContext({
-                    selectedCtripHotelId: selectedCtripHotelId.value,
-                    autoFetchHotelId: autoFetchHotelId.value,
-                    userHotelId: user.value?.hotel_id,
-                });
-                if (!targetContext.ok) {
-                    if (!silent) showToast(targetContext.result.message, 'error');
-                    return targetContext.result;
-                }
-                const { systemHotelId } = targetContext;
-
-                if (!selectedCtripHotelId.value) {
-                    selectedCtripHotelId.value = String(systemHotelId);
-                }
-                if (!ctripConfigList.value.length) {
-                    await loadCtripConfigList();
-                }
-                let activeConfig = getActiveCtripConfig();
-                if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
-                    activeConfig = findCtripConfigByHotelId(systemHotelId);
-                }
-                activeConfig = await ensureCtripConfigSecret(activeConfig);
-                if (activeConfig) {
-                    applyCtripConfigObject(activeConfig, false);
-                }
-
-                const requestContext = buildCtripBrowserCaptureRequestContext({
-                    systemHotelId,
-                    activeConfig,
-                    form: ctripBrowserCaptureForm.value,
-                    overviewForm: ctripOverviewForm.value,
-                    hotelName: getHotelNameById(systemHotelId),
-                    profileId: resolveCtripBrowserProfileId({ activeConfig }),
-                    options,
-                });
-                if (!requestContext.ok) {
-                    if (!silent) showToast(requestContext.result.message, 'error');
-                    return requestContext.result;
-                }
-                const { capturePayload, profileId } = requestContext;
-
-                ctripBrowserCaptureRunning.value = true;
-                fetchingData.value = true;
-                ctripBrowserCaptureResult.value = null;
-                try {
-                    const res = await request('/online-data/capture-ctrip-browser', {
-                        method: 'POST',
-                        body: JSON.stringify(capturePayload),
-                    });
-                    if (res.code === 200) {
-                        ctripBrowserCaptureResult.value = res.data || {};
-                        onlineDataResult.value = res.data || {};
-                        showRawData.value = false;
-                        if (loginOnly) {
-                            ctripCookieApiForm.value.profileId = res.data?.profile_id || profileId;
-                            ctripProfileStatus.value = {
-                                profile_id: ctripCookieApiForm.value.profileId,
-                                exists: true,
-                                status: 'profile_found',
-                                cookie_probe_requested: false,
-                                next_action: '已保存 Profile，可继续检查 Cookie 或执行 Cookie API 诊断采集',
-                            };
-                        }
-                        if (!silent) {
-                            const savedCount = Number(res.data?.saved_count || 0);
-                            const profileCaptureMessage = loginOnly
-                                ? 'Profile 登录已保存'
-                                : `${res.message || '携程 Profile 采集完成'}：已入库 ${savedCount} 条；字段覆盖按配置表显示，未返回字段保留为缺口`;
-                            showToast(profileCaptureMessage);
-                        }
-                        if (!loginOnly) {
-                            await loadLatestCtripData({ silent: true });
-                            await refreshOnlineHistory();
-                            if (onlineDataTab.value === 'data-health' && !ctripOverviewFetchActionLoading.value && !ctripOverviewCoreFetchRunning.value) {
-                                await loadDataHealthPanel('light', { force: true });
-                            }
-                        }
-                        if (loginOnly || options.bindDataSource !== false) {
-                            await loadPlatformProfileStatus({ silent: true });
-                            if (options.bindDataSource !== false) await loadPlatformDataSources();
-                        }
-                        return res;
-                    } else {
-                        if (!silent) showToast(res.message || '携程 Profile 采集失败', 'error');
-                        return res;
-                    }
-                } catch (e) {
-                    const detail = e?.data?.data?.stderr || e?.data?.data?.stdout || '';
-                    if (!silent) showToast('携程 Profile 采集失败: ' + e.message + (detail ? '，请查看结果详情' : ''), 'error');
-                    ctripBrowserCaptureResult.value = normalizeCtripBrowserCaptureErrorResult(e);
-                    return { code: 500, message: e.message, data: ctripBrowserCaptureResult.value };
-                } finally {
-                    ctripBrowserCaptureRunning.value = false;
-                    fetchingData.value = false;
-                }
-            };
+            const runCtripBrowserCapture = async (options = {}) => runCtripBrowserCaptureFlow({
+                options,
+                getSelectedCtripHotelId: () => selectedCtripHotelId.value,
+                setSelectedCtripHotelId: value => { selectedCtripHotelId.value = value; },
+                getAutoFetchHotelId: () => autoFetchHotelId.value,
+                getUserHotelId: () => user.value?.hotel_id,
+                hasCtripConfigList: () => ctripConfigList.value.length > 0,
+                loadCtripConfigList,
+                getActiveCtripConfig,
+                findCtripConfigByHotelId,
+                ensureCtripConfigSecret,
+                applyCtripConfigObject: config => applyCtripConfigObject(config, false),
+                getBrowserCaptureForm: () => ctripBrowserCaptureForm.value,
+                getOverviewForm: () => ctripOverviewForm.value,
+                getHotelNameById,
+                resolveProfileId: activeConfig => resolveCtripBrowserProfileId({ activeConfig }),
+                requestCapture: capturePayload => request('/online-data/capture-ctrip-browser', {
+                    method: 'POST',
+                    body: JSON.stringify(capturePayload),
+                }),
+                setRunning: value => { ctripBrowserCaptureRunning.value = value; },
+                setFetching: value => { fetchingData.value = value; },
+                setCaptureResult: value => { ctripBrowserCaptureResult.value = value; },
+                setOnlineDataResult: value => { onlineDataResult.value = value; },
+                setShowRawData: value => { showRawData.value = value; },
+                setCookieApiProfileId: value => { ctripCookieApiForm.value.profileId = value; },
+                setProfileStatus: value => { ctripProfileStatus.value = value; },
+                notify: showToast,
+                refreshLatestCtripData: params => loadLatestCtripData(params),
+                refreshOnlineHistory,
+                shouldRefreshDataHealthPanel: () => onlineDataTab.value === 'data-health'
+                    && !ctripOverviewFetchActionLoading.value
+                    && !ctripOverviewCoreFetchRunning.value,
+                refreshDataHealthPanel: (mode, params) => loadDataHealthPanel(mode, params),
+                refreshPlatformProfileStatus: params => loadPlatformProfileStatus(params),
+                refreshPlatformDataSources: () => loadPlatformDataSources(),
+            });
 
             const loadCtripDiagnosisSnapshot = async () => {
                 ctripDiagnosisSnapshotLoading.value = true;

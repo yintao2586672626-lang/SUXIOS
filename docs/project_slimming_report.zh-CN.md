@@ -10,10 +10,10 @@
 
 | 项目 | 体积 | 处理策略 |
 |---|---:|---|
-| 完整 `HOTEL/` 目录 | 约 280.88 MB | 包含 `.git`、依赖、本地报告和项目代码；会随本地 Git 对象轻微波动。 |
-| 不含 `.git` | 约 92.36 MB | 更接近工作副本体积。 |
-| 不含 `.git`、`node_modules/`、`vendor/` | 约 63.17 MB | 更接近业务与资料体积。 |
-| Git 跟踪文件 | 约 18.24 MB / 613 个文件 | 这是代码提交体积口径。 |
+| 完整 `HOTEL/` 目录 | 约 281.50 MB | 包含 `.git`、依赖、本地报告和项目代码；会随本地 Git 对象轻微波动。 |
+| 不含 `.git` | 约 92.37 MB | 更接近工作副本体积。 |
+| 不含 `.git`、`node_modules/`、`vendor/` | 约 63.18 MB | 更接近业务与资料体积。 |
+| Git 跟踪文件 | 约 18.25 MB / 613 个文件 | 这是代码提交体积口径。 |
 | `reports/` | 约 1.14 MB | 大型可再生成采集产物已清理；剩余报告文件默认保留。 |
 | `node_modules/`、`vendor/` | 约 29.19 MB | 默认不清理；需要重新安装依赖时可显式清理。 |
 
@@ -100,8 +100,8 @@
 | 口径 | 当前值 |
 |---|---:|
 | 代码文件 | 370 |
-| 总代码行 | 约 190,392 |
-| 非空代码行 | 约 174,606 |
+| 总代码行 | 约 190,583 |
+| 非空代码行 | 约 174,797 |
 
 ## 跟踪代码热点
 
@@ -109,7 +109,7 @@
 
 | 文件 | 行数 | 体积 | 当前本地改动 | 判断 |
 |---|---:|---:|---|---|
-| `public/index.html` | 37,615 | 2.76 MB | 本轮拆分中 | 当前前端 SPA 主入口；已先抽出扩张/市场测算静态选项数据到 `public/expansion-static-options.js`，抽出酒店图片优化/AI 工具箱静态选项到 `public/hotel-image-optimizer-static.js`，抽出收益研究中心静态产品清单到 `public/revenue-research-static.js`，抽出自动采集静态配置到 `public/auto-fetch-static.js`，抽出门店罗盘静态配置到 `public/compass-static.js`，抽出模拟测算/转让字段静态配置到 `public/simulation-static.js`，抽出运营/开业静态选项到 `public/operation-static.js`，继续把门店罗盘宏观信号文案归入 `public/compass-static.js`，抽出携程字段/Profile/概览接口静态配置到 `public/ctrip-static.js`，抽出系统/AI/知识库静态配置、AI 模型配置 I18N、语言选项和导航菜单定义到 `public/system-static.js`，抽出前端复用 Vue 组件到 `public/shared-components.js`，抽出全局通知展示工具到 `public/notification-static.js`，抽出美团榜单展示工具和美团竞对摘要卡片构建器到 `public/meituan-static.js`，扩展 `public/data-health-static.js` 承载数据健康展示、失败原因排名和今日待办构建工具，新增 `public/home-static.js` 承载首页闭环与 AI 轨迹展示构建器，新增 `public/ota-diagnosis-static.js` 承载 OTA 诊断结果展示构建器，并持续收口携程、美团、OTA AI 运行态数据整形、分组状态更新、携程 Profile 重抓上下文、携程浏览器采集请求上下文、携程普通榜单采集请求上下文、OTA AI 分析启动/汇总上下文、携程 Profile 字段表单默认值/智能推断/保存 payload 与校验工具、携程 Profile 重抓流程、OTA 诊断补抓流程；后续继续按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
+| `public/index.html` | 37,551 | 2.76 MB | 本轮拆分中 | 当前前端 SPA 主入口；已先抽出扩张/市场测算静态选项数据到 `public/expansion-static-options.js`，抽出酒店图片优化/AI 工具箱静态选项到 `public/hotel-image-optimizer-static.js`，抽出收益研究中心静态产品清单到 `public/revenue-research-static.js`，抽出自动采集静态配置到 `public/auto-fetch-static.js`，抽出门店罗盘静态配置到 `public/compass-static.js`，抽出模拟测算/转让字段静态配置到 `public/simulation-static.js`，抽出运营/开业静态选项到 `public/operation-static.js`，继续把门店罗盘宏观信号文案归入 `public/compass-static.js`，抽出携程字段/Profile/概览接口静态配置到 `public/ctrip-static.js`，抽出系统/AI/知识库静态配置、AI 模型配置 I18N、语言选项和导航菜单定义到 `public/system-static.js`，抽出前端复用 Vue 组件到 `public/shared-components.js`，抽出全局通知展示工具到 `public/notification-static.js`，抽出美团榜单展示工具和美团竞对摘要卡片构建器到 `public/meituan-static.js`，扩展 `public/data-health-static.js` 承载数据健康展示、失败原因排名和今日待办构建工具，新增 `public/home-static.js` 承载首页闭环与 AI 轨迹展示构建器，新增 `public/ota-diagnosis-static.js` 承载 OTA 诊断结果展示构建器，并持续收口携程、美团、OTA AI 运行态数据整形、分组状态更新、携程 Profile 重抓上下文、携程浏览器采集请求上下文、携程普通榜单采集请求上下文、OTA AI 分析启动/汇总上下文、携程 Profile 字段表单默认值/智能推断/保存 payload 与校验工具、携程 Profile 重抓流程、OTA 诊断补抓流程、携程浏览器采集流程；后续继续按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
 | `app/controller/OnlineData.php` | 26,725 | 1.14 MB | 本轮未改动 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据、关键字段清单、默认采集字段行、流量漏斗/周报/竞争圈画像元数据、Ctrip overview 汇总逻辑、在线数据分析报告渲染逻辑和平台 Profile 绑定检查逻辑，并删除已被禁用响应短路的携程/美团点评旧直连、旧浏览器抓取、旧配置读写和旧自动抓取执行死代码；后续继续迁移到聚焦 service，不改变现有路由。 |
 
 前一轮 10 个业务改动文件已单独保存并推送；当前自净化拆分集中在 `app/controller/OnlineData.php` 后端瘦身与 `public/index.html` 前端静态配置拆分，均保持现有路由、接口和 Vue CDN 运行契约。
@@ -1047,6 +1047,16 @@
 - 当前 split-map：`public/index.html` 从 `37,684` 行降至 `37,615` 行；前端函数级块保持 `1,396`；`ota` 领域 span 从 `506` 行降至 `437` 行；`runOtaDiagnosisHotelFetch` 已不再进入最大块列表。
 - 当前自审计：完整目录约 `280.88 MB`；不含 `.git` 约 `92.36 MB`；不含 `.git` 和依赖约 `63.17 MB`；Git 跟踪文件约 `18.24 MB` / `613` 个；代码范围 `370` 个文件，`190,392` 行，非空 `174,606` 行；默认可清理目标为 `0 MB`。
 - 已验证：`node --check public\ota-diagnosis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check public\ctrip-static.js`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
+## 2026-06-11 前端第八十刀拆分
+
+- 扩展 `public/ctrip-static.js`，新增携程浏览器采集流程编排器 `runCtripBrowserCaptureFlow()`，统一处理目标酒店上下文、携程配置加载/补密、Profile 校验、`/online-data/capture-ctrip-browser` 请求、成功写回、普通采集刷新和异常证据保留。
+- `public/index.html` 中 `runCtripBrowserCapture()` 只保留 Vue 状态、接口请求和刷新函数的薄适配；本轮不改变携程浏览器采集接口、Profile 登录保存、数据源绑定、入库刷新、数据健康刷新、平台 Profile 状态刷新或缺失/失败状态展示。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口显式读取 `runCtripBrowserCaptureFlow()`，要求静态模块导出该流程函数，禁止 target/request/request-catch 流程重新内联，并在 VM 中验证普通采集刷新链和登录保存 Profile 状态样例。
+- 当前 split-map：`public/index.html` 从 `37,615` 行降至 `37,551` 行；前端函数级块保持 `1,396`；`ctrip` 领域 span 从 `3,203` 行降至 `3,141` 行；当前最大前端块为 `fetchCtripData`，`96` 行。
+- 当前自审计：完整目录约 `281.50 MB`；不含 `.git` 约 `92.37 MB`；不含 `.git` 和依赖约 `63.18 MB`；Git 跟踪文件约 `18.25 MB` / `613` 个；代码范围 `370` 个文件，`190,583` 行，非空 `174,797` 行；默认可清理目标为 `0 MB`。
+- 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
 ## 后续处理建议

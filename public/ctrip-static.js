@@ -446,6 +446,135 @@ window.SUXI_CTRIP_STATIC = (() => {
         }
         return data && Object.keys(data).length ? { ...data, error: error.message } : { error: error.message };
     };
+    const runCtripBrowserCaptureFlow = async ({
+        options = {},
+        getSelectedCtripHotelId = () => '',
+        setSelectedCtripHotelId = () => {},
+        getAutoFetchHotelId = () => '',
+        getUserHotelId = () => '',
+        hasCtripConfigList = () => false,
+        loadCtripConfigList = async () => {},
+        getActiveCtripConfig = () => null,
+        findCtripConfigByHotelId = () => null,
+        ensureCtripConfigSecret = async config => config,
+        applyCtripConfigObject = () => {},
+        getBrowserCaptureForm = () => ({}),
+        getOverviewForm = () => ({}),
+        getHotelNameById = () => '',
+        resolveProfileId = () => '',
+        requestCapture = async () => ({}),
+        setRunning = () => {},
+        setFetching = () => {},
+        setCaptureResult = () => {},
+        setOnlineDataResult = () => {},
+        setShowRawData = () => {},
+        setCookieApiProfileId = () => {},
+        setProfileStatus = () => {},
+        notify = () => {},
+        refreshLatestCtripData = async () => {},
+        refreshOnlineHistory = async () => {},
+        shouldRefreshDataHealthPanel = () => false,
+        refreshDataHealthPanel = async () => {},
+        refreshPlatformProfileStatus = async () => {},
+        refreshPlatformDataSources = async () => {},
+        normalizeError = normalizeCtripBrowserCaptureErrorResult,
+    } = {}) => {
+        const loginOnly = Boolean(options.loginOnly);
+        const silent = Boolean(options.silent);
+        const targetContext = buildCtripBrowserCaptureTargetContext({
+            selectedCtripHotelId: getSelectedCtripHotelId(),
+            autoFetchHotelId: getAutoFetchHotelId(),
+            userHotelId: getUserHotelId(),
+        });
+        if (!targetContext.ok) {
+            if (!silent) notify(targetContext.result.message, 'error');
+            return targetContext.result;
+        }
+        const { systemHotelId } = targetContext;
+
+        if (!getSelectedCtripHotelId()) {
+            setSelectedCtripHotelId(String(systemHotelId));
+        }
+        if (!hasCtripConfigList()) {
+            await loadCtripConfigList();
+        }
+        let activeConfig = getActiveCtripConfig();
+        if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
+            activeConfig = findCtripConfigByHotelId(systemHotelId);
+        }
+        activeConfig = await ensureCtripConfigSecret(activeConfig);
+        if (activeConfig) {
+            applyCtripConfigObject(activeConfig);
+        }
+
+        const requestContext = buildCtripBrowserCaptureRequestContext({
+            systemHotelId,
+            activeConfig,
+            form: getBrowserCaptureForm(),
+            overviewForm: getOverviewForm(),
+            hotelName: getHotelNameById(systemHotelId),
+            profileId: resolveProfileId(activeConfig),
+            options,
+        });
+        if (!requestContext.ok) {
+            if (!silent) notify(requestContext.result.message, 'error');
+            return requestContext.result;
+        }
+        const { capturePayload, profileId } = requestContext;
+
+        setRunning(true);
+        setFetching(true);
+        setCaptureResult(null);
+        try {
+            const res = await requestCapture(capturePayload);
+            if (res.code === 200) {
+                setCaptureResult(res.data || {});
+                setOnlineDataResult(res.data || {});
+                setShowRawData(false);
+                if (loginOnly) {
+                    const nextProfileId = res.data?.profile_id || profileId;
+                    setCookieApiProfileId(nextProfileId);
+                    setProfileStatus({
+                        profile_id: nextProfileId,
+                        exists: true,
+                        status: 'profile_found',
+                        cookie_probe_requested: false,
+                        next_action: '已保存 Profile，可继续检查 Cookie 或执行 Cookie API 诊断采集',
+                    });
+                }
+                if (!silent) {
+                    const savedCount = Number(res.data?.saved_count || 0);
+                    const profileCaptureMessage = loginOnly
+                        ? 'Profile 登录已保存'
+                        : `${res.message || '携程 Profile 采集完成'}：已入库 ${savedCount} 条；字段覆盖按配置表显示，未返回字段保留为缺口`;
+                    notify(profileCaptureMessage);
+                }
+                if (!loginOnly) {
+                    await refreshLatestCtripData({ silent: true });
+                    await refreshOnlineHistory();
+                    if (shouldRefreshDataHealthPanel()) {
+                        await refreshDataHealthPanel('light', { force: true });
+                    }
+                }
+                if (loginOnly || options.bindDataSource !== false) {
+                    await refreshPlatformProfileStatus({ silent: true });
+                    if (options.bindDataSource !== false) await refreshPlatformDataSources();
+                }
+                return res;
+            }
+            if (!silent) notify(res.message || '携程 Profile 采集失败', 'error');
+            return res;
+        } catch (error) {
+            const detail = error?.data?.data?.stderr || error?.data?.data?.stdout || '';
+            if (!silent) notify('携程 Profile 采集失败: ' + error.message + (detail ? '，请查看结果详情' : ''), 'error');
+            const normalizedError = normalizeError(error);
+            setCaptureResult(normalizedError);
+            return { code: 500, message: error.message, data: normalizedError };
+        } finally {
+            setRunning(false);
+            setFetching(false);
+        }
+    };
 
     const formatCtripFetchDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
@@ -1355,6 +1484,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripBrowserCapturePayload,
         buildCtripBrowserCaptureRequestContext,
         normalizeCtripBrowserCaptureErrorResult,
+        runCtripBrowserCaptureFlow,
         buildCtripFetchDateRange,
         buildCtripFetchRequestBody,
         buildCtripFetchRequestContext,

@@ -66,12 +66,12 @@ requireText('public/index.html', 'buildHotelPlatformAccountRowStatic', 'entry us
 requireText('public/system-static.js', 'const buildHotelPlatformAccountRow', 'system static builds hotel platform account rows');
 requireText('public/system-static.js', "target: 'profile-login'", 'system static keeps profile login direct target metadata');
 requireText('public/system-static.js', "target: 'sync-logs'", 'system static keeps sync logs direct target metadata');
-requireText('public/index.html', "requireCtripStatic('buildCtripBrowserCaptureTargetContext')", 'entry uses extracted Ctrip browser capture target context builder');
-requireText('public/index.html', "requireCtripStatic('buildCtripBrowserCaptureRequestContext')", 'entry uses extracted Ctrip browser capture request context builder');
+requireText('public/index.html', "requireCtripStatic('runCtripBrowserCaptureFlow')", 'entry uses extracted Ctrip browser capture flow runner');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCaptureTargetContext', 'Ctrip static builds browser capture target context');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCapturePayload', 'Ctrip static builds browser capture payloads');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCaptureRequestContext', 'Ctrip static builds browser capture request context');
 requireText('public/ctrip-static.js', 'const normalizeCtripBrowserCaptureErrorResult', 'Ctrip static normalizes browser capture errors');
+requireText('public/ctrip-static.js', 'const runCtripBrowserCaptureFlow', 'Ctrip static runs browser capture flow');
 requireText('public/index.html', "requireCtripStatic('buildCtripFetchRequestContext')", 'entry uses extracted Ctrip fetch request context builder');
 requireText('public/ctrip-static.js', 'const buildCtripFetchDateRange', 'Ctrip static builds fetch date ranges');
 requireText('public/ctrip-static.js', 'const buildCtripFetchRequestBody', 'Ctrip static builds fetch request bodies');
@@ -120,6 +120,10 @@ requireNoText('public/index.html', 'const hotelId = String(\n                   
 requireNoText('public/index.html', "cookies: activeConfig?.cookies || activeConfig?.cookie || '',", 'Ctrip browser capture cookie payload is not re-inlined');
 requireNoText('public/index.html', 'const optionSections = options.sections || options.captureSections ||', 'Ctrip browser capture section normalization is not re-inlined');
 requireNoText('public/index.html', 'const normalizeCtripBrowserCaptureErrorResult = (error) => {', 'Ctrip browser capture error normalization is not re-inlined');
+requireNoText('public/index.html', 'const targetContext = buildCtripBrowserCaptureTargetContext({', 'Ctrip browser capture target context flow is not re-inlined');
+requireNoText('public/index.html', 'const requestContext = buildCtripBrowserCaptureRequestContext({', 'Ctrip browser capture request context flow is not re-inlined');
+requireNoText('public/index.html', "const res = await request('/online-data/capture-ctrip-browser', {", 'Ctrip browser capture request flow is not re-inlined');
+requireNoText('public/index.html', 'ctripBrowserCaptureResult.value = normalizeCtripBrowserCaptureErrorResult(e);', 'Ctrip browser capture catch flow is not re-inlined');
 requireNoText('public/index.html', 'const cookies = ctripForm.value.cookies.trim();', 'Ctrip fetch credential trim is not re-inlined');
 requireNoText('public/index.html', 'const nodeId = String(ctripForm.value.nodeId || \'\').trim();', 'Ctrip fetch node id normalization is not re-inlined');
 requireNoText('public/index.html', 'const { startDate, endDate } = buildCtripFetchDateRange(ctripForm.value);', 'Ctrip fetch date range construction is not re-inlined');
@@ -1088,6 +1092,7 @@ try {
   const buildCtripBrowserCapturePayload = ctripStatic.buildCtripBrowserCapturePayload;
   const buildCtripBrowserCaptureRequestContext = ctripStatic.buildCtripBrowserCaptureRequestContext;
   const normalizeCtripBrowserCaptureErrorResult = ctripStatic.normalizeCtripBrowserCaptureErrorResult;
+  const runCtripBrowserCaptureFlow = ctripStatic.runCtripBrowserCaptureFlow;
   const buildCtripFetchDateRange = ctripStatic.buildCtripFetchDateRange;
   const buildCtripFetchRequestBody = ctripStatic.buildCtripFetchRequestBody;
   const buildCtripFetchRequestContext = ctripStatic.buildCtripFetchRequestContext;
@@ -1162,12 +1167,13 @@ try {
   }
   if (typeof buildCtripBrowserCaptureTargetContext !== 'function'
     || typeof buildCtripBrowserCapturePayload !== 'function'
-    || typeof buildCtripBrowserCaptureRequestContext !== 'function') {
+    || typeof buildCtripBrowserCaptureRequestContext !== 'function'
+    || typeof runCtripBrowserCaptureFlow !== 'function') {
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports browser capture context builders',
       ok: false,
-      detail: 'buildCtripBrowserCaptureTargetContext/buildCtripBrowserCapturePayload/buildCtripBrowserCaptureRequestContext',
+      detail: 'buildCtripBrowserCaptureTargetContext/buildCtripBrowserCapturePayload/buildCtripBrowserCaptureRequestContext/runCtripBrowserCaptureFlow',
     });
   } else {
     const missingTarget = buildCtripBrowserCaptureTargetContext({});
@@ -1244,6 +1250,125 @@ try {
       label: 'Ctrip browser capture payload defaults to default section',
       ok: Array.isArray(fallbackPayload.sections) && fallbackPayload.sections.length === 1 && fallbackPayload.sections[0] === 'default',
       detail: 'sections default',
+    });
+    const captureFlowEvents = [];
+    const captureFlowStates = [];
+    let flowSelectedHotelId = '';
+    let flowCaptureResult = null;
+    let flowOnlineResult = null;
+    let flowShowRawData = true;
+    let flowCookieProfileId = '';
+    let flowProfileStatus = null;
+    let flowRequestedPayload = null;
+    const flowResult = await runCtripBrowserCaptureFlow({
+      options: { captureSections: 'sales_report', bindDataSource: true },
+      getSelectedCtripHotelId: () => flowSelectedHotelId,
+      setSelectedCtripHotelId: value => {
+        flowSelectedHotelId = value;
+        captureFlowEvents.push(`selected:${value}`);
+      },
+      getAutoFetchHotelId: () => '58',
+      getUserHotelId: () => '99',
+      hasCtripConfigList: () => false,
+      loadCtripConfigList: async () => {
+        captureFlowEvents.push('load-configs');
+      },
+      getActiveCtripConfig: () => null,
+      findCtripConfigByHotelId: systemHotelId => ({
+        system_hotel_id: systemHotelId,
+        ota_hotel_id: 'ota-58',
+        cookies: 'sid=flow',
+      }),
+      ensureCtripConfigSecret: async config => {
+        captureFlowEvents.push('ensure-secret');
+        return config;
+      },
+      applyCtripConfigObject: config => {
+        captureFlowEvents.push(`apply:${config.system_hotel_id}`);
+      },
+      getBrowserCaptureForm: () => ({ sections: 'default', approvedMappingsPath: ' approved.json ' }),
+      getOverviewForm: () => ({ hotelId: 'overview-58', dataDate: '2026-06-10' }),
+      getHotelNameById: systemHotelId => `Hotel ${systemHotelId}`,
+      resolveProfileId: activeConfig => `profile-${activeConfig.system_hotel_id}`,
+      requestCapture: async payload => {
+        flowRequestedPayload = payload;
+        captureFlowEvents.push('request-capture');
+        return { code: 200, message: 'capture ok', data: { saved_count: 5, profile_id: 'profile-58' } };
+      },
+      setRunning: value => captureFlowStates.push(`running:${value}`),
+      setFetching: value => captureFlowStates.push(`fetching:${value}`),
+      setCaptureResult: value => { flowCaptureResult = value; },
+      setOnlineDataResult: value => { flowOnlineResult = value; },
+      setShowRawData: value => { flowShowRawData = value; },
+      setCookieApiProfileId: value => { flowCookieProfileId = value; },
+      setProfileStatus: value => { flowProfileStatus = value; },
+      notify: message => captureFlowEvents.push(`notify:${message}`),
+      refreshLatestCtripData: async params => captureFlowEvents.push(`latest:${params.silent}`),
+      refreshOnlineHistory: async () => captureFlowEvents.push('history'),
+      shouldRefreshDataHealthPanel: () => true,
+      refreshDataHealthPanel: async (mode, params) => captureFlowEvents.push(`health:${mode}:${params.force}`),
+      refreshPlatformProfileStatus: async params => captureFlowEvents.push(`profile-status:${params.silent}`),
+      refreshPlatformDataSources: async () => captureFlowEvents.push('data-sources'),
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip browser capture flow orchestrates request and refresh callbacks',
+      ok: flowResult.code === 200
+        && flowSelectedHotelId === '58'
+        && flowRequestedPayload.system_hotel_id === '58'
+        && flowRequestedPayload.hotel_id === 'ota-58'
+        && flowRequestedPayload.hotel_name === 'Hotel 58'
+        && flowRequestedPayload.profile_id === 'profile-58'
+        && flowRequestedPayload.cookies === 'sid=flow'
+        && flowRequestedPayload.data_date === '2026-06-10'
+        && flowRequestedPayload.sections.join(',') === 'sales_report'
+        && flowRequestedPayload.bind_data_source === true
+        && flowCaptureResult.saved_count === 5
+        && flowOnlineResult.saved_count === 5
+        && flowShowRawData === false
+        && flowCookieProfileId === ''
+        && flowProfileStatus === null
+        && captureFlowStates.join('|') === 'running:true|fetching:true|running:false|fetching:false'
+        && captureFlowEvents.includes('load-configs')
+        && captureFlowEvents.includes('ensure-secret')
+        && captureFlowEvents.includes('apply:58')
+        && captureFlowEvents.includes('request-capture')
+        && captureFlowEvents.includes('latest:true')
+        && captureFlowEvents.includes('history')
+        && captureFlowEvents.includes('health:light:true')
+        && captureFlowEvents.includes('profile-status:true')
+        && captureFlowEvents.includes('data-sources'),
+      detail: 'runCtripBrowserCaptureFlow success sample',
+    });
+    const loginFlowEvents = [];
+    let loginCookieProfileId = '';
+    let loginProfileStatus = null;
+    const loginFlowResult = await runCtripBrowserCaptureFlow({
+      options: { loginOnly: true, bindDataSource: true, silent: true },
+      getSelectedCtripHotelId: () => '58',
+      getAutoFetchHotelId: () => '',
+      getUserHotelId: () => '',
+      hasCtripConfigList: () => true,
+      getActiveCtripConfig: () => ({ system_hotel_id: '58', ota_hotel_id: 'ota-58' }),
+      ensureCtripConfigSecret: async config => config,
+      getBrowserCaptureForm: () => ({}),
+      getOverviewForm: () => ({ dataDate: '2026-06-10' }),
+      getHotelNameById: () => 'Hotel 58',
+      resolveProfileId: () => 'profile-local',
+      requestCapture: async () => ({ code: 200, message: 'login ok', data: { profile_id: 'profile-api' } }),
+      setCookieApiProfileId: value => { loginCookieProfileId = value; },
+      setProfileStatus: value => { loginProfileStatus = value; },
+      refreshPlatformProfileStatus: async params => loginFlowEvents.push(`profile-status:${params.silent}`),
+      refreshPlatformDataSources: async () => loginFlowEvents.push('data-sources'),
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip browser login flow updates Profile status without data refresh',
+      ok: loginFlowResult.code === 200
+        && loginCookieProfileId === 'profile-api'
+        && loginProfileStatus?.status === 'profile_found'
+        && loginFlowEvents.join('|') === 'profile-status:true|data-sources',
+      detail: 'runCtripBrowserCaptureFlow login-only sample',
     });
   }
   if (typeof normalizeCtripBrowserCaptureErrorResult !== 'function') {
