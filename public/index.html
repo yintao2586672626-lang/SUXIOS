@@ -23908,9 +23908,16 @@
                     const browserHeadless = !!autoFetchBrowserHeadless.value;
                     const res = await request('/online-data/retry-auto-fetch', {
                         method: 'POST',
-                        body: JSON.stringify({ hotel_id: hotelId, data_date: targetDate, data_period: 'historical_daily', interactive_browser: !browserHeadless, browser_headless: browserHeadless, ...buildAutoFetchModePayload() })
+                        body: JSON.stringify({ hotel_id: hotelId, data_date: targetDate, data_period: 'historical_daily', interactive_browser: !browserHeadless, browser_headless: browserHeadless, async: true, ...buildAutoFetchModePayload() })
                     });
                     if (res.code === 200) {
+                        const retryStatus = String(res.data?.status || '').toLowerCase();
+                        if (['running', 'queued', 'accepted'].includes(retryStatus)) {
+                            showToast(res.message || `补抓任务已提交后台执行：${targetDate}`, 'info');
+                            scheduleAutoFetchStatusRefresh();
+                            scheduleBackendNotificationRefresh();
+                            return;
+                        }
                         showToast(`补抓成功，保存了 ${res.data?.saved_count || 0} 条数据`);
                         scheduleOnlineDataRefresh();
                         scheduleOnlineHistoryRefresh();
@@ -24507,6 +24514,8 @@
             // 表格列定义
             const hotelColumns = requireSystemStatic('hotelColumns');
             const userColumns = requireSystemStatic('userColumns');
+            const createHotelForm = requireSystemStatic('createHotelForm');
+            const buildHotelSavePayload = requireSystemStatic('buildHotelSavePayload');
             const roles = ref([]);
             const rolesList = ref([]);
             const allPermissions = ref([]);
@@ -34509,16 +34518,7 @@
                 if (hotel) {
                     // 编辑模式：复制门店数据到表单
                     const parsedDescription = parseHotelDescriptionPayload(hotel.description || '');
-                    hotelForm.value = {
-                        id: hotel.id,
-                        name: hotel.name || '',
-                        code: hotel.code || '',
-                        address: hotel.address || '',
-                        contact_person: hotel.contact_person || operatorName,
-                        contact_phone: hotel.contact_phone || '',
-                        status: hotel.status ?? 1,
-                        description: parsedDescription.description
-                    };
+                    hotelForm.value = createHotelForm({ hotel, operatorName, parsedDescription });
                     hotelBackgroundProfileForm.value = {
                         ...getEmptyHotelBackgroundProfile(),
                         ...parsedDescription.profile,
@@ -34527,7 +34527,7 @@
                     hotelOtaConfigLoading.value = ctripConfigList.value.length === 0 || meituanConfigList.value.length === 0 || platformDataSources.value.length === 0;
                 } else {
                     // 新增模式：重置表单
-                    hotelForm.value = { id: null, name: '', code: getNextHotelCode(), address: '', contact_person: operatorName, contact_phone: '', status: 1, description: '' };
+                    hotelForm.value = createHotelForm({ operatorName, code: getNextHotelCode() });
                     hotelBackgroundProfileForm.value = getEmptyHotelBackgroundProfile();
                     hotelOtaConfig.value = buildHotelOtaConfig('', '');
                     hotelOtaConfigLoading.value = false;
@@ -34584,18 +34584,15 @@
                 }
 
                 // 构建提交数据
-                const payload = {
-                    name: hotelForm.value.name.trim(),
-                    code: normalizedCode,
-                    address: hotelForm.value.address?.trim() || '',
-                    contact_person: hotelForm.value.contact_person?.trim() || getCurrentOperatorName(),
-                    contact_phone: hotelForm.value.contact_phone?.trim() || '',
-                    status: parseInt(hotelForm.value.status),
+                const payload = buildHotelSavePayload({
+                    form: hotelForm.value,
+                    normalizedCode,
+                    operatorName: getCurrentOperatorName(),
                     description: buildHotelDescriptionPayload(
                         hotelForm.value.description?.trim() || '',
                         hotelBackgroundProfileForm.value
-                    )
-                };
+                    ),
+                });
 
                 try {
                     const res = await request(url, { method, body: JSON.stringify(payload) });

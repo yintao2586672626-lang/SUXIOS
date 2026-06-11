@@ -224,6 +224,8 @@ requireText('public/auto-fetch-static.js', 'const runDataConfigTestFlow', 'auto-
 requireText('public/index.html', "requireAutoFetchStatic('runDataConfigTestFlow')", 'entry uses extracted data-source config test flow runner');
 requireText('public/auto-fetch-static.js', 'async: true', 'auto-fetch trigger submits quickly and lets backend continue collection');
 requireText('public/auto-fetch-static.js', "return { status: 'accepted'", 'auto-fetch trigger keeps backend queued state non-blocking');
+requireText('public/index.html', 'async: true, ...buildAutoFetchModePayload()', 'retry auto-fetch submits quickly and lets backend continue collection');
+requireText('public/index.html', "['running', 'queued', 'accepted'].includes(retryStatus)", 'retry auto-fetch treats backend queued state as non-blocking');
 requireText('public/ctrip-static.js', 'const isCtripBackgroundAcceptedResponse', 'Ctrip static shares accepted/running/queued background response detection');
 requireText('public/ctrip-static.js', 'const queuedRequestBody = { ...requestBody, async: true };', 'Ctrip manual fetch flows submit quickly and let backend continue collection');
 requireText('public/ctrip-static.js', "return { status: 'accepted'", 'Ctrip manual fetch flows keep backend queued state non-blocking');
@@ -231,6 +233,8 @@ requireText('public/meituan-static.js', 'const requestBody = { ...task.body, asy
 requireText('public/meituan-static.js', "return { status: 'accepted'", 'Meituan manual batch fetch keeps backend queued state non-blocking');
 requireText('app/controller/OnlineData.php', 'markAutoFetchRunningStatus', 'backend records running auto-fetch task status');
 requireText('app/controller/OnlineData.php', 'createAutoFetchBackgroundTask', 'backend creates one-shot auto-fetch background tasks');
+requireText('app/controller/OnlineData.php', "'/api/online-data/retry-auto-fetch'", 'backend retry auto-fetch posts the one-shot worker back to retry endpoint');
+requireText('app/controller/OnlineData.php', "'retry_auto_fetch_queued'", 'backend records queued retry auto-fetch tasks');
 requireText('app/controller/OnlineData.php', "createTask('meituan'", 'backend creates one-shot Meituan manual fetch background tasks through the manual OTA task service');
 requireText('app/controller/OnlineData.php', "createTask('meituan_traffic'", 'backend creates one-shot Meituan traffic manual fetch background tasks through the manual OTA task service');
 requireText('app/controller/OnlineData.php', "createTask('meituan_' . $section", 'backend creates one-shot Meituan order/ads manual fetch background tasks through the manual OTA task service');
@@ -240,15 +244,21 @@ requireText('config/console.php', "'online-data:auto-fetch-once'", 'console expo
 requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
 requireText('public/index.html', "requireSystemStatic('getDataConfigTypeDefaults')", 'entry uses extracted data config type defaults');
 requireText('public/index.html', "requireSystemStatic('getSystemConfigDefaults')", 'entry uses extracted system config defaults');
+requireText('public/index.html', "requireSystemStatic('createHotelForm')", 'entry uses extracted hotel form builder');
+requireText('public/index.html', "requireSystemStatic('buildHotelSavePayload')", 'entry uses extracted hotel save payload builder');
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/system-static.js', 'const getDataConfigTypeDefaults', 'system static owns data config type defaults');
 requireText('public/system-static.js', 'const getSystemConfigDefaults', 'system static owns system config defaults');
+requireText('public/system-static.js', 'const createHotelForm', 'system static builds hotel admin forms');
+requireText('public/system-static.js', 'const buildHotelSavePayload', 'system static builds hotel save payloads');
 requireText('public/index.html', "requireSystemStatic('buildKnowledgeImportRequestBody')", 'entry uses extracted knowledge import request body builder');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportSuccessMessage')", 'entry uses extracted knowledge import success message');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportErrorMessage')", 'entry uses extracted knowledge import error message');
 requireText('public/system-static.js', 'const buildKnowledgeImportRequestBody', 'system static builds knowledge import request body');
 requireText('public/system-static.js', 'const knowledgeImportSuccessMessage', 'system static formats knowledge import success message');
 requireText('public/system-static.js', 'const knowledgeImportErrorMessage', 'system static formats knowledge import error message');
+requireNoText('public/index.html', "hotelForm.value = { id: null, name: '', code: getNextHotelCode()", 'hotel create defaults are not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'name: hotelForm.value.name.trim(),\n                    code: normalizedCode,', 'hotel save payload is not re-inlined in the SPA entry');
 requireNoText('public/index.html', "successCount = Number(res.data?.success_count", 'knowledge import success message is not re-inlined in the SPA entry');
 requireNoText('public/index.html', "error.name === 'AbortError'", 'knowledge import abort message is not re-inlined in the SPA entry');
 {
@@ -4847,6 +4857,8 @@ try {
   const getDefaultDataConfigForm = context.window.SUXI_SYSTEM_STATIC?.getDefaultDataConfigForm;
   const getDataConfigTypeDefaults = context.window.SUXI_SYSTEM_STATIC?.getDataConfigTypeDefaults;
   const getSystemConfigDefaults = context.window.SUXI_SYSTEM_STATIC?.getSystemConfigDefaults;
+  const createHotelForm = context.window.SUXI_SYSTEM_STATIC?.createHotelForm;
+  const buildHotelSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelSavePayload;
   if (typeof getDefaultDataConfigForm !== 'function') {
     checks.push({
       file: 'public/system-static.js',
@@ -4935,6 +4947,46 @@ try {
       label: 'system config defaults return fresh objects',
       ok: second.system_name === '宿析OS',
       detail: 'system_name',
+    });
+  }
+  if (typeof createHotelForm !== 'function' || typeof buildHotelSavePayload !== 'function') {
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system static exports hotel admin form helpers',
+      ok: false,
+      detail: 'createHotelForm/buildHotelSavePayload',
+    });
+  } else {
+    const created = createHotelForm({ operatorName: '店长A', code: 'H009' });
+    const edited = createHotelForm({
+      hotel: { id: 7, name: '门店七', code: 'H007', address: ' 西湖 ', contact_person: '', contact_phone: '138', status: 0 },
+      operatorName: '管理员',
+      parsedDescription: { description: '旧描述' },
+    });
+    const payload = buildHotelSavePayload({
+      form: { name: ' 门店七 ', address: ' 地址 ', contact_person: '', contact_phone: ' 139 ', status: '1' },
+      normalizedCode: 'H007',
+      operatorName: '管理员',
+      description: '经营画像',
+    });
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'hotel admin form helpers preserve defaults and payload normalization',
+      ok: created.id === null
+        && created.code === 'H009'
+        && created.contact_person === '店长A'
+        && edited.id === 7
+        && edited.name === '门店七'
+        && edited.contact_person === '管理员'
+        && edited.status === 0
+        && edited.description === '旧描述'
+        && payload.name === '门店七'
+        && payload.address === '地址'
+        && payload.contact_person === '管理员'
+        && payload.contact_phone === '139'
+        && payload.status === 1
+        && payload.description === '经营画像',
+      detail: 'createHotelForm/buildHotelSavePayload samples',
     });
   }
 } catch (error) {

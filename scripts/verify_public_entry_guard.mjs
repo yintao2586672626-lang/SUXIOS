@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexPath = path.join(repoRoot, 'public/index.html');
 const publicRouterPath = path.join(repoRoot, 'public/router.php');
+const systemStaticPath = path.join(repoRoot, 'public/system-static.js');
 const stylePath = path.join(repoRoot, 'public/style.css');
 const loginBgPngPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.png');
 const loginBgWebpPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.webp');
@@ -72,6 +73,7 @@ if (!fs.existsSync(indexPath)) {
 } else {
   const stat = fs.statSync(indexPath);
   const content = fs.readFileSync(indexPath, 'utf8');
+  const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
 
   if (stat.size < 500_000) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
@@ -309,6 +311,20 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("requireSystemStatic('knowledgeImportErrorMessage')")) {
     failures.push('public/index.html must use system-static.js helpers for knowledge import request body and messages.');
   }
+  if (!content.includes("requireSystemStatic('createHotelForm')")
+    || !content.includes("requireSystemStatic('buildHotelSavePayload')")
+    || !content.includes('hotelForm.value = createHotelForm({ hotel, operatorName, parsedDescription });')
+    || !content.includes('const payload = buildHotelSavePayload({')) {
+    failures.push('public/index.html must use system-static.js helpers for hotel admin forms and save payloads.');
+  }
+  if (!systemStaticContent.includes('const createHotelForm = ({ hotel = null, operatorName = \'\', code = \'\', parsedDescription = {} } = {}) =>')
+    || !systemStaticContent.includes('const buildHotelSavePayload = ({ form = {}, normalizedCode = \'\', operatorName = \'\', description = \'\' } = {}) => ({')) {
+    failures.push('public/system-static.js must own hotel admin form defaults and save payload normalization.');
+  }
+  if (content.includes("hotelForm.value = { id: null, name: '', code: getNextHotelCode()")
+    || content.includes('name: hotelForm.value.name.trim(),\n                    code: normalizedCode,')) {
+    failures.push('public/index.html must not re-inline hotel admin form defaults or save payload normalization.');
+  }
   if (content.includes('successCount = Number(res.data?.success_count')
     || content.includes("error.name === 'AbortError'")
     || content.includes('body: JSON.stringify({\n                            mode,\n                            source: form.source || mode,')) {
@@ -376,6 +392,16 @@ if (!fs.existsSync(indexPath)) {
     || !/runPostFetchRefresh\(loadAutoFetchStatus\)/.test(autoFetchStaticContent)) {
     failures.push('public/auto-fetch-static.js must treat backend running/queued auto-fetch responses as accepted and refresh status without blocking.');
   }
+  const retryAutoFetchStart = content.indexOf('const retryAutoFetchDate = async');
+  const retryAutoFetchEnd = content.indexOf('const loadBookmarklet = async', retryAutoFetchStart);
+  const retryAutoFetchSource = retryAutoFetchStart >= 0 && retryAutoFetchEnd > retryAutoFetchStart
+    ? content.slice(retryAutoFetchStart, retryAutoFetchEnd)
+    : '';
+  if (!/\/online-data\/retry-auto-fetch/.test(retryAutoFetchSource)
+    || !/async:\s*true/.test(retryAutoFetchSource)
+    || !/\['running', 'queued', 'accepted'\]\.includes\(retryStatus\)/.test(retryAutoFetchSource)) {
+    failures.push('public/index.html must submit retry auto-fetch in background mode and treat running responses as accepted.');
+  }
   if (!/\{\s*\.\.\.requestContext\.requestBody,\s*async:\s*true\s*\}/.test(ctripStaticContent)
     || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody/.test(ctripStaticContent)) {
     failures.push('public/ctrip-static.js must submit Ctrip manual fetch in background mode and treat running responses as accepted.');
@@ -442,6 +468,11 @@ if (!fs.existsSync(indexPath)) {
   const manualTaskServiceContent = fs.existsSync(manualTaskServicePath) ? fs.readFileSync(manualTaskServicePath, 'utf8') : '';
   if (!controllerContent.includes("get('include_detail'") || !controllerContent.includes("'detail_loaded' => false")) {
     failures.push('app/controller/OnlineData.php must support light auto-fetch status with explicit detail_loaded=false.');
+  }
+  if (!controllerContent.includes("'/api/online-data/retry-auto-fetch'")
+    || !controllerContent.includes("'retry_auto_fetch_queued'")
+    || !controllerContent.includes("'background_task' => true")) {
+    failures.push('app/controller/OnlineData.php must submit retry auto-fetch through the one-shot background worker instead of blocking the request.');
   }
   if (!manualTaskServiceContent.includes('final class ManualOnlineFetchTaskService')
     || !manualTaskServiceContent.includes('online-data:manual-fetch-once')

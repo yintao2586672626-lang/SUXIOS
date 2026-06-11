@@ -340,6 +340,39 @@ window.SUXI_SYSTEM_STATIC = (() => {
         { key: 'status', label: '状态' },
         { key: 'actions', label: '操作' },
     ];
+    const createHotelForm = ({ hotel = null, operatorName = '', code = '', parsedDescription = {} } = {}) => {
+        if (hotel) {
+            return {
+                id: hotel.id,
+                name: hotel.name || '',
+                code: hotel.code || '',
+                address: hotel.address || '',
+                contact_person: hotel.contact_person || operatorName,
+                contact_phone: hotel.contact_phone || '',
+                status: hotel.status ?? 1,
+                description: parsedDescription.description || '',
+            };
+        }
+        return {
+            id: null,
+            name: '',
+            code,
+            address: '',
+            contact_person: operatorName,
+            contact_phone: '',
+            status: 1,
+            description: '',
+        };
+    };
+    const buildHotelSavePayload = ({ form = {}, normalizedCode = '', operatorName = '', description = '' } = {}) => ({
+        name: String(form.name || '').trim(),
+        code: normalizedCode,
+        address: String(form.address || '').trim(),
+        contact_person: String(form.contact_person || '').trim() || operatorName,
+        contact_phone: String(form.contact_phone || '').trim(),
+        status: parseInt(form.status),
+        description,
+    });
     const knowledgeCenterBaseSourceOptions = ['document', 'video', 'link', 'text', 'strategy', 'manual', 'url', 'ota', 'ctrip', 'meituan', 'ai', 'revenue_research', 'ml_distillation'];
     const knowledgeImportModeMetaMap = {
         document: { label: '门店文档', placeholder: '整份门店文档会作为一条资料读取，不按空行拆分' },
@@ -929,6 +962,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         testIdNameMap,
         hotelColumns,
         userColumns,
+        createHotelForm,
+        buildHotelSavePayload,
         knowledgeCenterBaseSourceOptions,
         knowledgeImportModeMetaMap,
         buildKnowledgeImportRequestBody,

@@ -1446,6 +1446,18 @@
 - 当前自审计：完整目录约 `213.71 MB`；不含 `.git` 约 `101.48 MB`；不含 `.git` 和依赖约 `72.29 MB`；Git 跟踪文件约 `18.8 MB` / `618` 个；代码范围 `373` 个文件、`197,489` 行、非空 `181,514` 行；默认可清理目标为 `runtime` 约 `8.57 MB` / `193` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_home_visual_hierarchy_contract.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:home-visual-hierarchy`（`13` checks）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`627` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-11 保存点：补抓后台 accepted 与酒店表单构建抽离
+
+- `public/index.html` 的 `retryAutoFetchDate()` 对 `/online-data/retry-auto-fetch` 提交 `async=true`，收到 `running/queued/accepted` 后只刷新自动获取状态和后端通知，不再把后台未完成补抓展示为已保存数据。
+- `app/controller/OnlineData.php` 扩展 `createAutoFetchBackgroundTask()` 支持指定回调路径和 body 覆盖；`retryAutoFetch()` 在非 `background_task` 的 async 请求下创建一次性后台补抓任务，worker 回调 `/api/online-data/retry-auto-fetch` 并显式带 `background_task=true`。
+- `public/system-static.js` 新增 `createHotelForm()` 与 `buildHotelSavePayload()`，承载酒店新增/编辑表单默认值和保存 payload 规范化。
+- `public/index.html` 的 `openHotelModal()` 和 `saveHotel()` 只保留弹窗状态、校验、`/hotels` 请求、平台账号配置保存、列表刷新和携程配置重应用，不再内联酒店表单默认值和保存 payload 字段组装。
+- 本保存点不改变同步补抓执行逻辑、后台 worker 命令、平台采集字段口径、酒店保存接口、门店编码校验、酒店背景画像序列化、平台账号配置保存、AI 分析、权限或数据库结构；补抓 accepted 状态仍保持 `saved_count=0`。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求补抓请求走 async accepted 路径、后端回调 retry endpoint 且保留 `background_task=true`，同时要求入口使用系统静态 helper 并禁止重新内联酒店表单/payload；`verify_e2e_contracts.mjs` 覆盖补抓 accepted 文本契约，并在 VM 中验证新增/编辑表单默认值、联系人回填、状态保留和保存 payload trim 语义。E2E 合同检查数为 `634`。
+- 当前 split-map：`public/index.html` 为 `37,271` 行、`1,550` 个前端函数级块、`44` 个 `currentPage` 引用，`hotel_admin` 域 span 从 `1,344` 行降至 `1,332` 行，`auto_fetch` 后端域 span 为 `2,107` 行；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `213.91 MB`；不含 `.git` 约 `101.5 MB`；不含 `.git` 和依赖约 `72.31 MB`；Git 跟踪文件约 `18.81 MB` / `618` 个；代码范围 `373` 个文件、`197,664` 行、非空 `181,686` 行；默认可清理目标为 `runtime` 约 `8.57 MB` / `230` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "AutoFetch|autoFetch|retryAutoFetch"`（`14` tests / `126` assertions）、`node --check public\system-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`634` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

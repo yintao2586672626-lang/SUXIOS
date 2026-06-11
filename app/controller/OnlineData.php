@@ -17175,7 +17175,15 @@ JAVASCRIPT;
     /**
      * 更新获取状态
      */
-    private function createAutoFetchBackgroundTask(int $hotelId, string $dataDate, string $dataPeriod, array $requestData, array $fetchOptions): array
+    private function createAutoFetchBackgroundTask(
+        int $hotelId,
+        string $dataDate,
+        string $dataPeriod,
+        array $requestData,
+        array $fetchOptions,
+        string $apiPath = '/api/online-data/auto-fetch',
+        array $bodyOverrides = []
+    ): array
     {
         $authorization = trim((string)$this->request->header('Authorization', ''));
         if ($hotelId <= 0 || $authorization === '') {
@@ -17208,13 +17216,15 @@ JAVASCRIPT;
             'meituan_auto_fetch_mode' => $fetchOptions['meituan_auto_fetch_mode'] ?? $mode,
             'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
         ];
+        $body = array_merge($body, $bodyOverrides);
+        $apiPath = '/' . ltrim($apiPath, '/');
         $inputPath = $dir . DIRECTORY_SEPARATOR . 'input.json';
         $task = [
             'task_id' => $taskId,
             'hotel_id' => $hotelId,
             'data_date' => $dataDate,
             'data_period' => $dataPeriod,
-            'api_url' => rtrim($this->request->domain(), '/') . '/api/online-data/auto-fetch',
+            'api_url' => rtrim($this->request->domain(), '/') . $apiPath,
             'authorization' => $authorization,
             'body' => $body,
             'input' => $inputPath,
@@ -19779,6 +19789,56 @@ JAVASCRIPT;
             $fetchOptions['auto_fetch_mode'] = $autoFetchModeRaw;
         }
         $fetchOptions = array_merge($fetchOptions, $this->platformAutoFetchModeOptionsFromRequest($requestData));
+        $backgroundRequested = $this->isTruthyRequestValue($requestData['async'] ?? $requestData['background'] ?? false)
+            && !$this->isTruthyRequestValue($requestData['background_task'] ?? false);
+        if ($backgroundRequested) {
+            $task = $this->createAutoFetchBackgroundTask(
+                (int)$hotelId,
+                $dataDate,
+                $dataPeriod,
+                $requestData,
+                $fetchOptions,
+                '/api/online-data/retry-auto-fetch',
+                [
+                    'hotel_id' => (int)$hotelId,
+                    'system_hotel_id' => (int)$hotelId,
+                    'data_date' => $dataDate,
+                    'data_period' => $dataPeriod,
+                    'async' => false,
+                    'background_task' => true,
+                ]
+            );
+            if (empty($task)) {
+                return $this->error('后台补抓任务创建失败，请检查 PHP CLI 或登录状态');
+            }
+
+            $this->markAutoFetchRunningStatus((int)$hotelId, $dataDate, $dataPeriod, $task, $fetchOptions);
+            if (!$this->launchAutoFetchBackgroundTask($task)) {
+                $this->updateFetchStatus((int)$hotelId, false, '后台补抓任务启动失败', $dataDate, [
+                    'data_period' => $dataPeriod,
+                    'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
+                ]);
+                $this->recordAutoFetchNotification((int)$hotelId, false, '后台补抓任务启动失败', $dataDate, [
+                    'data_period' => $dataPeriod,
+                    'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
+                ], 'retry_auto_fetch');
+                return $this->error('后台补抓任务启动失败');
+            }
+
+            $mode = $this->normalizeAutoFetchMode($fetchOptions['auto_fetch_mode'] ?? 'hybrid_auto');
+            OperationLog::record('online_data', 'retry_auto_fetch_queued', "补抓平台数据已提交后台执行: {$dataDate} (门店ID: {$hotelId})", $this->currentUser->id);
+            return $this->success([
+                'status' => 'running',
+                'task_id' => (string)$task['task_id'],
+                'data_date' => $dataDate,
+                'data_period' => $dataPeriod,
+                'saved_count' => 0,
+                'auto_fetch_mode' => $mode,
+                'auto_fetch_mode_label' => $this->autoFetchModeLabel($mode),
+                'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
+            ], '补抓任务已提交后台执行');
+        }
+
         $result = $this->executeAutoFetch((int)$hotelId, $dataDate, $fetchOptions);
         $this->updateFetchStatus((int)$hotelId, (bool)$result['success'], (string)$result['message'], $dataDate, [
             'saved_count' => (int)($result['saved_count'] ?? 0),
