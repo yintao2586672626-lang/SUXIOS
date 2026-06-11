@@ -172,8 +172,12 @@ requireText('public/index.html', 'deferUiTask(() => Promise.allSettled([\n      
 requireText('public/index.html', "const schedulePlatformAutoFetchPanelLoad = (options = {}) => runPageLoadOnce(", 'platform auto-fetch panel opens through the shared page-load scheduler');
 requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>', 'platform auto tab opens through one deduplicated entrypoint');
 requireText('public/index.html', 'const openOnlinePlatformAutoTab = (options = {}) =>', 'cross-page platform auto navigation uses the deduplicated entrypoint');
+requireText('public/index.html', '@change="schedulePlatformAutoFetchPanelLoad({ force: true })"', 'platform-auto hotel switching refreshes through the shared scheduler');
+requireText('public/index.html', '@click="schedulePlatformAutoFetchPanelLoad({ force: true })"', 'platform-auto manual refresh buttons use the shared scheduler');
 requireNoText('public/index.html', "onlineDataTab = 'platform-auto'; loadAutoFetchPanel()", 'platform auto tab buttons do not bypass the shared scheduler');
 requireNoText('public/index.html', "if (row.tab === 'platform-auto') loadAutoFetchPanel();", 'data-health drilldown does not bypass the shared platform-auto scheduler');
+requireNoText('public/index.html', '@change="loadAutoFetchPanel"', 'platform-auto hotel switching does not bypass the shared scheduler');
+requireNoText('public/index.html', '@click="loadAutoFetchPanel"', 'platform-auto refresh buttons do not bypass the shared scheduler');
 requireText('public/index.html', "const schedulePlatformDataSourcePanelLoad = (options = {}) => runPageLoadOnce(", 'platform source panel loads through the shared page-load scheduler');
 requireText('public/index.html', "const openPlatformSourcesTab = (options = {}) =>", 'platform source tab opens through a single deduplicated entrypoint');
 requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()", 'platform source tab switches do not double-trigger the heavy data-source panel load');
@@ -185,6 +189,7 @@ requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlat
 requireNoText('public/index.html', 'await loadAutoFetchPanel();\n                    return;\n                }\n                downloadCenterTab.value = tab;', 'download tab switch does not load full platform auto-fetch panel for Ctrip settings');
 requireText('public/index.html', 'await loadAutoFetchStatus({ detail: false });\n                    scheduleAutoFetchStatusDetailRefresh();\n                    schedulePlatformProfileStatusRefresh({ silent: true });', 'platform auto-fetch first paint uses light status and defers detail/profile refresh');
 requireText('public/index.html', 'const scheduleAutoFetchConfigListPrewarm = () => {', 'platform auto-fetch prewarms saved platform configs after first paint');
+requireText('public/index.html', "const autoFetchPanelCacheKey = () => [\n                String(getAutoFetchHotelId() || ''),\n                String(hotels.value?.length || 0),\n            ].join('|');", 'platform auto-fetch panel cache key is not invalidated by deferred config-list prewarm');
 requireText('public/index.html', '!ctripConfigListLoaded.value && (!ctripConfigList.value || ctripConfigList.value.length === 0)', 'platform auto-fetch does not refetch a known-empty Ctrip config list on every panel open');
 requireText('public/index.html', '!meituanConfigListLoaded.value && (!meituanConfigList.value || meituanConfigList.value.length === 0)', 'platform auto-fetch does not refetch a known-empty Meituan config list on every panel open');
 requireText('public/index.html', 'scheduleAutoFetchConfigListPrewarm();', 'platform auto-fetch schedules config-list prewarm after light status');

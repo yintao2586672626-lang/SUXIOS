@@ -1528,12 +1528,13 @@ Updated: 2026-06-12 Asia/Shanghai
 
 - `public/index.html` now lets `loadAutoFetchPanel()` first paint wait for hotels plus light `loadAutoFetchStatus({ detail: false })`, then schedules Ctrip/Meituan saved-config loading through `scheduleAutoFetchConfigListPrewarm()`.
 - Config-list prewarm only runs when the list has not successfully loaded and is currently empty, so a known-empty list is not refetched on every platform-auto panel open; failed reads can still retry on the next entry.
+- Manual refresh buttons and selected-hotel changes also route through `schedulePlatformAutoFetchPanelLoad({ force: true })`; `autoFetchPanelCacheKey()` no longer includes Ctrip/Meituan config-list lengths, so deferred config prewarm does not trigger another full panel reload.
 - Platform strategy cards now distinguish `配置待读取`, `读取失败`, `未配置`, and `可抓取` instead of presenting an unloaded config list as missing. Ctrip and Meituan card construction moved into `buildCtripAutoFetchPlatformCard()` and `buildMeituanAutoFetchPlatformCard()` so `autoFetchPlatformCards` stays out of the largest-block list.
 - This does not change platform auto-fetch APIs, Ctrip/Meituan config APIs, Profile status APIs, OTA collection, persistence, field semantics, AI analysis, permissions, or database schema. Missing, failed, unconfigured, and running states remain explicit.
-- Guards now require deferred config-list prewarm, explicit unloaded/failed config states, and platform card helper builders; `verify:e2e-contracts` covers `689` checks.
+- Guards now require deferred config-list prewarm, explicit unloaded/failed config states, platform card helper builders, scheduled refresh entrypoints, and a stable panel cache key; `verify:e2e-contracts` covers `694` checks.
 - Current split-map: `public/index.html` has `37438` lines, `1565` frontend function-level blocks, and `43` `currentPage` refs; `autoFetchPlatformCards` is no longer in the largest-block list. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
 - Current self-audit: full directory about `222.6 MB`, without `.git` about `106.51 MB`, without `.git` and dependencies about `77.32 MB`, tracked files about `18.86 MB` / `618` files; code scope `373` files, `198144` total lines, and `182165` nonblank lines. Runtime cleanup is about `13.53 MB` / `296` files and is left for later small optimization by the current P0/P1/P2 boundary.
-- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `689` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `694` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
 ## Maintenance Rule
 

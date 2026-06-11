@@ -305,8 +305,20 @@ if (!fs.existsSync(indexPath)) {
   if (content.includes("onlineDataTab = 'platform-auto'; loadAutoFetchPanel()")
     || content.includes('onlineDataTab = "platform-auto"; loadAutoFetchPanel()')
     || content.includes("if (row.tab === 'platform-auto') loadAutoFetchPanel();")
+    || content.includes('@change="loadAutoFetchPanel"')
+    || content.includes('@click="loadAutoFetchPanel"')
     || content.includes("if (item.path === 'online-data' && item.tab === 'platform-auto') {\n                            loadAutoFetchPanel();")) {
     failures.push('public/index.html must not bypass the platform-auto scheduler from buttons, drilldowns, or menu clicks.');
+  }
+  const autoFetchPanelCacheKeySource = content.slice(
+    content.indexOf('const autoFetchPanelCacheKey = () => ['),
+    content.indexOf('const resetAutoFetchPanelCache = () => {')
+  );
+  if (!autoFetchPanelCacheKeySource.includes("String(getAutoFetchHotelId() || '')")
+    || !autoFetchPanelCacheKeySource.includes('String(hotels.value?.length || 0)')
+    || autoFetchPanelCacheKeySource.includes('ctripConfigList')
+    || autoFetchPanelCacheKeySource.includes('meituanConfigList')) {
+    failures.push('public/index.html platform-auto panel cache key must not be invalidated by deferred config-list prewarm.');
   }
   if (content.includes('await loadAutoFetchPanel()')) {
     failures.push('public/index.html must not block platform-auto navigation or profile follow-up refreshes on the full auto-fetch panel reload.');

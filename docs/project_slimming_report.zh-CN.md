@@ -1497,12 +1497,13 @@
 
 - `public/index.html` 的 `loadAutoFetchPanel()` 首屏不再同步等待携程/美团已保存配置列表；进入 `platform-auto` 后只等待酒店列表和轻量 `loadAutoFetchStatus({ detail: false })`，随后通过 `scheduleAutoFetchConfigListPrewarm()` 后置预热配置列表。
 - 配置列表预热只在“未成功加载且当前列表为空”时触发；已成功读取为空列表时不反复请求，失败后仍允许下次进入面板重试。
+- 刷新按钮和登录目标门店切换也统一走 `schedulePlatformAutoFetchPanelLoad({ force: true })`；`autoFetchPanelCacheKey()` 不再包含携程/美团配置列表长度，避免后置预热触发完整面板重载。
 - 平台策略卡片新增 `配置待读取`、`读取失败`、`未配置` 和 `可抓取` 的明确状态，不再把“配置列表尚未读取”短暂显示成“未配置”；携程/美团卡片构建拆成 `buildCtripAutoFetchPlatformCard()` 与 `buildMeituanAutoFetchPlatformCard()`，避免 `autoFetchPlatformCards` computed 再次膨胀。
 - 本保存点不改变平台自动获取接口、携程/美团配置接口、Profile 状态接口、OTA 采集、入库、字段口径、AI 分析、权限或数据库结构；缺失、失败、未配置和后台运行状态继续显式展示。
-- 更新守卫：`verify_public_entry_guard.mjs` 要求配置列表后置预热、未加载/失败状态显式化和卡片构建 helper；`verify_e2e_contracts.mjs` 同步禁止首屏重新等待携程/美团配置列表，并将 E2E 合同检查数提升到 `689`。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求配置列表后置预热、未加载/失败状态显式化、卡片构建 helper、刷新入口调度和稳定 cache key；`verify_e2e_contracts.mjs` 同步禁止首屏重新等待携程/美团配置列表，并将 E2E 合同检查数提升到 `694`。
 - 当前 split-map：`public/index.html` 为 `37,438` 行、`1,565` 个前端函数级块、`43` 个 `currentPage` 引用；`autoFetchPlatformCards` 已退出最大块列表；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
 - 当前自审计：完整目录约 `222.6 MB`；不含 `.git` 约 `106.51 MB`；不含 `.git` 和依赖约 `77.32 MB`；Git 跟踪文件约 `18.86 MB` / `618` 个；代码范围 `373` 个文件、`198,144` 行、非空 `182,165` 行；默认可清理目标为 `runtime` 约 `13.53 MB` / `296` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
-- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`689` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`694` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
 ## 后续处理建议
 
