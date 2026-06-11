@@ -1607,6 +1607,18 @@
 - 当前自审计：完整目录约 `234.74 MB`；不含 `.git` 约 `111.59 MB`；不含 `.git` 和依赖约 `82.4 MB`；Git 跟踪文件约 `18.93 MB` / `618` 个；代码范围 `373` 个文件、`198,655` 行、非空 `182,666` 行；默认可清理目标为 `runtime` 约 `18.54 MB` / `412` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`npm.cmd run verify:e2e-contracts`（`772` checks）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
 
+## 2026-06-12 保存点：酒店 OTA 配置保存 payload 与配置详情预热收口
+
+- `public/system-static.js` 新增 `buildHotelOtaCtripConfigSavePayload()` 与 `buildHotelOtaMeituanConfigSavePayload()`，承载酒店管理弹窗里携程/美团 OTA 数据源保存 payload 的字段优先级、旧配置兼容和默认值。
+- `public/index.html` 的 `saveHotelOtaConfig()` 继续负责是否保存、请求 `/online-data/save-ctrip-config` / `/online-data/save-meituan-config-item`、错误显式抛出、缓存失效和配置列表刷新；不再内联携程/美团 payload 字段组装。
+- 携程/美团配置列表读取后改为先返回列表数据，再通过 `prewarmSelectedCtripConfigSecret()` / `prewarmSelectedMeituanConfigSecret()` 后置预热完整配置详情；列表加载不再等待完整密钥配置应用。
+- `ensureCtripConfigSecret()` 与 `ensureMeituanConfigSecret()` 新增 `silent` 预热模式：预热失败只写 console，不弹 toast；用户主动应用配置时仍保留原显式错误提示。
+- 本保存点不改变酒店保存接口、携程/美团配置保存接口、配置字段、OTA 入库、采集接口、字段口径、AI 分析、权限或数据库结构；缺失、失败、未配置和旧数据兼容状态继续显式处理。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求酒店 OTA 配置保存 payload 来自 `system-static.js`，并要求携程/美团完整配置详情走后置预热；`verify_e2e_contracts.mjs` 在 VM 中验证携程/美团 payload 字段优先级，并将 E2E 合同检查数提升到 `795`。
+- 当前 split-map：`public/index.html` 为 `37,536` 行、`1,574` 个前端函数级块、`43` 个 `currentPage` 引用；`saveHotelOtaConfig` 已退出最大块列表；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `236.97 MB`；不含 `.git` 约 `113.11 MB`；不含 `.git` 和依赖约 `83.92 MB`；Git 跟踪文件约 `18.95 MB` / `618` 个；代码范围 `373` 个文件、`198,806` 行、非空 `182,814` 行；默认可清理目标为 `runtime` 约 `20.04 MB` / `444` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`795` checks）、`node --test tests\automation\ctrip_store_data_overview.test.mjs`（`20/20`）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

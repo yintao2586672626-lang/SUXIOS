@@ -1639,6 +1639,18 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `234.74 MB`, without `.git` about `111.59 MB`, without `.git` and dependencies about `82.4 MB`, tracked files about `18.93 MB` / `618` files; code scope `373` files, `198655` total lines, and `182666` nonblank lines. Runtime cleanup is about `18.54 MB` / `412` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `verify:e2e-contracts` with `772` checks; `self:audit`; `self:split-map`.
 
+## 2026-06-12 Progress: Hotel OTA Config Payload Helpers and Config Detail Prewarm
+
+- `public/system-static.js` now owns `buildHotelOtaCtripConfigSavePayload()` and `buildHotelOtaMeituanConfigSavePayload()` for hotel-admin Ctrip/Meituan OTA source save payload field precedence, existing-config compatibility, and defaults.
+- `public/index.html` keeps `saveHotelOtaConfig()` responsible for save decisions, `/online-data/save-ctrip-config` and `/online-data/save-meituan-config-item` requests, explicit error throwing, cache invalidation, and config-list refreshes. It no longer inlines Ctrip/Meituan OTA payload fields.
+- Ctrip/Meituan config-list loaders now return list data before full secret config application, and schedule `prewarmSelectedCtripConfigSecret()` / `prewarmSelectedMeituanConfigSecret()` plus deferred config application.
+- `ensureCtripConfigSecret()` and `ensureMeituanConfigSecret()` now support silent background prewarm; prewarm failures are logged without user-facing toast, while active config application still surfaces errors.
+- This does not change hotel save APIs, Ctrip/Meituan config save APIs, config fields, OTA persistence, collection APIs, metric/field semantics, AI analysis, permissions, or database schema. Missing, failed, unconfigured, and existing-data compatibility states remain explicit.
+- Guards now require hotel OTA save payload helpers and deferred full-config prewarm; `verify:e2e-contracts` covers `795` checks.
+- Current split-map: `public/index.html` has `37536` lines, `1574` frontend function-level blocks, and `43` `currentPage` refs; `saveHotelOtaConfig` is out of the largest-block list. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `236.97 MB`, without `.git` about `113.11 MB`, without `.git` and dependencies about `83.92 MB`, tracked files about `18.95 MB` / `618` files; code scope `373` files, `198806` total lines, and `182814` nonblank lines. Runtime cleanup is about `20.04 MB` / `444` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check public\system-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:p0-guards`; `verify:e2e-contracts` with `795` checks; `node --test tests\automation\ctrip_store_data_overview.test.mjs` with `20/20` tests; `self:audit`; `self:split-map`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

@@ -97,6 +97,11 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
+  if (!content.includes('ctrip-static.js?v=20260612-manual-tab-perf')
+    || !content.includes('meituan-static.js?v=20260612-manual-tab-perf')) {
+    failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance exports change.');
+  }
+
   if (!content.includes('const suxiApp = createApp({')
     || !content.includes('const renderSuxiStartupError = (error) => {')
     || !content.includes('suxiApp.config.errorHandler = (error) => {')
@@ -277,6 +282,12 @@ if (!fs.existsSync(indexPath)) {
   if (!/const ctripConfigDetailCache = new Map\(\);[\s\S]*const ctripConfigDetailLoadingPromises = new Map\(\);[\s\S]*const loadCtripConfigDetail = async[\s\S]*if \(ctripConfigDetailLoadingPromises\.has\(cacheKey\)\)[\s\S]*return ctripConfigDetailLoadingPromises\.get\(cacheKey\);[\s\S]*const ensureCtripConfigSecret = async[\s\S]*const cached = cacheKey \? ctripConfigDetailCache\.get\(cacheKey\) : null;/.test(content)) {
     failures.push('public/index.html must cache and deduplicate full Ctrip config detail loads for manual-fetch hotel switching.');
   }
+  if (!content.includes('const ensureCtripConfigSecret = async (config, options = {}) => {')
+    || !content.includes("console.error('[CTrip] 预热完整配置失败:', e);")
+    || !content.includes('const prewarmSelectedCtripConfigSecret = (config = findCtripConfigByHotelId(selectedCtripHotelId.value)) => {')
+    || !content.includes('deferUiTask(() => ensureCtripConfigSecret(config, { silent: true }), 80);')) {
+    failures.push('public/index.html must support silent, deferred Ctrip full-config prewarm for manual-fetch responsiveness.');
+  }
   if (!content.includes("clearCtripConfigDetailCache(body?.id || '');")
     || !content.includes("clearCtripConfigDetailCache(ctrip.id || existing?.id || '');")
     || !/deleteCtripConfig = async[\s\S]*clearCtripConfigDetailCache\(id\);/.test(content)
@@ -294,6 +305,11 @@ if (!fs.existsSync(indexPath)) {
   if (!content.includes('const scheduleCtripEbookingDeferredStartupRefresh = () => {')
     || !ctripEbookingDefaultLoader.includes('scheduleCtripEbookingDeferredStartupRefresh();')) {
     failures.push('public/index.html must defer Ctrip eBooking config/latest/cookie/bookmarklet startup refreshes until after the first paint loader.');
+  }
+  if (!content.includes("prewarmSelectedCtripConfigSecret();\n                            return loadLatestCtripData({ silent: true });")
+    || !content.includes("prewarmSelectedCtripConfigSecret();\n                                deferUiTask(() => applyCtripHotelConfig(false), 80);")
+    || content.includes("if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;")) {
+    failures.push('public/index.html Ctrip config list must return after list data and prewarm full config detail in deferred work.');
   }
   if (!/await Promise\.allSettled\(\[\s*loadOnlineDataHotelList\(\),\s*loadDataHealthPanel\(['"]light['"]\),\s*\]\);/.test(ctripEbookingDefaultLoader)) {
     failures.push('public/index.html Ctrip eBooking first-paint loader must keep only hotel list and light data-health status.');
@@ -360,6 +376,15 @@ if (!fs.existsSync(indexPath)) {
   if (!content.includes('const scheduleMeituanEbookingDeferredStartupRefresh = () => {')
     || !meituanEbookingDefaultLoader.includes('scheduleMeituanEbookingDeferredStartupRefresh();')) {
     failures.push('public/index.html must defer Meituan eBooking config matching and secondary startup refreshes until after route entry.');
+  }
+  if (!content.includes('const ensureMeituanConfigSecret = async (config, options = {}) => {')
+    || !content.includes("console.error('[Meituan] 预热完整配置失败:', e);")
+    || !content.includes('const prewarmSelectedMeituanConfigSecret = (config = selectedMeituanHotelConfig.value) => {')
+    || !content.includes('deferUiTask(() => ensureMeituanConfigSecret(config, { silent: true }), 80);')
+    || !content.includes('loadMeituanConfigList().then(() => prewarmSelectedMeituanConfigSecret()),')
+    || !content.includes("prewarmSelectedMeituanConfigSecret();\n                                deferUiTask(() => applyMeituanHotelConfig(false, { refreshList: false }), 80);")
+    || content.includes("if (meituanForm.value.hotelId) {\n                                await applyMeituanHotelConfig(false, { refreshList: false });\n                            }\n                            return meituanConfigList.value;")) {
+    failures.push('public/index.html Meituan config list must return after list data and prewarm full config detail in deferred work.');
   }
   if (/runPageLoadOnce\(newPage,\s*['"]main['"][\s\S]*loadMeituanConfigList\(\)/.test(meituanEbookingDefaultLoader)) {
     failures.push('public/index.html Meituan eBooking default loader must not synchronously request saved configs in the first-paint group.');
@@ -528,8 +553,12 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!content.includes("requireSystemStatic('createHotelForm')")
     || !content.includes("requireSystemStatic('buildHotelSavePayload')")
+    || !content.includes("requireSystemStatic('buildHotelOtaCtripConfigSavePayload')")
+    || !content.includes("requireSystemStatic('buildHotelOtaMeituanConfigSavePayload')")
     || !content.includes('hotelForm.value = createHotelForm({ hotel, operatorName, parsedDescription });')
-    || !content.includes('const payload = buildHotelSavePayload({')) {
+    || !content.includes('const payload = buildHotelSavePayload({')
+    || !content.includes('JSON.stringify(buildHotelOtaCtripConfigSavePayload({')
+    || !content.includes('JSON.stringify(buildHotelOtaMeituanConfigSavePayload({')) {
     failures.push('public/index.html must use system-static.js helpers for hotel admin forms and save payloads.');
   }
   if (!content.includes("requireAppSystemStatic('getRememberedLoginAccount')")
@@ -552,7 +581,9 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html must use system-static.js helpers for self-registration form defaults, payloads, and validation.');
   }
   if (!systemStaticContent.includes('const createHotelForm = ({ hotel = null, operatorName = \'\', code = \'\', parsedDescription = {} } = {}) =>')
-    || !systemStaticContent.includes('const buildHotelSavePayload = ({ form = {}, normalizedCode = \'\', operatorName = \'\', description = \'\' } = {}) => ({')) {
+    || !systemStaticContent.includes('const buildHotelSavePayload = ({ form = {}, normalizedCode = \'\', operatorName = \'\', description = \'\' } = {}) => ({')
+    || !systemStaticContent.includes('const buildHotelOtaCtripConfigSavePayload = ({ hotelIdText = \'\', ctrip = {}, existing = null, fallbackName = \'\', defaultUrl = \'\' } = {}) => ({')
+    || !systemStaticContent.includes('const buildHotelOtaMeituanConfigSavePayload = ({ hotelIdText = \'\', meituan = {}, existing = null, fallbackName = \'\' } = {}) => ({')) {
     failures.push('public/system-static.js must own hotel admin form defaults and save payload normalization.');
   }
   if (!systemStaticContent.includes('const createLoginForm = ({ username = \'\' } = {}) => ({')
@@ -568,7 +599,9 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/system-static.js must own self-registration form defaults, payload normalization, and validation.');
   }
   if (content.includes("hotelForm.value = { id: null, name: '', code: getNextHotelCode()")
-    || content.includes('name: hotelForm.value.name.trim(),\n                    code: normalizedCode,')) {
+    || content.includes('name: hotelForm.value.name.trim(),\n                    code: normalizedCode,')
+    || content.includes('ctrip_hotel_id: ctrip.ctrip_hotel_id || existing?.ctrip_hotel_id')
+    || content.includes('hotel_room_count: meituan.hotel_room_count || existing?.hotel_room_count')) {
     failures.push('public/index.html must not re-inline hotel admin form defaults or save payload normalization.');
   }
   if (content.includes("localStorage.getItem('remembered_username')")

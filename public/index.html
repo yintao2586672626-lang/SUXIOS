@@ -12,8 +12,8 @@
     <script src="vue.global.prod.js?v=20260611-open-fix"></script>
     <script src="shared-components.js?v=20260611-open-fix"></script>
     <script src="form-operation-support.js" defer></script>
-    <script src="ctrip-static.js?v=20260611-core-fetch"></script>
-    <script src="meituan-static.js?v=20260611-core-fetch"></script>
+    <script src="ctrip-static.js?v=20260612-manual-tab-perf"></script>
+    <script src="meituan-static.js?v=20260612-manual-tab-perf"></script>
     <script src="data-health-static.js?v=20260611-core-fetch"></script>
     <script src="ota-diagnosis-static.js?v=20260611-core-fetch"></script>
     <script src="system-static.js?v=20260612-static-knowledge"></script>
@@ -24159,7 +24159,10 @@
                 deferUiTask(() => {
                     if (currentPage.value !== 'ctrip-ebooking') return null;
                     return Promise.allSettled([
-                        loadCtripConfigList().then(() => loadLatestCtripData({ silent: true })),
+                        loadCtripConfigList().then(() => {
+                            prewarmSelectedCtripConfigSecret();
+                            return loadLatestCtripData({ silent: true });
+                        }),
                         loadCookiesList(),
                         loadBookmarklet(),
                     ]);
@@ -24169,7 +24172,7 @@
                 deferUiTask(() => {
                     if (currentPage.value !== 'meituan-ebooking') return null;
                     return Promise.allSettled([
-                        loadMeituanConfigList(),
+                        loadMeituanConfigList().then(() => prewarmSelectedMeituanConfigSecret()),
                         loadMeituanConfig(),
                         loadOnlineDataHotelList(),
                     ]);
@@ -24705,6 +24708,8 @@
             const userColumns = requireSystemStatic('userColumns');
             const createHotelForm = requireSystemStatic('createHotelForm');
             const buildHotelSavePayload = requireSystemStatic('buildHotelSavePayload');
+            const buildHotelOtaCtripConfigSavePayload = requireSystemStatic('buildHotelOtaCtripConfigSavePayload');
+            const buildHotelOtaMeituanConfigSavePayload = requireSystemStatic('buildHotelOtaMeituanConfigSavePayload');
             const roles = ref([]);
             const rolesList = ref([]);
             const allPermissions = ref([]);
@@ -33090,7 +33095,7 @@
                 }
             };
 
-            const ensureCtripConfigSecret = async (config) => {
+            const ensureCtripConfigSecret = async (config, options = {}) => {
                 if (!config) return null;
                 if (config.cookies || !config.has_cookies) return config;
                 const cacheKey = config.id ? String(config.id) : '';
@@ -33109,12 +33114,16 @@
                     }
                     return detail;
                 } catch (e) {
-                    showToast(e.message || '加载携程完整配置失败', 'error');
+                    if (options.silent) {
+                        console.error('[CTrip] 预热完整配置失败:', e);
+                    } else {
+                        showToast(e.message || '加载携程完整配置失败', 'error');
+                    }
                     return null;
                 }
             };
 
-            const ensureMeituanConfigSecret = async (config) => {
+            const ensureMeituanConfigSecret = async (config, options = {}) => {
                 if (!config) return null;
                 if (config.cookies || !config.id || config.has_cookies === false) return config;
                 const cacheKey = config.id ? String(config.id) : '';
@@ -33133,9 +33142,23 @@
                     }
                     return detail;
                 } catch (e) {
-                    showToast(e.message || '加载美团完整配置失败', 'error');
+                    if (options.silent) {
+                        console.error('[Meituan] 预热完整配置失败:', e);
+                    } else {
+                        showToast(e.message || '加载美团完整配置失败', 'error');
+                    }
                     return null;
                 }
+            };
+
+            const prewarmSelectedCtripConfigSecret = (config = findCtripConfigByHotelId(selectedCtripHotelId.value)) => {
+                if (!config || config.cookies || !config.has_cookies) return;
+                deferUiTask(() => ensureCtripConfigSecret(config, { silent: true }), 80);
+            };
+
+            const prewarmSelectedMeituanConfigSecret = (config = selectedMeituanHotelConfig.value) => {
+                if (!config || config.cookies || !config.id || config.has_cookies === false) return;
+                deferUiTask(() => ensureMeituanConfigSecret(config, { silent: true }), 80);
             };
 
             const applyCtripConfigObject = (config, showMessage = true) => {
@@ -33671,15 +33694,13 @@
                     const existing = findCtripConfigByHotelId(hotelIdText);
                     const res = await request('/online-data/save-ctrip-config', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            id: ctrip.id || existing?.id || null,
-                            name: ctrip.name || existing?.name || `${hotelName}携程数据源`,
-                            hotel_id: hotelIdText,
-                            ctrip_hotel_id: ctrip.ctrip_hotel_id || existing?.ctrip_hotel_id || existing?.ctripHotelId || existing?.ota_hotel_id || '',
-                            cookies: ctrip.cookies,
-                            url: ctrip.url || existing?.url || 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                            node_id: ctrip.node_id || existing?.node_id || '24588',
-                        }),
+                        body: JSON.stringify(buildHotelOtaCtripConfigSavePayload({
+                            hotelIdText,
+                            ctrip,
+                            existing,
+                            fallbackName: `${hotelName}携程数据源`,
+                            defaultUrl: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                        })),
                     });
                     if (res.code !== 200) {
                         throw new Error(res.message || '携程数据源保存失败');
@@ -33692,16 +33713,12 @@
                     const existing = findMeituanConfigByHotelId(hotelIdText);
                     const res = await request('/online-data/save-meituan-config-item', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            id: meituan.id || existing?.id || null,
-                            name: meituan.name || existing?.name || `${hotelName}美团数据源`,
-                            hotel_id: hotelIdText,
-                            partner_id: meituan.partner_id,
-                            poi_id: meituan.poi_id,
-                            cookies: meituan.cookies,
-                            hotel_room_count: meituan.hotel_room_count || existing?.hotel_room_count || '',
-                            competitor_room_count: meituan.competitor_room_count || existing?.competitor_room_count || '',
-                        }),
+                        body: JSON.stringify(buildHotelOtaMeituanConfigSavePayload({
+                            hotelIdText,
+                            meituan,
+                            existing,
+                            fallbackName: `${hotelName}美团数据源`,
+                        })),
                     });
                     if (res.code !== 200) {
                         throw new Error(res.message || '美团数据源保存失败');
@@ -33746,7 +33763,8 @@
                             const validIds = new Set(ctripConfigList.value.map(item => String(item.id)));
                             selectedCtripConfigIds.value = selectedCtripConfigIds.value.filter(id => validIds.has(String(id)));
                             if (selectedCtripHotelId.value) {
-                                await applyCtripHotelConfig(false);
+                                prewarmSelectedCtripConfigSecret();
+                                deferUiTask(() => applyCtripHotelConfig(false), 80);
                             }
                             return ctripConfigList.value;
                         } else {
@@ -34053,7 +34071,8 @@
                             meituanConfigList.value = res.data || [];
                             meituanConfigListLoaded.value = true;
                             if (meituanForm.value.hotelId) {
-                                await applyMeituanHotelConfig(false, { refreshList: false });
+                                prewarmSelectedMeituanConfigSecret();
+                                deferUiTask(() => applyMeituanHotelConfig(false, { refreshList: false }), 80);
                             }
                             return meituanConfigList.value;
                         } else {

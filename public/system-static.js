@@ -425,6 +425,25 @@ window.SUXI_SYSTEM_STATIC = (() => {
         status: parseInt(form.status),
         description,
     });
+    const buildHotelOtaCtripConfigSavePayload = ({ hotelIdText = '', ctrip = {}, existing = null, fallbackName = '', defaultUrl = '' } = {}) => ({
+        id: ctrip.id || existing?.id || null,
+        name: ctrip.name || existing?.name || fallbackName,
+        hotel_id: hotelIdText,
+        ctrip_hotel_id: ctrip.ctrip_hotel_id || existing?.ctrip_hotel_id || existing?.ctripHotelId || existing?.ota_hotel_id || '',
+        cookies: ctrip.cookies,
+        url: ctrip.url || existing?.url || defaultUrl,
+        node_id: ctrip.node_id || existing?.node_id || '24588',
+    });
+    const buildHotelOtaMeituanConfigSavePayload = ({ hotelIdText = '', meituan = {}, existing = null, fallbackName = '' } = {}) => ({
+        id: meituan.id || existing?.id || null,
+        name: meituan.name || existing?.name || fallbackName,
+        hotel_id: hotelIdText,
+        partner_id: meituan.partner_id,
+        poi_id: meituan.poi_id,
+        cookies: meituan.cookies,
+        hotel_room_count: meituan.hotel_room_count || existing?.hotel_room_count || '',
+        competitor_room_count: meituan.competitor_room_count || existing?.competitor_room_count || '',
+    });
     const knowledgeCenterBaseSourceOptions = ['document', 'video', 'link', 'text', 'strategy', 'manual', 'url', 'ota', 'ctrip', 'meituan', 'ai', 'revenue_research', 'ml_distillation'];
     const knowledgeImportModeMetaMap = {
         document: { label: '门店文档', placeholder: '整份门店文档会作为一条资料读取，不按空行拆分' },
@@ -1024,6 +1043,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         validateRegisterRequestPayload,
         createHotelForm,
         buildHotelSavePayload,
+        buildHotelOtaCtripConfigSavePayload,
+        buildHotelOtaMeituanConfigSavePayload,
         knowledgeCenterBaseSourceOptions,
         knowledgeImportModeMetaMap,
         buildKnowledgeImportRequestBody,

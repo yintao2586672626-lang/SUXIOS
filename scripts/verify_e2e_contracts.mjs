@@ -83,6 +83,8 @@ requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user f
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
+requireText('public/index.html', 'ctrip-static.js?v=20260612-manual-tab-perf', 'entry bumps Ctrip static helper version for manual tab/performance exports');
+requireText('public/index.html', 'meituan-static.js?v=20260612-manual-tab-perf', 'entry bumps Meituan static helper version for manual tab/performance exports');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -241,9 +243,16 @@ requireText('public/index.html', 'let ctripConfigListLoadingPromise = null;', 'e
 requireText('public/index.html', 'if (ctripConfigListLoadingPromise) {\n                    return ctripConfigListLoadingPromise;', 'Ctrip config-list loader reuses in-flight requests');
 requireText('public/index.html', 'const ctripConfigDetailCache = new Map();', 'entry caches full Ctrip config details for manual-fetch hotel switching');
 requireText('public/index.html', 'const ctripConfigDetailLoadingPromises = new Map();', 'entry deduplicates concurrent full Ctrip config detail loads');
+requireText('public/index.html', 'const ensureCtripConfigSecret = async (config, options = {}) => {', 'Ctrip full config detail loader supports silent background prewarm');
+requireText('public/index.html', "console.error('[CTrip] 预热完整配置失败:', e);", 'Ctrip config-detail prewarm failure stays silent to the user');
+requireText('public/index.html', 'const prewarmSelectedCtripConfigSecret = (config = findCtripConfigByHotelId(selectedCtripHotelId.value)) => {', 'entry can prewarm selected Ctrip config detail without blocking manual fetch UI');
+requireText('public/index.html', 'deferUiTask(() => ensureCtripConfigSecret(config, { silent: true }), 80);', 'Ctrip selected config detail prewarm is scheduled outside the current interaction');
 requireText('public/index.html', "clearCtripConfigDetailCache(body?.id || '');", 'entry invalidates Ctrip config detail cache after manual config saves');
 requireText('public/index.html', 'const scheduleCtripEbookingDeferredStartupRefresh = () => {', 'Ctrip manual page defers non-first-paint startup refreshes');
 requireText('public/index.html', "if (currentPage.value !== 'ctrip-ebooking') return null;", 'deferred Ctrip manual startup refresh is scoped to the active page');
+requireText('public/index.html', "prewarmSelectedCtripConfigSecret();\n                            return loadLatestCtripData({ silent: true });", 'Ctrip manual page prewarms selected config detail during deferred startup refresh');
+requireText('public/index.html', "prewarmSelectedCtripConfigSecret();\n                                deferUiTask(() => applyCtripHotelConfig(false), 80);", 'Ctrip config-list loader does not wait for full config detail before returning');
+requireNoText('public/index.html', "if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;", 'Ctrip config-list loader must not wait for full config detail application');
 requireText('public/index.html', "runPageLoadOnce(newPage, 'main', async () => {\n                        await Promise.allSettled([\n                            loadOnlineDataHotelList(),\n                            loadDataHealthPanel('light'),", 'Ctrip manual page first paint keeps only hotel list and light health status in the initial load');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => Promise.allSettled([\n                        loadOnlineDataHotelList(),\n                        loadCtripConfigList().then(() => loadLatestCtripData({ silent: true })),\n                        loadDataHealthPanel('light'),\n                        loadCookiesList(),\n                        loadBookmarklet(),\n                    ]));", 'Ctrip manual page must not start config/latest/cookie/bookmarklet work in the first-paint loader');
 requireText('public/index.html', 'const openCtripManualTab = (tab) => {', 'Ctrip manual tabs use a non-blocking tab switch helper');
@@ -269,6 +278,13 @@ requireNoText('public/index.html', 'const openCtripCookieCreateFromHealth = asyn
 requireText('public/index.html', 'const scheduleMeituanEbookingDeferredStartupRefresh = () => {', 'Meituan manual page defers config matching and secondary startup refreshes');
 requireText('public/index.html', "if (currentPage.value !== 'meituan-ebooking') return null;", 'deferred Meituan manual startup refresh is scoped to the active page');
 requireText('public/index.html', 'scheduleMeituanEbookingDeferredStartupRefresh();', 'Meituan manual page schedules deferred startup refresh after route entry');
+requireText('public/index.html', 'const ensureMeituanConfigSecret = async (config, options = {}) => {', 'Meituan full config detail loader supports silent background prewarm');
+requireText('public/index.html', "console.error('[Meituan] 预热完整配置失败:', e);", 'Meituan config-detail prewarm failure stays silent to the user');
+requireText('public/index.html', 'const prewarmSelectedMeituanConfigSecret = (config = selectedMeituanHotelConfig.value) => {', 'entry can prewarm selected Meituan config detail without blocking manual fetch UI');
+requireText('public/index.html', 'deferUiTask(() => ensureMeituanConfigSecret(config, { silent: true }), 80);', 'Meituan selected config detail prewarm is scheduled outside the current interaction');
+requireText('public/index.html', 'loadMeituanConfigList().then(() => prewarmSelectedMeituanConfigSecret()),', 'Meituan manual page prewarms selected config detail during deferred startup refresh');
+requireText('public/index.html', "prewarmSelectedMeituanConfigSecret();\n                                deferUiTask(() => applyMeituanHotelConfig(false, { refreshList: false }), 80);", 'Meituan config-list loader does not wait for full config detail before returning');
+requireNoText('public/index.html', "if (meituanForm.value.hotelId) {\n                                await applyMeituanHotelConfig(false, { refreshList: false });\n                            }\n                            return meituanConfigList.value;", 'Meituan config-list loader must not wait for full config detail application');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => loadMeituanConfigList());", 'Meituan manual page must not synchronously request saved configs from the first-paint loader');
 requireText('public/index.html', 'const openMeituanManualTab = (tab) => {', 'Meituan manual tabs use a non-blocking tab switch helper');
 requireText('public/index.html', 'deferUiTask(() => runMeituanManualTabSwitch({', 'Meituan manual tab switch delegates async branching to static helper');
@@ -368,6 +384,8 @@ requireText('public/index.html', "requireSystemStatic('getDataConfigTypeDefaults
 requireText('public/index.html', "requireSystemStatic('getSystemConfigDefaults')", 'entry uses extracted system config defaults');
 requireText('public/index.html', "requireSystemStatic('createHotelForm')", 'entry uses extracted hotel form builder');
 requireText('public/index.html', "requireSystemStatic('buildHotelSavePayload')", 'entry uses extracted hotel save payload builder');
+requireText('public/index.html', "requireSystemStatic('buildHotelOtaCtripConfigSavePayload')", 'entry uses extracted hotel Ctrip OTA config save payload builder');
+requireText('public/index.html', "requireSystemStatic('buildHotelOtaMeituanConfigSavePayload')", 'entry uses extracted hotel Meituan OTA config save payload builder');
 requireText('public/system-static.js', 'const createLoginForm', 'system static builds login default forms');
 requireText('public/system-static.js', 'const getRememberedLoginAccount', 'system static reads remembered login account and clears legacy password');
 requireText('public/system-static.js', 'const buildLoginRequestPayload', 'system static builds login request payloads');
@@ -381,6 +399,8 @@ requireText('public/system-static.js', 'const getDataConfigTypeDefaults', 'syste
 requireText('public/system-static.js', 'const getSystemConfigDefaults', 'system static owns system config defaults');
 requireText('public/system-static.js', 'const createHotelForm', 'system static builds hotel admin forms');
 requireText('public/system-static.js', 'const buildHotelSavePayload', 'system static builds hotel save payloads');
+requireText('public/system-static.js', 'const buildHotelOtaCtripConfigSavePayload', 'system static builds hotel Ctrip OTA config save payloads');
+requireText('public/system-static.js', 'const buildHotelOtaMeituanConfigSavePayload', 'system static builds hotel Meituan OTA config save payloads');
 requireText('public/index.html', "requireSystemStatic('buildKnowledgeImportRequestBody')", 'entry uses extracted knowledge import request body builder');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportSuccessMessage')", 'entry uses extracted knowledge import success message');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportErrorMessage')", 'entry uses extracted knowledge import error message');
@@ -389,6 +409,8 @@ requireText('public/system-static.js', 'const knowledgeImportSuccessMessage', 's
 requireText('public/system-static.js', 'const knowledgeImportErrorMessage', 'system static formats knowledge import error message');
 requireNoText('public/index.html', "hotelForm.value = { id: null, name: '', code: getNextHotelCode()", 'hotel create defaults are not re-inlined in the SPA entry');
 requireNoText('public/index.html', 'name: hotelForm.value.name.trim(),\n                    code: normalizedCode,', 'hotel save payload is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'ctrip_hotel_id: ctrip.ctrip_hotel_id || existing?.ctrip_hotel_id || existing?.ctripHotelId || existing?.ota_hotel_id || \'\',', 'hotel Ctrip OTA config save payload is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'hotel_room_count: meituan.hotel_room_count || existing?.hotel_room_count || \'\',', 'hotel Meituan OTA config save payload is not re-inlined in the SPA entry');
 requireNoText('public/index.html', "successCount = Number(res.data?.success_count", 'knowledge import success message is not re-inlined in the SPA entry');
 requireNoText('public/index.html', "error.name === 'AbortError'", 'knowledge import abort message is not re-inlined in the SPA entry');
 {
@@ -5088,6 +5110,8 @@ try {
   const validateRegisterRequestPayload = context.window.SUXI_SYSTEM_STATIC?.validateRegisterRequestPayload;
   const createHotelForm = context.window.SUXI_SYSTEM_STATIC?.createHotelForm;
   const buildHotelSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelSavePayload;
+  const buildHotelOtaCtripConfigSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelOtaCtripConfigSavePayload;
+  const buildHotelOtaMeituanConfigSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelOtaMeituanConfigSavePayload;
   if (typeof getDefaultDataConfigForm !== 'function') {
     checks.push({
       file: 'public/system-static.js',
@@ -5292,6 +5316,60 @@ try {
         && payload.status === 1
         && payload.description === '经营画像',
       detail: 'createHotelForm/buildHotelSavePayload samples',
+    });
+  }
+  if (typeof buildHotelOtaCtripConfigSavePayload !== 'function' || typeof buildHotelOtaMeituanConfigSavePayload !== 'function') {
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system static exports hotel OTA config payload helpers',
+      ok: false,
+      detail: 'buildHotelOtaCtripConfigSavePayload/buildHotelOtaMeituanConfigSavePayload',
+    });
+  } else {
+    const ctripPayload = buildHotelOtaCtripConfigSavePayload({
+      hotelIdText: '8',
+      ctrip: { cookies: 'new-cookie' },
+      existing: { id: 3, name: 'Existing Ctrip', ctripHotelId: 'ota-100', ota_hotel_id: 'ota-200', url: 'existing-url', node_id: 'node-old' },
+      fallbackName: 'Fallback Ctrip',
+      defaultUrl: 'default-url',
+    });
+    const ctripOverridePayload = buildHotelOtaCtripConfigSavePayload({
+      hotelIdText: '9',
+      ctrip: { id: 7, name: 'New Ctrip', ctrip_hotel_id: 'ota-new', cookies: 'cookie-new', url: 'new-url', node_id: 'node-new' },
+      existing: { id: 3, name: 'Existing Ctrip', ctripHotelId: 'ota-100', url: 'existing-url', node_id: 'node-old' },
+      fallbackName: 'Fallback Ctrip',
+      defaultUrl: 'default-url',
+    });
+    const meituanPayload = buildHotelOtaMeituanConfigSavePayload({
+      hotelIdText: '8',
+      meituan: { partner_id: 'partner', poi_id: 'poi-1', cookies: 'mt-cookie', hotel_room_count: '', competitor_room_count: '20' },
+      existing: { id: 4, name: 'Existing Meituan', hotel_room_count: '80', competitor_room_count: '60' },
+      fallbackName: 'Fallback Meituan',
+    });
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'hotel OTA config payload helpers preserve save-field precedence',
+      ok: ctripPayload.id === 3
+        && ctripPayload.name === 'Existing Ctrip'
+        && ctripPayload.hotel_id === '8'
+        && ctripPayload.ctrip_hotel_id === 'ota-100'
+        && ctripPayload.cookies === 'new-cookie'
+        && ctripPayload.url === 'existing-url'
+        && ctripPayload.node_id === 'node-old'
+        && ctripOverridePayload.id === 7
+        && ctripOverridePayload.name === 'New Ctrip'
+        && ctripOverridePayload.ctrip_hotel_id === 'ota-new'
+        && ctripOverridePayload.url === 'new-url'
+        && ctripOverridePayload.node_id === 'node-new'
+        && meituanPayload.id === 4
+        && meituanPayload.name === 'Existing Meituan'
+        && meituanPayload.hotel_id === '8'
+        && meituanPayload.partner_id === 'partner'
+        && meituanPayload.poi_id === 'poi-1'
+        && meituanPayload.cookies === 'mt-cookie'
+        && meituanPayload.hotel_room_count === '80'
+        && meituanPayload.competitor_room_count === '20',
+      detail: 'buildHotelOtaCtripConfigSavePayload/buildHotelOtaMeituanConfigSavePayload samples',
     });
   }
 } catch (error) {
