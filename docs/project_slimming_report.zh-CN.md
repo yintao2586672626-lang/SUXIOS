@@ -1259,6 +1259,19 @@
 - 已验证：`C:\xampp\php\php.exe -l app\controller\Hotel.php`、`C:\xampp\php\php.exe -l app\controller\SystemConfigController.php`、`C:\xampp\php\php.exe -l app\model\SystemConfig.php`、`C:\xampp\php\php.exe -l app\controller\SystemNotificationController.php`、`C:\xampp\php\php.exe -l public\router.php`、`node --check scripts\verify_p0_learning_contract.mjs`、`node --check scripts\verify_platform_batch_health_contract.mjs`、`node --check scripts\verify_platform_data_source_contract.mjs`、`node --check tests\automation\manual_minimum_credential_ui.test.mjs`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\SystemNotificationTest.php`、`node scripts\verify_platform_batch_health_contract.mjs`、`node scripts\verify_platform_data_source_contract.mjs`、`node --test tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:p0-learning`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍需继续拆分或明确 disposition；PR #2 继续保持 Draft，不能作为发布 ready 状态。
 
+## 2026-06-11 保存点：扩张/模拟静态按需加载与平台绑定预设外移
+
+- `public/index.html` 不再首屏同步加载 `expansion-static-options.js`；扩张、市场评估、标杆选模、协同效率、战略推演和可研页面进入时按需加载该静态配置。市场评估、标杆选模、协同效率、战略推演、可研生成、可研复制、扩张历史详情和战略历史详情在执行前显式等待 `ensureExpansionStaticReady()`；加载失败会 toast 并抛错，不用空配置兜底掩盖缺失。
+- `public/index.html` 不再首屏同步加载 `simulation-static.js`；模拟测算、可研、标杆选模、协同效率、资产定价、时机推演和决策看板页面进入时按需加载该静态配置。模拟历史详情、转让历史详情、模拟计算、资产定价、时机推演、决策看板、标杆选模、协同效率和可研生成在执行前显式等待 `ensureSimulationStaticReady()`。
+- `public/system-static.js` 新增 `platformAccountBindingGuidePresetRows` 和 `getPlatformAccountBindingGuideRows()`，承载携程 Profile、美团 Profile、Cookie/API 三个平台账号绑定引导预设；`public/index.html` 通过启动前可用的 `requireAppSystemStatic('getPlatformAccountBindingGuideRows')` 读取并渲染，并给 `system-static.js` 增加版本参数避免旧缓存继续执行，不再内联该 3 组预设。
+- 本轮不改变平台账号绑定接口、OTA 采集接口、账号凭据保存方式、数据源状态计算、Profile 状态展示、评论正文/手机号边界或 OTA 渠道口径；`allowed_hosts` 返回时仍复制数组，避免 UI 侧误改共享预设。
+- 更新守卫：`verify_public_entry_guard.mjs` 禁止首屏同步加载 `expansion-static-options.js` 和 `simulation-static.js`，要求保留两类静态配置懒加载器、进入相关页面时加载，并要求战略/模拟/转让历史复用前先加载对应静态配置；`verify_simulation_p2.mjs` 对齐模拟静态懒加载边界；`verify_platform_account_guide_contract.mjs` 改为从 `public/system-static.js` 校验三类绑定预设，并要求 `public/index.html` 不再内联 `ctrip-profile` 等预设 key。
+- 清理执行：`npm.cmd run self:clean:dry-run` 确认仅 `runtime` 本地产物目标；本轮执行 `npm.cmd run self:clean` 清理初始 runtime 目标，验证后又移除新生成 runtime 目标约 `1.48 MB`；最终默认可清理目标为 `0 MB`。
+- 当前自审计：完整目录约 `302.49 MB`；不含 `.git` 约 `92.69 MB`；不含 `.git` 和依赖约 `63.50 MB`；Git 跟踪文件约 `18.57 MB` / `614` 个；代码范围 `369` 个文件，`194,625` 行，非空 `178,759` 行；默认可清理目标为 `0 MB`。
+- 当前 split-map：`public/index.html` 为 `37,227` 行、`1,494` 个前端函数级块、`44` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,725` 行、`871` 个方法；两者仍是真实拆分候选。`public/tailwind.min.css` 仍按本地 CSS 依赖接受 disposition，不作为业务代码拆分目标。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_platform_account_guide_contract.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_simulation_p2.mjs`、`npm.cmd run verify:platform-account-guide`、`npm.cmd run verify:simulation-p2`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:p0-guards`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍需继续拆分或明确 disposition；PR #2 继续保持 Draft，不能作为发布 ready 状态。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

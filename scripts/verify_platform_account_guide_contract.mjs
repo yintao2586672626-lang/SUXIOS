@@ -24,8 +24,13 @@ const onlineDataTabs = sliceBetween(
   'data-testid="online-data-health-panel"'
 );
 const guideRows = sliceBetween(
+  systemStaticSource,
+  'const platformAccountBindingGuidePresetRows =',
+  'const getPlatformAccountBindingGuideRows ='
+);
+const guideRowsEntry = sliceBetween(
   publicSource,
-  'const platformAccountBindingGuideRows = computed',
+  "const getPlatformAccountBindingGuideRows = requireAppSystemStatic('getPlatformAccountBindingGuideRows')",
   'const platformAccountBindingStatusRows = computed'
 );
 const statusRows = sliceBetween(
@@ -84,7 +89,10 @@ const checks = [
       && guideRows.includes("key: 'meituan-profile'")
       && guideRows.includes("key: 'cookie-api'")
       && guideRows.includes("ingestionMethod: 'browser_profile'")
-      && guideRows.includes("ingestionMethod: 'api'"),
+      && guideRows.includes("ingestionMethod: 'api'")
+      && guideRowsEntry.includes("requireAppSystemStatic('getPlatformAccountBindingGuideRows')")
+      && guideRowsEntry.includes('computed(() => getPlatformAccountBindingGuideRows())')
+      && !publicSource.includes("key: 'ctrip-profile'"),
   },
   {
     name: 'Meituan Profile guide stays on non-privacy traffic/rank path',

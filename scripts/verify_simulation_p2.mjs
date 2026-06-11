@@ -75,11 +75,10 @@ const checks = [
       "requireSimulationStatic('createTransferPricingForm')",
       "requireSimulationStatic('createTransferTimingForm')",
       "requireSimulationStatic('buildTransferTimingDataCheck')",
+      'const hydrateSimulationStaticDefaults = () =>',
+      'await ensureSimulationStaticReady();',
     ],
     absent: [
-      'const benchmarkModelForm = ref({',
-      'const transferPricingForm = ref({',
-      'const transferTimingForm = ref({',
       'const exposure = Math.max(0, toNumber(form.exposure))',
     ],
   },

@@ -17,10 +17,9 @@
     <script src="data-health-static.js"></script>
     <script src="ota-diagnosis-static.js"></script>
     <script src="ai-analysis-static.js"></script>
-    <script src="system-static.js"></script>
+    <script src="system-static.js?v=20260611-platform-guide"></script>
     <script src="auto-fetch-static.js"></script>
     <script src="compass-static.js"></script>
-    <script src="simulation-static.js"></script>
     <script src="home-static.js"></script>
 </head>
 <body class="bg-gray-100">
@@ -18901,67 +18900,8 @@
                 }
                 return '敏感凭证 JSON，仅后端保存，例如 {"api_key":"...","cookies":"..."}';
             });
-            const platformAccountBindingGuideRows = computed(() => ([
-                {
-                    key: 'ctrip-profile',
-                    title: '携程 Profile',
-                    summary: '适合日常自动采集；系统复用门店浏览器登录态并监听业务 JSON。',
-                    methodLabel: 'browser_profile',
-                    platform: 'ctrip',
-                    dataType: 'business',
-                    ingestionMethod: 'browser_profile',
-                    icon: 'fas fa-user-check text-blue-600',
-                    toneClass: 'border-blue-100 bg-blue-50/60',
-                    evidence: 'profile_id / capture_gate',
-                    boundary: '不保存评论正文或客人手机号',
-                    nextAction: '先登录 Profile，再执行试采集',
-                    config: {
-                        profile_id: 'replace_with_ctrip_profile_id',
-                        hotel_id: 'replace_with_ctrip_hotel_id',
-                        capture_sections: 'default',
-                    },
-                },
-                {
-                    key: 'meituan-profile',
-                    title: '美团 Profile',
-                    summary: '适合流量、榜单、平台标签；页面触发接口后按批次入库。',
-                    methodLabel: 'browser_profile',
-                    platform: 'meituan',
-                    dataType: 'traffic',
-                    ingestionMethod: 'browser_profile',
-                    icon: 'fas fa-store text-orange-600',
-                    toneClass: 'border-orange-100 bg-orange-50/70',
-                    evidence: 'store_id / poi_id / capture_gate',
-                    boundary: '不配置订单手机号、房态、房源映射',
-                    nextAction: '先补 POI，再登录 Profile',
-                    config: {
-                        store_id: 'replace_with_meituan_store_id',
-                        poi_id: 'replace_with_meituan_poi_id',
-                        partner_id: 'replace_with_meituan_partner_id',
-                        capture_sections: 'traffic',
-                    },
-                },
-                {
-                    key: 'cookie-api',
-                    title: 'Cookie/API',
-                    summary: '适合已确认 URL、Payload、字段语义的轻量补数或巡检。',
-                    methodLabel: 'api',
-                    platform: 'ctrip',
-                    dataType: 'business',
-                    ingestionMethod: 'api',
-                    icon: 'fas fa-plug text-emerald-600',
-                    toneClass: 'border-emerald-100 bg-emerald-50/70',
-                    evidence: 'allowed_hosts / request_url',
-                    boundary: '密文只进后端 secret_json',
-                    nextAction: '先校验门店ID，再试采集',
-                    config: {
-                        request_url: 'replace_with_verified_api_url',
-                        method: 'GET',
-                        allowed_hosts: ['ebooking.ctrip.com', 'meituan.com'],
-                        hotel_id: 'replace_with_platform_hotel_id',
-                    },
-                },
-            ]));
+            const getPlatformAccountBindingGuideRows = requireAppSystemStatic('getPlatformAccountBindingGuideRows');
+            const platformAccountBindingGuideRows = computed(() => getPlatformAccountBindingGuideRows());
             const platformAccountBindingStatusRows = computed(() => {
                 const activeSources = (Array.isArray(platformDataSources.value) ? platformDataSources.value : []).filter(source => source?.enabled !== false && source?.status !== 'disabled');
                 const profileSources = activeSources.filter(source => String(source.ingestion_method || '') === 'browser_profile');
@@ -24085,6 +24025,9 @@
                 if (isExpansionStaticPage(newPage)) {
                     runPageLoadOnce(newPage, 'expansion-static-options', () => ensureExpansionStaticReady());
                 }
+                if (isSimulationStaticPage(newPage)) {
+                    runPageLoadOnce(newPage, 'simulation-static', () => ensureSimulationStaticReady());
+                }
                 if (newPage === 'ops-analysis' || newPage === 'ops-plan') {
                     runPageLoadOnce(newPage, 'operation-static', () => ensureOperationStaticReady());
                 }
@@ -24101,8 +24044,11 @@
                     ]));
                 }
                 if (newPage === 'ai-simulation') {
-                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
-                        !aiSimulationResult.value ? refreshSimulationState(true) : Promise.resolve(),
+                    runPageLoadOnce(newPage, 'main', async () => Promise.allSettled([
+                        ensureSimulationStaticReady().then(() => {
+                            hydrateSimulationStateFromStorage();
+                            if (!aiSimulationResult.value) refreshSimulationState(true);
+                        }),
                         loadSimulationRecords(),
                     ]));
                 }
@@ -35325,19 +35271,73 @@
             const aiStrategyLoading = ref(false);
             const aiStrategyRecordsLoading = ref(false);
 
-            const simulationStatic = window.SUXI_SIMULATION_STATIC;
-            if (!simulationStatic || typeof simulationStatic !== 'object') {
-                throw new Error('缺少模拟测算静态配置：simulation-static.js 未加载');
-            }
+            const simulationStaticScript = 'simulation-static.js';
+            const simulationStatic = ref(window.SUXI_SIMULATION_STATIC && typeof window.SUXI_SIMULATION_STATIC === 'object' ? window.SUXI_SIMULATION_STATIC : null);
+            const simulationStaticLoadError = ref('');
+            let simulationStaticLoadPromise = null;
+            const setSimulationStatic = (staticOptions) => {
+                if (!staticOptions || typeof staticOptions !== 'object') {
+                    throw new Error('Missing simulation static options: simulation-static.js not loaded.');
+                }
+                simulationStatic.value = staticOptions;
+                simulationStaticLoadError.value = '';
+                return staticOptions;
+            };
+            const loadSimulationStatic = () => {
+                if (window.SUXI_SIMULATION_STATIC && typeof window.SUXI_SIMULATION_STATIC === 'object') {
+                    return Promise.resolve(setSimulationStatic(window.SUXI_SIMULATION_STATIC));
+                }
+                if (!simulationStaticLoadPromise) {
+                    simulationStaticLoadPromise = new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = simulationStaticScript;
+                        script.async = true;
+                        script.onload = () => {
+                            if (window.SUXI_SIMULATION_STATIC && typeof window.SUXI_SIMULATION_STATIC === 'object') {
+                                resolve(setSimulationStatic(window.SUXI_SIMULATION_STATIC));
+                                return;
+                            }
+                            reject(new Error('Missing simulation static options: simulation-static.js not loaded.'));
+                        };
+                        script.onerror = () => reject(new Error('Missing simulation static options: simulation-static.js not loaded.'));
+                        document.head.appendChild(script);
+                    });
+                }
+                return simulationStaticLoadPromise;
+            };
+            const ensureSimulationStaticReady = async () => {
+                try {
+                    const staticOptions = await loadSimulationStatic();
+                    hydrateSimulationStaticDefaults();
+                    return staticOptions;
+                } catch (error) {
+                    simulationStaticLoadError.value = error.message || 'Simulation static options failed to load.';
+                    console.error('[simulation-static] load failed:', error);
+                    showToast(simulationStaticLoadError.value, 'error');
+                    throw error;
+                }
+            };
+            const hasSimulationStatic = computed(() => !!simulationStatic.value);
+            const simulationStaticOption = (key, defaultValue) => {
+                const value = simulationStatic.value?.[key];
+                return value === undefined || value === null ? defaultValue : value;
+            };
             const requireSimulationStatic = (key) => {
-                const value = simulationStatic[key];
+                const value = simulationStaticOption(key, null);
                 if (value === undefined || value === null) {
                     throw new Error(`模拟测算静态配置缺失：${key}`);
                 }
                 return value;
             };
-            const defaultSimulationInput = requireSimulationStatic('defaultSimulationInput');
-            const aiSimulationParams = ref({ ...defaultSimulationInput });
+            const requireSimulationStaticFunction = (key) => {
+                const fn = requireSimulationStatic(key);
+                if (typeof fn !== 'function') {
+                    throw new Error(`模拟测算静态函数缺失：${key}`);
+                }
+                return fn;
+            };
+            const defaultSimulationInput = computed(() => simulationStaticOption('defaultSimulationInput', {}));
+            const aiSimulationParams = ref({ ...defaultSimulationInput.value });
             const aiSimulationResult = ref(null);
             const aiSimulationScenarios = ref([]);
             const simulationRiskHints = ref([]);
@@ -35458,6 +35458,16 @@
                 'benchmark-model',
                 'collaboration-efficiency',
                 'sync-efficiency',
+            ].includes(page);
+            const isSimulationStaticPage = (page) => [
+                'ai-feasibility',
+                'ai-simulation',
+                'benchmark-model',
+                'collaboration-efficiency',
+                'sync-efficiency',
+                'asset-pricing',
+                'timing-strategy',
+                'decision-board',
             ].includes(page);
             const hydrateExpansionStaticDefaults = () => {
                 if (!hasExpansionStaticOptions.value) return;
@@ -35660,25 +35670,25 @@
                 marketEvaluationForm.value.target_customer = [primary, secondary].filter(Boolean).join('+');
             });
 
-            const createBenchmarkModelForm = requireSimulationStatic('createBenchmarkModelForm');
-            const createCollaborationProject = requireSimulationStatic('createCollaborationProject');
-            const createTransferPricingForm = requireSimulationStatic('createTransferPricingForm');
-            const createTransferTimingForm = requireSimulationStatic('createTransferTimingForm');
-            const benchmarkModelForm = ref(createBenchmarkModelForm());
+            const createBenchmarkModelForm = () => requireSimulationStatic('createBenchmarkModelForm')();
+            const createCollaborationProject = (...args) => requireSimulationStatic('createCollaborationProject')(...args);
+            const createTransferPricingForm = () => requireSimulationStatic('createTransferPricingForm')();
+            const createTransferTimingForm = () => requireSimulationStatic('createTransferTimingForm')();
+            const benchmarkModelForm = ref({});
             const benchmarkModelResult = ref(null);
             const benchmarkModelLoading = ref(false);
-            const benchmarkModelDetailFields = requireSimulationStatic('benchmarkModelDetailFields');
+            const benchmarkModelDetailFields = computed(() => simulationStaticOption('benchmarkModelDetailFields', []));
 
-            const collaborationProject = ref(createCollaborationProject(expansionDefaultOnlineDate));
-            const collaborationStatusOptions = requireSimulationStatic('collaborationStatusOptions');
-            const buildCollaborationTasks = requireSimulationStatic('buildCollaborationTasks');
-            const collaborationTasks = ref(buildCollaborationTasks(expansionDefaultOnlineDate));
+            const collaborationProject = ref({});
+            const collaborationStatusOptions = computed(() => simulationStaticOption('collaborationStatusOptions', []));
+            const buildCollaborationTasks = (...args) => requireSimulationStatic('buildCollaborationTasks')(...args);
+            const collaborationTasks = ref([]);
             const collaborationEfficiencyResult = ref(null);
             const collaborationEfficiencyLoading = ref(false);
             const expansionRecords = ref([]);
             const expansionRecordsLoading = ref(false);
-            const expansionRecordPageTypes = requireSimulationStatic('expansionRecordPageTypes');
-            const currentExpansionRecordType = computed(() => expansionRecordPageTypes[currentPage.value] || '');
+            const expansionRecordPageTypes = computed(() => simulationStaticOption('expansionRecordPageTypes', {}));
+            const currentExpansionRecordType = computed(() => expansionRecordPageTypes.value[currentPage.value] || '');
             const visibleExpansionRecords = computed(() => {
                 const recordType = currentExpansionRecordType.value;
                 if (!recordType) return expansionRecords.value;
@@ -35687,11 +35697,11 @@
             const hasMarketEvaluationHistory = computed(() => expansionRecords.value.some(record => record.record_type === 'market'));
             const hasExpansionHistory = computed(() => expansionRecords.value.length > 0);
 
-            const transferPricingForm = ref(createTransferPricingForm());
+            const transferPricingForm = ref({});
             const transferPricingResult = ref(null);
             const transferPricingLoading = ref(false);
 
-            const transferTimingForm = ref(createTransferTimingForm());
+            const transferTimingForm = ref({});
             const transferTimingResult = ref(null);
             const transferTimingLoading = ref(false);
             const transferDashboardResult = ref(null);
@@ -35704,7 +35714,7 @@
             const transferRecordsLoading = ref(false);
             const transferHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
             const transferAiModelOptions = availableAiModelOptions;
-            const buildTransferDecisionLayerRows = requireSimulationStatic('buildTransferDecisionLayerRows');
+            const buildTransferDecisionLayerRows = (...args) => hasSimulationStatic.value ? requireSimulationStatic('buildTransferDecisionLayerRows')(...args) : [];
             const transferDecisionLayerRows = computed(() => buildTransferDecisionLayerRows({
                 snapshot: transferSourceSnapshot.value,
                 sourceDate: transferSourceDate.value,
@@ -35715,27 +35725,64 @@
                 timingForm: transferTimingForm.value,
             }));
 
-            const transferPricingFields = requireSimulationStatic('transferPricingFields');
-            const transferTimingCompareFields = requireSimulationStatic('transferTimingCompareFields');
-            const transferTimingNumberFields = requireSimulationStatic('transferTimingNumberFields');
-            const transferTimingDataFields = requireSimulationStatic('transferTimingDataFields');
-            const buildTransferTimingDataCheck = requireSimulationStatic('buildTransferTimingDataCheck');
-            const simulationCostFields = requireSimulationStatic('simulationCostFields');
-            const simulationOtherIncomeFields = requireSimulationStatic('simulationOtherIncomeFields');
-            const simulationRevenueSummaryFromInput = requireSimulationStatic('simulationRevenueSummaryFromInput');
-            const simulationCostSummaryFromInput = requireSimulationStatic('simulationCostSummaryFromInput');
-            const buildSimulationInvestmentGroups = requireSimulationStatic('buildSimulationInvestmentGroups');
-            const simulationInvestmentTotalFromGroups = requireSimulationStatic('simulationInvestmentTotalFromGroups');
-            const simulationInvestmentPerRoomFromInput = requireSimulationStatic('simulationInvestmentPerRoom');
-            const buildSimulationRoomRevenueSegments = requireSimulationStatic('buildSimulationRoomRevenueSegments');
-            const buildSimulationCostGroups = requireSimulationStatic('buildSimulationCostGroups');
-            const buildSimulationOtaCommissionChannels = requireSimulationStatic('buildSimulationOtaCommissionChannels');
-            const isSimulationModelAnalysisVisible = requireSimulationStatic('isSimulationModelAnalysisVisible');
-            const simulationModelSourceLabelForAnalysis = requireSimulationStatic('simulationModelSourceLabel');
-            const generateRiskHints = requireSimulationStatic('generateRiskHints');
-            const normalizeSimulationModelAnalysis = requireSimulationStatic('normalizeSimulationModelAnalysis');
-            const normalizeSimulationInput = requireSimulationStatic('normalizeSimulationInput');
-            const validateSimulationInput = requireSimulationStatic('validateSimulationInput');
+            const transferPricingFields = computed(() => simulationStaticOption('transferPricingFields', []));
+            const transferTimingCompareFields = computed(() => simulationStaticOption('transferTimingCompareFields', []));
+            const transferTimingNumberFields = computed(() => simulationStaticOption('transferTimingNumberFields', []));
+            const transferTimingDataFields = computed(() => simulationStaticOption('transferTimingDataFields', []));
+            const buildTransferTimingDataCheck = (form) => {
+                if (hasSimulationStatic.value) return requireSimulationStatic('buildTransferTimingDataCheck')(form);
+                return {
+                    status: '配置加载中',
+                    message: '模拟测算静态配置尚未加载，暂不判定转让时机数据口径。',
+                    suggestion: '进入转让时机页面后将自动加载配置；加载失败会显示明确错误。',
+                    panelClass: 'bg-slate-50 border-slate-200',
+                    badgeClass: 'bg-slate-100 text-slate-600 border-slate-200',
+                    iconClass: 'fas fa-circle-notch fa-spin text-slate-400',
+                    suggestionClass: 'text-slate-500',
+                    derivedConversionLabel: '--',
+                    roomNightPerOrderLabel: '--',
+                    hasDataAnomaly: false,
+                    hasDataGap: true,
+                };
+            };
+            const simulationCostFields = computed(() => simulationStaticOption('simulationCostFields', []));
+            const simulationOtherIncomeFields = computed(() => simulationStaticOption('simulationOtherIncomeFields', []));
+            const simulationRevenueSummaryFromInput = (...args) => hasSimulationStatic.value ? requireSimulationStatic('simulationRevenueSummaryFromInput')(...args) : { monthlyRevenue: 0, adr: 0, occupancyRate: 0, otherIncome: 0 };
+            const simulationCostSummaryFromInput = (...args) => hasSimulationStatic.value ? requireSimulationStatic('simulationCostSummaryFromInput')(...args) : { monthlyCost: 0, fixedMonthlyCost: 0, otaCommissionRate: 0, otaCommission: 0 };
+            const buildSimulationInvestmentGroups = (...args) => hasSimulationStatic.value ? requireSimulationStatic('buildSimulationInvestmentGroups')(...args) : [];
+            const simulationInvestmentTotalFromGroups = (...args) => hasSimulationStatic.value ? requireSimulationStatic('simulationInvestmentTotalFromGroups')(...args) : 0;
+            const simulationInvestmentPerRoomFromInput = (...args) => hasSimulationStatic.value ? requireSimulationStatic('simulationInvestmentPerRoom')(...args) : 0;
+            const buildSimulationRoomRevenueSegments = (...args) => hasSimulationStatic.value ? requireSimulationStatic('buildSimulationRoomRevenueSegments')(...args) : [];
+            const buildSimulationCostGroups = (...args) => hasSimulationStatic.value ? requireSimulationStatic('buildSimulationCostGroups')(...args) : [];
+            const buildSimulationOtaCommissionChannels = (...args) => hasSimulationStatic.value ? requireSimulationStatic('buildSimulationOtaCommissionChannels')(...args) : [];
+            const isSimulationModelAnalysisVisible = (...args) => hasSimulationStatic.value ? requireSimulationStatic('isSimulationModelAnalysisVisible')(...args) : false;
+            const simulationModelSourceLabelForAnalysis = (...args) => hasSimulationStatic.value ? requireSimulationStatic('simulationModelSourceLabel')(...args) : '未生成';
+            const generateRiskHints = (...args) => hasSimulationStatic.value ? requireSimulationStatic('generateRiskHints')(...args) : [];
+            const normalizeSimulationModelAnalysis = (...args) => hasSimulationStatic.value ? requireSimulationStatic('normalizeSimulationModelAnalysis')(...args) : null;
+            const normalizeSimulationInput = (input) => hasSimulationStatic.value ? requireSimulationStatic('normalizeSimulationInput')(input) : {};
+            const validateSimulationInput = (...args) => requireSimulationStatic('validateSimulationInput')(...args);
+            const hydrateSimulationStaticDefaults = () => {
+                if (!hasSimulationStatic.value) return;
+                const defaults = defaultSimulationInput.value || {};
+                if (Object.keys(defaults).length) {
+                    aiSimulationParams.value = { ...defaults, ...(aiSimulationParams.value || {}) };
+                }
+                if (!Object.keys(benchmarkModelForm.value || {}).length) {
+                    benchmarkModelForm.value = createBenchmarkModelForm();
+                }
+                if (!Object.keys(collaborationProject.value || {}).length) {
+                    collaborationProject.value = createCollaborationProject(expansionDefaultOnlineDate);
+                }
+                if (!Array.isArray(collaborationTasks.value) || collaborationTasks.value.length === 0) {
+                    collaborationTasks.value = buildCollaborationTasks(expansionDefaultOnlineDate);
+                }
+                if (!Object.keys(transferPricingForm.value || {}).length) {
+                    transferPricingForm.value = createTransferPricingForm();
+                }
+                if (!Object.keys(transferTimingForm.value || {}).length) {
+                    transferTimingForm.value = createTransferTimingForm();
+                }
+            };
 
             const aiRound = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits));
             const formatCurrency = (value) => `¥${Math.round(toNumber(value)).toLocaleString()}`;
@@ -35954,7 +36001,7 @@
             };
 
             const isExpansionRecordVisibleOnPage = (record, page = currentPage.value) => {
-                const recordType = expansionRecordPageTypes[page] || '';
+                const recordType = expansionRecordPageTypes.value[page] || '';
                 return !recordType || record?.record_type === recordType;
             };
 
@@ -35963,6 +36010,9 @@
                 const requestPage = currentPage.value;
                 try {
                     await ensureExpansionStaticReady();
+                    if (isSimulationStaticPage(requestPage)) {
+                        await ensureSimulationStaticReady();
+                    }
                     const res = await request(`/expansion/records/${id}`);
                     if (res.code !== 200) throw new Error(res.message || '获取扩张记录详情失败');
                     if (!isStillOnRequestPage(requestPage)) return;
@@ -36056,6 +36106,7 @@
                 benchmarkModelLoading.value = true;
                 try {
                     await ensureExpansionStaticReady();
+                    await ensureSimulationStaticReady();
                     const res = await request('/expansion/benchmark-model', {
                         method: 'POST',
                         body: JSON.stringify(benchmarkModelForm.value)
@@ -36075,6 +36126,7 @@
                 collaborationEfficiencyLoading.value = true;
                 try {
                     await ensureExpansionStaticReady();
+                    await ensureSimulationStaticReady();
                     const res = await request('/expansion/collaboration-efficiency', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -36180,6 +36232,7 @@
 
                 transferSourceLoading.value = true;
                 try {
+                    await ensureSimulationStaticReady();
                     const query = `?hotel_id=${encodeURIComponent(hotelId)}&date=${encodeURIComponent(transferSourceDate.value || formatDate(new Date()))}`;
                     const res = await request('/transfer/source' + query);
                     if (res.code !== 200) throw new Error(res.message || '获取转让真实数据失败');
@@ -36240,6 +36293,7 @@
                 if (!id) return;
                 const requestPage = currentPage.value;
                 try {
+                    await ensureSimulationStaticReady();
                     const res = await request(`/transfer/records/${id}`);
                     if (res.code !== 200) throw new Error(res.message || '获取转让记录详情失败');
                     if (!isStillOnRequestPage(requestPage)) return;
@@ -36288,6 +36342,7 @@
                 if (!hotelId) return;
                 transferPricingLoading.value = true;
                 try {
+                    await ensureSimulationStaticReady();
                     const res = await request('/transfer/pricing', {
                         method: 'POST',
                         body: JSON.stringify(buildTransferPricingPayload(hotelId))
@@ -36309,6 +36364,7 @@
                 if (!hotelId) return;
                 transferTimingLoading.value = true;
                 try {
+                    await ensureSimulationStaticReady();
                     const res = await request('/transfer/timing', {
                         method: 'POST',
                         body: JSON.stringify(buildTransferTimingPayload(hotelId))
@@ -36334,6 +36390,7 @@
                 if (!hotelId) return;
                 transferDashboardLoading.value = true;
                 try {
+                    await ensureSimulationStaticReady();
                     const res = await request('/transfer/dashboard', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -36565,7 +36622,7 @@
             }
 
             function loadSimulationState() {
-                let input = { ...defaultSimulationInput };
+                let input = { ...defaultSimulationInput.value };
                 try {
                     const savedInput = JSON.parse(localStorage.getItem('suxios_simulation_input') || 'null');
                     if (savedInput) input = { ...input, ...normalizeSimulationInput(savedInput) };
@@ -36606,7 +36663,7 @@
                 const input = normalizeSimulationInput(record.input);
                 if (shouldReuseInput && Object.keys(input).length) {
                     suppressSimulationAutoRefresh = true;
-                    aiSimulationParams.value = { ...defaultSimulationInput, ...input };
+                    aiSimulationParams.value = { ...defaultSimulationInput.value, ...input };
                     setTimeout(() => { suppressSimulationAutoRefresh = false; }, 0);
                 }
                 aiSimulationResult.value = record.result || record.summary || aiSimulationResult.value;
@@ -36636,6 +36693,7 @@
                 if (!id) return;
                 const requestPage = currentPage.value;
                 try {
+                    await ensureSimulationStaticReady();
                     const res = await request(`/simulation/records/${id}`);
                     if (res.code !== 200) throw new Error(res.message || '量化模拟详情加载失败');
                     if (!isStillOnRequestPage(requestPage)) return;
@@ -36667,14 +36725,15 @@
             };
 
             const handleSimulation = async () => {
-                const payloadInput = { ...aiSimulationParams.value };
-                const message = validateSimulationInput(payloadInput);
-                if (message) {
-                    showToast(message, 'error');
-                    return;
-                }
                 aiSimulationLoading.value = true;
                 try {
+                    await ensureSimulationStaticReady();
+                    const payloadInput = { ...aiSimulationParams.value };
+                    const message = validateSimulationInput(payloadInput);
+                    if (message) {
+                        showToast(message, 'error');
+                        return;
+                    }
                     const res = await request('/simulation/calculate', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -36693,15 +36752,21 @@
                 }
             };
 
-            const loadedSimulationState = loadSimulationState();
-            aiSimulationParams.value = loadedSimulationState.input;
-            if (loadedSimulationState.result && loadedSimulationState.scenarios) {
-                aiSimulationResult.value = loadedSimulationState.result;
-                aiSimulationScenarios.value = loadedSimulationState.scenarios;
-                simulationRiskHints.value = generateRiskHints(loadedSimulationState.result, loadedSimulationState.scenarios);
-                simulationModelAnalysis.value = loadedSimulationState.modelAnalysis;
-            } else {
-                refreshSimulationState(true);
+            const hydrateSimulationStateFromStorage = () => {
+                if (!hasSimulationStatic.value) return;
+                const loadedSimulationState = loadSimulationState();
+                aiSimulationParams.value = loadedSimulationState.input;
+                if (loadedSimulationState.result && loadedSimulationState.scenarios) {
+                    aiSimulationResult.value = loadedSimulationState.result;
+                    aiSimulationScenarios.value = loadedSimulationState.scenarios;
+                    simulationRiskHints.value = generateRiskHints(loadedSimulationState.result, loadedSimulationState.scenarios);
+                    simulationModelAnalysis.value = loadedSimulationState.modelAnalysis;
+                } else {
+                    refreshSimulationState(true);
+                }
+            };
+            if (hasSimulationStatic.value) {
+                hydrateSimulationStateFromStorage();
             }
 
             watch(aiSimulationParams, () => {
@@ -36857,6 +36922,7 @@
                 aiFeasibilityError.value = '';
                 try {
                     await ensureExpansionStaticReady();
+                    await ensureSimulationStaticReady();
                     const url = aiFeasibilityRecordId.value
                         ? `/agent/feasibility-report/regenerate/${aiFeasibilityRecordId.value}`
                         : '/agent/feasibility-report/generate';

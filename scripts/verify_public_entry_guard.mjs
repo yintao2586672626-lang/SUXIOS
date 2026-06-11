@@ -136,6 +136,29 @@ if (!fs.existsSync(indexPath)) {
   if (!/ensureExpansionStaticReady\(\)/.test(content) || !/isExpansionStaticPage\(newPage\)/.test(content)) {
     failures.push('public/index.html must load expansion static data only when investment expansion pages are opened.');
   }
+  if (/<script\s+src=["']simulation-static\.js["']/.test(content)) {
+    failures.push('public/index.html must lazy-load simulation-static.js; the login and compass shell do not need simulation and transfer calculators.');
+  }
+  if (!/const\s+simulationStaticScript\s*=\s*["']simulation-static\.js["']/.test(content) || !/const\s+loadSimulationStatic\s*=\s*\(\)\s*=>/.test(content)) {
+    failures.push('public/index.html must keep an explicit lazy loader for simulation-static.js.');
+  }
+  if (!/ensureSimulationStaticReady\(\)/.test(content) || !/isSimulationStaticPage\(newPage\)/.test(content)) {
+    failures.push('public/index.html must load simulation static data only when simulation, feasibility, benchmark, collaboration, or transfer pages are opened.');
+  }
+  const simulationDetailLoader = content.slice(
+    content.indexOf('const loadSimulationDetail = async'),
+    content.indexOf('const reuseSimulationRecord = async')
+  );
+  if (!simulationDetailLoader.includes('await ensureSimulationStaticReady();')) {
+    failures.push('public/index.html must load simulation static data before reusing simulation history input.');
+  }
+  const transferDetailLoader = content.slice(
+    content.indexOf('const loadTransferDetail = async'),
+    content.indexOf('const reuseTransferRecord = async')
+  );
+  if (!transferDetailLoader.includes('await ensureSimulationStaticReady();')) {
+    failures.push('public/index.html must load simulation static data before reusing transfer history input.');
+  }
   const strategyDetailLoader = content.slice(
     content.indexOf('const loadStrategyDetail = async'),
     content.indexOf('const reuseStrategyRecord = async')

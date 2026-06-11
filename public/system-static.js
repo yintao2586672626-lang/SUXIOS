@@ -506,6 +506,74 @@ window.SUXI_SYSTEM_STATIC = (() => {
         campaign_id: '',
         time_unit: 'day',
     });
+    const platformAccountBindingGuidePresetRows = [
+        {
+            key: 'ctrip-profile',
+            title: '携程 Profile',
+            summary: '适合日常自动采集；系统复用门店浏览器登录态并监听业务 JSON。',
+            methodLabel: 'browser_profile',
+            platform: 'ctrip',
+            dataType: 'business',
+            ingestionMethod: 'browser_profile',
+            icon: 'fas fa-user-check text-blue-600',
+            toneClass: 'border-blue-100 bg-blue-50/60',
+            evidence: 'profile_id / capture_gate',
+            boundary: '不保存评论正文或客人手机号',
+            nextAction: '先登录 Profile，再执行试采集',
+            config: {
+                profile_id: 'replace_with_ctrip_profile_id',
+                hotel_id: 'replace_with_ctrip_hotel_id',
+                capture_sections: 'default',
+            },
+        },
+        {
+            key: 'meituan-profile',
+            title: '美团 Profile',
+            summary: '适合流量、榜单、平台标签；页面触发接口后按批次入库。',
+            methodLabel: 'browser_profile',
+            platform: 'meituan',
+            dataType: 'traffic',
+            ingestionMethod: 'browser_profile',
+            icon: 'fas fa-store text-orange-600',
+            toneClass: 'border-orange-100 bg-orange-50/70',
+            evidence: 'store_id / poi_id / capture_gate',
+            boundary: '不配置订单手机号、房态、房源映射',
+            nextAction: '先补 POI，再登录 Profile',
+            config: {
+                store_id: 'replace_with_meituan_store_id',
+                poi_id: 'replace_with_meituan_poi_id',
+                partner_id: 'replace_with_meituan_partner_id',
+                capture_sections: 'traffic',
+            },
+        },
+        {
+            key: 'cookie-api',
+            title: 'Cookie/API',
+            summary: '适合已确认 URL、Payload、字段语义的轻量补数或巡检。',
+            methodLabel: 'api',
+            platform: 'ctrip',
+            dataType: 'business',
+            ingestionMethod: 'api',
+            icon: 'fas fa-plug text-emerald-600',
+            toneClass: 'border-emerald-100 bg-emerald-50/70',
+            evidence: 'allowed_hosts / request_url',
+            boundary: '密文只进后端 secret_json',
+            nextAction: '先校验门店ID，再试采集',
+            config: {
+                request_url: 'replace_with_verified_api_url',
+                method: 'GET',
+                allowed_hosts: ['ebooking.ctrip.com', 'meituan.com'],
+                hotel_id: 'replace_with_platform_hotel_id',
+            },
+        },
+    ];
+    const getPlatformAccountBindingGuideRows = () => platformAccountBindingGuidePresetRows.map(row => ({
+        ...row,
+        config: {
+            ...(row.config || {}),
+            allowed_hosts: Array.isArray(row.config?.allowed_hosts) ? [...row.config.allowed_hosts] : row.config?.allowed_hosts,
+        },
+    }));
     const knowledgeDocumentTextExtensions = ['txt', 'md', 'markdown', 'csv', 'json', 'log'];
     const knowledgeDocumentHtmlExtensions = ['html', 'htm'];
     const knowledgeDocumentSupportedExtensions = [...knowledgeDocumentTextExtensions, ...knowledgeDocumentHtmlExtensions, 'docx'];
@@ -746,6 +814,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         aiGovernanceTabs,
         dataConfigProfiles,
         getDefaultDataConfigForm,
+        getPlatformAccountBindingGuideRows,
         knowledgeDocumentTextExtensions,
         knowledgeDocumentHtmlExtensions,
         knowledgeDocumentSupportedExtensions,
