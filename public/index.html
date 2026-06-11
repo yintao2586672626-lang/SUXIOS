@@ -24139,26 +24139,36 @@
                 pageLoadRequests.set(key, { loadedAt: current?.loadedAt || 0, promise });
                 return promise;
             };
+            const isVisibleOnlineDataTab = (tab) => currentPage.value === 'online-data' && onlineDataTab.value === tab;
             const schedulePlatformDataSourcePanelLoad = (options = {}) => runPageLoadOnce(
                 currentPage.value || 'online-data',
                 'platform-source-panel',
-                () => loadPlatformDataSourcePanel(options),
+                () => {
+                    if (!isVisibleOnlineDataTab('platform-sources')) return null;
+                    return loadPlatformDataSourcePanel(options);
+                },
                 options.force ? { force: true } : {}
             );
             const schedulePlatformSyncLogPanelRefresh = (options = {}) => runPageLoadOnce(
                 currentPage.value || 'online-data',
                 'platform-sync-log-panel',
-                () => Promise.allSettled([
-                    loadPlatformSyncTasks(),
-                    loadPlatformSyncLogs(),
-                    loadPlatformProfileStatus({ silent: true }),
-                ]),
+                () => {
+                    if (!isVisibleOnlineDataTab('platform-sources')) return null;
+                    return Promise.allSettled([
+                        loadPlatformSyncTasks(),
+                        loadPlatformSyncLogs(),
+                        loadPlatformProfileStatus({ silent: true }),
+                    ]);
+                },
                 options.force ? { force: true } : {}
             );
             const schedulePlatformAutoFetchPanelLoad = (options = {}) => runPageLoadOnce(
                 currentPage.value || 'online-data',
                 'platform-auto-panel',
-                () => loadAutoFetchPanel(options),
+                () => {
+                    if (!isVisibleOnlineDataTab('platform-auto')) return null;
+                    return loadAutoFetchPanel(options);
+                },
                 options.force ? { force: true } : {}
             );
             const scheduleCtripEbookingDeferredStartupRefresh = () => {
@@ -24215,7 +24225,7 @@
             const scheduleOnlineDataTabLoad = (newTab, options = {}) => {
                 const delay = Number(options.delayMs ?? 80);
                 const runIfCurrent = (task) => deferUiTask(() => {
-                    if (onlineDataTab.value !== newTab) return null;
+                    if (!isVisibleOnlineDataTab(newTab)) return null;
                     return task();
                 }, delay);
 
@@ -24231,7 +24241,7 @@
                         clearTimeout(dataLoadTimer);
                     }
                     dataLoadTimer = setTimeout(() => {
-                        if (onlineDataTab.value !== newTab) return;
+                        if (!isVisibleOnlineDataTab(newTab)) return;
                         ensureManualOnlineFetchConfigReady();
                         refreshOnlineData();
                     }, Number(options.delayMs ?? 100));
@@ -24478,6 +24488,12 @@
                 }
                 if (suppressNextOnlineDataTabWatcherLoad) {
                     suppressNextOnlineDataTabWatcherLoad = false;
+                    return;
+                }
+                if (currentPage.value !== 'online-data') {
+                    if (newTab === 'data-health') {
+                        suppressNextDataHealthTabLoad = false;
+                    }
                     return;
                 }
                 scheduleOnlineDataTabLoad(newTab);

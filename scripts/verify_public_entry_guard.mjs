@@ -359,11 +359,15 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html data-health drilldown must use openOnlineDataTab so tab switches do not double-trigger heavy loaders.');
   }
   if (!onlineDataTabWatchSource.includes('scheduleOnlineDataTabLoad(newTab)')
+    || !content.includes("const isVisibleOnlineDataTab = (tab) => currentPage.value === 'online-data' && onlineDataTab.value === tab;")
+    || !onlineDataTabSchedulerSource.includes('if (!isVisibleOnlineDataTab(newTab)) return null;')
+    || !onlineDataTabSchedulerSource.includes('if (!isVisibleOnlineDataTab(newTab)) return;')
+    || !onlineDataTabWatchSource.includes("if (currentPage.value !== 'online-data') {")
     || onlineDataTabWatchSource.includes("loadDataHealthPanel('light')")
     || onlineDataTabWatchSource.includes('refreshOnlineAnalysis()')
     || onlineDataTabWatchSource.includes('schedulePlatformAutoFetchPanelLoad()')
     || onlineDataTabWatchSource.includes('loadCtripProfileFields()')) {
-    failures.push('public/index.html online-data tab watcher must delegate to the deferred scheduler instead of running panel loads inline.');
+    failures.push('public/index.html online-data tab watcher must only delegate visible online-data tab work to the deferred scheduler instead of running panel loads inline.');
   }
   const ctripEbookingDefaultLoader = content.slice(
     content.indexOf("if (newPage === 'ctrip-ebooking')"),
@@ -550,10 +554,10 @@ if (!fs.existsSync(indexPath)) {
   if (!/newTab === ['"]platform-auto['"][\s\S]*schedulePlatformAutoFetchPanelLoad\((?:options)?\)/.test(onlineDataTabSchedulerSource)) {
     failures.push('public/index.html must lazy-load the platform-auto panel when the platform-auto tab is opened.');
   }
-  if (!/const\s+schedulePlatformAutoFetchPanelLoad\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-auto-panel['"],\s*\(\)\s*=>\s*loadAutoFetchPanel\(options\)/.test(content)
+  if (!/const\s+schedulePlatformAutoFetchPanelLoad\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-auto-panel['"],\s*\(\)\s*=>\s*\{[\s\S]*if\s*\(!isVisibleOnlineDataTab\(['"]platform-auto['"]\)\)\s*return\s+null;[\s\S]*return\s+loadAutoFetchPanel\(options\);[\s\S]*\}/.test(content)
     || !/const\s+openPlatformAutoTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)
     || !/const\s+openOnlinePlatformAutoTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)) {
-    failures.push('public/index.html must route platform-auto tab opens through one deduplicated page-load scheduler.');
+    failures.push('public/index.html must route platform-auto tab opens through one deduplicated visible-tab page-load scheduler.');
   }
   if (content.includes("onlineDataTab = 'platform-auto'; loadAutoFetchPanel()")
     || content.includes('onlineDataTab = "platform-auto"; loadAutoFetchPanel()')
@@ -592,13 +596,13 @@ if (!fs.existsSync(indexPath)) {
   if (!/deferUiTask\(\(\)\s*=>\s*Promise\.allSettled\(\[\s*loadPlatformProfileStatus\(\{\s*silent:\s*true\s*\}\),\s*loadAutoFetchPanel\(\{\s*force:\s*true\s*\}\),\s*\]\)\)/.test(content)) {
     failures.push('public/index.html must defer profile unbind follow-up refreshes instead of serially awaiting platform-auto reload.');
   }
-  if (!/const\s+schedulePlatformDataSourcePanelLoad\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-source-panel['"],\s*\(\)\s*=>\s*loadPlatformDataSourcePanel\(options\)/.test(content)
+  if (!/const\s+schedulePlatformDataSourcePanelLoad\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-source-panel['"],\s*\(\)\s*=>\s*\{[\s\S]*if\s*\(!isVisibleOnlineDataTab\(['"]platform-sources['"]\)\)\s*return\s+null;[\s\S]*return\s+loadPlatformDataSourcePanel\(options\);[\s\S]*\}/.test(content)
     || !/const\s+openPlatformSourcesTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)) {
-    failures.push('public/index.html must route platform source tab opens through one deduplicated page-load scheduler.');
+    failures.push('public/index.html must route platform source tab opens through one deduplicated visible-tab page-load scheduler.');
   }
-  if (!/const\s+schedulePlatformSyncLogPanelRefresh\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-sync-log-panel['"][\s\S]*loadPlatformSyncTasks\(\)[\s\S]*loadPlatformSyncLogs\(\)[\s\S]*loadPlatformProfileStatus\(\{\s*silent:\s*true\s*\}\)/.test(content)
+  if (!/const\s+schedulePlatformSyncLogPanelRefresh\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-sync-log-panel['"][\s\S]*if\s*\(!isVisibleOnlineDataTab\(['"]platform-sources['"]\)\)\s*return\s+null;[\s\S]*loadPlatformSyncTasks\(\)[\s\S]*loadPlatformSyncLogs\(\)[\s\S]*loadPlatformProfileStatus\(\{\s*silent:\s*true\s*\}\)/.test(content)
     || !content.includes('@click="schedulePlatformSyncLogPanelRefresh({ force: true })"')) {
-    failures.push('public/index.html must route platform sync-log refreshes through the shared scheduler instead of inline requests.');
+    failures.push('public/index.html must route platform sync-log refreshes through the shared visible-tab scheduler instead of inline requests.');
   }
   if (content.includes("onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()")
     || content.includes('onlineDataTab = "platform-sources"; loadPlatformDataSourcePanel()')) {

@@ -181,7 +181,9 @@ requireText('public/index.html', "newTab === 'platform-auto'", 'entry lazy-loads
 requireNoText('public/index.html', 'await loadAutoFetchPanel()', 'platform-auto navigation and profile follow-up refreshes do not block on the full panel reload');
 requireText('public/index.html', 'openPlatformAutoTab({ force: true, delayMs: 0 });', 'platform-auto navigation schedules full panel refresh through the shared tab scheduler');
 requireText('public/index.html', 'deferUiTask(() => Promise.allSettled([\n                            loadPlatformProfileStatus({ silent: true }),\n                            loadAutoFetchPanel({ force: true }),', 'profile unbind refreshes platform profile and auto-fetch state in deferred work');
+requireText('public/index.html', "const isVisibleOnlineDataTab = (tab) => currentPage.value === 'online-data' && onlineDataTab.value === tab;", 'online-data deferred loaders only start when the requested tab is still visible');
 requireText('public/index.html', "const schedulePlatformAutoFetchPanelLoad = (options = {}) => runPageLoadOnce(", 'platform auto-fetch panel opens through the shared page-load scheduler');
+requireText('public/index.html', "if (!isVisibleOnlineDataTab('platform-auto')) return null;", 'platform auto-fetch panel load is skipped after the user leaves the visible tab');
 requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>', 'platform auto tab opens through one deduplicated entrypoint');
 requireText('public/index.html', 'const openOnlinePlatformAutoTab = (options = {}) =>', 'cross-page platform auto navigation uses the deduplicated entrypoint');
 requireText('public/index.html', '@change="schedulePlatformAutoFetchPanelLoad({ force: true })"', 'platform-auto hotel switching refreshes through the shared scheduler');
@@ -192,6 +194,7 @@ requireNoText('public/index.html', '@change="loadAutoFetchPanel"', 'platform-aut
 requireNoText('public/index.html', '@click="loadAutoFetchPanel"', 'platform-auto refresh buttons do not bypass the shared scheduler');
 requireText('public/index.html', "const schedulePlatformDataSourcePanelLoad = (options = {}) => runPageLoadOnce(", 'platform source panel loads through the shared page-load scheduler');
 requireText('public/index.html', "const schedulePlatformSyncLogPanelRefresh = (options = {}) => runPageLoadOnce(", 'platform sync logs refresh through the shared page-load scheduler');
+requireText('public/index.html', "if (!isVisibleOnlineDataTab('platform-sources')) return null;", 'platform source and sync-log loads are skipped after the user leaves the visible tab');
 requireText('public/index.html', "const openPlatformSourcesTab = (options = {}) =>", 'platform source tab opens through a single deduplicated entrypoint');
 requireText('public/index.html', '@click="schedulePlatformSyncLogPanelRefresh({ force: true })"', 'platform source log button uses the non-blocking sync-log scheduler');
 requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()", 'platform source tab switches do not double-trigger the heavy data-source panel load');
@@ -337,6 +340,8 @@ requireText('public/index.html', 'if (!meituanConfigListLoaded.value && meituanC
 requireText('public/index.html', "if (newTab === 'data')", 'manual online-data tab routes through the shared tab-load scheduler');
 requireText('public/index.html', 'ensureManualOnlineFetchConfigReady();\n                        refreshOnlineData();', 'manual online-data tab prewarms saved platform configs without loading platform-auto panel');
 requireText('public/index.html', "const scheduleOnlineDataTabLoad = (newTab, options = {}) => {", 'online-data tabs share one deferred tab-load scheduler');
+requireText('public/index.html', 'if (!isVisibleOnlineDataTab(newTab)) return null;', 'online-data deferred tab loaders recheck the visible page and tab before running');
+requireText('public/index.html', "if (currentPage.value !== 'online-data') {\n                    if (newTab === 'data-health') {\n                        suppressNextDataHealthTabLoad = false;\n                    }\n                    return;\n                }", 'online-data tab watcher does not run generic loaders while Ctrip or Meituan manual pages own the tab state');
 requireText('public/index.html', "const openOnlineDataTab = (tab, options = {}) => {", 'online-data tab buttons use the shared non-blocking entrypoint');
 requireText('public/index.html', '@click="openOnlineDataTab(\'data-health\')"', 'data-health tab button switches immediately through the shared entrypoint');
 requireText('public/index.html', '@click="openOnlineDataTab(\'data\')"', 'manual data tab button switches immediately through the shared entrypoint');
@@ -611,6 +616,9 @@ requireNoText('app/controller/SystemNotificationController.php', 'filterRowsByCu
   });
 }
 requireText('app/model/SystemConfig.php', 'public static function getConfigsByKeys(array $keys): array', 'system config model supports bounded key reads');
+requireText('app/model/SystemConfig.php', 'private static array $valueCache = [];', 'system config model keeps request-local value cache for repeated key reads');
+requireText('app/model/SystemConfig.php', 'if (array_key_exists($key, self::$valueCache)) {', 'system config getValue checks request-local cache before querying');
+requireText('app/model/SystemConfig.php', "self::where('config_key', $key)->value('config_value')", 'system config getValue reads only the config_value column');
 requireNoText('public/index.html', 'const isItemVisible = (item) => {', 'visible menu permission filter is not re-inlined');
 requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform next action metadata is not re-inlined');
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');
@@ -939,6 +947,10 @@ requireText('public/index.html', 'online-data-ota-supplement', 'online data page
 requireText('public/index.html', 'ota_channel_supplement', 'frontend consumes OTA supplement summary from daily data summary');
 requireText('app/controller/OnlineData.php', "'ota_channel_supplement' =>", 'daily data summary returns OTA supplement summary');
 requireText('app/controller/OnlineData.php', "'scope' => 'ota_channel'", 'OTA supplement summary is explicitly scoped to OTA channel');
+requireText('app/service/OnlineDailyDataPersistenceService.php', 'final class OnlineDailyDataPersistenceService', 'online daily data persistence lives in a focused service');
+requireText('app/service/OnlineDailyDataPersistenceService.php', 'public function parseAndSaveTrafficData(', 'traffic persistence service owns traffic save orchestration');
+requireText('app/controller/OnlineData.php', 'return (new OnlineDailyDataPersistenceService())->parseAndSaveTrafficData(', 'OnlineData keeps only a compatibility wrapper for traffic persistence');
+requireNoText('app/controller/OnlineData.php', '$dataList = $this->extractCtripTrafficRows($responseData);', 'traffic persistence is not re-inlined in OnlineData');
 
 requireText('tests/automation/e2e-helpers.js', 'function modulePath', 'helpers expose module path mapping');
 requireText('tests/automation/e2e-helpers.js', 'function testIdForModule', 'helpers expose module test id selector');

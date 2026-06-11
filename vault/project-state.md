@@ -1768,6 +1768,16 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `252.67 MB`, without `.git` about `119.27 MB`, without `.git` and dependencies about `90.08 MB`, tracked files about `19.04 MB` / `620` files; code scope `375` files, `199495` total lines, and `183469` nonblank lines. Runtime cleanup is about `26.11 MB` / `837` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `887` checks; `self:split-map`; `self:audit`.
 
+## 2026-06-12 Progress: Visible Online-Data Deferred Loads and Traffic Persistence Split
+
+- `public/index.html` now uses `isVisibleOnlineDataTab(tab)` for online-data deferred panel loads. Platform auto-fetch, platform sources, sync-log refreshes, and generic online-data tab deferred tasks return `null` if the user has left the visible `online-data` page/tab.
+- The `watch(onlineDataTab)` path now exits while another page owns the shared `onlineDataTab` state, so Ctrip/Meituan manual pages do not accidentally trigger generic online-data panel loads.
+- Added `app/service/OnlineDailyDataPersistenceService.php` for `online_daily_data` column filtering, validation fields, period fields/query scoping, and traffic persistence orchestration.
+- `app/controller/OnlineData.php` keeps the existing private helper names as compatibility wrappers and delegates `parseAndSaveTrafficData()` to the new service. Routes, request payloads, response payloads, OTA collection, permissions, and database schema are unchanged.
+- Current split-map: `public/index.html` has `37452` lines, `1580` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` decreased from `26903` to `26547` lines, method count decreased from `867` to `865`, and its `traffic` domain span decreased from `309` to `111` lines. Both `public/index.html` and `app/controller/OnlineData.php` remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `255.6 MB`, without `.git` about `120.78 MB`, without `.git` and dependencies about `91.59 MB`, tracked files about `19.04 MB` / `620` files; code scope `375` files, `199248` total lines, and `183256` nonblank lines. Runtime cleanup is about `27.61 MB` / `923` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: PHP syntax checks for `app/controller/OnlineData.php` and `app/service/OnlineDailyDataPersistenceService.php`; `tests\OnlineDataTest.php --filter Traffic` with `18` tests and `189` assertions; full `tests\OnlineDataTest.php` with `139` tests and `1649` assertions; `verify:public-entry`; `verify:e2e-contracts` with `900` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
