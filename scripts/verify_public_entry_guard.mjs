@@ -303,9 +303,31 @@ if (!fs.existsSync(indexPath)) {
     || !/batchDeleteCtripConfigs = async[\s\S]*clearCtripConfigDetailCache\(id\);/.test(content)) {
     failures.push('public/index.html must invalidate cached full Ctrip config details after Ctrip config saves or deletes.');
   }
-  if (!/newTab === ['"]data['"][\s\S]{0,240}ensureManualOnlineFetchConfigReady\(\)/.test(content)
-    || !/item\.path === ['"]online-data['"] && item\.tab === ['"]data['"][\s\S]{0,180}ensureManualOnlineFetchConfigReady\(\)/.test(content)) {
+  const onlineDataTabSchedulerStart = content.indexOf('const scheduleOnlineDataTabLoad = (newTab, options = {}) => {');
+  const onlineDataTabSchedulerEnd = content.indexOf('const openOnlineDataTab =', onlineDataTabSchedulerStart);
+  const onlineDataTabSchedulerSource = onlineDataTabSchedulerStart >= 0 && onlineDataTabSchedulerEnd > onlineDataTabSchedulerStart
+    ? content.slice(onlineDataTabSchedulerStart, onlineDataTabSchedulerEnd)
+    : '';
+  const onlineDataTabWatchSource = content.slice(
+    content.indexOf('watch(onlineDataTab'),
+    content.indexOf('watch(() => meituanForm.value.hotelId')
+  );
+  if (!/newTab === ['"]data['"][\s\S]*ensureManualOnlineFetchConfigReady\(\)/.test(onlineDataTabSchedulerSource)
+    || !/item\.path === ['"]online-data['"][\s\S]*openOnlineDataTab\(item\.tab\)/.test(content)) {
     failures.push('public/index.html must prewarm saved platform configs when the online-data manual data tab is opened.');
+  }
+  if (!content.includes("@click=\"openOnlineDataTab('data-health')\"")
+    || !content.includes("@click=\"openOnlineDataTab('data')\"")
+    || content.includes("@click=\"onlineDataTab = 'data-health'; loadDataHealthPanel('light')\"")
+    || content.includes("@click=\"onlineDataTab = 'data'; refreshOnlineData()\"")) {
+    failures.push('public/index.html online-data tab buttons must switch immediately through openOnlineDataTab instead of loading data inline.');
+  }
+  if (!onlineDataTabWatchSource.includes('scheduleOnlineDataTabLoad(newTab)')
+    || onlineDataTabWatchSource.includes("loadDataHealthPanel('light')")
+    || onlineDataTabWatchSource.includes('refreshOnlineAnalysis()')
+    || onlineDataTabWatchSource.includes('schedulePlatformAutoFetchPanelLoad()')
+    || onlineDataTabWatchSource.includes('loadCtripProfileFields()')) {
+    failures.push('public/index.html online-data tab watcher must delegate to the deferred scheduler instead of running panel loads inline.');
   }
   const ctripEbookingDefaultLoader = content.slice(
     content.indexOf("if (newPage === 'ctrip-ebooking')"),
@@ -489,7 +511,7 @@ if (!fs.existsSync(indexPath)) {
     || downloadCenterTabSource.includes('await loadOnlineDataList();\n                    await loadOnlineDataHotelList();')) {
     failures.push('public/index.html download center tab switches must schedule list/config/AI loads after the tab changes.');
   }
-  if (!/newTab === ['"]platform-auto['"][\s\S]*schedulePlatformAutoFetchPanelLoad\(\)/.test(content)) {
+  if (!/newTab === ['"]platform-auto['"][\s\S]*schedulePlatformAutoFetchPanelLoad\((?:options)?\)/.test(onlineDataTabSchedulerSource)) {
     failures.push('public/index.html must lazy-load the platform-auto panel when the platform-auto tab is opened.');
   }
   if (!/const\s+schedulePlatformAutoFetchPanelLoad\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-auto-panel['"],\s*\(\)\s*=>\s*loadAutoFetchPanel\(options\)/.test(content)
@@ -518,8 +540,17 @@ if (!fs.existsSync(indexPath)) {
   if (content.includes('await loadAutoFetchPanel()')) {
     failures.push('public/index.html must not block platform-auto navigation or profile follow-up refreshes on the full auto-fetch panel reload.');
   }
-  const platformAutoNavigationRefreshCount = (content.match(/runPageLoadOnce\(['"]online-data['"],\s*['"]platform-auto-panel['"],\s*\(\)\s*=>\s*loadAutoFetchPanel\(\{\s*force:\s*true\s*\}\),\s*\{\s*force:\s*true\s*\}\)/g) || []).length;
-  if (platformAutoNavigationRefreshCount < 2) {
+  const openOnlinePlatformAutoTabSource = content.slice(
+    content.indexOf('const openOnlinePlatformAutoTab = (options = {}) => {'),
+    content.indexOf('const openPlatformSourcesTab =', content.indexOf('const openOnlinePlatformAutoTab = (options = {}) => {'))
+  );
+  const openHotelPlatformConsoleSource = content.slice(
+    content.indexOf('const openHotelPlatformConsole = async'),
+    content.indexOf('const openHotelPlatformAccountAction = async', content.indexOf('const openHotelPlatformConsole = async'))
+  );
+  if (!openOnlinePlatformAutoTabSource.includes('openPlatformAutoTab(options)')
+    || !openHotelPlatformConsoleSource.includes('openPlatformAutoTab({ force: true')
+    || openHotelPlatformConsoleSource.includes("runPageLoadOnce('online-data', 'platform-auto-panel'")) {
     failures.push('public/index.html must schedule platform-auto panel refreshes from notification and hotel console navigation without awaiting them.');
   }
   if (!/deferUiTask\(\(\)\s*=>\s*Promise\.allSettled\(\[\s*loadPlatformProfileStatus\(\{\s*silent:\s*true\s*\}\),\s*loadAutoFetchPanel\(\{\s*force:\s*true\s*\}\),\s*\]\)\)/.test(content)) {
@@ -568,10 +599,13 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("requireSystemStatic('buildHotelSavePayload')")
     || !content.includes("requireSystemStatic('buildHotelOtaCtripConfigSavePayload')")
     || !content.includes("requireSystemStatic('buildHotelOtaMeituanConfigSavePayload')")
+    || !content.includes("requireSystemStatic('buildHotelPlatformBindingRows')")
     || !content.includes('hotelForm.value = createHotelForm({ hotel, operatorName, parsedDescription });')
     || !content.includes('const payload = buildHotelSavePayload({')
     || !content.includes('JSON.stringify(buildHotelOtaCtripConfigSavePayload({')
-    || !content.includes('JSON.stringify(buildHotelOtaMeituanConfigSavePayload({')) {
+    || !content.includes('JSON.stringify(buildHotelOtaMeituanConfigSavePayload({')
+    || !content.includes('return buildHotelPlatformBindingRowsStatic({')
+    || content.includes('const meituanIdentifierMissing = [')) {
     failures.push('public/index.html must use system-static.js helpers for hotel admin forms and save payloads.');
   }
   if (!content.includes("requireAppSystemStatic('getRememberedLoginAccount')")
@@ -596,7 +630,8 @@ if (!fs.existsSync(indexPath)) {
   if (!systemStaticContent.includes('const createHotelForm = ({ hotel = null, operatorName = \'\', code = \'\', parsedDescription = {} } = {}) =>')
     || !systemStaticContent.includes('const buildHotelSavePayload = ({ form = {}, normalizedCode = \'\', operatorName = \'\', description = \'\' } = {}) => ({')
     || !systemStaticContent.includes('const buildHotelOtaCtripConfigSavePayload = ({ hotelIdText = \'\', ctrip = {}, existing = null, fallbackName = \'\', defaultUrl = \'\' } = {}) => ({')
-    || !systemStaticContent.includes('const buildHotelOtaMeituanConfigSavePayload = ({ hotelIdText = \'\', meituan = {}, existing = null, fallbackName = \'\' } = {}) => ({')) {
+    || !systemStaticContent.includes('const buildHotelOtaMeituanConfigSavePayload = ({ hotelIdText = \'\', meituan = {}, existing = null, fallbackName = \'\' } = {}) => ({')
+    || !systemStaticContent.includes('const buildHotelPlatformBindingRows = ({')) {
     failures.push('public/system-static.js must own hotel admin form defaults and save payload normalization.');
   }
   if (!systemStaticContent.includes('const createLoginForm = ({ username = \'\' } = {}) => ({')
@@ -710,9 +745,15 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("const buildOnlineHistoryQueryParams = requireDataHealthStatic('buildOnlineHistoryQueryParams');")
     || !content.includes('data-health-static.js?v=20260612-history-query')
     || !onlineHistorySource.includes('const params = buildOnlineHistoryQueryParams({')
+    || !content.includes('let onlineHistoryHotelListLoadingPromise = null;')
+    || !content.includes('const onlineHistoryHotelListLoaded = ref(false);')
+    || !content.includes('const refreshOnlineHistory = async (options = {}) => {')
+    || !content.includes("const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory({ refreshHotels: false }), 340);")
+    || content.includes('await Promise.all([loadOnlineHistory(), loadOnlineHistoryHotelList()]);')
+    || content.includes("schedulePostFetchRefresh('online-history', () => refreshOnlineHistory(), 340)")
     || onlineHistorySource.includes('const params = new URLSearchParams({')
     || onlineHistorySource.includes("params.append('hotel_id', filter.hotel_scope);")) {
-    failures.push('public/index.html must delegate online history query parameter construction to public/data-health-static.js.');
+    failures.push('public/index.html must delegate online history query construction and avoid reloading hotel filters on post-fetch history refresh.');
   }
   if (/ctrip_auto_fetch_mode:\s*['"]profile_browser['"]/.test(autoFetchModePayloadSource)) {
     failures.push('public/index.html must not force platform auto-fetch Ctrip runs through browser Profile by default.');

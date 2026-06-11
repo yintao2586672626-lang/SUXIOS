@@ -91,8 +91,10 @@ requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third
 requireText('public/index.html', 'filterVisibleMenuItems(menuItems.value, user.value)', 'entry uses extracted visible menu filter');
 requireText('public/system-static.js', 'const resolveMenuItems', 'system static module resolves menu config keys');
 requireText('public/system-static.js', 'const filterVisibleMenuItems', 'system static module filters visible menu items');
-requireText('public/index.html', 'buildHotelPlatformAccountRowStatic', 'entry uses extracted hotel platform account row builder');
+requireText('public/index.html', 'buildHotelPlatformBindingRowsStatic', 'entry uses extracted hotel platform binding rows builder');
 requireText('public/system-static.js', 'const buildHotelPlatformAccountRow', 'system static builds hotel platform account rows');
+requireText('public/system-static.js', 'const buildHotelPlatformBindingRows', 'system static builds hotel platform binding row groups');
+requireNoText('public/index.html', 'const meituanIdentifierMissing = [', 'hotel platform binding row group logic is not re-inlined');
 requireText('public/system-static.js', "target: 'profile-login'", 'system static keeps profile login direct target metadata');
 requireText('public/system-static.js', "target: 'sync-logs'", 'system static keeps sync logs direct target metadata');
 requireText('public/index.html', "requireCtripStatic('runCtripBrowserCaptureFlow')", 'entry uses extracted Ctrip browser capture flow runner');
@@ -173,7 +175,7 @@ requireText('public/index.html', 'const schedulePostFetchRefresh =', 'entry defe
 requireText('public/index.html', 'const AUTO_FETCH_PANEL_CACHE_TTL_MS', 'entry deduplicates platform auto-fetch panel loading');
 requireText('public/index.html', "newTab === 'platform-auto'", 'entry lazy-loads platform auto-fetch panel only on tab entry');
 requireNoText('public/index.html', 'await loadAutoFetchPanel()', 'platform-auto navigation and profile follow-up refreshes do not block on the full panel reload');
-requireText('public/index.html', "runPageLoadOnce('online-data', 'platform-auto-panel', () => loadAutoFetchPanel({ force: true }), { force: true })", 'platform-auto navigation schedules full panel refresh without blocking first interaction');
+requireText('public/index.html', 'openPlatformAutoTab({ force: true, delayMs: 0 });', 'platform-auto navigation schedules full panel refresh through the shared tab scheduler');
 requireText('public/index.html', 'deferUiTask(() => Promise.allSettled([\n                            loadPlatformProfileStatus({ silent: true }),\n                            loadAutoFetchPanel({ force: true }),', 'profile unbind refreshes platform profile and auto-fetch state in deferred work');
 requireText('public/index.html', "const schedulePlatformAutoFetchPanelLoad = (options = {}) => runPageLoadOnce(", 'platform auto-fetch panel opens through the shared page-load scheduler');
 requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>', 'platform auto tab opens through one deduplicated entrypoint');
@@ -322,7 +324,15 @@ requireText('public/index.html', 'if (!ctripConfigListLoaded.value && !ctripConf
 requireText('public/index.html', 'if (!meituanConfigListLoaded.value && !meituanConfigList.value.length)', 'manual online-data config prewarm does not refetch a known-empty Meituan config list');
 requireText('public/index.html', 'if (!ctripConfigListLoaded.value && ctripConfigList.value.length === 0) tasks.push(loadCtripConfigList());', 'hotel OTA config prewarm does not refetch a known-empty Ctrip config list');
 requireText('public/index.html', 'if (!meituanConfigListLoaded.value && meituanConfigList.value.length === 0) tasks.push(loadMeituanConfigList());', 'hotel OTA config prewarm does not refetch a known-empty Meituan config list');
-requireText('public/index.html', "item.path === 'online-data' && item.tab === 'data'", 'manual online-data tab prewarms saved platform configs without loading platform-auto panel');
+requireText('public/index.html', "if (newTab === 'data')", 'manual online-data tab routes through the shared tab-load scheduler');
+requireText('public/index.html', 'ensureManualOnlineFetchConfigReady();\n                        refreshOnlineData();', 'manual online-data tab prewarms saved platform configs without loading platform-auto panel');
+requireText('public/index.html', "const scheduleOnlineDataTabLoad = (newTab, options = {}) => {", 'online-data tabs share one deferred tab-load scheduler');
+requireText('public/index.html', "const openOnlineDataTab = (tab, options = {}) => {", 'online-data tab buttons use the shared non-blocking entrypoint');
+requireText('public/index.html', '@click="openOnlineDataTab(\'data-health\')"', 'data-health tab button switches immediately through the shared entrypoint');
+requireText('public/index.html', '@click="openOnlineDataTab(\'data\')"', 'manual data tab button switches immediately through the shared entrypoint');
+requireNoText('public/index.html', '@click="onlineDataTab = \'data-health\'; loadDataHealthPanel(\'light\')"', 'data-health tab button must not synchronously load the panel during click');
+requireNoText('public/index.html', '@click="onlineDataTab = \'data\'; refreshOnlineData()"', 'manual data tab button must not synchronously refresh during click');
+requireText('public/index.html', 'openOnlineDataTab(item.tab);', 'menu online-data tab navigation uses the shared tab-load scheduler');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
 requireText('public/index.html', 'const schedulePlatformProfileStatusRefresh', 'entry defers platform profile refresh after manual collection');
@@ -459,6 +469,12 @@ requireText('public/index.html', "requireDataHealthStatic('buildOnlineHistoryQue
 requireText('public/index.html', 'data-health-static.js?v=20260612-history-query', 'entry bumps data-health static helper version for online history query exports');
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
 requireText('public/index.html', 'const params = buildOnlineHistoryQueryParams({', 'online history loader delegates query parameter construction');
+requireText('public/index.html', 'let onlineHistoryHotelListLoadingPromise = null;', 'online history hotel filter options deduplicate in-flight hotel list loads');
+requireText('public/index.html', 'const onlineHistoryHotelListLoaded = ref(false);', 'online history hotel filter options track loaded state');
+requireText('public/index.html', 'const refreshOnlineHistory = async (options = {}) => {', 'online history refresh supports skipping hotel filter reloads');
+requireText('public/index.html', "const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory({ refreshHotels: false }), 340);", 'post-fetch history refresh does not reload the hotel filter list');
+requireNoText('public/index.html', 'await Promise.all([loadOnlineHistory(), loadOnlineHistoryHotelList()]);', 'online history refresh must not always reload the hotel filter list');
+requireNoText('public/index.html', "schedulePostFetchRefresh('online-history', () => refreshOnlineHistory(), 340)", 'post-fetch history refresh must skip hotel filter reloads');
 requireNoText('public/index.html', "params.append('hotel_id', filter.hotel_scope);", 'online history hotel scope query construction is not re-inlined');
 requireNoText('public/index.html', "text: '销售额(¥)'", 'analysis chart axis labels are not re-inlined in the SPA entry');
 {
@@ -5164,6 +5180,7 @@ try {
   const buildHotelSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelSavePayload;
   const buildHotelOtaCtripConfigSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelOtaCtripConfigSavePayload;
   const buildHotelOtaMeituanConfigSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelOtaMeituanConfigSavePayload;
+  const buildHotelPlatformBindingRows = context.window.SUXI_SYSTEM_STATIC?.buildHotelPlatformBindingRows;
   if (typeof getDefaultDataConfigForm !== 'function') {
     checks.push({
       file: 'public/system-static.js',
@@ -5422,6 +5439,48 @@ try {
         && meituanPayload.hotel_room_count === '80'
         && meituanPayload.competitor_room_count === '20',
       detail: 'buildHotelOtaCtripConfigSavePayload/buildHotelOtaMeituanConfigSavePayload samples',
+    });
+  }
+  if (typeof buildHotelPlatformBindingRows !== 'function') {
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system static exports hotel platform binding rows helper',
+      ok: false,
+      detail: 'buildHotelPlatformBindingRows',
+    });
+  } else {
+    const platformRows = buildHotelPlatformBindingRows({
+      hotel: { id: 8, name: 'Hotel A' },
+      ctripSource: { id: 31, status: 'success', config: { profile_id: 'ctrip-profile', hotel_id: 'ctrip-8' } },
+      meituanProfile: { id: 32, status: 'active', config: {} },
+      meituanConfig: { id: 4, cookies: 'mt-cookie' },
+      meituanMissingFields: ['partner_id', 'poi_id'],
+      helpers: {
+        hasPlatformHotelMismatch: () => false,
+        isPlatformSourceLoginExpired: () => false,
+        platformCaptureStatusCode: () => 'success',
+        platformAccountReason: statusCode => ({ text: statusCode, className: `reason-${statusCode}` }),
+        formatHotelBindingDate: value => value || '-',
+        platformLastSuccessText: () => 'last-success',
+        platformAccountStatusText: statusCode => statusCode,
+        platformAccountStatusClass: statusCode => `status-${statusCode}`,
+        platformCaptureStatusText: captureCode => captureCode,
+        platformCaptureStatusClass: captureCode => `capture-${captureCode}`,
+      },
+    });
+    const ctripRow = platformRows.find(row => row.platform === 'ctrip');
+    const meituanRow = platformRows.find(row => row.platform === 'meituan');
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'hotel platform binding rows preserve fallback source and missing-config semantics',
+      ok: platformRows.length === 2
+        && ctripRow?.level === 'ready'
+        && ctripRow?.loginItem?.binding?.profile_id === 'ctrip-profile'
+        && ctripRow?.canUnbind === false
+        && meituanRow?.level === 'partial'
+        && meituanRow?.statusCode === 'missing_config'
+        && meituanRow?.reasonText === 'missing_config',
+      detail: 'buildHotelPlatformBindingRows samples',
     });
   }
 } catch (error) {

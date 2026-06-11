@@ -1638,6 +1638,19 @@
 - 当前 self-audit：完整目录约 `239.43 MB`；不含 `.git` 约 `114.13 MB`；不含 `.git` 和依赖约 `84.94 MB`；Git 跟踪文件约 `18.97 MB / 618` 个；代码范围 `373` 个文件、`198,937` 行、非空 `182,941` 行；默认可清理目标为 `runtime` 约 `21.04 MB / 522` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\data-health-static.js`、`node --check public\meituan-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`814` checks）、`node --test tests\automation\ctrip_store_data_overview.test.mjs`（`20/20`）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
 
+## 2026-06-12 保存点：线上数据 Tab 调度与平台账号展示行收口
+
+- `public/index.html` 新增 `scheduleOnlineDataTabLoad()` 和 `openOnlineDataTab()`，把线上数据页的 `data-health`、`data`、`analysis`、`platform-auto`、`platform-sources`、`profile-fields` 与配置类 Tab 统一改为先切换视图、再后置加载；菜单入口也复用同一调度器。
+- 数据记录 Tab 打开时通过 `ensureManualOnlineFetchConfigReady()` 预热携程/美团已保存配置，但不打开完整 `platform-auto` 面板；`platform-auto` 入口和酒店高级设置入口统一走 `schedulePlatformAutoFetchPanelLoad()` / `openPlatformAutoTab()`，避免重新内联完整面板加载。
+- `loadOnlineHistoryHotelList()` 新增已加载标记和并发加载复用，`refreshOnlineHistory()` 支持只刷新历史列表，避免普通历史刷新重复等待酒店下拉列表。
+- `public/system-static.js` 新增 `buildHotelPlatformBindingRows()`，承载酒店管理里携程/美团平台账号展示行组装：携程 Profile/旧来源回退、Cookie 就绪判断、美团 `partner_id` / `poi_id` 缺口识别和 `missing_config` 状态都在静态 helper 内集中计算。
+- 修正平台账号行状态优先级：当美团 Profile 来源为 `active` 但关键平台标识缺失时，`missing_config` 继续显式暴露，不被 `source.status=active` 掩盖。
+- 本保存点不改变酒店保存接口、携程/美团配置接口、Profile 登录保存、OTA 采集、入库、字段口径、AI 分析、权限或数据库结构；缺失、失败、未配置、旧来源回退和过期异步结果继续显式处理。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求线上数据 Tab 使用统一调度器、平台自动采集入口走共享 scheduler、入口使用 `buildHotelPlatformBindingRows()`，并拒绝重新内联美团标识缺口数组；`verify_e2e_contracts.mjs` 覆盖 Tab 调度、平台自动采集共享入口、携程旧来源回退、美团缺配置状态和导出契约，当前 `verify:e2e-contracts` 覆盖 `832` 项检查。
+- 当前 split-map：`public/index.html` 为 `37,544` 行、`1,579` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，严格门禁未声明完成。
+- 当前 self-audit：完整目录约 `242.98 MB`，不含 `.git` 约 `115.17 MB`，不含 `.git` 和依赖约 `85.98 MB`，Git 跟踪文件约 `18.99 MB / 618` 个；代码范围 `373` 个文件、`199,093` 行、非空 `183,095` 行。默认可清理目标为 `runtime` 约 `22.07 MB / 599` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`832` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

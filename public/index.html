@@ -16,7 +16,7 @@
     <script src="meituan-static.js?v=20260612-manual-fetch-perf"></script>
     <script src="data-health-static.js?v=20260612-history-query"></script>
     <script src="ota-diagnosis-static.js?v=20260611-core-fetch"></script>
-    <script src="system-static.js?v=20260612-static-knowledge"></script>
+    <script src="system-static.js?v=20260612-platform-binding"></script>
     <script src="compass-static.js?v=20260611-open-fix"></script>
     <script src="home-static.js?v=20260611-open-fix"></script>
 </head>
@@ -12505,7 +12505,7 @@
                             <div class="p-4 sm:p-6">
                                 <!-- Tabs -->
                                 <div class="flex flex-wrap gap-2 border-b border-gray-200 pb-3 mb-6">
-                                    <button @click="onlineDataTab = 'data-health'; loadDataHealthPanel('light')"
+                                    <button @click="openOnlineDataTab('data-health')"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'data-health' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         酒店数据驾驶舱
                                     </button>
@@ -12521,7 +12521,7 @@
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'analysis' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         数据分析
                                     </button>
-                                    <button @click="onlineDataTab = 'data'"
+                                    <button @click="openOnlineDataTab('data')"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'data' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         数据记录
                                     </button>
@@ -13172,7 +13172,7 @@
                                             <button @click="openPlatformAutoTab()" class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
                                                 <i class="fas fa-cloud-download-alt mr-1"></i>平台自动获取
                                             </button>
-                                            <button @click="onlineDataTab = 'data'; refreshOnlineData()" class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
+                                            <button @click="openOnlineDataTab('data')" class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
                                                 <i class="fas fa-list mr-1"></i>数据记录
                                             </button>
                                         </div>
@@ -22840,24 +22840,39 @@
                 };
             };
 
-            const loadOnlineHistoryHotelList = async () => {
-                try {
-                    const res = await request('/hotels/all');
-                    if (res.code === 200) {
-                        const seen = new Set();
-                        onlineHistoryHotelList.value = (Array.isArray(res.data) ? res.data : [])
-                            .map(formatOnlineHistoryHotelOption)
-                            .filter(Boolean)
-                            .filter(item => {
-                                const key = `${item.value}:${item.ota_hotel_id || ''}`;
-                                if (seen.has(key)) return false;
-                                seen.add(key);
-                                return true;
-                            });
-                    }
-                } catch (error) {
-                    console.error('加载历史酒店下拉失败:', error);
+            let onlineHistoryHotelListLoadingPromise = null;
+            const onlineHistoryHotelListLoaded = ref(false);
+            const loadOnlineHistoryHotelList = async (options = {}) => {
+                if (onlineHistoryHotelListLoadingPromise) {
+                    return onlineHistoryHotelListLoadingPromise;
                 }
+                if (onlineHistoryHotelListLoaded.value && options.force !== true) {
+                    return onlineHistoryHotelList.value;
+                }
+                onlineHistoryHotelListLoadingPromise = (async () => {
+                    try {
+                        const res = await request('/hotels/all');
+                        if (res.code === 200) {
+                            const seen = new Set();
+                            onlineHistoryHotelList.value = (Array.isArray(res.data) ? res.data : [])
+                                .map(formatOnlineHistoryHotelOption)
+                                .filter(Boolean)
+                                .filter(item => {
+                                    const key = `${item.value}:${item.ota_hotel_id || ''}`;
+                                    if (seen.has(key)) return false;
+                                    seen.add(key);
+                                    return true;
+                                });
+                            onlineHistoryHotelListLoaded.value = true;
+                        }
+                    } catch (error) {
+                        console.error('加载历史酒店下拉失败:', error);
+                    } finally {
+                        onlineHistoryHotelListLoadingPromise = null;
+                    }
+                    return onlineHistoryHotelList.value;
+                })();
+                return onlineHistoryHotelListLoadingPromise;
             };
 
             const loadOnlineHistory = async () => {
@@ -22890,8 +22905,15 @@
                 }
             };
 
-            const refreshOnlineHistory = async () => {
-                await Promise.all([loadOnlineHistory(), loadOnlineHistoryHotelList()]);
+            const refreshOnlineHistory = async (options = {}) => {
+                const shouldRefreshHotels = options.refreshHotels === true
+                    || (options.refreshHotels !== false
+                        && (!onlineHistoryHotelListLoaded.value || !onlineHistoryHotelList.value.length));
+                if (shouldRefreshHotels) {
+                    await Promise.all([loadOnlineHistory(), loadOnlineHistoryHotelList({ force: options.refreshHotels === true })]);
+                    return;
+                }
+                await loadOnlineHistory();
             };
 
             const resetOnlineHistoryFilter = async () => {
@@ -23088,11 +23110,9 @@
             const openOnlineAnalysisTab = async () => {
                 onlineAnalysisSourceRecord.value = null;
                 const alreadyAnalysis = onlineDataTab.value === 'analysis';
-                applyOnlineAnalysisDefaultDateRange();
-                onlineDataTab.value = 'analysis';
+                openOnlineDataTab('analysis', { force: alreadyAnalysis });
                 if (alreadyAnalysis) {
                     await nextTick();
-                    await refreshOnlineAnalysis();
                 }
             };
 
@@ -23125,7 +23145,7 @@
                 }
             };
             const scheduleOnlineDataRefresh = () => schedulePostFetchRefresh('online-data-list', () => refreshOnlineData(), 260);
-            const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory(), 340);
+            const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory({ refreshHotels: false }), 340);
             const scheduleLatestCtripRefresh = (params = {}) => schedulePostFetchRefresh('latest-ctrip-data', () => loadLatestCtripData(params), 420);
             const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus({ detail: false }), 180);
             const scheduleAutoFetchStatusDetailRefresh = () => schedulePostFetchRefresh('auto-fetch-status-detail', () => loadAutoFetchStatus({ detail: true }), 520);
@@ -23165,11 +23185,8 @@
                 onlineDataFilter.value.status = '';
                 onlineDataFilter.value.data_type = '';
                 const alreadyAnalysis = onlineDataTab.value === 'analysis';
-                onlineDataTab.value = 'analysis';
+                openOnlineDataTab('analysis', { force: alreadyAnalysis });
                 await nextTick();
-                if (alreadyAnalysis) {
-                    await refreshOnlineAnalysis();
-                }
             };
 
             // 切换自动获取开关
@@ -23656,22 +23673,20 @@
 
                 if (target === 'platform-auto') {
                     currentPage.value = 'online-data';
-                    onlineDataTab.value = 'platform-auto';
                     await nextTick();
-                    runPageLoadOnce('online-data', 'platform-auto-panel', () => loadAutoFetchPanel({ force: true }), { force: true });
+                    openPlatformAutoTab({ force: true, delayMs: 0 });
                     return;
                 }
 
                 currentPage.value = 'online-data';
-                onlineDataTab.value = 'platform-sources';
                 await nextTick();
+                openPlatformSourcesTab({ force: true, delayMs: 0 });
                 if (target === 'sync-logs' || actionKey === 'open_sync_logs' || actionKey === 'review_partial_capture') {
                     schedulePlatformSyncLogPanelRefresh({ force: true });
                     showToast('已打开同步日志，请先确认失败原因再重试采集', 'warning');
                     return;
                 }
 
-                schedulePlatformDataSourcePanelLoad({ force: true });
             };
 
             const fillPlatformProfileForms = (item) => {
@@ -24186,17 +24201,88 @@
                     applyRankingConfig: () => applyMeituanHotelConfig(false, { refreshList: false }),
                 }), 80);
             };
+            let dataLoadTimer = null;
+            let suppressNextOnlineDataTabWatcherLoad = false;
+            const scheduleOnlineDataTabLoad = (newTab, options = {}) => {
+                const delay = Number(options.delayMs ?? 80);
+                const runIfCurrent = (task) => deferUiTask(() => {
+                    if (onlineDataTab.value !== newTab) return null;
+                    return task();
+                }, delay);
+
+                if (newTab === 'data-health') {
+                    if (suppressNextDataHealthTabLoad && !options.force) {
+                        suppressNextDataHealthTabLoad = false;
+                        return undefined;
+                    }
+                    return runIfCurrent(() => loadDataHealthPanel('light'));
+                }
+                if (newTab === 'data') {
+                    if (dataLoadTimer) {
+                        clearTimeout(dataLoadTimer);
+                    }
+                    dataLoadTimer = setTimeout(() => {
+                        if (onlineDataTab.value !== newTab) return;
+                        ensureManualOnlineFetchConfigReady();
+                        refreshOnlineData();
+                    }, Number(options.delayMs ?? 100));
+                    return undefined;
+                }
+                if (newTab === 'analysis') {
+                    return runIfCurrent(async () => {
+                        await runPageLoadOnce(currentPage.value || 'online-data', 'ai-analysis-static', async () => {
+                            await ensureAiAnalysisStaticReady();
+                            updateAiAnalysisHotelList();
+                        });
+                        applyOnlineAnalysisDefaultDateRange();
+                        return refreshOnlineAnalysis();
+                    });
+                }
+                if (newTab === 'platform-sources') {
+                    return runIfCurrent(() => schedulePlatformDataSourcePanelLoad(options));
+                }
+                if (newTab === 'platform-auto') {
+                    return runIfCurrent(() => schedulePlatformAutoFetchPanelLoad(options));
+                }
+                if (newTab === 'profile-fields') {
+                    return runIfCurrent(() => loadCtripProfileFields());
+                }
+                if (newTab === 'ctrip-config' || newTab === 'ctrip-traffic' || newTab === 'ctrip-overview') {
+                    return runIfCurrent(() => loadCtripConfigList());
+                }
+                if (newTab === 'meituan-config' || newTab === 'meituan-review' || newTab === 'meituan-traffic') {
+                    return runIfCurrent(() => {
+                        debugLog('[Debug] Watch触发 - 加载美团配置列表, tab:', newTab);
+                        return loadMeituanConfigList().then(() => {
+                            if (onlineDataTab.value !== newTab) return;
+                            if (newTab === 'meituan-review') {
+                                syncMeituanCommentConfigFromSelectedConfig();
+                            }
+                            if (newTab === 'meituan-traffic') {
+                                syncMeituanTrafficConfigFromSelectedConfig();
+                            }
+                        });
+                    });
+                }
+                return undefined;
+            };
+            const openOnlineDataTab = (tab, options = {}) => {
+                const alreadyOpen = onlineDataTab.value === tab;
+                if (!alreadyOpen) {
+                    suppressNextOnlineDataTabWatcherLoad = true;
+                }
+                onlineDataTab.value = tab;
+                return scheduleOnlineDataTabLoad(tab, options);
+            };
             const openPlatformAutoTab = (options = {}) => {
-                onlineDataTab.value = 'platform-auto';
-                return schedulePlatformAutoFetchPanelLoad(options);
+                return openOnlineDataTab('platform-auto', options);
             };
             const openOnlinePlatformAutoTab = (options = {}) => {
                 currentPage.value = 'online-data';
                 return nextTick(() => openPlatformAutoTab(options));
             };
             const openPlatformSourcesTab = (options = {}) => {
-                onlineDataTab.value = 'platform-sources';
-                return schedulePlatformDataSourcePanelLoad(options);
+                return openOnlineDataTab('platform-sources', options);
             };
 
             const setOnlineDataTabFromPage = (tab) => {
@@ -24372,61 +24458,15 @@
             });
 
             // 监听数据记录标签页切换（添加防抖）
-            let dataLoadTimer = null;
             watch(onlineDataTab, (newTab) => {
                 if (newTab !== 'analysis') {
                     destroyAnalysisChart();
                 }
-                if (newTab === 'data-health') {
-                    if (suppressNextDataHealthTabLoad) {
-                        suppressNextDataHealthTabLoad = false;
-                    } else {
-                        loadDataHealthPanel('light');
-                    }
+                if (suppressNextOnlineDataTabWatcherLoad) {
+                    suppressNextOnlineDataTabWatcherLoad = false;
+                    return;
                 }
-                if (newTab === 'data') {
-                    ensureManualOnlineFetchConfigReady();
-                    // 清除之前的定时器，防止重复加载
-                    if (dataLoadTimer) {
-                        clearTimeout(dataLoadTimer);
-                    }
-                    dataLoadTimer = setTimeout(() => {
-                        refreshOnlineData();
-                    }, 100);
-                }
-                if (newTab === 'analysis') {
-                    runPageLoadOnce(currentPage.value || 'online-data', 'ai-analysis-static', async () => {
-                        await ensureAiAnalysisStaticReady();
-                        updateAiAnalysisHotelList();
-                    });
-                    applyOnlineAnalysisDefaultDateRange();
-                    refreshOnlineAnalysis();
-                }
-                if (newTab === 'platform-sources') {
-                    schedulePlatformDataSourcePanelLoad();
-                }
-                if (newTab === 'platform-auto') {
-                    schedulePlatformAutoFetchPanelLoad();
-                }
-                if (newTab === 'profile-fields') {
-                    loadCtripProfileFields();
-                }
-                // 加载携程配置列表
-                if (newTab === 'ctrip-config' || newTab === 'ctrip-traffic' || newTab === 'ctrip-overview') {
-                    loadCtripConfigList();
-                }
-                // 加载美团配置列表
-                if (newTab === 'meituan-config' || newTab === 'meituan-review' || newTab === 'meituan-traffic') {
-                    debugLog('[Debug] Watch触发 - 加载美团配置列表, tab:', newTab);
-                    loadMeituanConfigList().then(() => {
-                        if (newTab === 'meituan-review') {
-                            syncMeituanCommentConfigFromSelectedConfig();
-                        }
-                        if (newTab === 'meituan-traffic') {
-                            syncMeituanTrafficConfigFromSelectedConfig();
-                        }
-                    });
-                }
+                scheduleOnlineDataTabLoad(newTab);
             });
 
             watch(() => meituanForm.value.hotelId, () => {
@@ -24616,20 +24656,11 @@
                 }
                 if (item.tab) {
                     nextTick(() => {
+                        if (item.path === 'online-data') {
+                            openOnlineDataTab(item.tab);
+                            return;
+                        }
                         onlineDataTab.value = item.tab;
-                        if (item.path === 'online-data' && item.tab === 'platform-auto') {
-                            schedulePlatformAutoFetchPanelLoad();
-                        }
-                        if (item.path === 'online-data' && item.tab === 'data') {
-                            ensureManualOnlineFetchConfigReady();
-                        }
-                        if (item.path === 'online-data' && item.tab === 'analysis') {
-                            applyOnlineAnalysisDefaultDateRange();
-                            refreshOnlineAnalysis();
-                        }
-                        if (item.path === 'online-data' && item.tab === 'platform-sources') {
-                            openPlatformSourcesTab();
-                        }
                     });
                 }
             };
@@ -25918,9 +25949,9 @@
 
             const openCtripProfileFieldsForReview = async () => {
                 const alreadyOpen = onlineDataTab.value === 'profile-fields';
-                onlineDataTab.value = 'profile-fields';
+                openOnlineDataTab('profile-fields', { force: alreadyOpen });
                 if (alreadyOpen) {
-                    await loadCtripProfileFields();
+                    await nextTick();
                 }
             };
 
@@ -28984,72 +29015,35 @@
                 }) || null;
             };
 
-            const buildHotelPlatformAccountRowStatic = requireSystemStatic('buildHotelPlatformAccountRow');
-            const buildHotelPlatformAccountRow = (options = {}) => buildHotelPlatformAccountRowStatic({
-                ...options,
-                source: options.profileSource || platformSourceForHotel(options.hotel?.id, options.platform) || {},
-                helpers: {
-                    hasPlatformHotelMismatch,
-                    isPlatformSourceLoginExpired,
-                    platformCaptureStatusCode,
-                    platformAccountReason,
-                    formatHotelBindingDate,
-                    platformLastSuccessText,
-                    platformAccountStatusText,
-                    platformAccountStatusClass,
-                    platformCaptureStatusText,
-                    platformCaptureStatusClass,
-                },
+            const buildHotelPlatformBindingRowsStatic = requireSystemStatic('buildHotelPlatformBindingRows');
+            const hotelPlatformAccountRowHelpers = () => ({
+                hasPlatformHotelMismatch,
+                isPlatformSourceLoginExpired,
+                platformCaptureStatusCode,
+                platformAccountReason,
+                formatHotelBindingDate,
+                platformLastSuccessText,
+                platformAccountStatusText,
+                platformAccountStatusClass,
+                platformCaptureStatusText,
+                platformCaptureStatusClass,
             });
 
             const hotelPlatformBindingRows = (hotel = {}) => {
                 const hotelId = hotel?.id || '';
                 const ctripConfig = findCtripConfigByHotelId(hotelId);
                 const meituanConfig = findMeituanConfigByHotelId(hotelId);
-                const ctripProfile = getBrowserProfileDataSourceByHotelAndPlatform(hotelId, 'ctrip');
-                const meituanProfile = getBrowserProfileDataSourceByHotelAndPlatform(hotelId, 'meituan');
-                const meituanProfileConfig = meituanProfile?.config || {};
-                const ctripHasCookie = !!(ctripConfig && (String(ctripConfig.cookies || '').trim() || ctripConfig.has_cookies));
-                const ctripReady = !!(ctripProfile || ctripHasCookie);
-                const meituanPartnerId = firstNonEmptyText(meituanProfileConfig.partner_id, meituanConfig?.partner_id, meituanConfig?.partnerId);
-                const meituanPoiId = firstNonEmptyText(meituanProfileConfig.poi_id, meituanProfileConfig.store_id, meituanConfig?.poi_id, meituanConfig?.poiId);
-                const meituanMissing = meituanConfig ? meituanConfigMissingFields(meituanConfig) : [];
-                const meituanIdentifierMissing = [
-                    meituanPartnerId ? '' : '平台接口标识',
-                    meituanPoiId ? '' : '平台门店标识',
-                ].filter(Boolean);
-                const meituanStoreInfoMissing = meituanIdentifierMissing.length > 0 || meituanMissing.some(field => !/cookie/i.test(String(field || '')));
-                const meituanReady = !!((meituanProfile && meituanIdentifierMissing.length === 0) || (meituanConfig && meituanMissing.length === 0));
-                const meituanPartial = !!(meituanProfile || meituanConfig);
-
-                return [
-                    buildHotelPlatformAccountRow({
-                        hotel,
-                        platform: 'ctrip',
-                        label: '携程',
-                        icon: 'fas fa-plane-departure',
-                        iconClass: 'bg-white text-blue-600 border border-blue-100',
-                        profileSource: ctripProfile,
-                        config: ctripConfig,
-                        ready: ctripReady,
-                        partial: !!ctripConfig,
-                        missingConfig: false,
-                        modules: ['经营日报', '流量', '竞对'],
-                    }),
-                    buildHotelPlatformAccountRow({
-                        hotel,
-                        platform: 'meituan',
-                        label: '美团',
-                        icon: 'fas fa-store',
-                        iconClass: 'bg-white text-orange-600 border border-orange-100',
-                        profileSource: meituanProfile,
-                        config: meituanConfig,
-                        ready: meituanReady,
-                        partial: meituanPartial,
-                        missingConfig: meituanPartial && !meituanReady && meituanStoreInfoMissing,
-                        modules: ['榜单', '流量', '广告'],
-                    }),
-                ];
+                return buildHotelPlatformBindingRowsStatic({
+                    hotel,
+                    ctripConfig,
+                    meituanConfig,
+                    ctripProfile: getBrowserProfileDataSourceByHotelAndPlatform(hotelId, 'ctrip'),
+                    meituanProfile: getBrowserProfileDataSourceByHotelAndPlatform(hotelId, 'meituan'),
+                    ctripSource: platformSourceForHotel(hotelId, 'ctrip'),
+                    meituanSource: platformSourceForHotel(hotelId, 'meituan'),
+                    meituanMissingFields: meituanConfig ? meituanConfigMissingFields(meituanConfig) : [],
+                    helpers: hotelPlatformAccountRowHelpers(),
+                });
             };
 
             const hotelAccountHealthKey = (hotel = {}) => {
@@ -29210,8 +29204,8 @@
                 if (action?.target === 'sync-logs') {
                     await prepareHotelPlatformAccountContext(hotel, action.platform || '');
                     currentPage.value = 'online-data';
-                    onlineDataTab.value = 'platform-sources';
                     await nextTick();
+                    openPlatformSourcesTab({ force: true, delayMs: 0 });
                     schedulePlatformSyncLogPanelRefresh({ force: true });
                     showToast('已打开同步日志，请先确认失败原因再重试采集', 'warning');
                     return;
@@ -29253,10 +29247,9 @@
             const openHotelPlatformConsole = async (hotel, platform = '') => {
                 const hotelId = await prepareHotelPlatformAccountContext(hotel, platform);
                 if (!hotelId) return;
-                onlineDataTab.value = 'platform-auto';
                 currentPage.value = 'online-data';
                 await nextTick();
-                runPageLoadOnce('online-data', 'platform-auto-panel', () => loadAutoFetchPanel({ force: true }), { force: true });
+                openPlatformAutoTab({ force: true, delayMs: 0 });
                 if (platform === 'meituan') {
                     deferUiTask(() => loadMeituanConfigList());
                 }
@@ -37388,6 +37381,7 @@
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
+                openOnlineDataTab,
                 onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileStrategyText, platformProfilePrimaryActionText, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,

@@ -931,7 +931,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         const loginExpired = isPlatformSourceLoginExpired(source, config);
         const sourceStatus = String(source?.status || source?.last_sync_status || '').toLowerCase();
         const sourceReady = !!source?.id && ['success', 'logged_in', 'active', 'ok'].includes(sourceStatus);
-        const effectiveReady = ready || sourceReady;
+        const effectiveReady = !missingConfig && (ready || sourceReady);
         const effectivePartial = partial || !!source?.id;
         const statusCode = mismatch
             ? 'mismatch'
@@ -1026,6 +1026,65 @@ window.SUXI_SYSTEM_STATIC = (() => {
         };
     };
 
+    const buildHotelPlatformBindingRows = ({
+        hotel = {},
+        ctripConfig = null,
+        meituanConfig = null,
+        ctripProfile = null,
+        meituanProfile = null,
+        ctripSource = null,
+        meituanSource = null,
+        meituanMissingFields = [],
+        helpers = {},
+    } = {}) => {
+        const meituanProfileConfig = meituanProfile?.config || {};
+        const ctripHasCookie = !!(ctripConfig && (String(ctripConfig.cookies || '').trim() || ctripConfig.has_cookies));
+        const ctripReady = !!(ctripProfile || ctripHasCookie);
+        const meituanPartnerId = firstNonEmptyText(meituanProfileConfig.partner_id, meituanConfig?.partner_id, meituanConfig?.partnerId);
+        const meituanPoiId = firstNonEmptyText(meituanProfileConfig.poi_id, meituanProfileConfig.store_id, meituanConfig?.poi_id, meituanConfig?.poiId);
+        const meituanMissing = Array.isArray(meituanMissingFields) ? meituanMissingFields : [];
+        const meituanIdentifierMissing = [
+            meituanPartnerId ? '' : '平台接口标识',
+            meituanPoiId ? '' : '平台门店标识',
+        ].filter(Boolean);
+        const meituanStoreInfoMissing = meituanIdentifierMissing.length > 0 || meituanMissing.some(field => !/cookie/i.test(String(field || '')));
+        const meituanReady = !!((meituanProfile && meituanIdentifierMissing.length === 0) || (meituanConfig && meituanMissing.length === 0));
+        const meituanPartial = !!(meituanProfile || meituanConfig);
+
+        return [
+            buildHotelPlatformAccountRow({
+                hotel,
+                platform: 'ctrip',
+                label: '携程',
+                icon: 'fas fa-plane-departure',
+                iconClass: 'bg-white text-blue-600 border border-blue-100',
+                profileSource: ctripProfile,
+                source: ctripProfile || ctripSource || {},
+                config: ctripConfig,
+                ready: ctripReady,
+                partial: !!ctripConfig,
+                missingConfig: false,
+                modules: ['经营日报', '流量', '竞对'],
+                helpers,
+            }),
+            buildHotelPlatformAccountRow({
+                hotel,
+                platform: 'meituan',
+                label: '美团',
+                icon: 'fas fa-store',
+                iconClass: 'bg-white text-orange-600 border border-orange-100',
+                profileSource: meituanProfile,
+                source: meituanProfile || meituanSource || {},
+                config: meituanConfig,
+                ready: meituanReady,
+                partial: meituanPartial,
+                missingConfig: meituanPartial && !meituanReady && meituanStoreInfoMissing,
+                modules: ['榜单', '流量', '广告'],
+                helpers,
+            }),
+        ];
+    };
+
     return {
         aiModelConfigI18n,
         languageOptions,
@@ -1058,6 +1117,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         getDataConfigTypeDefaults,
         getSystemConfigDefaults,
         getPlatformAccountBindingGuideRows,
+        buildHotelPlatformAccountRow,
+        buildHotelPlatformBindingRows,
         knowledgeDocumentTextExtensions,
         knowledgeDocumentHtmlExtensions,
         knowledgeDocumentSupportedExtensions,
@@ -1066,6 +1127,5 @@ window.SUXI_SYSTEM_STATIC = (() => {
         filterVisibleMenuItems,
         platformNextActionMeta,
         platformAccountStoreText,
-        buildHotelPlatformAccountRow,
     };
 })();
