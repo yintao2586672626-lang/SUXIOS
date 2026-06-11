@@ -1385,6 +1385,22 @@ Updated: 2026-06-11 Asia/Shanghai
 - This change does not modify auto-fetch execution, manual capture requests, data-source binding APIs, OTA storage behavior, or OTA channel scope. Guards now reject Ctrip settings/download switches that reload the full platform-auto panel and require the narrower platform-auto first-paint path.
 - Verified with `verify:public-entry`, `verify:e2e-contracts`, `verify:p0-guards`, and `git diff --check`.
 
+## 2026-06-11 Progress: Auto-Fetch Status Light Detail Scope
+
+- `app/controller/OnlineData.php` auto-fetch status now supports an explicit light scope through `include_detail/detail=false`; default behavior still returns the full detail payload.
+- Light scope returns `detail_loaded=false`, `detail_pending=true`, `status_scope=light`, empty `platforms`, and `missed_count=null` so unloaded detail is visible rather than hidden as empty business data.
+- Full scope still returns missed dates, configuration presence, and Ctrip/Meituan platform status. User hotel scoping, recent runs, failed records, and auto-fetch mode normalization are unchanged.
+- `verify_public_entry_guard.mjs` now guards the light-scope backend contract so platform-auto first paint can stay narrow without losing explicit detail status.
+
+## 2026-06-11 Progress: Captured OTA AI Start Flow Split
+
+- `public/ai-analysis-static.js` now owns `runCapturedOtaAnalysisStartFlow()` for captured OTA AI start validation, run-context construction, batch execution, summary generation, history update, and exception state.
+- `public/index.html` keeps `startAiAnalysis()` as a thin adapter that waits for the AI static helper, refreshes the hotel list, and passes Vue refs/callbacks into the extracted flow. It no longer inlines `buildCapturedOtaAnalysisRunContext()` or `runCapturedOtaAnalysisExecution()` orchestration.
+- This does not change `/agent/analyze-captured-ota-data`, `/agent/summarize-captured-ota-analysis`, report HTML sanitization, history writes, failed-state display, or Ctrip/Meituan OTA channel scope.
+- Guards now require the extracted start-flow helper and reject re-inlining into the SPA entry. `verify_e2e_contracts.mjs` includes success, invalid-start, and exception samples; latest E2E contract coverage is `561` checks.
+- Current split-map: `public/index.html` has `37282` lines, `1547` frontend function-level blocks, and `44` `currentPage` refs; `startAiAnalysis` is no longer among the largest blocks. `app/controller/OnlineData.php` has `26954` lines and `875` methods and remains a P2 split candidate.
+- Current self-audit: full directory `200.6 MB`, without `.git` `94.37 MB`, without `.git` and dependencies `65.18 MB`, tracked `18.68 MB` / `615` files; code scope `370` files, `195950` total lines, and `180048` nonblank lines. Runtime cleanup is about `1.57 MB` and left for later small cleanup.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

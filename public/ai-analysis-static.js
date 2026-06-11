@@ -795,6 +795,81 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         };
     };
 
+    const runCapturedOtaAnalysisStartFlow = async ({
+        selectedKeys = [],
+        hotels = [],
+        startDate = '',
+        endDate = '',
+        isDeepSeekPro = false,
+        existingHistory = [],
+        notify = () => {},
+        setAnalyzing = () => {},
+        resetState = () => {},
+        setProgress = () => {},
+        setBatchResults = () => {},
+        setCompletion = () => {},
+        setCapturedError = () => {},
+        requestGroup = null,
+        retryGroup = null,
+        requestSummary = null,
+        maskError = maskAiAnalysisError,
+    } = {}) => {
+        const startContext = buildCapturedOtaAnalysisStartContext({
+            selectedKeys,
+            hotels,
+            startDate,
+            endDate,
+        });
+        if (!startContext.ok) {
+            notify(startContext.message, startContext.level);
+            return { status: 'invalid_start', startContext };
+        }
+
+        const { selectedData } = startContext;
+        setAnalyzing(true);
+        resetState();
+
+        const runContext = buildCapturedOtaAnalysisRunContext({
+            selectedData,
+            isDeepSeekPro,
+        });
+        if (!runContext.ok) {
+            setAnalyzing(false);
+            notify(runContext.message, runContext.level);
+            return { status: 'empty_payload', startContext, runContext };
+        }
+
+        const { hotelsPayload, groups } = runContext;
+        setProgress(runContext.progress);
+        setBatchResults(runContext.batchResults);
+        notify(runContext.message);
+
+        try {
+            const execution = await runCapturedOtaAnalysisExecution({
+                groups,
+                batchResults: runContext.batchResults,
+                progressState: runContext.progress,
+                hotelsPayload,
+                selectedData,
+                existingHistory,
+                requestGroup,
+                retryGroup,
+                requestSummary,
+                maskError,
+            });
+            setCompletion(execution);
+            notify('AI分析完成');
+            return { status: 'success', startContext, runContext, execution };
+        } catch (error) {
+            const message = error.message || '网络错误';
+            setCapturedError(message);
+            notify('AI分析失败: ' + message, 'error');
+            return { status: 'exception', startContext, runContext, error, message };
+        } finally {
+            setAnalyzing(false);
+        }
+    };
+
     const getMeituanAiAnalysisHotelKey = (hotel = {}) => `${hotel.poiId}_${hotel.hotelName}`;
 
     const buildMeituanAiAnalysisHotelList = (rows = []) => {
@@ -967,6 +1042,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         buildAiAnalysisHistoryRecord,
         buildCapturedOtaAnalysisCompletion,
         runCapturedOtaAnalysisExecution,
+        runCapturedOtaAnalysisStartFlow,
         getMeituanAiAnalysisHotelKey,
         buildMeituanAiAnalysisHotelList,
         resolveMeituanAiSelectedData,

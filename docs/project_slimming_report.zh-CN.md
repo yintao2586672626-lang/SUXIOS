@@ -1354,6 +1354,22 @@
 - 更新守卫：`verify_public_entry_guard.mjs` 禁止携程设置/下载切换入口加载完整 `platform-auto` 面板，并要求 `platform-auto` 首屏只等待自动获取状态；`verify_e2e_contracts.mjs` 增加对应静态合同。
 - 已验证：`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:p0-guards`、`git diff --check`。
 
+## 2026-06-11 保存点：自动获取状态轻量口径
+
+- `app/controller/OnlineData.php` 的自动获取状态接口新增 `include_detail/detail` 读取口径：默认保持完整状态；调用方显式传入 false 时只返回轻量状态。
+- 轻量状态显式返回 `detail_loaded=false`、`detail_pending=true`、`status_scope=light`、`missed_count=null`、空 `platforms`，不把未加载明细伪装为空业务数据。
+- 完整状态仍保留漏抓日期、配置存在性和携程/美团平台状态；非超级管理员酒店范围、自动获取模式、失败记录和最近运行记录不变。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求后端保留轻量状态口径和 `detail_loaded=false`，防止后续把明细加载重新绑回入口。
+
+## 2026-06-11 保存点：携程 OTA AI 分析启动流程抽离
+
+- `public/ai-analysis-static.js` 新增 `runCapturedOtaAnalysisStartFlow()`，承载携程 OTA AI 分析启动校验、运行上下文构建、批量执行、汇总、历史写回和异常状态返回。
+- `public/index.html` 的 `startAiAnalysis()` 只保留静态 helper 等待、酒店列表刷新和 Vue ref/callback 注入；不再内联 `buildCapturedOtaAnalysisRunContext()` 或 `runCapturedOtaAnalysisExecution()` 编排。
+- 保留业务边界：不改变 `/agent/analyze-captured-ota-data`、`/agent/summarize-captured-ota-analysis`、报告 HTML 清洗、历史记录写回、失败状态展示或携程/美团 OTA 渠道口径。
+- 更新守卫：`verify_public_entry_guard.mjs` 禁止 `startAiAnalysis()` 重新内联携程 OTA AI 编排；`verify_e2e_contracts.mjs` 增加成功、无选择和异常三类运行态样例，E2E 合同检查数增至 `561`。
+- 当前 split-map：`public/index.html` 为 `37,282` 行、`1,547` 个前端函数级块、`44` 个 `currentPage` 引用；`startAiAnalysis` 已退出最大函数块列表，`ai` 域 span 为 `1,201` 行；`app/controller/OnlineData.php` 为 `26,954` 行、`875` 个方法，仍是 P2 拆分候选。
+- 当前自审计：完整目录约 `200.6 MB`；不含 `.git` 约 `94.37 MB`；不含 `.git` 和依赖约 `65.18 MB`；Git 跟踪文件约 `18.68 MB` / `615` 个；代码范围 `370` 个文件、`195,950` 行、非空 `180,048` 行；默认可清理目标为 `runtime` 约 `1.57 MB`，按本轮 P0/P1/P2 范围留到后续小优化。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

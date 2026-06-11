@@ -175,6 +175,15 @@ if (!fs.existsSync(indexPath)) {
     || !/runPageLoadOnce\(currentPage\.value \|\| ['"]online-data['"], ['"]ai-analysis-static['"][\s\S]*await ensureAiAnalysisStaticReady\(\);/.test(content)) {
     failures.push('public/index.html must load AI analysis static data only from the OTA AI tab or online analysis tab.');
   }
+  const startAiAnalysisSource = content.slice(
+    content.indexOf('const startAiAnalysis = async'),
+    content.indexOf('const generateLocalAnalysis =', content.indexOf('const startAiAnalysis = async'))
+  );
+  if (!/runCapturedOtaAnalysisStartFlow\(\{/.test(startAiAnalysisSource)
+    || /buildCapturedOtaAnalysisRunContext\(\{/.test(startAiAnalysisSource)
+    || /runCapturedOtaAnalysisExecution\(\{/.test(startAiAnalysisSource)) {
+    failures.push('public/index.html startAiAnalysis must use ai-analysis-static.js runCapturedOtaAnalysisStartFlow instead of inlining captured OTA AI orchestration.');
+  }
   if (/<script\s+src=["']auto-fetch-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load auto-fetch-static.js; the login shell and default online-data page do not need platform auto-fetch helpers.');
   }
@@ -228,9 +237,9 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const loadAutoFetchPanel = async'),
     content.indexOf('const loadAutoFetchStatus = async')
   );
-  if (!/await loadAutoFetchStatus\(\);[\s\S]*schedulePlatformProfileStatusRefresh\(\{ silent: true \}\);/.test(autoFetchPanelLoader)
+  if (!/await loadAutoFetchStatus\(\{\s*detail:\s*false\s*\}\);[\s\S]*scheduleAutoFetchStatusDetailRefresh\(\);[\s\S]*schedulePlatformProfileStatusRefresh\(\{ silent: true \}\);/.test(autoFetchPanelLoader)
     || /await Promise\.all\(\[[\s\S]*loadAutoFetchStatus\(\)[\s\S]*loadPlatformProfileStatus/.test(autoFetchPanelLoader)) {
-    failures.push('public/index.html must let platform-auto first paint wait only for auto-fetch status and defer profile status refresh.');
+    failures.push('public/index.html must let platform-auto first paint wait only for light auto-fetch status and defer detail/profile refresh.');
   }
   const autoFetchModePayloadSource = content.slice(
     content.indexOf('const buildAutoFetchModePayload = () => ({'),
@@ -250,6 +259,7 @@ if (!fs.existsSync(indexPath)) {
   }
   for (const requiredScheduler of [
     'scheduleLatestCtripRefresh',
+    'scheduleAutoFetchStatusDetailRefresh',
     'scheduleDataHealthPanelRefresh',
     'schedulePlatformProfileStatusRefresh',
     'schedulePlatformDataSourcesRefresh',
@@ -280,6 +290,11 @@ if (!fs.existsSync(indexPath)) {
   if (!/return\s+\{\s*status:\s*['"]accepted['"]/.test(autoFetchStaticContent)
     || !/runPostFetchRefresh\(loadAutoFetchStatus\)/.test(autoFetchStaticContent)) {
     failures.push('public/auto-fetch-static.js must treat backend running/queued auto-fetch responses as accepted and refresh status without blocking.');
+  }
+  const controllerPath = path.join(repoRoot, 'app/controller/OnlineData.php');
+  const controllerContent = fs.existsSync(controllerPath) ? fs.readFileSync(controllerPath, 'utf8') : '';
+  if (!controllerContent.includes("get('include_detail'") || !controllerContent.includes("'detail_loaded' => false")) {
+    failures.push('app/controller/OnlineData.php must support light auto-fetch status with explicit detail_loaded=false.');
   }
   const strategyDetailLoader = content.slice(
     content.indexOf('const loadStrategyDetail = async'),

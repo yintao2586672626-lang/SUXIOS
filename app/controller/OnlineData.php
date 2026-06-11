@@ -2355,6 +2355,21 @@ class OnlineData extends Base
         return false;
     }
 
+    private function isFalseRequestValue($value): bool
+    {
+        if (is_bool($value)) {
+            return !$value;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (float)$value === 0.0;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower(trim($value)), ['0', 'false', 'no', 'n', 'off', 'light'], true);
+        }
+
+        return false;
+    }
+
     private function readPositiveInt($value): ?int
     {
         if ($value === null || $value === '' || !is_numeric($value) || (int)$value <= 0) {
@@ -18996,6 +19011,9 @@ JAVASCRIPT;
         $this->checkPermission();
 
         $hotelId = $this->request->get('hotel_id', null);
+        $includeDetail = !$this->isFalseRequestValue(
+            $this->request->get('include_detail', $this->request->get('detail', true))
+        );
 
         // 非超级管理员只能查看自己酒店的状态
         if (!$this->currentUser->isSuperAdmin()) {
@@ -19021,6 +19039,11 @@ JAVASCRIPT;
                     'failed_records' => [],
                     'missed_dates' => [],
                     'missed_count' => 0,
+                    'has_config' => false,
+                    'platforms' => [],
+                    'detail_loaded' => false,
+                    'detail_pending' => false,
+                    'status_scope' => 'empty',
                 ]);
             }
         }
@@ -19075,13 +19098,26 @@ JAVASCRIPT;
         $status = $this->normalizeAutoFetchScheduleStatus($status);
         $status['recent_runs'] = array_values(is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : []);
         $status['failed_records'] = array_values(is_array($status['failed_records'] ?? null) ? $status['failed_records'] : []);
-        $status['missed_dates'] = $hotelId ? $this->buildCtripAutoFetchMissedDates((int)$hotelId) : [];
-        $status['missed_count'] = count($status['missed_dates']);
-        $status['has_config'] = $hotelId ? $this->hasAnyPlatformFetchConfigForHotel((int)$hotelId) : false;
-        $status['platforms'] = $hotelId ? $this->buildAutoFetchPlatformStatus((int)$hotelId) : [
-            'ctrip' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://ebooking.ctrip.com/login/index'],
-            'meituan' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://eb.meituan.com'],
-        ];
+        if ($includeDetail) {
+            $status['missed_dates'] = $hotelId ? $this->buildCtripAutoFetchMissedDates((int)$hotelId) : [];
+            $status['missed_count'] = count($status['missed_dates']);
+            $status['has_config'] = $hotelId ? $this->hasAnyPlatformFetchConfigForHotel((int)$hotelId) : false;
+            $status['platforms'] = $hotelId ? $this->buildAutoFetchPlatformStatus((int)$hotelId) : [
+                'ctrip' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://ebooking.ctrip.com/login/index'],
+                'meituan' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://eb.meituan.com'],
+            ];
+            $status['detail_loaded'] = true;
+            $status['detail_pending'] = false;
+            $status['status_scope'] = 'full';
+        } else {
+            $status['missed_dates'] = [];
+            $status['missed_count'] = null;
+            $status['has_config'] = null;
+            $status['platforms'] = [];
+            $status['detail_loaded'] = false;
+            $status['detail_pending'] = true;
+            $status['status_scope'] = 'light';
+        }
 
         return $this->success($status);
     }

@@ -142,9 +142,12 @@ requireText('public/index.html', "newTab === 'platform-auto'", 'entry lazy-loads
 requireNoText('public/index.html', "onlineDataTab = 'ctrip-fetch-settings'; loadCtripConfigList(); loadAutoFetchPanel()", 'Ctrip fetch settings does not load full platform auto-fetch panel');
 requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel(); loadPlatformProfileStatus({ silent: true })", 'platform sources tab does not duplicate profile status loading');
 requireNoText('public/index.html', 'await loadAutoFetchPanel();\n                    return;\n                }\n                downloadCenterTab.value = tab;', 'download tab switch does not load full platform auto-fetch panel for Ctrip settings');
-requireText('public/index.html', 'await loadAutoFetchStatus();\n                    schedulePlatformProfileStatusRefresh({ silent: true });', 'platform auto-fetch first paint defers profile status refresh');
+requireText('public/index.html', 'await loadAutoFetchStatus({ detail: false });\n                    scheduleAutoFetchStatusDetailRefresh();\n                    schedulePlatformProfileStatusRefresh({ silent: true });', 'platform auto-fetch first paint uses light status and defers detail/profile refresh');
+requireText('public/index.html', "params.append('include_detail', '0');", 'platform auto-fetch status can request light backend status');
 requireText('public/index.html', 'ctrip_auto_fetch_mode: autoFetchMode.value', 'platform auto-fetch keeps Ctrip on the selected fast mode by default');
 requireText('app/controller/OnlineData.php', "?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
+requireText('app/controller/OnlineData.php', "get('include_detail'", 'backend auto-fetch status supports light detail requests');
+requireText('app/controller/OnlineData.php', "'detail_loaded' => false", 'backend auto-fetch status marks light responses explicitly');
 requireText('public/index.html', 'const ensureManualOnlineFetchConfigReady = async', 'entry prewarms saved platform configs for manual online-data fetch');
 requireText('public/index.html', "item.path === 'online-data' && item.tab === 'data'", 'manual online-data tab prewarms saved platform configs without loading platform-auto panel');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
@@ -358,6 +361,7 @@ requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnaly
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisRunContext')", 'entry uses extracted AI analysis run context builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult')", 'entry uses extracted AI analysis summary response builder');
 requireText('public/index.html', "requireAiAnalysisStatic('runCapturedOtaAnalysisExecution')", 'entry uses extracted captured OTA AI analysis execution runner');
+requireText('public/index.html', "requireAiAnalysisStatic('runCapturedOtaAnalysisStartFlow')", 'entry uses extracted captured OTA AI analysis start flow runner');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection')", 'entry uses extracted Ctrip AI analysis hotel selection builder');
 requireText('public/index.html', "requireAiAnalysisStatic('sanitizeAiReportHtml')", 'entry uses extracted AI report sanitizer');
 requireText('public/index.html', "requireAiAnalysisStatic('aiReportHtmlToText')", 'entry uses extracted AI report text converter');
@@ -378,6 +382,7 @@ requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryContex
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryResponseResult', 'AI analysis static builds captured OTA summary response results');
 requireText('public/ai-analysis-static.js', 'const buildCapturedFallbackSummaryReport', 'AI analysis static builds fallback summary reports');
 requireText('public/ai-analysis-static.js', 'const runCapturedOtaAnalysisExecution', 'AI analysis static runs captured OTA analysis execution');
+requireText('public/ai-analysis-static.js', 'const runCapturedOtaAnalysisStartFlow', 'AI analysis static runs captured OTA analysis start flow');
 requireText('public/ai-analysis-static.js', 'const resolveAiSelectedData', 'AI analysis static resolves selected hotel rows');
 requireText('public/ai-analysis-static.js', 'const validateCapturedOtaAiAnalysisStart', 'AI analysis static validates analysis start inputs');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaAnalysisCompletion', 'AI analysis static builds captured OTA completion state');
@@ -2093,6 +2098,7 @@ try {
     'buildAiAnalysisHistoryRecord',
     'buildCapturedOtaAnalysisCompletion',
     'runCapturedOtaAnalysisExecution',
+    'runCapturedOtaAnalysisStartFlow',
     'getMeituanAiAnalysisHotelKey',
     'buildMeituanAiAnalysisHotelList',
     'resolveMeituanAiSelectedData',
@@ -2421,6 +2427,66 @@ try {
       requestSummary: async () => ({ report: {}, process: null }),
       maskError: value => `masked:${aiAnalysisStatic.maskAiAnalysisError(value)}`,
     });
+    const startFlowEvents = [];
+    const startFlowStates = [];
+    let startFlowProgress = null;
+    let startFlowBatchResults = null;
+    let startFlowCompletion = null;
+    let startFlowCapturedError = 'seed';
+    const startFlowResult = await aiAnalysisStatic.runCapturedOtaAnalysisStartFlow({
+      selectedKeys: ['r1_Run One'],
+      hotels: [
+        { poiId: 'r1', hotelName: 'Run One', roomNights: 2, roomRevenue: 500 },
+        { poiId: 'r2', hotelName: 'Run Two', roomNights: 1, sales: 260 },
+      ],
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+      isDeepSeekPro: false,
+      existingHistory: [{ id: 'old-start-flow' }],
+      notify: (message, level = 'success') => startFlowEvents.push(['notify', level, message]),
+      setAnalyzing: value => startFlowStates.push(['analyzing', value]),
+      resetState: () => startFlowEvents.push(['reset']),
+      setProgress: value => { startFlowProgress = value; },
+      setBatchResults: value => { startFlowBatchResults = value; },
+      setCompletion: value => { startFlowCompletion = value; },
+      setCapturedError: value => { startFlowCapturedError = value; },
+      requestGroup: async group => ({ ok: true, result: { overall_conclusion: `${group[0]?.hotel_name || ''} ok` } }),
+      retryGroup: async () => ({ successCount: 0, failedCount: 0 }),
+      requestSummary: async summaryContext => ({
+        report: {
+          overall_conclusion: `summary ${summaryContext.completedHotels}`,
+          key_findings: ['start flow ok'],
+          recommended_actions: ['continue'],
+        },
+        process: { steps: ['start-flow-summary'] },
+      }),
+    });
+    const startFlowGuardEvents = [];
+    const startFlowGuardStates = [];
+    const startFlowGuardResult = await aiAnalysisStatic.runCapturedOtaAnalysisStartFlow({
+      selectedKeys: [],
+      hotels: [],
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+      notify: (message, level) => startFlowGuardEvents.push(['notify', level, message]),
+      setAnalyzing: value => startFlowGuardStates.push(['analyzing', value]),
+    });
+    const startFlowExceptionEvents = [];
+    const startFlowExceptionStates = [];
+    let startFlowExceptionError = '';
+    const startFlowExceptionResult = await aiAnalysisStatic.runCapturedOtaAnalysisStartFlow({
+      selectedKeys: ['r1_Run One'],
+      hotels: [{ poiId: 'r1', hotelName: 'Run One', roomNights: 2, roomRevenue: 500 }],
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+      notify: (message, level = 'success') => startFlowExceptionEvents.push(['notify', level, message]),
+      setAnalyzing: value => startFlowExceptionStates.push(['analyzing', value]),
+      resetState: () => startFlowExceptionEvents.push(['reset']),
+      setCapturedError: value => { startFlowExceptionError = value; },
+      requestGroup: async () => { throw new Error('network down'); },
+      retryGroup: async () => ({ successCount: 0, failedCount: 0 }),
+      requestSummary: async () => ({ report: {}, process: null }),
+    });
     const meituanHotels = aiAnalysisStatic.buildMeituanAiAnalysisHotelList([
       { poiId: 'm1', hotelName: 'Meituan One', roomNights: '2', roomRevenue: '300', views: '40' },
       { poiId: 'm1', hotelName: 'Meituan One', roomNights: '5', roomRevenue: '800', views: '80' },
@@ -2570,6 +2636,32 @@ try {
         && validStartValidation.ok === true
         && validStartValidation.level === 'success',
       detail: 'captured OTA start validation sample',
+    });
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis start flow preserves captured OTA success and visible failure states',
+      ok: startFlowResult.status === 'success'
+        && startFlowProgress?.totalHotels === 1
+        && Array.isArray(startFlowBatchResults)
+        && startFlowBatchResults.length === 1
+        && startFlowCompletion?.capturedReport?.overall_conclusion === 'summary 1'
+        && startFlowCompletion?.history?.[0]?.summary === 'summary 1'
+        && String(startFlowCompletion?.history?.[0]?.report || '').includes('summary 1')
+        && startFlowEvents.some(event => event[0] === 'reset')
+        && startFlowEvents.some(event => event[0] === 'notify' && event[2] === 'AI分析完成')
+        && startFlowStates[0]?.[0] === 'analyzing'
+        && startFlowStates[0]?.[1] === true
+        && startFlowStates[startFlowStates.length - 1]?.[1] === false
+        && startFlowCapturedError === 'seed'
+        && startFlowGuardResult.status === 'invalid_start'
+        && startFlowGuardEvents.some(event => event[0] === 'notify' && event[1] === 'error')
+        && startFlowGuardStates.length === 0
+        && startFlowExceptionResult.status === 'exception'
+        && startFlowExceptionError === 'network down'
+        && startFlowExceptionEvents.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('network down'))
+        && startFlowExceptionStates[0]?.[1] === true
+        && startFlowExceptionStates[startFlowExceptionStates.length - 1]?.[1] === false,
+      detail: 'runCapturedOtaAnalysisStartFlow samples',
     });
     checks.push({
       file: 'public/ai-analysis-static.js',

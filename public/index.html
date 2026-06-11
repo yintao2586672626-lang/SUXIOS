@@ -23116,6 +23116,7 @@
             const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory(), 340);
             const scheduleLatestCtripRefresh = (params = {}) => schedulePostFetchRefresh('latest-ctrip-data', () => loadLatestCtripData(params), 420);
             const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus(), 180);
+            const scheduleAutoFetchStatusDetailRefresh = () => schedulePostFetchRefresh('auto-fetch-status-detail', () => loadAutoFetchStatus({ detail: true }), 520);
             const scheduleBackendNotificationRefresh = () => schedulePostFetchRefresh('backend-global-notifications', () => loadBackendGlobalNotifications().catch(() => null), 700);
             const scheduleCtripProfileFieldReview = () => schedulePostFetchRefresh('ctrip-profile-field-review', () => openCtripProfileFieldsForReview(), 520);
             const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => loadDataHealthPanel(mode, params), 560);
@@ -23238,7 +23239,8 @@
                     if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {
                         autoFetchHotelId.value = hotels.value[0].id;
                     }
-                    await loadAutoFetchStatus();
+                    await loadAutoFetchStatus({ detail: false });
+                    scheduleAutoFetchStatusDetailRefresh();
                     schedulePlatformProfileStatusRefresh({ silent: true });
                 })().finally(() => {
                     autoFetchPanelCache = {
@@ -23251,30 +23253,56 @@
                 return run;
             };
 
-            const loadAutoFetchStatus = async () => {
+            const loadAutoFetchStatus = async (options = {}) => {
                 try {
                     const params = new URLSearchParams();
                     const hotelId = getAutoFetchHotelId();
                     if (hotelId) {
                         params.append('hotel_id', hotelId);
                     }
+                    const includeDetail = !(options && (options.detail === false || options.includeDetail === false));
+                    if (!includeDetail) {
+                        params.append('include_detail', '0');
+                    }
                     const query = params.toString();
                     const res = await request(`/online-data/auto-fetch-status${query ? '?' + query : ''}`);
                     if (res.code === 200) {
-                        autoFetchEnabled.value = res.data?.enabled || false;
-                        autoFetchStatus.value = res.data || {};
-                        autoFetchScheduleTime.value = res.data?.historical_schedule_time || res.data?.schedule_time || '10:00';
-                        const scheduleMinute = Number.parseInt(res.data?.realtime_schedule_minute ?? res.data?.schedule_minute, 10);
+                        const data = res.data || {};
+                        autoFetchEnabled.value = data?.enabled || false;
+                        if (!includeDetail && data?.detail_loaded === false) {
+                            const previousStatus = autoFetchStatus.value && typeof autoFetchStatus.value === 'object' ? autoFetchStatus.value : {};
+                            const previousPlatforms = previousStatus.platforms && typeof previousStatus.platforms === 'object' && !Array.isArray(previousStatus.platforms)
+                                ? previousStatus.platforms
+                                : {};
+                            const nextPlatforms = data.platforms && typeof data.platforms === 'object' && !Array.isArray(data.platforms)
+                                ? data.platforms
+                                : {};
+                            autoFetchStatus.value = {
+                                ...previousStatus,
+                                ...data,
+                                missed_dates: Array.isArray(previousStatus.missed_dates) ? previousStatus.missed_dates : [],
+                                missed_count: previousStatus.missed_count ?? data.missed_count,
+                                has_config: previousStatus.has_config ?? data.has_config,
+                                platforms: Object.keys(previousPlatforms).length > 0 ? previousPlatforms : nextPlatforms,
+                            };
+                        } else {
+                            autoFetchStatus.value = data;
+                        }
+                        const statusForControls = autoFetchStatus.value || data;
+                        autoFetchScheduleTime.value = statusForControls?.historical_schedule_time || statusForControls?.schedule_time || '10:00';
+                        const scheduleMinute = Number.parseInt(statusForControls?.realtime_schedule_minute ?? statusForControls?.schedule_minute, 10);
                         autoFetchScheduleMinute.value = Number.isFinite(scheduleMinute) ? Math.max(0, Math.min(59, scheduleMinute)) : 5;
-                        const realtimeIntervalHours = Number.parseInt(res.data?.realtime_schedule_interval_hours ?? res.data?.schedule_interval_hours, 10);
+                        const realtimeIntervalHours = Number.parseInt(statusForControls?.realtime_schedule_interval_hours ?? statusForControls?.schedule_interval_hours, 10);
                         autoFetchRealtimeIntervalHours.value = Number.isFinite(realtimeIntervalHours) ? Math.max(1, Math.min(24, realtimeIntervalHours)) : 2;
-                        autoFetchBrowserHeadless.value = !(res.data?.browser_headless === false || res.data?.browser_headless === 0 || res.data?.browser_headless === '0' || res.data?.browser_headless === 'false');
-                        const sectionConcurrency = Number.parseInt(res.data?.ctrip_section_concurrency ?? res.data?.last_result?.ctrip_section_concurrency, 10);
+                        autoFetchBrowserHeadless.value = !(statusForControls?.browser_headless === false || statusForControls?.browser_headless === 0 || statusForControls?.browser_headless === '0' || statusForControls?.browser_headless === 'false');
+                        const sectionConcurrency = Number.parseInt(statusForControls?.ctrip_section_concurrency ?? statusForControls?.last_result?.ctrip_section_concurrency, 10);
                         autoFetchCtripSectionConcurrency.value = Number.isFinite(sectionConcurrency) ? Math.max(1, Math.min(4, sectionConcurrency)) : 3;
-                        autoFetchMode.value = res.data?.auto_fetch_mode || res.data?.meituan_auto_fetch_mode || 'hybrid_auto';
-                        const missed = Array.isArray(res.data?.missed_dates) ? res.data.missed_dates : [];
-                        const failed = Array.isArray(res.data?.failed_records) ? res.data.failed_records : [];
-                        autoFetchBackfillDate.value = missed[0] || failed[0]?.data_date || autoFetchBackfillDate.value || autoFetchMaxBackfillDate.value;
+                        autoFetchMode.value = statusForControls?.auto_fetch_mode || statusForControls?.meituan_auto_fetch_mode || 'hybrid_auto';
+                        if (includeDetail || data?.detail_loaded !== false) {
+                            const missed = Array.isArray(statusForControls?.missed_dates) ? statusForControls.missed_dates : [];
+                            const failed = Array.isArray(statusForControls?.failed_records) ? statusForControls.failed_records : [];
+                            autoFetchBackfillDate.value = missed[0] || failed[0]?.data_date || autoFetchBackfillDate.value || autoFetchMaxBackfillDate.value;
+                        }
                     }
                 } catch (error) {
                     console.error('加载自动获取状态失败:', error);
@@ -34180,6 +34208,7 @@
             const buildCapturedOtaSummaryRequestBody = (...args) => requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')(...args);
             const buildCapturedOtaSummaryResponseResult = (...args) => requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult')(...args);
             const runCapturedOtaAnalysisExecution = (...args) => requireAiAnalysisStatic('runCapturedOtaAnalysisExecution')(...args);
+            const runCapturedOtaAnalysisStartFlow = (...args) => requireAiAnalysisStatic('runCapturedOtaAnalysisStartFlow')(...args);
             const sanitizeAiReportHtml = (value) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('sanitizeAiReportHtml')(value) : '';
             const aiReportHtmlToText = (value) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('aiReportHtmlToText')(value) : String(value || '').replace(/<[^>]*>/g, '');
             const buildMeituanAiAnalysisHotelList = (rows) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('buildMeituanAiAnalysisHotelList')(rows) : [];
@@ -34337,66 +34366,40 @@
                 try {
                     await ensureAiAnalysisStaticReady();
                 } catch (error) {
-                    return;
+                    return null;
                 }
                 updateAiAnalysisHotelList();
-                const startContext = buildCapturedOtaAnalysisStartContext({
+                return runCapturedOtaAnalysisStartFlow({
                     selectedKeys: aiSelectedHotels.value,
                     hotels: aiAnalysisHotelList.value,
                     startDate: onlineDataFilter.value.start_date,
                     endDate: onlineDataFilter.value.end_date,
-                });
-                if (!startContext.ok) {
-                    showToast(startContext.message, startContext.level);
-                    return;
-                }
-                const { selectedData } = startContext;
-
-                aiAnalyzing.value = true;
-                aiAnalysisResult.value = '';
-                aiAnalysisCapturedReport.value = null;
-                aiAnalysisCapturedError.value = '';
-                aiAnalysisProcess.value = null;
-                aiAnalysisGroupDetailsOpen.value = false;
-                const runContext = buildCapturedOtaAnalysisRunContext({
-                    selectedData,
                     isDeepSeekPro: isDeepSeekProAnalysisModel(),
+                    existingHistory: aiAnalysisHistory.value,
+                    notify: showToast,
+                    setAnalyzing: value => { aiAnalyzing.value = value; },
+                    resetState: () => {
+                        aiAnalysisResult.value = '';
+                        aiAnalysisCapturedReport.value = null;
+                        aiAnalysisCapturedError.value = '';
+                        aiAnalysisProcess.value = null;
+                        aiAnalysisGroupDetailsOpen.value = false;
+                    },
+                    setProgress: value => { aiAnalysisProgress.value = value; },
+                    setBatchResults: value => { aiAnalysisBatchResults.value = value; },
+                    setCompletion: execution => {
+                        aiAnalysisCapturedReport.value = execution.capturedReport;
+                        aiAnalysisProcess.value = execution.process;
+                        aiAnalysisCapturedError.value = execution.capturedError;
+                        aiAnalysisResult.value = execution.reportHtml;
+                        aiAnalysisHistory.value = execution.history;
+                    },
+                    setCapturedError: message => { aiAnalysisCapturedError.value = message; },
+                    requestGroup: requestCapturedOtaGroup,
+                    retryGroup: retryCapturedOtaGroup,
+                    requestSummary: requestCapturedOtaSummaryResult,
+                    maskError: maskAiAnalysisError,
                 });
-                if (!runContext.ok) {
-                    aiAnalyzing.value = false;
-                    showToast(runContext.message, runContext.level);
-                    return;
-                }
-                const { hotelsPayload, groups } = runContext;
-                aiAnalysisProgress.value = runContext.progress;
-                aiAnalysisBatchResults.value = runContext.batchResults;
-                showToast(runContext.message);
-
-                try {
-                    const execution = await runCapturedOtaAnalysisExecution({
-                        groups,
-                        batchResults: aiAnalysisBatchResults.value,
-                        progressState: aiAnalysisProgress.value,
-                        hotelsPayload,
-                        selectedData,
-                        existingHistory: aiAnalysisHistory.value,
-                        requestGroup: requestCapturedOtaGroup,
-                        retryGroup: retryCapturedOtaGroup,
-                        requestSummary: requestCapturedOtaSummaryResult,
-                        maskError: maskAiAnalysisError,
-                    });
-                    aiAnalysisCapturedReport.value = execution.capturedReport;
-                    aiAnalysisProcess.value = execution.process;
-                    aiAnalysisCapturedError.value = execution.capturedError;
-                    aiAnalysisResult.value = execution.reportHtml;
-                    aiAnalysisHistory.value = execution.history;
-                    showToast('AI分析完成');
-                } catch (e) {
-                    aiAnalysisCapturedError.value = e.message || '网络错误';
-                    showToast('AI分析失败: ' + aiAnalysisCapturedError.value, 'error');
-                } finally {
-                    aiAnalyzing.value = false;
-                }
             };
 
             // 本地 AI 分析已关闭：前端仅保留展示入口，经营分析由后端接口生成。
