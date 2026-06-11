@@ -1163,6 +1163,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified during the split: `node --check public\ota-diagnosis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend Meituan Order Fetch Flow Split
+
+- Eighty-ninth frontend split target chosen from Meituan order fetch orchestration inside `fetchMeituanOrdersData()` in `public/index.html`.
+- Extended `public/meituan-static.js` with `runMeituanOrderFetchFlow`, `normalizeMeituanOrderFetchForm`, `validateMeituanOrderFetchInput`, and `buildMeituanOrderFetchRequestBody` for form normalization, explicit input guards, request body construction, success result writes, failed response handling, exception handling, and busy-state cleanup.
+- `public/index.html` now keeps only Vue callback wiring for refs, `/online-data/fetch-meituan-orders`, result setters, toast dispatch, and online history refresh.
+- This split did not change `/online-data/fetch-meituan-orders`, storage behavior, order result display, history refresh, missing/failed-state visibility, or Meituan OTA channel scope. Missing URL, order page URL misuse, missing partnerId, missing poiId, missing Cookies, backend failure, and request exception states remain explicit.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted order fetch runner, prevent order request flow, page URL guard, success write, and success toast from being re-inlined, and validate success, missing URL, backend failure, and exception cleanup samples in a VM context.
+- Current split-map: `public/index.html` decreased from `37118` lines to `37066` lines; frontend function-level blocks remain `1396`; `meituan` domain span decreased from `1148` to `1095`; `fetchMeituanOrdersData` is no longer in the largest-block list, and the current largest frontend blocks are `importKnowledgeUnits` and `openSystemConfigModal` at `68` lines each.
+- Current self-audit: full directory about `287.18 MB`, without `.git` about `92.49 MB`, without `.git` and dependencies about `63.30 MB`, tracked files about `18.37 MB` / `613` files; code scope `370` files, `192282` total lines, and `176462` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\meituan-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

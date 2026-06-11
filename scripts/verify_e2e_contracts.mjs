@@ -104,10 +104,13 @@ requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckRunContext'
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
 requireText('public/ctrip-static.js', 'const runCtripProfileRecheckFlow', 'Ctrip static runs Profile recheck flow');
 requireText('public/index.html', "requireMeituanStatic('runMeituanBatchFetchFlow')", 'entry uses extracted Meituan batch fetch flow runner');
+requireText('public/index.html', "requireMeituanStatic('runMeituanOrderFetchFlow')", 'entry uses extracted Meituan order fetch flow runner');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
 requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 'Meituan static validates batch fetch inputs');
 requireText('public/meituan-static.js', 'const runMeituanBatchFetchFlow', 'Meituan static runs batch fetch flow');
+requireText('public/meituan-static.js', 'const buildMeituanOrderFetchRequestBody', 'Meituan static builds order fetch request bodies');
+requireText('public/meituan-static.js', 'const runMeituanOrderFetchFlow', 'Meituan static runs order fetch flow');
 requireText('public/index.html', "requireAutoFetchStatic('runAutoFetchTriggerFlow')", 'entry uses extracted auto-fetch trigger flow runner');
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchTriggerRequestBody', 'auto-fetch static builds trigger request bodies');
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchRunStartState', 'auto-fetch static builds trigger run start state');
@@ -181,6 +184,10 @@ requireNoText('public/index.html', 'const batchInput = validateMeituanBatchFetch
 requireNoText('public/index.html', 'const fetchTasks = buildMeituanBatchFetchTasks({', 'Meituan batch fetch task flow is not re-inlined');
 requireNoText('public/index.html', 'results.push(buildMeituanBatchFetchResultEntry(task, res));', 'Meituan batch fetch result flow is not re-inlined');
 requireNoText('public/index.html', 'body: JSON.stringify(buildMeituanDisplayModelPayload({ results, form: meituanForm.value }))', 'Meituan display model payload flow is not re-inlined');
+requireNoText('public/index.html', "const res = await request('/online-data/fetch-meituan-orders', {", 'Meituan order request flow is not re-inlined');
+requireNoText('public/index.html', "form.url.includes('/order-eb/index.html')", 'Meituan order page URL guard is not re-inlined');
+requireNoText('public/index.html', 'meituanOrderResult.value = res.data || {};', 'Meituan order success result write is not re-inlined');
+requireNoText('public/index.html', '订单数据获取成功，已入库 ${savedCount} 条', 'Meituan order success toast is not re-inlined');
 requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
@@ -573,16 +580,24 @@ try {
   const buildMeituanDisplayModelPayload = meituanStatic.buildMeituanDisplayModelPayload;
   const validateMeituanBatchFetchInput = meituanStatic.validateMeituanBatchFetchInput;
   const runMeituanBatchFetchFlow = meituanStatic.runMeituanBatchFetchFlow;
+  const normalizeMeituanOrderFetchForm = meituanStatic.normalizeMeituanOrderFetchForm;
+  const validateMeituanOrderFetchInput = meituanStatic.validateMeituanOrderFetchInput;
+  const buildMeituanOrderFetchRequestBody = meituanStatic.buildMeituanOrderFetchRequestBody;
+  const runMeituanOrderFetchFlow = meituanStatic.runMeituanOrderFetchFlow;
   if (typeof buildMeituanBatchFetchTasks !== 'function'
     || typeof buildMeituanBatchFetchResultEntry !== 'function'
     || typeof buildMeituanDisplayModelPayload !== 'function'
     || typeof validateMeituanBatchFetchInput !== 'function'
-    || typeof runMeituanBatchFetchFlow !== 'function') {
+    || typeof runMeituanBatchFetchFlow !== 'function'
+    || typeof normalizeMeituanOrderFetchForm !== 'function'
+    || typeof validateMeituanOrderFetchInput !== 'function'
+    || typeof buildMeituanOrderFetchRequestBody !== 'function'
+    || typeof runMeituanOrderFetchFlow !== 'function') {
     checks.push({
       file: 'public/meituan-static.js',
-      label: 'Meituan static exports batch fetch builders',
+      label: 'Meituan static exports batch and order fetch builders',
       ok: false,
-      detail: 'batch fetch builders and flow runner',
+      detail: 'batch/order fetch builders and flow runners',
     });
   } else {
     const tasks = buildMeituanBatchFetchTasks({
@@ -767,6 +782,124 @@ try {
         && guardResult.status === 'missing_hotel'
         && guardEvents[0] === 'notify:error:请选择目标酒店',
       detail: 'Meituan batch result sample',
+    });
+
+    const orderForm = {
+      url: ' https://example.test/orders/list ',
+      method: 'post',
+      partnerId: ' partner-10 ',
+      poiId: ' poi-10 ',
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+      cookies: '\nmt-cookie\n',
+      payloadJson: ' {"pageNo":1} ',
+      extraParams: ' {"pageSize":50} ',
+    };
+    const normalizedOrderForm = normalizeMeituanOrderFetchForm(orderForm);
+    const missingOrderUrl = validateMeituanOrderFetchInput({ url: '', method: 'GET', partnerId: 'p', poiId: 'poi', cookies: 'cookie' });
+    const invalidOrderPageUrl = validateMeituanOrderFetchInput({ url: 'https://eb.meituan.com/order-eb/index.html', method: 'GET', partnerId: 'p', poiId: 'poi', cookies: 'cookie' });
+    const missingOrderCookie = validateMeituanOrderFetchInput({ url: 'https://example.test/orders/list', method: 'GET', partnerId: 'p', poiId: 'poi', cookies: '' });
+    const orderRequestBody = buildMeituanOrderFetchRequestBody({
+      form: normalizedOrderForm,
+      systemHotelId: '10',
+      hotelName: 'Meituan Demo',
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan order fetch input and request builder keep missing states explicit',
+      ok: normalizedOrderForm.url === 'https://example.test/orders/list'
+        && normalizedOrderForm.method === 'POST'
+        && normalizedOrderForm.partnerId === 'partner-10'
+        && normalizedOrderForm.poiId === 'poi-10'
+        && normalizedOrderForm.cookies === 'mt-cookie'
+        && normalizedOrderForm.payloadJson === '{"pageNo":1}'
+        && normalizedOrderForm.extraParams === '{"pageSize":50}'
+        && missingOrderUrl.status === 'missing_url'
+        && invalidOrderPageUrl.status === 'invalid_page_url'
+        && missingOrderCookie.status === 'missing_cookies'
+        && orderRequestBody.partner_id === 'partner-10'
+        && orderRequestBody.poi_id === 'poi-10'
+        && orderRequestBody.auto_save === true
+        && orderRequestBody.system_hotel_id === '10'
+        && orderRequestBody.hotel_name === 'Meituan Demo',
+      detail: 'buildMeituanOrderFetchRequestBody sample',
+    });
+
+    const orderEvents = [];
+    const orderStates = [];
+    let orderResultPayload = null;
+    let orderOnlinePayload = null;
+    let orderRequestedBody = null;
+    const orderFlowResult = await runMeituanOrderFetchFlow({
+      getForm: () => ({
+        url: ' https://example.test/orders/list ',
+        method: 'get',
+        partnerId: ' partner-20 ',
+        poiId: ' poi-20 ',
+        cookies: ' mt-cookie-20 ',
+        startDate: '2026-06-02',
+        endDate: '2026-06-03',
+        payloadJson: ' {"pageNo":2} ',
+        extraParams: '',
+      }),
+      getSystemHotelId: () => '20',
+      getHotelNameById: id => `Hotel ${id}`,
+      notify: (message, level) => orderEvents.push(`notify:${level || 'info'}:${message}`),
+      setFetching: value => orderStates.push(`fetching:${value}`),
+      setOrderResult: value => { orderResultPayload = value; },
+      setOnlineDataResult: value => { orderOnlinePayload = value; },
+      requestFetch: async body => {
+        orderRequestedBody = body;
+        return { code: 200, data: { saved_count: 4, row_count: 6 } };
+      },
+      refreshOnlineHistory: async () => orderEvents.push('history'),
+    });
+    const missingOrderEvents = [];
+    const missingOrderResult = await runMeituanOrderFetchFlow({
+      getForm: () => ({ url: '', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      notify: (message, level) => missingOrderEvents.push(`notify:${level}:${message}`),
+      setFetching: value => missingOrderEvents.push(`fetching:${value}`),
+    });
+    const failedOrderStates = [];
+    const failedOrderEvents = [];
+    const failedOrderResult = await runMeituanOrderFetchFlow({
+      getForm: () => ({ url: 'https://example.test/orders/list', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      notify: (message, level) => failedOrderEvents.push(`notify:${level}:${message}`),
+      setFetching: value => failedOrderStates.push(`fetching:${value}`),
+      requestFetch: async () => ({ code: 500, message: 'order backend failed' }),
+    });
+    const exceptionOrderStates = [];
+    const exceptionOrderEvents = [];
+    const exceptionOrderResult = await runMeituanOrderFetchFlow({
+      getForm: () => ({ url: 'https://example.test/orders/list', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      notify: (message, level) => exceptionOrderEvents.push(`notify:${level}:${message}`),
+      setFetching: value => exceptionOrderStates.push(`fetching:${value}`),
+      requestFetch: async () => {
+        throw new Error('network down');
+      },
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan order fetch flow preserves success, failed and exception states',
+      ok: orderFlowResult.status === 'success'
+        && orderRequestedBody.partner_id === 'partner-20'
+        && orderRequestedBody.method === 'GET'
+        && orderRequestedBody.hotel_name === 'Hotel 20'
+        && orderResultPayload.saved_count === 4
+        && orderOnlinePayload.row_count === 6
+        && orderStates.join('|') === 'fetching:true|fetching:false'
+        && orderEvents.includes('history')
+        && orderEvents.some(event => event === 'notify:success:订单数据获取成功，已入库 4 条')
+        && missingOrderResult.status === 'missing_url'
+        && missingOrderEvents[0] === 'notify:error:需 Network 请求信息：请填写订单接口 Request URL'
+        && !missingOrderEvents.some(event => event.startsWith('fetching:'))
+        && failedOrderResult.status === 'failed'
+        && failedOrderEvents[0] === 'notify:error:order backend failed'
+        && failedOrderStates.join('|') === 'fetching:true|fetching:false'
+        && exceptionOrderResult.status === 'exception'
+        && exceptionOrderEvents[0] === 'notify:error:订单数据获取失败: network down'
+        && exceptionOrderStates.join('|') === 'fetching:true|fetching:false',
+      detail: 'runMeituanOrderFetchFlow state samples',
     });
   }
 } catch (error) {

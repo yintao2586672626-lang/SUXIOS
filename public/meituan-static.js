@@ -239,6 +239,110 @@ window.SUXI_MEITUAN_STATIC = (() => {
         start_date: form.startDate,
         end_date: form.endDate,
     });
+
+    const normalizeMeituanCookieText = (value) => String(value || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');
+
+    const normalizeMeituanOrderFetchForm = (form = {}) => {
+        form.url = String(form.url || '').trim();
+        form.method = String(form.method || 'GET').toUpperCase();
+        form.partnerId = String(form.partnerId || '').trim();
+        form.poiId = String(form.poiId || '').trim();
+        form.cookies = normalizeMeituanCookieText(form.cookies);
+        form.payloadJson = String(form.payloadJson || '').trim();
+        form.extraParams = String(form.extraParams || '').trim();
+        return form;
+    };
+
+    const validateMeituanOrderFetchInput = (form = {}) => {
+        if (!form.url) {
+            return { ok: false, status: 'missing_url', level: 'error', message: '需 Network 请求信息：请填写订单接口 Request URL' };
+        }
+        if (form.url.includes('/order-eb/index.html')) {
+            return { ok: false, status: 'invalid_page_url', level: 'error', message: '请填写 Network 中 /orders/list 的接口 URL，不是订单页面 URL' };
+        }
+        if (!form.partnerId) {
+            return { ok: false, status: 'missing_partner_id', level: 'error', message: '请输入平台接口标识' };
+        }
+        if (!form.poiId) {
+            return { ok: false, status: 'missing_poi_id', level: 'error', message: '请输入平台门店标识' };
+        }
+        if (!form.cookies) {
+            return { ok: false, status: 'missing_cookies', level: 'error', message: '请输入 Cookies' };
+        }
+        return { ok: true, status: 'ok' };
+    };
+
+    const buildMeituanOrderFetchRequestBody = ({
+        form = {},
+        systemHotelId = null,
+        hotelName = '',
+    } = {}) => ({
+        url: form.url,
+        method: form.method,
+        partner_id: form.partnerId,
+        poi_id: form.poiId,
+        cookies: form.cookies,
+        start_date: form.startDate,
+        end_date: form.endDate,
+        payload_json: form.payloadJson,
+        extra_params: form.extraParams,
+        auto_save: true,
+        system_hotel_id: systemHotelId,
+        hotel_name: hotelName,
+    });
+
+    const runMeituanOrderFetchFlow = async ({
+        getForm = () => ({}),
+        getSystemHotelId = () => null,
+        getHotelNameById = () => '',
+        notify = () => {},
+        setFetching = () => {},
+        setOrderResult = () => {},
+        setOnlineDataResult = () => {},
+        requestFetch = async () => ({}),
+        refreshOnlineHistory = async () => {},
+    } = {}) => {
+        const form = normalizeMeituanOrderFetchForm(getForm() || {});
+        const validation = validateMeituanOrderFetchInput(form);
+        if (!validation.ok) {
+            notify(validation.message, validation.level);
+            return { status: validation.status, validation, form };
+        }
+
+        setFetching(true);
+        setOrderResult(null);
+        setOnlineDataResult(null);
+        const systemHotelId = getSystemHotelId();
+        const requestBody = buildMeituanOrderFetchRequestBody({
+            form,
+            systemHotelId,
+            hotelName: getHotelNameById(systemHotelId),
+        });
+        try {
+            const res = await requestFetch(requestBody);
+            if (res.code === 200) {
+                const data = res.data || {};
+                setOrderResult(data);
+                setOnlineDataResult(data);
+                const savedCount = data.saved_count || 0;
+                notify(
+                    savedCount > 0 ? `订单数据获取成功，已入库 ${savedCount} 条` : '订单接口请求成功，但未解析到可入库数据',
+                    savedCount > 0 ? 'success' : 'warning'
+                );
+                await refreshOnlineHistory();
+                return { status: 'success', response: res, requestBody, data, savedCount };
+            }
+
+            notify(res.message || '订单数据获取失败', 'error');
+            return { status: 'failed', response: res, requestBody };
+        } catch (error) {
+            notify('订单数据获取失败: ' + error.message, 'error');
+            return { status: 'exception', error, requestBody };
+        } finally {
+            setFetching(false);
+        }
+    };
+
     const runMeituanBatchFetchFlow = async ({
         getForm = () => ({}),
         getSelectedConfig = () => null,
@@ -501,6 +605,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanBatchFetchTasks,
         buildMeituanBatchFetchResultEntry,
         buildMeituanDisplayModelPayload,
+        normalizeMeituanCookieText,
+        normalizeMeituanOrderFetchForm,
+        validateMeituanOrderFetchInput,
+        buildMeituanOrderFetchRequestBody,
+        runMeituanOrderFetchFlow,
         runMeituanBatchFetchFlow,
         buildMeituanRankDisplayRows,
         buildCompetitorSummaryCoreCards,
