@@ -362,6 +362,127 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         return tasks;
     };
 
+    const buildEmptyOtaDiagnosisFetchSummary = () => ({
+        attempted: 0,
+        success: 0,
+        failed: 0,
+        results: [],
+    });
+
+    const runOtaDiagnosisFetchTasks = async ({
+        tasks = [],
+        requestTask = async () => ({}),
+    } = {}) => {
+        const results = [];
+        for (const task of tasks) {
+            try {
+                const res = await requestTask(task);
+                results.push({
+                    label: task.label,
+                    success: Number(res?.code || 0) === 200,
+                    message: res?.message || res?.msg || '',
+                    saved_count: Number(res?.data?.saved_count || 0),
+                    request_source: task.body?.request_source || '',
+                });
+            } catch (error) {
+                results.push({
+                    label: task.label,
+                    success: false,
+                    message: error?.data?.message || error?.data?.msg || error?.message || 'fetch failed',
+                    saved_count: 0,
+                    request_source: task.body?.request_source || '',
+                });
+            }
+        }
+
+        const success = results.filter(item => item.success).length;
+        return {
+            attempted: results.length,
+            success,
+            failed: results.length - success,
+            results,
+        };
+    };
+
+    const runOtaDiagnosisHotelFetchFlow = async ({
+        selectedHotel = {},
+        form = {},
+        findCtripConfigByHotelId = () => null,
+        findMeituanConfigByHotelId = () => null,
+        readSavedOtaDataConfig = async () => ({}),
+        readSavedGenericCookieForDiagnosis = async () => null,
+        checkCtripProfileStatus = async () => ({}),
+        applyCtripProfileStatus = () => {},
+        getCtripCookieApiCorePresetJson = () => '',
+        requestTask = async () => ({}),
+        notify = () => {},
+        log = () => {},
+    } = {}) => {
+        const initialSystemHotelId = String(selectedHotel?.system_hotel_id || selectedHotel?.hotel_id || form.hotel_id || '').trim();
+        if (!initialSystemHotelId) return buildEmptyOtaDiagnosisFetchSummary();
+
+        const ctripConfig = findCtripConfigByHotelId(initialSystemHotelId);
+        const meituanConfig = findMeituanConfigByHotelId(initialSystemHotelId);
+        const [
+            ctripTrafficConfig,
+            ctripCookieApiConfig,
+            meituanTrafficConfig,
+        ] = await Promise.all([
+            readSavedOtaDataConfig('ctrip-traffic'),
+            readSavedOtaDataConfig('ctrip-cookie-api'),
+            readSavedOtaDataConfig('meituan-traffic'),
+        ]);
+        const fetchContext = buildOtaDiagnosisFetchContext({
+            selectedHotel,
+            form,
+            ctripConfig,
+            meituanConfig,
+            ctripTrafficConfig,
+            ctripCookieApiConfig,
+            meituanTrafficConfig,
+        });
+        const systemHotelId = fetchContext.systemHotelId;
+        if (!systemHotelId) return buildEmptyOtaDiagnosisFetchSummary();
+
+        const genericCtripCookie = String(fetchContext.ctripCookieApiCookies || '').trim()
+            ? null
+            : await readSavedGenericCookieForDiagnosis(systemHotelId);
+        let useCtripCorePresetForDiagnosis = false;
+        let ctripCorePresetReason = '';
+        if (!fetchContext.hasCtripCookieApiRequests) {
+            if (String(fetchContext.ctripCookieApiCookies || genericCtripCookie?.cookies || '').trim()) {
+                useCtripCorePresetForDiagnosis = true;
+                ctripCorePresetReason = genericCtripCookie ? 'generic_cookie' : 'cookie';
+            } else if (String(fetchContext.ctripCookieApiProfileId || '').trim()) {
+                try {
+                    const profileStatus = await checkCtripProfileStatus({
+                        systemHotelId,
+                        profileId: String(fetchContext.ctripCookieApiProfileId).trim(),
+                    });
+                    if (profileStatus?.exists) {
+                        useCtripCorePresetForDiagnosis = true;
+                        ctripCorePresetReason = 'profile';
+                        applyCtripProfileStatus(profileStatus);
+                    }
+                } catch (error) {
+                    log('check Ctrip Profile before diagnosis fetch failed:', error);
+                }
+            }
+        }
+
+        const tasks = buildOtaDiagnosisFetchTasks({
+            context: fetchContext,
+            genericCtripCookie,
+            useCtripCorePresetForDiagnosis,
+            ctripCorePresetReason,
+            ctripCorePresetJson: getCtripCookieApiCorePresetJson(),
+        });
+        if (tasks.length === 0) return buildEmptyOtaDiagnosisFetchSummary();
+
+        notify('正在同步该门店OTA数据...');
+        return runOtaDiagnosisFetchTasks({ tasks, requestTask });
+    };
+
     return {
         normalizeOtaDiagnosisList,
         otaDiagnosisPlatformText,
@@ -372,5 +493,6 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         buildOtaDiagnosisResultSections,
         buildOtaDiagnosisFetchContext,
         buildOtaDiagnosisFetchTasks,
+        runOtaDiagnosisHotelFetchFlow,
     };
 })();

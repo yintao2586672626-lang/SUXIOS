@@ -1043,6 +1043,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend OTA Diagnosis Fetch Flow Split
+
+- Seventy-ninth frontend split target chosen from OTA diagnosis pre-diagnosis fetch orchestration inside `runOtaDiagnosisHotelFetch()` in `public/index.html`.
+- Extended `public/ota-diagnosis-static.js` with `runOtaDiagnosisHotelFetchFlow` for saved-config loading, fetch-context construction, generic Ctrip Cookie selection, Ctrip core-preset decision, fetch-task execution, and summary calculation.
+- `public/index.html` keeps the runtime callback wiring in place: Ctrip/Meituan config lookup, saved OTA config reads, generic Cookie read, Ctrip Profile status probe, Profile status write, request execution, toast, and debug logging.
+- This split did not change OTA diagnosis endpoints, Ctrip/Meituan fetch endpoints, storage behavior, visible failed-task handling, the continue-with-stored-data behavior, or OTA channel scope.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted OTA diagnosis fetch flow runner, prevent fetch-context/task/core-preset/result-summary logic from being re-inlined, and validate profile core-preset, task execution, toast, and summary samples in a VM context.
+- Current split-map: `public/index.html` decreased from `37684` lines to `37615` lines; frontend function-level blocks remain `1396`; `ota` domain span decreased from `506` to `437`; `runOtaDiagnosisHotelFetch` is no longer in the largest-block list.
+- Current self-audit: full directory about `280.88 MB`, without `.git` about `92.36 MB`, without `.git` and dependencies about `63.17 MB`, tracked files about `18.24 MB` / `613` files; code scope `370` files, `190392` total lines, and `174606` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ota-diagnosis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check public\ctrip-static.js`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

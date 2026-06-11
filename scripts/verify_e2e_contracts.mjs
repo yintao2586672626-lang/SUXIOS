@@ -174,10 +174,10 @@ requireText('public/index.html', 'field-simulation-adr', 'simulation ADR field h
 requireText('public/index.html', 'field-market-business-area', 'market business area field has stable selector');
 requireText('public/index.html', 'field-transfer-pricing-', 'transfer pricing fields have stable selectors');
 requireTextInFiles(['public/index.html', 'public/ota-diagnosis-static.js'], 'result.diagnosis_sections', 'OTA diagnosis UI renders backend-provided diagnosis sections');
-requireText('public/index.html', "requireOtaDiagnosisStatic('buildOtaDiagnosisFetchContext')", 'entry uses extracted OTA diagnosis fetch context builder');
-requireText('public/index.html', "requireOtaDiagnosisStatic('buildOtaDiagnosisFetchTasks')", 'entry uses extracted OTA diagnosis fetch task builder');
+requireText('public/index.html', "requireOtaDiagnosisStatic('runOtaDiagnosisHotelFetchFlow')", 'entry uses extracted OTA diagnosis fetch flow runner');
 requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchContext', 'OTA diagnosis static builds fetch context');
 requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchTasks', 'OTA diagnosis static builds fetch tasks');
+requireText('public/ota-diagnosis-static.js', 'const runOtaDiagnosisHotelFetchFlow', 'OTA diagnosis static runs fetch flow');
 requireText('public/index.html', '<script src="ai-analysis-static.js"></script>', 'frontend loads extracted AI analysis static helper');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')", 'entry uses extracted AI analysis summary request builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisStartContext')", 'entry uses extracted AI analysis start context builder');
@@ -215,6 +215,11 @@ requireText('public/ai-analysis-static.js', 'const resolveMeituanAiSelectedData'
 requireText('public/ai-analysis-static.js', 'const buildMeituanAiAnalysisRequestBody', 'AI analysis static builds Meituan AI request bodies');
 requireText('public/ai-analysis-static.js', 'const buildMeituanAiAnalysisHistoryRecord', 'AI analysis static builds Meituan AI history records');
 requireNoText('public/index.html', 'const pushOtaDiagnosisFetchTask = (tasks, task) => {', 'OTA diagnosis task push helper is not re-inlined');
+requireNoText('public/index.html', 'const fetchContext = buildOtaDiagnosisFetchContext({', 'OTA diagnosis fetch context construction is not re-inlined');
+requireNoText('public/index.html', 'tasks.push(...buildOtaDiagnosisFetchTasks({', 'OTA diagnosis fetch task construction is not re-inlined');
+requireNoText('public/index.html', 'const genericCtripCookie = String(fetchContext.ctripCookieApiCookies || \'\').trim()', 'OTA diagnosis generic Ctrip Cookie selection is not re-inlined');
+requireNoText('public/index.html', 'let useCtripCorePresetForDiagnosis = false;', 'OTA diagnosis core preset decision is not re-inlined');
+requireNoText('public/index.html', 'const success = results.filter(item => item.success).length;', 'OTA diagnosis fetch result summary is not re-inlined');
 requireNoText('public/index.html', "['P_RZ', 'P_XS', 'P_ZH', 'P_LL'].forEach(rankType => {", 'OTA diagnosis Meituan task list is not re-inlined');
 requireNoText('public/index.html', 'const aiAnalysisStatusText = (status) => {', 'AI analysis status text helper is not re-inlined');
 requireNoText('public/index.html', 'const chunkArray = (items, size) => {', 'AI analysis chunk helper is not re-inlined');
@@ -493,12 +498,15 @@ try {
   const otaDiagnosisStatic = context.window.SUXI_OTA_DIAGNOSIS_STATIC || {};
   const buildOtaDiagnosisFetchContext = otaDiagnosisStatic.buildOtaDiagnosisFetchContext;
   const buildOtaDiagnosisFetchTasks = otaDiagnosisStatic.buildOtaDiagnosisFetchTasks;
-  if (typeof buildOtaDiagnosisFetchContext !== 'function' || typeof buildOtaDiagnosisFetchTasks !== 'function') {
+  const runOtaDiagnosisHotelFetchFlow = otaDiagnosisStatic.runOtaDiagnosisHotelFetchFlow;
+  if (typeof buildOtaDiagnosisFetchContext !== 'function'
+    || typeof buildOtaDiagnosisFetchTasks !== 'function'
+    || typeof runOtaDiagnosisHotelFetchFlow !== 'function') {
     checks.push({
       file: 'public/ota-diagnosis-static.js',
-      label: 'OTA diagnosis static exports fetch task builders',
+      label: 'OTA diagnosis static exports fetch task builders and flow runner',
       ok: false,
-      detail: 'buildOtaDiagnosisFetchContext/buildOtaDiagnosisFetchTasks',
+      detail: 'buildOtaDiagnosisFetchContext/buildOtaDiagnosisFetchTasks/runOtaDiagnosisHotelFetchFlow',
     });
   } else {
     const fetchContext = buildOtaDiagnosisFetchContext({
@@ -548,6 +556,48 @@ try {
         && coreTask?.body?.cookies === 'generic-cookie'
         && coreTask?.body?.endpoints_json === '[{"request_url":"core"}]',
       detail: 'core_preset',
+    });
+    const flowEvents = [];
+    const flowStatuses = [];
+    const flowResult = await runOtaDiagnosisHotelFetchFlow({
+      selectedHotel: { system_hotel_id: '30' },
+      form: { hotel_id: '30', start_date: '2026-06-03', end_date: '2026-06-03' },
+      readSavedOtaDataConfig: async type => {
+        flowEvents.push({ type: 'config', source: type });
+        if (type === 'ctrip-cookie-api') return { profile_id: 'profile-30', system_hotel_id: '30' };
+        return {};
+      },
+      readSavedGenericCookieForDiagnosis: async systemHotelId => {
+        flowEvents.push({ type: 'generic_cookie', systemHotelId });
+        return null;
+      },
+      checkCtripProfileStatus: async ({ systemHotelId, profileId }) => {
+        flowEvents.push({ type: 'profile_status', systemHotelId, profileId });
+        return { exists: true, profile_id: profileId };
+      },
+      applyCtripProfileStatus: status => flowStatuses.push(status),
+      getCtripCookieApiCorePresetJson: () => '[{"request_url":"core-flow"}]',
+      requestTask: async task => {
+        flowEvents.push({ type: 'task', task });
+        return { code: 200, message: 'ok', data: { saved_count: 3 } };
+      },
+      notify: message => flowEvents.push({ type: 'notify', message }),
+    });
+    const flowTaskEvent = flowEvents.find(event => event.type === 'task') || {};
+    checks.push({
+      file: 'public/ota-diagnosis-static.js',
+      label: 'OTA diagnosis fetch flow keeps profile core preset and task summary explicit',
+      ok: flowResult.attempted === 1
+        && flowResult.success === 1
+        && flowResult.failed === 0
+        && flowResult.results[0]?.label === 'ctrip-cookie-api'
+        && flowResult.results[0]?.saved_count === 3
+        && flowResult.results[0]?.request_source === 'core_preset:profile'
+        && flowStatuses[0]?.profile_id === 'profile-30'
+        && flowTaskEvent.task?.body?.endpoints_json === '[{"request_url":"core-flow"}]'
+        && flowTaskEvent.task?.body?.request_source === 'core_preset:profile'
+        && flowEvents.some(event => event.type === 'notify'),
+      detail: 'runOtaDiagnosisHotelFetchFlow profile preset sample',
     });
   }
 } catch (error) {

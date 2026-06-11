@@ -30032,8 +30032,7 @@
                 formatNumber,
             }));
             const otaDiagnosisResultSections = computed(() => requireOtaDiagnosisStatic('buildOtaDiagnosisResultSections')(otaDiagnosisResult.value || {}));
-            const buildOtaDiagnosisFetchContext = requireOtaDiagnosisStatic('buildOtaDiagnosisFetchContext');
-            const buildOtaDiagnosisFetchTasks = requireOtaDiagnosisStatic('buildOtaDiagnosisFetchTasks');
+            const runOtaDiagnosisHotelFetchFlow = requireOtaDiagnosisStatic('runOtaDiagnosisHotelFetchFlow');
             const hotelImageOptimizerStatic = window.SUXI_HOTEL_IMAGE_OPTIMIZER_STATIC;
             if (!hotelImageOptimizerStatic || typeof hotelImageOptimizerStatic !== 'object') {
                 throw new Error('缺少酒店图片优化静态配置：hotel-image-optimizer-static.js 未加载');
@@ -30574,103 +30573,35 @@
             };
 
             const runOtaDiagnosisHotelFetch = async (selectedHotel, form) => {
-                const initialSystemHotelId = String(selectedHotel?.system_hotel_id || selectedHotel?.hotel_id || form.hotel_id || '').trim();
-                if (!initialSystemHotelId) return { attempted: 0, success: 0, failed: 0, results: [] };
-                const tasks = [];
-                const ctripConfig = findCtripConfigByHotelId(initialSystemHotelId);
-                const meituanConfig = findMeituanConfigByHotelId(initialSystemHotelId);
-                const [
-                    ctripTrafficConfig,
-                    ctripCookieApiConfig,
-                    meituanTrafficConfig,
-                ] = await Promise.all([
-                    readSavedOtaDataConfig('ctrip-traffic'),
-                    readSavedOtaDataConfig('ctrip-cookie-api'),
-                    readSavedOtaDataConfig('meituan-traffic'),
-                ]);
-                const fetchContext = buildOtaDiagnosisFetchContext({
+                return runOtaDiagnosisHotelFetchFlow({
                     selectedHotel,
                     form,
-                    ctripConfig,
-                    meituanConfig,
-                    ctripTrafficConfig,
-                    ctripCookieApiConfig,
-                    meituanTrafficConfig,
-                });
-                const systemHotelId = fetchContext.systemHotelId;
-                if (!systemHotelId) return { attempted: 0, success: 0, failed: 0, results: [] };
-                const genericCtripCookie = String(fetchContext.ctripCookieApiCookies || '').trim()
-                    ? null
-                    : await readSavedGenericCookieForDiagnosis(systemHotelId);
-                let useCtripCorePresetForDiagnosis = false;
-                let ctripCorePresetReason = '';
-                if (!fetchContext.hasCtripCookieApiRequests) {
-                    if (String(fetchContext.ctripCookieApiCookies || genericCtripCookie?.cookies || '').trim()) {
-                        useCtripCorePresetForDiagnosis = true;
-                        ctripCorePresetReason = genericCtripCookie ? 'generic_cookie' : 'cookie';
-                    } else if (String(fetchContext.ctripCookieApiProfileId || '').trim()) {
-                        try {
-                            const params = new URLSearchParams();
-                            params.set('system_hotel_id', systemHotelId);
-                            params.set('profile_id', String(fetchContext.ctripCookieApiProfileId).trim());
-                            params.set('probe_cookie', '0');
-                            const statusRes = await request(`/online-data/ctrip-profile-status?${params.toString()}`);
-                            const profileStatus = statusRes.code === 200 ? (statusRes.data || {}) : {};
-                            if (profileStatus.exists) {
-                                useCtripCorePresetForDiagnosis = true;
-                                ctripCorePresetReason = 'profile';
-                                ctripProfileStatus.value = profileStatus;
-                            }
-                        } catch (e) {
-                            debugLog('check Ctrip Profile before diagnosis fetch failed:', e);
-                        }
-                    }
-                }
-                tasks.push(...buildOtaDiagnosisFetchTasks({
-                    context: fetchContext,
-                    genericCtripCookie,
-                    useCtripCorePresetForDiagnosis,
-                    ctripCorePresetReason,
-                    ctripCorePresetJson: getCtripCookieApiCorePresetJson(),
-                }));
-
-                if (tasks.length === 0) {
-                    return { attempted: 0, success: 0, failed: 0, results: [] };
-                }
-
-                showToast('正在同步该门店OTA数据...');
-                const results = [];
-                for (const task of tasks) {
-                    try {
+                    findCtripConfigByHotelId,
+                    findMeituanConfigByHotelId,
+                    readSavedOtaDataConfig,
+                    readSavedGenericCookieForDiagnosis,
+                    checkCtripProfileStatus: async ({ systemHotelId, profileId }) => {
+                        const params = new URLSearchParams();
+                        params.set('system_hotel_id', systemHotelId);
+                        params.set('profile_id', profileId);
+                        params.set('probe_cookie', '0');
+                        const statusRes = await request(`/online-data/ctrip-profile-status?${params.toString()}`);
+                        return statusRes.code === 200 ? (statusRes.data || {}) : {};
+                    },
+                    applyCtripProfileStatus: profileStatus => {
+                        ctripProfileStatus.value = profileStatus;
+                    },
+                    getCtripCookieApiCorePresetJson,
+                    requestTask: async task => {
                         const res = await request(task.url, {
                             method: 'POST',
                             body: JSON.stringify(task.body),
                         });
-                        results.push({
-                            label: task.label,
-                            success: res.code === 200,
-                            message: res.message || res.msg || '',
-                            saved_count: Number(res.data?.saved_count || 0),
-                            request_source: task.body?.request_source || '',
-                        });
-                    } catch (e) {
-                        results.push({
-                            label: task.label,
-                            success: false,
-                            message: e?.data?.message || e?.data?.msg || e.message || 'fetch failed',
-                            saved_count: 0,
-                            request_source: task.body?.request_source || '',
-                        });
-                    }
-                }
-
-                const success = results.filter(item => item.success).length;
-                return {
-                    attempted: results.length,
-                    success,
-                    failed: results.length - success,
-                    results,
-                };
+                        return res;
+                    },
+                    notify: showToast,
+                    log: (...args) => debugLog(...args),
+                });
             };
 
             const generateOtaDiagnosis = async () => {
