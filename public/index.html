@@ -23151,7 +23151,10 @@
             };
             const scheduleBackendNotificationRefresh = () => schedulePostFetchRefresh('backend-global-notifications', () => loadBackendGlobalNotifications().catch(() => null), 700);
             const scheduleCtripProfileFieldReview = () => schedulePostFetchRefresh('ctrip-profile-field-review', () => openCtripProfileFieldsForReview(), 520);
-            const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => loadDataHealthPanel(mode, params), 560);
+            const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => {
+                if (!['online-data', 'ctrip-ebooking'].includes(currentPage.value) || onlineDataTab.value !== 'data-health') return null;
+                return loadDataHealthPanel(mode, params);
+            }, 560);
             const schedulePlatformProfileStatusRefresh = (params = {}) => schedulePostFetchRefresh('platform-profile-status', () => loadPlatformProfileStatus(params), 480);
             const schedulePlatformDataSourcesRefresh = () => schedulePostFetchRefresh('platform-data-sources', () => loadPlatformDataSources(), 620);
 

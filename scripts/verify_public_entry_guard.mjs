@@ -834,6 +834,11 @@ if (!fs.existsSync(indexPath)) {
       failures.push(`public/index.html must keep ${requiredScheduler} for deferred post-fetch refresh work.`);
     }
   }
+  if (!content.includes("const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => {")
+    || !content.includes("if (!['online-data', 'ctrip-ebooking'].includes(currentPage.value) || onlineDataTab.value !== 'data-health') return null;")
+    || content.includes("const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => loadDataHealthPanel(mode, params), 560);")) {
+    failures.push('public/index.html post-fetch data-health refreshes must not run after the user leaves the visible data-health tab.');
+  }
   for (const directRefreshBinding of [
     'refreshLatestCtripData: loadLatestCtripData',
     'refreshLatestCtripData: params => loadLatestCtripData(params)',

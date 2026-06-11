@@ -367,6 +367,8 @@ requireNoText('public/index.html', '<template v-else>\n                         
 requireNoText('public/index.html', '<div v-if="hotelDashboardLoading || collectionReliabilityLoading" class="rounded-xl border border-gray-200 bg-white p-5">', 'data-health loading must not block the whole cockpit body');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
+requireText('public/index.html', "if (!['online-data', 'ctrip-ebooking'].includes(currentPage.value) || onlineDataTab.value !== 'data-health') return null;", 'post-fetch data-health refresh does not run after the visible data-health tab is left');
+requireNoText('public/index.html', "const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => loadDataHealthPanel(mode, params), 560);", 'post-fetch data-health refresh must include a page and tab guard');
 requireText('public/index.html', 'const schedulePlatformProfileStatusRefresh', 'entry defers platform profile refresh after manual collection');
 requireText('public/index.html', 'const schedulePlatformDataSourcesRefresh', 'entry defers platform data-source refresh after manual collection');
 requireText('app/service/ManualOnlineFetchTaskService.php', 'final class ManualOnlineFetchTaskService', 'manual OTA background task creation and launch lives in a focused service');
