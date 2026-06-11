@@ -195,11 +195,8 @@ requireText('public/index.html', '<script src="ai-analysis-static.js"></script>'
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')", 'entry uses extracted AI analysis summary request builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisStartContext')", 'entry uses extracted AI analysis start context builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisRunContext')", 'entry uses extracted AI analysis run context builder');
-requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaGroupOutcome')", 'entry uses extracted AI analysis group outcome builder');
-requireText('public/index.html', "requireAiAnalysisStatic('applyCapturedOtaGroupRunState')", 'entry uses extracted AI analysis group state updater');
-requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryContext')", 'entry uses extracted AI analysis summary context builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult')", 'entry uses extracted AI analysis summary response builder');
-requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisCompletion')", 'entry uses extracted AI analysis completion builder');
+requireText('public/index.html', "requireAiAnalysisStatic('runCapturedOtaAnalysisExecution')", 'entry uses extracted captured OTA AI analysis execution runner');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection')", 'entry uses extracted Ctrip AI analysis hotel selection builder');
 requireText('public/index.html', "requireAiAnalysisStatic('sanitizeAiReportHtml')", 'entry uses extracted AI report sanitizer');
 requireText('public/index.html', "requireAiAnalysisStatic('aiReportHtmlToText')", 'entry uses extracted AI report text converter');
@@ -218,6 +215,7 @@ requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryReques
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryContext', 'AI analysis static builds captured OTA summary context');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryResponseResult', 'AI analysis static builds captured OTA summary response results');
 requireText('public/ai-analysis-static.js', 'const buildCapturedFallbackSummaryReport', 'AI analysis static builds fallback summary reports');
+requireText('public/ai-analysis-static.js', 'const runCapturedOtaAnalysisExecution', 'AI analysis static runs captured OTA analysis execution');
 requireText('public/ai-analysis-static.js', 'const resolveAiSelectedData', 'AI analysis static resolves selected hotel rows');
 requireText('public/ai-analysis-static.js', 'const validateCapturedOtaAiAnalysisStart', 'AI analysis static validates analysis start inputs');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaAnalysisCompletion', 'AI analysis static builds captured OTA completion state');
@@ -258,6 +256,7 @@ requireNoText('public/index.html', 'groupState.result = result.result;', 'AI gro
 requireNoText('public/index.html', 'aiAnalysisProgress.value.completedHotels += group.length;', 'AI group success count update is not re-inlined');
 requireNoText('public/index.html', 'groupState.error = result.error;', 'AI group failure state update is not re-inlined');
 requireNoText('public/index.html', 'aiAnalysisProgress.value.completedHotels += retryResult.successCount;', 'AI retry completed count update is not re-inlined');
+requireNoText('public/index.html', 'for (let index = 0; index < groups.length; index++) {', 'AI captured OTA group execution loop is not re-inlined');
 requireNoText('public/index.html', 'if (summaryRes.code === 200) {', 'AI summary success response handling is not re-inlined');
 requireNoText('public/index.html', 'const summaryData = summaryRes.data || {};', 'AI summary data extraction is not re-inlined');
 requireNoText('public/index.html', "reason: summaryRes.message || '汇总失败'", 'AI summary fallback response handling is not re-inlined');
@@ -738,6 +737,7 @@ try {
     'buildCapturedFallbackSummaryReport',
     'buildAiAnalysisHistoryRecord',
     'buildCapturedOtaAnalysisCompletion',
+    'runCapturedOtaAnalysisExecution',
     'getMeituanAiAnalysisHotelKey',
     'buildMeituanAiAnalysisHotelList',
     'resolveMeituanAiSelectedData',
@@ -999,6 +999,71 @@ try {
       result: { ok: false },
       retryResult: { successCount: '1', failedCount: '2' },
     });
+    const runnerGroups = [[{ hotel_name: 'A' }], [{ hotel_name: 'B' }]];
+    const runnerBatchResults = aiAnalysisStatic.buildAiAnalysisBatchResults(runnerGroups, 9988);
+    const runnerProgress = aiAnalysisStatic.buildAiAnalysisProgress({ hotelCount: 2, groupCount: 2 });
+    const runnerRequests = [];
+    const runnerSummaryContexts = [];
+    const runnerResult = await aiAnalysisStatic.runCapturedOtaAnalysisExecution({
+      groups: runnerGroups,
+      batchResults: runnerBatchResults,
+      progressState: runnerProgress,
+      hotelsPayload: runnerGroups.flat(),
+      selectedData: [{ hotelName: 'A' }, { hotelName: 'B' }],
+      existingHistory: [{ id: 'old' }],
+      requestGroup: async group => {
+        runnerRequests.push(group[0]?.hotel_name || '');
+        if (group[0]?.hotel_name === 'B') {
+          return { ok: false, error: 'temporary failed', errorDetails: { error_type: 'model_error' } };
+        }
+        return {
+          ok: true,
+          result: {
+            overall_conclusion: 'A成功',
+            key_findings: ['A有效'],
+            recommended_actions: ['继续观察'],
+          },
+        };
+      },
+      retryGroup: async (group, groupState) => {
+        groupState.status = 'success';
+        groupState.result = {
+          overall_conclusion: `${group[0]?.hotel_name || ''}重试成功`,
+          key_findings: ['重试有效'],
+          recommended_actions: ['复核转化'],
+        };
+        groupState.retried = true;
+        return { successCount: 1, failedCount: 0 };
+      },
+      requestSummary: async summaryContext => {
+        runnerSummaryContexts.push(summaryContext);
+        return {
+          report: {
+            overall_conclusion: '汇总完成',
+            key_findings: ['样本有效'],
+            recommended_actions: ['保留显式状态'],
+          },
+          process: { steps: ['summary'] },
+        };
+      },
+    });
+    const failedRunnerBatchResults = aiAnalysisStatic.buildAiAnalysisBatchResults([[{ hotel_name: 'Failed' }]], 9989);
+    const failedRunnerProgress = aiAnalysisStatic.buildAiAnalysisProgress({ hotelCount: 1, groupCount: 1 });
+    const failedRunnerResult = await aiAnalysisStatic.runCapturedOtaAnalysisExecution({
+      groups: [[{ hotel_name: 'Failed' }]],
+      batchResults: failedRunnerBatchResults,
+      progressState: failedRunnerProgress,
+      hotelsPayload: [{ hotel_name: 'Failed' }],
+      selectedData: [{ hotelName: 'Failed' }],
+      requestGroup: async () => ({ ok: false, error: 'sk-secret12345678' }),
+      retryGroup: async (group, groupState) => {
+        groupState.status = 'failed';
+        groupState.error = 'sk-secret12345678';
+        return { successCount: 0, failedCount: group.length };
+      },
+      requestSummary: async () => ({ report: {}, process: null }),
+      maskError: value => `masked:${aiAnalysisStatic.maskAiAnalysisError(value)}`,
+    });
     const meituanHotels = aiAnalysisStatic.buildMeituanAiAnalysisHotelList([
       { poiId: 'm1', hotelName: 'Meituan One', roomNights: '2', roomRevenue: '300', views: '40' },
       { poiId: 'm1', hotelName: 'Meituan One', roomNights: '5', roomRevenue: '800', views: '80' },
@@ -1152,6 +1217,31 @@ try {
         && completion.history[0].summary === '已完成'
         && completion.history[1].id === 1,
       detail: 'captured OTA completion state sample',
+    });
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis execution runner preserves grouped progress and summary context',
+      ok: runnerRequests.join(',') === 'A,B'
+        && runnerProgress.currentGroup === 2
+        && runnerProgress.completedHotels === 2
+        && runnerProgress.failedHotels === 0
+        && runnerBatchResults[1].retried === true
+        && runnerSummaryContexts[0]?.selectedCount === 2
+        && runnerSummaryContexts[0]?.successGroups?.length === 2
+        && runnerResult.capturedReport?.overall_conclusion === '汇总完成'
+        && runnerResult.process?.steps?.[0] === 'summary'
+        && runnerResult.history.length === 2,
+      detail: 'captured OTA execution runner sample',
+    });
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis execution runner keeps all-failed state explicit and masked',
+      ok: failedRunnerProgress.failedHotels === 1
+        && failedRunnerResult.capturedReport === null
+        && failedRunnerResult.capturedError.includes('全部分析失败')
+        && failedRunnerResult.capturedError.includes('masked:')
+        && !failedRunnerResult.capturedError.includes('sk-secret12345678'),
+      detail: 'captured OTA execution all-failed sample',
     });
     checks.push({
       file: 'public/ai-analysis-static.js',

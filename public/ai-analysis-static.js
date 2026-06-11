@@ -702,6 +702,99 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         return { reportHtml, history };
     };
 
+    const runCapturedOtaAnalysisExecution = async ({
+        groups = [],
+        batchResults = [],
+        progressState = null,
+        hotelsPayload = [],
+        selectedData = [],
+        existingHistory = [],
+        requestGroup = null,
+        retryGroup = null,
+        requestSummary = null,
+        maskError = maskAiAnalysisError,
+    } = {}) => {
+        if (typeof requestGroup !== 'function') {
+            throw new Error('缺少AI分组分析请求函数');
+        }
+        if (typeof retryGroup !== 'function') {
+            throw new Error('缺少AI分组重试函数');
+        }
+        if (typeof requestSummary !== 'function') {
+            throw new Error('缺少AI汇总请求函数');
+        }
+
+        const normalizedGroups = Array.isArray(groups) ? groups : [];
+        const normalizedBatchResults = Array.isArray(batchResults) ? batchResults : [];
+        const normalizedProgress = progressState || {};
+        for (let index = 0; index < normalizedGroups.length; index++) {
+            const group = normalizedGroups[index];
+            const groupState = normalizedBatchResults[index];
+            normalizedProgress.currentGroup = index + 1;
+            if (groupState) {
+                groupState.status = 'running';
+            }
+            const result = await requestGroup(group);
+            if (result.ok) {
+                applyCapturedOtaGroupRunState({
+                    groupState,
+                    progressState: normalizedProgress,
+                    group,
+                    result,
+                });
+            } else {
+                applyCapturedOtaGroupRunState({ groupState, result });
+                const retryResult = await retryGroup(group, groupState);
+                applyCapturedOtaGroupRunState({
+                    progressState: normalizedProgress,
+                    result,
+                    retryResult,
+                });
+            }
+        }
+
+        const { successGroups, failedGroups, failedReason } = buildCapturedOtaGroupOutcome(normalizedBatchResults);
+        const summaryContext = buildCapturedOtaSummaryContext({
+            hotelsPayload,
+            progress: normalizedProgress,
+            batchResults: normalizedBatchResults,
+            successGroups,
+            failedGroups,
+        });
+
+        let capturedReport = null;
+        let process = null;
+        let capturedError = '';
+        if (successGroups.length > 0) {
+            const summaryResult = await requestSummary(summaryContext);
+            capturedReport = summaryResult.report;
+            process = summaryResult.process;
+        } else {
+            capturedError = '全部分析失败，无法生成综合报告。\n' + maskError(failedReason);
+        }
+
+        const completion = buildCapturedOtaAnalysisCompletion({
+            selectedData,
+            capturedReport,
+            completedHotels: summaryContext.completedHotels,
+            failedHotels: summaryContext.failedHotels,
+            successGroups,
+            existingHistory,
+        });
+
+        return {
+            capturedReport,
+            process,
+            capturedError,
+            reportHtml: completion.reportHtml,
+            history: completion.history,
+            summaryContext,
+            successGroups,
+            failedGroups,
+            failedReason,
+        };
+    };
+
     const getMeituanAiAnalysisHotelKey = (hotel = {}) => `${hotel.poiId}_${hotel.hotelName}`;
 
     const buildMeituanAiAnalysisHotelList = (rows = []) => {
@@ -801,6 +894,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         buildCapturedOtaSummaryResponseResult,
         buildAiAnalysisHistoryRecord,
         buildCapturedOtaAnalysisCompletion,
+        runCapturedOtaAnalysisExecution,
         getMeituanAiAnalysisHotelKey,
         buildMeituanAiAnalysisHotelList,
         resolveMeituanAiSelectedData,

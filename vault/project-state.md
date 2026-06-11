@@ -1091,6 +1091,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified during the split: `node --check public\meituan-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend OTA AI Analysis Execution Runner Split
+
+- Eighty-third frontend split target chosen from captured OTA AI group execution orchestration inside `startAiAnalysis()` in `public/index.html`.
+- Extended `public/ai-analysis-static.js` with `runCapturedOtaAnalysisExecution` for group execution, retry progress counting, success/failed group outcome, summary context construction, summary result assignment, all-failed error construction, and completion history generation.
+- `public/index.html` now keeps only Vue state initialization, start/run context handling, request callback wiring, and final Vue ref writes for `startAiAnalysis()`.
+- This split did not change `/agent/analyze-captured-ota-data`, `/agent/summarize-captured-ota-analysis`, model selection, report shape, history limit, visible failure-state behavior, or Ctrip OTA channel scope. All-failed errors remain explicit and masked.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted execution runner, prevent the group execution loop from being re-inlined, and validate success-plus-retry, summary context, history, and all-failed masking samples in a VM context.
+- Current split-map: `public/index.html` decreased from `37431` lines to `37403` lines; frontend function-level blocks remain `1396`; `ai` domain span decreased from `1187` to `1159`; `startAiAnalysis` is no longer in the largest-block list, and the current largest frontend block is `runCtripCookieApiCapture` at `85` lines.
+- Current self-audit: full directory about `283.37 MB`, without `.git` about `92.40 MB`, without `.git` and dependencies about `63.21 MB`, tracked files about `18.29 MB` / `613` files; code scope `370` files, `191047` total lines, and `175258` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ai-analysis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

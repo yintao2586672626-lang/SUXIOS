@@ -34424,12 +34424,9 @@
             const mergeCapturedGroupReports = requireAiAnalysisStatic('mergeCapturedGroupReports');
             const buildCapturedOtaAnalysisStartContext = requireAiAnalysisStatic('buildCapturedOtaAnalysisStartContext');
             const buildCapturedOtaAnalysisRunContext = requireAiAnalysisStatic('buildCapturedOtaAnalysisRunContext');
-            const buildCapturedOtaGroupOutcome = requireAiAnalysisStatic('buildCapturedOtaGroupOutcome');
-            const applyCapturedOtaGroupRunState = requireAiAnalysisStatic('applyCapturedOtaGroupRunState');
             const buildCapturedOtaSummaryRequestBody = requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody');
-            const buildCapturedOtaSummaryContext = requireAiAnalysisStatic('buildCapturedOtaSummaryContext');
             const buildCapturedOtaSummaryResponseResult = requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult');
-            const buildCapturedOtaAnalysisCompletion = requireAiAnalysisStatic('buildCapturedOtaAnalysisCompletion');
+            const runCapturedOtaAnalysisExecution = requireAiAnalysisStatic('runCapturedOtaAnalysisExecution');
             const sanitizeAiReportHtml = requireAiAnalysisStatic('sanitizeAiReportHtml');
             const aiReportHtmlToText = requireAiAnalysisStatic('aiReportHtmlToText');
             const buildMeituanAiAnalysisHotelList = requireAiAnalysisStatic('buildMeituanAiAnalysisHotelList');
@@ -34604,48 +34601,23 @@
                 showToast(runContext.message);
 
                 try {
-                    for (let index = 0; index < groups.length; index++) {
-                        const group = groups[index];
-                        const groupState = aiAnalysisBatchResults.value[index];
-                        aiAnalysisProgress.value.currentGroup = index + 1;
-                        groupState.status = 'running';
-                        const result = await requestCapturedOtaGroup(group);
-                        if (result.ok) {
-                            applyCapturedOtaGroupRunState({ groupState, progressState: aiAnalysisProgress.value, group, result });
-                        } else {
-                            applyCapturedOtaGroupRunState({ groupState, result });
-                            const retryResult = await retryCapturedOtaGroup(group, groupState);
-                            applyCapturedOtaGroupRunState({ progressState: aiAnalysisProgress.value, result, retryResult });
-                        }
-                    }
-
-                    const { successGroups, failedGroups, failedReason } = buildCapturedOtaGroupOutcome(aiAnalysisBatchResults.value);
-                    const summaryContext = buildCapturedOtaSummaryContext({
-                        hotelsPayload,
-                        progress: aiAnalysisProgress.value,
+                    const execution = await runCapturedOtaAnalysisExecution({
+                        groups,
                         batchResults: aiAnalysisBatchResults.value,
-                        successGroups,
-                        failedGroups,
-                    });
-
-                    if (successGroups.length > 0) {
-                        const summaryResult = await requestCapturedOtaSummaryResult(summaryContext);
-                        aiAnalysisCapturedReport.value = summaryResult.report;
-                        aiAnalysisProcess.value = summaryResult.process;
-                    } else {
-                        aiAnalysisCapturedError.value = '全部分析失败，无法生成综合报告。\n' + maskAiAnalysisError(failedReason);
-                    }
-
-                    const completion = buildCapturedOtaAnalysisCompletion({
+                        progressState: aiAnalysisProgress.value,
+                        hotelsPayload,
                         selectedData,
-                        capturedReport: aiAnalysisCapturedReport.value,
-                        completedHotels: summaryContext.completedHotels,
-                        failedHotels: summaryContext.failedHotels,
-                        successGroups,
                         existingHistory: aiAnalysisHistory.value,
+                        requestGroup: requestCapturedOtaGroup,
+                        retryGroup: retryCapturedOtaGroup,
+                        requestSummary: requestCapturedOtaSummaryResult,
+                        maskError: maskAiAnalysisError,
                     });
-                    aiAnalysisResult.value = completion.reportHtml;
-                    aiAnalysisHistory.value = completion.history;
+                    aiAnalysisCapturedReport.value = execution.capturedReport;
+                    aiAnalysisProcess.value = execution.process;
+                    aiAnalysisCapturedError.value = execution.capturedError;
+                    aiAnalysisResult.value = execution.reportHtml;
+                    aiAnalysisHistory.value = execution.history;
                     showToast('AI分析完成');
                 } catch (e) {
                     aiAnalysisCapturedError.value = e.message || '网络错误';
