@@ -137,8 +137,10 @@ requireText('public/auto-fetch-static.js', 'const runAutoFetchTriggerFlow', 'aut
 requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
-requireText('public/index.html', '<script src="testid-static.js"></script>', 'frontend loads extracted test id helper');
-requireText('public/index.html', 'createPageTestIdController', 'entry wires extracted page test id controller');
+requireText('public/index.html', "const testIdStaticScript = 'testid-static.js'", 'frontend lazy-loads extracted test id helper');
+requireText('public/index.html', 'const loadTestIdStatic = () =>', 'entry keeps explicit test id helper lazy loader');
+requireText('public/index.html', 'createPageTestIdController', 'entry wires extracted page test id controller after lazy load');
+requireText('public/index.html', 'const pageTestId = (page) =>', 'entry keeps page test id available before helper loads');
 requireText('public/testid-static.js', 'assignPageControlTestIds', 'page controls receive generated stable test ids');
 requireText('public/testid-static.js', 'normalizeTestIdSegment', 'test id helper keeps stable segment normalization');
 requireText('public/index.html', 'buildGlobalNotifications({', 'entry uses extracted global notification builder');

@@ -18,7 +18,6 @@
     <script src="ota-diagnosis-static.js"></script>
     <script src="ai-analysis-static.js"></script>
     <script src="system-static.js"></script>
-    <script src="testid-static.js"></script>
     <script src="auto-fetch-static.js"></script>
     <script src="compass-static.js"></script>
     <script src="simulation-static.js"></script>
@@ -24242,23 +24241,97 @@
             const filterVisibleMenuItems = requireSystemStatic('filterVisibleMenuItems');
             const menuItems = computed(() => resolveMenuItems(menuItemDefinitions, systemConfig.value));
 
-            const testIdStatic = window.SUXI_TESTID_STATIC;
-            if (!testIdStatic || typeof testIdStatic.createPageTestIdController !== 'function') {
-                throw new Error('Missing frontend test id helper: testid-static.js not loaded.');
-            }
-            const {
-                pageTestId,
-                menuTestId,
-                startPageControlTestIdObserver,
-                stopPageControlTestIdObserver,
-                assignPageControlTestIds,
-                scheduleTestIdRefresh,
-            } = testIdStatic.createPageTestIdController({
-                testIdNameMap,
-                getMenuItemName,
-                getCurrentPage: () => currentPage.value,
-                nextTick,
-            });
+            const testIdStaticScript = 'testid-static.js';
+            let testIdStaticLoadPromise = null;
+            let pageTestIdController = null;
+            const stableHashSegmentForTestId = (value) => {
+                let hash = 0;
+                Array.from(String(value || '')).forEach((char) => {
+                    hash = ((hash << 5) - hash + char.charCodeAt(0)) >>> 0;
+                });
+                return hash.toString(36);
+            };
+            const normalizeTestIdSegmentInline = (value) => {
+                const raw = String(value || '').trim().replace(/\s+/g, ' ');
+                if (!raw) return 'unknown';
+                if (testIdNameMap[raw]) return testIdNameMap[raw];
+                const ascii = raw
+                    .normalize('NFKD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '');
+                return ascii || `zh-${stableHashSegmentForTestId(raw)}`;
+            };
+            const pageTestId = (page) => `page-${normalizeTestIdSegmentInline(page)}`;
+            const menuTestId = (item) => {
+                if (!item) return 'nav-unknown';
+                if (item.testid) return item.testid;
+                const menuName = getMenuItemName(item);
+                return `nav-${normalizeTestIdSegmentInline(item.path || menuName || item.name)}`;
+            };
+            const pageControlTestIdsEnabledForShell = () => {
+                try {
+                    const host = window.location.hostname;
+                    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+                    const params = new URLSearchParams(window.location.search || '');
+                    if (params.get('testids') === '1' || params.get('e2e') === '1') return true;
+                    return localStorage.getItem('enablePageTestIds') === '1';
+                } catch (error) {
+                    return false;
+                }
+            };
+            const loadTestIdStatic = () => {
+                if (window.SUXI_TESTID_STATIC?.createPageTestIdController) {
+                    return Promise.resolve(window.SUXI_TESTID_STATIC);
+                }
+                if (!testIdStaticLoadPromise) {
+                    testIdStaticLoadPromise = new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = testIdStaticScript;
+                        script.async = true;
+                        script.onload = () => {
+                            if (window.SUXI_TESTID_STATIC?.createPageTestIdController) {
+                                resolve(window.SUXI_TESTID_STATIC);
+                                return;
+                            }
+                            reject(new Error('Missing frontend test id helper: testid-static.js not loaded.'));
+                        };
+                        script.onerror = () => reject(new Error('Missing frontend test id helper: testid-static.js not loaded.'));
+                        document.head.appendChild(script);
+                    });
+                }
+                return testIdStaticLoadPromise;
+            };
+            const ensurePageTestIdController = async () => {
+                if (pageTestIdController) return pageTestIdController;
+                const testIdStatic = await loadTestIdStatic();
+                pageTestIdController = testIdStatic.createPageTestIdController({
+                    testIdNameMap,
+                    getMenuItemName,
+                    getCurrentPage: () => currentPage.value,
+                    nextTick,
+                });
+                return pageTestIdController;
+            };
+            const runPageTestIdController = (method) => {
+                if (!pageControlTestIdsEnabledForShell()) return;
+                ensurePageTestIdController()
+                    .then(controller => {
+                        if (typeof controller?.[method] === 'function') {
+                            controller[method]();
+                        }
+                    })
+                    .catch(error => console.error('[testid-static] load failed:', error));
+            };
+            const startPageControlTestIdObserver = () => runPageTestIdController('startPageControlTestIdObserver');
+            const stopPageControlTestIdObserver = () => {
+                if (pageTestIdController?.stopPageControlTestIdObserver) {
+                    pageTestIdController.stopPageControlTestIdObserver();
+                }
+            };
+            const assignPageControlTestIds = () => runPageTestIdController('assignPageControlTestIds');
+            const scheduleTestIdRefresh = () => runPageTestIdController('scheduleTestIdRefresh');
 
             // 可见菜单项 - 根据用户权限过滤
             const visibleMenuItems = computed(() => filterVisibleMenuItems(menuItems.value, user.value));

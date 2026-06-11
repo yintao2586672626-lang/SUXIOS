@@ -140,6 +140,17 @@ if (!fs.existsSync(indexPath)) {
   if (!/await ensureNotificationStaticReady\(\);/.test(content) || !/const\s+globalNotifications\s*=\s*computed\(\(\)\s*=>\s*\{[\s\S]*notificationStaticReady\.value/.test(content)) {
     failures.push('public/index.html must load notification static data before notification refresh and avoid building notifications before the helper is ready.');
   }
+  if (/<script\s+src=["']testid-static\.js["']/.test(content)) {
+    failures.push('public/index.html must lazy-load testid-static.js; the login shell only needs inline page/menu test id helpers.');
+  }
+  if (!/const\s+testIdStaticScript\s*=\s*["']testid-static\.js["']/.test(content) || !/const\s+loadTestIdStatic\s*=\s*\(\)\s*=>/.test(content)) {
+    failures.push('public/index.html must keep an explicit lazy loader for testid-static.js.');
+  }
+  if (!/const\s+pageTestId\s*=\s*\(page\)\s*=>/.test(content)
+    || !/const\s+menuTestId\s*=\s*\(item\)\s*=>/.test(content)
+    || !/createPageTestIdController/.test(content)) {
+    failures.push('public/index.html must keep page/menu test ids available before lazy-loading the page-control test id controller.');
+  }
 
   if (!/<script\s+src=["']form-operation-support\.js["']\s+defer\s*><\/script>/.test(content)) {
     failures.push('public/index.html must defer form-operation-support.js because it self-initializes and is not a Vue setup dependency.');
