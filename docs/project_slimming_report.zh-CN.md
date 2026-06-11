@@ -1244,6 +1244,20 @@
 - 已验证：`node --check public\simulation-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:clean`、`npm.cmd run self:check`、`git diff --cached --check`。
 - 当前工作树另有未暂存外部改动，本轮保存点只暂存并提交转让决策层级行拆分相关文件；严格门禁仍不声明完成，`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-11 保存点：在线明细分页与入口瘦身守卫
+
+- 执行本地瘦身清理：`npm.cmd run self:clean:dry-run` 确认仅清理 `runtime` 1 个本地生成目标，预计回收约 `0.01 MB`；随后执行 `npm.cmd run self:clean`，已移除该目标，当前默认可清理目标为 `0 MB`。
+- `SystemNotificationController` 改为在数据库层 join `system_notification_user_states`，列表按当前用户状态过滤、分页并计算未读数；批量已读/清空也通过 `visibleNotificationIdsForCurrentUser()` 查询 DB 可见 ID，避免先加载全部通知再内存过滤；可见范围字段改为显式表别名限定。
+- `SystemConfigController::index()` 的单 key 查询先走 `SystemConfig::getValue($requestedKey, ...)` 并提前返回；公开配置读取通过 `SystemConfig::getConfigsByKeys($publicKeys)` 只查白名单 key，避免单项/公开配置读取时仍全量扫描全部配置。`SystemConfig` 新增 bounded key read helper。
+- `Hotel::all()` 返回 `status` 字段，支撑前端酒店选项和数据源健康统计继续区分营业/停用状态。
+- `public/router.php` 增加静态资源直出：限定在 `public` 根目录内，补齐 MIME、ETag、Last-Modified、Cache-Control 和 gzip；未命中静态文件时仍回落 ThinkPHP 应用入口。
+- `public/index.html` 将在线分析明细请求从 `page_size=all` 收口为 100 条样本，并将页面文案改为“样本/汇总指标口径”；Chart.js 改为按需加载；美团竞对摘要默认不再拉取全店 `by_hotel`，仅数据源健康/批量面板显式传 `includeByHotel: true`，榜单刷新继续带所选酒店但显式 `includeByHotel: false`。
+- 更新守卫：`verify_public_entry_guard.mjs` 禁止入口急切加载 `vue-router.global.prod.js`，并要求 `form-operation-support.js` defer 加载；平台批量健康、平台数据源、P0 learning、手工凭证 UI 测试均同步到新的数据边界。
+- 当前自审计：完整目录约 `293.54 MB`；不含 `.git` 约 `92.60 MB`；不含 `.git` 和依赖约 `63.41 MB`；Git 跟踪文件约 `18.48 MB` / `613` 个；代码范围 `370` 个文件，`193,845` 行，非空 `177,986` 行；默认可清理目标为 `0 MB`。
+- 当前 split-map：`public/index.html` 为 `36,772` 行、`1,396` 个前端函数级块；`app/controller/OnlineData.php` 为 `26,725` 行、`871` 个方法；两者仍是真实拆分候选。`public/tailwind.min.css` 仍按本地 CSS 依赖接受 disposition，不作为业务代码拆分目标。
+- 已验证：`C:\xampp\php\php.exe -l app\controller\Hotel.php`、`C:\xampp\php\php.exe -l app\controller\SystemConfigController.php`、`C:\xampp\php\php.exe -l app\model\SystemConfig.php`、`C:\xampp\php\php.exe -l app\controller\SystemNotificationController.php`、`C:\xampp\php\php.exe -l public\router.php`、`node --check scripts\verify_p0_learning_contract.mjs`、`node --check scripts\verify_platform_batch_health_contract.mjs`、`node --check scripts\verify_platform_data_source_contract.mjs`、`node --check tests\automation\manual_minimum_credential_ui.test.mjs`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\SystemNotificationTest.php`、`node scripts\verify_platform_batch_health_contract.mjs`、`node scripts\verify_platform_data_source_contract.mjs`、`node --test tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:p0-learning`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍需继续拆分或明确 disposition；PR #2 继续保持 Draft，不能作为发布 ready 状态。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

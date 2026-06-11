@@ -93,9 +93,10 @@ const checks = [
   },
   {
     name: 'Meituan ranking page refreshes competitor summary for selected hotel',
-    pass: publicSource.includes('const meituanRankingHotelId = currentPage.value === \'meituan-ebooking\' && onlineDataTab.value === \'meituan-ranking\'')
+    pass: publicSource.includes('const isMeituanRankingPage = currentPage.value === \'meituan-ebooking\' && onlineDataTab.value === \'meituan-ranking\';')
+      && publicSource.includes('const meituanRankingHotelId = isMeituanRankingPage')
       && publicSource.includes('const summaryHotelId = meituanRankingHotelId || String(filterReportHotel.value || \'\')')
-      && publicSource.includes('await loadCompetitorSummary();'),
+      && publicSource.includes('await loadCompetitorSummary({ includeByHotel: false });'),
   },
   {
     name: 'Meituan selected-hotel binding prompt uses saved config identifiers',

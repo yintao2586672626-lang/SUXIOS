@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>宿析OS</title>
     <script src="vue.global.prod.js"></script>
-    <script src="vue-router.global.prod.js"></script>
     <script src="shared-components.js"></script>
-    <script src="form-operation-support.js"></script>
+    <script src="form-operation-support.js" defer></script>
     <script src="expansion-static-options.js"></script>
     <script src="hotel-image-optimizer-static.js"></script>
     <script src="revenue-research-static.js"></script>
@@ -13331,7 +13330,7 @@
                                         <div class="px-4 py-3 border-b flex items-center justify-between gap-3">
                                             <div>
                                                 <h5 class="font-medium text-gray-800">入库明细</h5>
-                                                <div class="text-xs text-gray-500">来自平台自动获取写入的标准数据，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，分析面板拉取全部筛选明细。</div>
+                                                <div class="text-xs text-gray-500">来自平台自动获取写入的标准数据，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，当前展示 {{ onlineAnalysisRows.length }} 条样本；完整口径以汇总指标为准。</div>
                                                 <div v-if="onlineAnalysisQualitySummary" class="mt-1 text-xs text-amber-700">{{ onlineDataQualityScopeText(onlineAnalysisQualitySummary) }}</div>
                                             </div>
                                             <button @click="loadOnlineAnalysisRows" :disabled="onlineAnalysisRowsLoading" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
@@ -18240,11 +18239,45 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.js"></script>
     <script>
     const { createApp, ref, computed, onMounted, onUnmounted, watch, nextTick } = Vue;
 
     const API_BASE = '/api';
+    const CHART_JS_SRC = 'https://unpkg.com/chart.js@4.4.1/dist/chart.umd.js';
+    let chartJsLoadPromise = null;
+    const loadChartJs = () => {
+        if (window.Chart) {
+            return Promise.resolve(window.Chart);
+        }
+        if (!chartJsLoadPromise) {
+            chartJsLoadPromise = new Promise((resolve, reject) => {
+                const existing = document.querySelector('script[data-suxi-chartjs="1"]');
+                if (existing) {
+                    existing.addEventListener('load', () => resolve(window.Chart), { once: true });
+                    existing.addEventListener('error', () => reject(new Error('Chart.js加载失败')), { once: true });
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = CHART_JS_SRC;
+                script.async = true;
+                script.dataset.suxiChartjs = '1';
+                script.onload = () => {
+                    if (window.Chart) {
+                        resolve(window.Chart);
+                    } else {
+                        reject(new Error('Chart.js加载后未暴露Chart对象'));
+                    }
+                };
+                script.onerror = () => reject(new Error('Chart.js加载失败'));
+                document.head.appendChild(script);
+            }).catch((error) => {
+                chartJsLoadPromise = null;
+                console.warn(error.message || 'Chart.js加载失败');
+                return null;
+            });
+        }
+        return chartJsLoadPromise;
+    };
     const appSystemStatic = window.SUXI_SYSTEM_STATIC;
     if (!appSystemStatic || typeof appSystemStatic !== 'object') {
         throw new Error('缺少系统前端静态配置：system-static.js 未加载');
@@ -21875,7 +21908,7 @@
             const onlineAnalysisRows = ref([]);
             const onlineAnalysisRowsLoading = ref(false);
             const onlineAnalysisError = ref('');
-            const onlineAnalysisPageSize = 'all';
+            const onlineAnalysisPageSize = 100;
             const onlineAnalysisPagination = ref({ total: 0, page: 1, page_size: onlineAnalysisPageSize });
             const onlineAnalysisQualitySummary = ref(null);
             const onlineAnalysisSourceRecord = ref(null);
@@ -22041,7 +22074,13 @@
                 if (!ChartLib) {
                     if (retryCount < 5) {
                         debugLog(`Chart.js未加载，等待重试 (${retryCount + 1}/5)...`);
-                        setTimeout(() => scheduleAnalysisChartRender(retryCount + 1), 500);
+                        loadChartJs().then((loadedChart) => {
+                            if (loadedChart) {
+                                scheduleAnalysisChartRender(retryCount + 1);
+                            } else {
+                                setTimeout(() => scheduleAnalysisChartRender(retryCount + 1), 500);
+                            }
+                        });
                         return;
                     }
                     console.warn('Chart.js加载失败，跳过图表渲染');
@@ -22906,7 +22945,7 @@
                 try {
                     const params = new URLSearchParams({
                         page: '1',
-                        page_size: 'all',
+                        page_size: String(onlineAnalysisPageSize),
                     });
                     if (onlineDataFilter.value.start_date) {
                         params.append('start_date', onlineDataFilter.value.start_date);
@@ -23920,6 +23959,8 @@
                         loadOnlineDataHotelList(),
                         loadCtripConfigList().then(() => loadLatestCtripData({ silent: true })),
                         loadDataHealthPanel('light'),
+                        loadCookiesList(),
+                        loadBookmarklet(),
                     ]));
                 }
                 if (newPage === 'meituan-ebooking') {
@@ -23935,8 +23976,22 @@
                 }
                 if (newPage === 'hotels') {
                     runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                        loadHotels({ includeInactive: true }),
                         ensureHotelOtaConfigLists(),
-                        loadCompetitorSummary(),
+                        loadCompetitorSummary({ includeByHotel: true }),
+                    ]));
+                }
+                if (newPage === 'users') {
+                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                        loadUsers(),
+                        !roles.value.length ? loadRoles() : Promise.resolve(),
+                        !hotels.value.length ? loadHotels() : Promise.resolve(),
+                    ]));
+                }
+                if (newPage === 'roles') {
+                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                        loadRolesList(),
+                        !roles.value.length ? loadRoles() : Promise.resolve(),
                     ]));
                 }
                 if (newPage === 'online-data' && token.value) {
@@ -24941,7 +24996,7 @@
                     loadPlatformSyncLogs(),
                     loadPlatformProfileStatus({ silent: true }),
                     loadPlatformCollectionResources(),
-                    loadCompetitorSummary(),
+                    loadCompetitorSummary({ includeByHotel: true }),
                 ]);
             };
 
@@ -27600,7 +27655,13 @@
                 const ChartLib = window.Chart;
                 if (!ChartLib) {
                     if (retryCount < 5) {
-                        setTimeout(() => scheduleHomeTrendChartRender(retryCount + 1), 500);
+                        loadChartJs().then((loadedChart) => {
+                            if (loadedChart) {
+                                scheduleHomeTrendChartRender(retryCount + 1);
+                            } else {
+                                setTimeout(() => scheduleHomeTrendChartRender(retryCount + 1), 500);
+                            }
+                        });
                     }
                     return;
                 }
@@ -28161,7 +28222,7 @@
                         showToast(`欢迎回来，${res.data.user.realname || res.data.user.username}！`, 'success');
                         currentPage.value = 'compass';
                         loadData();
-                        loadCompassData();
+                        runPageLoadOnce('compass', 'main', () => loadCompassData(), { force: true });
                         setTimeout(() => refreshGlobalNotifications({ silent: true, backendOnly: true }), 300);
                     } else {
                         loginError.value = res.message || res.msg || '登录失败，请检查用户名和密码';
@@ -28244,10 +28305,10 @@
             };
 
             // 加载数据
-            const loadHotels = async () => {
+            const loadHotels = async (options = {}) => {
                 try {
-                    // 使用admin接口获取所有酒店（包括禁用的）
-                    const url = user.value?.is_super_admin ? '/hotels?page=1&page_size=1000' : '/hotels/all';
+                    const includeInactive = options.includeInactive === true || currentPage.value === 'hotels';
+                    const url = user.value?.is_super_admin && includeInactive ? '/hotels?page=1&page_size=1000' : '/hotels/all';
                     const res = await request(url);
                     if (res.code === 200) {
                         // 兼容两种响应格式
@@ -28829,7 +28890,7 @@
                     loadPlatformDataSources(),
                     loadPlatformSyncTasks(),
                     loadPlatformSyncLogs(),
-                    loadCompetitorSummary(),
+                    loadCompetitorSummary({ includeByHotel: true }),
                 ]);
                 showToast('门店平台账号状态已刷新');
             };
@@ -28954,7 +29015,7 @@
                 currentPage.value = 'hotels';
                 await Promise.all([
                     ensureHotelOtaConfigLists(),
-                    loadCompetitorSummary(),
+                    loadCompetitorSummary({ includeByHotel: true }),
                 ]);
             };
 
@@ -31207,8 +31268,8 @@
                 return hotel ? hotel.name : (hotelId || '-');
             };
 
-            const loadSystemConfig = async () => {
-                const res = await request('/system-config');
+            const loadSystemConfig = async (options = {}) => {
+                const res = await request(options.publicOnly ? '/system-config?scope=public' : '/system-config');
                 if (res.code === 200) {
                     systemConfig.value = { ...systemConfig.value, ...res.data };
                 }
@@ -31508,7 +31569,7 @@
                         : '';
                     const summaryHotelId = meituanRankingHotelId || String(filterReportHotel.value || '');
                     if (summaryHotelId) params.append('hotel_id', summaryHotelId);
-                    includeByHotel = options.includeByHotel === true || (options.includeByHotel !== false && !isMeituanRankingPage);
+                    includeByHotel = options.includeByHotel === true;
                     if (includeByHotel) params.append('include_by_hotel', '1');
                     const query = params.toString();
                     const res = await request(`/online-data/competitor-summary${query ? '?' + query : ''}`);
@@ -31591,13 +31652,6 @@
                     externalWeatherCity.value = '';
                     weatherError.value = '';
                     loadCompassData();
-                    deferUiTask(async () => {
-                        await Promise.allSettled([
-                            loadMacroSignals(),
-                            loadHomeTrends(),
-                            loadCompetitorSummary()
-                        ]);
-                    }, 0);
                 }
             });
 
@@ -34143,18 +34197,7 @@
 
             const loadData = async () => {
                 loadHotels();
-                loadRoles();
-                loadUserInfo();
-                loadSystemConfig();
-                loadCookiesList(); // 加载Cookies列表
-                loadBookmarklet(); // 加载书签脚本
-                if (user.value?.is_super_admin || user.value?.role_id === 2) {
-                    loadUsers();
-                }
-                if (user.value?.is_super_admin) {
-                    loadRolesList(); // 加载角色列表
-                }
-                loadCompassData();
+                deferUiTask(() => loadSystemConfig({ publicOnly: true }), 120);
             };
 
             // 酒店操作
@@ -34919,6 +34962,9 @@
                             }
                             isLoggedIn.value = true;
                             loadData();
+                            if (currentPage.value === 'compass') {
+                                runPageLoadOnce('compass', 'main', () => loadCompassData(), { force: true });
+                            }
                             setTimeout(() => refreshGlobalNotifications({ silent: true, backendOnly: true }), 300);
                             if (currentPage.value === 'opening-overview' || currentPage.value === 'opening-checklist') {
                                 loadOpeningProjects();

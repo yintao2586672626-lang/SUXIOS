@@ -14,16 +14,21 @@ const sliceFrom = (needle, endNeedle) => {
 };
 
 const functionSlice = (name) => sliceFrom(`const ${name} = async () => {`, `\n            const `);
+const constSlice = (needle, endNeedle = '\n            const ') => sliceFrom(needle, endNeedle);
 
 test('Ctrip manual ranking and traffic use platform authorization as the daily credential', () => {
   const fetchCtripData = functionSlice('fetchCtripData');
-  const fetchCtripTrafficData = functionSlice('fetchCtripTrafficData');
+  const fetchCtripTrafficData = constSlice('const fetchCtripTrafficData = async () => runCtripTrafficFetchFlow({');
 
   assert.doesNotMatch(fetchCtripData, /请输入节点ID/);
-  assert.match(fetchCtripData, /const requestContext = buildCtripFetchRequestContext\(\{/);
-  assert.match(fetchCtripData, /body: JSON\.stringify\(requestContext\.requestBody\)/);
+  assert.match(html, /requireCtripStatic\('runCtripFetchDataFlow'\)/);
+  assert.match(fetchCtripData, /runCtripFetchDataFlow\(\{/);
+  assert.match(fetchCtripData, /body: JSON\.stringify\(requestBody\)/);
+  assert.match(ctripStatic, /const requestContext = buildCtripFetchRequestContext\(\{/);
   assert.match(ctripStatic, /const nodeId = String\(form\.nodeId \|\| ''\)\.trim\(\)/);
-  assert.match(fetchCtripTrafficData, /const ctripTrafficFetchBody = buildCtripTrafficFetchRequestBody\(\{/);
+  assert.match(html, /requireCtripStatic\('runCtripTrafficFetchFlow'\)/);
+  assert.match(fetchCtripTrafficData, /runCtripTrafficFetchFlow\(\{/);
+  assert.match(ctripStatic, /const requestBody = buildCtripTrafficFetchRequestBody\(\{/);
   assert.match(html, /只需平台授权/);
 });
 
@@ -62,7 +67,7 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   const handleMenuClick = sliceFrom('const handleMenuClick = (item) => {', '\n\n            const isStillOnRequestPage');
 
   assert.match(loadCompetitorSummary, /const isMeituanRankingPage = currentPage\.value === 'meituan-ebooking' && onlineDataTab\.value === 'meituan-ranking';/);
-  assert.match(loadCompetitorSummary, /includeByHotel = options\.includeByHotel === true \|\| \(options\.includeByHotel !== false && !isMeituanRankingPage\);/);
+  assert.match(loadCompetitorSummary, /includeByHotel = options\.includeByHotel === true;/);
   assert.match(loadCompetitorSummary, /if \(includeByHotel\) params\.append\('include_by_hotel', '1'\);/);
   assert.match(loadCompetitorSummary, /if \(requestSeq !== competitorSummaryRequestSeq\) return;/);
   assert.match(scheduleMeituanRankingSummaryRefresh, /deferUiTask\(async \(\) => \{/);
@@ -107,9 +112,13 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
 });
 
 test('Meituan orders and ads remain network-required workflows', () => {
-  assert.match(html, /需 Network 请求信息/);
-  assert.match(functionSlice('fetchMeituanOrdersData'), /请填写订单接口 Request URL/);
-  assert.match(functionSlice('fetchMeituanAdsData'), /请填写广告接口 Request URL/);
+  const fetchMeituanOrdersData = constSlice('const fetchMeituanOrdersData = async () => runMeituanOrderFetchFlow({');
+  const fetchMeituanAdsData = constSlice('const fetchMeituanAdsData = async () => runMeituanAdsFetchFlow({');
+  assert.match(meituanStatic, /需 Network 请求信息/);
+  assert.match(meituanStatic, /请填写订单接口 Request URL/);
+  assert.match(meituanStatic, /请填写广告接口 Request URL/);
+  assert.match(fetchMeituanOrdersData, /runMeituanOrderFetchFlow\(\{/);
+  assert.match(fetchMeituanAdsData, /runMeituanAdsFetchFlow\(\{/);
 });
 
 test('Ctrip ads only exposes the effect report workflow', () => {
@@ -134,11 +143,12 @@ test('Ctrip ads only exposes the effect report workflow', () => {
   assert.doesNotMatch(adsConfigPanel, /v-if="dataConfigForm\.api_type === 'campaign_report'"/);
   assert.match(html, /requireCtripStatic\('defaultCtripAdsEffectReportUrl'\)/);
   assert.match(html, /requireCtripStatic\('normalizeCtripAdsApiType'\)/);
-  assert.match(html, /requireCtripStatic\('buildCtripAdsFetchRequestBody'\)/);
+  assert.match(html, /requireCtripStatic\('runCtripAdsFetchFlow'\)/);
   assert.match(ctripStatic, /const defaultCtripAdsEffectReportUrl =/);
   assert.match(ctripStatic, /const normalizeCtripAdsApiType = \(value = ''\) =>/);
   assert.match(ctripStatic, /const buildCtripAdsFetchRequestBody = \(\{/);
-  assert.match(functionSlice('fetchCtripAdsData'), /const url = String\(form\.url \|\| defaultCtripAdsEffectReportUrl\)\.trim\(\);/);
-  assert.match(functionSlice('fetchCtripAdsData'), /const ctripAdsFetchBody = buildCtripAdsFetchRequestBody\(\{/);
-  assert.doesNotMatch(functionSlice('fetchCtripAdsData'), /api_type: normalizeCtripAdsApiType\(form\.apiType\)/);
+  assert.match(ctripStatic, /const url = String\(form\.url \|\| defaultAdsUrl\)\.trim\(\);/);
+  assert.match(ctripStatic, /const requestBody = buildCtripAdsFetchRequestBody\(\{/);
+  assert.doesNotMatch(html, /const ctripAdsFetchBody = buildCtripAdsFetchRequestBody\(\{/);
+  assert.doesNotMatch(html, /api_type: normalizeCtripAdsApiType\(form\.apiType\)/);
 });

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexPath = path.join(repoRoot, 'public/index.html');
+const publicRouterPath = path.join(repoRoot, 'public/router.php');
 const failures = [];
 
 const lineNumberForOffset = (content, offset) => content.slice(0, offset).split(/\r?\n/).length;
@@ -84,6 +85,14 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html references Vite hashed assets; do not build Vite into HOTEL/public.');
   }
 
+  if (/vue-router\.global\.prod\.js/.test(content)) {
+    failures.push('public/index.html must not eagerly load vue-router.global.prod.js; the current shell uses currentPage state navigation.');
+  }
+
+  if (!/<script\s+src=["']form-operation-support\.js["']\s+defer\s*><\/script>/.test(content)) {
+    failures.push('public/index.html must defer form-operation-support.js because it self-initializes and is not a Vue setup dependency.');
+  }
+
   const vueBoundaryMarkers = [
     { name: 'Ctrip Profile field modal', marker: 'data-testid="ctrip-profile-field-modal"' },
     { name: 'Ctrip Cookie editor modal', marker: 'v-if="showCtripCookieEditorModal"' },
@@ -104,6 +113,15 @@ if (!fs.existsSync(indexPath)) {
         'Global modals and toast must stay inside #app; check malformed <div>, <details>, <template>, or <teleport> closures.'
       );
     }
+  }
+}
+
+if (!fs.existsSync(publicRouterPath)) {
+  failures.push('public/router.php is missing.');
+} else {
+  const routerSource = fs.readFileSync(publicRouterPath, 'utf8');
+  if (!/gzencode\(\(string\)file_get_contents\(\$staticFile\),\s*1\)/.test(routerSource)) {
+    failures.push('public/router.php must use gzip level 1 for local static assets to avoid high CPU first-load compression.');
   }
 }
 

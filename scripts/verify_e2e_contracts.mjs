@@ -143,6 +143,31 @@ requireText('public/testid-static.js', 'assignPageControlTestIds', 'page control
 requireText('public/testid-static.js', 'normalizeTestIdSegment', 'test id helper keeps stable segment normalization');
 requireText('public/index.html', 'buildGlobalNotifications({', 'entry uses extracted global notification builder');
 requireText('public/notification-static.js', 'const buildGlobalNotifications', 'notification static builds global notification rows');
+requireText('app/controller/SystemNotificationController.php', 'visibleNotificationIdsForCurrentUser', 'system notification bulk actions use DB-scoped visible ID query');
+requireText('app/controller/SystemNotificationController.php', 'notification_state.is_cleared IS NULL OR notification_state.is_cleared <> 1', 'system notification bulk actions filter per-user cleared state in SQL');
+requireNoText('app/controller/SystemNotificationController.php', 'filterRowsByCurrentUserState', 'system notification bulk actions do not reintroduce full-list PHP state filtering');
+{
+  const source = read('app/controller/SystemConfigController.php');
+  const requestedKeyOffset = source.indexOf("$requestedKey = trim((string)$this->request->get('key', ''))");
+  const firstFullConfigOffset = source.indexOf('$configs = SystemConfig::getAllConfigs();');
+  checks.push({
+    file: 'app/controller/SystemConfigController.php',
+    label: 'system config single-key reads avoid full config scan',
+    ok: requestedKeyOffset >= 0
+      && firstFullConfigOffset > requestedKeyOffset
+      && source.slice(requestedKeyOffset, firstFullConfigOffset).includes('SystemConfig::getValue($requestedKey'),
+    detail: 'requested key branch must return before getAllConfigs',
+  });
+  checks.push({
+    file: 'app/controller/SystemConfigController.php',
+    label: 'system config public scope reads only public keys',
+    ok: source.includes("request->get('scope', '')")
+      && source.includes("SystemConfig::getConfigsByKeys($publicKeys)")
+      && source.indexOf("SystemConfig::getConfigsByKeys($publicKeys)") < firstFullConfigOffset,
+    detail: 'public scope must return before getAllConfigs',
+  });
+}
+requireText('app/model/SystemConfig.php', 'public static function getConfigsByKeys(array $keys): array', 'system config model supports bounded key reads');
 requireNoText('public/index.html', 'const isItemVisible = (item) => {', 'visible menu permission filter is not re-inlined');
 requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform next action metadata is not re-inlined');
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');

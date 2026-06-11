@@ -242,13 +242,59 @@ for (const [needle, label] of [
   ['realtime_schedule_interval_hours', 'frontend sends realtime interval hours'],
   ['autoFetchCtripSectionConcurrency', 'frontend exposes Ctrip internal section concurrency'],
   ['ctrip_section_concurrency', 'frontend sends Ctrip section concurrency'],
-  ["data_period: 'realtime_snapshot'", 'frontend manual trigger requests realtime snapshot data'],
   ["data_period: 'historical_daily'", 'frontend backfill requests historical fixed data'],
   ['autoFetchTimingRows', 'frontend renders auto-fetch timing breakdown'],
-  ["page_size: 'all'", 'frontend analysis panel requests all filtered online_daily_data rows'],
 ]) {
   check('public/index.html', label, (source) => source.includes(needle), needle);
 }
+
+check(
+  'public/auto-fetch-static.js',
+  'frontend manual trigger requests realtime snapshot data',
+  (source) => source.includes("data_period: 'realtime_snapshot'"),
+  "data_period: 'realtime_snapshot'"
+);
+
+check(
+  'public/index.html',
+  'frontend analysis panel does not request all online_daily_data rows',
+  (source) => !source.includes("page_size: 'all'") && source.includes('page_size: String(onlineAnalysisPageSize)'),
+  "no page_size: 'all' and uses onlineAnalysisPageSize"
+);
+
+check(
+  'public/index.html',
+  'frontend login startup defers non-home admin and cookie requests',
+  (source) => {
+    const loadData = source.match(/const loadData = async \(\) => \{[\s\S]*?\n            \};/);
+    const loadHotels = source.match(/const loadHotels = async \(options = \{\}\) => \{[\s\S]*?\n            \};/);
+    if (!loadData) return false;
+    return loadData[0].includes('loadHotels();')
+      && source.includes('const loadSystemConfig = async (options = {}) => {')
+      && source.includes("options.publicOnly ? '/system-config?scope=public' : '/system-config'")
+      && loadData[0].includes('deferUiTask(() => loadSystemConfig({ publicOnly: true }), 120);')
+      && !loadData[0].includes('loadRoles();')
+      && !loadData[0].includes('loadUsers();')
+      && !loadData[0].includes('loadRolesList();')
+      && !loadData[0].includes('loadCookiesList();')
+      && !loadData[0].includes('loadBookmarklet();')
+      && source.includes("if (newPage === 'users')")
+      && source.includes("if (newPage === 'roles')")
+      && source.includes('loadBookmarklet()')
+      && loadHotels
+      && loadHotels[0].includes("options.includeInactive === true || currentPage.value === 'hotels'")
+      && loadHotels[0].includes("user.value?.is_super_admin && includeInactive ? '/hotels?page=1&page_size=1000' : '/hotels/all'")
+      && source.includes('loadHotels({ includeInactive: true })');
+  },
+  'loadData defers system config, roles/users/cookies/bookmarklet and hotels full list'
+);
+
+check(
+  'app/controller/Hotel.php',
+  'lightweight hotel option list carries status for dashboard counts',
+  (source) => source.includes("->field('id, name, code, status')"),
+  "->field('id, name, code, status')"
+);
 
 check(
   'public/index.html',
@@ -259,9 +305,9 @@ check(
 
 check(
   'app/controller/OnlineData.php',
-  'daily data list supports all filtered rows for analysis detail',
-  (source) => source.includes("['all', '全部']") && source.includes("'all' => $fetchAll"),
-  "['all', '全部'] and 'all' => $fetchAll"
+  'daily data list marks legacy all requests as limited compatibility',
+  (source) => source.includes("['all', '全部']") && source.includes("'all_requested' => $fetchAllRequested"),
+  "['all', '全部'] and all_requested"
 );
 
 for (const [needle, label] of [

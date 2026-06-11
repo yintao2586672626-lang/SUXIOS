@@ -49,7 +49,7 @@ class Hotel extends Base
     public function all(): Response
     {
         $query = HotelModel::where('status', HotelModel::STATUS_ENABLED)
-            ->field('id, name, code')
+            ->field('id, name, code, status')
             ->order('id', 'asc');
 
         // 非超级管理员只能看到有权限的酒店

@@ -45,26 +45,36 @@ class SystemNotificationController extends Base
         $category = trim((string)$this->request->get('category', ''));
         $hotelId = (int)$this->request->get('hotel_id', 0);
 
-        $query = SystemNotification::with(['hotel', 'actor'])->where('is_cleared', 0);
-        $this->applyVisibleScope($query);
+        $userId = (int)($this->currentUser->id ?? 0);
+        $query = SystemNotification::with(['hotel', 'actor'])
+            ->alias('notification')
+            ->field('notification.*')
+            ->leftJoin(
+                'system_notification_user_states notification_state',
+                'notification_state.notification_id = notification.id AND notification_state.user_id = ' . $userId
+            )
+            ->where('notification.is_cleared', 0)
+            ->whereRaw('(notification_state.is_cleared IS NULL OR notification_state.is_cleared <> 1)');
+        $this->applyVisibleScope($query, 'notification.');
         if ($category !== '') {
-            $query->where('category', $category);
+            $query->where('notification.category', $category);
         }
         if ($hotelId > 0 && $this->currentUser && $this->currentUser->isSuperAdmin()) {
-            $query->where('hotel_id', $hotelId);
+            $query->where('notification.hotel_id', $hotelId);
         }
 
-        $rows = $query
-            ->order('update_time', 'desc')
-            ->order('create_time', 'desc')
+        $total = (int)(clone $query)->count('DISTINCT notification.id');
+        $unreadCount = (int)(clone $query)
+            ->whereRaw('(notification_state.is_read IS NULL OR notification_state.is_read <> 1)')
+            ->count('DISTINCT notification.id');
+        $pageRows = $query
+            ->order('notification.update_time', 'desc')
+            ->order('notification.create_time', 'desc')
+            ->page($page, $pageSize)
             ->select()
             ->toArray();
-        [$visibleRows, $states] = $this->filterRowsByCurrentUserState($rows);
-        $total = count($visibleRows);
-        $unreadCount = count(array_filter($visibleRows, function (array $row) use ($states): bool {
-            return !$this->isNotificationReadForCurrentUser($row, $states);
-        }));
-        $pageRows = array_slice($visibleRows, ($page - 1) * $pageSize, $pageSize);
+        $ids = array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $pageRows);
+        $states = SystemNotificationUserState::statesByNotificationId($ids, $userId);
 
         return $this->success([
             'list' => array_map(fn(array $row): array => $this->serializeNotification($row, $states), $pageRows),
@@ -133,14 +143,9 @@ class SystemNotificationController extends Base
             ]);
         }
 
-        $query = SystemNotification::where('is_cleared', 0);
-        $this->applyVisibleScope($query);
-        $rows = $query->field('id')->select()->toArray();
-        [$visibleRows, $states] = $this->filterRowsByCurrentUserState($rows);
-        $visibleIds = array_map(
-            static fn(array $row): int => (int)$row['id'],
-            array_filter($visibleRows, fn(array $row): bool => !$this->isNotificationReadForCurrentUser($row, $states))
-        );
+        $visibleIds = $this->visibleNotificationIdsForCurrentUser([
+            '(notification_state.is_read IS NULL OR notification_state.is_read <> 1)',
+        ]);
         $count = SystemNotificationUserState::markReadForUser($visibleIds, (int)$this->currentUser->id);
 
         return $this->success(['updated_count' => (int)$count], '全部已读');
@@ -168,21 +173,43 @@ class SystemNotificationController extends Base
         }
 
         $ids = $this->inputIds();
-        $query = SystemNotification::where('is_cleared', 0);
-        $this->applyVisibleScope($query);
-        if (!empty($ids)) {
-            $query->whereIn('id', $ids);
-        }
-
-        $rows = $query->field('id')->select()->toArray();
-        [$visibleRows] = $this->filterRowsByCurrentUserState($rows);
-        $visibleIds = array_map(static fn(array $row): int => (int)$row['id'], $visibleRows);
+        $visibleIds = $this->visibleNotificationIdsForCurrentUser([], $ids);
         $count = SystemNotificationUserState::markClearedForUser($visibleIds, (int)$this->currentUser->id);
 
         return $this->success(['updated_count' => (int)$count], '通知已清空');
     }
 
-    private function applyVisibleScope($query): void
+    /**
+     * @param array<int, string> $extraStateWhere
+     * @param array<int, int> $ids
+     * @return array<int, int>
+     */
+    private function visibleNotificationIdsForCurrentUser(array $extraStateWhere = [], array $ids = []): array
+    {
+        $userId = (int)($this->currentUser->id ?? 0);
+        if ($userId <= 0) {
+            return [];
+        }
+
+        $query = SystemNotification::alias('notification')
+            ->leftJoin(
+                'system_notification_user_states notification_state',
+                'notification_state.notification_id = notification.id AND notification_state.user_id = ' . $userId
+            )
+            ->where('notification.is_cleared', 0)
+            ->whereRaw('(notification_state.is_cleared IS NULL OR notification_state.is_cleared <> 1)');
+        $this->applyVisibleScope($query, 'notification.');
+        if (!empty($ids)) {
+            $query->whereIn('notification.id', $ids);
+        }
+        foreach ($extraStateWhere as $where) {
+            $query->whereRaw($where);
+        }
+
+        return array_values(array_unique(array_map('intval', $query->column('notification.id'))));
+    }
+
+    private function applyVisibleScope($query, string $tablePrefix = ''): void
     {
         if (!$this->currentUser) {
             $query->whereRaw('1 = 0');
@@ -201,12 +228,26 @@ class SystemNotificationController extends Base
 
         $hotelClause = '';
         if (!empty($permittedHotelIds)) {
-            $hotelClause = '`hotel_id` IN (' . implode(',', $permittedHotelIds) . ') OR ';
+            $hotelClause = $this->qualifiedNotificationField('hotel_id', $tablePrefix) . ' IN (' . implode(',', $permittedHotelIds) . ') OR ';
         }
 
         $query->whereRaw(
-            '(' . $hotelClause . '(`hotel_id` IS NULL AND (`user_id` = ' . $userId . ' OR `user_id` IS NULL)))'
+            '(' . $hotelClause
+            . '(' . $this->qualifiedNotificationField('hotel_id', $tablePrefix) . ' IS NULL AND ('
+            . $this->qualifiedNotificationField('user_id', $tablePrefix) . ' = ' . $userId
+            . ' OR ' . $this->qualifiedNotificationField('user_id', $tablePrefix) . ' IS NULL)))'
         );
+    }
+
+    private function qualifiedNotificationField(string $field, string $tablePrefix = ''): string
+    {
+        $field = trim($field, '`');
+        $alias = trim($tablePrefix, '.`');
+        if ($alias === '') {
+            return '`' . $field . '`';
+        }
+
+        return '`' . $alias . '`.`' . $field . '`';
     }
 
     private function inputIds(): array
@@ -224,22 +265,6 @@ class SystemNotificationController extends Base
             array_map('intval', $raw),
             static fn(int $id): bool => $id > 0
         )));
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>}
-     */
-    private function filterRowsByCurrentUserState(array $rows): array
-    {
-        $ids = array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $rows);
-        $states = SystemNotificationUserState::statesByNotificationId($ids, (int)($this->currentUser->id ?? 0));
-        $visibleRows = array_values(array_filter($rows, static function (array $row) use ($states): bool {
-            $state = $states[(int)($row['id'] ?? 0)] ?? [];
-            return (int)($state['is_cleared'] ?? 0) !== 1;
-        }));
-
-        return [$visibleRows, $states];
     }
 
     /**

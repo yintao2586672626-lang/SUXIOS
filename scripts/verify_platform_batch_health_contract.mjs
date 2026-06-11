@@ -29,7 +29,7 @@ const loadPanel = sliceBetween(
 );
 const competitorLoader = sliceBetween(
   publicSource,
-  'const loadCompetitorSummary = async () =>',
+  'const loadCompetitorSummary = async (options = {}) =>',
   'const loadCompassData = async'
 );
 const setupReturn = sliceBetween(
@@ -78,7 +78,7 @@ const checks = [
   },
   {
     name: 'platform source panel refresh loads competitor by-hotel summaries for the batch health table',
-    pass: loadPanel.includes('loadCompetitorSummary()')
+    pass: loadPanel.includes('loadCompetitorSummary({ includeByHotel: true })')
       && competitorLoader.includes("params.append('include_by_hotel', '1')")
       && competitorLoader.includes('hotelCompetitorSummaries.value'),
   },

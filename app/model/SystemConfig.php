@@ -108,6 +108,25 @@ class SystemConfig extends Model
         return $result;
     }
 
+    public static function getConfigsByKeys(array $keys): array
+    {
+        $keys = array_values(array_unique(array_filter(
+            array_map(static fn($key): string => trim((string)$key), $keys),
+            static fn(string $key): bool => $key !== ''
+        )));
+        if (empty($keys)) {
+            return [];
+        }
+
+        $configs = self::whereIn('config_key', $keys)->select();
+        $result = [];
+        foreach ($configs as $config) {
+            $result[$config->config_key] = $config->config_value;
+        }
+
+        return $result;
+    }
+
     /**
      * 获取默认配置
      */

@@ -4,10 +4,72 @@
  */
 
 $requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
-$staticFile = __DIR__ . str_replace('/', DIRECTORY_SEPARATOR, rawurldecode($requestPath));
+$staticRequestPath = $requestPath === '/' ? '/index.html' : $requestPath;
+$staticFile = __DIR__ . str_replace('/', DIRECTORY_SEPARATOR, rawurldecode($staticRequestPath));
+$publicRoot = realpath(__DIR__);
+$resolvedStaticFile = realpath($staticFile);
 
-if ($requestPath !== '/' && is_file($staticFile)) {
-    return false;
+if ($publicRoot !== false
+    && $resolvedStaticFile !== false
+    && str_starts_with($resolvedStaticFile, $publicRoot . DIRECTORY_SEPARATOR)
+    && is_file($resolvedStaticFile)
+) {
+    $staticFile = $resolvedStaticFile;
+    $extension = strtolower(pathinfo($staticFile, PATHINFO_EXTENSION));
+    $mimeTypes = [
+        'css' => 'text/css; charset=utf-8',
+        'html' => 'text/html; charset=utf-8',
+        'js' => 'application/javascript; charset=utf-8',
+        'json' => 'application/json; charset=utf-8',
+        'map' => 'application/json; charset=utf-8',
+        'svg' => 'image/svg+xml; charset=utf-8',
+        'png' => 'image/png',
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'gif' => 'image/gif',
+        'webp' => 'image/webp',
+        'ico' => 'image/x-icon',
+        'woff' => 'font/woff',
+        'woff2' => 'font/woff2',
+        'ttf' => 'font/ttf',
+    ];
+    $cacheableExtensions = ['css', 'js', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'woff', 'woff2', 'ttf', 'svg'];
+    $compressibleExtensions = ['css', 'html', 'js', 'json', 'map', 'svg'];
+    $mtime = (int)filemtime($staticFile);
+    $size = (int)filesize($staticFile);
+    $etag = '"' . md5($staticFile . '|' . $mtime . '|' . $size) . '"';
+    $lastModified = gmdate('D, d M Y H:i:s', $mtime) . ' GMT';
+    $ifNoneMatch = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
+    $ifModifiedSince = trim((string)($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? ''));
+
+    header('Content-Type: ' . ($mimeTypes[$extension] ?? 'application/octet-stream'));
+    header('ETag: ' . $etag);
+    header('Last-Modified: ' . $lastModified);
+    header('Vary: Accept-Encoding');
+    if (in_array($extension, $cacheableExtensions, true)) {
+        header('Cache-Control: public, max-age=2592000, immutable');
+    } else {
+        header('Cache-Control: no-cache');
+    }
+
+    if ($ifNoneMatch === $etag || ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime)) {
+        http_response_code(304);
+        return true;
+    }
+
+    $acceptEncoding = strtolower((string)($_SERVER['HTTP_ACCEPT_ENCODING'] ?? ''));
+    $canGzip = $size > 1024
+        && in_array($extension, $compressibleExtensions, true)
+        && function_exists('gzencode')
+        && str_contains($acceptEncoding, 'gzip');
+    if ($canGzip) {
+        header('Content-Encoding: gzip');
+        echo gzencode((string)file_get_contents($staticFile), 1);
+        return true;
+    }
+
+    readfile($staticFile);
+    return true;
 }
 
 define('APP_PATH', dirname(__DIR__) . '/app/');

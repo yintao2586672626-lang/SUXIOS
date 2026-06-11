@@ -16,18 +16,33 @@ class SystemConfigController extends Base
     {
         $this->checkPermission();
 
-        $configs = SystemConfig::getAllConfigs();
-        $defaults = SystemConfig::getDefaultConfigs();
-
         $requestedKey = trim((string)$this->request->get('key', ''));
         if ($requestedKey !== '') {
             if (!$this->canReadConfigKey($requestedKey)) {
                 abort(403, 'Forbidden');
             }
+            $defaults = SystemConfig::getDefaultConfigs();
             return $this->success([
-                $requestedKey => $configs[$requestedKey] ?? $defaults[$requestedKey] ?? null,
+                $requestedKey => SystemConfig::getValue($requestedKey, $defaults[$requestedKey] ?? null),
             ]);
         }
+
+        $defaults = SystemConfig::getDefaultConfigs();
+        $publicOnly = strtolower(trim((string)$this->request->get('scope', ''))) === 'public'
+            || (string)$this->request->get('public', '') === '1';
+        if ($publicOnly || !$this->currentUser->isSuperAdmin()) {
+            $publicKeys = $this->publicConfigKeys();
+            $configs = SystemConfig::getConfigsByKeys($publicKeys);
+            foreach ($publicKeys as $key) {
+                if (!isset($configs[$key]) && array_key_exists($key, $defaults)) {
+                    $configs[$key] = $defaults[$key];
+                }
+            }
+
+            return $this->success($configs);
+        }
+
+        $configs = SystemConfig::getAllConfigs();
 
         // 合并默认值
         foreach ($defaults as $key => $value) {
