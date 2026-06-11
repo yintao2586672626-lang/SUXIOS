@@ -214,8 +214,23 @@ if (!fs.existsSync(indexPath)) {
   if (onlineDataDefaultLoader.includes('loadAutoFetchPanel()')) {
     failures.push('public/index.html must not preload the full platform-auto panel from the default online-data page load.');
   }
+  if (/onlineDataTab\s*=\s*['"]ctrip-fetch-settings['"][^@]*loadAutoFetchPanel\(\)/.test(content)
+    || /tab\s*===\s*['"]traffic['"][\s\S]{0,220}loadAutoFetchPanel\(\)/.test(content)) {
+    failures.push('public/index.html must not load the full platform-auto panel from Ctrip fetch settings or download tab switches.');
+  }
   if (!/newTab === ['"]platform-auto['"][\s\S]*loadAutoFetchPanel\(\)/.test(content)) {
     failures.push('public/index.html must lazy-load the platform-auto panel when the platform-auto tab is opened.');
+  }
+  if (/onlineDataTab\s*=\s*['"]platform-sources['"][^@]*loadPlatformDataSourcePanel\(\);\s*loadPlatformProfileStatus/.test(content)) {
+    failures.push('public/index.html must not duplicate platform profile status loading when opening platform-sources.');
+  }
+  const autoFetchPanelLoader = content.slice(
+    content.indexOf('const loadAutoFetchPanel = async'),
+    content.indexOf('const loadAutoFetchStatus = async')
+  );
+  if (!/await loadAutoFetchStatus\(\);[\s\S]*schedulePlatformProfileStatusRefresh\(\{ silent: true \}\);/.test(autoFetchPanelLoader)
+    || /await Promise\.all\(\[[\s\S]*loadAutoFetchStatus\(\)[\s\S]*loadPlatformProfileStatus/.test(autoFetchPanelLoader)) {
+    failures.push('public/index.html must let platform-auto first paint wait only for auto-fetch status and defer profile status refresh.');
   }
   const autoFetchModePayloadSource = content.slice(
     content.indexOf('const buildAutoFetchModePayload = () => ({'),

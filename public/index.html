@@ -5430,7 +5430,7 @@
                                         class="px-6 py-3 font-medium text-gray-500 hover:text-blue-600">
                                         酒店管理
                                     </button>
-                                    <button @click="onlineDataTab = 'ctrip-fetch-settings'; loadCtripConfigList(); loadAutoFetchPanel()"
+                                    <button @click="onlineDataTab = 'ctrip-fetch-settings'; loadCtripConfigList()"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-fetch-settings' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         数据抓取设置
                                     </button>
@@ -12507,7 +12507,7 @@
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'platform-auto' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         平台自动获取
                                     </button>
-                                    <button @click="onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel(); loadPlatformProfileStatus({ silent: true })"
+                                    <button @click="onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'platform-sources' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         平台账号绑定
                                     </button>
@@ -22681,7 +22681,7 @@
                 const isCtripDownload = onlineDataTab.value === 'ctrip-download' || onlineDataTab.value.startsWith('ctrip');
                 if (isCtripDownload && tab === 'traffic') {
                     onlineDataTab.value = 'ctrip-fetch-settings';
-                    await loadAutoFetchPanel();
+                    await loadCtripConfigList();
                     return;
                 }
                 downloadCenterTab.value = tab;
@@ -23238,10 +23238,8 @@
                     if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {
                         autoFetchHotelId.value = hotels.value[0].id;
                     }
-                    await Promise.all([
-                        loadAutoFetchStatus(),
-                        loadPlatformProfileStatus({ silent: true }),
-                    ]);
+                    await loadAutoFetchStatus();
+                    schedulePlatformProfileStatusRefresh({ silent: true });
                 })().finally(() => {
                     autoFetchPanelCache = {
                         key: autoFetchPanelCacheKey(),

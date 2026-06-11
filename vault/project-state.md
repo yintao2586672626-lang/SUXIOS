@@ -1364,6 +1364,27 @@ Updated: 2026-06-11 Asia/Shanghai
 - `app/command/AutoFetchOnlineDataOnce.php` is registered as `online-data:auto-fetch-once` in `config/console.php`; it posts the prepared payload back to `/api/online-data/auto-fetch` with `background_task=true`, deletes its input file, and marks the hotel status failed if the worker cannot complete.
 - Guards now require the accepted frontend path, backend running-task methods, command registration, and non-blocking status refresh behavior. Verified with PHP lint, `php think list`, OnlineData AutoFetch/Ctrip PHPUnit filter (`97` tests, `1246` assertions), `verify:e2e-contracts` (`533` checks), `verify:public-entry`, `verify:p0-guards`, and `self:audit`.
 
+## 2026-06-11 Progress: Manual Collection Post-Fetch Refresh Scheduling
+
+- `public/index.html` now adds scheduled callbacks for data-health panel refresh, platform Profile status refresh, and platform data-source refresh. Ctrip overview, Ctrip flow overview, Ctrip browser capture, Ctrip Cookie API, Ctrip ads, Meituan browser capture, and Meituan captured JSON save pass scheduled refresh callbacks instead of direct refresh functions.
+- This keeps the main OTA collection result path focused on immediate UI state and result writes. History, latest snapshot, data-health, Profile status, and data-source status still refresh, but no longer block the collection completion path. OTA capture endpoints, request bodies, storage behavior, failed-state visibility, and OTA channel scope are unchanged.
+- Guards now require the scheduled refresh callbacks and reject direct post-fetch bindings to `loadLatestCtripData()`, `loadDataHealthPanel()`, `loadPlatformProfileStatus()`, and `loadPlatformDataSources()`. Verified with `verify:public-entry`, `verify:e2e-contracts`, and `self:split-map`.
+
+## 2026-06-11 Progress: Data-Source Config Test Flow Split
+
+- `public/auto-fetch-static.js` now owns `resolveDataConfigTestEndpoint()`, `buildDataConfigTestRequest()`, and `runDataConfigTestFlow()` for data-source connection testing. The helper preserves explicit states for success, failed response, unsupported OTA types, invalid Ctrip ads URL, and exceptions.
+- `public/index.html` keeps only the Vue callback shell for `testDataConfig()`: it waits for `ensureAutoFetchStaticReady()`, injects refs/callbacks, sends the request through the existing `request()` wrapper, and writes the testing state. It no longer inlines the config-type to `/online-data/*` test endpoint mapping.
+- Guards now prevent re-inlining the data-source config test endpoint selection into the SPA entry. `verify_e2e_contracts.mjs` validates endpoint mapping, Ctrip ads URL validation, request body preservation, and success/failed/unsupported/invalid/exception runtime samples in VM. E2E contract verification passed with `551` checks.
+- Current split-map: `public/index.html` has `37281` lines and `1545` frontend function-level blocks; config domain span is down to `424` lines. `app/controller/OnlineData.php` remains a P2 split candidate at `26918` lines and `874` methods.
+- Current self-audit: full directory `198.02 MB`, without `.git` `93.26 MB`, without `.git` and dependencies `64.07 MB`, tracked `18.66 MB` / `615` files; code scope `370` files, `195711` total lines, and `179814` nonblank lines. Default cleanup candidate is `0.49 MB` under `runtime`, left for later small cleanup.
+
+## 2026-06-11 Progress: Auto-Fetch Panel Entry Load Narrowing
+
+- Ctrip fetch settings and download-center Ctrip traffic switches now load only the Ctrip config list instead of the full `platform-auto` panel. The `platform-sources` tab now calls only `loadPlatformDataSourcePanel()` and no longer duplicates `loadPlatformProfileStatus({ silent: true })`.
+- `loadAutoFetchPanel()` first paint now waits for `loadAutoFetchStatus()` only. Platform Profile status refresh is scheduled through `schedulePlatformProfileStatusRefresh({ silent: true })`, keeping the panel responsive without changing the Profile status endpoint or displayed failure state.
+- This change does not modify auto-fetch execution, manual capture requests, data-source binding APIs, OTA storage behavior, or OTA channel scope. Guards now reject Ctrip settings/download switches that reload the full platform-auto panel and require the narrower platform-auto first-paint path.
+- Verified with `verify:public-entry`, `verify:e2e-contracts`, `verify:p0-guards`, and `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

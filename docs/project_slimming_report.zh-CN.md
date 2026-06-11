@@ -1330,6 +1330,30 @@
 - 更新守卫：`verify_e2e_contracts.mjs` 要求前端 async 触发、accepted 返回路径、后端任务创建/运行态方法、命令文件和 console 注册；`verify_public_entry_guard.mjs` 禁止平台自动获取重新阻塞 UI。
 - 已验证：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe -l app\command\AutoFetchOnlineDataOnce.php`、`node --check public\auto-fetch-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`C:\xampp\php\php.exe think list` 可见 `online-data:auto-fetch-once`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "AutoFetch|autoFetch|Ctrip"`（`97` tests / `1246` assertions）、`npm.cmd run verify:e2e-contracts`（`533` checks）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`git diff --check`。
 
+## 2026-06-11 保存点：手动采集后置刷新调度
+
+- `public/index.html` 新增 `scheduleDataHealthPanelRefresh()`、`schedulePlatformProfileStatusRefresh()` 和 `schedulePlatformDataSourcesRefresh()`，并把携程概况、流量概要、浏览器采集、Cookie API、广告采集、美团浏览器采集和美团手动 JSON 保存后的刷新回调改为调度式后置刷新。
+- 该保存点不改变 OTA 采集接口、请求体、入库逻辑、缺失/失败状态展示或 OTA 渠道口径；主采集结果先回写 UI，历史、最新快照、数据健康、Profile 状态和数据源状态刷新继续异步执行。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求后置刷新调度器存在，并禁止把 `loadLatestCtripData()`、`loadDataHealthPanel()`、`loadPlatformProfileStatus()`、`loadPlatformDataSources()` 直接绑定回采集完成路径；`verify_e2e_contracts.mjs` 同步增加非阻塞刷新合同。
+- 已验证：`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`。
+
+## 2026-06-11 保存点：数据源连接测试流程抽离
+
+- `public/auto-fetch-static.js` 新增 `resolveDataConfigTestEndpoint()`、`buildDataConfigTestRequest()` 和 `runDataConfigTestFlow()`，统一承载数据源配置连接测试的接口选择、携程广告 URL 校验、请求体构造、成功/失败/不支持/异常状态返回。
+- `public/index.html` 中 `testDataConfig()` 只保留 `ensureAutoFetchStaticReady()`、Vue ref 注入、toast/request 回调和测试状态写回；不再内联配置类型到 `/online-data/*` 测试接口的映射。
+- 更新守卫：`verify_public_entry_guard.mjs` 禁止把数据源测试 endpoint selection 重新塞回入口；`verify_e2e_contracts.mjs` 在 VM 中验证 endpoint 映射、携程广告 URL 校验、成功/失败/不支持/异常样例，E2E 合同数增至 `551`。
+- 当前 split-map：`public/index.html` 从 `37,323` 行降至 `37,281` 行，config 域 span 从 `469` 行降至 `424` 行；`app/controller/OnlineData.php` 仍为 `26,918` 行、`874` 个方法，继续作为 P2 候选。
+- 当前自审：完整目录 `198.02 MB`，不含 `.git` `93.26 MB`，不含 `.git` 和依赖 `64.07 MB`，Git 跟踪文件 `18.66 MB` / `615` 个；代码范围 `370` 个文件、`195,711` 行、非空 `179,814` 行；默认可清理目标 `0.49 MB`，属本轮后续小项未处理。
+- 已验证：`node --check public\auto-fetch-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
+## 2026-06-11 保存点：自动获取面板入口加载精简
+
+- `public/index.html` 的携程抓取设置入口只加载携程配置列表，不再顺带加载完整 `platform-auto` 面板；下载中心切到携程流量抓取设置时同样只加载携程配置列表。
+- `platform-sources` 入口只调用 `loadPlatformDataSourcePanel()`，不再重复触发 `loadPlatformProfileStatus({ silent: true })`；`loadAutoFetchPanel()` 首屏等待范围收窄为 `loadAutoFetchStatus()`，Profile 状态改为 `schedulePlatformProfileStatusRefresh({ silent: true })` 后置刷新。
+- 本保存点不改变自动获取、手动采集、Profile 状态、数据源绑定或 OTA 入库接口，只减少非目标面板的同步加载和重复刷新。
+- 更新守卫：`verify_public_entry_guard.mjs` 禁止携程设置/下载切换入口加载完整 `platform-auto` 面板，并要求 `platform-auto` 首屏只等待自动获取状态；`verify_e2e_contracts.mjs` 增加对应静态合同。
+- 已验证：`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:p0-guards`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
