@@ -23175,7 +23175,7 @@
                 scheduleAutoFetchStatusDetailRefresh();
             };
             const scheduleBackendNotificationRefresh = () => schedulePostFetchRefresh('backend-global-notifications', () => loadBackendGlobalNotifications().catch(() => null), 700);
-            const scheduleInitialBackendNotificationRefresh = (delayMs = 2200) => {
+            const scheduleInitialBackendNotificationRefresh = (delayMs = 8000) => {
                 setTimeout(() => {
                     if (!token.value || isCoreOtaPageVisible()) return;
                     refreshGlobalNotifications({ silent: true, backendOnly: true });
@@ -24223,27 +24223,42 @@
                 options.force ? { force: true } : {}
             );
             const scheduleCtripEbookingDeferredStartupRefresh = () => {
-                deferUiTask(() => {
+                scheduleDelayedPageTask(async () => {
                     if (currentPage.value !== 'ctrip-ebooking') return null;
-                    return Promise.allSettled([
-                        loadCtripConfigList().then(() => {
-                            prewarmSelectedCtripConfigSecret();
-                            return loadLatestCtripData({ silent: true });
-                        }),
-                        loadCookiesList(),
-                        loadBookmarklet(),
-                    ]);
-                }, 360);
+                    await loadCtripConfigList();
+                    if (currentPage.value !== 'ctrip-ebooking') return null;
+                    prewarmSelectedCtripConfigSecret();
+                    return null;
+                }, 1800);
+                scheduleDelayedPageTask(() => {
+                    if (currentPage.value !== 'ctrip-ebooking') return null;
+                    return loadLatestCtripData({ silent: true });
+                }, 2400);
+                scheduleDelayedPageTask(() => {
+                    if (currentPage.value !== 'ctrip-ebooking') return null;
+                    return loadCookiesList();
+                }, 3000);
+                scheduleDelayedPageTask(() => {
+                    if (currentPage.value !== 'ctrip-ebooking') return null;
+                    return loadBookmarklet();
+                }, 3600);
             };
             const scheduleMeituanEbookingDeferredStartupRefresh = () => {
-                deferUiTask(() => {
+                scheduleDelayedPageTask(async () => {
                     if (currentPage.value !== 'meituan-ebooking') return null;
-                    return Promise.allSettled([
-                        loadMeituanConfigList().then(() => prewarmSelectedMeituanConfigSecret()),
-                        loadMeituanConfig(),
-                        loadOnlineDataHotelList(),
-                    ]);
-                }, 240);
+                    await loadMeituanConfigList();
+                    if (currentPage.value !== 'meituan-ebooking') return null;
+                    prewarmSelectedMeituanConfigSecret();
+                    return null;
+                }, 1800);
+                scheduleDelayedPageTask(() => {
+                    if (currentPage.value !== 'meituan-ebooking') return null;
+                    return loadMeituanConfig();
+                }, 2400);
+                scheduleDelayedPageTask(() => {
+                    if (currentPage.value !== 'meituan-ebooking') return null;
+                    return loadOnlineDataHotelList();
+                }, 3000);
             };
             const openCtripManualTab = (tab) => {
                 onlineDataTab.value = tab;
@@ -28549,7 +28564,7 @@
                         showToast(`欢迎回来，${res.data.user.realname || res.data.user.username}！`, 'success');
                         currentPage.value = 'compass';
                         loadData();
-                        scheduleInitialCompassLoad({ force: true, delayMs: 1800 });
+                        scheduleInitialCompassLoad({ force: true, delayMs: 4500 });
                         scheduleInitialBackendNotificationRefresh();
                     } else {
                         loginError.value = res.message || res.msg || '登录失败，请检查用户名和密码';
@@ -31988,9 +32003,11 @@
                         compassMetrics.value = res.data.metrics || compassMetrics.value;
                         compassAlerts.value = res.data.alerts || [];
                         compassHolidays.value = res.data.holidays || [];
-                        if (currentPage.value === 'compass') {
+                        scheduleDelayedPageTask(() => {
+                            if (currentPage.value !== 'compass') return null;
                             loadWeatherForCity();
-                        }
+                            return null;
+                        }, 1600);
                     }
                     compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
                     deferUiTask(async () => {
@@ -35491,7 +35508,7 @@
                             isLoggedIn.value = true;
                             loadData();
                             if (currentPage.value === 'compass') {
-                                scheduleInitialCompassLoad({ force: true, delayMs: 1800 });
+                                scheduleInitialCompassLoad({ force: true, delayMs: 4500 });
                             }
                             scheduleInitialBackendNotificationRefresh();
                             if (currentPage.value === 'opening-overview' || currentPage.value === 'opening-checklist') {

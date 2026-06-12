@@ -1357,12 +1357,12 @@ class OnlineData extends Base
             return $this->error('未找到美团浏览器抓取脚本');
         }
 
-        $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
         if ($nodeBinary === '') {
             return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
         }
 
-        $chromePath = $this->resolveMeituanCaptureChromePath();
+        $chromePath = BrowserProfileCaptureRequestService::resolveChromePath();
         $capturePlan = BrowserProfileCaptureRequestService::buildMeituanPlan(
             $requestData,
             $projectRoot,
@@ -1386,7 +1386,7 @@ class OnlineData extends Base
         $lock = $this->acquirePlatformProfileCaptureLock('meituan', $storeId);
         if ($lock === null) {
             return $this->error('Meituan browser Profile capture is already running for this store.', 409, [
-                'lock_key' => 'meituan:' . $this->safeMeituanCaptureFilePart($storeId),
+                'lock_key' => 'meituan:' . BrowserProfileCaptureRequestService::safeFilePart($storeId),
             ]);
         }
 
@@ -1618,7 +1618,7 @@ class OnlineData extends Base
             return $this->error('未找到携程浏览器 Profile 采集脚本');
         }
 
-        $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
         if ($nodeBinary === '') {
             return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
         }
@@ -1658,7 +1658,7 @@ class OnlineData extends Base
             return $this->error('无法创建携程 Profile 字段配置快照', 500);
         }
         $args[] = '--field-config=' . $fieldConfigPath;
-        $chromePath = $this->resolveMeituanCaptureChromePath();
+        $chromePath = BrowserProfileCaptureRequestService::resolveChromePath();
         if ($chromePath !== '') {
             $args[] = '--chrome-path=' . $chromePath;
         }
@@ -1667,7 +1667,7 @@ class OnlineData extends Base
         if ($lock === null) {
             $this->removeAutoFetchCookieFile($fieldConfigPath);
             return $this->error('Ctrip browser Profile capture is already running for this profile.', 409, [
-                'lock_key' => 'ctrip:' . $this->safeMeituanCaptureFilePart($profileId),
+                'lock_key' => 'ctrip:' . BrowserProfileCaptureRequestService::safeFilePart($profileId),
             ]);
         }
 
@@ -1859,7 +1859,7 @@ class OnlineData extends Base
                 return $this->error('未找到携程接口证据校验脚本');
             }
 
-            $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+            $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
             if ($nodeBinary === '') {
                 return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
             }
@@ -2264,7 +2264,7 @@ class OnlineData extends Base
                 return $this->error('未找到携程 Cookie API 采集脚本', 500);
             }
 
-            $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+            $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
             if ($nodeBinary === '') {
                 return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY', 500);
             }
@@ -2637,11 +2637,6 @@ class OnlineData extends Base
         ], $savedCount > 0 ? '携程今日概况获取完成并已入库' : '携程今日概况获取完成，但未解析到可入库概况数据');
     }
 
-    private function resolveMeituanCaptureNodeBinary(): string
-    {
-        return BrowserProfileCaptureRequestService::resolveNodeBinary();
-    }
-
     private function buildCtripPartialCaptureErrorPayload(string $outputPath): array
     {
         if (!is_file($outputPath)) {
@@ -2685,7 +2680,7 @@ class OnlineData extends Base
             ];
         }
 
-        $profileNeedle = $profileId !== '' ? $this->safeMeituanCaptureFilePart($profileId) : '';
+        $profileNeedle = $profileId !== '' ? BrowserProfileCaptureRequestService::safeFilePart($profileId) : '';
         $snapshotFiles = $this->filterCtripCaptureFilesByProfile(
             glob($captureDir . DIRECTORY_SEPARATOR . '*.diagnosis.snapshot.json') ?: [],
             $profileNeedle
@@ -4270,11 +4265,6 @@ class OnlineData extends Base
         return false;
     }
 
-    private function resolveMeituanCaptureChromePath(): string
-    {
-        return BrowserProfileCaptureRequestService::resolveChromePath();
-    }
-
     private function runMeituanCaptureProcess(array $args, string $cwd, int $timeoutSeconds): array
     {
         $command = implode(' ', array_map('escapeshellarg', $args));
@@ -4439,7 +4429,7 @@ class OnlineData extends Base
             throw new \InvalidArgumentException('无法创建携程 Cookie API 采集输出目录');
         }
 
-        $profileId = $this->safeMeituanCaptureFilePart((string)($config['profile_id'] ?? 'ctrip_cookie_api'));
+        $profileId = BrowserProfileCaptureRequestService::safeFilePart((string)($config['profile_id'] ?? 'ctrip_cookie_api'));
         $prefix = $profileId . '_' . date('YmdHis');
         $inputPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.input.json';
         $outputPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.json';
@@ -4457,7 +4447,7 @@ class OnlineData extends Base
     {
         $hotelId = $systemHotelId !== null ? (int)$systemHotelId : 0;
         $profileId = $this->ctripProfileStoreIdFromConfig($requestData, $hotelId);
-        $safeProfileId = $profileId !== '' ? $this->safeMeituanCaptureFilePart($profileId) : '';
+        $safeProfileId = $profileId !== '' ? BrowserProfileCaptureRequestService::safeFilePart($profileId) : '';
         $relativeDir = $safeProfileId !== '' ? 'storage/ctrip_profile_' . $safeProfileId : '';
         $projectRoot = dirname(__DIR__, 2);
         $profileDir = $relativeDir !== ''
@@ -4515,7 +4505,7 @@ class OnlineData extends Base
         }
 
         $storeId = $this->meituanProfileStoreIdFromConfig($requestData);
-        $safeStoreId = $storeId !== '' ? $this->safeMeituanCaptureFilePart($storeId) : '';
+        $safeStoreId = $storeId !== '' ? BrowserProfileCaptureRequestService::safeFilePart($storeId) : '';
         $relativeDir = $safeStoreId !== '' ? 'storage/meituan_profile_' . $safeStoreId : '';
         $projectRoot = dirname(__DIR__, 2);
         $profileDir = $relativeDir !== ''
@@ -4581,7 +4571,7 @@ class OnlineData extends Base
         if (!is_file($scriptPath)) {
             return ['message' => '未找到美团浏览器抓取脚本'];
         }
-        $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
         if ($nodeBinary === '') {
             return ['message' => '未找到 Node.js'];
         }
@@ -4589,7 +4579,7 @@ class OnlineData extends Base
         if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
             return ['message' => '无法创建美团登录检测输出目录'];
         }
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_login_probe_' . $this->safeMeituanCaptureFilePart($storeId) . '_' . date('YmdHis') . '.json';
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_login_probe_' . BrowserProfileCaptureRequestService::safeFilePart($storeId) . '_' . date('YmdHis') . '.json';
         $args = [
             $nodeBinary,
             $scriptPath,
@@ -4605,7 +4595,7 @@ class OnlineData extends Base
         if ($poiId !== '') {
             $args[] = '--poi-id=' . $poiId;
         }
-        $chromePath = $this->resolveMeituanCaptureChromePath();
+        $chromePath = BrowserProfileCaptureRequestService::resolveChromePath();
         if ($chromePath !== '') {
             $args[] = '--chrome-path=' . $chromePath;
         }
@@ -4634,7 +4624,7 @@ class OnlineData extends Base
             throw new \InvalidArgumentException('missing Ctrip Cookie and browser Profile ID');
         }
 
-        $safeProfileId = $this->safeMeituanCaptureFilePart($profileId);
+        $safeProfileId = BrowserProfileCaptureRequestService::safeFilePart($profileId);
         $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $safeProfileId;
         if (!is_dir($profileDir)) {
             throw new \InvalidArgumentException("missing Ctrip Cookie and storage/ctrip_profile_{$safeProfileId}");
@@ -4659,7 +4649,7 @@ class OnlineData extends Base
         } catch (\Throwable $e) {
             $suffix = str_replace('.', '', uniqid('', true));
         }
-        $cookieFile = $dir . DIRECTORY_SEPARATOR . $this->safeMeituanCaptureFilePart('ctrip_profile_' . $safeProfileId . '_' . $suffix) . '.txt';
+        $cookieFile = $dir . DIRECTORY_SEPARATOR . BrowserProfileCaptureRequestService::safeFilePart('ctrip_profile_' . $safeProfileId . '_' . $suffix) . '.txt';
 
         $runResult = $this->runMeituanCaptureProcess([
             $phpBinary,
@@ -4995,7 +4985,7 @@ class OnlineData extends Base
 
         $path = parse_url((string)$bundle['request_url'], PHP_URL_PATH);
         $endpointName = $path ? basename((string)$path) : 'endpoint';
-        $prefix = $this->safeMeituanCaptureFilePart($endpointName ?: 'endpoint') . '_' . date('YmdHis');
+        $prefix = BrowserProfileCaptureRequestService::safeFilePart($endpointName ?: 'endpoint') . '_' . date('YmdHis');
         $inputPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.input.json';
         $outputPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.result.json';
         $markdownPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.md';
@@ -5344,11 +5334,6 @@ class OnlineData extends Base
         return implode(',', array_keys($sections)) ?: 'core';
     }
 
-    private function normalizeProfileCaptureSections(mixed $value, string $fallback): string
-    {
-        return BrowserProfileCaptureRequestService::normalizeProfileSections($value, $fallback);
-    }
-
     private function resolveCtripApprovedMappingsPath(array $source, string $projectRoot): array
     {
         $rawPath = '';
@@ -5433,11 +5418,6 @@ class OnlineData extends Base
         return strtolower(rtrim(str_replace('\\', '/', $path), '/'));
     }
 
-    private function safeMeituanCaptureFilePart(string $value): string
-    {
-        return BrowserProfileCaptureRequestService::safeFilePart($value);
-    }
-
     private function createAutoFetchCookieFile(string $projectRoot, string $platform, int $hotelId, string $cookies): string
     {
         $cookies = trim($cookies);
@@ -5456,7 +5436,7 @@ class OnlineData extends Base
             $suffix = str_replace('.', '', uniqid('', true));
         }
 
-        $path = $dir . DIRECTORY_SEPARATOR . $this->safeMeituanCaptureFilePart($platform . '_' . $hotelId . '_' . $suffix) . '.txt';
+        $path = $dir . DIRECTORY_SEPARATOR . BrowserProfileCaptureRequestService::safeFilePart($platform . '_' . $hotelId . '_' . $suffix) . '.txt';
         return file_put_contents($path, $cookies, LOCK_EX) === false ? '' : $path;
     }
 
@@ -5543,7 +5523,7 @@ class OnlineData extends Base
         }
 
         $sectionValue = $requestData['sections'] ?? $requestData['capture_sections'] ?? $requestData['captureSections'] ?? 'default';
-        $requestedRaw = $this->normalizeProfileCaptureSections($sectionValue, 'default');
+        $requestedRaw = BrowserProfileCaptureRequestService::normalizeProfileSections($sectionValue, 'default');
         $presetTokens = ['default' => true, 'core' => true, 'wide' => true, 'all' => true];
         $tokens = array_values(array_unique(array_filter(
             array_map(static fn($item): string => strtolower(trim((string)$item)), explode(',', $requestedRaw)),
@@ -17367,7 +17347,7 @@ JAVASCRIPT;
             $suffix = str_replace('.', '', uniqid('', true));
         }
 
-        $safeProfileKey = $this->safeMeituanCaptureFilePart($profileKey);
+        $safeProfileKey = BrowserProfileCaptureRequestService::safeFilePart($profileKey);
         $taskId = $platform . '_' . $safeProfileKey . '_' . date('YmdHis') . '_' . $suffix;
         $inputPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.input.json';
         $outputPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.json';
@@ -17551,13 +17531,13 @@ JAVASCRIPT;
 
     private function platformProfileLoginCurrentCacheKey(string $platform, int $hotelId, string $profileKey): string
     {
-        return 'platform_profile_login_current_' . $platform . '_' . $hotelId . '_' . $this->safeMeituanCaptureFilePart($profileKey);
+        return 'platform_profile_login_current_' . $platform . '_' . $hotelId . '_' . BrowserProfileCaptureRequestService::safeFilePart($profileKey);
     }
 
     private function platformProfileLoginProfileDir(string $platform, string $profileKey): string
     {
         $prefix = $platform === 'ctrip' ? 'ctrip_profile_' : 'meituan_profile_';
-        return 'storage/' . $prefix . $this->safeMeituanCaptureFilePart($profileKey);
+        return 'storage/' . $prefix . BrowserProfileCaptureRequestService::safeFilePart($profileKey);
     }
 
     private function normalizePlatformProfileLoginTask(array $task): array
@@ -17637,7 +17617,7 @@ JAVASCRIPT;
         $profileKey = $isCtrip
             ? $this->ctripProfileStoreIdFromConfig($config, $hotelId)
             : $this->meituanProfileStoreIdFromConfig($config);
-        $safeKey = $profileKey !== '' ? $this->safeMeituanCaptureFilePart($profileKey) : '';
+        $safeKey = $profileKey !== '' ? BrowserProfileCaptureRequestService::safeFilePart($profileKey) : '';
         $profilePrefix = $isCtrip ? 'ctrip_profile_' : 'meituan_profile_';
         $relativeDir = $safeKey !== '' ? 'storage/' . $profilePrefix . $safeKey : '';
         $projectRoot = dirname(__DIR__, 2);
@@ -17894,7 +17874,7 @@ JAVASCRIPT;
 
     private function platformProfileStatusCacheKey(string $platform, int $hotelId, string $profileKey): string
     {
-        return 'platform_profile_status_' . $platform . '_' . $hotelId . '_' . $this->safeMeituanCaptureFilePart($profileKey);
+        return 'platform_profile_status_' . $platform . '_' . $hotelId . '_' . BrowserProfileCaptureRequestService::safeFilePart($profileKey);
     }
 
     private function bindBrowserProfileDataSource(string $platform, int $hotelId, array $requestData, array $payload = []): array
@@ -17922,7 +17902,7 @@ JAVASCRIPT;
                 'poi_id' => trim((string)($requestData['poi_id'] ?? $requestData['poiId'] ?? $payload['poi_id'] ?? '')),
                 'poi_name' => trim((string)($requestData['poi_name'] ?? $requestData['poiName'] ?? $payload['poi_name'] ?? '')),
                 'partner_id' => trim((string)($requestData['partner_id'] ?? $requestData['partnerId'] ?? '')),
-                'capture_sections' => $this->normalizeProfileCaptureSections(
+                'capture_sections' => BrowserProfileCaptureRequestService::normalizeProfileSections(
                     $requestData['capture_sections'] ?? $requestData['captureSections'] ?? $requestData['sections'] ?? 'traffic,orders',
                     'traffic,orders'
                 ),
@@ -18011,7 +17991,7 @@ JAVASCRIPT;
         if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
             return null;
         }
-        $safeProfileKey = $this->safeMeituanCaptureFilePart($profileKey);
+        $safeProfileKey = BrowserProfileCaptureRequestService::safeFilePart($profileKey);
         $path = $dir . DIRECTORY_SEPARATOR . 'profile_capture_' . $platform . '_' . $safeProfileKey . '.lock';
         $handle = fopen($path, 'c+');
         if (!$handle) {
@@ -20705,7 +20685,7 @@ JAVASCRIPT;
             return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'missing Ctrip API capture script'];
         }
 
-        $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
         if ($nodeBinary === '') {
             return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'missing Node.js'];
         }
@@ -20912,7 +20892,7 @@ JAVASCRIPT;
             return ['success' => false, 'skipped' => true, 'message' => '未找到携程浏览器采集脚本', 'saved_count' => 0];
         }
 
-        $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
         if ($nodeBinary === '') {
             return ['success' => false, 'skipped' => true, 'message' => '未找到 Node.js', 'saved_count' => 0];
         }
@@ -20922,7 +20902,7 @@ JAVASCRIPT;
             return ['success' => false, 'message' => '无法创建携程采集输出目录', 'saved_count' => 0];
         }
 
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_auto_' . $this->safeMeituanCaptureFilePart($profileId) . '_' . date('YmdHis') . '.json';
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_auto_' . BrowserProfileCaptureRequestService::safeFilePart($profileId) . '_' . date('YmdHis') . '.json';
         $fieldConfigPayload = $this->buildCtripProfileFieldConfigPayload($this->readCtripProfileCaptureFields(true));
         $sectionsList = $this->resolveCtripProfileCaptureSectionsForRun(['sections' => 'default'], $fieldConfigPayload, false);
         if (empty($sectionsList)) {
@@ -20967,7 +20947,7 @@ JAVASCRIPT;
         if ($hotelName !== '') {
             $args[] = '--hotel-name=' . $hotelName;
         }
-        $chromePath = $this->resolveMeituanCaptureChromePath();
+        $chromePath = BrowserProfileCaptureRequestService::resolveChromePath();
         if ($chromePath !== '') {
             $args[] = '--chrome-path=' . $chromePath;
         }
@@ -22050,7 +22030,7 @@ JAVASCRIPT;
         if (!is_file($scriptPath)) {
             return ['success' => false, 'skipped' => true, 'message' => '未找到美团浏览器抓取脚本', 'saved_count' => 0];
         }
-        $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
         if ($nodeBinary === '') {
             return ['success' => false, 'skipped' => true, 'message' => '未找到 Node.js', 'saved_count' => 0];
         }
@@ -22060,8 +22040,8 @@ JAVASCRIPT;
             return ['success' => false, 'message' => '无法创建美团抓取输出目录', 'saved_count' => 0];
         }
 
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_auto_' . $this->safeMeituanCaptureFilePart($storeId) . '_' . date('YmdHis') . '.json';
-        $chromePath = $this->resolveMeituanCaptureChromePath();
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_auto_' . BrowserProfileCaptureRequestService::safeFilePart($storeId) . '_' . date('YmdHis') . '.json';
+        $chromePath = BrowserProfileCaptureRequestService::resolveChromePath();
         $args = BrowserProfileCaptureRequestService::buildMeituanAutoArgs(
             $config,
             $nodeBinary,
@@ -22440,7 +22420,7 @@ JAVASCRIPT;
         }
 
         $projectRoot = dirname(__DIR__, 2);
-        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $this->safeMeituanCaptureFilePart($profileId);
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . BrowserProfileCaptureRequestService::safeFilePart($profileId);
         return is_dir($profileDir);
     }
 
@@ -22457,7 +22437,7 @@ JAVASCRIPT;
         }
 
         $projectRoot = dirname(__DIR__, 2);
-        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $this->safeMeituanCaptureFilePart($storeId);
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . BrowserProfileCaptureRequestService::safeFilePart($storeId);
         return is_dir($profileDir);
     }
 

@@ -1873,6 +1873,17 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `268.06 MB`, without `.git` about `125.57 MB`, without `.git` and dependencies about `96.38 MB`, tracked files about `19.13 MB` / `628` files; code scope `383` files, `201003` total lines, and `184828` nonblank lines. Runtime/output cleanup is about `32.32 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `verify:public-entry`; `verify:e2e-contracts` with `960` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Browser Capture Helper Wrapper Removal
+
+- `app/controller/OnlineData.php` now calls `BrowserProfileCaptureRequestService` directly for browser-capture Node binary resolution, Chrome path resolution, safe file keys, and Profile section normalization.
+- Removed the four thin controller wrappers for those helpers, so browser-capture request preparation stays in the focused service instead of being re-exposed through `OnlineData.php`.
+- `public/index.html` further delays initial compass loading and backend notification refresh, and schedules compass weather refresh through a delayed page guard, so fast OTA navigation has a wider window before background dashboard work starts.
+- This does not change OTA capture scripts, APIs, credentials, persistence schema, AI analysis, permissions, database structure, or saved response payload shape.
+- Guards now require direct service calls and reject restoring the old controller wrappers. `verify:e2e-contracts` covers `966` checks.
+- Current split-map: `public/index.html` has `37540` lines, `1591` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` decreased to `26331` lines and `868` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `270.2 MB`, without `.git` about `126.56 MB`, without `.git` and dependencies about `97.37 MB`, tracked files about `19.13 MB` / `628` files; code scope `383` files, `200993` total lines, and `184822` nonblank lines. Runtime/output cleanup is about `33.31 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: PHP syntax check for `app/controller/OnlineData.php`; Node syntax check for `scripts\verify_e2e_contracts.mjs`; `tests\BrowserProfileCaptureRequestServiceTest.php` with `7` tests and `35` assertions; `tests\OnlineDataTest.php --filter Browser` with `3` tests and `24` assertions; `verify:e2e-contracts` with `966` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
