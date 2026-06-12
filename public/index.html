@@ -13,7 +13,7 @@
     <script src="shared-components.js?v=20260611-open-fix"></script>
     <script src="form-operation-support.js" defer></script>
     <script src="ctrip-static.js?v=20260612-sample-helper"></script>
-    <script src="meituan-static.js?v=20260612-manual-fetch-perf"></script>
+    <script src="meituan-static.js?v=20260612-meituan-direct-fetch"></script>
     <script src="data-health-static.js?v=20260612-dashboard-requests"></script>
     <script src="ota-diagnosis-static.js?v=20260611-core-fetch"></script>
     <script src="system-static.js?v=20260612-platform-binding"></script>
@@ -8161,20 +8161,17 @@
                                     </div>
 
                                     <!-- 获取结果显示 -->
-                                    <div v-if="meituanFetchSuccess || meituanFetchInProgress || meituanFetchBackgroundAccepted" class="mt-4">
-                                        <div :class="[(meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200', 'border rounded-lg p-4']">
+                                    <div v-if="meituanFetchSuccess || meituanFetchInProgress" class="mt-4">
+                                        <div :class="[meituanFetchInProgress ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200', 'border rounded-lg p-4']">
                                             <div class="flex justify-between items-center mb-2">
                                                 <div class="flex items-center">
-                                                    <i :class="(meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'fas fa-clock text-blue-500 text-xl mr-3' : 'fas fa-check-circle text-green-500 text-xl mr-3'"></i>
+                                                    <i :class="meituanFetchInProgress ? 'fas fa-clock text-blue-500 text-xl mr-3' : 'fas fa-check-circle text-green-500 text-xl mr-3'"></i>
                                                     <div>
-                                                        <span :class="['font-medium', (meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'text-blue-800' : 'text-green-800']">
-                                                            {{ meituanFetchInProgress ? '美团手动获取正在请求平台接口' : (meituanFetchBackgroundAccepted ? '美团手动获取已提交后台执行' : '数据获取完成') }}
+                                                        <span :class="['font-medium', meituanFetchInProgress ? 'text-blue-800' : 'text-green-800']">
+                                                            {{ meituanFetchInProgress ? '美团手动获取正在请求平台接口' : '数据获取完成' }}
                                                         </span>
                                                         <span v-if="meituanFetchInProgress" class="text-blue-600 ml-2">
                                                             接口返回后直接显示本次榜单结果
-                                                        </span>
-                                                        <span v-else-if="meituanFetchBackgroundAccepted" class="text-blue-600 ml-2">
-                                                            完成后会更新数据列表和通知
                                                         </span>
                                                         <span v-else-if="meituanSavedCount > 0" class="text-green-600 ml-2">
                                                             已保存 {{ meituanSavedCount }} 条数据到数据库
@@ -8198,9 +8195,6 @@
                                                     <span class="font-medium">{{ result.dateRangeName }}</span> -
                                                     <span class="font-medium">{{ result.rankName }}</span>:
                                                     <span v-if="isMeituanPendingResult(result)" class="text-blue-600">正在请求平台接口</span>
-                                                    <span v-else-if="isMeituanBackgroundResult(result)" class="text-blue-600">
-                                                        后台执行中<span v-if="result.taskId"> · 任务 {{ result.taskId }}</span>
-                                                    </span>
                                                     <span v-else-if="result.savedCount" class="text-green-600">✓ 已保存 {{ result.savedCount }} 条数据</span>
                                                     <span v-else-if="result.error" class="text-red-600">✗ 失败: {{ result.error }}</span>
                                                     <span v-else-if="result.displayCount" class="text-yellow-600">
@@ -17643,9 +17637,7 @@
             const meituanSavedCount = ref(0); // 美团保存的数据条数
             const meituanDataFetchTime = ref(''); // 美团数据获取时间
             const isMeituanPendingResult = (result = {}) => ['fetching', 'submitting'].includes(String(result?.status || '').toLowerCase());
-            const isMeituanBackgroundResult = (result = {}) => ['accepted', 'running', 'queued'].includes(String(result?.status || '').toLowerCase());
             const meituanFetchInProgress = computed(() => Array.isArray(onlineDataResult.value) && onlineDataResult.value.some(isMeituanPendingResult));
-            const meituanFetchBackgroundAccepted = computed(() => Array.isArray(onlineDataResult.value) && onlineDataResult.value.some(isMeituanBackgroundResult));
             const meituanTableTab = ref('ranking'); // 美团数据表格Tab: ranking/traffic
             // 表格排序功能
             const meituanSortField = ref('roomNights'); // 当前排序字段
@@ -35804,7 +35796,7 @@
                 loadCtripConfigList, openCtripManualTab, loadLatestCtripData, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, openCtripCookieCreateFromHealth, openCtripCookieEditorFromHealth, editCtripCookieFromHealth, saveCtripCookieFromHealth, closeCtripCookieEditor, deleteCtripCookieFromHealth, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, scheduleCtripHotelConfigApply, openCtripOverviewFetchTab, prepareCtripOverviewFetchAction, runCtripOverviewFetchAction, runCtripOverviewCoreFetchAction, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
                 // 美团配置管理
                 meituanConfigForm, meituanConfigList, meituanConfigListLoading, meituanConfigListLoaded, meituanConfigListLoadFailed, meituanBookmarklet, selectedMeituanHotelConfig,
-                meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanFetchInProgress, meituanFetchBackgroundAccepted, isMeituanPendingResult, isMeituanBackgroundResult, meituanSavedCount, meituanDataFetchTime,
+                meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanFetchInProgress, isMeituanPendingResult, meituanSavedCount, meituanDataFetchTime,
                 meituanSortField, meituanSortOrder, sortMeituanTable,
                 loadMeituanConfigList, openMeituanManualTab, saveMeituanConfigItem, useMeituanConfig, editMeituanConfig, deleteMeituanConfigItem, generateMeituanBookmarklet, applyMeituanHotelConfig, goConfigureMeituanForSelectedHotel,
                 // AI智能分析（携程）

@@ -84,7 +84,7 @@ requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'ope
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
 requireText('public/index.html', 'ctrip-static.js?v=20260612-sample-helper', 'entry bumps Ctrip static helper version for Profile sample helper exports');
-requireText('public/index.html', 'meituan-static.js?v=20260612-manual-fetch-perf', 'entry bumps Meituan static helper version for manual fetch/performance exports');
+requireText('public/index.html', 'meituan-static.js?v=20260612-meituan-direct-fetch', 'entry bumps Meituan static helper version for direct manual fetch exports');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -548,8 +548,8 @@ requireText('public/index.html', "['running', 'queued', 'accepted'].includes(ret
 requireText('public/ctrip-static.js', 'const isCtripBackgroundAcceptedResponse', 'Ctrip static shares accepted/running/queued background response detection');
 requireText('public/ctrip-static.js', 'const queuedRequestBody = { ...requestBody, async: true };', 'Ctrip manual fetch flows submit quickly and let backend continue collection');
 requireText('public/ctrip-static.js', "return { status: 'accepted'", 'Ctrip manual fetch flows keep backend queued state non-blocking');
-requireText('public/meituan-static.js', 'const requestBody = { ...task.body, async: true }', 'Meituan manual batch fetch submits quickly and lets backend continue collection');
-requireText('public/meituan-static.js', "return { status: 'accepted'", 'Meituan manual batch fetch keeps backend queued state non-blocking');
+requireText('public/meituan-static.js', 'const requestBody = { ...task.body, async: false, background: false }', 'Meituan manual batch fetch requests direct platform results for capture-display closure');
+requireText('public/meituan-static.js', "return { status: 'unexpected_background'", 'Meituan manual batch fetch exposes backend queued responses instead of marking them as successful capture results');
 requireText('app/controller/OnlineData.php', 'markAutoFetchRunningStatus', 'backend records running auto-fetch task status');
 requireText('app/controller/OnlineData.php', 'createAutoFetchBackgroundTask', 'backend creates one-shot auto-fetch background tasks');
 requireText('app/controller/OnlineData.php', "'/api/online-data/retry-auto-fetch'", 'backend retry auto-fetch posts the one-shot worker back to retry endpoint');
@@ -1802,7 +1802,7 @@ try {
         };
       },
       requestDisplayModel: async () => {
-        throw new Error('display model should not run for accepted background fetch');
+        throw new Error('display model should not run for unexpected background fetch');
       },
       setSavedCount: value => { acceptedMeituanSavedCount = value; },
       refreshOnlineHistory: async () => acceptedMeituanEvents.push('history'),
@@ -1826,7 +1826,7 @@ try {
         && modelPayload.competitor_room_count === '20'
         && flowResult.status === 'success'
         && requestedBodies.length === 4
-        && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.cookies === 'mt-cookie' && body.async === true)
+        && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.cookies === 'mt-cookie' && body.async === false && body.background === false)
         && flowOnlineResult.length === requestedBodies.length
         && flowDisplayPayload.display_hotels.length === requestedBodies.length
         && flowDisplayPayload.target_poi_id === 'poi-1'
@@ -1844,24 +1844,23 @@ try {
         && flowEvents.includes('history')
         && flowEvents.includes('refresh-data')
         && flowEvents.some(event => event.startsWith('notify:info:') && event.includes(String(requestedBodies.length * 2)))
-        && acceptedMeituanResult.status === 'accepted'
+        && acceptedMeituanResult.status === 'unexpected_background'
         && acceptedMeituanResult.acceptedCount === 4
         && acceptedMeituanBodies.length === acceptedMeituanResult.acceptedCount
-        && acceptedMeituanBodies.every(body => body.async === true)
+        && acceptedMeituanBodies.every(body => body.async === false && body.background === false)
         && Array.isArray(acceptedMeituanOnlineResult)
         && acceptedMeituanOnlineResult.length === acceptedMeituanBodies.length
-        && acceptedMeituanOnlineResult[0].status === 'running'
-        && acceptedMeituanOnlineResult[0].taskId === 'mt-task-1'
-        && acceptedMeituanOnlineResult[0].message === 'queued'
+        && acceptedMeituanOnlineResult[0].status === 'unexpected_background'
+        && acceptedMeituanOnlineResult[0].error === 'queued'
         && acceptedMeituanSavedCount === 0
         && acceptedMeituanStates[0] === 'fetching:true'
         && acceptedMeituanStates.includes('success:false')
         && acceptedMeituanStates.includes('success:true')
         && acceptedMeituanStates.includes('hotels:0')
         && acceptedMeituanStates.at(-1) === 'fetching:false'
-        && acceptedMeituanEvents.includes('history')
-        && acceptedMeituanEvents.includes('refresh-data')
-        && acceptedMeituanEvents.some(event => event.startsWith('notify:info:'))
+        && !acceptedMeituanEvents.includes('history')
+        && !acceptedMeituanEvents.includes('refresh-data')
+        && acceptedMeituanEvents.some(event => event.startsWith('notify:error:'))
         && guardResult.status === 'missing_hotel'
         && guardEvents[0]?.startsWith('notify:error:'),
       detail: 'Meituan batch result sample',

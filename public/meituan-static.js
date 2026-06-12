@@ -433,6 +433,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     ...base,
                     status: 'unexpected_background',
                     error: response.message || '未直接返回平台结果，系统没有拿到本次榜单数据',
+                    savedCount: responseData.saved_count || 0,
+                    displayHotels: [],
+                    displaySummary: null,
+                    displayCount: 0,
                 };
             }
             return {

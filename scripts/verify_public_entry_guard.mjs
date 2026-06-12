@@ -102,7 +102,7 @@ if (!fs.existsSync(indexPath)) {
   }
 
   if (!content.includes('ctrip-static.js?v=20260612-sample-helper')
-    || !content.includes('meituan-static.js?v=20260612-manual-fetch-perf')) {
+    || !content.includes('meituan-static.js?v=20260612-meituan-direct-fetch')) {
     failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance exports change.');
   }
 
@@ -960,9 +960,9 @@ if (!fs.existsSync(indexPath)) {
     || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody:\s*queuedRequestBody/.test(ctripAdsFlowSource)) {
     failures.push('public/ctrip-static.js must submit Ctrip ads manual fetch in background mode and keep running responses visible.');
   }
-  if (!/\{\s*\.\.\.task\.body,\s*async:\s*true\s*\}/.test(meituanStaticContent)
-    || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*acceptedCount/.test(meituanStaticContent)) {
-    failures.push('public/meituan-static.js must submit Meituan manual batch fetch in background mode and treat running responses as accepted.');
+  if (!/\{\s*\.\.\.task\.body,\s*async:\s*false,\s*background:\s*false\s*\}/.test(meituanStaticContent)
+    || !/return\s+\{\s*status:\s*['"]unexpected_background['"][\s\S]*acceptedCount/.test(meituanStaticContent)) {
+    failures.push('public/meituan-static.js must request direct Meituan manual batch results and expose queued/running responses as unexpected background states.');
   }
   const meituanAcceptedHelperMatches = meituanStaticContent.match(/const\s+isMeituanBackgroundAcceptedResponse\s*=/g) || [];
   if (meituanAcceptedHelperMatches.length !== 1) {
