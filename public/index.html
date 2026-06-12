@@ -18626,71 +18626,20 @@
                     .reverse();
                 return times[0] || '';
             };
-            const ctripProfileFieldSampleMetaText = (sample) => {
-                if (!sample || typeof sample !== 'object') return '';
-                return [
-                    sample.data_date ? `日期 ${sample.data_date}` : '',
-                    sample.hotel_name ? `门店 ${sample.hotel_name}` : '',
-                    sample.source_key ? `字段 ${sample.source_key}` : '',
-                    sample.source_path ? `路径 ${sample.source_path}` : '',
-                ].filter(Boolean).join(' · ');
-            };
-            const ctripProfileFieldSampleBriefMetaText = (sample) => {
-                if (!sample || typeof sample !== 'object') return '';
-                return [
-                    sample.data_date ? `日期 ${sample.data_date}` : '',
-                    sample.hotel_name ? `门店 ${sample.hotel_name}` : '',
-                ].filter(Boolean).join(' · ');
-            };
+            const ctripProfileFieldSampleMetaText = ctripProfileFieldSampleHelpers.sampleMetaText;
+            const ctripProfileFieldSampleBriefMetaText = ctripProfileFieldSampleHelpers.sampleBriefMetaText;
             const ctripProfileFieldSampleSourceText = (field) => {
                 const sample = ctripProfileFieldDisplaySampleItems(field)[0] || ctripProfileFieldSampleItems(field)[0];
-                if (!sample || typeof sample !== 'object') return '';
-                return [
-                    sample.endpoint_id || sample.capture_section || '',
-                    sample.source_key || '',
-                    sample.source_path || '',
-                ].filter(Boolean).join(' · ');
+                return ctripProfileFieldSampleHelpers.sampleSourceText(sample);
             };
-            const ctripProfileFieldSampleText = (field) => ctripProfileFieldSampleItems(field)
-                .map(sample => `${ctripProfileFieldSampleValueText(sample)} ${ctripProfileFieldSampleMetaText(sample)}`.trim())
-                .filter(Boolean)
-                .join(' / ');
-            const ctripProfileFieldSampleSelectionKey = (sample) => {
-                if (!sample || typeof sample !== 'object') {
-                    return String(sample || '').trim();
-                }
-                return [
-                    ctripProfileFieldSampleValueText(sample),
-                    sample.unit || '',
-                    sample.source_key || '',
-                    sample.source_path || '',
-                    sample.endpoint_id || sample.capture_section || '',
-                    sample.data_date || '',
-                    sample.hotel_name || '',
-                    sample.captured_at || sample.created_at || '',
-                ].map(item => String(item || '').trim()).join('|');
-            };
-            const ctripProfileFieldVerifiedSampleKey = (field) => {
-                if (!field?.verified_sample_value) return '';
-                return [
-                    field.verified_sample_value,
-                    field.verified_sample_unit,
-                    field.verified_sample_source_key,
-                    field.verified_sample_source_path,
-                    field.verified_sample_endpoint_id,
-                    field.verified_sample_data_date,
-                    field.verified_sample_hotel_name,
-                    field.verified_sample_captured_at,
-                ].map(item => String(item || '').trim()).join('|');
-            };
+            const ctripProfileFieldSampleText = ctripProfileFieldSampleHelpers.sampleText;
+            const ctripProfileFieldSampleSelectionKey = ctripProfileFieldSampleHelpers.sampleSelectionKey;
+            const ctripProfileFieldVerifiedSampleKey = ctripProfileFieldSampleHelpers.verifiedSampleKey;
             const isCtripProfileCorrectSampleSelected = (sample, field) => {
                 const selectedKey = ctripProfileFieldVerifiedSampleKey(field);
                 return Boolean(selectedKey && selectedKey === ctripProfileFieldSampleSelectionKey(sample));
             };
-            const ctripProfileSampleSourcePathCanSeedJson = (sourcePath) => {
-                const value = String(sourcePath || '').trim();
-                return Boolean(value && !value.startsWith('online_daily_data#') && !value.includes('#'));
-            };
+            const ctripProfileSampleSourcePathCanSeedJson = ctripProfileFieldSampleHelpers.sampleSourcePathCanSeedJson;
             const editingCtripProfileField = computed(() => {
                 const id = String(ctripProfileFieldForm.value?.id || '');
                 if (!id) return null;

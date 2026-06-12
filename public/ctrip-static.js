@@ -515,18 +515,18 @@ window.SUXI_CTRIP_STATIC = (() => {
         const sampleMetaText = (sample) => {
             if (!sample || typeof sample !== 'object') return '';
             return [
-                sample.data_date ? `鏃ユ湡 ${sample.data_date}` : '',
-                sample.hotel_name ? `闂ㄥ簵 ${sample.hotel_name}` : '',
-                sample.source_key ? `瀛楁 ${sample.source_key}` : '',
-                sample.source_path ? `璺緞 ${sample.source_path}` : '',
-            ].filter(Boolean).join(' 路 ');
+                sample.data_date ? `日期 ${sample.data_date}` : '',
+                sample.hotel_name ? `门店 ${sample.hotel_name}` : '',
+                sample.source_key ? `字段 ${sample.source_key}` : '',
+                sample.source_path ? `路径 ${sample.source_path}` : '',
+            ].filter(Boolean).join(' · ');
         };
         const sampleBriefMetaText = (sample) => {
             if (!sample || typeof sample !== 'object') return '';
             return [
-                sample.data_date ? `鏃ユ湡 ${sample.data_date}` : '',
-                sample.hotel_name ? `闂ㄥ簵 ${sample.hotel_name}` : '',
-            ].filter(Boolean).join(' 路 ');
+                sample.data_date ? `日期 ${sample.data_date}` : '',
+                sample.hotel_name ? `门店 ${sample.hotel_name}` : '',
+            ].filter(Boolean).join(' · ');
         };
         const sampleSourceText = (sample) => {
             if (!sample || typeof sample !== 'object') return '';
@@ -534,7 +534,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 sample.endpoint_id || sample.capture_section || '',
                 sample.source_key || '',
                 sample.source_path || '',
-            ].filter(Boolean).join(' 路 ');
+            ].filter(Boolean).join(' · ');
         };
         const sampleText = (field) => sampleItems(field)
             .map(sample => `${sampleValueText(sample)} ${sampleMetaText(sample)}`.trim())

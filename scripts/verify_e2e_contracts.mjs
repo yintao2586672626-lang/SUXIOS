@@ -147,9 +147,11 @@ requireText('public/ctrip-static.js', 'const runCtripManualTabSwitch = async', '
 requireText('public/index.html', "requireCtripStatic('createCtripProfileFieldForm')", 'entry uses extracted Ctrip Profile field default form builder');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSmartDefaults')", 'entry uses extracted Ctrip Profile field smart defaults builder');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSavePayload')", 'entry uses extracted Ctrip Profile field save payload builder');
+requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSampleHelpers')", 'entry uses extracted Ctrip Profile field sample helpers');
 requireText('public/ctrip-static.js', 'const createCtripProfileFieldForm', 'Ctrip static builds Profile field default forms');
 requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSmartDefaults', 'Ctrip static builds Profile field smart defaults');
 requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSavePayload', 'Ctrip static builds Profile field save payloads');
+requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSampleHelpers', 'Ctrip static builds Profile field sample helpers');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckRunContext')", 'entry uses extracted Ctrip Profile recheck run context builder');
 requireText('public/index.html', "requireCtripStatic('runCtripProfileRecheckFlow')", 'entry uses extracted Ctrip Profile recheck flow runner');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
@@ -3661,6 +3663,7 @@ try {
   const createCtripProfileFieldForm = ctripStatic.createCtripProfileFieldForm;
   const buildCtripProfileFieldSmartDefaults = ctripStatic.buildCtripProfileFieldSmartDefaults;
   const buildCtripProfileFieldSavePayload = ctripStatic.buildCtripProfileFieldSavePayload;
+  const buildCtripProfileFieldSampleHelpers = ctripStatic.buildCtripProfileFieldSampleHelpers;
   const buildCtripProfileRecheckInitialState = ctripStatic.buildCtripProfileRecheckInitialState;
   const buildCtripProfileRecheckRunContext = ctripStatic.buildCtripProfileRecheckRunContext;
   const buildCtripProfileRecheckCaptureRefreshState = ctripStatic.buildCtripProfileRecheckCaptureRefreshState;
@@ -3854,12 +3857,13 @@ try {
   }
   if (typeof createCtripProfileFieldForm !== 'function'
     || typeof buildCtripProfileFieldSmartDefaults !== 'function'
-    || typeof buildCtripProfileFieldSavePayload !== 'function') {
+    || typeof buildCtripProfileFieldSavePayload !== 'function'
+    || typeof buildCtripProfileFieldSampleHelpers !== 'function') {
     checks.push({
       file: 'public/ctrip-static.js',
-      label: 'Ctrip static exports Profile field form builders',
+      label: 'Ctrip static exports Profile field form and sample builders',
       ok: false,
-      detail: 'Profile field form builders',
+      detail: 'Profile field form and sample builders',
     });
   } else {
     const profileFieldForm = createCtripProfileFieldForm();
@@ -3897,6 +3901,25 @@ try {
         && savePayload.storage_field === 'online_daily_data.amount'
         && savePayload.status === 'needs_parser',
       detail: 'Profile field builder sample',
+    });
+    const sampleHelpers = buildCtripProfileFieldSampleHelpers();
+    const sampleRows = sampleHelpers.sampleItems({
+      latest_values: [
+        { value: 12, unit: '间', source_key: 'room_nights', sample_batch_key: 'batch-1' },
+        '99',
+      ],
+    });
+    const fallbackRows = sampleHelpers.sampleItems({ latest_value: 'A / B' });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip Profile field sample helpers normalize sample rows and keys',
+      ok: sampleHelpers.sampleValueText(sampleRows[0]) === '12间'
+        && sampleRows.length === 2
+        && fallbackRows.length === 2
+        && sampleHelpers.sampleBatchKey(sampleRows[0]) === 'batch-1'
+        && sampleHelpers.sampleBatchKey({ sync_task_id: 7 }) === 'sync_task:7'
+        && sampleHelpers.sampleText({ latest_value: 'A / B' }).includes('A'),
+      detail: 'Profile field sample helper sample',
     });
   }
   if (typeof buildCtripBrowserCaptureTargetContext !== 'function'

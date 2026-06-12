@@ -3,6 +3,84 @@
  * 路由入口文件 - 处理所有API请求
  */
 
+function suxi_static_response_variant(string $staticFile, string $extension): string
+{
+    if ($extension === 'html' && basename($staticFile) === 'index.html') {
+        return 'index-indent-trim-v1';
+    }
+
+    return 'raw';
+}
+
+function suxi_trim_index_html_indent(string $source): string
+{
+    $blocks = [];
+    $working = preg_replace_callback(
+        '/<(script|style|textarea|pre)\b[^>]*>[\s\S]*?<\/\1>/iu',
+        static function (array $matches) use (&$blocks): string {
+            $key = '%%SUXI_STATIC_HTML_BLOCK_' . count($blocks) . '%%';
+            $blocks[$key] = $matches[0];
+            return $key;
+        },
+        $source
+    );
+    if (!is_string($working)) {
+        return $source;
+    }
+
+    $trimmed = preg_replace('/\r?\n[ \t]+(?=<)/u', "\n", $working);
+    if (!is_string($trimmed)) {
+        return $source;
+    }
+
+    return strtr($trimmed, $blocks);
+}
+
+function suxi_static_response_payload(string $staticFile, string $variant): array
+{
+    if ($variant !== 'index-indent-trim-v1') {
+        return [
+            'file' => $staticFile,
+            'content' => null,
+            'size' => (int)filesize($staticFile),
+        ];
+    }
+
+    $sourceMtime = (int)filemtime($staticFile);
+    $sourceSize = (int)filesize($staticFile);
+    $cacheRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'static-html';
+    $cacheFile = $cacheRoot . DIRECTORY_SEPARATOR . md5($staticFile) . '-' . $sourceMtime . '-' . $sourceSize . '-' . $variant . '.html';
+
+    if (is_file($cacheFile)) {
+        return [
+            'file' => $cacheFile,
+            'content' => null,
+            'size' => (int)filesize($cacheFile),
+        ];
+    }
+
+    $content = suxi_trim_index_html_indent((string)file_get_contents($staticFile));
+    if ((is_dir($cacheRoot) || mkdir($cacheRoot, 0775, true)) && is_writable($cacheRoot)) {
+        $tmpFile = $cacheFile . '.' . getmypid() . '.tmp';
+        if (file_put_contents($tmpFile, $content, LOCK_EX) !== false && rename($tmpFile, $cacheFile)) {
+            return [
+                'file' => $cacheFile,
+                'content' => null,
+                'size' => (int)filesize($cacheFile),
+            ];
+        }
+        if (is_file($tmpFile)) {
+            @unlink($tmpFile);
+        }
+    }
+
+    return [
+        'file' => null,
+        'content' => $content,
+        'size' => strlen($content),
+    ];
+}
+
 $requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $staticRequestPath = $requestPath === '/' ? '/index.html' : $requestPath;
 $staticFile = __DIR__ . str_replace('/', DIRECTORY_SEPARATOR, rawurldecode($staticRequestPath));
@@ -37,7 +115,8 @@ if ($publicRoot !== false
     $compressibleExtensions = ['css', 'html', 'js', 'json', 'map', 'svg'];
     $mtime = (int)filemtime($staticFile);
     $size = (int)filesize($staticFile);
-    $etag = '"' . md5($staticFile . '|' . $mtime . '|' . $size) . '"';
+    $responseVariant = suxi_static_response_variant($staticFile, $extension);
+    $etag = '"' . md5($staticFile . '|' . $mtime . '|' . $size . '|' . $responseVariant) . '"';
     $lastModified = gmdate('D, d M Y H:i:s', $mtime) . ' GMT';
     $ifNoneMatch = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
     $ifModifiedSince = trim((string)($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? ''));
@@ -57,14 +136,18 @@ if ($publicRoot !== false
         return true;
     }
 
+    $responsePayload = suxi_static_response_payload($staticFile, $responseVariant);
+    $responseFile = is_string($responsePayload['file']) ? $responsePayload['file'] : null;
+    $responseContent = is_string($responsePayload['content']) ? $responsePayload['content'] : null;
+    $responseSize = (int)$responsePayload['size'];
     $acceptEncoding = strtolower((string)($_SERVER['HTTP_ACCEPT_ENCODING'] ?? ''));
-    $canGzip = $size > 1024
+    $canGzip = $responseSize > 1024
         && in_array($extension, $compressibleExtensions, true)
         && function_exists('gzencode')
         && str_contains($acceptEncoding, 'gzip');
     if ($canGzip) {
         $gzipCacheRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'static-gzip';
-        $gzipCacheFile = $gzipCacheRoot . DIRECTORY_SEPARATOR . md5($staticFile) . '-' . $mtime . '-' . $size . '.gz';
+        $gzipCacheFile = $gzipCacheRoot . DIRECTORY_SEPARATOR . md5($staticFile . '|' . $responseVariant) . '-' . $mtime . '-' . $size . '-' . $responseSize . '.gz';
         if (is_file($gzipCacheFile)) {
             header('Content-Encoding: gzip');
             header('Content-Length: ' . (int)filesize($gzipCacheFile));
@@ -72,7 +155,10 @@ if ($publicRoot !== false
             return true;
         }
 
-        $encoded = gzencode((string)file_get_contents($staticFile), 1);
+        if ($responseContent === null && $responseFile !== null) {
+            $responseContent = (string)file_get_contents($responseFile);
+        }
+        $encoded = gzencode($responseContent ?? '', 1);
         if ($encoded !== false) {
             if ((is_dir($gzipCacheRoot) || mkdir($gzipCacheRoot, 0775, true)) && is_writable($gzipCacheRoot)) {
                 file_put_contents($gzipCacheFile, $encoded, LOCK_EX);
@@ -84,8 +170,12 @@ if ($publicRoot !== false
         }
     }
 
-    header('Content-Length: ' . $size);
-    readfile($staticFile);
+    header('Content-Length: ' . $responseSize);
+    if ($responseContent !== null) {
+        echo $responseContent;
+    } elseif ($responseFile !== null) {
+        readfile($responseFile);
+    }
     return true;
 }
 

@@ -1175,6 +1175,18 @@ if (!fs.existsSync(publicRouterPath)) {
   if (!routerSource.includes("'runtime' . DIRECTORY_SEPARATOR . 'static-gzip'")) {
     failures.push('public/router.php must cache gzip output under runtime/static-gzip to avoid repeated CPU compression on large local assets.');
   }
+  if (!routerSource.includes("'runtime' . DIRECTORY_SEPARATOR . 'static-html'")) {
+    failures.push('public/router.php must cache the trimmed index.html response under runtime/static-html.');
+  }
+  if (!routerSource.includes('index-indent-trim-v1') || !routerSource.includes('suxi_trim_index_html_indent')) {
+    failures.push('public/router.php must keep the index.html indentation-trim response variant explicit.');
+  }
+  if (!routerSource.includes('/<(script|style|textarea|pre)\\b[^>]*>[\\s\\S]*?<\\/\\1>/iu')) {
+    failures.push('public/router.php index.html trimming must preserve script/style/textarea/pre blocks.');
+  }
+  if (!routerSource.includes("preg_replace('/\\r?\\n[ \\t]+(?=<)/u")) {
+    failures.push('public/router.php index.html trimming must only remove line indentation before tags.');
+  }
   if (!routerSource.includes("file_put_contents($gzipCacheFile, $encoded, LOCK_EX)")) {
     failures.push('public/router.php must persist gzip cache files atomically enough for local dev reloads.');
   }
@@ -1184,8 +1196,8 @@ if (!fs.existsSync(publicRouterPath)) {
   if (!routerSource.includes("header('Content-Length: ' . strlen($encoded))")) {
     failures.push('public/router.php must send Content-Length for refreshed gzip assets.');
   }
-  if (!/gzencode\(\(string\)file_get_contents\(\$staticFile\),\s*1\)/.test(routerSource)) {
-    failures.push('public/router.php must use gzip level 1 when refreshing the static gzip cache.');
+  if (!routerSource.includes("gzencode($responseContent ?? '', 1)")) {
+    failures.push('public/router.php must use gzip level 1 on the prepared static response payload when refreshing the static gzip cache.');
   }
 }
 
