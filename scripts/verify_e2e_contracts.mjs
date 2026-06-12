@@ -273,7 +273,13 @@ requireText('public/index.html', 'scheduleAutoFetchStatusPanelRefresh();', 'plat
 requireNoText('public/index.html', 'loadAutoFetchStatus();', 'platform auto-fetch actions must not request full status with default detail inline');
 requireNoText('public/index.html', 'await loadAutoFetchStatus();', 'platform auto-fetch actions must not block on full status refresh');
 requireText('public/index.html', 'const autoFetchStatusRequestPromises = new Map();', 'entry deduplicates concurrent auto-fetch status requests');
+requireText('public/index.html', 'const AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS = 1800;', 'entry keeps a short result cache for just-completed light auto-fetch status requests');
+requireText('public/index.html', 'const autoFetchStatusResultCache = new Map();', 'entry tracks just-completed light auto-fetch status requests');
+requireText('public/index.html', 'const resetAutoFetchStatusResultCache = () => {', 'entry can clear just-completed auto-fetch status cache before explicit refreshes');
 requireText('public/index.html', "const requestKey = `${String(hotelId || '')}|${includeDetail ? 'full' : 'light'}`;", 'auto-fetch status request dedupe is scoped by hotel and detail level');
+requireText('public/index.html', "if (!force && !includeDetail) {", 'auto-fetch status result cache only applies to non-forced light requests');
+requireText('public/index.html', 'autoFetchStatusResultCache.set(requestKey, { expiresAt: Date.now() + AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS });', 'successful light auto-fetch status reads populate the short result cache');
+requireText('public/index.html', 'resetAutoFetchStatusResultCache();\n                return loadAutoFetchStatus({ detail: false });', 'scheduled auto-fetch status refresh clears the short result cache before explicit refresh');
 requireText('public/index.html', '@change="schedulePlatformAutoFetchPanelLoad({ force: true })"', 'platform auto-fetch hotel switches use the shared non-blocking panel scheduler');
 requireNoText('public/index.html', '@change="loadAutoFetchStatus"', 'platform auto-fetch hotel switches must not directly trigger full status loading');
 requireText('public/index.html', "loadAutoFetchStatus({ detail: normalizedMode === 'full' })", 'data-health light refresh uses light auto-fetch status');

@@ -750,14 +750,21 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html must keep unloaded/failed platform config-list states explicit after platform-auto prewarm is deferred.');
   }
   if (!content.includes('const autoFetchStatusRequestPromises = new Map();')
+    || !content.includes('const AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS = 1800;')
+    || !content.includes('const autoFetchStatusResultCache = new Map();')
+    || !content.includes('const resetAutoFetchStatusResultCache = () => {')
     || !content.includes("const requestKey = `${String(hotelId || '')}|${includeDetail ? 'full' : 'light'}`;")
+    || !content.includes("if (!force && !includeDetail) {")
+    || !content.includes('return autoFetchStatus.value;')
     || !content.includes('if (autoFetchStatusRequestPromises.has(requestKey))')
-    || !content.includes('autoFetchStatusRequestPromises.delete(requestKey);')) {
-    failures.push('public/index.html must deduplicate concurrent auto-fetch status requests by hotel and detail level.');
+    || !content.includes('autoFetchStatusRequestPromises.delete(requestKey);')
+    || !content.includes('autoFetchStatusResultCache.set(requestKey, { expiresAt: Date.now() + AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS });')) {
+    failures.push('public/index.html must deduplicate concurrent and just-completed light auto-fetch status requests by hotel and detail level.');
   }
   if (!content.includes("const shouldRefreshAutoFetchStatusPanel = () => isOnlineDataTabVisible('platform-auto') || isDataHealthPanelVisible();")
     || !content.includes("const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => {")
     || !content.includes('if (!shouldRefreshAutoFetchStatusPanel()) return null;')
+    || !content.includes('resetAutoFetchStatusResultCache();\n                return loadAutoFetchStatus({ detail: false });')
     || !content.includes('return loadAutoFetchStatus({ detail: false });')
     || !content.includes("if (!isOnlineDataTabVisible('platform-auto')) return null;")) {
     failures.push('public/index.html must use guarded light auto-fetch status for post-fetch status refreshes.');

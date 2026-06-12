@@ -23149,6 +23149,7 @@
             const scheduleLatestCtripRefresh = (params = {}) => schedulePostFetchRefresh('latest-ctrip-data', () => loadLatestCtripData(params), 420);
             const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => {
                 if (!shouldRefreshAutoFetchStatusPanel()) return null;
+                resetAutoFetchStatusResultCache();
                 return loadAutoFetchStatus({ detail: false });
             }, 180);
             const scheduleAutoFetchStatusDetailRefresh = () => schedulePostFetchRefresh('auto-fetch-status-detail', () => {
@@ -23287,6 +23288,9 @@
             const loadAutoFetchPanel = async (options = {}) => {
                 await ensureAutoFetchStaticReady();
                 const force = options && options.force === true;
+                if (force) {
+                    resetAutoFetchStatusResultCache();
+                }
                 const keyBeforeLoad = autoFetchPanelCacheKey();
                 const now = Date.now();
                 if (!force && autoFetchPanelCache.key === keyBeforeLoad) {
@@ -23318,10 +23322,22 @@
             };
 
             const autoFetchStatusRequestPromises = new Map();
+            const AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS = 1800;
+            const autoFetchStatusResultCache = new Map();
+            const resetAutoFetchStatusResultCache = () => {
+                autoFetchStatusResultCache.clear();
+            };
             const loadAutoFetchStatus = async (options = {}) => {
                 const hotelId = getAutoFetchHotelId();
                 const includeDetail = !(options && (options.detail === false || options.includeDetail === false));
+                const force = options && options.force === true;
                 const requestKey = `${String(hotelId || '')}|${includeDetail ? 'full' : 'light'}`;
+                if (!force && !includeDetail) {
+                    const cached = autoFetchStatusResultCache.get(requestKey);
+                    if (cached && cached.expiresAt > Date.now()) {
+                        return autoFetchStatus.value;
+                    }
+                }
                 if (autoFetchStatusRequestPromises.has(requestKey)) {
                     return autoFetchStatusRequestPromises.get(requestKey);
                 }
@@ -23372,6 +23388,9 @@
                             const missed = Array.isArray(statusForControls?.missed_dates) ? statusForControls.missed_dates : [];
                             const failed = Array.isArray(statusForControls?.failed_records) ? statusForControls.failed_records : [];
                             autoFetchBackfillDate.value = missed[0] || failed[0]?.data_date || autoFetchBackfillDate.value || autoFetchMaxBackfillDate.value;
+                        }
+                        if (!includeDetail) {
+                            autoFetchStatusResultCache.set(requestKey, { expiresAt: Date.now() + AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS });
                         }
                     }
                 } catch (error) {
