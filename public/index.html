@@ -21659,9 +21659,18 @@
                 }
 
                 const run = (async () => {
-                    if (!hotels.value || hotels.value.length === 0) {
-                        await loadHotels();
+                    const shouldLoadHotels = !hotels.value || hotels.value.length === 0;
+                    const canLoadStatusBeforeHotels = !!autoFetchHotelId.value;
+                    const hotelsPromise = shouldLoadHotels ? loadHotels() : Promise.resolve();
+                    if (canLoadStatusBeforeHotels) {
+                        await Promise.all([
+                            loadAutoFetchStatus({ detail: false }),
+                            staticReadyPromise,
+                            hotelsPromise,
+                        ]);
+                        return;
                     }
+                    await hotelsPromise;
                     if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {
                         autoFetchHotelId.value = hotels.value[0].id;
                     }
