@@ -304,7 +304,7 @@ requireNoText('public/index.html', 'const scheduleDataHealthLightDiagnostics = (
 requireText('public/index.html', "const initialHotelId = String(getAutoFetchHotelId() || '');\n                const initialCacheKey = dataHealthLightCacheKey(initialHotelId);", 'data-health light cache is checked before target hotel sync');
 requireText('public/index.html', "if (normalizedMode === 'light' && !force && cacheKey !== initialCacheKey) {", 'data-health light cache is rechecked only when target hotel sync changes the cache key');
 requireText('public/index.html', 'const jobs = buildDataHealthPanelJobs(normalizedMode);', 'data-health panel loader uses extracted job composition');
-requireText('public/index.html', 'scheduleDataHealthLightDiagnostics();', 'light data-health refresh defers non-core diagnostics after OTA health returns');
+requireNoText('public/index.html', 'scheduleDataHealthLightDiagnostics();', 'light data-health first paint must not auto-run non-core diagnostics');
 requireNoText('public/index.html', 'loadCookieStatus(),\n                    loadCollectionReliability(normalizedMode)', 'data-health panel must not call cookie-status and collection-reliability in the same first-paint group');
 requireText('public/index.html', 'const ensureManualOnlineFetchConfigReady = async', 'entry prewarms saved platform configs for manual online-data fetch');
 requireText('public/index.html', 'let ctripConfigListLoadingPromise = null;', 'entry deduplicates concurrent Ctrip config-list loads');

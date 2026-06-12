@@ -782,9 +782,11 @@ if (!fs.existsSync(indexPath)) {
     || !dataHealthPanelSource.includes("const initialHotelId = String(getAutoFetchHotelId() || '');")
     || !dataHealthPanelSource.includes('const initialCacheKey = dataHealthLightCacheKey(initialHotelId);')
     || !dataHealthPanelSource.includes("if (normalizedMode === 'light' && !force && cacheKey !== initialCacheKey) {")
-    || !dataHealthPanelSource.includes('const jobs = buildDataHealthPanelJobs(normalizedMode);')
-    || !dataHealthPanelSource.includes('scheduleDataHealthLightDiagnostics();')) {
+    || !dataHealthPanelSource.includes('const jobs = buildDataHealthPanelJobs(normalizedMode);')) {
     failures.push('public/index.html must keep data-health panel job composition and deferred light diagnostics out of loadDataHealthPanel.');
+  }
+  if (dataHealthPanelSource.includes('scheduleDataHealthLightDiagnostics();')) {
+    failures.push('public/index.html data-health light first paint must not auto-run non-core light diagnostics.');
   }
   if (dataHealthPanelSource.indexOf('const initialCacheKey = dataHealthLightCacheKey(initialHotelId);') > dataHealthPanelSource.indexOf('await syncCtripOverviewTargetHotel({ loadConfig: false });')) {
     failures.push('public/index.html data-health light-cache hit checks must run before target-hotel sync.');
