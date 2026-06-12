@@ -8077,7 +8077,7 @@
                                             <span v-if="(meituanForm.partnerId || selectedMeituanHotelConfig.partner_id || selectedMeituanHotelConfig.partnerId) && (meituanForm.poiId || selectedMeituanHotelConfig.poi_id || selectedMeituanHotelConfig.poiId || selectedMeituanHotelConfig.store_id || selectedMeituanHotelConfig.storeId)">已配置平台接口标识和门店标识，可获取榜单。</span>
                                             <span v-else>缺门店标识，请在酒店管理中补充美团平台标识。</span>
                                         </div>
-                                        <div v-if="meituanForm.hotelId && meituanConfigListLoading" class="mt-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-3 py-2 text-sm">
+                                        <div v-if="meituanForm.hotelId && meituanConfigListLoading && !selectedMeituanHotelConfig" class="mt-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-3 py-2 text-sm">
                                             正在匹配美团数据源...
                                         </div>
                                         <div v-if="meituanForm.hotelId && !meituanConfigListLoading && !meituanConfigListLoaded && !meituanConfigListLoadFailed && !selectedMeituanHotelConfig" class="mt-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-3 py-2 text-sm">
@@ -15501,16 +15501,16 @@
                                             </div>
                                             <div class="grid grid-cols-2 gap-3">
                                                 <div>
-                                                    <label class="block text-xs text-gray-500 mb-1">美团平台账号标识</label>
+                                                    <label class="block text-xs text-gray-500 mb-1">美团平台账号标识（partnerId / partner_id）</label>
                                                     <input v-model="hotelOtaConfig.meituan.partner_id" type="text"
                                                         class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
-                                                        placeholder="可选">
+                                                        placeholder="例如：detail?partnerId=4927325 中的 4927325">
                                                 </div>
                                                 <div>
-                                                    <label class="block text-xs text-gray-500 mb-1">美团平台门店标识</label>
+                                                    <label class="block text-xs text-gray-500 mb-1">美团平台门店标识（poiId / poi_id）</label>
                                                     <input v-model="hotelOtaConfig.meituan.poi_id" type="text"
                                                         class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
-                                                        placeholder="用于校验门店归属">
+                                                        placeholder="例如：detail?poiId=570866031 中的 570866031">
                                                 </div>
                                             </div>
                                         </div>
