@@ -155,6 +155,10 @@ requireText('app/service/MeituanOnlineDataPersistenceService.php', 'final class 
 requireText('app/service/MeituanOnlineDataPersistenceService.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence rank rows use extracted service');
 requireText('app/controller/OnlineData.php', 'return (new MeituanOnlineDataPersistenceService())->parseAndSaveMeituanData(', 'OnlineData keeps only a compatibility wrapper for Meituan persistence');
 requireNoText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence is not re-inlined in OnlineData');
+requireText('app/service/MeituanManualFetchRequestService.php', 'final class MeituanManualFetchRequestService', 'Meituan manual fetch request parameter building lives in a focused service');
+requireText('app/controller/OnlineData.php', 'MeituanManualFetchRequestService::buildRankRequestParams(', 'OnlineData delegates Meituan rank request parameters');
+requireText('app/controller/OnlineData.php', 'MeituanManualFetchRequestService::buildTrafficRequestParams(', 'OnlineData delegates Meituan traffic request parameters');
+requireText('app/controller/OnlineData.php', 'return MeituanManualFetchRequestService::normalizeDateRange($startDate, $endDate);', 'OnlineData keeps only a compatibility wrapper for Meituan manual date ranges');
 requireText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForDisplay($responseData)', 'Meituan display rank rows use extracted service');
 requireNoText('app/controller/OnlineData.php', "isset($responseData['data']['peerRankData']) && is_array($responseData['data']['peerRankData'])", 'OnlineData no longer inlines Meituan peerRankData extraction');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
@@ -221,13 +225,14 @@ requireNoText('public/index.html', "onlineDataTab.value = 'ctrip-fetch-settings'
 requireNoText('public/index.html', "downloadCenterTab.value = 'overview';\n                await refreshOnlineHistory();", 'Ctrip download center entry must schedule history refresh after switching tabs');
 requireNoText('public/index.html', 'await loadOnlineDataList();\n                await loadOnlineDataHotelList();', 'Meituan download center entry must schedule list refresh after switching tabs');
 requireNoText('public/index.html', 'await loadOnlineDataList();\n                    await loadOnlineDataHotelList();', 'download center history and AI tab switches must not serially await list and hotel refreshes');
-requireText('public/index.html', 'await loadAutoFetchStatus({ detail: false });\n                    scheduleAutoFetchConfigListPrewarm();', 'platform auto-fetch first paint waits only for light status before config prewarm');
+requireText('public/index.html', 'await loadAutoFetchStatus({ detail: false });', 'platform auto-fetch first paint waits only for light status');
 requireNoText('public/index.html', 'await loadAutoFetchStatus({ detail: false });\n                    scheduleAutoFetchStatusDetailRefresh();\n                    schedulePlatformProfileStatusRefresh({ silent: true });', 'platform auto-fetch first paint must not auto-start full status and profile refreshes');
+requireNoText('public/index.html', 'await loadAutoFetchStatus({ detail: false });\n                    scheduleAutoFetchConfigListPrewarm();', 'platform auto-fetch first paint must not auto-start full saved config-list prewarm');
 requireText('public/index.html', 'const scheduleAutoFetchConfigListPrewarm = () => {', 'platform auto-fetch prewarms saved platform configs after first paint');
 requireText('public/index.html', "const autoFetchPanelCacheKey = () => [\n                String(getAutoFetchHotelId() || ''),\n                String(hotels.value?.length || 0),\n            ].join('|');", 'platform auto-fetch panel cache key is not invalidated by deferred config-list prewarm');
 requireText('public/index.html', '!ctripConfigListLoaded.value && (!ctripConfigList.value || ctripConfigList.value.length === 0)', 'platform auto-fetch does not refetch a known-empty Ctrip config list on every panel open');
 requireText('public/index.html', '!meituanConfigListLoaded.value && (!meituanConfigList.value || meituanConfigList.value.length === 0)', 'platform auto-fetch does not refetch a known-empty Meituan config list on every panel open');
-requireText('public/index.html', 'scheduleAutoFetchConfigListPrewarm();', 'platform auto-fetch schedules config-list prewarm after light status');
+requireText('public/index.html', 'const scheduleAutoFetchConfigListPrewarm = () => {', 'platform auto-fetch keeps an explicit saved config-list prewarm helper');
 requireNoText('public/index.html', 'await Promise.all([\n                        (!hotels.value || hotels.value.length === 0) ? loadHotels() : Promise.resolve(),\n                        (!ctripConfigList.value || ctripConfigList.value.length === 0) ? loadCtripConfigList() : Promise.resolve(),\n                        (!meituanConfigList.value || meituanConfigList.value.length === 0) ? loadMeituanConfigList() : Promise.resolve(),\n                    ]);', 'platform auto-fetch first paint must not synchronously wait for saved Ctrip/Meituan config lists');
 requireText('public/index.html', 'const autoFetchPlatformConfigState = (configured, configName, loading, loaded, failed) => {', 'platform auto-fetch cards distinguish config pending and failed states');
 requireText('public/index.html', "configName: '配置待读取'", 'platform auto-fetch config cards do not present unloaded configs as missing');
@@ -259,6 +264,20 @@ requireText('public/index.html', 'ctrip_auto_fetch_mode: autoFetchMode.value', '
 requireText('app/controller/OnlineData.php', "?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
 requireText('app/controller/OnlineData.php', "get('include_detail'", 'backend auto-fetch status supports light detail requests');
 requireText('app/controller/OnlineData.php', "'detail_loaded' => false", 'backend auto-fetch status marks light responses explicitly');
+{
+  const source = read('app/controller/OnlineData.php');
+  const lightStatusMatch = source.match(/\} else \{\s+\$status\['missed_dates'\] = \[\];\s+\$status\['missed_count'\] = null;([\s\S]*?)\$status\['detail_loaded'\] = false;/);
+  const lightStatusBranch = lightStatusMatch ? lightStatusMatch[1] : '';
+  checks.push({
+    file: 'app/controller/OnlineData.php',
+    label: 'backend light auto-fetch status does not run full config/profile diagnostics',
+    ok: source.includes('private function buildAutoFetchPlatformLightStatus')
+      && lightStatusBranch.includes('buildAutoFetchPlatformLightStatus')
+      && !lightStatusBranch.includes('hasAnyPlatformFetchConfigForHotel')
+      && !lightStatusBranch.includes('buildAutoFetchPlatformStatus'),
+    detail: 'include_detail=false branch must use buildAutoFetchPlatformLightStatus only',
+  });
+}
 requireText('public/index.html', 'const buildDataHealthPanelJobs = (normalizedMode) =>', 'entry builds data-health panel jobs outside the main loader');
 requireText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () =>', 'entry defers non-core light data-health diagnostics through a helper');
 requireText('public/index.html', "return schedulePostFetchRefresh('data-health-light-diagnostics', () => {", 'data-health light diagnostics use the shared deduplicated post-fetch scheduler');

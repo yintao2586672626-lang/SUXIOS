@@ -1807,6 +1807,18 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `259.37 MB`, without `.git` about `122.52 MB`, without `.git` and dependencies about `93.33 MB`, tracked files about `19.07 MB` / `622` files; code scope `377` files, `199963` total lines, and `183901` nonblank lines. Runtime/output cleanup is about `29.34 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `916` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Meituan Manual Request Parameter Split
+
+- Added `app/service/MeituanManualFetchRequestService.php` for Meituan manual fetch resource-ID checks, date-range compatibility, rank request parameter construction, and traffic request parameter construction.
+- `app/controller/OnlineData.php` now delegates Meituan rank and traffic request parameter construction to the service while keeping permissions, background task creation, network requests, persistence, notifications, and response payloads in the controller.
+- `normalizeMeituanManualDateRange()` remains as a compatibility wrapper and now delegates to the service. Existing reflection tests still cover the wrapper behavior.
+- Platform-auto first paint was tightened further: entering the panel no longer auto-starts saved Ctrip/Meituan config-list prewarm; light auto-fetch status can still expose current config summary, and config-list prewarm remains available as an explicit helper instead of a hidden panel-entry task.
+- This does not change Meituan fetch APIs, traffic APIs, order/ads APIs, OTA persistence, field semantics, permissions, or database schema. Missing Partner ID / POI ID states remain explicit.
+- Guards now require the Meituan manual request service, controller delegation for rank/traffic parameters, light-status-only platform-auto first paint, and no automatic full/profile/config-list refresh on panel entry. `verify:e2e-contracts` covers `922` checks.
+- Current split-map: `public/index.html` has `37494` lines, `1586` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26378` lines and `868` methods; `fetchMeituan` decreased from `224` to `168` lines and Meituan-domain span decreased from `4839` to `4748` lines. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `260.56 MB`, without `.git` about `123.04 MB`, without `.git` and dependencies about `93.85 MB`, tracked files about `19.08 MB` / `622` files; code scope `377` files, `200005` total lines, and `183939` nonblank lines. Runtime/output cleanup is about `29.84 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: PHP syntax checks for `app/controller/OnlineData.php`, `app/service/MeituanManualFetchRequestService.php`, and `tests\MeituanManualFetchRequestServiceTest.php`; `tests\MeituanManualFetchRequestServiceTest.php` with `5` tests and `18` assertions; `tests\OnlineDataTest.php --filter Meituan` with `21` tests and `198` assertions; `verify:public-entry`; `verify:e2e-contracts` with `922` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

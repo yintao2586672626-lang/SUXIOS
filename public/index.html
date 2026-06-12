@@ -23301,7 +23301,6 @@
                         autoFetchHotelId.value = hotels.value[0].id;
                     }
                     await loadAutoFetchStatus({ detail: false });
-                    scheduleAutoFetchConfigListPrewarm();
                 })().finally(() => {
                     autoFetchPanelCache = {
                         key: autoFetchPanelCacheKey(),
@@ -23348,8 +23347,8 @@
                                 ...data,
                                 missed_dates: Array.isArray(previousStatus.missed_dates) ? previousStatus.missed_dates : [],
                                 missed_count: previousStatus.missed_count ?? data.missed_count,
-                                has_config: previousStatus.has_config ?? data.has_config,
-                                platforms: Object.keys(previousPlatforms).length > 0 ? previousPlatforms : nextPlatforms,
+                                has_config: data.has_config ?? previousStatus.has_config,
+                                platforms: Object.keys(nextPlatforms).length > 0 ? nextPlatforms : previousPlatforms,
                             };
                         } else {
                             autoFetchStatus.value = data;
@@ -29270,8 +29269,20 @@
                 return !!(config && meituanConfigMissingFields(config).length === 0);
             };
 
+            const hasAutoFetchStatusConfigByHotelId = (hotelId) => {
+                if (!hotelId || String(hotelId) !== String(getAutoFetchHotelId() || '')) return false;
+                const status = autoFetchStatus.value && typeof autoFetchStatus.value === 'object' ? autoFetchStatus.value : {};
+                if (status.has_config === true) return true;
+                const platforms = status.platforms && typeof status.platforms === 'object' && !Array.isArray(status.platforms)
+                    ? status.platforms
+                    : {};
+                return Object.values(platforms).some(platform => platform && platform.configured === true);
+            };
+
             const hasAnyPlatformFetchConfigByHotelId = (hotelId) => {
-                return hasCtripFetchConfigByHotelId(hotelId) || hasMeituanFetchConfigByHotelId(hotelId);
+                return hasAutoFetchStatusConfigByHotelId(hotelId)
+                    || hasCtripFetchConfigByHotelId(hotelId)
+                    || hasMeituanFetchConfigByHotelId(hotelId);
             };
 
             const ensureHotelOtaConfigLists = async () => {

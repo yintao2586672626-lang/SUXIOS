@@ -14,6 +14,7 @@ use app\service\CtripOverviewSummaryService;
 use app\service\CtripProfileFieldMetaService;
 use app\service\CtripTrafficDisplayService;
 use app\service\ManualOnlineFetchTaskService;
+use app\service\MeituanManualFetchRequestService;
 use app\service\MeituanOnlineDataPersistenceService;
 use app\service\MeituanRankDataExtractionService;
 use app\service\OnlineDailyDataPersistenceService;
@@ -443,12 +444,7 @@ class OnlineData extends Base
 
         // 美团榜单接口需要一次性门店标识；缺失时直接返回明确状态，不猜值。
         $missingResourceFields = [];
-        if (empty($partnerId)) {
-            $missingResourceFields[] = 'Partner ID';
-        }
-        if (empty($poiId)) {
-            $missingResourceFields[] = 'POI ID';
-        }
+        $missingResourceFields = MeituanManualFetchRequestService::missingRankResourceFields((string)$partnerId, (string)$poiId);
         if (!empty($missingResourceFields)) {
             return $this->error('需补充一次性门店标识：' . implode(' / ', $missingResourceFields), 400, [
                 'reason' => 'missing_resource_id',
@@ -470,70 +466,19 @@ class OnlineData extends Base
 
         try {
             // 构建请求参数
-            $params = [
-                'dataScope' => $dataScope,
-                'deviceType' => 1,
-                'yodaReady' => 'h5',
-                'csecplatform' => 4,
-                'csecversion' => '4.2.0',
-            ];
-
-            if ($partnerId) {
-                $params['partnerId'] = $partnerId;
-            }
-            if ($poiId) {
-                $params['poiId'] = $poiId;
-            }
-            if ($rankType) {
-                $params['rankType'] = $rankType;
-            }
-
-            // 根据 dateRange 参数计算日期范围
-            $dateRange = intval($dateRange);
-            if ($startDate && $endDate) {
-                // 如果指定了日期范围，使用指定的
-                $params['startDate'] = str_replace('-', '', $startDate);
-                $params['endDate'] = str_replace('-', '', $endDate);
-                $params['dateRange'] = 1;
-            } else {
-                // 根据 dateRange 计算日期
-                switch ($dateRange) {
-                    case 0: // 今日实时
-                        $today = date('Ymd');
-                        $params['startDate'] = $today;
-                        $params['endDate'] = $today;
-                        $params['dateRange'] = 0;
-                        $startDate = date('Y-m-d');
-                        break;
-                    case 7: // 近7天
-                        $params['startDate'] = date('Ymd', strtotime('-7 days'));
-                        $params['endDate'] = date('Ymd');
-                        $params['dateRange'] = 7;
-                        $startDate = date('Y-m-d', strtotime('-7 days'));
-                        break;
-                    case 30: // 近30天
-                        $params['startDate'] = date('Ymd', strtotime('-30 days'));
-                        $params['endDate'] = date('Ymd');
-                        $params['dateRange'] = 30;
-                        $startDate = date('Y-m-d', strtotime('-30 days'));
-                        break;
-                    case 1: // 昨日（默认）
-                    default:
-                        $yesterday = date('Ymd', strtotime('-1 day'));
-                        $params['startDate'] = $yesterday;
-                        $params['endDate'] = $yesterday;
-                        $params['dateRange'] = 1;
-                        $startDate = date('Y-m-d', strtotime('-1 day'));
-                        break;
-                }
-            }
-
-            // 发送GET请求
-            if ($endDate === '' && !empty($params['endDate']) && preg_match('/^\d{8}$/', (string)$params['endDate'])) {
-                $endDate = substr((string)$params['endDate'], 0, 4)
-                    . '-' . substr((string)$params['endDate'], 4, 2)
-                    . '-' . substr((string)$params['endDate'], 6, 2);
-            }
+            $rankRequest = MeituanManualFetchRequestService::buildRankRequestParams(
+                (string)$dataScope,
+                (string)$partnerId,
+                (string)$poiId,
+                (string)$rankType,
+                $dateRange,
+                (string)$startDate,
+                (string)$endDate
+            );
+            $params = $rankRequest['params'];
+            $startDate = $rankRequest['start_date'];
+            $endDate = $rankRequest['end_date'];
+            $dateRange = $rankRequest['date_range'];
 
             if ($backgroundRequested && $systemHotelId) {
                 $taskRequestData = is_array($requestData) ? $requestData : [];
@@ -1082,8 +1027,7 @@ class OnlineData extends Base
 
         try {
             $extraParams = $this->parseJsonParams($extraParamsStr);
-            $partnerId = $partnerId !== '' ? $partnerId : trim((string)($extraParams['partnerId'] ?? $extraParams['partner_id'] ?? ''));
-            $poiId = $poiId !== '' ? $poiId : trim((string)($extraParams['poiId'] ?? $extraParams['poi_id'] ?? ''));
+            [$partnerId, $poiId] = array_slice(MeituanManualFetchRequestService::resolveResourceIds($extraParams, $partnerId, $poiId), 0, 2);
 
             if ($partnerId === '') {
                 return $this->error('请提供Partner ID（商家ID）');
@@ -1092,31 +1036,10 @@ class OnlineData extends Base
                 return $this->error('请提供POI ID（门店ID）');
             }
 
-            $params = array_merge([
-                'deviceType' => 1,
-                'yodaReady' => 'h5',
-                'csecplatform' => 4,
-                'csecversion' => '4.2.0',
-            ], $extraParams);
-            $params['partnerId'] = $partnerId;
-            $params['poiId'] = $poiId;
-            if ($startDate && $endDate) {
-                $params['startDate'] = str_replace('-', '', $startDate);
-                $params['endDate'] = str_replace('-', '', $endDate);
-                $params['dateRange'] = 1;
-            } else {
-                $yesterday = date('Ymd', strtotime('-1 day'));
-                $params['startDate'] = $yesterday;
-                $params['endDate'] = $yesterday;
-                $params['dateRange'] = 1;
-                $startDate = date('Y-m-d', strtotime('-1 day'));
-            }
-
-            if ($endDate === '' && !empty($params['endDate']) && preg_match('/^\d{8}$/', (string)$params['endDate'])) {
-                $endDate = substr((string)$params['endDate'], 0, 4)
-                    . '-' . substr((string)$params['endDate'], 4, 2)
-                    . '-' . substr((string)$params['endDate'], 6, 2);
-            }
+            $trafficRequest = MeituanManualFetchRequestService::buildTrafficRequestParams($extraParams, $partnerId, $poiId, (string)$startDate, (string)$endDate);
+            $params = $trafficRequest['params'];
+            $startDate = $trafficRequest['start_date'];
+            $endDate = $trafficRequest['end_date'];
 
             if ($backgroundRequested && $systemHotelId) {
                 $taskRequestData = is_array($requestData) ? $requestData : [];
@@ -6677,20 +6600,7 @@ class OnlineData extends Base
 
     private function normalizeMeituanManualDateRange(string $startDate, string $endDate): array
     {
-        $start = $this->normalizeOnlineDataDate($startDate);
-        $end = $this->normalizeOnlineDataDate($endDate);
-        if ($start === '' && $end === '') {
-            $start = date('Y-m-d', strtotime('-1 day'));
-            $end = $start;
-        } elseif ($start === '') {
-            $start = $end;
-        } elseif ($end === '') {
-            $end = $start;
-        }
-        if (strtotime($start) === false || strtotime($end) === false || strtotime($start) > strtotime($end)) {
-            throw new \InvalidArgumentException('日期范围无效');
-        }
-        return [$start, $end];
+        return MeituanManualFetchRequestService::normalizeDateRange($startDate, $endDate);
     }
 
     private function sendMeituanManualRequest(string $url, array $params, string $cookies, string $method, array $allowedHostSuffixes, string $section): array
@@ -18287,6 +18197,98 @@ JAVASCRIPT;
         ];
     }
 
+    private function buildAutoFetchPlatformLightStatus(int $hotelId, array $status): array
+    {
+        $ctripConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
+        $meituanConfig = $this->resolveMeituanFetchConfigForHotel($hotelId);
+        $ctripBrowserProfileSources = $this->listEnabledCtripBrowserProfileDataSources($hotelId);
+        $meituanBrowserProfileSources = $this->listEnabledBrowserProfileDataSources($hotelId, 'meituan');
+        $modeOptions = [
+            'auto_fetch_mode' => $status['auto_fetch_mode'] ?? 'hybrid_auto',
+            'ctrip_auto_fetch_mode' => $status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode'] ?? 'hybrid_auto',
+            'meituan_auto_fetch_mode' => $status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode'] ?? 'hybrid_auto',
+        ];
+        $ctripMode = $this->resolvePlatformAutoFetchMode($ctripConfig, $modeOptions, 'ctrip');
+        $meituanMode = $this->resolvePlatformAutoFetchMode($meituanConfig, $modeOptions, 'meituan');
+        $meituanApiStatus = $this->meituanAutoFetchConfigStatus($meituanConfig);
+
+        $ctripCookieConfigured = trim((string)($ctripConfig['cookies'] ?? $ctripConfig['cookie'] ?? '')) !== '';
+        $ctripProfileConfigured = count($ctripBrowserProfileSources) > 0
+            || trim((string)($ctripConfig['profile_id'] ?? $ctripConfig['profileId'] ?? '')) !== '';
+        $ctripConfigured = $ctripCookieConfigured || $ctripProfileConfigured;
+        $ctripTaskModules = [];
+        if ($ctripCookieConfigured) {
+            $ctripTaskModules[] = 'cookie_config_tasks';
+        }
+        if ($ctripProfileConfigured) {
+            $ctripTaskModules[] = 'browser_profile';
+        }
+
+        $meituanProfileConfigured = count($meituanBrowserProfileSources) > 0
+            || $this->meituanProfileStoreIdFromConfig($meituanConfig) !== '';
+        $meituanConfigured = !empty($meituanApiStatus['api_configured']) || $meituanProfileConfigured;
+        $meituanTaskModules = [];
+        if (!empty($meituanApiStatus['api_configured'])) {
+            $meituanTaskModules[] = 'cookie_config_tasks';
+        }
+        if ($meituanProfileConfigured) {
+            $meituanTaskModules[] = 'browser_profile';
+        }
+
+        return [
+            'ctrip' => [
+                'configured' => $ctripConfigured,
+                'name' => (string)($ctripConfig['name'] ?? $ctripConfig['hotel_name'] ?? $ctripBrowserProfileSources[0]['name'] ?? ''),
+                'mode' => $this->autoFetchModeLabel($ctripMode),
+                'auto_fetch_mode' => $ctripMode,
+                'cookie_configured' => $ctripCookieConfigured,
+                'profile_configured' => $ctripProfileConfigured,
+                'has_profile' => $ctripProfileConfigured,
+                'task_count' => ($ctripConfigured ? 1 : 0) + count($ctripBrowserProfileSources),
+                'task_modules' => array_values(array_unique($ctripTaskModules)),
+                'next_action' => $this->autoFetchPlatformNextAction($ctripMode, $ctripCookieConfigured, $ctripProfileConfigured, ($ctripConfigured ? 1 : 0) + count($ctripBrowserProfileSources)),
+                'entry_url' => 'https://ebooking.ctrip.com/login/index',
+            ],
+            'meituan' => [
+                'configured' => $meituanConfigured,
+                'name' => (string)($meituanConfig['name'] ?? $meituanConfig['hotel_name'] ?? $meituanBrowserProfileSources[0]['name'] ?? ''),
+                'mode' => $this->autoFetchModeLabel($meituanMode),
+                'auto_fetch_mode' => $meituanMode,
+                'api_configured' => (bool)$meituanApiStatus['api_configured'],
+                'cookie_configured' => (bool)$meituanApiStatus['has_cookies'],
+                'partner_id_configured' => (bool)$meituanApiStatus['has_partner_id'],
+                'poi_id_configured' => (bool)$meituanApiStatus['has_poi_id'],
+                'profile_configured' => $meituanProfileConfigured,
+                'has_profile' => $meituanProfileConfigured,
+                'task_count' => ($meituanConfigured ? 1 : 0) + count($meituanBrowserProfileSources),
+                'task_modules' => array_values(array_unique($meituanTaskModules)),
+                'missing_fields' => $meituanApiStatus['missing_fields'],
+                'missing_text' => $meituanApiStatus['missing_text'],
+                'next_action' => $this->autoFetchPlatformNextAction($meituanMode, (bool)$meituanApiStatus['api_configured'], $meituanProfileConfigured, ($meituanConfigured ? 1 : 0) + count($meituanBrowserProfileSources)),
+                'entry_url' => 'https://eb.meituan.com',
+            ],
+        ];
+    }
+
+    private function autoFetchPlatformsHaveConfig(array $platforms): bool
+    {
+        foreach ($platforms as $platform) {
+            if (is_array($platform) && !empty($platform['configured'])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function emptyAutoFetchPlatformStatus(array $status): array
+    {
+        return [
+            'ctrip' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://ebooking.ctrip.com/login/index'],
+            'meituan' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://eb.meituan.com'],
+        ];
+    }
+
     private function autoFetchPlatformNextAction(string $mode, bool $hasCookie, bool $hasProfile, int $taskCount): string
     {
         $mode = $this->normalizeAutoFetchMode($mode);
@@ -18708,8 +18710,8 @@ JAVASCRIPT;
         } else {
             $status['missed_dates'] = [];
             $status['missed_count'] = null;
-            $status['has_config'] = null;
-            $status['platforms'] = [];
+            $status['platforms'] = $hotelId ? $this->buildAutoFetchPlatformLightStatus((int)$hotelId, $status) : $this->emptyAutoFetchPlatformStatus($status);
+            $status['has_config'] = $this->autoFetchPlatformsHaveConfig($status['platforms']);
             $status['detail_loaded'] = false;
             $status['detail_pending'] = true;
             $status['status_scope'] = 'light';

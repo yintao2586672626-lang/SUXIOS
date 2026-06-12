@@ -718,9 +718,11 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!content.includes('const scheduleAutoFetchConfigListPrewarm = () => {')
     || !content.includes('!ctripConfigListLoaded.value && (!ctripConfigList.value || ctripConfigList.value.length === 0)')
-    || !content.includes('!meituanConfigListLoaded.value && (!meituanConfigList.value || meituanConfigList.value.length === 0)')
-    || !autoFetchPanelLoader.includes('scheduleAutoFetchConfigListPrewarm();')) {
-    failures.push('public/index.html must prewarm saved Ctrip/Meituan config lists after platform-auto first paint instead of blocking it.');
+    || !content.includes('!meituanConfigListLoaded.value && (!meituanConfigList.value || meituanConfigList.value.length === 0)')) {
+    failures.push('public/index.html must keep the saved Ctrip/Meituan config-list prewarm helper available without blocking platform-auto first paint.');
+  }
+  if (autoFetchPanelLoader.includes('scheduleAutoFetchConfigListPrewarm();')) {
+    failures.push('public/index.html must not auto-start saved Ctrip/Meituan config-list prewarm when entering platform-auto.');
   }
   if (/await Promise\.all\(\[[\s\S]*loadCtripConfigList\(\)[\s\S]*loadMeituanConfigList\(\)[\s\S]*\]\);[\s\S]*await loadAutoFetchStatus\(\{\s*detail:\s*false\s*\}\);/.test(autoFetchPanelLoader)) {
     failures.push('public/index.html platform-auto first paint must not synchronously wait for saved Ctrip/Meituan config-list loads before light status.');
@@ -953,6 +955,14 @@ if (!fs.existsSync(indexPath)) {
   const manualTaskServiceContent = fs.existsSync(manualTaskServicePath) ? fs.readFileSync(manualTaskServicePath, 'utf8') : '';
   if (!controllerContent.includes("get('include_detail'") || !controllerContent.includes("'detail_loaded' => false")) {
     failures.push('app/controller/OnlineData.php must support light auto-fetch status with explicit detail_loaded=false.');
+  }
+  const lightStatusMatch = controllerContent.match(/\} else \{\s+\$status\['missed_dates'\] = \[\];\s+\$status\['missed_count'\] = null;([\s\S]*?)\$status\['detail_loaded'\] = false;/);
+  const lightStatusBranch = lightStatusMatch ? lightStatusMatch[1] : '';
+  if (!controllerContent.includes('private function buildAutoFetchPlatformLightStatus')
+    || !lightStatusBranch.includes('buildAutoFetchPlatformLightStatus')
+    || lightStatusBranch.includes('hasAnyPlatformFetchConfigForHotel')
+    || lightStatusBranch.includes('buildAutoFetchPlatformStatus')) {
+    failures.push('app/controller/OnlineData.php light auto-fetch status must not run full config/profile diagnostics.');
   }
   if (!controllerContent.includes("'/api/online-data/retry-auto-fetch'")
     || !controllerContent.includes("'retry_auto_fetch_queued'")
