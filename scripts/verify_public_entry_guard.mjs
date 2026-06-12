@@ -385,10 +385,10 @@ if (!fs.existsSync(indexPath)) {
     || !ctripEbookingDefaultLoader.includes('scheduleCtripEbookingDeferredStartupRefresh();')) {
     failures.push('public/index.html must defer Ctrip eBooking config/latest/cookie/bookmarklet startup refreshes until after the first paint loader.');
   }
-  if (!content.includes("prewarmSelectedCtripConfigSecret();\n                            return loadLatestCtripData({ silent: true });")
+  if (!content.includes("await loadCtripConfigList();\n                    if (currentPage.value !== 'ctrip-ebooking') return null;\n                    prewarmSelectedCtripConfigSecret();")
     || !content.includes("prewarmSelectedCtripConfigSecret();\n                                deferUiTask(() => applyCtripHotelConfig(false), 80);")
     || content.includes("if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;")) {
-    failures.push('public/index.html Ctrip config list must return after list data and prewarm full config detail in deferred work.');
+    failures.push('public/index.html Ctrip config list must return after list data and prewarm full config detail in delayed deferred work.');
   }
   if (!/await loadDataHealthPanel\(['"]light['"]\);/.test(ctripEbookingDefaultLoader)
     || /await Promise\.allSettled\(\[\s*loadOnlineDataHotelList\(\),\s*loadDataHealthPanel\(['"]light['"]\),\s*\]\);/.test(ctripEbookingDefaultLoader)) {
@@ -465,7 +465,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const config = options.resolvedConfig || await ensureMeituanConfigSecret(configSource);')
     || !meituanStaticContent.includes('await applyMeituanHotelConfig(false, { resolvedConfig: selectedMeituanConfig, refreshList: false });')
     || meituanStaticContent.includes('await applyMeituanHotelConfig(false);')
-    || !content.includes('loadMeituanConfigList().then(() => prewarmSelectedMeituanConfigSecret()),')
+    || !content.includes("await loadMeituanConfigList();\n                    if (currentPage.value !== 'meituan-ebooking') return null;\n                    prewarmSelectedMeituanConfigSecret();")
     || !content.includes("prewarmSelectedMeituanConfigSecret();\n                                deferUiTask(() => applyMeituanHotelConfig(false, { refreshList: false }), 80);")
     || content.includes("if (meituanForm.value.hotelId) {\n                                await applyMeituanHotelConfig(false, { refreshList: false });\n                            }\n                            return meituanConfigList.value;")) {
     failures.push('public/index.html Meituan config list must return after list data and prewarm full config detail in deferred work.');
