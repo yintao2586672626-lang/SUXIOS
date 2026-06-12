@@ -1147,6 +1147,11 @@ requireText('package.json', 'test:e2e:business', 'package exposes business chain
 requireText('package.json', 'test:e2e:edge', 'package exposes edge input e2e command');
 requireText('package.json', 'test:e2e:ui', 'package exposes UI automation e2e command');
 requireText('package.json', 'test:e2e:full:bounded', 'package exposes bounded full-click e2e command');
+requireText('package.json', 'slim:local', 'package exposes local slimming command');
+requireText('scripts/clean_project_local_artifacts.ps1', 'function Remove-TargetBestEffort', 'local slimming removes artifact contents best-effort');
+requireText('scripts/clean_project_local_artifacts.ps1', '$skippedLocked = @()', 'local slimming tracks locked near-zero residual artifacts separately');
+requireText('scripts/clean_project_local_artifacts.ps1', '$remaining.files -gt 0 -and $remaining.mb -gt 1', 'local slimming only fails when meaningful residual artifact size remains');
+requireText('scripts/clean_project_local_artifacts.ps1', 'Some near-zero-size local artifact files were left in place', 'local slimming reports locked runtime log residuals explicitly');
 
 try {
   const context = { window: {} };

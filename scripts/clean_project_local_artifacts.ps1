@@ -45,6 +45,64 @@ function Measure-Target {
   }
 }
 
+function Remove-TargetBestEffort {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $failures = @()
+
+  if (Test-Path -LiteralPath $Path -PathType Container) {
+    $files = Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction SilentlyContinue |
+      Sort-Object FullName -Descending
+    foreach ($file in $files) {
+      try {
+        $file.IsReadOnly = $false
+      } catch {
+        # Best-effort cleanup; deletion failure below is the actionable signal.
+      }
+      try {
+        Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop
+      } catch {
+        $failures += [pscustomobject]@{
+          path = $file.FullName.Substring($workspace.Length + 1)
+          error = $_.Exception.Message
+        }
+      }
+    }
+
+    $dirs = Get-ChildItem -LiteralPath $Path -Recurse -Force -Directory -ErrorAction SilentlyContinue |
+      Sort-Object FullName -Descending
+    foreach ($dir in $dirs) {
+      try {
+        Remove-Item -LiteralPath $dir.FullName -Force -ErrorAction Stop
+      } catch {
+        # Non-empty directories are expected when a child file is locked.
+      }
+    }
+
+    try {
+      Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+    } catch {
+      # Keep the target directory when a running process still owns a child file.
+    }
+  } elseif (Test-Path -LiteralPath $Path -PathType Leaf) {
+    try {
+      (Get-Item -LiteralPath $Path -Force).IsReadOnly = $false
+    } catch {
+      # Best-effort cleanup; deletion failure below is the actionable signal.
+    }
+    try {
+      Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+    } catch {
+      $failures += [pscustomobject]@{
+        path = $Path.Substring($workspace.Length + 1)
+        error = $_.Exception.Message
+      }
+    }
+  }
+
+  return $failures
+}
+
 $candidatePaths = @(
   "output",
   "runtime",
@@ -114,26 +172,24 @@ if (!$Apply) {
 
 $removed = 0
 $failed = @()
+$skippedLocked = @()
 foreach ($target in ($rows | Sort-Object mb -Descending | ForEach-Object { Join-Path $workspace $_.path })) {
   try {
-    if (Test-Path -LiteralPath $target -PathType Container) {
-      Get-ChildItem -LiteralPath $target -Recurse -Force -File -ErrorAction SilentlyContinue | ForEach-Object {
-        try {
-          $_.IsReadOnly = $false
-        } catch {
-          # Best-effort cleanup; failures are reported below.
+    $targetFailures = Remove-TargetBestEffort -Path $target
+    if ((Test-Path -LiteralPath $target)) {
+      $remaining = Measure-Target -Path $target
+      if ($remaining.files -gt 0 -and $remaining.mb -gt 1) {
+        $failed += [pscustomobject]@{
+          path = $target.Substring($workspace.Length + 1)
+          error = "Residual artifact size remains $($remaining.mb) MB after best-effort cleanup."
         }
+        $failed += $targetFailures
+      } elseif ($targetFailures.Count -gt 0) {
+        $skippedLocked += $targetFailures
       }
-    } elseif (Test-Path -LiteralPath $target -PathType Leaf) {
-      try {
-        (Get-Item -LiteralPath $target -Force).IsReadOnly = $false
-      } catch {
-        # Best-effort cleanup; failures are reported below.
-      }
+    } else {
+      $removed += 1
     }
-
-    Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
-    $removed += 1
   } catch {
     $failed += [pscustomobject]@{
       path = $target.Substring($workspace.Length + 1)
@@ -143,6 +199,10 @@ foreach ($target in ($rows | Sort-Object mb -Descending | ForEach-Object { Join-
 }
 
 Write-Host "Removed $removed local artifact target(s)."
+if ($skippedLocked.Count -gt 0) {
+  Write-Warning "Some near-zero-size local artifact files were left in place, likely because a local dev process is still using them:"
+  $skippedLocked | Format-Table -AutoSize
+}
 if ($failed.Count -gt 0) {
   Write-Warning "Some targets could not be removed:"
   $failed | Format-Table -AutoSize
