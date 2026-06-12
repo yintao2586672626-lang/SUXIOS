@@ -83,10 +83,22 @@ requireIncludes('docs/phase1_ota_trusted_loop_goal.md', 'priority resources and 
 ]);
 
 requirePackageScript('verify:phase1-ota-loop', 'node scripts/verify_phase1_ota_trusted_loop_contract.mjs');
+requirePackageScript('verify:phase1-ota-audit', 'node scripts/verify_phase1_ota_trusted_loop_audit.mjs');
+requirePackageScript('verify:phase1-employee-console', 'node scripts/verify_phase1_ota_employee_console_contract.mjs');
+requirePackageScript('verify:phase1-gap-explanations', 'node scripts/verify_phase1_ota_gap_explanations.mjs');
 
 requireIncludes('docs/release_functional_acceptance_matrix.md', 'functional acceptance includes phase-one gate', [
   'verify:phase1-ota-loop',
+  'verify:phase1-ota-audit',
+  'verify:phase1-employee-console',
+  'verify:phase1-gap-explanations',
   'OTA trusted loop',
+]);
+
+requireIncludes('docs/phase1_ota_trusted_loop_goal.md', 'phase-one goal includes audit, employee console, and gap verifiers', [
+  'npm.cmd run verify:phase1-ota-audit',
+  'npm.cmd run verify:phase1-employee-console',
+  'npm.cmd run verify:phase1-gap-explanations',
 ]);
 
 requireIncludes('route/app.php', 'OTA acquisition, diagnosis, revenue, AI, and execution routes exist', [

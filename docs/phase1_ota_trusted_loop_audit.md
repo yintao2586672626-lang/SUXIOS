@@ -1,0 +1,53 @@
+# 宿析OS第一阶段 OTA 可信闭环审计
+
+Updated: 2026-06-12
+
+## 当前结论
+
+第一阶段已经具备结构化基础，但不能判定为业务完成。
+
+已闭合的部分：
+
+- 目标、边界、验收口径已固化到 `docs/phase1_ota_trusted_loop_goal.md`。
+- 员工视角验收已固化到 `docs/phase1_ota_employee_console_acceptance.md`。
+- 字段缺口解释已固化到 `docs/phase1_ota_gap_explanation_matrix.md`。
+- 美团手动批量 direct result / queued 显式异常合同已闭合，不能再把后台异步 accepted 状态当成当前成功。
+- `verify:public-entry` 和 `verify:e2e-contracts` 已作为前端入口和合同守卫。
+
+仍未完成的 P0 证据：
+
+- 真实当天携程/美团采集结果尚未完成端到端证明：capture -> persistence -> UI display。
+- AI 诊断还缺真实当天 OTA 证据样例：`evidence_sources`, `data_gaps`, `action_items` 必须来自真实采集或明确标注样例边界。
+- 运营执行闭环还缺真实样例：执行意图、审批、执行证据、复盘状态必须有可追踪记录。
+
+## 审计状态
+
+| 检查项 | 当前状态 | 说明 |
+|---|---|---|
+| `npm.cmd run verify:phase1-ota-loop` | passed | 第一阶段目标、路由、收益指标、AI 诊断、运营执行结构守卫 |
+| `npm.cmd run verify:phase1-employee-console` | passed | 员工六问、UI/接口承载面和不完成口径守卫 |
+| `npm.cmd run verify:phase1-gap-explanations` | passed | P0 字段缺口、指标限制和禁止兜底规则守卫 |
+| `npm.cmd run verify:public-entry` | passed | 前端入口结构守卫 |
+| `npm.cmd run verify:e2e-contracts` | passed | 端到端合同守卫 |
+
+## 下一步只做 P0/P1/P2
+
+1. P0：补真实当天携程/美团采集样例，证明采集、保存、UI 展示三段闭合。
+2. P0：补 AI 诊断真实证据样例，确保建议引用真实 OTA 指标、字段缺口和数据范围。
+3. P1：补运营执行样例，证明建议能形成执行意图、审批、执行证据和复盘。
+4. P2：把字段缺口解释接入更多员工可见位置，但不改变采集字段和入库结构。
+
+## 非目标
+
+- 不重写携程/美团采集逻辑。
+- 不新增 OTA 明细表或改变 `online_daily_data` 结构。
+- 不把 OTA 渠道数据包装成全酒店经营事实。
+- 不做无基准的性能提升声明。
+
+## 验证命令
+
+```powershell
+npm.cmd run verify:phase1-ota-audit
+```
+
+该命令只做结构化只读检查，不启动 OTA 采集，不访问外部平台，不写数据库。

@@ -92,6 +92,9 @@ Updated: 2026-06-12
 
 ```powershell
 npm.cmd run verify:phase1-ota-loop
+npm.cmd run verify:phase1-ota-audit
+npm.cmd run verify:phase1-employee-console
+npm.cmd run verify:phase1-gap-explanations
 npm.cmd run verify:platform-data-source-contract
 npm.cmd run verify:field-asset-ledger
 npm.cmd run verify:ota-revenue-metrics-smoke

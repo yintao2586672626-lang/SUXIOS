@@ -12,7 +12,7 @@ Current Chinese acceptance report: `docs/functional_acceptance_report.zh-CN.md`.
 
 | Chain | Business scope | Required local evidence | Command gate | Current status |
 |---|---|---|---|---|
-| OTA channel data | Ctrip and Meituan data ingestion, validation, provenance, and OTA-channel scoped metrics. | `/api/online-data/save-daily-data`, `/api/online-data/daily-data-list`, `/api/online-data/data-analysis`, OTA validator contracts, OTA channel supplement scope, OTA trusted loop goal. | `npm run verify:phase1-ota-loop`, `npm run verify:ota-data-batch`, and `npm run review:functional-readiness`. | Structurally controlled; real platform collection still depends on credential and permission state. |
+| OTA channel data | Ctrip and Meituan data ingestion, validation, provenance, and OTA-channel scoped metrics. | `/api/online-data/save-daily-data`, `/api/online-data/daily-data-list`, `/api/online-data/data-analysis`, OTA validator contracts, OTA channel supplement scope, OTA trusted loop goal, employee console acceptance, and gap explanation matrix. | `npm run verify:phase1-ota-loop`, `npm run verify:phase1-ota-audit`, `npm run verify:phase1-employee-console`, `npm run verify:phase1-gap-explanations`, `npm run verify:ota-data-batch`, and `npm run review:functional-readiness`. | Structurally controlled; real platform collection still depends on credential and permission state. |
 | Revenue analysis | OTA imported rows feed revenue summary, ADR, conversion, order, room-night, and service-quality views without labeling OTA-only data as whole-hotel facts. | `OnlineData::dataAnalysis`, revenue metric docs, business-chain E2E contract, OTA supplement scope guard. | `npm run review:functional-readiness` and `npm run verify:e2e-contracts`. | Structurally controlled; production data quality must still be monitored by source status. |
 | AI decision | AI conclusions are routed through `LlmClient`, prompt governance, model config, decision impact, confidence, sources, and human confirmation rules. | `LlmClient`, `ai_model_configs`, AI governance tables, strategy/expansion/simulation/feasibility prompt schemas. | `npm run review:functional-readiness` plus `npm run review:release-llm` for production connectivity. | Code path is controlled; production connectivity attestation is still missing. |
 | Operations management | Revenue diagnosis becomes alerts, strategy simulation, execution intent, approval, execution evidence, tracking, review, and ROI feedback. | `/api/operation/*`, operation execution migrations, `OperationExecutionLoopTest.php`, operation execution UI, action tracking. | `npm run review:functional-readiness`, `composer test`, and `npm run test:e2e:business` when a runtime is available. | Structurally controlled; no claim of real OTA auto-execution without field mapping, authorization, platform callback, and evidence. |
@@ -34,6 +34,9 @@ Run these for local functional acceptance:
 
 ```bash
 npm run verify:phase1-ota-loop
+npm run verify:phase1-ota-audit
+npm run verify:phase1-employee-console
+npm run verify:phase1-gap-explanations
 npm run review:functional-readiness
 npm run verify:e2e-contracts
 npm run verify:ota-data-batch
