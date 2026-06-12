@@ -6,7 +6,7 @@
 function suxi_static_response_variant(string $staticFile, string $extension): string
 {
     if ($extension === 'html' && basename($staticFile) === 'index.html') {
-        return 'index-indent-trim-v1';
+        return 'index-indent-trim-v3';
     }
 
     return 'raw';
@@ -14,31 +14,44 @@ function suxi_static_response_variant(string $staticFile, string $extension): st
 
 function suxi_trim_index_html_indent(string $source): string
 {
-    $blocks = [];
-    $working = preg_replace_callback(
-        '/<(script|style|textarea|pre)\b[^>]*>[\s\S]*?<\/\1>/iu',
-        static function (array $matches) use (&$blocks): string {
-            $key = '%%SUXI_STATIC_HTML_BLOCK_' . count($blocks) . '%%';
-            $blocks[$key] = $matches[0];
-            return $key;
-        },
-        $source
-    );
-    if (!is_string($working)) {
+    $segments = preg_split('/(\r\n|\n|\r)/', $source, -1, PREG_SPLIT_DELIM_CAPTURE);
+    if (!is_array($segments)) {
         return $source;
     }
 
-    $trimmed = preg_replace('/\r?\n[ \t]+(?=<)/u', "\n", $working);
-    if (!is_string($trimmed)) {
-        return $source;
+    $output = '';
+    $rawTag = null;
+    $segmentCount = count($segments);
+    for ($index = 0; $index < $segmentCount; $index += 2) {
+        $line = (string)$segments[$index];
+        $lineEnding = isset($segments[$index + 1]) ? (string)$segments[$index + 1] : '';
+
+        if ($rawTag === null) {
+            $line = preg_replace('/^[ \t]+(?=<)/', '', $line) ?? $line;
+        }
+
+        $output .= $line . $lineEnding;
+
+        if ($rawTag === null) {
+            if (preg_match('/<(script|style|textarea|pre)\b/i', $line, $matches)) {
+                $tag = strtolower($matches[1]);
+                $openPosition = stripos($line, '<' . $tag);
+                $closePosition = stripos($line, '</' . $tag . '>');
+                if ($openPosition !== false && ($closePosition === false || $closePosition < $openPosition)) {
+                    $rawTag = $tag;
+                }
+            }
+        } elseif (stripos($line, '</' . $rawTag . '>') !== false) {
+            $rawTag = null;
+        }
     }
 
-    return strtr($trimmed, $blocks);
+    return $output;
 }
 
 function suxi_static_response_payload(string $staticFile, string $variant): array
 {
-    if ($variant !== 'index-indent-trim-v1') {
+    if ($variant !== 'index-indent-trim-v3') {
         return [
             'file' => $staticFile,
             'content' => null,

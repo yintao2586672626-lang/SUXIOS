@@ -1178,13 +1178,16 @@ if (!fs.existsSync(publicRouterPath)) {
   if (!routerSource.includes("'runtime' . DIRECTORY_SEPARATOR . 'static-html'")) {
     failures.push('public/router.php must cache the trimmed index.html response under runtime/static-html.');
   }
-  if (!routerSource.includes('index-indent-trim-v1') || !routerSource.includes('suxi_trim_index_html_indent')) {
+  if (!routerSource.includes('index-indent-trim-v3') || !routerSource.includes('suxi_trim_index_html_indent')) {
     failures.push('public/router.php must keep the index.html indentation-trim response variant explicit.');
   }
-  if (!routerSource.includes('/<(script|style|textarea|pre)\\b[^>]*>[\\s\\S]*?<\\/\\1>/iu')) {
-    failures.push('public/router.php index.html trimming must preserve script/style/textarea/pre blocks.');
+  if (!routerSource.includes("preg_split('/(\\r\\n|\\n|\\r)/'") || !routerSource.includes('$rawTag = null')) {
+    failures.push('public/router.php index.html trimming must use a line scanner instead of a whole-file regex.');
   }
-  if (!routerSource.includes("preg_replace('/\\r?\\n[ \\t]+(?=<)/u")) {
+  if (!routerSource.includes('/<(script|style|textarea|pre)\\b/i') || !routerSource.includes("'</' . $rawTag . '>'")) {
+    failures.push('public/router.php index.html trimming must preserve script/style/textarea/pre regions.');
+  }
+  if (!routerSource.includes("preg_replace('/^[ \\t]+(?=<)/'")) {
     failures.push('public/router.php index.html trimming must only remove line indentation before tags.');
   }
   if (!routerSource.includes("file_put_contents($gzipCacheFile, $encoded, LOCK_EX)")) {
