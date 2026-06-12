@@ -1760,6 +1760,22 @@ final class OnlineDataTest extends TestCase
         }
     }
 
+    public function testCollectionPendingActionsExposeNoDataNextActionForEmployeeConsole(): void
+    {
+        $controller = $this->controller();
+
+        $actions = $this->invokeNonPublic($controller, 'buildCollectionPendingActions', [[], [], [], []]);
+
+        self::assertNotEmpty($actions);
+        self::assertSame('collection_gap', $actions[0]['type']);
+        self::assertSame('not_collected', $actions[0]['status']);
+        self::assertSame('ota_same_period_source_rows_missing', $actions[0]['action_code']);
+        self::assertStringContainsString('现有携程/美团手动或自动获取入口', $actions[0]['action']);
+        self::assertSame($actions[0]['action'], $actions[0]['next_action']);
+        self::assertContains('online_daily_data 同日期源数据行', $actions[0]['evidence_needed']);
+        self::assertStringContainsString('不改变采集字段', $actions[0]['protected_boundary']);
+    }
+
     public function testDashboardHotelPortraitContainsRequiredSections(): void
     {
         $controller = $this->controller();

@@ -23813,7 +23813,7 @@ JAVASCRIPT;
 
     private function collectionReliabilityStatusCatalog(): array
     {
-        return ['ok', 'warning', 'expired', 'unknown', 'waiting_config', 'failed', 'partial_success', 'success'];
+        return ['ok', 'warning', 'expired', 'unknown', 'waiting_config', 'failed', 'partial_success', 'success', 'not_collected'];
     }
 
     private function collectionLifecycleCatalog(): array
@@ -24916,25 +24916,35 @@ JAVASCRIPT;
                 continue;
             }
             $actions[] = [
+                'action_code' => 'ota_authorization_' . $status,
                 'type' => 'authorization',
                 'status' => $status,
                 'platform' => (string)($row['platform'] ?? ''),
                 'hotel_id' => $row['hotel_id'] ?? null,
                 'reason' => (string)($row['message'] ?? $status),
-                'action' => (string)($row['next_action'] ?? 'reauthorize OTA account'),
+                'action' => (string)($row['next_action'] ?? '重新授权 OTA 账号后重跑同步'),
+                'next_action' => (string)($row['next_action'] ?? '重新授权 OTA 账号后重跑同步'),
                 'entry' => (string)($row['reauthorize_entry'] ?? $this->cookieReauthorizeEntry()),
+                'owner' => '酒店运营人员',
+                'evidence_needed' => ['授权状态', '账号/Profile绑定', '重跑同步日志'],
+                'protected_boundary' => '只处理授权和账号绑定，不改变携程/美团采集字段、字段映射或获取逻辑。',
             ];
         }
 
         foreach ($alerts as $alert) {
             $actions[] = [
+                'action_code' => 'ota_authorization_alert',
                 'type' => 'failure_reason',
                 'status' => 'expired',
                 'platform' => (string)($alert['platform'] ?? ''),
                 'hotel_id' => $alert['hotel_id'] ?? null,
                 'reason' => (string)($alert['message'] ?? ''),
-                'action' => (string)($alert['next_action'] ?? 'reauthorize OTA account'),
+                'action' => (string)($alert['next_action'] ?? '重新授权 OTA 账号后重跑同步'),
+                'next_action' => (string)($alert['next_action'] ?? '重新授权 OTA 账号后重跑同步'),
                 'entry' => (string)($alert['reauthorize_entry'] ?? $this->cookieReauthorizeEntry()),
+                'owner' => '酒店运营人员',
+                'evidence_needed' => ['授权告警', '账号/Profile绑定', '重跑同步日志'],
+                'protected_boundary' => '只处理授权和账号绑定，不改变携程/美团采集字段、字段映射或获取逻辑。',
             ];
         }
 
@@ -24944,13 +24954,35 @@ JAVASCRIPT;
                 continue;
             }
             $actions[] = [
+                'action_code' => 'ota_collection_' . $status,
                 'type' => 'collection',
                 'status' => $status,
                 'platform' => (string)($log['platform'] ?? ''),
                 'hotel_id' => $log['hotel_id'] ?? null,
                 'reason' => (string)($log['message'] ?? ''),
-                'action' => 'check authorization, field mapping, and platform response',
+                'action' => '检查授权、字段结构和平台响应后，使用现有手动或自动获取入口重试采集',
+                'next_action' => '检查授权、字段结构和平台响应后，使用现有手动或自动获取入口重试采集',
                 'entry' => '',
+                'owner' => '产品/技术 + 酒店运营人员',
+                'evidence_needed' => ['采集日志', '平台响应状态', 'validation_flags', 'source_trace_id 或 raw_data 追踪证据'],
+                'protected_boundary' => '只复查下游状态和响应证据，不改变携程/美团手动或自动获取逻辑。',
+            ];
+        }
+
+        if ($qualityRows === []) {
+            $actions[] = [
+                'action_code' => 'ota_same_period_source_rows_missing',
+                'type' => 'collection_gap',
+                'status' => 'not_collected',
+                'platform' => 'ctrip,meituan',
+                'hotel_id' => null,
+                'reason' => '选定周期没有可用于经营诊断的 OTA 入库数据',
+                'action' => '使用现有携程/美团手动或自动获取入口补齐同日数据，再查看字段可信度、收益指标、AI 诊断和执行动作',
+                'next_action' => '使用现有携程/美团手动或自动获取入口补齐同日数据，再查看字段可信度、收益指标、AI 诊断和执行动作',
+                'entry' => '/api/online-data/collection-reliability',
+                'owner' => '酒店运营人员',
+                'evidence_needed' => ['online_daily_data 同日期源数据行', 'data_source_id 或 sync_task_id', 'source_trace_id 或 raw_data 追踪证据'],
+                'protected_boundary' => '不改变采集字段、字段映射、携程/美团手动或自动获取逻辑；不能用空数据生成经营结论。',
             ];
         }
 
@@ -24960,13 +24992,18 @@ JAVASCRIPT;
                 continue;
             }
             $actions[] = [
+                'action_code' => 'ota_field_quality_' . $this->normalizeCollectionStatus((string)($quality['status'] ?? 'warning')),
                 'type' => 'field_quality',
                 'status' => $this->normalizeCollectionStatus((string)($quality['status'] ?? 'warning')),
                 'platform' => (string)($row['source'] ?? ''),
                 'hotel_id' => $row['system_hotel_id'] ?? $row['hotel_id'] ?? null,
                 'reason' => (string)($quality['summary'] ?? ''),
-                'action' => 'review missing fields and raw payload mapping',
+                'action' => '复核缺失字段、原始响应路径和字段映射，缺字段继续保留 data_gaps',
+                'next_action' => '复核缺失字段、原始响应路径和字段映射，缺字段继续保留 data_gaps',
                 'entry' => '',
+                'owner' => '产品/技术',
+                'evidence_needed' => ['缺失字段列表', 'raw_data', 'source_trace_id', 'validation_flags'],
+                'protected_boundary' => '不使用兜底值掩盖字段缺失，不把缺字段指标显示成可信。',
             ];
             if (count($actions) >= 20) {
                 break;
