@@ -1831,6 +1831,16 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `263.01 MB`, without `.git` about `123.55 MB`, without `.git` and dependencies about `94.36 MB`, tracked files about `19.1 MB` / `626` files; code scope `381` files, `200520` total lines, and `184398` nonblank lines. Runtime/output cleanup is about `30.33 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: PHP syntax checks for `app/controller/OnlineData.php`, `app/service/CtripManualFetchRequestService.php`, and `tests\CtripManualFetchRequestServiceTest.php`; `tests\CtripManualFetchRequestServiceTest.php` with `7` tests and `15` assertions; `tests\OnlineDataTest.php --filter Ctrip` with `87` tests and `1156` assertions; `verify:public-entry`; `verify:e2e-contracts` with `931` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Compass Background Refresh Visibility Guards
+
+- `public/index.html` now stops home trend, macro signal, holiday revenue countdown, and scoped competitor-summary refreshes when the user has left the `compass` page.
+- Deferred compass follow-up jobs now re-check `currentPage === 'compass'` before starting, and update `compassLastSyncedAt` only while the compass page is still visible.
+- This does not change compass APIs, OTA collection, revenue formulas, persistence schema, AI analysis, permissions, or database structure. It only prevents hidden background refreshes from continuing after page switch.
+- Guards now require the compass page visibility checks in both `verify_public_entry_guard.mjs` and `verify_e2e_contracts.mjs`. `verify:e2e-contracts` covers `936` checks.
+- Current split-map: `public/index.html` has `37490` lines, `1586` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` remains `26438` lines and `872` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `264.2 MB`, without `.git` about `124.06 MB`, without `.git` and dependencies about `94.87 MB`, tracked files about `19.1 MB` / `626` files; code scope `381` files, `200537` total lines, and `184415` nonblank lines. Runtime/output cleanup is about `30.84 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `936` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

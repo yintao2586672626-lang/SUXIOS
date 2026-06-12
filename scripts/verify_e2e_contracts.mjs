@@ -266,6 +266,11 @@ requireText('public/index.html', "loadCollectionReliability('full')", 'data-heal
 requireNoText('public/index.html', 'loadCollectionReliability(normalizedMode)', 'data-health light first paint must not run collection-reliability');
 requireText('public/index.html', 'const platformProfileStatusRequestPromises = new Map();', 'platform profile status requests are deduplicated by hotel');
 requireText('public/index.html', 'ctrip_auto_fetch_mode: autoFetchMode.value', 'platform auto-fetch keeps Ctrip on the selected fast mode by default');
+requireText('public/index.html', "if (!token.value || currentPage.value !== 'compass') return;", 'home trend and holiday requests do not run after leaving the compass page');
+requireText('public/index.html', "if (!token.value || currentPage.value !== 'compass' || macroSignalLoading.value) return;", 'macro signal request does not run after leaving the compass page');
+requireText('public/index.html', "if (options.requireCompass === true && currentPage.value !== 'compass') return;", 'home competitor summary request can be scoped to the compass page');
+requireText('public/index.html', "if (currentPage.value !== 'compass') return null;", 'deferred compass background jobs are skipped after page switch');
+requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true })', 'deferred compass competitor summary uses page visibility guard');
 requireText('app/controller/OnlineData.php', "?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
 requireText('app/controller/OnlineData.php', "get('include_detail'", 'backend auto-fetch status supports light detail requests');
 requireText('app/controller/OnlineData.php', "'detail_loaded' => false", 'backend auto-fetch status marks light responses explicitly');

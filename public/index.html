@@ -28016,7 +28016,7 @@
             };
 
             const loadHomeTrends = async () => {
-                if (!token.value) return;
+                if (!token.value || currentPage.value !== 'compass') return;
                 if (homeTrendRange.value === 'custom' && (!homeTrendCustomRange.value.start_date || !homeTrendCustomRange.value.end_date)) {
                     showToast('请选择完整的趋势日期范围', 'error');
                     return;
@@ -28063,7 +28063,7 @@
             };
 
             const loadMacroSignals = async () => {
-                if (!token.value || macroSignalLoading.value) return;
+                if (!token.value || currentPage.value !== 'compass' || macroSignalLoading.value) return;
                 macroSignalLoading.value = true;
                 activeMacroSignal.value = '';
                 macroSignalDetail.value = null;
@@ -31868,7 +31868,7 @@
             };
 
             const loadHolidayRevenueCountdown = async () => {
-                if (!token.value) return;
+                if (!token.value || currentPage.value !== 'compass') return;
                 holidayRevenueLoading.value = true;
                 try {
                     const params = new URLSearchParams({
@@ -31890,6 +31890,7 @@
 
             const loadCompetitorSummary = async (options = {}) => {
                 if (!token.value) return;
+                if (options.requireCompass === true && currentPage.value !== 'compass') return;
                 const requestSeq = ++competitorSummaryRequestSeq;
                 competitorSummaryLoading.value = true;
                 let includeByHotel = false;
@@ -31952,13 +31953,17 @@
                     }
                     compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
                     deferUiTask(async () => {
+                        if (currentPage.value !== 'compass') return null;
                         await Promise.allSettled([
                             loadHolidayRevenueCountdown(),
                             loadMacroSignals(),
                             loadHomeTrends(),
-                            loadCompetitorSummary()
+                            loadCompetitorSummary({ requireCompass: true })
                         ]);
-                        compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
+                        if (currentPage.value === 'compass') {
+                            compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
+                        }
+                        return null;
                     }, 0);
                     if (options.notify) {
                         showToast('罗盘数据已更新');

@@ -277,6 +277,14 @@ if (!fs.existsSync(indexPath)) {
     || /\/online-data\/fetch-ctrip-ads/.test(testDataConfigSource)) {
     failures.push('public/index.html must not re-inline data-source config test endpoint selection; use auto-fetch-static.js runDataConfigTestFlow.');
   }
+  const compassPageGuardCount = (content.match(/if \(!token\.value \|\| currentPage\.value !== ['"]compass['"]\) return;/g) || []).length;
+  if (compassPageGuardCount < 2
+    || !content.includes("if (!token.value || currentPage.value !== 'compass' || macroSignalLoading.value) return;")
+    || !content.includes("if (options.requireCompass === true && currentPage.value !== 'compass') return;")
+    || !content.includes("if (currentPage.value !== 'compass') return null;")
+    || !content.includes('loadCompetitorSummary({ requireCompass: true })')) {
+    failures.push('public/index.html compass background refreshes must stop after the user leaves the compass page.');
+  }
   if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*loadCtripConfigList\(\)[\s\S]*loadMeituanConfigList\(\)/.test(content)) {
     failures.push('public/index.html must keep a lightweight manual-fetch config prewarm that loads saved Ctrip/Meituan config lists without opening the full platform-auto panel.');
   }
