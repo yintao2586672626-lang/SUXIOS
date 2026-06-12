@@ -101,7 +101,7 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
-  if (!content.includes('ctrip-static.js?v=20260612-manual-tab-perf')
+  if (!content.includes('ctrip-static.js?v=20260612-sample-helper')
     || !content.includes('meituan-static.js?v=20260612-manual-fetch-perf')) {
     failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance exports change.');
   }

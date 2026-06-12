@@ -12,7 +12,7 @@
     <script src="vue.global.prod.js?v=20260611-open-fix"></script>
     <script src="shared-components.js?v=20260611-open-fix"></script>
     <script src="form-operation-support.js" defer></script>
-    <script src="ctrip-static.js?v=20260612-manual-tab-perf"></script>
+    <script src="ctrip-static.js?v=20260612-sample-helper"></script>
     <script src="meituan-static.js?v=20260612-manual-fetch-perf"></script>
     <script src="data-health-static.js?v=20260612-dashboard-requests"></script>
     <script src="ota-diagnosis-static.js?v=20260611-core-fetch"></script>
@@ -18585,40 +18585,11 @@
                 enabled: '',
                 sample: '',
             });
-            const ctripProfileFieldSampleValueText = (sample) => {
-                if (sample && typeof sample === 'object') {
-                    const value = sample.value ?? sample.latest_value ?? '';
-                    const unit = sample.unit ? String(sample.unit) : '';
-                    return `${value === null || value === undefined ? '' : String(value)}${unit}`.trim();
-                }
-                return sample === null || sample === undefined ? '' : String(sample).trim();
-            };
-            const ctripProfileFieldSampleItems = (field) => {
-                if (!field) return [];
-                if (Array.isArray(field.latest_values) && field.latest_values.length > 0) {
-                    return field.latest_values
-                        .map(sample => {
-                            if (sample && typeof sample === 'object') return sample;
-                            return { value: sample };
-                        })
-                        .filter(sample => ctripProfileFieldSampleValueText(sample));
-                }
-                const value = String(field.latest_value || '').trim();
-                if (!value) return [];
-                return value.split(' / ').map(item => ({ value: item })).filter(sample => ctripProfileFieldSampleValueText(sample));
-            };
-            const ctripProfileFieldSampleCapturedAt = (sample) => sample && typeof sample === 'object'
-                ? String(sample.captured_at || '').trim()
-                : '';
-            const ctripProfileFieldSampleBatchKey = (sample) => {
-                if (!sample || typeof sample !== 'object') return '';
-                const explicitKey = String(sample.sample_batch_key || '').trim();
-                if (explicitKey) return explicitKey;
-                const syncTaskId = Number(sample.sync_task_id || 0);
-                if (Number.isFinite(syncTaskId) && syncTaskId > 0) return `sync_task:${syncTaskId}`;
-                const capturedAt = ctripProfileFieldSampleCapturedAt(sample);
-                return capturedAt ? `captured_at:${capturedAt}` : '';
-            };
+            const ctripProfileFieldSampleHelpers = requireCtripStatic('buildCtripProfileFieldSampleHelpers')();
+            const ctripProfileFieldSampleValueText = ctripProfileFieldSampleHelpers.sampleValueText;
+            const ctripProfileFieldSampleItems = ctripProfileFieldSampleHelpers.sampleItems;
+            const ctripProfileFieldSampleCapturedAt = ctripProfileFieldSampleHelpers.sampleCapturedAt;
+            const ctripProfileFieldSampleBatchKey = ctripProfileFieldSampleHelpers.sampleBatchKey;
             const ctripProfileFieldCurrentSampleBatchKey = () => String(ctripProfileFieldSummary.value?.latest_sample_batch_key || '').trim();
             const ctripProfileFieldLatestBatchSampleItems = (field) => {
                 const items = ctripProfileFieldSampleItems(field);

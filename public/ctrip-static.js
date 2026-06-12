@@ -477,6 +477,115 @@ window.SUXI_CTRIP_STATIC = (() => {
         }
         return form;
     };
+    const buildCtripProfileFieldSampleHelpers = () => {
+        const sampleValueText = (sample) => {
+            if (sample && typeof sample === 'object') {
+                const value = sample.value ?? sample.latest_value ?? '';
+                const unit = sample.unit ? String(sample.unit) : '';
+                return `${value === null || value === undefined ? '' : String(value)}${unit}`.trim();
+            }
+            return sample === null || sample === undefined ? '' : String(sample).trim();
+        };
+        const sampleItems = (field) => {
+            if (!field) return [];
+            if (Array.isArray(field.latest_values) && field.latest_values.length > 0) {
+                return field.latest_values
+                    .map(sample => {
+                        if (sample && typeof sample === 'object') return sample;
+                        return { value: sample };
+                    })
+                    .filter(sample => sampleValueText(sample));
+            }
+            const value = String(field.latest_value || '').trim();
+            if (!value) return [];
+            return value.split(' / ').map(item => ({ value: item })).filter(sample => sampleValueText(sample));
+        };
+        const sampleCapturedAt = (sample) => sample && typeof sample === 'object'
+            ? String(sample.captured_at || '').trim()
+            : '';
+        const sampleBatchKey = (sample) => {
+            if (!sample || typeof sample !== 'object') return '';
+            const explicitKey = String(sample.sample_batch_key || '').trim();
+            if (explicitKey) return explicitKey;
+            const syncTaskId = Number(sample.sync_task_id || 0);
+            if (Number.isFinite(syncTaskId) && syncTaskId > 0) return `sync_task:${syncTaskId}`;
+            const capturedAt = sampleCapturedAt(sample);
+            return capturedAt ? `captured_at:${capturedAt}` : '';
+        };
+        const sampleMetaText = (sample) => {
+            if (!sample || typeof sample !== 'object') return '';
+            return [
+                sample.data_date ? `鏃ユ湡 ${sample.data_date}` : '',
+                sample.hotel_name ? `闂ㄥ簵 ${sample.hotel_name}` : '',
+                sample.source_key ? `瀛楁 ${sample.source_key}` : '',
+                sample.source_path ? `璺緞 ${sample.source_path}` : '',
+            ].filter(Boolean).join(' 路 ');
+        };
+        const sampleBriefMetaText = (sample) => {
+            if (!sample || typeof sample !== 'object') return '';
+            return [
+                sample.data_date ? `鏃ユ湡 ${sample.data_date}` : '',
+                sample.hotel_name ? `闂ㄥ簵 ${sample.hotel_name}` : '',
+            ].filter(Boolean).join(' 路 ');
+        };
+        const sampleSourceText = (sample) => {
+            if (!sample || typeof sample !== 'object') return '';
+            return [
+                sample.endpoint_id || sample.capture_section || '',
+                sample.source_key || '',
+                sample.source_path || '',
+            ].filter(Boolean).join(' 路 ');
+        };
+        const sampleText = (field) => sampleItems(field)
+            .map(sample => `${sampleValueText(sample)} ${sampleMetaText(sample)}`.trim())
+            .filter(Boolean)
+            .join(' / ');
+        const sampleSelectionKey = (sample) => {
+            if (!sample || typeof sample !== 'object') {
+                return String(sample || '').trim();
+            }
+            return [
+                sampleValueText(sample),
+                sample.unit || '',
+                sample.source_key || '',
+                sample.source_path || '',
+                sample.endpoint_id || sample.capture_section || '',
+                sample.data_date || '',
+                sample.hotel_name || '',
+                sample.captured_at || sample.created_at || '',
+            ].map(item => String(item || '').trim()).join('|');
+        };
+        const verifiedSampleKey = (field) => {
+            if (!field?.verified_sample_value) return '';
+            return [
+                field.verified_sample_value,
+                field.verified_sample_unit,
+                field.verified_sample_source_key,
+                field.verified_sample_source_path,
+                field.verified_sample_endpoint_id,
+                field.verified_sample_data_date,
+                field.verified_sample_hotel_name,
+                field.verified_sample_captured_at,
+            ].map(item => String(item || '').trim()).join('|');
+        };
+        const sampleSourcePathCanSeedJson = (sourcePath) => {
+            const value = String(sourcePath || '').trim();
+            return Boolean(value && !value.startsWith('online_daily_data#') && !value.includes('#'));
+        };
+        return {
+            sampleValueText,
+            sampleItems,
+            sampleCapturedAt,
+            sampleBatchKey,
+            sampleMetaText,
+            sampleBriefMetaText,
+            sampleSourceText,
+            sampleText,
+            sampleSelectionKey,
+            verifiedSampleKey,
+            sampleSourcePathCanSeedJson,
+        };
+    };
     const normalizeCtripBrowserCaptureSections = (sections, fallbackSections = 'default') => {
         const sectionSource = Array.isArray(sections)
             ? sections
@@ -2194,6 +2303,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         createCtripProfileFieldForm,
         buildCtripProfileFieldSmartDefaults,
         buildCtripProfileFieldSavePayload,
+        buildCtripProfileFieldSampleHelpers,
         normalizeCtripBrowserCaptureSections,
         buildCtripBrowserCaptureTargetContext,
         buildCtripBrowserCapturePayload,
