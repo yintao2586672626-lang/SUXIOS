@@ -554,6 +554,9 @@ requireText('public/ctrip-static.js', 'const queuedRequestBody = { ...requestBod
 requireText('public/ctrip-static.js', "return { status: 'accepted'", 'Ctrip manual fetch flows keep backend queued state non-blocking');
 requireText('public/meituan-static.js', 'const requestBody = { ...task.body, async: false, background: false }', 'Meituan manual batch fetch requests direct platform results for capture-display closure');
 requireText('public/meituan-static.js', "return { status: 'unexpected_background'", 'Meituan manual batch fetch exposes backend queued responses instead of marking them as successful capture results');
+requireNoText('public/meituan-static.js', 'const requestBody = { ...task.body, async: true }', 'Meituan manual batch fetch must not submit as background accepted work');
+requireNoText('public/index.html', 'meituanFetchBackgroundAccepted', 'Meituan manual batch UI must not present queued/running backend state as accepted progress');
+requireNoText('public/index.html', 'isMeituanBackgroundResult', 'Meituan manual batch UI must not classify queued/running backend state as a displayable result');
 requireText('app/controller/OnlineData.php', 'markAutoFetchRunningStatus', 'backend records running auto-fetch task status');
 requireText('app/controller/OnlineData.php', 'createAutoFetchBackgroundTask', 'backend creates one-shot auto-fetch background tasks');
 requireText('app/controller/OnlineData.php', "'/api/online-data/retry-auto-fetch'", 'backend retry auto-fetch posts the one-shot worker back to retry endpoint');
