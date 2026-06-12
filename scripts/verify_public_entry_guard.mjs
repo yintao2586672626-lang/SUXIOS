@@ -744,11 +744,15 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const loadAutoFetchStatus = async')
   );
   if (!autoFetchPanelLoader.includes('const staticReadyPromise = ensureAutoFetchStaticReady();')
+    || !autoFetchPanelLoader.includes('const canLoadStatusBeforeHotels = !!autoFetchHotelId.value;')
+    || !autoFetchPanelLoader.includes('const hotelsPromise = shouldLoadHotels ? loadHotels() : Promise.resolve();')
+    || !autoFetchPanelLoader.includes('if (canLoadStatusBeforeHotels) {\n                        await Promise.all([\n                            loadAutoFetchStatus({ detail: false }),\n                            staticReadyPromise,\n                            hotelsPromise,\n                        ]);')
+    || !autoFetchPanelLoader.includes('await hotelsPromise;\n                    if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {')
     || !autoFetchPanelLoader.includes('await Promise.all([\n                        loadAutoFetchStatus({ detail: false }),\n                        staticReadyPromise,\n                    ]);')
     || /scheduleAutoFetchStatusDetailRefresh\(\);/.test(autoFetchPanelLoader)
     || /schedulePlatformProfileStatusRefresh\(\{ silent: true \}\);/.test(autoFetchPanelLoader)
     || /await Promise\.all\(\[[\s\S]*loadAutoFetchStatus\(\)[\s\S]*loadPlatformProfileStatus/.test(autoFetchPanelLoader)) {
-    failures.push('public/index.html must let platform-auto first paint wait only for light auto-fetch status; full detail/profile refreshes must not auto-start on panel entry.');
+    failures.push('public/index.html must let platform-auto first paint wait only for light auto-fetch status, and load hotels/status/static helper in parallel when the selected hotel is already known.');
   }
   if (!content.includes('const scheduleAutoFetchConfigListPrewarm = () => {')
     || !content.includes('!ctripConfigListLoaded.value && (!ctripConfigList.value || ctripConfigList.value.length === 0)')
