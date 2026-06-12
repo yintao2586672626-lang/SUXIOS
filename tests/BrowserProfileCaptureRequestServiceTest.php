@@ -110,4 +110,49 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         self::assertSame('profile-1', $plan['profile_id']);
         self::assertContains('--hotel-id=hotel-1', $plan['args']);
     }
+
+    public function testBuildCtripAutoArgsKeepsHeadlessConcurrencyAndSections(): void
+    {
+        $args = BrowserProfileCaptureRequestService::buildCtripAutoArgs(
+            'node',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs',
+            'profile-1',
+            9,
+            '2026-06-11',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture' . DIRECTORY_SEPARATOR . 'capture.json',
+            ['business_overview', 'traffic_report'],
+            3,
+            false
+        );
+
+        self::assertContains('--login-timeout-ms=30000', $args);
+        self::assertContains('--sections=business_overview,traffic_report', $args);
+        self::assertContains('--section-concurrency=3', $args);
+        self::assertContains('--headless=true', $args);
+    }
+
+    public function testBuildMeituanAutoArgsKeepsSectionsAndOptionalMetadata(): void
+    {
+        $args = BrowserProfileCaptureRequestService::buildMeituanAutoArgs(
+            [
+                'capture_sections' => ['traffic', '../orders', 'traffic'],
+                'poi_id' => 'poi-1',
+                'hotel_name' => 'Store Name',
+            ],
+            'node',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs',
+            9,
+            'store-1',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'meituan_capture' . DIRECTORY_SEPARATOR . 'capture.json',
+            true,
+            'C:\\Chrome\\chrome.exe'
+        );
+
+        self::assertContains('--login-timeout-ms=300000', $args);
+        self::assertContains('--headless=false', $args);
+        self::assertContains('--sections=traffic,orders', $args);
+        self::assertContains('--poi-id=poi-1', $args);
+        self::assertContains('--poi-name=Store Name', $args);
+        self::assertContains('--chrome-path=C:\\Chrome\\chrome.exe', $args);
+    }
 }

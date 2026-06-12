@@ -178,4 +178,87 @@ final class BrowserProfileCaptureRequestService
             'args' => $args,
         ];
     }
+
+    public static function buildCtripAutoArgs(
+        string $nodeBinary,
+        string $scriptPath,
+        string $profileId,
+        int $systemHotelId,
+        string $dataDate,
+        string $outputPath,
+        array $sectionsList,
+        int $sectionConcurrency,
+        bool $interactiveBrowser
+    ): array {
+        return [
+            $nodeBinary,
+            $scriptPath,
+            '--profile-id=' . $profileId,
+            '--system-hotel-id=' . (string)$systemHotelId,
+            '--data-date=' . $dataDate,
+            '--output=' . $outputPath,
+            '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
+            '--sections=' . implode(',', $sectionsList),
+            '--section-concurrency=' . (string)$sectionConcurrency,
+            $interactiveBrowser ? '--headless=false' : '--headless=true',
+        ];
+    }
+
+    public static function normalizeProfileSections($value, string $fallback): string
+    {
+        $raw = is_array($value)
+            ? implode(',', array_map(static fn($item): string => (string)$item, $value))
+            : (string)$value;
+        $raw = preg_replace('/[^a-zA-Z,_\-\s]+/', '', $raw) ?: '';
+        $items = preg_split('/[,\s]+/', strtolower($raw)) ?: [];
+        $sections = [];
+        foreach ($items as $item) {
+            $item = trim($item);
+            if ($item === '') {
+                continue;
+            }
+            $sections[$item] = true;
+        }
+
+        return implode(',', array_keys($sections)) ?: $fallback;
+    }
+
+    public static function buildMeituanAutoArgs(
+        array $config,
+        string $nodeBinary,
+        string $scriptPath,
+        int $systemHotelId,
+        string $storeId,
+        string $outputPath,
+        bool $interactiveBrowser,
+        string $chromePath = ''
+    ): array {
+        $args = [
+            $nodeBinary,
+            $scriptPath,
+            '--store-id=' . $storeId,
+            '--output=' . $outputPath,
+            '--system-hotel-id=' . (string)$systemHotelId,
+            '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
+            $interactiveBrowser ? '--headless=false' : '--headless=true',
+            '--sections=' . self::normalizeProfileSections(
+                $config['profile_sections'] ?? $config['capture_sections'] ?? 'traffic,orders',
+                'traffic,orders'
+            ),
+        ];
+
+        $poiId = trim((string)($config['poi_id'] ?? $config['poiId'] ?? ''));
+        if ($poiId !== '') {
+            $args[] = '--poi-id=' . $poiId;
+        }
+        $poiName = trim((string)($config['name'] ?? $config['hotel_name'] ?? ''));
+        if ($poiName !== '') {
+            $args[] = '--poi-name=' . $poiName;
+        }
+        if ($chromePath !== '') {
+            $args[] = '--chrome-path=' . $chromePath;
+        }
+
+        return $args;
+    }
 }

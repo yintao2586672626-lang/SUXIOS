@@ -101,6 +101,8 @@ requireText('public/index.html', "requireCtripStatic('runCtripBrowserCaptureFlow
 requireText('app/service/BrowserProfileCaptureRequestService.php', 'final class BrowserProfileCaptureRequestService', 'browser Profile capture request planning lives in a focused service');
 requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::buildMeituanPlan(', 'OnlineData delegates Meituan browser Profile capture request planning');
 requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::buildCtripBasePlan(', 'OnlineData delegates Ctrip browser Profile capture base request planning');
+requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::buildCtripAutoArgs(', 'OnlineData delegates Ctrip browser Profile auto-fetch base arguments');
+requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::buildMeituanAutoArgs(', 'OnlineData delegates Meituan browser Profile auto-fetch base arguments');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCaptureTargetContext', 'Ctrip static builds browser capture target context');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCapturePayload', 'Ctrip static builds browser capture payloads');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCaptureRequestContext', 'Ctrip static builds browser capture request context');

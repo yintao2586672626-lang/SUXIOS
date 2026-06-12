@@ -20961,18 +20961,17 @@ JAVASCRIPT;
         if (empty($sectionsList)) {
             return ['success' => false, 'skipped' => true, 'message' => '获取字段配置中没有启用的可抓取字段，请先在“获取字段配置”启用字段或模块', 'saved_count' => 0];
         }
-        $args = [
+        $args = BrowserProfileCaptureRequestService::buildCtripAutoArgs(
             $nodeBinary,
             $scriptPath,
-            '--profile-id=' . $profileId,
-            '--system-hotel-id=' . (string)$hotelId,
-            '--data-date=' . $dataDate,
-            '--output=' . $outputPath,
-            '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
-            '--sections=' . implode(',', $sectionsList),
-            '--section-concurrency=' . $this->normalizeCtripSectionConcurrency($periodOptions['ctrip_section_concurrency'] ?? 3),
-        ];
-        $args[] = $interactiveBrowser ? '--headless=false' : '--headless=true';
+            $profileId,
+            $hotelId,
+            $dataDate,
+            $outputPath,
+            $sectionsList,
+            $this->normalizeCtripSectionConcurrency($periodOptions['ctrip_section_concurrency'] ?? 3),
+            $interactiveBrowser
+        );
         $args = $this->appendCtripCaptureGateArgs($args, $config);
         $mappingArgs = $this->appendCtripApprovedMappingsArg($args, $config, $projectRoot);
         if ($mappingArgs['error'] !== '') {
@@ -22095,32 +22094,17 @@ JAVASCRIPT;
         }
 
         $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_auto_' . $this->safeMeituanCaptureFilePart($storeId) . '_' . date('YmdHis') . '.json';
-        $args = [
+        $chromePath = $this->resolveMeituanCaptureChromePath();
+        $args = BrowserProfileCaptureRequestService::buildMeituanAutoArgs(
+            $config,
             $nodeBinary,
             $scriptPath,
-            '--store-id=' . $storeId,
-            '--output=' . $outputPath,
-            '--system-hotel-id=' . (string)$hotelId,
-            '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
-        ];
-        $args[] = $interactiveBrowser ? '--headless=false' : '--headless=true';
-        $sections = $this->normalizeProfileCaptureSections(
-            $config['profile_sections'] ?? $config['capture_sections'] ?? 'traffic,orders',
-            'traffic,orders'
+            $hotelId,
+            $storeId,
+            $outputPath,
+            $interactiveBrowser,
+            $chromePath
         );
-        $args[] = '--sections=' . $sections;
-        $poiId = trim((string)($config['poi_id'] ?? $config['poiId'] ?? ''));
-        if ($poiId !== '') {
-            $args[] = '--poi-id=' . $poiId;
-        }
-        $poiName = trim((string)($config['name'] ?? $config['hotel_name'] ?? ''));
-        if ($poiName !== '') {
-            $args[] = '--poi-name=' . $poiName;
-        }
-        $chromePath = $this->resolveMeituanCaptureChromePath();
-        if ($chromePath !== '') {
-            $args[] = '--chrome-path=' . $chromePath;
-        }
 
         $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'meituan', $hotelId, trim((string)($config['cookies'] ?? $config['cookie'] ?? '')));
         if ($cookieFile !== '') {
