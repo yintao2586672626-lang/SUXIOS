@@ -41,7 +41,9 @@ for (const line of lines) {
     failures.push('public/index.html is deleted.');
   }
 
-  if (path.startsWith('HOTEL/')) {
+  if (path === '.agents' || path.startsWith('.agents/')) {
+    addSummary('agent local change');
+  } else if (path.startsWith('HOTEL/')) {
     addSummary('nested HOTEL cleanup');
   } else if (path.startsWith('public/assets/') || /^public\/app(?:-main|-styles)?\./.test(path)) {
     addSummary('old frontend build artifact cleanup');

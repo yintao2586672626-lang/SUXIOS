@@ -157,13 +157,20 @@ function gitState() {
   const statusShort = runGit(['-c', 'core.quotePath=false', 'status', '--short', '--branch']).trimEnd();
   const changed = statusShort.split(/\r?\n/).filter((line) => line && !line.startsWith('##'));
   const changedFiles = changed.map(statusPath).filter(Boolean);
+  const agentChangedFiles = changedFiles.filter(isAgentLocalPath);
+  const nonAgentChangedFiles = changedFiles.filter((file) => !isAgentLocalPath(file));
   const branchLine = statusShort.split(/\r?\n/).find((line) => line.startsWith('##')) || '';
   const indexLockPath = path.join(repoRoot, '.git', 'index.lock');
   return {
     branch: branchLine.replace(/^##\s*/, ''),
     clean: changed.length === 0,
+    non_agent_clean: nonAgentChangedFiles.length === 0,
     changed_paths: changed.length,
     changed_files: changedFiles,
+    non_agent_changed_paths: nonAgentChangedFiles.length,
+    non_agent_changed_files: nonAgentChangedFiles,
+    agent_local_changed_paths: agentChangedFiles.length,
+    agent_local_changed_files: agentChangedFiles,
     index_lock: fs.existsSync(indexLockPath),
     status_short: statusShort,
   };
@@ -179,6 +186,11 @@ function statusPath(line) {
     value = value.slice(value.lastIndexOf(renameMarker) + renameMarker.length);
   }
   return normalizePath(value.replace(/^"|"$/g, ''));
+}
+
+function isAgentLocalPath(relativePath) {
+  const normalized = normalizePath(relativePath);
+  return normalized === '.agents' || normalized.startsWith('.agents/');
 }
 
 function measureTrackedFiles(files) {
@@ -506,8 +518,10 @@ function resolveStatus({ cleanup, git, splitCandidates, splitDispositions, dirty
   }
   if (requireCleanGit && !git.clean) {
     failures.push(`Git worktree is not clean: ${git.changed_paths} changed path(s).`);
+  } else if (!git.clean && git.non_agent_changed_paths > 0) {
+    warnings.push(`Git worktree has ${git.non_agent_changed_paths} non-agent changed path(s), ${git.changed_paths} total.`);
   } else if (!git.clean) {
-    warnings.push(`Git worktree has ${git.changed_paths} changed path(s).`);
+    warnings.push(`Git worktree has only .agents local change(s): ${git.agent_local_changed_paths} path(s).`);
   }
   if (failOnArtifacts && cleanup.estimated_reclaim_mb > maxReclaimMb) {
     failures.push(`Cleanup reclaim ${cleanup.estimated_reclaim_mb} MB exceeds allowed ${maxReclaimMb} MB.`);
@@ -572,7 +586,8 @@ function renderText(audit) {
   console.log('Git');
   console.log(`- branch: ${audit.git.branch || '(unknown)'}`);
   console.log(`- clean: ${audit.git.clean ? 'yes' : 'no'}`);
-  console.log(`- changed paths: ${audit.git.changed_paths}`);
+  console.log(`- non-agent clean: ${audit.git.non_agent_clean ? 'yes' : 'no'}`);
+  console.log(`- changed paths: ${audit.git.changed_paths} (${audit.git.non_agent_changed_paths} non-agent, ${audit.git.agent_local_changed_paths} .agents)`);
   console.log(`- index lock: ${audit.git.index_lock ? 'present' : 'absent'}`);
   console.log('');
 
