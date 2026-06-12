@@ -27,6 +27,7 @@
     "verify:worktree": "node scripts/verify_worktree_guard.mjs",
     "review:non-security": "node scripts/verify_non_security_review.mjs",
     "inspect:worktree-divergence": "node scripts/inspect_worktree_divergence.mjs",
+    "export:worktree-quarantine": "node scripts/create_worktree_quarantine_bundle.mjs",
     "review:release-issues": "node scripts/verify_release_issue_register.mjs",
     "verify:transfer-p2": "node scripts/verify_transfer_p2.mjs",
     "verify:expansion-p2": "node scripts/verify_expansion_p2.mjs",
