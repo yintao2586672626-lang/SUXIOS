@@ -23,6 +23,8 @@ test('Meituan ranking fetch requests platform data directly and shows visible pr
   assert.match(meituanStatic, /status: 'fetching'/);
   assert.match(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: false, background: false \};/);
   assert.doesNotMatch(fetchFlow, /\.\.\.task\.body, async: true/);
+  assert.doesNotMatch(fetchFlow, /setHotelsList\(\[\]\);/);
+  assert.doesNotMatch(fetchFlow, /setBusinessSummary\(getEmptyBusinessSummary\(\)\);/);
   assert.match(pendingSetup, /setOnlineDataResult\(\[\.\.\.results\]\);/);
   assert.match(pendingSetup, /setFetchSuccess\(true\);/);
   assert.match(html, /const isMeituanPendingResult = \(result = \{\}\)/);

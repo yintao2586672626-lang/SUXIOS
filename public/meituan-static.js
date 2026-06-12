@@ -922,8 +922,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
         setFetching(true);
         setOnlineDataResult(null);
         setFetchSuccess(false);
-        setHotelsList([]);
-        setBusinessSummary(getEmptyBusinessSummary());
         const fetchTasks = buildMeituanBatchFetchTasks({
             form,
             partnerId,

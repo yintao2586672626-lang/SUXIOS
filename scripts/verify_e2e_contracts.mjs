@@ -1836,11 +1836,11 @@ try {
         && flowDisplayPayload.target_poi_id === 'poi-1'
         && flowSavedCount === requestedBodies.length * 2
         && flowFetchTime === '2026-06-11 12:00:00'
-        && flowBusinessSummary.status === 'empty'
+        && flowBusinessSummary === null
         && flowStates[0] === 'fetching:true'
         && flowStates.includes('success:false')
         && flowStates.includes('success:true')
-        && flowStates.includes('hotels:0')
+        && !flowStates.includes('hotels:0')
         && flowStates.at(-1) === 'fetching:false'
         && flowEvents.includes('ensure-config')
         && flowEvents.includes('apply:false')
@@ -1860,7 +1860,7 @@ try {
         && acceptedMeituanStates[0] === 'fetching:true'
         && acceptedMeituanStates.includes('success:false')
         && acceptedMeituanStates.includes('success:true')
-        && acceptedMeituanStates.includes('hotels:0')
+        && !acceptedMeituanStates.includes('hotels:0')
         && acceptedMeituanStates.at(-1) === 'fetching:false'
         && !acceptedMeituanEvents.includes('history')
         && !acceptedMeituanEvents.includes('refresh-data')
