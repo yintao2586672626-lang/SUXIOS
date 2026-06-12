@@ -1862,6 +1862,17 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `266.33 MB`, without `.git` about `124.6 MB`, without `.git` and dependencies about `95.41 MB`, tracked files about `19.12 MB` / `628` files; code scope `383` files, `200917` total lines, and `184750` nonblank lines. Runtime/output cleanup is about `31.36 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: PHP syntax checks for `app/controller/OnlineData.php`, `app/service/BrowserProfileCaptureRequestService.php`, and `tests\BrowserProfileCaptureRequestServiceTest.php`; `tests\BrowserProfileCaptureRequestServiceTest.php` with `6` tests and `30` assertions; `tests\OnlineDataTest.php --filter Browser` with `3` tests and `24` assertions; `verify:e2e-contracts` with `944` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Frontend Startup Refresh Boundary
+
+- `public/index.html` now delays initial compass loading and backend notification refresh after login/session restore, giving fast OTA navigation a visible-page guard before heavier background work starts.
+- Backend notification polling now yields while core OTA pages are visible. Compass weather refreshes check that the compass page is still active before requesting or re-requesting weather data.
+- `loadHotels()` now deduplicates matching in-flight hotel-list requests, and Meituan manual ranking summary refresh is delayed with a page/tab guard so it does not run after leaving the ranking tab.
+- This does not change APIs, OTA collection, persistence schema, AI analysis, permissions, database structure, or metric semantics. It only narrows startup/background refresh timing and visibility.
+- Guards now require the delayed compass startup, delayed notification startup, in-flight hotel-list dedupe, weather visibility checks, and delayed Meituan ranking summary page guard. `verify:e2e-contracts` covers `960` checks.
+- Current split-map: `public/index.html` has `37536` lines, `1591` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26351` lines and `872` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `268.06 MB`, without `.git` about `125.57 MB`, without `.git` and dependencies about `96.38 MB`, tracked files about `19.13 MB` / `628` files; code scope `383` files, `201003` total lines, and `184828` nonblank lines. Runtime/output cleanup is about `32.32 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `verify:public-entry`; `verify:e2e-contracts` with `960` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

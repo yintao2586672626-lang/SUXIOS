@@ -18389,6 +18389,18 @@
                 }
                 setTimeout(runner, delay);
             };
+            const scheduleDelayedPageTask = (callback, delay = 0) => {
+                setTimeout(() => {
+                    try {
+                        const result = callback();
+                        if (result && typeof result.catch === 'function') {
+                            result.catch(error => console.warn('deferred task failed:', error));
+                        }
+                    } catch (error) {
+                        console.warn('deferred task failed:', error);
+                    }
+                }, Math.max(0, Number(delay) || 0));
+            };
             const deferFrameTask = (callback, delay = 0) => {
                 if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
                     window.requestAnimationFrame(() => deferUiTask(callback, delay));
@@ -18487,6 +18499,7 @@
 
             // 线上数据获取
             const onlineDataTab = ref('data-health');
+            const isCoreOtaPageVisible = () => ['online-data', 'ctrip-ebooking', 'meituan-ebooking'].includes(currentPage.value);
             const shouldShowOnlineFetchResult = computed(() => ['ctrip', 'meituan', 'ctrip-traffic', 'meituan-traffic', 'custom'].includes(onlineDataTab.value));
             const platformDataSources = ref([]);
             const platformSyncTasks = ref([]);
@@ -21669,6 +21682,7 @@
                 return message || `${city} 天气数据暂不可用，请检查天气接口或门店城市配置。`;
             };
             const loadWeatherForCity = async () => {
+                if (currentPage.value !== 'compass') return;
                 const city = weatherLocationName.value;
                 const sourceCity = extractCityName(compassWeather.value[0]?.location);
                 weatherError.value = '';
@@ -23161,6 +23175,12 @@
                 scheduleAutoFetchStatusDetailRefresh();
             };
             const scheduleBackendNotificationRefresh = () => schedulePostFetchRefresh('backend-global-notifications', () => loadBackendGlobalNotifications().catch(() => null), 700);
+            const scheduleInitialBackendNotificationRefresh = (delayMs = 2200) => {
+                setTimeout(() => {
+                    if (!token.value || isCoreOtaPageVisible()) return;
+                    refreshGlobalNotifications({ silent: true, backendOnly: true });
+                }, Math.max(0, Number(delayMs) || 0));
+            };
             const scheduleCtripProfileFieldReview = () => schedulePostFetchRefresh('ctrip-profile-field-review', () => openCtripProfileFieldsForReview(), 520);
             const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => {
                 if (!isDataHealthPanelVisible()) return null;
@@ -24160,6 +24180,15 @@
                     });
                 pageLoadRequests.set(key, { loadedAt: current?.loadedAt || 0, promise });
                 return promise;
+            };
+            const scheduleInitialCompassLoad = (options = {}) => {
+                const delayMs = Number(options.delayMs ?? 700);
+                scheduleDelayedPageTask(() => {
+                    if (!token.value || currentPage.value !== 'compass') return null;
+                    const runOptions = options.force ? { force: true } : {};
+                    runPageLoadOnce('compass', 'auto-fetch-static', () => ensureAutoFetchStaticReady(), runOptions);
+                    return runPageLoadOnce('compass', 'main', () => loadCompassData(), runOptions);
+                }, delayMs);
             };
             const isVisibleOnlineDataTab = isOnlineDataTabVisible;
             const schedulePlatformDataSourcePanelLoad = (options = {}) => runPageLoadOnce(
@@ -28520,9 +28549,8 @@
                         showToast(`欢迎回来，${res.data.user.realname || res.data.user.username}！`, 'success');
                         currentPage.value = 'compass';
                         loadData();
-                        runPageLoadOnce('compass', 'auto-fetch-static', () => ensureAutoFetchStaticReady(), { force: true });
-                        runPageLoadOnce('compass', 'main', () => loadCompassData(), { force: true });
-                        setTimeout(() => refreshGlobalNotifications({ silent: true, backendOnly: true }), 300);
+                        scheduleInitialCompassLoad({ force: true, delayMs: 1800 });
+                        scheduleInitialBackendNotificationRefresh();
                     } else {
                         loginError.value = res.message || res.msg || '登录失败，请检查用户名和密码';
                     }
@@ -28602,29 +28630,40 @@
                     return true;
                 });
             };
+            const loadHotelsRequestPromises = new Map();
 
             // 加载数据
             const loadHotels = async (options = {}) => {
-                try {
-                    const includeInactive = options.includeInactive === true || currentPage.value === 'hotels';
-                    const url = user.value?.is_super_admin && includeInactive ? '/hotels?page=1&page_size=1000' : '/hotels/all';
-                    const res = await request(url);
-                    if (res.code === 200) {
-                        // 兼容两种响应格式
-                        const hotelData = res.data.list || res.data;
-                        if (Array.isArray(hotelData)) {
-                            hotels.value = dedupeHotels(hotelData);
-                        } else {
-                            hotels.value = [];
-                            console.warn('门店数据格式异常:', res.data);
-                        }
-                    } else {
-                        showToast('加载门店数据失败', 'error');
-                    }
-                } catch (error) {
-                    showToast('加载门店数据失败', 'error');
-                    console.error('加载门店失败:', error);
+                const includeInactive = options.includeInactive === true || currentPage.value === 'hotels';
+                const requestKey = user.value?.is_super_admin && includeInactive ? 'paged-with-inactive' : 'all-active';
+                if (loadHotelsRequestPromises.has(requestKey)) {
+                    return loadHotelsRequestPromises.get(requestKey);
                 }
+                const run = (async () => {
+                    try {
+                        const url = user.value?.is_super_admin && includeInactive ? '/hotels?page=1&page_size=1000' : '/hotels/all';
+                        const res = await request(url);
+                        if (res.code === 200) {
+                            // 兼容两种响应格式
+                            const hotelData = res.data.list || res.data;
+                            if (Array.isArray(hotelData)) {
+                                hotels.value = dedupeHotels(hotelData);
+                            } else {
+                                hotels.value = [];
+                                console.warn('门店数据格式异常:', res.data);
+                            }
+                        } else {
+                            showToast('加载门店数据失败', 'error');
+                        }
+                    } catch (error) {
+                        showToast('加载门店数据失败', 'error');
+                        console.error('加载门店失败:', error);
+                    } finally {
+                        loadHotelsRequestPromises.delete(requestKey);
+                    }
+                })();
+                loadHotelsRequestPromises.set(requestKey, run);
+                return run;
             };
 
             const getHotelNameById = (hotelId) => {
@@ -31949,7 +31988,9 @@
                         compassMetrics.value = res.data.metrics || compassMetrics.value;
                         compassAlerts.value = res.data.alerts || [];
                         compassHolidays.value = res.data.holidays || [];
-                        loadWeatherForCity();
+                        if (currentPage.value === 'compass') {
+                            loadWeatherForCity();
+                        }
                     }
                     compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
                     deferUiTask(async () => {
@@ -31997,7 +32038,9 @@
             });
 
             watch(weatherLocationName, () => {
-                loadWeatherForCity();
+                if (currentPage.value === 'compass') {
+                    loadWeatherForCity();
+                }
             });
 
             const moveCompassBlock = (key, direction) => {
@@ -32087,15 +32130,17 @@
             };
 
             const scheduleMeituanRankingSummaryRefresh = (options = {}) => {
-                const delay = Number.isFinite(options.delay) ? options.delay : 0;
+                const delay = Number.isFinite(options.delay) ? options.delay : 1800;
                 const force = options.force === true;
-                deferUiTask(async () => {
+                scheduleDelayedPageTask(async () => {
                     if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== 'meituan-ranking') return;
-                    if (force || !competitorSummary.value) {
+                    if (force) {
                         await loadCompetitorSummary({ includeByHotel: false });
                         return;
                     }
-                    syncMeituanRankingDisplayFromCompetitorSummary();
+                    if (competitorSummary.value) {
+                        syncMeituanRankingDisplayFromCompetitorSummary();
+                    }
                 }, delay);
             };
 
@@ -35425,7 +35470,7 @@
                 updateCurrentTime();
                 setInterval(updateCurrentTime, 1000);
                 globalNotificationRefreshTimer = setInterval(() => {
-                    if (isLoggedIn.value && token.value) {
+                    if (isLoggedIn.value && token.value && !isCoreOtaPageVisible()) {
                         refreshGlobalNotifications({ silent: true, backendOnly: true });
                     }
                 }, globalNotificationPollIntervalMs.value);
@@ -35446,10 +35491,9 @@
                             isLoggedIn.value = true;
                             loadData();
                             if (currentPage.value === 'compass') {
-                                runPageLoadOnce('compass', 'auto-fetch-static', () => ensureAutoFetchStaticReady(), { force: true });
-                                runPageLoadOnce('compass', 'main', () => loadCompassData(), { force: true });
+                                scheduleInitialCompassLoad({ force: true, delayMs: 1800 });
                             }
-                            setTimeout(() => refreshGlobalNotifications({ silent: true, backendOnly: true }), 300);
+                            scheduleInitialBackendNotificationRefresh();
                             if (currentPage.value === 'opening-overview' || currentPage.value === 'opening-checklist') {
                                 loadOpeningProjects();
                             }

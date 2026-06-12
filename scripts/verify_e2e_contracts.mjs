@@ -277,7 +277,7 @@ requireText('public/index.html', 'const platformProfileStatusRequestPromises = n
 requireText('public/index.html', 'ctrip_auto_fetch_mode: autoFetchMode.value', 'platform auto-fetch keeps Ctrip on the selected fast mode by default');
 requireText('public/index.html', "const isCoreOtaPageVisible = () => ['online-data', 'ctrip-ebooking', 'meituan-ebooking'].includes(currentPage.value);", 'core OTA pages are explicit so background refreshes can yield to them');
 requireText('public/index.html', 'const scheduleInitialCompassLoad = (options = {}) => {', 'initial compass loading is scheduled instead of blocking fast OTA navigation');
-requireText('public/index.html', "scheduleInitialCompassLoad({ force: true, delayMs: 700 });", 'login startup leaves a short window for fast OTA page switches');
+requireText('public/index.html', "scheduleInitialCompassLoad({ force: true, delayMs: 1800 });", 'login startup leaves a window for fast OTA page switches before compass loading');
 requireText('public/index.html', 'const scheduleInitialBackendNotificationRefresh = (delayMs = 2200) => {', 'startup backend notification refresh is delayed');
 requireText('public/index.html', 'if (isLoggedIn.value && token.value && !isCoreOtaPageVisible()) {', 'notification polling is paused while core OTA pages are visible');
 requireText('public/index.html', 'const loadHotelsRequestPromises = new Map();', 'hotel-list requests are deduplicated while a matching request is in flight');
@@ -286,6 +286,10 @@ requireText('public/index.html', 'loadHotelsRequestPromises.set(requestKey, run)
 requireText('public/index.html', "if (!token.value || currentPage.value !== 'compass') return;", 'home trend and holiday requests do not run after leaving the compass page');
 requireText('public/index.html', "if (!token.value || currentPage.value !== 'compass' || macroSignalLoading.value) return;", 'macro signal request does not run after leaving the compass page');
 requireText('public/index.html', "if (options.requireCompass === true && currentPage.value !== 'compass') return;", 'home competitor summary request can be scoped to the compass page');
+requireText('public/index.html', 'const delay = Number.isFinite(options.delay) ? options.delay : 1800;', 'Meituan manual ranking summary is delayed so first paint stays responsive');
+requireText('public/index.html', 'scheduleDelayedPageTask(async () => {\n                    if (currentPage.value !== \'meituan-ebooking\' || onlineDataTab.value !== \'meituan-ranking\') return;', 'Meituan manual ranking summary skips after page switches');
+requireText('public/index.html', 'if (force) {\n                        await loadCompetitorSummary({ includeByHotel: false });\n                        return;\n                    }', 'Meituan manual ranking summary only requests competitor summary when forced');
+requireNoText('public/index.html', 'if (force || !competitorSummary.value) {\n                        await loadCompetitorSummary({ includeByHotel: false });', 'Meituan manual page must not auto-start slow competitor summary on first paint');
 requireText('public/index.html', "if (currentPage.value !== 'compass') return;", 'weather request does not run after leaving the compass page');
 requireText('public/index.html', "if (currentPage.value === 'compass') {\n                            loadWeatherForCity();\n                        }", 'compass response only triggers weather while the compass page is still visible');
 requireText('public/index.html', "if (currentPage.value !== 'compass') return null;", 'deferred compass background jobs are skipped after page switch');
