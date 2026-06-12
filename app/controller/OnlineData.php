@@ -7,6 +7,7 @@ use app\model\OperationLog;
 use app\model\SystemConfig;
 use app\model\SystemNotification;
 use app\model\User as UserModel;
+use app\service\BrowserProfileCaptureRequestService;
 use app\service\OtaOperatingScope;
 use app\service\OtaTrafficUrlNormalizer;
 use app\service\CtripCaptureDiagnosisService;
@@ -1343,7 +1344,7 @@ class OnlineData extends Base
             ?? $requestData['hotel_id']
             ?? null
         );
-        $storeId = trim((string)($requestData['store_id'] ?? $requestData['storeId'] ?? $requestData['poi_id'] ?? ''));
+        $storeId = BrowserProfileCaptureRequestService::resolveMeituanStoreId($requestData);
         if ($storeId === '') {
             return $this->error('请填写美团 Store ID / 门店 ID');
         }
@@ -1361,53 +1362,26 @@ class OnlineData extends Base
             return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
         }
 
-        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'meituan_capture';
+        $chromePath = $this->resolveMeituanCaptureChromePath();
+        $capturePlan = BrowserProfileCaptureRequestService::buildMeituanPlan(
+            $requestData,
+            $projectRoot,
+            $nodeBinary,
+            $loginOnly,
+            $systemHotelId ? (int)$systemHotelId : null,
+            date('YmdHis'),
+            $chromePath
+        );
+        $outputDir = $capturePlan['output_dir'];
         if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
             return $this->error('无法创建美团抓取输出目录');
         }
 
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_capture_' . $this->safeMeituanCaptureFilePart($storeId) . '_' . date('YmdHis') . '.json';
-        $timeoutSeconds = max(60, min(900, (int)($requestData['timeout_seconds'] ?? 600)));
+        $outputPath = $capturePlan['output_path'];
+        $timeoutSeconds = (int)$capturePlan['timeout_seconds'];
 
-        $args = [
-            $nodeBinary,
-            $scriptPath,
-            '--store-id=' . $storeId,
-            '--output=' . $outputPath,
-            '--login-timeout-ms=' . (string)max(30000, min(600000, (int)($requestData['login_timeout_ms'] ?? 300000))),
-        ];
-        if ($systemHotelId) {
-            $args[] = '--system-hotel-id=' . (string)$systemHotelId;
-        }
-        $poiId = trim((string)($requestData['poi_id'] ?? $requestData['poiId'] ?? ''));
-        if ($poiId !== '') {
-            $args[] = '--poi-id=' . $poiId;
-        }
-        $poiName = trim((string)($requestData['poi_name'] ?? $requestData['poiName'] ?? ''));
-        if ($poiName !== '') {
-            $args[] = '--poi-name=' . $poiName;
-        }
-        $adsUrl = trim((string)($requestData['ads_url'] ?? $requestData['adsUrl'] ?? ''));
-        if ($adsUrl !== '') {
-            $args[] = '--ads-url=' . $adsUrl;
-        }
-        $captureSectionsValue = $requestData['sections'] ?? $requestData['capture_sections'] ?? $requestData['captureSections'] ?? '';
-        $captureSections = is_array($captureSectionsValue)
-            ? implode(',', array_map('strval', $captureSectionsValue))
-            : trim((string)$captureSectionsValue);
-        if ($captureSections !== '') {
-            $captureSections = preg_replace('/[^a-zA-Z,_\-\s]+/', '', $captureSections) ?: '';
-            if ($captureSections !== '') {
-                $args[] = '--sections=' . $captureSections;
-            }
-        }
-        if ($loginOnly) {
-            $args[] = '--login-only=true';
-        }
-        $chromePath = $this->resolveMeituanCaptureChromePath();
-        if ($chromePath !== '') {
-            $args[] = '--chrome-path=' . $chromePath;
-        }
+        $args = $capturePlan['args'];
+        $poiId = (string)$capturePlan['poi_id'];
 
         $lock = $this->acquirePlatformProfileCaptureLock('meituan', $storeId);
         if ($lock === null) {
@@ -1634,11 +1608,8 @@ class OnlineData extends Base
             $dataDate = date('Y-m-d', strtotime('-1 day'));
         }
 
-        $hotelId = trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? ''));
-        $profileId = trim((string)($requestData['profile_id'] ?? $requestData['profileId'] ?? $hotelId));
-        if ($profileId === '') {
-            $profileId = 'system_' . (string)$systemHotelId;
-        }
+        $hotelId = BrowserProfileCaptureRequestService::resolveCtripHotelId($requestData);
+        $profileId = BrowserProfileCaptureRequestService::resolveCtripProfileId($requestData, (int)$systemHotelId, $hotelId);
         $loginOnly = $this->isCtripLoginOnlyRequest($requestData);
 
         $projectRoot = dirname(__DIR__, 2);
@@ -1652,31 +1623,22 @@ class OnlineData extends Base
             return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
         }
 
-        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture';
+        $capturePlan = BrowserProfileCaptureRequestService::buildCtripBasePlan(
+            $requestData,
+            $projectRoot,
+            $nodeBinary,
+            (int)$systemHotelId,
+            $dataDate,
+            date('YmdHis')
+        );
+        $outputDir = $capturePlan['output_dir'];
         if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
             return $this->error('无法创建携程采集输出目录');
         }
 
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_capture_' . $this->safeMeituanCaptureFilePart($profileId) . '_' . date('YmdHis') . '.json';
-        $timeoutSeconds = max(60, min(900, (int)($requestData['timeout_seconds'] ?? 600)));
-
-        $args = [
-            $nodeBinary,
-            $scriptPath,
-            '--profile-id=' . $profileId,
-            '--system-hotel-id=' . (string)$systemHotelId,
-            '--data-date=' . $dataDate,
-            '--output=' . $outputPath,
-            '--login-timeout-ms=' . (string)max(30000, min(600000, (int)($requestData['login_timeout_ms'] ?? 300000))),
-            '--login-url=https://ebooking.ctrip.com/login/index',
-        ];
-        if ($hotelId !== '') {
-            $args[] = '--hotel-id=' . $hotelId;
-        }
-        $hotelName = trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? ''));
-        if ($hotelName !== '') {
-            $args[] = '--hotel-name=' . $hotelName;
-        }
+        $outputPath = $capturePlan['output_path'];
+        $timeoutSeconds = (int)$capturePlan['timeout_seconds'];
+        $args = $capturePlan['args'];
         $fieldConfigPayload = $this->buildCtripProfileFieldConfigPayload($this->readCtripProfileCaptureFields(true));
         $sectionsList = $this->resolveCtripProfileCaptureSectionsForRun($requestData, $fieldConfigPayload, $loginOnly);
         if (!$loginOnly && empty($sectionsList)) {

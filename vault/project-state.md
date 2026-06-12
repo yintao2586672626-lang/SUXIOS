@@ -1841,6 +1841,17 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `264.2 MB`, without `.git` about `124.06 MB`, without `.git` and dependencies about `94.87 MB`, tracked files about `19.1 MB` / `626` files; code scope `381` files, `200537` total lines, and `184415` nonblank lines. Runtime/output cleanup is about `30.84 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `936` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Browser Profile Capture Request Plan Split
+
+- Added `app/service/BrowserProfileCaptureRequestService.php` for pure Browser Profile capture request planning: safe file key generation, timeout bounds, Meituan store/POI/section normalization, Meituan command args, and Ctrip profile/hotel/base command args.
+- `app/controller/OnlineData.php` now delegates Meituan and Ctrip manual Browser Profile capture request planning to the service while keeping permission checks, script existence checks, output directory creation, lock handling, Node execution, auth status caching, persistence, operation logs, and response payloads in the controller.
+- `public/index.html` compass follow-up refreshes now run as explicit serial background jobs after a short delay and re-check `currentPage === 'compass'` before each job, so fast page switches do not start the full follow-up batch.
+- This does not change OTA capture scripts, credentials, persistence schema, AI analysis, permissions, database structure, or saved response payload shape.
+- Guards now require the Browser Profile capture request service and controller delegation. `verify:e2e-contracts` covers `942` checks.
+- Current split-map: `public/index.html` has `37494` lines, `1586` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` decreased from `26438` to `26400` lines; `captureCtripBrowserData` is `260` lines and `captureMeituanBrowserData` is `247` lines. Both `public/index.html` and `app/controller/OnlineData.php` remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `265.38 MB`, without `.git` about `124.57 MB`, without `.git` and dependencies about `95.38 MB`, tracked files about `19.1 MB` / `626` files; code scope `381` files, `200509` total lines, and `184388` nonblank lines. Runtime/output cleanup is about `31.34 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: PHP syntax checks for `app/controller/OnlineData.php`, `app/service/BrowserProfileCaptureRequestService.php`, and `tests\BrowserProfileCaptureRequestServiceTest.php`; `tests\BrowserProfileCaptureRequestServiceTest.php` with `4` tests and `20` assertions; `tests\OnlineDataTest.php --filter Browser` with `3` tests and `24` assertions; `verify:public-entry`; `verify:e2e-contracts` with `942` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

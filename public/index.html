@@ -31954,17 +31954,21 @@
                     compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
                     deferUiTask(async () => {
                         if (currentPage.value !== 'compass') return null;
-                        await Promise.allSettled([
-                            loadHolidayRevenueCountdown(),
-                            loadMacroSignals(),
-                            loadHomeTrends(),
-                            loadCompetitorSummary({ requireCompass: true })
-                        ]);
+                        const compassBackgroundJobs = [
+                            () => loadHolidayRevenueCountdown(),
+                            () => loadMacroSignals(),
+                            () => loadHomeTrends(),
+                            () => loadCompetitorSummary({ requireCompass: true })
+                        ];
+                        for (const job of compassBackgroundJobs) {
+                            if (currentPage.value !== 'compass') return null;
+                            await job();
+                        }
                         if (currentPage.value === 'compass') {
                             compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
                         }
                         return null;
-                    }, 0);
+                    }, 1200);
                     if (options.notify) {
                         showToast('罗盘数据已更新');
                     }

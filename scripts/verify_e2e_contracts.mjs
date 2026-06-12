@@ -98,6 +98,9 @@ requireNoText('public/index.html', 'const meituanIdentifierMissing = [', 'hotel 
 requireText('public/system-static.js', "target: 'profile-login'", 'system static keeps profile login direct target metadata');
 requireText('public/system-static.js', "target: 'sync-logs'", 'system static keeps sync logs direct target metadata');
 requireText('public/index.html', "requireCtripStatic('runCtripBrowserCaptureFlow')", 'entry uses extracted Ctrip browser capture flow runner');
+requireText('app/service/BrowserProfileCaptureRequestService.php', 'final class BrowserProfileCaptureRequestService', 'browser Profile capture request planning lives in a focused service');
+requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::buildMeituanPlan(', 'OnlineData delegates Meituan browser Profile capture request planning');
+requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::buildCtripBasePlan(', 'OnlineData delegates Ctrip browser Profile capture base request planning');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCaptureTargetContext', 'Ctrip static builds browser capture target context');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCapturePayload', 'Ctrip static builds browser capture payloads');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCaptureRequestContext', 'Ctrip static builds browser capture request context');
@@ -271,6 +274,9 @@ requireText('public/index.html', "if (!token.value || currentPage.value !== 'com
 requireText('public/index.html', "if (options.requireCompass === true && currentPage.value !== 'compass') return;", 'home competitor summary request can be scoped to the compass page');
 requireText('public/index.html', "if (currentPage.value !== 'compass') return null;", 'deferred compass background jobs are skipped after page switch');
 requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true })', 'deferred compass competitor summary uses page visibility guard');
+requireText('public/index.html', 'const compassBackgroundJobs = [', 'deferred compass background jobs are queued explicitly');
+requireText('public/index.html', 'await job();', 'deferred compass background jobs run serially instead of in parallel');
+requireText('public/index.html', '}, 1200);', 'deferred compass background jobs leave a short window for fast page switches');
 requireText('app/controller/OnlineData.php', "?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
 requireText('app/controller/OnlineData.php', "get('include_detail'", 'backend auto-fetch status supports light detail requests');
 requireText('app/controller/OnlineData.php', "'detail_loaded' => false", 'backend auto-fetch status marks light responses explicitly');
