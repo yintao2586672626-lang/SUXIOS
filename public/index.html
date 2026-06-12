@@ -14383,27 +14383,6 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div v-if="false && onlineDataQualitySummary" class="mb-4 rounded-lg border px-4 py-3" :class="onlineDataQualityStatusClass(onlineDataQualitySummary)">
-                                        <div class="flex flex-wrap items-center justify-between gap-3">
-                                            <div class="flex items-center gap-3">
-                                                <i class="fas fa-shield-alt"></i>
-                                                <div>
-                                                    <div class="text-sm font-medium">数据完整性检测：{{ onlineDataQualityStatusText(onlineDataQualitySummary) }}</div>
-                                                    <div class="text-xs opacity-80">
-                                                        已检 {{ onlineDataQualitySummary.checked_records || 0 }} 条，缺失 {{ onlineDataQualitySummary.missing_count || 0 }} 项，异常 {{ onlineDataQualitySummary.abnormal_count || 0 }} 项
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div v-if="onlineDataQualitySummary.issue_records > 0" class="text-xs font-medium">
-                                                {{ onlineDataQualitySummary.issue_records }} 条记录需复核
-                                            </div>
-                                        </div>
-                                        <div v-if="onlineDataQualityPromptList(onlineDataQualitySummary, 3).length" class="mt-2 flex flex-wrap gap-2">
-                                            <span v-for="prompt in onlineDataQualityPromptList(onlineDataQualitySummary, 3)" :key="prompt" class="px-2 py-1 rounded bg-white/70 text-xs">
-                                                {{ prompt }}
-                                            </span>
-                                        </div>
-                                    </div>
 
                                     <div class="overflow-x-auto border rounded-lg">
                                         <table class="w-full">
@@ -14479,84 +14458,7 @@
                                     </div>
 
                                     <!-- 数据分析 -->
-                                    <div v-if="false" class="mt-6 border-t pt-4">
-                                        <div class="flex items-center justify-between mb-4">
-                                            <h4 class="font-medium text-gray-700">数据分析</h4>
-                                            <div class="flex gap-2">
-                                                <button @click="loadAnalysisData('day')"
-                                                    :class="['px-3 py-1 rounded text-sm', analysisDimension==='day' ? 'bg-blue-500 text-white' : 'bg-gray-200 hover:bg-gray-300']">
-                                                    日
-                                                </button>
-                                                <button @click="loadAnalysisData('week')"
-                                                    :class="['px-3 py-1 rounded text-sm', analysisDimension==='week' ? 'bg-blue-500 text-white' : 'bg-gray-200 hover:bg-gray-300']">
-                                                    周
-                                                </button>
-                                                <button @click="loadAnalysisData('month')"
-                                                    :class="['px-3 py-1 rounded text-sm', analysisDimension==='month' ? 'bg-blue-500 text-white' : 'bg-gray-200 hover:bg-gray-300']">
-                                                    月
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <!-- 汇总卡片 -->
-                                        <div v-if="analysisData.summary" class="grid grid-cols-5 gap-3 mb-4">
-                                            <div class="bg-white border rounded-lg p-3 text-center">
-                                                <div class="text-xs text-gray-500">{{ analysisDimension==='day'?'日均':analysisDimension==='week'?'周均':'月均' }}销售额</div>
-                                                <div class="text-lg font-bold text-green-600">¥{{ formatNumber(analysisData.summary.avg_amount) }}</div>
-                                                <div class="text-xs text-gray-400">总计 ¥{{ formatNumber(analysisData.summary.total_amount) }}</div>
-                                            </div>
-                                            <div class="bg-white border rounded-lg p-3 text-center">
-                                                <div class="text-xs text-gray-500">{{ analysisDimension==='day'?'日均':analysisDimension==='week'?'周均':'月均' }}房晚数</div>
-                                                <div class="text-lg font-bold text-blue-600">{{ toFixedSafe(analysisData.summary.avg_quantity, 0, '0') }}</div>
-                                                <div class="text-xs text-gray-400">总计 {{ analysisData.summary.total_quantity }}晚</div>
-                                            </div>
-                                            <div class="bg-white border rounded-lg p-3 text-center">
-                                                <div class="text-xs text-gray-500">{{ analysisDimension==='day'?'日均':analysisDimension==='week'?'周均':'月均' }}月间夜</div>
-                                                <div class="text-lg font-bold text-purple-600">{{ toFixedSafe(analysisData.summary.avg_data_value, 1, '-') }}</div>
-                                                <div class="text-xs text-gray-400">总计 {{ toFixedSafe(analysisData.summary.total_data_value, 0, '0') }}</div>
-                                            </div>
-                                            <div class="bg-white border rounded-lg p-3 text-center">
-                                                <div class="text-xs text-gray-500">{{ analysisDimension==='day'?'日均':analysisDimension==='week'?'周均':'月均' }}订单数</div>
-                                                <div class="text-lg font-bold text-orange-600">{{ toFixedSafe(safeDivide(analysisData.summary.total_orders, analysisData.summary.period_count, 0), 0, '0') }}</div>
-                                                <div class="text-xs text-gray-400">总计 {{ toFixedSafe(analysisData.summary.total_orders, 0, '0') }}单 / 评分{{ toFixedSafe(analysisData.summary.avg_score, 1, '0') }}</div>
-                                            </div>
-                                            <div class="bg-white border rounded-lg p-3 text-center">
-                                                <div class="text-xs text-gray-500">{{ analysisDimension==='day'?'天数':analysisDimension==='week'?'周数':'月数' }}</div>
-                                                <div class="text-lg font-bold text-gray-600">{{ analysisData.summary.period_count }}</div>
-                                                <div class="text-xs text-gray-400">涉及 {{ analysisData.summary.hotel_count }} 家酒店</div>
-                                            </div>
-                                        </div>
-
-                                        <!-- 图表 -->
-                                        <div class="bg-white border rounded-lg p-4 mb-4">
-                                            <canvas id="analysisChart" height="300"></canvas>
-                                        </div>
-
-                                        <!-- 酒店排名 -->
-                                        <div v-if="analysisData.hotel_ranking && analysisData.hotel_ranking.length > 0" class="bg-white border rounded-lg p-4">
-                                            <h5 class="font-medium mb-3 text-gray-700">酒店间夜排名 TOP 10</h5>
-                                            <div class="space-y-2">
-                                                <div v-for="(hotel, index) in analysisData.hotel_ranking" :key="hotel.hotel_id + '_' + (hotel.period || index)"
-                                                    class="flex items-center justify-between py-2 border-b last:border-0">
-                                                    <div class="flex items-center">
-                                                        <span :class="['w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mr-3',
-                                                            index < 3 ? 'bg-yellow-400 text-yellow-900' : 'bg-gray-200 text-gray-600']">
-                                                            {{ index + 1 }}
-                                                        </span>
-                                                        <div>
-                                                            <span class="font-medium">{{ hotel.hotel_name }}</span>
-                                                            <span v-if="hotel.period" class="text-xs text-gray-400 ml-2">({{ hotel.period }})</span>
-                                                        </div>
-                                                    </div>
-                                                    <div class="text-right">
-                                                        <span class="font-bold text-blue-600">{{ hotel.quantity }}晚</span>
-                                                        <span class="text-xs text-gray-500 ml-2">¥{{ formatNumber(hotel.amount) }} / {{ hotel.book_order_num }}单</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                                                                    </div>
 
                                 <div v-if="onlineDataTab === 'profile-fields' && user?.is_super_admin" data-testid="ctrip-profile-field-config-panel" class="space-y-4">
                                     <div class="border rounded-lg bg-white overflow-hidden">

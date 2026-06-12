@@ -591,6 +591,10 @@ if (!fs.existsSync(indexPath)) {
     || platformAutoTemplateSource.includes('<details v-if="false"')) {
     failures.push('public/index.html platform-auto template must not keep disabled legacy blocks that still inflate Vue parsing work.');
   }
+  if (content.includes('v-if="false && onlineDataQualitySummary"')
+    || content.includes('<div v-if="false" class="mt-6 border-t pt-4">')) {
+    failures.push('public/index.html online-data template must not keep disabled legacy data-quality or inline analysis blocks.');
+  }
   const autoFetchPanelCacheKeySource = content.slice(
     content.indexOf('const autoFetchPanelCacheKey = () => ['),
     content.indexOf('const resetAutoFetchPanelCache = () => {')
