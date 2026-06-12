@@ -246,9 +246,9 @@ if (!fs.existsSync(indexPath)) {
     || !/const\s+ensureAutoFetchStaticReady\s*=\s*async\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader and ready guard for auto-fetch-static.js.');
   }
-  if (!/const loadAutoFetchPanel = async[\s\S]*await ensureAutoFetchStaticReady\(\);/.test(content)
+  if (!/const loadAutoFetchPanel = async[\s\S]*const staticReadyPromise = ensureAutoFetchStaticReady\(\);[\s\S]*Promise\.all\(\[[\s\S]*loadAutoFetchStatus\(\{ detail: false \}\),[\s\S]*staticReadyPromise/.test(content)
     || !/const triggerAutoFetch = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*requireAutoFetchStatic\(['"]runAutoFetchTriggerFlow['"]\)/.test(content)) {
-    failures.push('public/index.html must load auto-fetch-static.js before opening the platform-auto panel or triggering manual auto-fetch.');
+    failures.push('public/index.html must start auto-fetch-static.js in parallel with platform-auto panel status loading, and load it before triggering manual auto-fetch.');
   }
   const openDataConfigModalStart = content.indexOf('const openDataConfigModal =');
   const openDataConfigModalEnd = content.indexOf('const firstDataConfigValue =', openDataConfigModalStart);
@@ -334,6 +334,7 @@ if (!fs.existsSync(indexPath)) {
   if (!content.includes("const wasOnlineDataPage = currentPage.value === 'online-data';")
     || !content.includes("const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {\n                const targetTab = String(tab || 'data-health');")
     || !content.includes("if (targetTab !== 'data-health') {\n                    pendingOnlineDataEntryTab = targetTab;\n                }")
+    || !content.includes("const openOnlinePlatformAutoTab = (options = {}) => {\n                return openOnlineDataEntryTab('platform-auto', options);\n            };")
     || !content.includes("const openOnlineDataManualEntry = () => {\n                return openOnlineDataEntryTab('data-health');\n            };")
     || !content.includes("if (item.path === 'online-data' && !item.tab && wasOnlineDataPage) {\n                    openOnlineDataManualEntry();\n                }")) {
     failures.push('public/index.html same-page online-data menu clicks must return to the default data-health tab.');
@@ -390,9 +391,10 @@ if (!fs.existsSync(indexPath)) {
     || content.includes("if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;")) {
     failures.push('public/index.html Ctrip config list must return after list data and prewarm full config detail in delayed deferred work.');
   }
-  if (!/await loadDataHealthPanel\(['"]light['"]\);/.test(ctripEbookingDefaultLoader)
+  if (!/scheduleDataHealthPanelRefresh\(['"]light['"]\);/.test(ctripEbookingDefaultLoader)
+    || /await loadDataHealthPanel\(['"]light['"]\);/.test(ctripEbookingDefaultLoader)
     || /await Promise\.allSettled\(\[\s*loadOnlineDataHotelList\(\),\s*loadDataHealthPanel\(['"]light['"]\),\s*\]\);/.test(ctripEbookingDefaultLoader)) {
-    failures.push('public/index.html Ctrip eBooking first-paint loader must keep only light data-health status and defer hotel-list loading.');
+    failures.push('public/index.html Ctrip eBooking first-paint loader must schedule light data-health status without blocking page switching and defer hotel-list loading.');
   }
   if (/runPageLoadOnce\(newPage,\s*['"]main['"][\s\S]*Promise\.allSettled\(\[[\s\S]*loadCtripConfigList\(\)[\s\S]*loadCookiesList\(\)[\s\S]*loadBookmarklet\(\)[\s\S]*\]\)/.test(ctripEbookingDefaultLoader)) {
     failures.push('public/index.html Ctrip eBooking default loader must not start config/latest/cookie/bookmarklet refreshes in the first-paint request group.');
@@ -591,6 +593,9 @@ if (!fs.existsSync(indexPath)) {
     || platformAutoTemplateSource.includes('<details v-if="false"')) {
     failures.push('public/index.html platform-auto template must not keep disabled legacy blocks that still inflate Vue parsing work.');
   }
+  if (content.includes('v-if="false"') || content.includes("v-if='false'")) {
+    failures.push('public/index.html must not keep disabled v-if=false template blocks that still inflate Vue parsing work.');
+  }
   if (content.includes('v-if="false && onlineDataQualitySummary"')
     || content.includes('<div v-if="false" class="mt-6 border-t pt-4">')) {
     failures.push('public/index.html online-data template must not keep disabled legacy data-quality or inline analysis blocks.');
@@ -616,7 +621,7 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const openHotelPlatformConsole = async'),
     content.indexOf('const openHotelPlatformAccountAction = async', content.indexOf('const openHotelPlatformConsole = async'))
   );
-  if (!openOnlinePlatformAutoTabSource.includes('openPlatformAutoTab(options)')
+  if (!openOnlinePlatformAutoTabSource.includes("openOnlineDataEntryTab('platform-auto', options)")
     || !openHotelPlatformConsoleSource.includes('openPlatformAutoTab({ force: true')
     || openHotelPlatformConsoleSource.includes("runPageLoadOnce('online-data', 'platform-auto-panel'")) {
     failures.push('public/index.html must schedule platform-auto panel refreshes from notification and hotel console navigation without awaiting them.');
@@ -738,7 +743,8 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const loadAutoFetchPanel = async'),
     content.indexOf('const loadAutoFetchStatus = async')
   );
-  if (!/await loadAutoFetchStatus\(\{\s*detail:\s*false\s*\}\);/.test(autoFetchPanelLoader)
+  if (!autoFetchPanelLoader.includes('const staticReadyPromise = ensureAutoFetchStaticReady();')
+    || !autoFetchPanelLoader.includes('await Promise.all([\n                        loadAutoFetchStatus({ detail: false }),\n                        staticReadyPromise,\n                    ]);')
     || /scheduleAutoFetchStatusDetailRefresh\(\);/.test(autoFetchPanelLoader)
     || /schedulePlatformProfileStatusRefresh\(\{ silent: true \}\);/.test(autoFetchPanelLoader)
     || /await Promise\.all\(\[[\s\S]*loadAutoFetchStatus\(\)[\s\S]*loadPlatformProfileStatus/.test(autoFetchPanelLoader)) {

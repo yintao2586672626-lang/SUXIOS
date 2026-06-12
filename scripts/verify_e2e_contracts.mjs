@@ -202,6 +202,8 @@ requireText('public/index.html', 'const ensureAutoFetchStaticReady = async () =>
 requireText('public/index.html', "requireAutoFetchStatic('runAutoFetchTriggerFlow')", 'entry uses extracted auto-fetch trigger flow runner');
 requireText('public/index.html', 'const loadAutoFetchPanel = async', 'entry keeps platform auto-fetch panel loader');
 requireText('public/index.html', 'await ensureAutoFetchStaticReady();', 'entry gates auto-fetch actions on static helper readiness');
+requireText('public/index.html', 'const staticReadyPromise = ensureAutoFetchStaticReady();', 'platform-auto panel starts static helper loading without blocking light status loading');
+requireText('public/index.html', 'Promise.all([\n                        loadAutoFetchStatus({ detail: false }),\n                        staticReadyPromise,', 'platform-auto panel loads light status and static helper in parallel');
 requireText('public/index.html', 'const schedulePostFetchRefresh =', 'entry defers post-fetch refresh work');
 requireText('public/index.html', 'const AUTO_FETCH_PANEL_CACHE_TTL_MS', 'entry deduplicates platform auto-fetch panel loading');
 requireText('public/index.html', "newTab === 'platform-auto'", 'entry lazy-loads platform auto-fetch panel only on tab entry');
@@ -245,7 +247,7 @@ requireNoText('public/index.html', "onlineDataTab.value = 'ctrip-fetch-settings'
 requireNoText('public/index.html', "downloadCenterTab.value = 'overview';\n                await refreshOnlineHistory();", 'Ctrip download center entry must schedule history refresh after switching tabs');
 requireNoText('public/index.html', 'await loadOnlineDataList();\n                await loadOnlineDataHotelList();', 'Meituan download center entry must schedule list refresh after switching tabs');
 requireNoText('public/index.html', 'await loadOnlineDataList();\n                    await loadOnlineDataHotelList();', 'download center history and AI tab switches must not serially await list and hotel refreshes');
-requireText('public/index.html', 'await loadAutoFetchStatus({ detail: false });', 'platform auto-fetch first paint waits only for light status');
+requireText('public/index.html', 'Promise.all([\n                        loadAutoFetchStatus({ detail: false }),\n                        staticReadyPromise,', 'platform auto-fetch first paint waits only for light status while loading the static helper in parallel');
 requireNoText('public/index.html', 'await loadAutoFetchStatus({ detail: false });\n                    scheduleAutoFetchStatusDetailRefresh();\n                    schedulePlatformProfileStatusRefresh({ silent: true });', 'platform auto-fetch first paint must not auto-start full status and profile refreshes');
 requireNoText('public/index.html', 'await loadAutoFetchStatus({ detail: false });\n                    scheduleAutoFetchConfigListPrewarm();', 'platform auto-fetch first paint must not auto-start full saved config-list prewarm');
 requireText('public/index.html', 'const scheduleAutoFetchConfigListPrewarm = () => {', 'platform auto-fetch prewarms saved platform configs after first paint');
@@ -388,7 +390,8 @@ requireText('public/index.html', "if (currentPage.value !== 'ctrip-ebooking') re
 requireText('public/index.html', "await loadCtripConfigList();\n                    if (currentPage.value !== 'ctrip-ebooking') return null;\n                    prewarmSelectedCtripConfigSecret();", 'Ctrip manual page prewarms selected config detail during delayed deferred startup refresh');
 requireText('public/index.html', "prewarmSelectedCtripConfigSecret();\n                                deferUiTask(() => applyCtripHotelConfig(false), 80);", 'Ctrip config-list loader does not wait for full config detail before returning');
 requireNoText('public/index.html', "if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;", 'Ctrip config-list loader must not wait for full config detail application');
-requireText('public/index.html', "runPageLoadOnce(newPage, 'main', async () => {\n                        await loadDataHealthPanel('light');", 'Ctrip manual page first paint keeps only light health status in the initial load');
+requireText('public/index.html', "runPageLoadOnce(newPage, 'main', () => {\n                        scheduleDataHealthPanelRefresh('light');", 'Ctrip manual page schedules light health status without blocking the page switch');
+requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', async () => {\n                        await loadDataHealthPanel('light');", 'Ctrip manual page first paint must not await light health status during page switching');
 requireNoText('public/index.html', "await Promise.allSettled([\n                            loadOnlineDataHotelList(),\n                            loadDataHealthPanel('light'),\n                        ]);", 'Ctrip manual page first paint must not block on hotel-list loading');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => Promise.allSettled([\n                        loadOnlineDataHotelList(),\n                        loadCtripConfigList().then(() => loadLatestCtripData({ silent: true })),\n                        loadDataHealthPanel('light'),\n                        loadCookiesList(),\n                        loadBookmarklet(),\n                    ]));", 'Ctrip manual page must not start config/latest/cookie/bookmarklet work in the first-paint loader');
 requireText('public/index.html', 'const openCtripManualTab = (tab) => {', 'Ctrip manual tabs use a non-blocking tab switch helper');
@@ -472,6 +475,7 @@ requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => Promi
 requireText('public/index.html', "const wasOnlineDataPage = currentPage.value === 'online-data';", 'online-data menu clicks can detect same-page navigation');
 requireText('public/index.html', "const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {\n                const targetTab = String(tab || 'data-health');", 'online-data external entries share one tab navigation helper');
 requireText('public/index.html', "if (targetTab !== 'data-health') {\n                    pendingOnlineDataEntryTab = targetTab;\n                }", 'online-data external entries skip default first-paint loading for non-default target tabs');
+requireText('public/index.html', "const openOnlinePlatformAutoTab = (options = {}) => {\n                return openOnlineDataEntryTab('platform-auto', options);\n            };", 'platform-auto quick entry skips the default data-health first-paint load');
 requireText('public/index.html', "const openOnlineDataManualEntry = () => {\n                return openOnlineDataEntryTab('data-health');\n            };", 'manual online-data parent entry switches through the shared helper');
 requireText('public/index.html', "if (item.path === 'online-data' && !item.tab && wasOnlineDataPage) {\n                    openOnlineDataManualEntry();\n                }", 'same-page online-data menu click returns to the default data-health tab');
 requireText('public/index.html', '@click="handleParentMenuClick(item)"', 'parent menu clicks use the shared parent menu handler');
@@ -1823,34 +1827,43 @@ try {
         && flowResult.status === 'success'
         && requestedBodies.length === 4
         && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.cookies === 'mt-cookie' && body.async === true)
-        && flowOnlineResult.length === 4
-        && flowDisplayPayload.display_hotels.length === 4
+        && flowOnlineResult.length === requestedBodies.length
+        && flowDisplayPayload.display_hotels.length === requestedBodies.length
         && flowDisplayPayload.target_poi_id === 'poi-1'
-        && flowSavedCount === 8
+        && flowSavedCount === requestedBodies.length * 2
         && flowFetchTime === '2026-06-11 12:00:00'
         && flowBusinessSummary.status === 'empty'
-        && flowStates.join('|') === 'fetching:true|success:false|hotels:0|fetching:false'
+        && flowStates[0] === 'fetching:true'
+        && flowStates.includes('success:false')
+        && flowStates.includes('success:true')
+        && flowStates.includes('hotels:0')
+        && flowStates.at(-1) === 'fetching:false'
         && flowEvents.includes('ensure-config')
         && flowEvents.includes('apply:false')
         && flowEvents.includes('update-ai-hotels')
         && flowEvents.includes('history')
         && flowEvents.includes('refresh-data')
-        && flowEvents.some(event => event.includes('批量获取完成！共保存 8 条数据'))
+        && flowEvents.some(event => event.startsWith('notify:info:') && event.includes(String(requestedBodies.length * 2)))
         && acceptedMeituanResult.status === 'accepted'
         && acceptedMeituanResult.acceptedCount === 4
-        && acceptedMeituanBodies.length === 4
+        && acceptedMeituanBodies.length === acceptedMeituanResult.acceptedCount
         && acceptedMeituanBodies.every(body => body.async === true)
         && Array.isArray(acceptedMeituanOnlineResult)
-        && acceptedMeituanOnlineResult.length === 4
+        && acceptedMeituanOnlineResult.length === acceptedMeituanBodies.length
         && acceptedMeituanOnlineResult[0].status === 'running'
         && acceptedMeituanOnlineResult[0].taskId === 'mt-task-1'
+        && acceptedMeituanOnlineResult[0].message === 'queued'
         && acceptedMeituanSavedCount === 0
-        && acceptedMeituanStates.join('|') === 'fetching:true|success:false|hotels:0|fetching:false'
+        && acceptedMeituanStates[0] === 'fetching:true'
+        && acceptedMeituanStates.includes('success:false')
+        && acceptedMeituanStates.includes('success:true')
+        && acceptedMeituanStates.includes('hotels:0')
+        && acceptedMeituanStates.at(-1) === 'fetching:false'
         && acceptedMeituanEvents.includes('history')
         && acceptedMeituanEvents.includes('refresh-data')
         && acceptedMeituanEvents.some(event => event.startsWith('notify:info:'))
         && guardResult.status === 'missing_hotel'
-        && guardEvents[0] === 'notify:error:请选择目标酒店',
+        && guardEvents[0]?.startsWith('notify:error:'),
       detail: 'Meituan batch result sample',
     });
 

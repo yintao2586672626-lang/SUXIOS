@@ -427,8 +427,17 @@ window.SUXI_MEITUAN_STATIC = (() => {
         };
         if (response.code === 200) {
             const responseData = response.data || {};
+            const responseStatus = String(responseData.status || '').toLowerCase();
+            if (['accepted', 'running', 'queued'].includes(responseStatus)) {
+                return {
+                    ...base,
+                    status: 'unexpected_background',
+                    error: response.message || '未直接返回平台结果，系统没有拿到本次榜单数据',
+                };
+            }
             return {
                 ...base,
+                message: response.message || '',
                 status: responseData.status || 'success',
                 taskId: responseData.task_id || '',
                 data: responseData.data,
@@ -443,6 +452,19 @@ window.SUXI_MEITUAN_STATIC = (() => {
             error: response.message || '获取失败',
         };
     };
+    const buildMeituanBatchFetchPendingEntry = (task) => ({
+        rankType: task.rankType,
+        rankName: task.rankName,
+        dateRange: task.dateRange,
+        dateRangeName: task.dateRangeName,
+        status: 'fetching',
+        message: '正在请求平台接口',
+        taskId: '',
+        savedCount: 0,
+        displayHotels: [],
+        displaySummary: null,
+        displayCount: 0,
+    });
     const isMeituanBackgroundAcceptedResponse = (response = {}) => {
         if (response.code !== 200) {
             return false;
@@ -898,26 +920,32 @@ window.SUXI_MEITUAN_STATIC = (() => {
         setFetchSuccess(false);
         setHotelsList([]);
         setBusinessSummary(getEmptyBusinessSummary());
-        const results = [];
-        let totalSavedCount = 0;
-        let acceptedCount = 0;
         const fetchTasks = buildMeituanBatchFetchTasks({
             form,
             partnerId,
             poiId,
             cookies: meituanCookies,
         });
+        const results = fetchTasks.map(task => buildMeituanBatchFetchPendingEntry(task));
+        if (results.length > 0) {
+            setOnlineDataResult([...results]);
+            setFetchSuccess(true);
+            setDataFetchTime(getFetchTime());
+        }
+        let totalSavedCount = 0;
+        let acceptedCount = 0;
 
         try {
-            for (const task of fetchTasks) {
+            for (const [index, task] of fetchTasks.entries()) {
                 notify(task.toastText);
-                const requestBody = { ...task.body, async: true };
+                const requestBody = { ...task.body, async: false, background: false };
                 const res = await requestFetch(requestBody);
                 const accepted = isMeituanBackgroundAcceptedResponse(res);
                 if (accepted) {
                     acceptedCount += 1;
                 }
-                results.push(buildMeituanBatchFetchResultEntry(task, res));
+                results[index] = buildMeituanBatchFetchResultEntry(task, res);
+                setOnlineDataResult([...results]);
                 if (res.code === 200 && !accepted) {
                     totalSavedCount += res.data.saved_count || 0;
                 }
@@ -926,17 +954,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
             setOnlineDataResult(results);
             setSavedCount(totalSavedCount);
             if (acceptedCount > 0) {
-                notify(
-                    acceptedCount === fetchTasks.length
-                        ? `美团手动获取已提交后台执行（${acceptedCount} 个任务），完成后会更新数据列表和通知`
-                        : `美团手动获取已提交 ${acceptedCount} 个后台任务，其余任务已返回结果`,
-                    'info'
-                );
-                runPostFetchRefresh(refreshOnlineHistory);
-                if (getOnlineDataTab() === 'data') {
-                    refreshOnlineData();
-                }
-                return { status: 'accepted', results, acceptedCount, totalSavedCount };
+                setFetchSuccess(true);
+                setDataFetchTime(getFetchTime());
+                notify('美团接口未直接返回榜单结果；请刷新页面后重试，或检查平台授权是否有效', 'error');
+                return { status: 'unexpected_background', results, acceptedCount, totalSavedCount };
             }
             const modelRes = await requestDisplayModel(buildMeituanDisplayModelPayload({ results, form }));
             if (modelRes.code !== 200) {

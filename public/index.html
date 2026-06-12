@@ -6992,211 +6992,6 @@
                                 </div>
 
                                 <!-- 点评数据获取 -->
-                                <div v-if="false">
-                                    <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
-                                        <h4 class="font-medium text-purple-800 mb-2">
-                                            <i class="fas fa-comments mr-2"></i>携程点评数据获取
-                                        </h4>
-                                        <div class="space-y-2 text-sm text-purple-700">
-                                            <p>
-                                                推荐按“独立登录会话进入携程商家后台 → 打开点评页 → 监听业务响应 → 清洗入库”的方式获取点评数据。
-                                            </p>
-                                            <p>
-                                                正常使用只需选择目标酒店并启动浏览器抓取；系统会直接监听浏览器中的点评响应并按现有线上数据口径保存。
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div class="bg-white border border-purple-200 rounded-lg p-4 mb-4">
-                                        <div class="flex flex-col lg:flex-row lg:items-end gap-4">
-                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
-                                                <div>
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
-                                                    <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply"
-                                                        class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                                        <option value="">请选择目标酒店</option>
-                                                        <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">登录会话标识</label>
-                                                    <input v-model="ctripCommentBrowserCaptureForm.profileId" type="text"
-                                                        class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                                        placeholder="默认使用 OTA酒店ID 或系统酒店ID">
-                                                </div>
-                                                <div>
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">点评明细页面</label>
-                                                    <input v-model="ctripCommentBrowserCaptureForm.pageUrl" type="text"
-                                                        class="w-full px-3 py-2 border rounded-lg bg-gray-50 text-gray-600 font-mono text-sm"
-                                                        readonly>
-                                                </div>
-                                                <div>
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">监听接口关键词</label>
-                                                    <input v-model="ctripCommentBrowserCaptureForm.apiKeyword" type="text"
-                                                        class="w-full px-3 py-2 border rounded-lg bg-gray-50 text-gray-600 font-mono text-sm"
-                                                        readonly>
-                                                </div>
-                                            </div>
-                                            <button type="button" @click="runCtripCommentBrowserCapture"
-                                                :disabled="ctripCommentBrowserCaptureRunning"
-                                                class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 whitespace-nowrap">
-                                                <i :class="ctripCommentBrowserCaptureRunning ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-play mr-2'"></i>
-                                                {{ ctripCommentBrowserCaptureRunning ? '抓取中...' : '直接抓取点评并入库' }}
-                                            </button>
-                                        </div>
-                                        <p class="text-sm text-gray-500 mt-3">
-                                            该按钮会打开上方点评明细页面，监听 <span class="font-semibold text-purple-700">getCommentList</span> 的 XHR/fetch JSON 响应；首次使用需在弹出的携程窗口完成登录，登录态按 Profile 隔离保存。
-                                        </p>
-                                        <div v-if="ctripCommentBrowserCaptureRunning" class="mt-3 text-sm text-purple-700 bg-purple-50 border border-purple-100 rounded px-3 py-2">
-                                            正在抓取携程点评。若弹出登录页，请完成登录后等待系统自动继续。
-                                        </div>
-                                        <div v-if="ctripCommentBrowserCaptureResult" class="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
-                                            <div v-if="ctripCommentBrowserCaptureResult.error" class="text-sm text-red-700 mb-2">
-                                                {{ ctripCommentBrowserCaptureResult.error }}
-                                            </div>
-                                            <div class="text-sm text-green-800">
-                                                已保存 {{ ctripCommentBrowserCaptureResult.saved_count || 0 }} 条，抓取到 {{ ctripCommentBrowserCaptureResult.total || ctripCommentBrowserCaptureResult.row_count || 0 }} 条点评。
-                                            </div>
-                                            <div v-if="!(ctripCommentBrowserCaptureResult.total || ctripCommentBrowserCaptureResult.row_count)" class="text-sm text-yellow-800 bg-yellow-50 border border-yellow-200 rounded px-3 py-2 mt-2">
-                                                未命中点评数据。请确认弹出的携程窗口已登录到当前酒店，并且点评页加载后能看到点评列表。
-                                            </div>
-                                            <div v-if="user?.is_super_admin && ctripCommentBrowserCaptureResult.payload_counts" class="text-xs text-green-700 mt-2">
-                                                命中点评响应 {{ ctripCommentBrowserCaptureResult.payload_counts.responses || 0 }} 次；记录请求 {{ ctripCommentBrowserCaptureResult.payload_counts.xhr_urls || 0 }} 条；点评明细会作为高级排障证据保存。
-                                            </div>
-                                            <div v-if="user?.is_super_admin && ctripCommentBrowserCaptureResult.xhr_urls && ctripCommentBrowserCaptureResult.xhr_urls.length" class="text-xs text-gray-600 mt-2 bg-white border rounded p-2 max-h-28 overflow-auto">
-                                                <div v-for="item in ctripCommentBrowserCaptureResult.xhr_urls.slice(0, 5)" :key="item.url" class="truncate">
-                                                    {{ item.status }} {{ item.url }}
-                                                </div>
-                                            </div>
-                                            <pre v-if="user?.is_super_admin" class="text-xs text-green-900 mt-2 whitespace-pre-wrap">{{ JSON.stringify(ctripCommentBrowserCaptureResult.counts || ctripCommentBrowserCaptureResult, null, 2) }}</pre>
-                                        </div>
-                                    </div>
-                                    <div class="mb-4">
-                                        <button type="button" @click="showCtripCommentManualCapture = !showCtripCommentManualCapture"
-                                            class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">
-                                            <i :class="showCtripCommentManualCapture ? 'fas fa-chevron-up mr-2' : 'fas fa-chevron-down mr-2'"></i>
-                                            高级：人工抓包兼容入口
-                                        </button>
-                                    </div>
-                                    <div v-if="showCtripCommentManualCapture" class="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-                                        <div class="mb-4">
-                                            <h4 class="font-medium text-gray-800 mb-1">人工抓包兼容入口（不启动浏览器）</h4>
-                                            <p class="text-sm text-gray-500">
-                                                仅在需要排障或复现当前请求时填写接口地址、平台授权、访问令牌和请求参数，由后端直接请求点评接口。
-                                            </p>
-                                        </div>
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">OTA酒店ID hotelId（可选备用）</label>
-                                                <input v-model="ctripCommentForm.hotelId" type="text"
-                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                                    placeholder="当前抓包没有 hotelId 可留空">
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">点评接口地址 <span class="text-red-500">*</span></label>
-                                                <input v-model="ctripCommentForm.requestUrl" type="text"
-                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                                    placeholder="从高级排障中复制点评接口请求地址">
-                                                <p class="text-xs text-gray-500 mt-1">这里不是点评页地址，而是平台后台真实接口请求地址。</p>
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center justify-between mb-1">
-                                                    <label class="block text-sm font-medium text-gray-700">spidertoken <span class="text-red-500">*</span></label>
-                                                    <button type="button" @click="showCtripCommentSpidertoken = !showCtripCommentSpidertoken"
-                                                        class="text-gray-400 hover:text-purple-600" :title="showCtripCommentSpidertoken ? '隐藏' : '显示'">
-                                                        <i :class="showCtripCommentSpidertoken ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
-                                                    </button>
-                                                </div>
-                                                <input v-model="ctripCommentForm.spidertoken" :type="showCtripCommentSpidertoken ? 'text' : 'password'"
-                                                    class="w-full px-3 py-2 border rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                                    autocomplete="off" spellcheck="false"
-                                                    placeholder="Request Headers 中的 spidertoken">
-                                            </div>
-                                            <div class="grid grid-cols-2 gap-3">
-                                                <div>
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">页码</label>
-                                                    <input v-model="ctripCommentForm.pageIndex" type="number" min="1"
-                                                        class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                                </div>
-                                                <div>
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">每页条数</label>
-                                                    <input v-model="ctripCommentForm.pageSize" type="number" min="1" max="100"
-                                                        class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                                </div>
-                                            </div>
-                                            <div class="md:col-span-2">
-                                                <div class="flex items-center justify-between mb-1">
-                                                    <label class="block text-sm font-medium text-gray-700">平台授权内容 <span class="text-red-500">*</span></label>
-                                                    <button type="button" @click="showCtripCommentCookies = !showCtripCommentCookies"
-                                                        class="text-gray-400 hover:text-purple-600" :title="showCtripCommentCookies ? '隐藏' : '显示'">
-                                                        <i :class="showCtripCommentCookies ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
-                                                    </button>
-                                                </div>
-                                                <textarea v-model="ctripCommentForm.cookies" rows="3"
-                                                    :class="['w-full px-3 py-2 border rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500', showCtripCommentCookies ? '' : 'sensitive-mask']"
-                                                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                                                    placeholder="请求头中的平台授权内容"></textarea>
-                                            </div>
-                                            <div class="md:col-span-2">
-                                                <div class="flex items-center justify-between mb-1">
-                                                    <label class="block text-sm font-medium text-gray-700">请求参数 <span class="text-red-500">*</span></label>
-                                                    <button type="button" @click="showCtripCommentPayload = !showCtripCommentPayload"
-                                                        class="text-gray-400 hover:text-purple-600" :title="showCtripCommentPayload ? '隐藏' : '显示'">
-                                                        <i :class="showCtripCommentPayload ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
-                                                    </button>
-                                                </div>
-                                                <textarea v-model="ctripCommentForm.payloadJson" rows="4"
-                                                    :class="['w-full px-3 py-2 border rounded-lg font-mono text-xs focus:outline-none focus:ring-2 focus:ring-purple-500', showCtripCommentPayload ? '' : 'sensitive-mask']"
-                                                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                                                    placeholder="直接粘贴平台后台原始请求参数；没有酒店标识也可以"></textarea>
-                                            </div>
-                                        </div>
-                                        <div class="flex flex-wrap gap-3 mt-4">
-                                            <button @click="fetchCtripComments"
-                                                :disabled="fetchingData"
-                                                class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400">
-                                                <i class="fas fa-download mr-2"></i>{{ fetchingData ? '请求中...' : '手动请求 getCommentList' }}
-                                            </button>
-                                            <button type="button" @click="syncCtripCommentManualConfig(true)"
-                                                :disabled="fetchingData"
-                                                class="px-4 py-2 bg-white border border-purple-200 text-purple-700 rounded-lg hover:bg-purple-50 disabled:bg-gray-100 disabled:text-gray-400">
-                                                <i class="fas fa-link mr-2"></i>填入抓包配置
-                                            </button>
-                                            <button @click="openTargetSite('https://ebooking.ctrip.com/comment/commentList')"
-                                                class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
-                                                <i class="fas fa-external-link-alt mr-2"></i>打开携程点评页
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                                        <h4 class="font-medium text-blue-800 mb-2">
-                                            <i class="fas fa-route mr-2"></i>操作步骤
-                                        </h4>
-                                        <ol class="list-decimal list-inside space-y-1 text-sm text-blue-700">
-                                            <li>优先使用门店独立登录会话登录携程商家后台，避免多门店授权串用</li>
-                                            <li>打开携程点评页，监听页面触发的点评业务响应</li>
-                                            <li>人工排障时才复制同一次请求的接口地址、请求参数、平台授权和访问令牌</li>
-                                            <li>点评按线上数据口径入库，评分和点评明细作为脱敏后的高级排障证据保存</li>
-                                        </ol>
-                                    </div>
-                                    <div v-if="ctripCommentResult" class="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
-                                        <div class="flex items-center justify-between gap-3">
-                                            <div>
-                                                <div class="font-medium text-green-800">
-                                                    <i class="fas fa-check-circle mr-2"></i>点评获取完成
-                                                </div>
-                                                <div class="text-sm text-green-700 mt-1">共返回 {{ ctripCommentResult.total || (ctripCommentResult.data ? ctripCommentResult.data.length : 0) }} 条点评</div>
-                                            </div>
-                                            <button v-if="user?.is_super_admin" @click="showRawData = !showRawData"
-                                                class="px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm">
-                                                {{ showRawData ? '收起高级排障数据' : '展开高级排障数据' }}
-                                            </button>
-                                        </div>
-                                        <div v-if="user?.is_super_admin" v-show="showRawData" class="mt-3 bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto max-h-96">
-                                            <pre class="text-sm font-mono whitespace-pre-wrap">{{ JSON.stringify(ctripCommentResult, null, 2) }}</pre>
-                                        </div>
-                                    </div>
-                                </div>
-
                                 <!-- 下载中心 -->
                                 <div v-if="onlineDataTab === 'ctrip-download'">
                                     <!-- 子Tab导航 -->
@@ -8366,14 +8161,22 @@
                                     </div>
 
                                     <!-- 获取结果显示 -->
-                                    <div v-if="meituanFetchSuccess" class="mt-4">
-                                        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                                    <div v-if="meituanFetchSuccess || meituanFetchInProgress || meituanFetchBackgroundAccepted" class="mt-4">
+                                        <div :class="[(meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200', 'border rounded-lg p-4']">
                                             <div class="flex justify-between items-center mb-2">
                                                 <div class="flex items-center">
-                                                    <i class="fas fa-check-circle text-green-500 text-xl mr-3"></i>
+                                                    <i :class="(meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'fas fa-clock text-blue-500 text-xl mr-3' : 'fas fa-check-circle text-green-500 text-xl mr-3'"></i>
                                                     <div>
-                                                        <span class="font-medium text-green-800">数据获取完成</span>
-                                                        <span v-if="meituanSavedCount > 0" class="text-green-600 ml-2">
+                                                        <span :class="['font-medium', (meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'text-blue-800' : 'text-green-800']">
+                                                            {{ meituanFetchInProgress ? '美团手动获取正在请求平台接口' : (meituanFetchBackgroundAccepted ? '美团手动获取已提交后台执行' : '数据获取完成') }}
+                                                        </span>
+                                                        <span v-if="meituanFetchInProgress" class="text-blue-600 ml-2">
+                                                            接口返回后直接显示本次榜单结果
+                                                        </span>
+                                                        <span v-else-if="meituanFetchBackgroundAccepted" class="text-blue-600 ml-2">
+                                                            完成后会更新数据列表和通知
+                                                        </span>
+                                                        <span v-else-if="meituanSavedCount > 0" class="text-green-600 ml-2">
                                                             已保存 {{ meituanSavedCount }} 条数据到数据库
                                                         </span>
                                                     </div>
@@ -8394,7 +8197,11 @@
                                                     :class="result.error ? 'border-red-400 bg-red-50' : (result.savedCount ? 'border-green-400 bg-green-50' : 'border-yellow-400 bg-yellow-50')">
                                                     <span class="font-medium">{{ result.dateRangeName }}</span> -
                                                     <span class="font-medium">{{ result.rankName }}</span>:
-                                                    <span v-if="result.savedCount" class="text-green-600">✓ 已保存 {{ result.savedCount }} 条数据</span>
+                                                    <span v-if="isMeituanPendingResult(result)" class="text-blue-600">正在请求平台接口</span>
+                                                    <span v-else-if="isMeituanBackgroundResult(result)" class="text-blue-600">
+                                                        后台执行中<span v-if="result.taskId"> · 任务 {{ result.taskId }}</span>
+                                                    </span>
+                                                    <span v-else-if="result.savedCount" class="text-green-600">✓ 已保存 {{ result.savedCount }} 条数据</span>
                                                     <span v-else-if="result.error" class="text-red-600">✗ 失败: {{ result.error }}</span>
                                                     <span v-else-if="result.displayCount" class="text-yellow-600">
                                                         ⚠ 后端返回 {{ result.displayCount }} 条展示数据，但未新增保存（可能重复）
@@ -8851,173 +8658,6 @@
                                 </div>
 
                                 <!-- 点评数据获取 -->
-                                <div v-if="false">
-                                    <div class="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
-                                        <h4 class="font-medium text-orange-800 mb-2">
-                                            <i class="fas fa-comments mr-2"></i>美团差评数据获取
-                                        </h4>
-                                        <p class="text-sm text-orange-700 mb-3">
-                                            采用手动接口抓取方式，按已保存的美团配置回填平台接口标识、门店标识和平台授权；签名参数仅在接口返回签名错误时补充。
-                                        </p>
-                                    </div>
-
-                                    <!-- 配置输入 -->
-                                    <div class="bg-white border rounded-lg p-4 mb-4">
-                                        <div class="mb-4">
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店</label>
-                                            <select v-model="meituanForm.hotelId" @change="syncMeituanCommentConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
-                                                <option value="">请选择目标酒店</option>
-                                                <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                            </select>
-                                            <div v-if="meituanForm.hotelId && selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
-                                                {{ getHotelNameById(meituanForm.hotelId) }}｜已读取美团配置
-                                            </div>
-                                            <div v-if="meituanForm.hotelId && !selectedMeituanHotelConfig" class="text-xs text-yellow-700 mt-1">
-                                                未读取到该酒店美团配置，请手动补充平台接口标识、门店标识和平台授权。
-                                            </div>
-                                        </div>
-                                        <div v-if="showMeituanCommentAdvanced" class="mt-4 border-t pt-4">
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台接口标识 <span class="text-red-500">*</span></label>
-                                                <input v-model="meituanCommentForm.partnerId" type="text"
-                                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                                                    placeholder="如：5006692">
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识 <span class="text-red-500">*</span></label>
-                                                <input v-model="meituanCommentForm.poiId" type="text"
-                                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                                                    placeholder="如：1010341153889311">
-                                            </div>
-                                        </div>
-                                        <div class="mt-4">
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">commentsInfo 请求URL（可选）</label>
-                                            <input v-model="meituanCommentForm.requestUrl" type="text"
-                                                class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-xs focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                                                placeholder="可粘贴 Network 中 commentsInfo 的完整 Request URL；为空则使用系统默认接口拼参">
-                                        </div>
-                                        <div class="mt-4">
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">平台授权内容 <span class="text-red-500">*</span></label>
-                                            <textarea v-model="meituanCommentForm.cookies" rows="3"
-                                                class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                                                placeholder="请粘贴从美团后台获取的平台授权内容..."></textarea>
-                                        </div>
-                                        <div class="mt-4">
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">mtgsig签名（接口兼容，可选）</label>
-                                            <textarea v-model="meituanCommentForm.mtgsig" rows="3"
-                                                class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-xs focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                                                placeholder='接口兼容抓取失败时再填写，格式如：{"a1":"1.2","a2":1772817755448,...}'></textarea>
-                                            <p class="text-xs text-yellow-700 mt-1">
-                                                <i class="fas fa-info-circle mr-1"></i>
-                                                手动接口抓取默认不要求 mtgsig；只有直连接口返回 403/418 或签名错误时，再从 commentsInfo 请求头复制 mtgsig。
-                                            </p>
-                                        </div>
-                                        <div class="mt-4">
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">_mtsi_eb_u（可选）</label>
-                                            <input v-model="meituanCommentForm.mtsiEbU" type="text"
-                                                class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-xs focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                                                placeholder="如果 commentsInfo 请求 URL 或 Query 中包含 _mtsi_eb_u，可复制到这里">
-                                        </div>
-                                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">评论类型</label>
-                                                <select v-model="meituanCommentForm.replyType" class="w-full px-3 py-2 border rounded-lg">
-                                                    <option value="2">差评/待回复</option>
-                                                    <option value="1">已回复</option>
-                                                    <option value="">全部评论</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">每页数量</label>
-                                                <select v-model="meituanCommentForm.limit" class="w-full px-3 py-2 border rounded-lg">
-                                                    <option value="10">10条</option>
-                                                    <option value="20">20条</option>
-                                                    <option value="50">50条</option>
-                                                    <option value="100">100条</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">标签筛选</label>
-                                                <select v-model="meituanCommentForm.tag" class="w-full px-3 py-2 border rounded-lg">
-                                                    <option value="">全部</option>
-                                                    <option value="好评">好评</option>
-                                                    <option value="差评">差评</option>
-                                                    <option value="有图">有图</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                        </div>
-                                        <div class="flex gap-3 mt-4">
-                                            <button type="button" @click="fetchMeituanComments"
-                                                :disabled="fetchingCommentData"
-                                                style="padding: 8px 24px; background-color: #ea580c; color: white; border-radius: 8px; font-weight: 500; border: none; cursor: pointer;">
-                                                <i class="fas fa-download" style="margin-right: 8px;"></i>
-                                                获取差评数据
-                                            </button>
-                                            <button type="button" @click="openTargetSite('https://eb.meituan.com/ebk/feedback/feedback.html')"
-                                                style="padding: 8px 16px; background-color: #6b7280; color: white; border-radius: 8px; border: none; cursor: pointer;">
-                                                <i class="fas fa-external-link-alt" style="margin-right: 8px;"></i>打开美团ebooking
-                                            </button>
-                                            <button type="button" @click="showMeituanCommentAdvanced = !showMeituanCommentAdvanced"
-                                                style="padding: 8px 16px; background-color: #3b82f6; color: white; border-radius: 8px; border: none; cursor: pointer;">
-                                                <i class="fas fa-sliders-h" style="margin-right: 8px;"></i>{{ showMeituanCommentAdvanced ? '收起手动参数' : '手动参数' }}
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <!-- 获取结果 -->
-                                    <div v-if="meituanCommentResult" class="bg-white border rounded-lg mb-4">
-                                        <div class="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
-                                            <div class="flex items-center">
-                                                <i class="fas fa-list-alt text-orange-500 mr-2"></i>
-                                                <span class="font-medium text-gray-700">获取结果</span>
-                                                <span class="ml-2 text-sm text-gray-500">
-                                                    共 {{ meituanCommentResult.total || 0 }} 条评论，已保存 {{ meituanCommentResult.saved_count || 0 }} 条
-                                                </span>
-                                            </div>
-                                            <button @click="meituanCommentResult = null" class="text-gray-400 hover:text-gray-600">
-                                                <i class="fas fa-times"></i>
-                                            </button>
-                                        </div>
-                                        <div class="max-h-96 overflow-y-auto">
-                                            <div v-if="meituanCommentResult.data && meituanCommentResult.data.length > 0" class="divide-y">
-                                                <div v-for="(comment, idx) in meituanCommentResult.data" :key="comment.id || comment.commentId || idx" class="p-4 hover:bg-gray-50">
-                                                    <div class="flex items-start justify-between mb-2">
-                                                        <div class="flex items-center flex-wrap gap-1">
-                                                            <span class="text-sm font-medium text-gray-800">{{ comment.userName || '匿名用户' }}</span>
-                                                            <span class="ml-2 text-xs text-gray-400">{{ formatCommentTime(comment.commentTime) }}</span>
-                                                            <span v-if="comment.score" class="ml-2 px-2 py-0.5 rounded text-xs"
-                                                                :class="getScoreClass(comment.score)">
-                                                                {{ (comment.score / 10).toFixed(1) }}星
-                                                            </span>
-                                                            <span v-if="comment.bizReply" class="ml-2 px-2 py-0.5 rounded text-xs bg-green-100 text-green-800">已回复</span>
-                                                            <span v-if="comment.badComment" class="ml-2 px-2 py-0.5 rounded text-xs bg-red-100 text-red-800">差评</span>
-                                                        </div>
-                                                    </div>
-                                                    <div class="text-sm text-gray-700 mb-2" v-if="comment.comment || comment.content">
-                                                        {{ comment.comment || comment.content }}
-                                                    </div>
-                                                    <div v-if="comment.bizReply" class="text-sm text-blue-600 bg-blue-50 p-2 rounded mb-2">
-                                                        <i class="fas fa-reply mr-1"></i>商家回复：{{ comment.bizReply }}
-                                                    </div>
-                                                    <div v-if="comment.poiName" class="text-xs text-gray-400">
-                                                        <i class="fas fa-hotel mr-1"></i>{{ comment.poiName }}
-                                                    </div>
-                                                    <div v-if="comment.roomName" class="text-xs text-gray-400">
-                                                        <i class="fas fa-bed mr-1"></i>{{ comment.roomName }}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div v-else class="p-8 text-center text-gray-400">
-                                                <i class="fas fa-inbox text-3xl mb-2"></i>
-                                            <p>待形成趋势样本</p>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                </div>
-
                                 <!-- 下载中心 -->
                                 <div v-if="onlineDataTab === 'meituan-download'">
                                     <!-- 子Tab导航 -->
@@ -16815,97 +16455,7 @@
                     </div>
 
                     <!-- 携程点评配置 -->
-                    <div v-if="false">
-                        <div class="bg-purple-50 p-3 rounded text-sm text-purple-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>携程点评推荐使用浏览器 Profile 打开点评页并监听 getCommentList JSON；此配置仅作为人工抓包兼容入口，Cookie 和 spidertoken 为凭证，Request URL 与 Payload 仅用于复现请求。
-                        </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div class="col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Request URL</label>
-                                <input v-model="dataConfigForm.request_url" type="text" placeholder="Network -> getCommentList 的 Request URL" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">酒店ID（可选备用）</label>
-                                <input v-model="dataConfigForm.hotelId" type="text" placeholder="当前抓包没有 hotelId 可留空" class="input-field w-full">
-                            </div>
-                            <div>
-                                <div class="flex items-center justify-between mb-1">
-                                    <label class="block text-sm font-medium text-gray-700">spidertoken</label>
-                                    <button type="button" @click="showDataConfigSpidertoken = !showDataConfigSpidertoken"
-                                        class="text-gray-400 hover:text-purple-600" :title="showDataConfigSpidertoken ? '隐藏' : '显示'">
-                                        <i :class="showDataConfigSpidertoken ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
-                                    </button>
-                                </div>
-                                <input v-model="dataConfigForm.spidertoken" :type="showDataConfigSpidertoken ? 'text' : 'password'" placeholder="Request Headers 中的 spidertoken" class="input-field w-full" autocomplete="off" spellcheck="false">
-                            </div>
-                            <div class="col-span-2">
-                                <div class="flex items-center justify-between mb-1">
-                                    <label class="block text-sm font-medium text-gray-700">Cookie</label>
-                                    <button type="button" @click="showDataConfigCookie = !showDataConfigCookie"
-                                        class="text-gray-400 hover:text-purple-600" :title="showDataConfigCookie ? '隐藏' : '显示'">
-                                        <i :class="showDataConfigCookie ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
-                                    </button>
-                                </div>
-                                <textarea v-model="dataConfigForm.cookie" rows="3" placeholder="Request Headers 中的 Cookie" :class="['input-field w-full', showDataConfigCookie ? '' : 'sensitive-mask']" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
-                            </div>
-                            <div class="col-span-2">
-                                <div class="flex items-center justify-between mb-1">
-                                    <label class="block text-sm font-medium text-gray-700">Payload JSON</label>
-                                    <button type="button" @click="showDataConfigPayload = !showDataConfigPayload"
-                                        class="text-gray-400 hover:text-purple-600" :title="showDataConfigPayload ? '隐藏' : '显示'">
-                                        <i :class="showDataConfigPayload ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
-                                    </button>
-                                </div>
-                                <textarea v-model="dataConfigForm.payload_json" rows="4" placeholder="复制 Network -> getCommentList -> Payload / Request Payload 里的完整 JSON；不是 Headers、Query String 或 Response" :class="['input-field w-full font-mono text-xs', showDataConfigPayload ? '' : 'sensitive-mask']" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">页码</label>
-                                <input v-model="dataConfigForm.page_index" type="number" value="1" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">每页条数</label>
-                                <input v-model="dataConfigForm.page_size" type="number" value="10" class="input-field w-full">
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- 美团点评配置 -->
-                    <div v-if="false">
-                        <div class="bg-pink-50 p-3 rounded text-sm text-pink-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>配置美团点评手动接口抓取参数；mtgsig 仅在签名失败时填写。
-                        </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Partner ID</label>
-                                <input v-model="dataConfigForm.partner_id" type="text" placeholder="请输入Partner ID" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">POI ID</label>
-                                <input v-model="dataConfigForm.poi_id" type="text" placeholder="请输入POI ID" class="input-field w-full">
-                            </div>
-                            <div class="col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookie</label>
-                                <textarea v-model="dataConfigForm.cookie" rows="3" placeholder="请输入美团Cookie" class="input-field w-full"></textarea>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">mtgsig</label>
-                                <input v-model="dataConfigForm.mtgsig" type="text" placeholder="可选" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">_mtsi_eb_u</label>
-                                <input v-model="dataConfigForm._mtsi_eb_u" type="text" placeholder="可选" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Limit</label>
-                                <input v-model="dataConfigForm.limit" type="number" value="10" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Offset</label>
-                                <input v-model="dataConfigForm.offset" type="number" value="0" class="input-field w-full">
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- 携程广告配置 -->
                     <div v-if="currentDataConfigType === 'ctrip-ads'">
                         <div class="bg-indigo-50 p-3 rounded text-sm text-indigo-700 mb-4">
@@ -18092,6 +17642,10 @@
             const meituanFetchSuccess = ref(false); // 美团获取成功标志
             const meituanSavedCount = ref(0); // 美团保存的数据条数
             const meituanDataFetchTime = ref(''); // 美团数据获取时间
+            const isMeituanPendingResult = (result = {}) => ['fetching', 'submitting'].includes(String(result?.status || '').toLowerCase());
+            const isMeituanBackgroundResult = (result = {}) => ['accepted', 'running', 'queued'].includes(String(result?.status || '').toLowerCase());
+            const meituanFetchInProgress = computed(() => Array.isArray(onlineDataResult.value) && onlineDataResult.value.some(isMeituanPendingResult));
+            const meituanFetchBackgroundAccepted = computed(() => Array.isArray(onlineDataResult.value) && onlineDataResult.value.some(isMeituanBackgroundResult));
             const meituanTableTab = ref('ranking'); // 美团数据表格Tab: ranking/traffic
             // 表格排序功能
             const meituanSortField = ref('roomNights'); // 当前排序字段
@@ -22096,7 +21650,7 @@
                 }, 220);
             };
             const loadAutoFetchPanel = async (options = {}) => {
-                await ensureAutoFetchStaticReady();
+                const staticReadyPromise = ensureAutoFetchStaticReady();
                 const force = options && options.force === true;
                 if (force) {
                     resetAutoFetchStatusResultCache();
@@ -22119,7 +21673,10 @@
                     if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {
                         autoFetchHotelId.value = hotels.value[0].id;
                     }
-                    await loadAutoFetchStatus({ detail: false });
+                    await Promise.all([
+                        loadAutoFetchStatus({ detail: false }),
+                        staticReadyPromise,
+                    ]);
                 })().finally(() => {
                     autoFetchPanelCache = {
                         key: autoFetchPanelCacheKey(),
@@ -23177,8 +22734,7 @@
                 return openOnlineDataTab('platform-auto', options);
             };
             const openOnlinePlatformAutoTab = (options = {}) => {
-                currentPage.value = 'online-data';
-                return nextTick(() => openPlatformAutoTab(options));
+                return openOnlineDataEntryTab('platform-auto', options);
             };
             const openPlatformSourcesTab = (options = {}) => {
                 return openOnlineDataTab('platform-sources', options);
@@ -23209,8 +22765,8 @@
                 }
                 if (newPage === 'ctrip-ebooking') {
                     setOnlineDataTabFromPage('data-health');
-                    runPageLoadOnce(newPage, 'main', async () => {
-                        await loadDataHealthPanel('light');
+                    runPageLoadOnce(newPage, 'main', () => {
+                        scheduleDataHealthPanelRefresh('light');
                         scheduleCtripEbookingDeferredStartupRefresh();
                     });
                 }
@@ -36248,7 +35804,7 @@
                 loadCtripConfigList, openCtripManualTab, loadLatestCtripData, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, openCtripCookieCreateFromHealth, openCtripCookieEditorFromHealth, editCtripCookieFromHealth, saveCtripCookieFromHealth, closeCtripCookieEditor, deleteCtripCookieFromHealth, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, scheduleCtripHotelConfigApply, openCtripOverviewFetchTab, prepareCtripOverviewFetchAction, runCtripOverviewFetchAction, runCtripOverviewCoreFetchAction, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
                 // 美团配置管理
                 meituanConfigForm, meituanConfigList, meituanConfigListLoading, meituanConfigListLoaded, meituanConfigListLoadFailed, meituanBookmarklet, selectedMeituanHotelConfig,
-                meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanSavedCount, meituanDataFetchTime,
+                meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanFetchInProgress, meituanFetchBackgroundAccepted, isMeituanPendingResult, isMeituanBackgroundResult, meituanSavedCount, meituanDataFetchTime,
                 meituanSortField, meituanSortOrder, sortMeituanTable,
                 loadMeituanConfigList, openMeituanManualTab, saveMeituanConfigItem, useMeituanConfig, editMeituanConfig, deleteMeituanConfigItem, generateMeituanBookmarklet, applyMeituanHotelConfig, goConfigureMeituanForSelectedHotel,
                 // AI智能分析（携程）
