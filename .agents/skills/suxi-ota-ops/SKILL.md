@@ -5,6 +5,10 @@ description: Handle宿析OS OTA运营、携程/美团数据获取、手动采集
 
 # Suxi OTA Ops
 
+## Plugin Priority
+
+Use `suxi-plugin-priority-router` before manual OTA/browser work. Prefer Browser for local SUXIOS UI checks, Chrome only when the user's logged-in browser state is required, and Computer Use for desktop/XAMPP or non-web operations. Do not use plugins to bypass OTA login, captcha, SMS, authorization, or tenant boundaries.
+
 ## Business Goal
 
 宿析OS的目标不是把所有平台都套进同一种抓取方式，而是让携程和美团都具备两条清晰路径：

@@ -102,7 +102,7 @@ if (!fs.existsSync(indexPath)) {
   }
 
   if (!content.includes('ctrip-static.js?v=20260612-sample-helper')
-    || !content.includes('meituan-static.js?v=20260612-meituan-direct-fetch')) {
+    || !content.includes('meituan-static.js?v=20260612-manual-fetch-perf')) {
     failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance exports change.');
   }
 
@@ -287,6 +287,13 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*loadCtripConfigList\(\)[\s\S]*loadMeituanConfigList\(\)/.test(content)) {
     failures.push('public/index.html must keep a lightweight manual-fetch config prewarm that loads saved Ctrip/Meituan config lists without opening the full platform-auto panel.');
+  }
+  if (!content.includes('const MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS = 15000;')
+    || !content.includes('loadConfigList: () => loadCtripConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS })')
+    || !content.includes('loadConfigList: () => loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS })')
+    || !content.includes('let ctripConfigListLoadedAt = 0;')
+    || !content.includes('let meituanConfigListLoadedAt = 0;')) {
+    failures.push('public/index.html manual fetch tab switches must reuse recently loaded Ctrip/Meituan config lists without changing default full refresh behavior.');
   }
   if (!/let ctripConfigListLoadingPromise = null;[\s\S]*const loadCtripConfigList = async[\s\S]*if \(ctripConfigListLoadingPromise\) \{[\s\S]*return ctripConfigListLoadingPromise;[\s\S]*finally \{[\s\S]*ctripConfigListLoadingPromise = null;/.test(content)) {
     failures.push('public/index.html must deduplicate concurrent Ctrip config-list loads for manual-fetch prewarm and tab switching.');
@@ -556,7 +563,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const switchDownloadTab = (tab) => {')
     || !content.includes('const switchToDownloadCenter = () => {')
     || !content.includes('const switchToMeituanDownloadCenter = () => {')
-    || !/deferUiTask\(async \(\) =>[\s\S]*downloadCenterTab\.value === tab[\s\S]*Promise\.allSettled\(\[[\s\S]*loadOnlineDataList\(\),[\s\S]*loadOnlineDataHotelList\(\)/.test(downloadCenterTabSource)
+    || !/deferUiTask\(async \(\) =>[\s\S]*downloadCenterTab\.value === tab[\s\S]*Promise\.allSettled\(\[[\s\S]*loadOnlineDataList\(\{\s*cacheMs:\s*ONLINE_DATA_PANEL_CACHE_TTL_MS\s*\}\),[\s\S]*loadOnlineDataHotelList\(\{\s*cacheMs:\s*ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS\s*\}\)/.test(downloadCenterTabSource)
     || downloadCenterTabSource.includes('const switchDownloadTab = async')
     || downloadCenterTabSource.includes('const switchToDownloadCenter = async')
     || downloadCenterTabSource.includes('const switchToMeituanDownloadCenter = async')
@@ -626,14 +633,22 @@ if (!fs.existsSync(indexPath)) {
     || openHotelPlatformConsoleSource.includes("runPageLoadOnce('online-data', 'platform-auto-panel'")) {
     failures.push('public/index.html must schedule platform-auto panel refreshes from notification and hotel console navigation without awaiting them.');
   }
-  if (!content.includes('deferUiTask(() => {\n                            schedulePlatformProfileStatusRefresh({ silent: true });\n                            schedulePlatformAutoFetchPanelLoad({ force: true });\n                        });')) {
-    failures.push('public/index.html must defer profile unbind follow-up refreshes through visible-tab schedulers instead of serially awaiting platform-auto reload.');
+  if (!content.includes('deferUiTask(() => {\n                            schedulePlatformProfileStatusRefresh({ silent: true, force: true });\n                            schedulePlatformAutoFetchPanelLoad({ force: true });\n                        });')) {
+    failures.push('public/index.html must defer profile unbind follow-up refreshes through forced visible-tab schedulers instead of serially awaiting platform-auto reload.');
   }
   if (!/const\s+schedulePlatformDataSourcePanelLoad\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-source-panel['"],\s*\(\)\s*=>\s*\{[\s\S]*if\s*\(!isVisibleOnlineDataTab\(['"]platform-sources['"]\)\)\s*return\s+null;[\s\S]*return\s+loadPlatformDataSourcePanel\(options\);[\s\S]*\}/.test(content)
     || !/const\s+openPlatformSourcesTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)) {
     failures.push('public/index.html must route platform source tab opens through one deduplicated visible-tab page-load scheduler.');
   }
-  if (!/const\s+schedulePlatformSyncLogPanelRefresh\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-sync-log-panel['"][\s\S]*if\s*\(!isVisibleOnlineDataTab\(['"]platform-sources['"]\)\)\s*return\s+null;[\s\S]*loadPlatformSyncTasks\(\)[\s\S]*loadPlatformSyncLogs\(\)[\s\S]*loadPlatformProfileStatus\(\{\s*silent:\s*true\s*\}\)/.test(content)
+  const platformSyncLogPanelSource = content.slice(
+    content.indexOf('const schedulePlatformSyncLogPanelRefresh ='),
+    content.indexOf('const schedulePlatformAutoFetchPanelLoad =')
+  );
+  if (!platformSyncLogPanelSource.includes("const schedulePlatformSyncLogPanelRefresh = (options = {}) => runPageLoadOnce(")
+    || !platformSyncLogPanelSource.includes("if (!isVisibleOnlineDataTab('platform-sources')) return null;")
+    || !/loadPlatformSyncTasks\s*\(\s*\{?/.test(platformSyncLogPanelSource)
+    || !/loadPlatformSyncLogs\s*\(\s*\{?/.test(platformSyncLogPanelSource)
+    || !platformSyncLogPanelSource.includes('cacheMs: options.force ? 0 : PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS,')
     || !content.includes('@click="schedulePlatformSyncLogPanelRefresh({ force: true })"')) {
     failures.push('public/index.html must route platform sync-log refreshes through the shared visible-tab scheduler instead of inline requests.');
   }
@@ -786,6 +801,17 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('autoFetchStatusResultCache.set(requestKey, { expiresAt: Date.now() + AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS });')) {
     failures.push('public/index.html must deduplicate concurrent and just-completed light auto-fetch status requests by hotel and detail level.');
   }
+  if (!content.includes('const PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS = 20000;')
+    || !content.includes('const platformProfileStatusPanelRefreshOptions = (params = {}) => (')
+    || !content.includes('const platformProfileStatusResultCache = new Map();')
+    || !content.includes('return loadPlatformProfileStatus(platformProfileStatusPanelRefreshOptions(params));')
+    || !content.includes('return platformProfileStatus.value;')
+    || !content.includes('platformProfileStatusResultCache.set(requestKey, { expiresAt: Date.now() + cacheMs });')
+    || !content.includes('@click="loadPlatformProfileStatus({ silent: true, force: true })"')
+    || !content.includes('schedulePlatformProfileStatusRefresh({ silent: true, force: true });')
+    || !content.includes('cacheMs: options.force ? 0 : PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS,')) {
+    failures.push('public/index.html must cache platform profile status for panel/tab switching while keeping manual and mutation refreshes forced.');
+  }
   if (!content.includes("const shouldRefreshAutoFetchStatusPanel = () => isOnlineDataTabVisible('platform-auto') || isDataHealthPanelVisible();")
     || !content.includes("const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => {")
     || !content.includes('if (!shouldRefreshAutoFetchStatusPanel()) return null;')
@@ -886,6 +912,22 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('scheduleOnlineHistoryRefresh')) {
     failures.push('public/index.html must keep post-fetch refreshes deferred so manual and auto collection do not block the UI.');
   }
+  if (!content.includes('const ONLINE_DATA_PANEL_CACHE_TTL_MS = 8000;')
+    || !content.includes('const ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS = 30000;')
+    || !content.includes('const onlineDataListRequestPromises = new Map();')
+    || !content.includes('const onlineDataSummaryRequestPromises = new Map();')
+    || !content.includes('const onlineDataHotelListRequestPromises = new Map();')
+    || !content.includes('const onlineDataListResultCache = new Map();')
+    || !content.includes('const onlineDataSummaryResultCache = new Map();')
+    || !content.includes('const onlineDataHotelListResultCache = new Map();')
+    || !content.includes('refreshOnlineData({ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS });')
+    || !content.includes('loadOnlineDataList({ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS })')
+    || !content.includes('loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS })')
+    || !content.includes('const scheduleOnlineDataRefresh = () => schedulePostFetchRefresh(\'online-data-list\', () => refreshOnlineData({ force: true }), 260);')
+    || !content.includes('@click="refreshOnlineData({ force: true })"')
+    || !content.includes('@click="loadOnlineDataList({ force: true })"')) {
+    failures.push('public/index.html must deduplicate online-data list/summary/hotel reads for tab switching while keeping manual query and post-fetch refreshes forced.');
+  }
   for (const requiredScheduler of [
     'scheduleLatestCtripRefresh',
     'scheduleAutoFetchStatusDetailRefresh',
@@ -964,11 +1006,11 @@ if (!fs.existsSync(indexPath)) {
     || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody:\s*queuedRequestBody/.test(ctripAdsFlowSource)) {
     failures.push('public/ctrip-static.js must submit Ctrip ads manual fetch in background mode and keep running responses visible.');
   }
-  if (!/\{\s*\.\.\.task\.body,\s*async:\s*false,\s*background:\s*false\s*\}/.test(meituanStaticContent)
-    || !/return\s+\{\s*status:\s*['"]unexpected_background['"][\s\S]*acceptedCount/.test(meituanStaticContent)
-    || content.includes('meituanFetchBackgroundAccepted')
-    || content.includes('isMeituanBackgroundResult')) {
-    failures.push('public/meituan-static.js and public/index.html must request direct Meituan manual batch results and expose queued/running responses as explicit failures, not accepted background progress.');
+  if (!/\{\s*\.\.\.task\.body,\s*async:\s*true\s*\}/.test(meituanStaticContent)
+    || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*acceptedCount/.test(meituanStaticContent)
+    || !content.includes('meituanFetchBackgroundAccepted')
+    || !content.includes('isMeituanBackgroundResult')) {
+    failures.push('public/meituan-static.js and public/index.html must submit Meituan manual batch fetches in the background and show running/queued/accepted states.');
   }
   const meituanAcceptedHelperMatches = meituanStaticContent.match(/const\s+isMeituanBackgroundAcceptedResponse\s*=/g) || [];
   if (meituanAcceptedHelperMatches.length !== 1) {

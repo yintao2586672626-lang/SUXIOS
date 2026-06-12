@@ -1,0 +1,6 @@
+interface:
+  display_name: "SUXIOS Plugin Router"
+  short_description: "Prefer installed Codex plugins for matching SUXIOS skill workflows."
+  default_prompt: "Use $suxi-plugin-priority-router to choose the right installed plugin before manual SUXIOS work."
+policy:
+  allow_implicit_invocation: true

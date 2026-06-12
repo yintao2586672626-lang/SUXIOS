@@ -5,6 +5,10 @@ description: Use when a task mentions ECC, Everything Claude Code, Claude Code w
 
 # ECC Codex Adapter
 
+## Plugin Priority
+
+Use `suxi-plugin-priority-router` when ECC/Codex work needs installed plugin support. Prefer local project skills and local ECC files first; use GitHub for remote repo/PR/issue tasks and OpenAI Developers only for official OpenAI API, Agents SDK, ChatGPT App, or plugin integration work requested by the user.
+
 ## Scope
 
 This skill adapts the downloaded Everything Claude Code (ECC) source for Codex inside the SUXIOS `HOTEL/` project.

@@ -5,6 +5,10 @@ description: Handle宿析OS酒店投资测算与收益模型任务。Use when th
 
 # Suxi Investment Calculation
 
+## Plugin Priority
+
+Use `suxi-plugin-priority-router` when the output should become a workbook, deck, document, or source-backed analysis. Prefer Spreadsheets for calculation models, Data Analytics for metric validation, and Presentations/Documents for decision artifacts.
+
 ## Rules
 
 1. Locate existing calculation fields, persistence, edit, and replay logic before changing anything.

@@ -37,6 +37,7 @@ includesAll('docs/phase1_ota_live_closure_evidence.md', 'live closure evidence s
   'data_gaps',
   'evidence_sources',
   'action_items',
+  'next_actions',
   'execution_intents',
   'execution_flow',
 ]);
@@ -60,6 +61,8 @@ includesAll('scripts/inspect_phase1_ota_live_closure.php', 'inspector reads live
   'ai_diagnosis_evidence',
   'operation_execution_sample',
   'missing_requirements',
+  'next_action_for_missing_requirement',
+  'protected_boundary',
   'JSON_UNESCAPED_UNICODE',
 ]);
 

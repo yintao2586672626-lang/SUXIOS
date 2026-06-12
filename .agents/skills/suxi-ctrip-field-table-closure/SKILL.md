@@ -5,6 +5,10 @@ description: Close SUXIOS Ctrip response-to-field-to-table workflows. Use when t
 
 # Suxi Ctrip Field Table Closure
 
+## Plugin Priority
+
+Use `suxi-plugin-priority-router` when endpoint evidence, UI verification, or metric/table reasoning benefits from an installed plugin. Prefer Browser/Chrome for authorized response evidence, Data Analytics for metric reasoning, and keep the closure chain auditable.
+
 ## Goal
 
 Convert one Ctrip endpoint or field group into a complete, auditable SUXIOS chain:

@@ -90,6 +90,7 @@ function add_check(array &$target, string $code, string $status, string $message
  */
 function add_missing(array &$result, string $code, string $message, array $details = []): void
 {
+    $nextAction = next_action_for_missing_requirement($code, $details);
     $row = [
         'code' => $code,
         'message' => $message,
@@ -97,7 +98,139 @@ function add_missing(array &$result, string $code, string $message, array $detai
     if ($details !== []) {
         $row['details'] = $details;
     }
+    if ($nextAction !== []) {
+        $row['next_action'] = $nextAction;
+    }
     $result['missing_requirements'][] = $row;
+    if ($nextAction !== []) {
+        $result['next_actions'] ??= [];
+        $actionKey = (string)($nextAction['action_code'] ?? $code);
+        foreach ($result['next_actions'] as $existingAction) {
+            if (($existingAction['action_code'] ?? '') === $actionKey) {
+                return;
+            }
+        }
+        $result['next_actions'][] = $nextAction;
+    }
+}
+
+/**
+ * @param array<string, mixed> $details
+ * @return array<string, mixed>
+ */
+function next_action_for_missing_requirement(string $code, array $details = []): array
+{
+    $platform = (string)($details['platform'] ?? '');
+    $date = (string)($details['date'] ?? '');
+    $platformLabel = $platform !== '' ? strtoupper($platform) : 'OTA';
+
+    if (str_ends_with($code, '_source_rows_missing')) {
+        return [
+            'action_code' => $code . '_collect_existing_path',
+            'owner' => '酒店运营人员',
+            'action' => sprintf(
+                '使用现有 %s 手动或自动获取入口补齐 %s 的 OTA 数据，然后重新运行真实闭环巡检。',
+                $platformLabel,
+                $date !== '' ? $date : '目标日期'
+            ),
+            'evidence_needed' => [
+                'online_daily_data 同日期源数据行',
+                'data_source_id 或 sync_task_id',
+                'source_trace_id 或 raw_data 追踪证据',
+            ],
+            'protected_boundary' => '不改变采集字段、字段映射、携程/美团手动或自动获取逻辑。',
+        ];
+    }
+
+    if (str_ends_with($code, '_etl_not_ready')) {
+        return [
+            'action_code' => $code . '_check_standard_facts',
+            'owner' => '产品/技术',
+            'action' => sprintf('%s 源数据行存在后，检查同范围 OTA 标准事实层为什么仍然为空。', $platformLabel),
+            'evidence_needed' => [
+                'accepted_rows',
+                'rejected_rows',
+                'validation_flags',
+                'data_type 分布',
+            ],
+            'protected_boundary' => '保持源采集不变，只检查下游标准化证据。',
+        ];
+    }
+
+    if (str_ends_with($code, '_revenue_metrics_not_ready')) {
+        return [
+            'action_code' => $code . '_check_metric_inputs',
+            'owner' => '收益运营人员',
+            'action' => sprintf('在输出经营结论前，确认 %s 同日标准事实是否包含最小收益指标输入。', $platformLabel),
+            'evidence_needed' => [
+                'amount',
+                'quantity 或 room_nights',
+                'book_order_num 或 order_count',
+                'metric_trust',
+                'data_gaps',
+            ],
+            'protected_boundary' => '不使用 0 或伪成功值填补缺失指标。',
+        ];
+    }
+
+    if (str_ends_with($code, '_traffic_facts_missing')) {
+        return [
+            'action_code' => $code . '_confirm_traffic_collection',
+            'owner' => 'OTA 运营人员',
+            'action' => sprintf('确认 %s 同日流量数据是否已采到；未采到时，流量/转化诊断必须标记为不可用。', $platformLabel),
+            'evidence_needed' => [
+                'list_exposure',
+                'detail_exposure',
+                'flow_rate',
+                'order_filling_num 或 order_submit_num',
+            ],
+            'protected_boundary' => '不从只有收益的数据行推断流量或转化问题。',
+        ];
+    }
+
+    if ($code === 'ai_diagnosis_evidence_sample_missing') {
+        return [
+            'action_code' => 'collect_ai_diagnosis_evidence',
+            'owner' => 'AI 运营人员',
+            'action' => '调用现有 OTA 诊断接口，并为本次巡检范围附上脱敏证据 JSON。',
+            'evidence_needed' => [
+                'evidence_sources',
+                'data_gaps',
+                'action_items',
+            ],
+            'protected_boundary' => 'AI 建议必须引用 OTA 证据，不能把缺失数据写成确定结论。',
+        ];
+    }
+
+    if ($code === 'operation_execution_sample_missing') {
+        return [
+            'action_code' => 'collect_operation_execution_evidence',
+            'owner' => '运营负责人',
+            'action' => '创建或附上一个真实执行意图/执行流程样例，并关联到 OTA 诊断动作项。',
+            'evidence_needed' => [
+                'execution_intents 或 execution_flow',
+                '审批状态',
+                '执行证据',
+                '复盘状态',
+            ],
+            'protected_boundary' => '动作可以处于待审批状态；不能只凭 AI 建议卡片标记闭环完成。',
+        ];
+    }
+
+    if ($code === 'evidence_scope_date_mismatch') {
+        return [
+            'action_code' => 'align_evidence_scope_date',
+            'owner' => '产品/技术',
+            'action' => '重新生成或选择与真实闭环巡检同一业务日期的证据 JSON。',
+            'evidence_needed' => [
+                'scope.date',
+                '巡检日期',
+            ],
+            'protected_boundary' => '不复用过期证据证明当天 OTA 闭环。',
+        ];
+    }
+
+    return [];
 }
 
 /**
@@ -471,6 +604,7 @@ try {
         'platforms' => [],
         'external_evidence' => null,
         'missing_requirements' => [],
+        'next_actions' => [],
         'issues' => [],
     ];
 
@@ -525,6 +659,7 @@ try {
         'platforms' => [],
         'external_evidence' => null,
         'missing_requirements' => [],
+        'next_actions' => [],
         'issues' => [],
     ];
     $result['status'] = 'failed';

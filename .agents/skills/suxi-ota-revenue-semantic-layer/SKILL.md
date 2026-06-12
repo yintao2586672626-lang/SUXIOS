@@ -11,6 +11,10 @@ Use this skill before choosing SUXIOS metrics, tables, source precedence, joins,
 OTA data -> revenue analysis -> AI decisions -> operations management -> investment decisions
 ```
 
+## Plugin Priority
+
+Use `suxi-plugin-priority-router` when analytics outputs should become dashboards, reports, worksheets, or decks. Prefer Data Analytics for source-backed reports/dashboards and Spreadsheets for calculation-ready metric tables.
+
 ## Start Here
 
 1. Read `references/semantic-layer.md`.

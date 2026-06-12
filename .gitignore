@@ -60,6 +60,7 @@ hotelx_dump.sql
 .workbuddy/
 .snapshots/
 .agents/vendor/
+worktree-quarantine/
 query/
 
 # Local debug / one-off tooling

@@ -13,6 +13,7 @@ capture -> persistence -> UI display -> revenue metrics -> AI evidence -> operat
 ```
 
 它不启动携程或美团采集，不改变采集字段、字段映射、入库结构或历史兼容口径。它只读取当前数据库和脱敏接口证据，明确输出已证明、缺失和未验证项。
+巡检输出会把缺失项汇总到 `missing_requirements`，并同步生成员工可执行的 `next_actions`。`next_actions` 只用于说明下一步证据补齐、诊断或执行承接动作，不代表自动改价、自动改库存、自动改 OTA 后台，也不改变携程/美团既有手动和自动获取逻辑。
 
 ## 最小验收范围
 
@@ -68,6 +69,19 @@ npm.cmd run verify:phase1-live-closure-contract
 | `--evidence=<path>` | 真实接口证据 JSON，用于证明 AI 诊断和运营执行闭环 |
 | `--limit=<n>` | 每个平台最多读取的入库行数，最大 5000 |
 | `--strict` | 严格模式；缺证据返回失败 |
+
+## 巡检输出动作口径
+
+| 缺失项 | 下一步动作 |
+|---|---|
+| `*_source_rows_missing` | 使用现有携程/美团手动或自动获取入口补同日数据，再复跑巡检 |
+| `*_etl_not_ready` | 已有源数据后，检查标准事实层 accepted/rejected、`validation_flags` 和 `data_type` |
+| `*_revenue_metrics_not_ready` | 检查收入、间夜、订单等最小指标输入，缺失时保留 `data_gaps` |
+| `*_traffic_facts_missing` | 确认同日流量字段是否采到；未采到时流量/转化诊断必须标记不可用 |
+| `ai_diagnosis_evidence_sample_missing` | 调用现有 OTA 诊断接口并附脱敏证据 JSON，必须包含 `evidence_sources`、`data_gaps`、`action_items` |
+| `operation_execution_sample_missing` | 附一个真实执行意图或执行流程样例，包含审批、执行证据或复盘状态 |
+
+动作边界：不补 0、不伪造成成功、不复用过期证据证明当天闭环、不把 OTA 渠道诊断包装成全酒店经营事实。
 
 ## 证据 JSON 结构
 

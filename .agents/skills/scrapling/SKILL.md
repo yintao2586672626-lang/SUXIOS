@@ -9,6 +9,8 @@ description: Use Scrapling for authorized HTML extraction, scraping prototypes, 
 
 Use this skill when the task needs Scrapling, scraping, crawling, HTML parsing, selector evidence, parser fixtures, or OTA page field extraction.
 
+Use `suxi-plugin-priority-router` before browser-assisted extraction. Prefer Browser for local verification and Chrome only when the user's authorized logged-in browser state is explicitly needed.
+
 Scrapling is only a tool for authorized extraction experiments and parser implementation. It is not permission to bypass login, captcha, SMS verification, account authorization, robots restrictions, or OTA platform controls.
 
 ## SUXIOS Boundaries

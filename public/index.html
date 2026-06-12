@@ -13,7 +13,7 @@
     <script src="shared-components.js?v=20260611-open-fix"></script>
     <script src="form-operation-support.js" defer></script>
     <script src="ctrip-static.js?v=20260612-sample-helper"></script>
-    <script src="meituan-static.js?v=20260612-meituan-direct-fetch"></script>
+    <script src="meituan-static.js?v=20260612-manual-fetch-perf"></script>
     <script src="data-health-static.js?v=20260612-dashboard-requests"></script>
     <script src="ota-diagnosis-static.js?v=20260611-core-fetch"></script>
     <script src="system-static.js?v=20260612-platform-binding"></script>
@@ -8161,17 +8161,20 @@
                                     </div>
 
                                     <!-- 获取结果显示 -->
-                                    <div v-if="meituanFetchSuccess || meituanFetchInProgress" class="mt-4">
-                                        <div :class="[meituanFetchInProgress ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200', 'border rounded-lg p-4']">
+                                    <div v-if="meituanFetchSuccess || meituanFetchInProgress || meituanFetchBackgroundAccepted" class="mt-4">
+                                        <div :class="[(meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200', 'border rounded-lg p-4']">
                                             <div class="flex justify-between items-center mb-2">
                                                 <div class="flex items-center">
-                                                    <i :class="meituanFetchInProgress ? 'fas fa-clock text-blue-500 text-xl mr-3' : 'fas fa-check-circle text-green-500 text-xl mr-3'"></i>
+                                                    <i :class="(meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'fas fa-clock text-blue-500 text-xl mr-3' : 'fas fa-check-circle text-green-500 text-xl mr-3'"></i>
                                                     <div>
-                                                        <span :class="['font-medium', meituanFetchInProgress ? 'text-blue-800' : 'text-green-800']">
-                                                            {{ meituanFetchInProgress ? '美团手动获取正在请求平台接口' : '数据获取完成' }}
+                                                        <span :class="['font-medium', (meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'text-blue-800' : 'text-green-800']">
+                                                            {{ meituanFetchInProgress ? '美团手动获取正在提交平台任务' : (meituanFetchBackgroundAccepted ? '美团手动获取已提交后台执行' : '数据获取完成') }}
                                                         </span>
                                                         <span v-if="meituanFetchInProgress" class="text-blue-600 ml-2">
                                                             接口返回后直接显示本次榜单结果
+                                                        </span>
+                                                        <span v-else-if="meituanFetchBackgroundAccepted" class="text-blue-600 ml-2">
+                                                            完成后会更新数据列表和通知
                                                         </span>
                                                         <span v-else-if="meituanSavedCount > 0" class="text-green-600 ml-2">
                                                             已保存 {{ meituanSavedCount }} 条数据到数据库
@@ -8195,6 +8198,9 @@
                                                     <span class="font-medium">{{ result.dateRangeName }}</span> -
                                                     <span class="font-medium">{{ result.rankName }}</span>:
                                                     <span v-if="isMeituanPendingResult(result)" class="text-blue-600">正在请求平台接口</span>
+                                                    <span v-else-if="isMeituanBackgroundResult(result)" class="text-blue-600">
+                                                        后台执行中<span v-if="result.taskId"> · 任务 {{ result.taskId }}</span>
+                                                    </span>
                                                     <span v-else-if="result.savedCount" class="text-green-600">✓ 已保存 {{ result.savedCount }} 条数据</span>
                                                     <span v-else-if="result.error" class="text-red-600">✗ 失败: {{ result.error }}</span>
                                                     <span v-else-if="result.displayCount" class="text-yellow-600">
@@ -8682,7 +8688,7 @@
                                         </select>
                                         <input v-model="onlineDataFilter.start_date" type="date" class="px-3 py-2 border rounded-lg" placeholder="开始日期">
                                         <input v-model="onlineDataFilter.end_date" type="date" class="px-3 py-2 border rounded-lg" placeholder="结束日期">
-                                        <button @click="loadOnlineDataList" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
+                                        <button @click="loadOnlineDataList({ force: true })" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
                                     </div>
@@ -8692,19 +8698,19 @@
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-4 rounded-lg">
                                                 <div class="text-sm opacity-80">总订单数</div>
-                                                <div class="text-2xl font-bold">{{ onlineDataList.filter(i => i.source === 'meituan').reduce((sum, i) => sum + (i.book_order_num || 0), 0) }}</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewBookOrder }}</div>
                                             </div>
                                             <div class="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-4 rounded-lg">
                                                 <div class="text-sm opacity-80">总销售额</div>
-                                                <div class="text-2xl font-bold">¥{{ formatNumber(onlineDataList.filter(i => i.source === 'meituan').reduce((sum, i) => sum + (i.amount || 0), 0)) }}</div>
+                                                <div class="text-2xl font-bold">¥{{ formatNumber(meituanDownloadData.overviewAmount) }}</div>
                                             </div>
                                             <div class="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-4 rounded-lg">
                                                 <div class="text-sm opacity-80">平均房价</div>
-                                                <div class="text-2xl font-bold">¥{{ toFixedSafe(onlineDataList.filter(i => i.source === 'meituan').reduce((sum, i) => sum + (i.amount || 0), 0) / Math.max(1, onlineDataList.filter(i => i.source === 'meituan').reduce((sum, i) => sum + (i.quantity || 0), 0)), 2) }}</div>
+                                                <div class="text-2xl font-bold">¥{{ toFixedSafe(meituanDownloadData.overviewAmount / Math.max(1, meituanDownloadData.overviewQuantity), 2) }}</div>
                                             </div>
                                             <div class="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-4 rounded-lg">
                                                 <div class="text-sm opacity-80">数据记录数</div>
-                                                <div class="text-2xl font-bold">{{ onlineDataList.filter(i => i.source === 'meituan').length }}</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewRowsCount }}</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -8722,7 +8728,7 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="item in onlineDataList.filter(i => i.source === 'meituan')" :key="item.id" class="border-b hover:bg-gray-50">
+                                                    <tr v-for="item in meituanDownloadData.overviewRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
                                                         <td class="px-4 py-2 border">{{ item.book_order_num || '-' }}</td>
@@ -8757,26 +8763,21 @@
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">总曝光量</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(onlineDataList.filter(isMeituanTrafficDataRow).reduce((sum, i) => sum + getMeituanExposureMetric(i), 0)) }}</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(meituanDownloadData.trafficExposure) }}</div>
                                             </div>
                                             <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">平均浏览转化率</div>
                                                 <div class="text-2xl font-bold text-purple-600">{{
-                                                    (() => {
-                                                        const mtData = onlineDataList.filter(i => isMeituanTrafficDataRow(i) && getMeituanExposureMetric(i) > 0);
-                                                        if (mtData.length === 0) return '0.00%';
-                                                        const avgRate = mtData.reduce((sum, i) => sum + getMeituanFlowRateMetric(i), 0) / mtData.length;
-                                                        return toFixedSafe(avgRate, 2) + '%';
-                                                    })()
+                                                    toFixedSafe(meituanDownloadData.trafficAvgFlowRate || 0, 2) + '%'
                                                 }}</div>
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">总点击量</div>
-                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(onlineDataList.filter(isMeituanTrafficDataRow).reduce((sum, i) => sum + getMeituanClickMetric(i), 0)) }}</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(meituanDownloadData.trafficClick) }}</div>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击转化率</div>
-                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(safeDivide(onlineDataList.filter(isMeituanTrafficDataRow).reduce((sum, i) => sum + getMeituanClickMetric(i), 0), onlineDataList.filter(isMeituanTrafficDataRow).reduce((sum, i) => sum + getMeituanExposureMetric(i), 0)) * 100, 2) }}%</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(meituanDownloadData.trafficClickRate || 0, 2) }}%</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -8794,7 +8795,7 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="item in onlineDataList.filter(isMeituanTrafficDataRow)" :key="item.id" class="border-b hover:bg-gray-50">
+                                                    <tr v-for="item in meituanDownloadData.trafficRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
                                                         <td class="px-4 py-2 border">{{ getMeituanExposureMetric(item) || '-' }}</td>
@@ -8822,19 +8823,19 @@
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">订单记录数</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ onlineDataList.filter(isMeituanOrderDataRow).length }}</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ meituanDownloadData.orderRowsCount }}</div>
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">订单量</div>
-                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(onlineDataList.filter(isMeituanOrderDataRow).reduce((sum, i) => sum + (i.book_order_num || 0), 0)) }}</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(meituanDownloadData.orderBookOrder) }}</div>
                                             </div>
                                             <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">间夜量</div>
-                                                <div class="text-2xl font-bold text-indigo-600">{{ formatNumber(onlineDataList.filter(isMeituanOrderDataRow).reduce((sum, i) => sum + (i.quantity || 0), 0)) }}</div>
+                                                <div class="text-2xl font-bold text-indigo-600">{{ formatNumber(meituanDownloadData.orderQuantity) }}</div>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">订单金额</div>
-                                                <div class="text-2xl font-bold text-orange-600">¥{{ formatNumber(onlineDataList.filter(isMeituanOrderDataRow).reduce((sum, i) => sum + (i.amount || 0), 0)) }}</div>
+                                                <div class="text-2xl font-bold text-orange-600">¥{{ formatNumber(meituanDownloadData.orderAmount) }}</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -8852,7 +8853,7 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="item in onlineDataList.filter(isMeituanOrderDataRow)" :key="item.id" class="border-b hover:bg-gray-50">
+                                                    <tr v-for="item in meituanDownloadData.orderRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
                                                         <td class="px-4 py-2 border">{{ item.book_order_num || '-' }}</td>
@@ -8869,7 +8870,7 @@
                                                             </button>
                                                         </td>
                                                     </tr>
-                                                    <tr v-if="onlineDataList.filter(isMeituanOrderDataRow).length === 0">
+                                                    <tr v-if="meituanDownloadData.orderRowsCount === 0">
                                                         <td colspan="8" class="px-4 py-8 text-center text-gray-400">暂无美团订单数据</td>
                                                     </tr>
                                                 </tbody>
@@ -8882,19 +8883,19 @@
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-red-50 border border-red-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">广告记录数</div>
-                                                <div class="text-2xl font-bold text-red-600">{{ onlineDataList.filter(isMeituanAdsDataRow).length }}</div>
+                                                <div class="text-2xl font-bold text-red-600">{{ meituanDownloadData.adsRowsCount }}</div>
                                             </div>
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">曝光量</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(onlineDataList.filter(isMeituanAdsDataRow).reduce((sum, i) => sum + getMeituanExposureMetric(i), 0)) }}</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(meituanDownloadData.adsExposure) }}</div>
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击量</div>
-                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(onlineDataList.filter(isMeituanAdsDataRow).reduce((sum, i) => sum + getMeituanClickMetric(i), 0)) }}</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(meituanDownloadData.adsClick) }}</div>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击率</div>
-                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(safeDivide(onlineDataList.filter(isMeituanAdsDataRow).reduce((sum, i) => sum + getMeituanClickMetric(i), 0), onlineDataList.filter(isMeituanAdsDataRow).reduce((sum, i) => sum + getMeituanExposureMetric(i), 0)) * 100, 2) }}%</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(meituanDownloadData.adsClickRate || 0, 2) }}%</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -8912,7 +8913,7 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="item in onlineDataList.filter(isMeituanAdsDataRow)" :key="item.id" class="border-b hover:bg-gray-50">
+                                                    <tr v-for="item in meituanDownloadData.adsRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
                                                         <td class="px-4 py-2 border">{{ getMeituanExposureMetric(item) || '-' }}</td>
@@ -8929,7 +8930,7 @@
                                                             </button>
                                                         </td>
                                                     </tr>
-                                                    <tr v-if="onlineDataList.filter(isMeituanAdsDataRow).length === 0">
+                                                    <tr v-if="meituanDownloadData.adsRowsCount === 0">
                                                         <td colspan="8" class="px-4 py-8 text-center text-gray-400">暂无美团广告数据</td>
                                                     </tr>
                                                 </tbody>
@@ -13013,7 +13014,7 @@
                                                 </div>
                                                 <div class="mt-1 text-xs text-slate-500">按门店选择采集路径；状态缺失、POI不匹配、Profile未登录和试采集失败都会保留明确原因。</div>
                                             </div>
-                                            <button type="button" @click="loadPlatformProfileStatus({ silent: true })" :disabled="platformProfileStatusLoading" class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:text-gray-400">
+                                            <button type="button" @click="loadPlatformProfileStatus({ silent: true, force: true })" :disabled="platformProfileStatusLoading" class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:text-gray-400">
                                                 <i :class="platformProfileStatusLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-shield-alt mr-2'"></i>刷新绑定状态
                                             </button>
                                         </div>
@@ -13249,7 +13250,7 @@
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
                                                 <div class="flex items-center justify-between mb-3">
                                                     <h4 class="font-medium text-gray-800">最近同步任务</h4>
-                                                    <button @click="loadPlatformSyncTasks" class="text-sm text-blue-600 hover:text-blue-700">刷新任务</button>
+                                                    <button @click="schedulePlatformSyncLogPanelRefresh({ force: true })" class="text-sm text-blue-600 hover:text-blue-700">刷新任务</button>
                                                 </div>
                                                 <div v-if="!platformSyncTasks.length" class="text-sm text-gray-500">暂无同步任务。</div>
                                                 <div v-else class="overflow-x-auto">
@@ -13970,7 +13971,7 @@
                                                 <option v-for="h in hotels" :key="h.id" :value="h.id">{{ h.name }}</option>
                                             </select>
                                         </div>
-                                        <button @click="refreshOnlineData" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                                        <button @click="refreshOnlineData({ force: true })" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
                                         <button @click="batchDeleteOnlineData" :disabled="selectedOnlineDataIds.length === 0"
@@ -17067,6 +17068,13 @@
             const editingCtripProfileFieldSamples = computed(() => ctripProfileFieldDisplaySampleItems(editingCtripProfileField.value));
             const selectedCtripProfileFieldSamples = computed(() => ctripProfileFieldDisplaySampleItems(selectedCtripProfileSampleField.value));
             const ctripProfileForbiddenFieldKeys = new Set(requireCtripStatic('ctripProfileForbiddenFieldKeys'));
+            const ctripProfileForbiddenFieldLedgerAssets = [
+                { key: 'guest_phone', label: '客人手机号' },
+                { key: 'order_phone', label: '订单手机号' },
+                { key: 'room_status', label: '房态明细' },
+                { key: 'room_source_mapping', label: '房源映射' },
+            ];
+            ctripProfileForbiddenFieldLedgerAssets.forEach(item => ctripProfileForbiddenFieldKeys.add(item.key));
             const isCtripProfileFieldEnabled = (field) => field?.enabled !== false && Number(field?.enabled ?? 1) !== 0 && String(field?.enabled ?? '').toLowerCase() !== 'false';
             const isCtripProfileFieldForbidden = (field) => (
                 ctripProfileForbiddenFieldKeys.has(String(field?.field_key || field?.field || '').trim())
@@ -17106,7 +17114,11 @@
                 const total = Number(ctripProfileFieldSummary.value?.total ?? ctripProfileFields.value.length);
                 return Math.max(0, total - ctripProfileConfirmedFieldCount.value);
             });
-            const ctripProfileForbiddenFieldAssets = requireCtripStatic('ctripProfileForbiddenFieldAssets');
+            const ctripProfileForbiddenFieldStaticAssets = requireCtripStatic('ctripProfileForbiddenFieldAssets');
+            const ctripProfileForbiddenFieldAssets = ctripProfileForbiddenFieldLedgerAssets.map(asset => ({
+                ...asset,
+                ...(ctripProfileForbiddenFieldStaticAssets.find(item => String(item?.key || '').trim() === asset.key) || {}),
+            }));
             const ctripProfileFieldMatchesFilters = (field, filters = ctripProfileFieldFilters.value) => {
                 const keyword = String(filters.keyword || '').trim().toLowerCase();
                 if (filters.section && String(field.section || '') !== filters.section) return false;
@@ -17637,7 +17649,9 @@
             const meituanSavedCount = ref(0); // 美团保存的数据条数
             const meituanDataFetchTime = ref(''); // 美团数据获取时间
             const isMeituanPendingResult = (result = {}) => ['fetching', 'submitting'].includes(String(result?.status || '').toLowerCase());
+            const isMeituanBackgroundResult = (result = {}) => ['accepted', 'running', 'queued'].includes(String(result?.status || '').toLowerCase());
             const meituanFetchInProgress = computed(() => Array.isArray(onlineDataResult.value) && onlineDataResult.value.some(isMeituanPendingResult));
+            const meituanFetchBackgroundAccepted = computed(() => Array.isArray(onlineDataResult.value) && onlineDataResult.value.some(isMeituanBackgroundResult));
             const meituanTableTab = ref('ranking'); // 美团数据表格Tab: ranking/traffic
             // 表格排序功能
             const meituanSortField = ref('roomNights'); // 当前排序字段
@@ -20540,7 +20554,7 @@
                     if (res.code === 200) {
                         showToast(`成功删除 ${res.data.deleted_count} 条入库数据`);
                         selectedOnlineDataIds.value = [];
-                        refreshOnlineData();
+                        refreshOnlineData({ force: true });
                     } else {
                         showToast(res.message || '删除失败', 'error');
                     }
@@ -20560,7 +20574,7 @@
                     if (res.code === 200) {
                         showToast(`已清空 ${res.data?.cleared_count || 0} 条历史记录`);
                         selectedOnlineDataIds.value = [];
-                        await loadOnlineDataList();
+                        await loadOnlineDataList({ force: true });
                         scheduleAutoFetchStatusPanelRefresh();
                     } else {
                         showToast(res.message || '清空失败', 'error');
@@ -21006,7 +21020,7 @@
                     if (res.code === 200) {
                         showToast('保存成功');
                         showOnlineDataEditModal.value = false;
-                        loadOnlineDataList();
+                        loadOnlineDataList({ force: true });
                     } else {
                         showToast(res.message || '保存失败', 'error');
                     }
@@ -21025,7 +21039,7 @@
                     });
                     if (res.code === 200) {
                         showToast('删除成功');
-                        loadOnlineDataList();
+                        loadOnlineDataList({ force: true });
                     } else {
                         showToast(res.message || '删除失败', 'error');
                     }
@@ -21046,8 +21060,8 @@
                         return null;
                     }
                     await Promise.allSettled([
-                        loadOnlineDataList(),
-                        loadOnlineDataHotelList(),
+                        loadOnlineDataList({ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS }),
+                        loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS }),
                     ]);
                     if (seq !== downloadCenterTabLoadSeq || !isCurrentTab()) return null;
                     if (tab === 'ai') {
@@ -21145,6 +21159,87 @@
             const isMeituanTrafficDataRow = (item) => item?.source === 'meituan' && (item?.data_type === 'traffic' || getMeituanExposureMetric(item) > 0);
             const isMeituanOrderDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'order';
             const isMeituanAdsDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'advertising';
+
+            const meituanDownloadData = computed(() => {
+                const overviewRows = [];
+                const trafficRows = [];
+                const orderRows = [];
+                const adsRows = [];
+
+                let overviewBookOrder = 0;
+                let overviewAmount = 0;
+                let overviewQuantity = 0;
+                let trafficExposure = 0;
+                let trafficClick = 0;
+                let trafficFlowRateSum = 0;
+                let trafficFlowRateCount = 0;
+                let orderBookOrder = 0;
+                let orderQuantity = 0;
+                let orderAmount = 0;
+                let adsExposure = 0;
+                let adsClick = 0;
+
+                for (const item of Array.isArray(onlineDataList.value) ? onlineDataList.value : []) {
+                    if (item?.source !== 'meituan') {
+                        continue;
+                    }
+                    overviewRows.push(item);
+                    overviewBookOrder += Number(item?.book_order_num || 0);
+                    overviewAmount += Number(item?.amount || 0);
+                    overviewQuantity += Number(item?.quantity || 0);
+
+                    if (isMeituanTrafficDataRow(item)) {
+                        trafficRows.push(item);
+                        const exposure = getMeituanExposureMetric(item);
+                        const click = getMeituanClickMetric(item);
+                        trafficExposure += exposure;
+                        trafficClick += click;
+                        const flowRate = getMeituanFlowRateMetric(item);
+                        if (flowRate > 0) {
+                            trafficFlowRateSum += flowRate;
+                            trafficFlowRateCount++;
+                        }
+                    }
+
+                    if (isMeituanOrderDataRow(item)) {
+                        orderRows.push(item);
+                        orderBookOrder += Number(item?.book_order_num || 0);
+                        orderQuantity += Number(item?.quantity || 0);
+                        orderAmount += Number(item?.amount || 0);
+                    }
+
+                    if (isMeituanAdsDataRow(item)) {
+                        adsRows.push(item);
+                        adsExposure += getMeituanExposureMetric(item);
+                        adsClick += getMeituanClickMetric(item);
+                    }
+                }
+
+                const trafficAvgFlowRate = trafficFlowRateCount > 0 ? trafficFlowRateSum / trafficFlowRateCount : 0;
+
+                return {
+                    overviewRows,
+                    trafficRows,
+                    orderRows,
+                    adsRows,
+                    overviewRowsCount: overviewRows.length,
+                    overviewBookOrder,
+                    overviewAmount,
+                    overviewQuantity,
+                    trafficExposure,
+                    trafficClick,
+                    trafficAvgFlowRate,
+                    trafficClickRate: safeDivide(trafficClick, trafficExposure) * 100,
+                    orderRowsCount: orderRows.length,
+                    orderBookOrder,
+                    orderQuantity,
+                    orderAmount,
+                    adsRowsCount: adsRows.length,
+                    adsExposure,
+                    adsClick,
+                    adsClickRate: safeDivide(adsClick, adsExposure) * 100,
+                };
+            });
 
             const applyOnlineHistoryDatePreset = () => {
                 const now = new Date();
@@ -21299,7 +21394,38 @@
             };
 
             // 加载线上数据列表
-            const loadOnlineDataList = async () => {
+            const ONLINE_DATA_PANEL_CACHE_TTL_MS = 8000;
+            const ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS = 30000;
+            const onlineDataListRequestPromises = new Map();
+            const onlineDataSummaryRequestPromises = new Map();
+            const onlineDataHotelListRequestPromises = new Map();
+            const onlineDataListResultCache = new Map();
+            const onlineDataSummaryResultCache = new Map();
+            const onlineDataHotelListResultCache = new Map();
+            let onlineDataListRequestSeq = 0;
+            let onlineDataSummaryRequestSeq = 0;
+            let onlineDataHotelListRequestSeq = 0;
+            const normalizeRequestCacheOptions = (options = {}) => {
+                if (!options || typeof options !== 'object' || options.target || options.currentTarget) return {};
+                return options;
+            };
+            const readRequestCache = (cache, key, cacheMs) => {
+                if (!(cacheMs > 0)) return false;
+                const cached = cache.get(key);
+                return !!(cached && cached.expiresAt > Date.now());
+            };
+            const writeRequestCache = (cache, key, cacheMs) => {
+                if (cacheMs > 0) {
+                    cache.set(key, { expiresAt: Date.now() + cacheMs });
+                }
+            };
+            const clearOnlineDataReadCaches = () => {
+                onlineDataListResultCache.clear();
+                onlineDataSummaryResultCache.clear();
+            };
+
+            const loadOnlineDataList = async (options = {}) => {
+                const loadOptions = normalizeRequestCacheOptions(options);
                 try {
                     const params = new URLSearchParams({
                         page: onlineDataPage.value,
@@ -21328,19 +21454,44 @@
                     if (onlineDataFilter.value.end_date) {
                         params.append('end_date', onlineDataFilter.value.end_date);
                     }
+                    const requestKey = params.toString();
+                    const force = loadOptions.force === true;
+                    const cacheMs = Number(loadOptions.cacheMs || 0);
+                    if (force) {
+                        onlineDataListResultCache.delete(requestKey);
+                    } else if (readRequestCache(onlineDataListResultCache, requestKey, cacheMs)) {
+                        return onlineDataList.value;
+                    }
+                    if (onlineDataListRequestPromises.has(requestKey)) {
+                        return onlineDataListRequestPromises.get(requestKey);
+                    }
+                    const requestSeq = ++onlineDataListRequestSeq;
+                    const run = (async () => {
                     debugLog('加载数据列表，参数:', params.toString());
                     const res = await request(`/online-data/daily-data-list?${params}`);
+                    if (requestSeq !== onlineDataListRequestSeq) {
+                        return onlineDataList.value;
+                    }
                     debugLog('加载数据列表响应:', res);
                     if (res.code === 200) {
                         onlineDataList.value = res.data.list || [];
                         onlineDataPagination.value = res.data.pagination || { total: 0, page: 1, page_size: 30 };
                         pruneSelectedOnlineDataIds();
                         onlineDataQualitySummary.value = res.data?.data_quality_summary || null;
+                        writeRequestCache(onlineDataListResultCache, requestKey, cacheMs);
                         debugLog('加载数据成功，数量:', onlineDataList.value.length);
+                        return onlineDataList.value;
                     } else {
                         onlineDataQualitySummary.value = null;
+                        onlineDataListResultCache.delete(requestKey);
                         console.error('加载数据失败:', res.message);
                     }
+                    return [];
+                    })().finally(() => {
+                        onlineDataListRequestPromises.delete(requestKey);
+                    });
+                    onlineDataListRequestPromises.set(requestKey, run);
+                    return run;
                 } catch (error) {
                     onlineDataQualitySummary.value = null;
                     console.error('加载数据列表失败:', error);
@@ -21348,7 +21499,8 @@
             };
 
             // 加载数据汇总
-            const loadOnlineDataSummary = async () => {
+            const loadOnlineDataSummary = async (options = {}) => {
+                const loadOptions = normalizeRequestCacheOptions(options);
                 try {
                     const params = new URLSearchParams({
                         start_date: onlineDataFilter.value.start_date || '',
@@ -21363,10 +21515,38 @@
                     if (onlineDataFilter.value.source) {
                         params.append('source', onlineDataFilter.value.source);
                     }
+                    const requestKey = params.toString();
+                    const force = loadOptions.force === true;
+                    const cacheMs = Number(loadOptions.cacheMs || 0);
+                    if (force) {
+                        onlineDataSummaryResultCache.delete(requestKey);
+                    } else if (readRequestCache(onlineDataSummaryResultCache, requestKey, cacheMs)) {
+                        return onlineDataSummary.value;
+                    }
+                    if (onlineDataSummaryRequestPromises.has(requestKey)) {
+                        return onlineDataSummaryRequestPromises.get(requestKey);
+                    }
+                    const requestSeq = ++onlineDataSummaryRequestSeq;
+                    const run = (async () => {
                     const res = await request(`/online-data/daily-data-summary?${params}`);
+                    if (requestSeq !== onlineDataSummaryRequestSeq) {
+                        return onlineDataSummary.value;
+                    }
                     if (res.code === 200) {
                         onlineDataSummary.value = res.data || null;
+                        writeRequestCache(onlineDataSummaryResultCache, requestKey, cacheMs);
+                        return onlineDataSummary.value;
                     }
+                    if (requestSeq !== onlineDataSummaryRequestSeq) {
+                        return onlineDataSummary.value;
+                    }
+                    onlineDataSummaryResultCache.delete(requestKey);
+                    return null;
+                    })().finally(() => {
+                        onlineDataSummaryRequestPromises.delete(requestKey);
+                    });
+                    onlineDataSummaryRequestPromises.set(requestKey, run);
+                    return run;
                 } catch (error) {
                     console.error('加载汇总失败:', error);
                 }
@@ -21468,27 +21648,57 @@
             };
 
             // 加载酒店列表（用于筛选）
-            const loadOnlineDataHotelList = async () => {
+            const loadOnlineDataHotelList = async (options = {}) => {
+                const loadOptions = normalizeRequestCacheOptions(options);
                 try {
                     const params = new URLSearchParams();
                     if (onlineDataFilter.value.data_type) {
                         params.append('data_type', onlineDataFilter.value.data_type);
                     }
+                    const requestKey = params.toString();
+                    const force = loadOptions.force === true;
+                    const cacheMs = Number(loadOptions.cacheMs || 0);
+                    if (force) {
+                        onlineDataHotelListResultCache.delete(requestKey);
+                    } else if (readRequestCache(onlineDataHotelListResultCache, requestKey, cacheMs)) {
+                        return onlineDataHotelList.value;
+                    }
+                    if (onlineDataHotelListRequestPromises.has(requestKey)) {
+                        return onlineDataHotelListRequestPromises.get(requestKey);
+                    }
+                    const requestSeq = ++onlineDataHotelListRequestSeq;
+                    const run = (async () => {
                     const res = await request(`/online-data/hotel-list?${params}`);
+                    if (requestSeq !== onlineDataHotelListRequestSeq) {
+                        return onlineDataHotelList.value;
+                    }
                     if (res.code === 200) {
                         onlineDataHotelList.value = res.data || [];
+                        writeRequestCache(onlineDataHotelListResultCache, requestKey, cacheMs);
+                        return onlineDataHotelList.value;
                     }
+                    onlineDataHotelListResultCache.delete(requestKey);
+                    return [];
+                    })().finally(() => {
+                        onlineDataHotelListRequestPromises.delete(requestKey);
+                    });
+                    onlineDataHotelListRequestPromises.set(requestKey, run);
+                    return run;
                 } catch (error) {
                     console.error('加载酒店列表失败:', error);
                 }
             };
 
             // 刷新数据（查询按钮）
-            const refreshOnlineData = async () => {
+            const refreshOnlineData = async (options = {}) => {
+                const loadOptions = normalizeRequestCacheOptions(options);
                 try {
+                    if (loadOptions.force === true) {
+                        clearOnlineDataReadCaches();
+                    }
                     await Promise.all([
-                        loadOnlineDataList(),
-                        loadOnlineDataSummary(),
+                        loadOnlineDataList(loadOptions),
+                        loadOnlineDataSummary(loadOptions),
                     ]);
                     analysisData.value = { summary: null, chart_data: null, hotel_ranking: [] };
                 } catch (error) {
@@ -21500,7 +21710,7 @@
             const shouldRefreshAutoFetchStatusPanel = () => isOnlineDataTabVisible('platform-auto') || isDataHealthPanelVisible();
             const shouldRefreshPlatformProfileStatusPanel = () => isOnlineDataTabVisible('platform-auto') || isOnlineDataTabVisible('platform-sources');
             const shouldRefreshPlatformDataSourcesPanel = () => isOnlineDataTabVisible('platform-sources');
-            const scheduleOnlineDataRefresh = () => schedulePostFetchRefresh('online-data-list', () => refreshOnlineData(), 260);
+            const scheduleOnlineDataRefresh = () => schedulePostFetchRefresh('online-data-list', () => refreshOnlineData({ force: true }), 260);
             const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory({ refreshHotels: false }), 340);
             const scheduleLatestCtripRefresh = (params = {}) => schedulePostFetchRefresh('latest-ctrip-data', () => loadLatestCtripData(params), 420);
             const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => {
@@ -21528,13 +21738,22 @@
                 if (!isDataHealthPanelVisible()) return null;
                 return loadDataHealthPanel(mode, params);
             }, 560);
+            const PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS = 20000;
+            const platformProfileStatusPanelRefreshOptions = (params = {}) => (
+                params.force
+                    ? params
+                    : { cacheMs: PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS, ...params }
+            );
             const schedulePlatformProfileStatusRefresh = (params = {}) => schedulePostFetchRefresh('platform-profile-status', () => {
                 if (!shouldRefreshPlatformProfileStatusPanel()) return null;
-                return loadPlatformProfileStatus(params);
+                return loadPlatformProfileStatus(platformProfileStatusPanelRefreshOptions(params));
             }, 480);
-            const schedulePlatformDataSourcesRefresh = () => schedulePostFetchRefresh('platform-data-sources', () => {
+            const schedulePlatformDataSourcesRefresh = (options = {}) => schedulePostFetchRefresh('platform-data-sources', () => {
                 if (!shouldRefreshPlatformDataSourcesPanel()) return null;
-                return loadPlatformDataSources();
+                return loadPlatformDataSources({
+                    cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,
+                    force: options.force === true,
+                });
             }, 620);
 
             // 切换分页
@@ -21616,7 +21835,7 @@
                 return onlineDataFilter.value.hotel_id || user.value?.hotel_id || hotels.value?.[0]?.id || '';
             };
 
-            const AUTO_FETCH_PANEL_CACHE_TTL_MS = 12000;
+            const AUTO_FETCH_PANEL_CACHE_TTL_MS = 45000;
             let autoFetchPanelCache = { key: '', expiresAt: 0, promise: null };
             const autoFetchPanelCacheKey = () => [
                 String(getAutoFetchHotelId() || ''),
@@ -21772,6 +21991,7 @@
             };
 
             const platformProfileStatusRequestPromises = new Map();
+            const platformProfileStatusResultCache = new Map();
             const loadPlatformProfileStatus = async (options = {}) => {
                 const hotelId = getAutoFetchHotelId();
                 if (!hotelId) {
@@ -21779,6 +21999,16 @@
                     return;
                 }
                 const requestKey = String(hotelId || '');
+                const force = options && options.force === true;
+                const cacheMs = Number(options.cacheMs || 0);
+                if (force) {
+                    platformProfileStatusResultCache.delete(requestKey);
+                } else if (cacheMs > 0) {
+                    const cached = platformProfileStatusResultCache.get(requestKey);
+                    if (cached && cached.expiresAt > Date.now()) {
+                        return platformProfileStatus.value;
+                    }
+                }
                 if (platformProfileStatusRequestPromises.has(requestKey)) {
                     return platformProfileStatusRequestPromises.get(requestKey);
                 }
@@ -21789,12 +22019,17 @@
                         const res = await request(`/online-data/platform-profile-status?${params.toString()}`);
                         if (res.code === 200) {
                             platformProfileStatus.value = res.data || { items: [], summary: {} };
+                            if (cacheMs > 0) {
+                                platformProfileStatusResultCache.set(requestKey, { expiresAt: Date.now() + cacheMs });
+                            }
                         } else {
                             platformProfileStatus.value = { items: [], summary: {} };
+                            platformProfileStatusResultCache.delete(requestKey);
                             if (!options.silent) showToast(res.message || '平台账号状态加载失败', 'error');
                         }
                     } catch (error) {
                         platformProfileStatus.value = { items: [], summary: {} };
+                        platformProfileStatusResultCache.delete(requestKey);
                         if (!options.silent) showToast('平台账号状态加载失败: ' + error.message, 'error');
                     } finally {
                         platformProfileStatusRequestPromises.delete(requestKey);
@@ -21945,7 +22180,7 @@
                         return;
                     }
                     deferUiTask(() => {
-                        schedulePlatformProfileStatusRefresh({ silent: true });
+                        schedulePlatformProfileStatusRefresh({ silent: true, force: true });
                         schedulePlatformDataSourcesRefresh();
                         if (!shouldRefreshPlatformDataSourcesPanel()) return null;
                         return loadPlatformCollectionResources();
@@ -22158,7 +22393,7 @@
                         }
                     }
                 } finally {
-                    schedulePlatformProfileStatusRefresh({ silent: true });
+                    schedulePlatformProfileStatusRefresh({ silent: true, force: true });
                 }
             };
 
@@ -22578,9 +22813,19 @@
                 () => {
                     if (!isVisibleOnlineDataTab('platform-sources')) return null;
                     return Promise.allSettled([
-                        loadPlatformSyncTasks(),
-                        loadPlatformSyncLogs(),
-                        loadPlatformProfileStatus({ silent: true }),
+                        loadPlatformSyncTasks({
+                            force: options.force === true,
+                            cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,
+                        }),
+                        loadPlatformSyncLogs({
+                            force: options.force === true,
+                            cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,
+                        }),
+                        loadPlatformProfileStatus({
+                            silent: true,
+                            cacheMs: options.force ? 0 : PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS,
+                            force: options.force === true,
+                        }),
                     ]);
                 },
                 options.force ? { force: true } : {}
@@ -22629,7 +22874,7 @@
                 }, 2400);
                 scheduleDelayedPageTask(() => {
                     if (currentPage.value !== 'meituan-ebooking') return null;
-                    return loadOnlineDataHotelList();
+                    return loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS });
                 }, 3000);
             };
             const openCtripManualTab = (tab) => {
@@ -22639,7 +22884,7 @@
                     getCurrentPage: () => currentPage.value,
                     getCurrentTab: () => onlineDataTab.value,
                     loadDataHealthPanel,
-                    loadConfigList: loadCtripConfigList,
+                    loadConfigList: () => loadCtripConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS }),
                     applyHotelConfig: applyCtripHotelConfig,
                     syncAdsConfig: syncCtripAdsDirectConfig,
                     hasSelectedHotel: () => !!selectedCtripHotelId.value,
@@ -22651,7 +22896,7 @@
                     tab,
                     getCurrentPage: () => currentPage.value,
                     getCurrentTab: () => onlineDataTab.value,
-                    loadConfigList: loadMeituanConfigList,
+                    loadConfigList: () => loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS }),
                     syncTrafficConfig: syncMeituanTrafficConfigFromSelectedConfig,
                     syncOrderConfig: syncMeituanOrderConfigFromSelectedConfig,
                     syncAdsConfig: syncMeituanAdsConfigFromSelectedConfig,
@@ -22681,7 +22926,7 @@
                     dataLoadTimer = setTimeout(() => {
                         if (!isVisibleOnlineDataTab(newTab)) return;
                         ensureManualOnlineFetchConfigReady();
-                        refreshOnlineData();
+                        refreshOnlineData({ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS });
                     }, Number(options.delayMs ?? 100));
                     return undefined;
                 }
@@ -22826,7 +23071,7 @@
                     runPageLoadOnce(newPage, 'platform-configs', () => Promise.allSettled([
                         loadCtripConfigList(),
                         loadMeituanConfigList(),
-                        loadOnlineDataHotelList(),
+                        loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS }),
                     ]));
                 }
                 if (newPage === 'agent-center' || newPage === 'hotel-image-optimizer') {
@@ -23747,42 +23992,116 @@
                 platformDataSourceError.value = '';
             };
 
-            const loadPlatformDataSources = async () => {
-                platformDataSourceLoading.value = true;
-                try {
-                    const res = await request('/online-data/data-sources');
-                    if (res.code === 200) {
-                        platformDataSources.value = Array.isArray(res.data) ? res.data : [];
-                    } else {
+            const loadPlatformDataSources = async (options = {}) => {
+                const loadOptions = normalizeRequestCacheOptions(options);
+                const force = loadOptions.force === true;
+                const cacheMs = Number(loadOptions.cacheMs || 0);
+                const requestKey = 'platform-data-sources';
+                if (force) {
+                    platformDataSourcesResultCache.delete(requestKey);
+                } else if (readRequestCache(platformDataSourcesResultCache, requestKey, cacheMs)) {
+                    return platformDataSources.value;
+                }
+                if (platformDataSourcesRequestPromises.has(requestKey)) {
+                    return platformDataSourcesRequestPromises.get(requestKey);
+                }
+                const run = (async () => {
+                    platformDataSourceLoading.value = true;
+                    try {
+                        const res = await request('/online-data/data-sources');
+                        if (res.code === 200) {
+                            platformDataSources.value = Array.isArray(res.data) ? res.data : [];
+                            writeRequestCache(platformDataSourcesResultCache, requestKey, cacheMs);
+                            return platformDataSources.value;
+                        }
                         platformDataSources.value = [];
+                        platformDataSourcesResultCache.delete(requestKey);
                         showToast(res.message || '数据源加载失败', 'error');
+                        return platformDataSources.value;
+                    } catch (error) {
+                        platformDataSources.value = [];
+                        platformDataSourcesResultCache.delete(requestKey);
+                        showToast('数据源加载失败: ' + error.message, 'error');
+                        return platformDataSources.value;
+                    } finally {
+                        platformDataSourceLoading.value = false;
+                        platformDataSourcesRequestPromises.delete(requestKey);
                     }
-                } catch (error) {
-                    platformDataSources.value = [];
-                    showToast('数据源加载失败: ' + error.message, 'error');
-                } finally {
-                    platformDataSourceLoading.value = false;
-                }
+                })();
+                platformDataSourcesRequestPromises.set(requestKey, run);
+                return run;
             };
 
-            const loadPlatformSyncTasks = async () => {
-                try {
-                    const res = await request('/online-data/sync-tasks?limit=20');
-                    platformSyncTasks.value = res.code === 200 && Array.isArray(res.data) ? res.data : [];
-                } catch (error) {
-                    platformSyncTasks.value = [];
-                    console.error('同步任务加载失败:', error);
+            const loadPlatformSyncTasks = async (options = {}) => {
+                const loadOptions = normalizeRequestCacheOptions(options);
+                const force = loadOptions.force === true;
+                const cacheMs = Number(loadOptions.cacheMs || 0);
+                const requestKey = 'platform-sync-tasks';
+                if (force) {
+                    platformSyncTasksResultCache.delete(requestKey);
+                } else if (readRequestCache(platformSyncTasksResultCache, requestKey, cacheMs)) {
+                    return platformSyncTasks.value;
                 }
+                if (platformSyncTasksRequestPromises.has(requestKey)) {
+                    return platformSyncTasksRequestPromises.get(requestKey);
+                }
+                const run = (async () => {
+                    try {
+                        const res = await request('/online-data/sync-tasks?limit=20');
+                        platformSyncTasks.value = res.code === 200 && Array.isArray(res.data) ? res.data : [];
+                        if (res.code === 200) {
+                            writeRequestCache(platformSyncTasksResultCache, requestKey, cacheMs);
+                        } else {
+                            platformSyncTasksResultCache.delete(requestKey);
+                        }
+                        return platformSyncTasks.value;
+                    } catch (error) {
+                        platformSyncTasks.value = [];
+                        platformSyncTasksResultCache.delete(requestKey);
+                        console.error('同步任务加载失败:', error);
+                        return platformSyncTasks.value;
+                    } finally {
+                        platformSyncTasksRequestPromises.delete(requestKey);
+                    }
+                })();
+                platformSyncTasksRequestPromises.set(requestKey, run);
+                return run;
             };
 
-            const loadPlatformSyncLogs = async () => {
-                try {
-                    const res = await request('/online-data/sync-logs?limit=20');
-                    platformSyncLogs.value = res.code === 200 && Array.isArray(res.data) ? res.data : [];
-                } catch (error) {
-                    platformSyncLogs.value = [];
-                    console.error('同步日志加载失败:', error);
+            const loadPlatformSyncLogs = async (options = {}) => {
+                const loadOptions = normalizeRequestCacheOptions(options);
+                const force = loadOptions.force === true;
+                const cacheMs = Number(loadOptions.cacheMs || 0);
+                const requestKey = 'platform-sync-logs';
+                if (force) {
+                    platformSyncLogsResultCache.delete(requestKey);
+                } else if (readRequestCache(platformSyncLogsResultCache, requestKey, cacheMs)) {
+                    return platformSyncLogs.value;
                 }
+                if (platformSyncLogsRequestPromises.has(requestKey)) {
+                    return platformSyncLogsRequestPromises.get(requestKey);
+                }
+                const run = (async () => {
+                    try {
+                        const res = await request('/online-data/sync-logs?limit=20');
+                        platformSyncLogs.value = res.code === 200 && Array.isArray(res.data) ? res.data : [];
+                        if (res.code === 200) {
+                            writeRequestCache(platformSyncLogsResultCache, requestKey, cacheMs);
+                        } else {
+                            platformSyncLogsResultCache.delete(requestKey);
+                        }
+                        return platformSyncLogs.value;
+                    } catch (error) {
+                        platformSyncLogs.value = [];
+                        platformSyncLogsResultCache.delete(requestKey);
+                        console.error('同步日志加载失败:', error);
+                        return platformSyncLogs.value;
+                    } finally {
+                        platformSyncLogsRequestPromises.delete(requestKey);
+                    }
+                })();
+                platformSyncLogsRequestPromises.set(requestKey, run);
+                return run;
             };
 
             const loadPlatformCollectionResources = async () => {
@@ -23808,19 +24127,32 @@
                 }
             };
 
-            const loadPlatformDataSourcePanel = async () => {
+            const loadPlatformDataSourcePanel = async (options = {}) => {
                 if (!hotels.value.length && typeof loadHotels === 'function') {
                     await loadHotels();
                 }
                 await Promise.allSettled([
-                    loadPlatformDataSources(),
-                    loadPlatformProfileStatus({ silent: true }),
+                    loadPlatformDataSources({
+                        force: options.force === true,
+                        cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,
+                    }),
+                    loadPlatformProfileStatus({
+                        silent: true,
+                        cacheMs: options.force ? 0 : PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS,
+                        force: options.force === true,
+                    }),
                 ]);
                 deferUiTask(() => {
                     if (!shouldRefreshPlatformDataSourcesPanel()) return null;
                     return Promise.allSettled([
-                        loadPlatformSyncTasks(),
-                        loadPlatformSyncLogs(),
+                        loadPlatformSyncTasks({
+                            force: options.force === true,
+                            cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,
+                        }),
+                        loadPlatformSyncLogs({
+                            force: options.force === true,
+                            cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,
+                        }),
                         loadPlatformCollectionResources(),
                         loadCompetitorSummary({ includeByHotel: true }),
                     ]);
@@ -23938,7 +24270,7 @@
                     if (res.code === 200) {
                         showToast(res.message || `已解除${platformName} Profile绑定，请选择正确酒店后重新登录绑定`);
                         deferUiTask(() => {
-                            schedulePlatformProfileStatusRefresh({ silent: true });
+                            schedulePlatformProfileStatusRefresh({ silent: true, force: true });
                             schedulePlatformAutoFetchPanelLoad({ force: true });
                         });
                     } else {
@@ -24031,6 +24363,14 @@
                 if (status === 'disabled') return 'bg-gray-100 text-gray-500';
                 return 'bg-blue-50 text-blue-700';
             };
+
+            const PLATFORM_SOURCE_PANEL_CACHE_TTL_MS = 12000;
+            const platformDataSourcesRequestPromises = new Map();
+            const platformDataSourcesResultCache = new Map();
+            const platformSyncTasksRequestPromises = new Map();
+            const platformSyncTasksResultCache = new Map();
+            const platformSyncLogsRequestPromises = new Map();
+            const platformSyncLogsResultCache = new Map();
 
             const platformTaskStatusClass = (status) => {
                 if (status === 'success') return 'bg-emerald-50 text-emerald-700';
@@ -27570,9 +27910,9 @@
             const refreshHotelBindingPanel = async () => {
                 await Promise.all([
                     ensureHotelOtaConfigLists(),
-                    loadPlatformDataSources(),
-                    loadPlatformSyncTasks(),
-                    loadPlatformSyncLogs(),
+                    loadPlatformDataSources({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS }),
+                    loadPlatformSyncTasks({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS }),
+                    loadPlatformSyncLogs({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS }),
                     loadCompetitorSummary({ includeByHotel: true }),
                 ]);
                 showToast('门店平台账号状态已刷新');
@@ -27601,10 +27941,10 @@
                 await nextTick();
                 openPlatformAutoTab({ force: true, delayMs: 0 });
                 if (platform === 'meituan') {
-                    deferUiTask(() => loadMeituanConfigList());
+                    deferUiTask(() => loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS }));
                 }
                 if (platform === 'ctrip') {
-                    deferUiTask(() => loadCtripConfigList());
+                    deferUiTask(() => loadCtripConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS }));
                 }
             };
 
@@ -27701,7 +28041,9 @@
                 const tasks = [];
                 if (!ctripConfigListLoaded.value && ctripConfigList.value.length === 0) tasks.push(loadCtripConfigList());
                 if (!meituanConfigListLoaded.value && meituanConfigList.value.length === 0) tasks.push(loadMeituanConfigList());
-                if (platformDataSources.value.length === 0) tasks.push(loadPlatformDataSources());
+                if (platformDataSources.value.length === 0) {
+                    tasks.push(loadPlatformDataSources({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS }));
+                }
                 if (tasks.length > 0) await Promise.all(tasks);
             };
 
@@ -32123,11 +32465,24 @@
                 openHotelModal(hotel, { expandOta: true });
             };
 
+            const MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS = 15000;
+            const isManualConfigListCacheFresh = (loadedAt, options = {}) => {
+                const cacheMs = Number(options.cacheMs || 0);
+                return cacheMs > 0 && loadedAt > 0 && Date.now() - loadedAt < cacheMs;
+            };
             let ctripConfigListLoadingPromise = null;
+            let ctripConfigListLoadedAt = 0;
             const ctripConfigListLoading = ref(false);
             const ctripConfigListLoaded = ref(false);
             const ctripConfigListLoadFailed = ref(false);
-            const loadCtripConfigList = async () => {
+            const loadCtripConfigList = async (options = {}) => {
+                if (
+                    ctripConfigListLoaded.value
+                    && !ctripConfigListLoadFailed.value
+                    && isManualConfigListCacheFresh(ctripConfigListLoadedAt, options)
+                ) {
+                    return ctripConfigList.value;
+                }
                 if (ctripConfigListLoadingPromise) {
                     return ctripConfigListLoadingPromise;
                 }
@@ -32140,6 +32495,7 @@
                             const list = res.data || [];
                             ctripConfigList.value = Array.isArray(list) ? list : Object.values(list);
                             ctripConfigListLoaded.value = true;
+                            ctripConfigListLoadedAt = Date.now();
                             const validIds = new Set(ctripConfigList.value.map(item => String(item.id)));
                             selectedCtripConfigIds.value = selectedCtripConfigIds.value.filter(id => validIds.has(String(id)));
                             if (selectedCtripHotelId.value) {
@@ -32435,10 +32791,18 @@
 
             // 美团配置管理方法
             let meituanConfigListLoadingPromise = null;
+            let meituanConfigListLoadedAt = 0;
             const meituanConfigListLoading = ref(false);
             const meituanConfigListLoaded = ref(false);
             const meituanConfigListLoadFailed = ref(false);
-            const loadMeituanConfigList = async () => {
+            const loadMeituanConfigList = async (options = {}) => {
+                if (
+                    meituanConfigListLoaded.value
+                    && !meituanConfigListLoadFailed.value
+                    && isManualConfigListCacheFresh(meituanConfigListLoadedAt, options)
+                ) {
+                    return meituanConfigList.value;
+                }
                 if (meituanConfigListLoadingPromise) {
                     return meituanConfigListLoadingPromise;
                 }
@@ -32450,6 +32814,7 @@
                         if (res.code === 200) {
                             meituanConfigList.value = res.data || [];
                             meituanConfigListLoaded.value = true;
+                            meituanConfigListLoadedAt = Date.now();
                             if (meituanForm.value.hotelId) {
                                 prewarmSelectedMeituanConfigSecret();
                                 deferUiTask(() => applyMeituanHotelConfig(false, { refreshList: false }), 80);
@@ -35805,7 +36170,7 @@
                 loadCtripConfigList, openCtripManualTab, loadLatestCtripData, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, openCtripCookieCreateFromHealth, openCtripCookieEditorFromHealth, editCtripCookieFromHealth, saveCtripCookieFromHealth, closeCtripCookieEditor, deleteCtripCookieFromHealth, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, scheduleCtripHotelConfigApply, openCtripOverviewFetchTab, prepareCtripOverviewFetchAction, runCtripOverviewFetchAction, runCtripOverviewCoreFetchAction, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
                 // 美团配置管理
                 meituanConfigForm, meituanConfigList, meituanConfigListLoading, meituanConfigListLoaded, meituanConfigListLoadFailed, meituanBookmarklet, selectedMeituanHotelConfig,
-                meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanFetchInProgress, isMeituanPendingResult, meituanSavedCount, meituanDataFetchTime,
+                meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanFetchInProgress, meituanFetchBackgroundAccepted, isMeituanPendingResult, isMeituanBackgroundResult, meituanSavedCount, meituanDataFetchTime,
                 meituanSortField, meituanSortOrder, sortMeituanTable,
                 loadMeituanConfigList, openMeituanManualTab, saveMeituanConfigItem, useMeituanConfig, editMeituanConfig, deleteMeituanConfigItem, generateMeituanBookmarklet, applyMeituanHotelConfig, goConfigureMeituanForSelectedHotel,
                 // AI智能分析（携程）

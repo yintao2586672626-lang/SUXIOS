@@ -12,35 +12,44 @@ const sliceFrom = (source, needle, endNeedle) => {
   return end > start ? source.slice(start, end) : source.slice(start);
 };
 
-test('Meituan ranking fetch requests platform data directly and shows visible progress', () => {
+test('Meituan ranking fetch submits quickly and shows visible background progress', () => {
   const resultPanel = sliceFrom(html, '<!-- 获取结果显示 -->', '<!-- 原始JSON数据 -->');
   const fetchFlow = sliceFrom(meituanStatic, 'const runMeituanBatchFetchFlow = async ({', 'const buildMeituanRankDisplayRows');
   const pendingSetup = sliceFrom(meituanStatic, 'const results = fetchTasks.map', 'let totalSavedCount = 0;');
   const acceptedLoopUpdate = sliceFrom(meituanStatic, 'results[index] = buildMeituanBatchFetchResultEntry', 'if (res.code === 200 && !accepted)');
-  const acceptedBranch = sliceFrom(meituanStatic, 'if (acceptedCount > 0) {', 'return { status: \'unexpected_background\'');
+  const acceptedBranch = sliceFrom(meituanStatic, 'if (acceptedCount > 0) {', 'const modelRes = await requestDisplayModel');
 
   assert.match(meituanStatic, /const buildMeituanBatchFetchPendingEntry = \(task\) => \(\{/);
   assert.match(meituanStatic, /status: 'fetching'/);
-  assert.match(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: false, background: false \};/);
-  assert.doesNotMatch(fetchFlow, /\.\.\.task\.body, async: true/);
+  assert.match(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: true \};/);
+  assert.doesNotMatch(fetchFlow, /async: false,\s*background: false/);
   assert.doesNotMatch(fetchFlow, /setHotelsList\(\[\]\);/);
   assert.doesNotMatch(fetchFlow, /setBusinessSummary\(getEmptyBusinessSummary\(\)\);/);
   assert.match(pendingSetup, /setOnlineDataResult\(\[\.\.\.results\]\);/);
   assert.match(pendingSetup, /setFetchSuccess\(true\);/);
+
   assert.match(html, /const isMeituanPendingResult = \(result = \{\}\)/);
+  assert.match(html, /const isMeituanBackgroundResult = \(result = \{\}\)/);
   assert.match(html, /const meituanFetchInProgress = computed/);
-  assert.doesNotMatch(html, /const meituanFetchBackgroundAccepted = computed/);
-  assert.match(resultPanel, /meituanFetchSuccess \|\| meituanFetchInProgress/);
-  assert.match(resultPanel, /美团手动获取正在请求平台接口/);
-  assert.match(resultPanel, /接口返回后直接显示本次榜单结果/);
-  assert.doesNotMatch(resultPanel, /美团手动获取已提交后台执行/);
+  assert.match(html, /const meituanFetchBackgroundAccepted = computed/);
+  assert.match(resultPanel, /meituanFetchSuccess \|\| meituanFetchInProgress \|\| meituanFetchBackgroundAccepted/);
+  assert.match(resultPanel, /meituanFetchBackgroundAccepted \? '美团手动获取已提交后台执行'/);
   assert.match(resultPanel, /isMeituanPendingResult\(result\)/);
-  assert.doesNotMatch(resultPanel, /isMeituanBackgroundResult\(result\)/);
-  assert.match(resultPanel, /正在请求平台接口/);
-  assert.doesNotMatch(resultPanel, /后台执行中/);
-  assert.match(meituanStatic, /status: 'unexpected_background'/);
-  assert.match(meituanStatic, /未直接返回平台结果/);
+  assert.match(resultPanel, /isMeituanBackgroundResult\(result\)/);
+  assert.match(resultPanel, /后台执行中/);
+
   assert.match(meituanStatic, /message: response\.message \|\| ''/);
-  assert.match(acceptedLoopUpdate, /setOnlineDataResult\(\[\.\.\.results\]\);/);
-  assert.match(acceptedBranch, /平台授权是否有效/);
+  assert.match(meituanStatic, /taskId: responseData\.task_id \|\| ''/);
+  assert.match(meituanStatic, /status: responseData\.status \|\| responseStatus \|\| 'running'/);
+  assert.match(fetchFlow, /const scheduleResultUpdate = \(\) => \{/);
+  assert.match(fetchFlow, /requestAnimationFrame\(commit\)/);
+  assert.match(fetchFlow, /const flushResultUpdate = \(\) => \{/);
+  assert.match(acceptedLoopUpdate, /scheduleResultUpdate\(\);/);
+  assert.match(fetchFlow, /flushResultUpdate\(\);/);
+  assert.match(acceptedBranch, /notify\(/);
+  assert.match(acceptedBranch, /'info'/);
+  assert.match(acceptedBranch, /runPostFetchRefresh\(refreshOnlineHistory\)/);
+  assert.match(acceptedBranch, /refreshOnlineData\(\)/);
+  assert.match(acceptedBranch, /return \{ status: 'accepted', results, acceptedCount, totalSavedCount \};/);
+  assert.doesNotMatch(acceptedBranch, /unexpected_background/);
 });

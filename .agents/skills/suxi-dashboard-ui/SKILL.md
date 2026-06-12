@@ -5,6 +5,10 @@ description: Handle宿析OS SaaS dashboard UI tasks. Use when the request includ
 
 # Suxi Dashboard UI
 
+## Plugin Priority
+
+Use `suxi-plugin-priority-router` when the task can benefit from installed plugins: Figma/Product Design for mockups or design handoff, Browser for local UI verification, Chrome for the user's active browser state, and Data Analytics for report-backed dashboards.
+
 ## Rules
 
 1. Match the existing宿析OS SaaS/data-dashboard style: professional, restrained, dense, readable.

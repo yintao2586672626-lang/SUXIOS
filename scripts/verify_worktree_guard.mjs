@@ -93,11 +93,11 @@ if (fs.existsSync(publicIndexPath)) {
 const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
 const meituanIndexSource = fs.existsSync(publicIndexPath) ? fs.readFileSync(publicIndexPath, 'utf8') : '';
 const meituanStaticSource = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
-if (meituanStaticSource.includes('const requestBody = { ...task.body, async: true }')) {
-  failures.push('Meituan manual ranking fetch must not submit as async background work; it must request direct results with async:false/background:false.');
+if (!meituanStaticSource.includes('const requestBody = { ...task.body, async: true }')) {
+  failures.push('Meituan manual ranking fetch must submit as async background work so the UI is not blocked by platform collection.');
 }
-if (meituanIndexSource.includes('meituanFetchBackgroundAccepted') || meituanIndexSource.includes('isMeituanBackgroundResult')) {
-  failures.push('Meituan manual ranking UI must not present queued/running backend state as accepted progress.');
+if (!meituanIndexSource.includes('meituanFetchBackgroundAccepted') || !meituanIndexSource.includes('isMeituanBackgroundResult')) {
+  failures.push('Meituan manual ranking UI must show queued/running backend state as explicit background progress.');
 }
 
 for (const [bucket, count] of summary.entries()) {

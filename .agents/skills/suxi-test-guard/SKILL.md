@@ -5,6 +5,10 @@ description: Guard宿析OS bug fixes and validation. Use when the request includ
 
 # Suxi Test Guard
 
+## Plugin Priority
+
+Use `suxi-plugin-priority-router` when verification benefits from an installed plugin: Browser for local web checks, Chrome for the user's existing browser session, GitHub for CI/PR evidence, Sentry for production issue traces, and Computer Use for Windows desktop operations.
+
 ## Rules
 
 1. Reproduce or identify the failing path before editing.
