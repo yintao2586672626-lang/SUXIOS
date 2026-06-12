@@ -19,6 +19,21 @@ if (git.status !== 0) {
 const lines = git.stdout.split(/\r?\n/).filter(Boolean);
 const failures = [];
 const summary = new Map();
+let nonAgentChangedPaths = 0;
+
+const branchStatus = spawnSync('git', ['status', '--short', '--branch'], {
+  encoding: 'utf8',
+  cwd: repoRoot,
+  shell: false,
+});
+
+if (branchStatus.status !== 0) {
+  const detail = branchStatus.error ? String(branchStatus.error.message || branchStatus.error) : (branchStatus.stderr || 'unknown error');
+  console.error(`git branch status failed: ${detail}`);
+  process.exit(branchStatus.status ?? 1);
+}
+
+const branchLine = branchStatus.stdout.split(/\r?\n/).find((line) => line.startsWith('##')) || '';
 
 function addSummary(bucket) {
   summary.set(bucket, (summary.get(bucket) ?? 0) + 1);
@@ -44,16 +59,25 @@ for (const line of lines) {
   if (path === '.agents' || path.startsWith('.agents/')) {
     addSummary('agent local change');
   } else if (path.startsWith('HOTEL/')) {
+    nonAgentChangedPaths += 1;
     addSummary('nested HOTEL cleanup');
   } else if (path.startsWith('public/assets/') || /^public\/app(?:-main|-styles)?\./.test(path)) {
+    nonAgentChangedPaths += 1;
     addSummary('old frontend build artifact cleanup');
   } else if (path.startsWith('tests/') || path.startsWith('scripts/')) {
+    nonAgentChangedPaths += 1;
     addSummary('test or verification change');
   } else if (path.startsWith('docs/') || path.endsWith('.md')) {
+    nonAgentChangedPaths += 1;
     addSummary('documentation change');
   } else {
+    nonAgentChangedPaths += 1;
     addSummary('application source change');
   }
+}
+
+if (/\[.*behind\b/.test(branchLine) && nonAgentChangedPaths > 0) {
+  failures.push(`Local branch is behind upstream while ${nonAgentChangedPaths} non-agent path(s) are changed. Rebase/sync or isolate the changes before continuing: ${branchLine.replace(/^##\s*/, '')}`);
 }
 
 const publicIndexPath = path.join(repoRoot, 'public/index.html');
@@ -64,6 +88,16 @@ if (fs.existsSync(publicIndexPath)) {
   }
 } else {
   failures.push('public/index.html is missing.');
+}
+
+const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
+const meituanIndexSource = fs.existsSync(publicIndexPath) ? fs.readFileSync(publicIndexPath, 'utf8') : '';
+const meituanStaticSource = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
+if (meituanStaticSource.includes('const requestBody = { ...task.body, async: true }')) {
+  failures.push('Meituan manual ranking fetch must not submit as async background work; it must request direct results with async:false/background:false.');
+}
+if (meituanIndexSource.includes('meituanFetchBackgroundAccepted') || meituanIndexSource.includes('isMeituanBackgroundResult')) {
+  failures.push('Meituan manual ranking UI must not present queued/running backend state as accepted progress.');
 }
 
 for (const [bucket, count] of summary.entries()) {
