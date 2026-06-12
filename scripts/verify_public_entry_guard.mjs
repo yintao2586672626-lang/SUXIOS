@@ -580,6 +580,17 @@ if (!fs.existsSync(indexPath)) {
     || content.includes("if (item.path === 'online-data' && item.tab === 'platform-auto') {\n                            loadAutoFetchPanel();")) {
     failures.push('public/index.html must not bypass the platform-auto scheduler from buttons, drilldowns, or menu clicks.');
   }
+  const platformAutoTemplateStart = content.indexOf('<div v-if="onlineDataTab === \'platform-auto\'">');
+  const platformAutoTemplateEnd = content.indexOf('<div v-if="onlineDataTab === \'data\'">', platformAutoTemplateStart);
+  const platformAutoTemplateSource = platformAutoTemplateStart >= 0 && platformAutoTemplateEnd > platformAutoTemplateStart
+    ? content.slice(platformAutoTemplateStart, platformAutoTemplateEnd)
+    : '';
+  if (!platformAutoTemplateSource
+    || platformAutoTemplateSource.includes('v-if="false"')
+    || platformAutoTemplateSource.includes('v-if="false &&')
+    || platformAutoTemplateSource.includes('<details v-if="false"')) {
+    failures.push('public/index.html platform-auto template must not keep disabled legacy blocks that still inflate Vue parsing work.');
+  }
   const autoFetchPanelCacheKeySource = content.slice(
     content.indexOf('const autoFetchPanelCacheKey = () => ['),
     content.indexOf('const resetAutoFetchPanelCache = () => {')
