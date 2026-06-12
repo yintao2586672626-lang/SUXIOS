@@ -15,6 +15,41 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         self::assertSame(900, BrowserProfileCaptureRequestService::timeoutSeconds(9999));
         self::assertSame(30000, BrowserProfileCaptureRequestService::loginTimeoutMs(10));
         self::assertSame(600000, BrowserProfileCaptureRequestService::loginTimeoutMs(9999999));
+        self::assertSame('traffic,orders', BrowserProfileCaptureRequestService::normalizeProfileSections(['traffic', '../orders', 'traffic'], 'fallback'));
+    }
+
+    public function testRuntimePathHelpersUseExplicitExistingFiles(): void
+    {
+        $oldNode = getenv('NODE_BINARY');
+        $oldChrome = getenv('CHROME_PATH');
+        $nodePath = tempnam(sys_get_temp_dir(), 'node-bin-');
+        $chromePath = tempnam(sys_get_temp_dir(), 'chrome-bin-');
+
+        self::assertIsString($nodePath);
+        self::assertIsString($chromePath);
+
+        try {
+            putenv('NODE_BINARY=' . $nodePath);
+            putenv('CHROME_PATH=' . $chromePath);
+
+            self::assertSame($nodePath, BrowserProfileCaptureRequestService::resolveNodeBinary());
+            self::assertSame($chromePath, BrowserProfileCaptureRequestService::resolveChromePath());
+        } finally {
+            $this->restoreEnvVar('NODE_BINARY', $oldNode);
+            $this->restoreEnvVar('CHROME_PATH', $oldChrome);
+            @unlink($nodePath);
+            @unlink($chromePath);
+        }
+    }
+
+    private function restoreEnvVar(string $key, string|false $value): void
+    {
+        if ($value === false) {
+            putenv($key);
+            return;
+        }
+
+        putenv($key . '=' . $value);
     }
 
     public function testBuildMeituanPlanKeepsRequestFieldsExplicit(): void

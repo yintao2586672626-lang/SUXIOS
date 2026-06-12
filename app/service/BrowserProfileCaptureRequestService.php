@@ -21,6 +21,32 @@ final class BrowserProfileCaptureRequestService
         return max(30000, min(600000, (int)$value));
     }
 
+    public static function resolveNodeBinary(): string
+    {
+        $configured = trim((string)(getenv('NODE_BINARY') ?: (function_exists('env') ? env('NODE_BINARY', '') : '')));
+        $candidates = array_filter([
+            $configured,
+            'C:\\Program Files\\nodejs\\node.exe',
+            'C:\\Program Files (x86)\\nodejs\\node.exe',
+            getenv('USERPROFILE') ? getenv('USERPROFILE') . '\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe' : '',
+            'node',
+        ]);
+
+        foreach ($candidates as $candidate) {
+            if ($candidate === 'node' || is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+
+    public static function resolveChromePath(): string
+    {
+        $configured = trim((string)(getenv('CHROME_PATH') ?: (function_exists('env') ? env('CHROME_PATH', '') : '')));
+        return $configured !== '' && is_file($configured) ? $configured : '';
+    }
+
     public static function resolveMeituanStoreId(array $requestData): string
     {
         return trim((string)($requestData['store_id'] ?? $requestData['storeId'] ?? $requestData['poi_id'] ?? ''));

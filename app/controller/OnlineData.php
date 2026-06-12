@@ -2639,21 +2639,7 @@ class OnlineData extends Base
 
     private function resolveMeituanCaptureNodeBinary(): string
     {
-        $configured = trim((string)(getenv('NODE_BINARY') ?: env('NODE_BINARY', '')));
-        $candidates = array_filter([
-            $configured,
-            'C:\\Program Files\\nodejs\\node.exe',
-            'C:\\Program Files (x86)\\nodejs\\node.exe',
-            getenv('USERPROFILE') ? getenv('USERPROFILE') . '\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe' : '',
-            'node',
-        ]);
-
-        foreach ($candidates as $candidate) {
-            if ($candidate === 'node' || is_file($candidate)) {
-                return $candidate;
-            }
-        }
-        return '';
+        return BrowserProfileCaptureRequestService::resolveNodeBinary();
     }
 
     private function buildCtripPartialCaptureErrorPayload(string $outputPath): array
@@ -4286,11 +4272,7 @@ class OnlineData extends Base
 
     private function resolveMeituanCaptureChromePath(): string
     {
-        $configured = trim((string)(getenv('CHROME_PATH') ?: env('CHROME_PATH', '')));
-        if ($configured !== '' && is_file($configured)) {
-            return $configured;
-        }
-        return '';
+        return BrowserProfileCaptureRequestService::resolveChromePath();
     }
 
     private function runMeituanCaptureProcess(array $args, string $cwd, int $timeoutSeconds): array
@@ -5364,21 +5346,7 @@ class OnlineData extends Base
 
     private function normalizeProfileCaptureSections(mixed $value, string $fallback): string
     {
-        $raw = is_array($value)
-            ? implode(',', array_map(static fn($item): string => (string)$item, $value))
-            : (string)$value;
-        $raw = preg_replace('/[^a-zA-Z,_\-\s]+/', '', $raw) ?: '';
-        $items = preg_split('/[,\s]+/', strtolower($raw)) ?: [];
-        $sections = [];
-        foreach ($items as $item) {
-            $item = trim($item);
-            if ($item === '') {
-                continue;
-            }
-            $sections[$item] = true;
-        }
-
-        return implode(',', array_keys($sections)) ?: $fallback;
+        return BrowserProfileCaptureRequestService::normalizeProfileSections($value, $fallback);
     }
 
     private function resolveCtripApprovedMappingsPath(array $source, string $projectRoot): array
@@ -5467,8 +5435,7 @@ class OnlineData extends Base
 
     private function safeMeituanCaptureFilePart(string $value): string
     {
-        $safe = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $value) ?: 'default';
-        return substr($safe, 0, 80);
+        return BrowserProfileCaptureRequestService::safeFilePart($value);
     }
 
     private function createAutoFetchCookieFile(string $projectRoot, string $platform, int $hotelId, string $cookies): string
