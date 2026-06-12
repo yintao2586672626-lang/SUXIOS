@@ -86,12 +86,16 @@ requirePackageScript('verify:phase1-ota-loop', 'node scripts/verify_phase1_ota_t
 requirePackageScript('verify:phase1-ota-audit', 'node scripts/verify_phase1_ota_trusted_loop_audit.mjs');
 requirePackageScript('verify:phase1-employee-console', 'node scripts/verify_phase1_ota_employee_console_contract.mjs');
 requirePackageScript('verify:phase1-gap-explanations', 'node scripts/verify_phase1_ota_gap_explanations.mjs');
+requirePackageScript('verify:phase1-live-closure-contract', 'node scripts/verify_phase1_ota_live_closure_contract.mjs');
+requirePackageScript('inspect:phase1-live-closure', 'C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php');
+requirePackageScript('verify:phase1-live-closure', 'C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php --strict');
 
 requireIncludes('docs/release_functional_acceptance_matrix.md', 'functional acceptance includes phase-one gate', [
   'verify:phase1-ota-loop',
   'verify:phase1-ota-audit',
   'verify:phase1-employee-console',
   'verify:phase1-gap-explanations',
+  'verify:phase1-live-closure-contract',
   'OTA trusted loop',
 ]);
 
@@ -99,6 +103,13 @@ requireIncludes('docs/phase1_ota_trusted_loop_goal.md', 'phase-one goal includes
   'npm.cmd run verify:phase1-ota-audit',
   'npm.cmd run verify:phase1-employee-console',
   'npm.cmd run verify:phase1-gap-explanations',
+  'npm.cmd run verify:phase1-live-closure-contract',
+]);
+
+requireIncludes('docs/phase1_ota_live_closure_evidence.md', 'phase-one live closure evidence gate is documented', [
+  'capture -> persistence -> UI display -> revenue metrics -> AI evidence -> operation execution',
+  'npm.cmd run inspect:phase1-live-closure',
+  'npm.cmd run verify:phase1-live-closure',
 ]);
 
 requireIncludes('route/app.php', 'OTA acquisition, diagnosis, revenue, AI, and execution routes exist', [

@@ -95,6 +95,7 @@ npm.cmd run verify:phase1-ota-loop
 npm.cmd run verify:phase1-ota-audit
 npm.cmd run verify:phase1-employee-console
 npm.cmd run verify:phase1-gap-explanations
+npm.cmd run verify:phase1-live-closure-contract
 npm.cmd run verify:platform-data-source-contract
 npm.cmd run verify:field-asset-ledger
 npm.cmd run verify:ota-revenue-metrics-smoke
@@ -103,3 +104,5 @@ npm.cmd run verify:e2e-contracts
 ```
 
 `verify:phase1-ota-loop` 是第一阶段目标保护命令：它只做结构化只读检查，不启动 OTA 采集，不访问外部平台，不改字段、不改获取逻辑、不写数据库。
+
+真实闭环验收使用 `npm.cmd run inspect:phase1-live-closure` 读取当前数据库和脱敏接口证据；严格验收使用 `npm.cmd run verify:phase1-live-closure`，缺真实采集、AI 证据或运营执行样例时必须失败。

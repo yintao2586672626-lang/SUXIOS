@@ -27,6 +27,7 @@ Updated: 2026-06-12
 | `npm.cmd run verify:phase1-ota-loop` | passed | 第一阶段目标、路由、收益指标、AI 诊断、运营执行结构守卫 |
 | `npm.cmd run verify:phase1-employee-console` | passed | 员工六问、UI/接口承载面和不完成口径守卫 |
 | `npm.cmd run verify:phase1-gap-explanations` | passed | P0 字段缺口、指标限制和禁止兜底规则守卫 |
+| `npm.cmd run verify:phase1-live-closure-contract` | passed | 真实闭环证据检查器结构守卫 |
 | `npm.cmd run verify:public-entry` | passed | 前端入口结构守卫 |
 | `npm.cmd run verify:e2e-contracts` | passed | 端到端合同守卫 |
 
@@ -36,6 +37,13 @@ Updated: 2026-06-12
 2. P0：补 AI 诊断真实证据样例，确保建议引用真实 OTA 指标、字段缺口和数据范围。
 3. P1：补运营执行样例，证明建议能形成执行意图、审批、执行证据和复盘。
 4. P2：把字段缺口解释接入更多员工可见位置，但不改变采集字段和入库结构。
+
+当前真实闭环巡检入口：
+
+```powershell
+npm.cmd run inspect:phase1-live-closure -- --date=2026-06-12
+npm.cmd run verify:phase1-live-closure -- --date=2026-06-12 --system_hotel_id=1 --evidence=reports/phase1_ota_live_closure_evidence.json
+```
 
 ## 非目标
 
