@@ -159,6 +159,11 @@ requireText('app/service/MeituanManualFetchRequestService.php', 'final class Mei
 requireText('app/controller/OnlineData.php', 'MeituanManualFetchRequestService::buildRankRequestParams(', 'OnlineData delegates Meituan rank request parameters');
 requireText('app/controller/OnlineData.php', 'MeituanManualFetchRequestService::buildTrafficRequestParams(', 'OnlineData delegates Meituan traffic request parameters');
 requireText('app/controller/OnlineData.php', 'return MeituanManualFetchRequestService::normalizeDateRange($startDate, $endDate);', 'OnlineData keeps only a compatibility wrapper for Meituan manual date ranges');
+requireText('app/service/CtripManualFetchRequestService.php', 'final class CtripManualFetchRequestService', 'Ctrip manual fetch request parameter building lives in a focused service');
+requireText('app/controller/OnlineData.php', 'CtripManualFetchRequestService::normalizeBusinessReportUrl(', 'OnlineData delegates Ctrip manual report URL defaults');
+requireText('app/controller/OnlineData.php', 'CtripManualFetchRequestService::normalizeDateRange($startDate, $endDate)', 'OnlineData delegates Ctrip manual date ranges');
+requireText('app/controller/OnlineData.php', 'CtripManualFetchRequestService::buildDailyPostData($nodeId, $currentDate)', 'OnlineData delegates Ctrip daily request payloads');
+requireText('app/controller/OnlineData.php', 'CtripManualFetchRequestService::hasRepeatedMultiDayFingerprint(', 'OnlineData delegates Ctrip repeated multi-day fingerprint detection');
 requireText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForDisplay($responseData)', 'Meituan display rank rows use extracted service');
 requireNoText('app/controller/OnlineData.php', "isset($responseData['data']['peerRankData']) && is_array($responseData['data']['peerRankData'])", 'OnlineData no longer inlines Meituan peerRankData extraction');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
@@ -277,6 +282,19 @@ requireText('app/controller/OnlineData.php', "'detail_loaded' => false", 'backen
       && !lightStatusBranch.includes('buildAutoFetchPlatformStatus'),
     detail: 'include_detail=false branch must use buildAutoFetchPlatformLightStatus only',
   });
+  const lightHelperMatch = source.match(/private function buildAutoFetchPlatformLightStatus\(int \$hotelId, array \$status\): array\s+\{([\s\S]*?)\n    private function autoFetchPlatformsHaveConfig/);
+  const lightHelperSource = lightHelperMatch ? lightHelperMatch[1] : '';
+  checks.push({
+    file: 'app/controller/OnlineData.php',
+    label: 'backend light auto-fetch platform status uses raw read-only config resolvers',
+    ok: lightHelperSource.includes('resolveCtripFetchConfigForHotelLight')
+      && lightHelperSource.includes('resolveMeituanFetchConfigForHotelLight')
+      && !lightHelperSource.includes('resolveCtripFetchConfigForHotel($hotelId)')
+      && !lightHelperSource.includes('resolveMeituanFetchConfigForHotel($hotelId)')
+      && source.includes('private function getStoredCtripConfigListRaw')
+      && source.includes('private function getStoredMeituanConfigListRaw'),
+    detail: 'buildAutoFetchPlatformLightStatus must not normalize or write stored platform config lists',
+  });
 }
 requireText('public/index.html', 'const buildDataHealthPanelJobs = (normalizedMode) =>', 'entry builds data-health panel jobs outside the main loader');
 requireText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () =>', 'entry defers non-core light data-health diagnostics through a helper');
@@ -308,7 +326,8 @@ requireText('public/index.html', "if (currentPage.value !== 'ctrip-ebooking') re
 requireText('public/index.html', "prewarmSelectedCtripConfigSecret();\n                            return loadLatestCtripData({ silent: true });", 'Ctrip manual page prewarms selected config detail during deferred startup refresh');
 requireText('public/index.html', "prewarmSelectedCtripConfigSecret();\n                                deferUiTask(() => applyCtripHotelConfig(false), 80);", 'Ctrip config-list loader does not wait for full config detail before returning');
 requireNoText('public/index.html', "if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;", 'Ctrip config-list loader must not wait for full config detail application');
-requireText('public/index.html', "runPageLoadOnce(newPage, 'main', async () => {\n                        await Promise.allSettled([\n                            loadOnlineDataHotelList(),\n                            loadDataHealthPanel('light'),", 'Ctrip manual page first paint keeps only hotel list and light health status in the initial load');
+requireText('public/index.html', "runPageLoadOnce(newPage, 'main', async () => {\n                        await loadDataHealthPanel('light');", 'Ctrip manual page first paint keeps only light health status in the initial load');
+requireNoText('public/index.html', "await Promise.allSettled([\n                            loadOnlineDataHotelList(),\n                            loadDataHealthPanel('light'),\n                        ]);", 'Ctrip manual page first paint must not block on hotel-list loading');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => Promise.allSettled([\n                        loadOnlineDataHotelList(),\n                        loadCtripConfigList().then(() => loadLatestCtripData({ silent: true })),\n                        loadDataHealthPanel('light'),\n                        loadCookiesList(),\n                        loadBookmarklet(),\n                    ]));", 'Ctrip manual page must not start config/latest/cookie/bookmarklet work in the first-paint loader');
 requireText('public/index.html', 'const openCtripManualTab = (tab) => {', 'Ctrip manual tabs use a non-blocking tab switch helper');
 requireText('public/index.html', 'deferUiTask(() => runCtripManualTabSwitch({', 'Ctrip manual tab switch delegates async branching to static helper');
@@ -386,6 +405,8 @@ requireText('public/index.html', 'openOnlineDataTab(targetTab);', 'menu online-d
 requireText('public/index.html', "let pendingOnlineDataEntryTab = '';", 'online-data menu navigation tracks direct target tabs');
 requireText('public/index.html', "pendingOnlineDataEntryTab = String(item.tab || '');", 'online-data menu target tab is recorded before currentPage watcher runs');
 requireText('public/index.html', "if (requestedOnlineDataTab && requestedOnlineDataTab !== 'data-health') {\n                        return;\n                    }", 'online-data direct tab navigation skips default data-health first-paint loading');
+requireText('public/index.html', "runPageLoadOnce(newPage, 'main', () => loadDataHealthPanel('light'));", 'online-data default first paint keeps only light data-health status');
+requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => Promise.allSettled([\n                            loadOnlineDataHotelList(),\n                            loadDataHealthPanel('light'),\n                        ]));", 'online-data default first paint must not block on hotel-list loading');
 requireText('public/index.html', "const wasOnlineDataPage = currentPage.value === 'online-data';", 'online-data menu clicks can detect same-page navigation');
 requireText('public/index.html', "const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {\n                const targetTab = String(tab || 'data-health');", 'online-data external entries share one tab navigation helper');
 requireText('public/index.html', "if (targetTab !== 'data-health') {\n                    pendingOnlineDataEntryTab = targetTab;\n                }", 'online-data external entries skip default first-paint loading for non-default target tabs');

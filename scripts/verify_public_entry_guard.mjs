@@ -382,8 +382,9 @@ if (!fs.existsSync(indexPath)) {
     || content.includes("if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;")) {
     failures.push('public/index.html Ctrip config list must return after list data and prewarm full config detail in deferred work.');
   }
-  if (!/await Promise\.allSettled\(\[\s*loadOnlineDataHotelList\(\),\s*loadDataHealthPanel\(['"]light['"]\),\s*\]\);/.test(ctripEbookingDefaultLoader)) {
-    failures.push('public/index.html Ctrip eBooking first-paint loader must keep only hotel list and light data-health status.');
+  if (!/await loadDataHealthPanel\(['"]light['"]\);/.test(ctripEbookingDefaultLoader)
+    || /await Promise\.allSettled\(\[\s*loadOnlineDataHotelList\(\),\s*loadDataHealthPanel\(['"]light['"]\),\s*\]\);/.test(ctripEbookingDefaultLoader)) {
+    failures.push('public/index.html Ctrip eBooking first-paint loader must keep only light data-health status and defer hotel-list loading.');
   }
   if (/runPageLoadOnce\(newPage,\s*['"]main['"][\s\S]*Promise\.allSettled\(\[[\s\S]*loadCtripConfigList\(\)[\s\S]*loadCookiesList\(\)[\s\S]*loadBookmarklet\(\)[\s\S]*\]\)/.test(ctripEbookingDefaultLoader)) {
     failures.push('public/index.html Ctrip eBooking default loader must not start config/latest/cookie/bookmarklet refreshes in the first-paint request group.');
@@ -528,6 +529,10 @@ if (!fs.existsSync(indexPath)) {
   );
   if (onlineDataDefaultLoader.includes('loadAutoFetchPanel()')) {
     failures.push('public/index.html must not preload the full platform-auto panel from the default online-data page load.');
+  }
+  if (!onlineDataDefaultLoader.includes("runPageLoadOnce(newPage, 'main', () => loadDataHealthPanel('light'));")
+    || /runPageLoadOnce\(newPage,\s*['"]main['"],\s*\(\)\s*=>\s*Promise\.allSettled\(\[\s*loadOnlineDataHotelList\(\),\s*loadDataHealthPanel\(['"]light['"]\),\s*\]\)\)/.test(onlineDataDefaultLoader)) {
+    failures.push('public/index.html default online-data first paint must keep only light data-health status and defer hotel-list loading.');
   }
   if (/onlineDataTab\s*=\s*['"]ctrip-fetch-settings['"][^@]*loadAutoFetchPanel\(\)/.test(content)
     || /tab\s*===\s*['"]traffic['"][\s\S]{0,220}loadAutoFetchPanel\(\)/.test(content)) {
@@ -963,6 +968,16 @@ if (!fs.existsSync(indexPath)) {
     || lightStatusBranch.includes('hasAnyPlatformFetchConfigForHotel')
     || lightStatusBranch.includes('buildAutoFetchPlatformStatus')) {
     failures.push('app/controller/OnlineData.php light auto-fetch status must not run full config/profile diagnostics.');
+  }
+  const lightHelperMatch = controllerContent.match(/private function buildAutoFetchPlatformLightStatus\(int \$hotelId, array \$status\): array\s+\{([\s\S]*?)\n    private function autoFetchPlatformsHaveConfig/);
+  const lightHelperSource = lightHelperMatch ? lightHelperMatch[1] : '';
+  if (!lightHelperSource.includes('resolveCtripFetchConfigForHotelLight')
+    || !lightHelperSource.includes('resolveMeituanFetchConfigForHotelLight')
+    || lightHelperSource.includes('resolveCtripFetchConfigForHotel($hotelId)')
+    || lightHelperSource.includes('resolveMeituanFetchConfigForHotel($hotelId)')
+    || !controllerContent.includes('private function getStoredCtripConfigListRaw')
+    || !controllerContent.includes('private function getStoredMeituanConfigListRaw')) {
+    failures.push('app/controller/OnlineData.php light auto-fetch platform status must use read-only raw config resolvers.');
   }
   if (!controllerContent.includes("'/api/online-data/retry-auto-fetch'")
     || !controllerContent.includes("'retry_auto_fetch_queued'")

@@ -10,6 +10,7 @@ use app\model\User as UserModel;
 use app\service\OtaOperatingScope;
 use app\service\OtaTrafficUrlNormalizer;
 use app\service\CtripCaptureDiagnosisService;
+use app\service\CtripManualFetchRequestService;
 use app\service\CtripOverviewSummaryService;
 use app\service\CtripProfileFieldMetaService;
 use app\service\CtripTrafficDisplayService;
@@ -219,14 +220,8 @@ class OnlineData extends Base
         $this->checkActionPermission('can_fetch_online_data');
 
         $requestData = $this->request->post();
-        $url = trim((string)$this->request->post('url', ''));
-        if ($url === '') {
-            $url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport';
-        }
-        $nodeId = trim((string)$this->request->post('node_id', ''));
-        if ($nodeId === '') {
-            $nodeId = '24588';
-        }
+        $url = CtripManualFetchRequestService::normalizeBusinessReportUrl((string)$this->request->post('url', ''));
+        $nodeId = CtripManualFetchRequestService::normalizeNodeId((string)$this->request->post('node_id', ''));
         $cookies = trim((string)$this->request->post('cookies', ''));
         $authDataStr = $this->request->post('auth_data', '');
         $startDate = $this->request->post('start_date', '');
@@ -251,14 +246,16 @@ class OnlineData extends Base
         }
 
         try {
-            if (!$startDate || !$endDate) {
-                $yesterday = date('Y-m-d', strtotime('-1 day'));
-                $startDate = $yesterday;
-                $endDate = $yesterday;
+            try {
+                $dateRangePlan = CtripManualFetchRequestService::normalizeDateRange($startDate, $endDate);
+            } catch (\InvalidArgumentException $e) {
+                return json(['code' => 400, 'message' => '日期范围无效', 'data' => null]);
             }
+            $startDate = $dateRangePlan['start_date'];
+            $endDate = $dateRangePlan['end_date'];
+            $startTimestamp = $dateRangePlan['start_timestamp'];
+            $endTimestamp = $dateRangePlan['end_timestamp'];
 
-            $startTimestamp = strtotime($startDate);
-            $endTimestamp = strtotime($endDate);
             if ($startTimestamp === false || $endTimestamp === false || $startTimestamp > $endTimestamp) {
                 return json(['code' => 400, 'message' => '日期范围无效', 'data' => null]);
             }
@@ -294,11 +291,7 @@ class OnlineData extends Base
 
             for ($timestamp = $startTimestamp; $timestamp <= $endTimestamp; $timestamp = strtotime('+1 day', $timestamp)) {
                 $currentDate = date('Y-m-d', $timestamp);
-                $postData = [
-                    'nodeId' => $nodeId,
-                    'startDate' => $currentDate,
-                    'endDate' => $currentDate,
-                ];
+                $postData = CtripManualFetchRequestService::buildDailyPostData($nodeId, $currentDate);
 
                 // 发送请求
                 $result = $this->sendHttpRequest($url, $postData, $cookies, $authData);
@@ -345,8 +338,7 @@ class OnlineData extends Base
                 ];
             }
 
-            $uniqueFingerprints = array_values(array_unique(array_filter(array_column($dateResults, 'fingerprint'))));
-            if ($startDate !== $endDate && count($uniqueFingerprints) === 1) {
+            if (CtripManualFetchRequestService::hasRepeatedMultiDayFingerprint($startDate, $endDate, $dateResults)) {
                 return json([
                     'code' => 422,
                     'message' => '携程多日请求返回了同一份经营数据，系统已取消保存，避免把昨天数据按天数写入。请改为单日获取，或确认携程后台该账号是否支持历史日期。',
@@ -18199,8 +18191,8 @@ JAVASCRIPT;
 
     private function buildAutoFetchPlatformLightStatus(int $hotelId, array $status): array
     {
-        $ctripConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
-        $meituanConfig = $this->resolveMeituanFetchConfigForHotel($hotelId);
+        $ctripConfig = $this->resolveCtripFetchConfigForHotelLight($hotelId);
+        $meituanConfig = $this->resolveMeituanFetchConfigForHotelLight($hotelId);
         $ctripBrowserProfileSources = $this->listEnabledCtripBrowserProfileDataSources($hotelId);
         $meituanBrowserProfileSources = $this->listEnabledBrowserProfileDataSources($hotelId, 'meituan');
         $modeOptions = [
@@ -22421,6 +22413,74 @@ JAVASCRIPT;
         }
 
         return [];
+    }
+
+    private function resolveCtripFetchConfigForHotelLight(int $hotelId): array
+    {
+        $resolvedConfig = [];
+        foreach ($this->getStoredCtripConfigListRaw() as $config) {
+            $configHotelId = (string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? '');
+            if ($configHotelId !== '' && (string)$hotelId === $configHotelId) {
+                $resolvedConfig = $config;
+                break;
+            }
+        }
+
+        if (empty($resolvedConfig)) {
+            $cookiesList = $this->getConfigList("online_data_cookies_hotel_{$hotelId}");
+            foreach ($cookiesList as $item) {
+                if (is_array($item) && !empty($item['cookies'])) {
+                    $resolvedConfig = [
+                        'cookies' => $item['cookies'],
+                        'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                        'node_id' => '24588',
+                    ];
+                    break;
+                }
+            }
+        }
+
+        $ctripCookieApiConfig = $this->readSavedOtaDataConfig('ctrip-cookie-api');
+        if (is_array($ctripCookieApiConfig) && $this->isAutoFetchDataConfigUsable($ctripCookieApiConfig, $hotelId)) {
+            $resolvedConfig = $resolvedConfig === []
+                ? $ctripCookieApiConfig
+                : array_merge($resolvedConfig, $ctripCookieApiConfig);
+        }
+
+        return $resolvedConfig;
+    }
+
+    private function resolveMeituanFetchConfigForHotelLight(int $hotelId): array
+    {
+        foreach ($this->getStoredMeituanConfigListRaw() as $config) {
+            $configHotelId = (string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? '');
+            if ($configHotelId !== '' && (string)$hotelId === $configHotelId) {
+                return $config;
+            }
+        }
+
+        return [];
+    }
+
+    private function getStoredCtripConfigListRaw(): array
+    {
+        try {
+            $raw = Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value');
+            $list = $raw ? json_decode((string)$raw, true) : [];
+            return is_array($list) ? array_values(array_filter($list, 'is_array')) : [];
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function getStoredMeituanConfigListRaw(): array
+    {
+        try {
+            $list = $this->getConfigList('meituan_config_list');
+            return is_array($list) ? array_values(array_filter($list, 'is_array')) : [];
+        } catch (\Throwable $e) {
+            return [];
+        }
     }
 
     private function ctripProfileStoreIdFromConfig(array $config, int $hotelId = 0): string

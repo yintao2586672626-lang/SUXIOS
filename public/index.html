@@ -24355,10 +24355,7 @@
                 if (newPage === 'ctrip-ebooking') {
                     setOnlineDataTabFromPage('data-health');
                     runPageLoadOnce(newPage, 'main', async () => {
-                        await Promise.allSettled([
-                            loadOnlineDataHotelList(),
-                            loadDataHealthPanel('light'),
-                        ]);
+                        await loadDataHealthPanel('light');
                         scheduleCtripEbookingDeferredStartupRefresh();
                     });
                 }
@@ -24395,10 +24392,7 @@
                     setOnlineDataTabFromPage('data-health');
                     // 延迟加载，确保页面渲染完成
                     setTimeout(() => {
-                        runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
-                            loadOnlineDataHotelList(),
-                            loadDataHealthPanel('light'),
-                        ]));
+                        runPageLoadOnce(newPage, 'main', () => loadDataHealthPanel('light'));
                     }, 100);
                 }
                 if (newPage === 'operation-logs') {
