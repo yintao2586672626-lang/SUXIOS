@@ -282,6 +282,18 @@ requireNoText('public/index.html', 'loadCollectionReliability(normalizedMode)', 
 requireText('public/index.html', 'const platformProfileStatusRequestPromises = new Map();', 'platform profile status requests are deduplicated by hotel');
 requireText('public/index.html', 'ctrip_auto_fetch_mode: autoFetchMode.value', 'platform auto-fetch keeps Ctrip on the selected fast mode by default');
 requireText('public/index.html', "const isCoreOtaPageVisible = () => ['online-data', 'ctrip-ebooking', 'meituan-ebooking'].includes(currentPage.value);", 'core OTA pages are explicit so background refreshes can yield to them');
+requireText('public/index.html', "const authUserCacheKey = 'suxios_auth_user_cache_v1';", 'entry caches the last verified auth user for repeat-session first paint');
+requireText('public/index.html', 'const authUserCacheMaxAgeMs = 12 * 60 * 60 * 1000;', 'cached auth profile has a bounded freshness window');
+requireText('public/index.html', 'if (Date.now() - Number(payload.saved_at || 0) > authUserCacheMaxAgeMs) return null;', 'expired cached auth profile is ignored');
+requireText('public/index.html', 'const cachedAuthUser = token.value ? loadCachedAuthUser() : null;', 'entry loads cached auth user only when a token exists');
+requireText('public/index.html', 'const isLoggedIn = ref(!!token.value && !!cachedAuthUser);', 'entry can render the app shell before auth/info returns for repeat sessions');
+requireText('public/index.html', 'const user = ref(cachedAuthUser);', 'entry uses cached auth profile for initial permission filtering');
+requireText('public/index.html', 'const cachedPermittedHotels = Array.isArray(cachedAuthUser?.permitted_hotels) ? cachedAuthUser.permitted_hotels : [];', 'entry seeds hotel options from cached auth profile');
+requireText('public/index.html', 'saveCachedAuthUser(res.data);', 'auth/info refreshes the cached auth profile after verification');
+requireText('public/index.html', 'isLoggedIn.value = true;\n                            loadData();', 'auth/info success remains the verified login source after cached first paint');
+requireText('public/index.html', 'saveCachedAuthUser(res.data.user);', 'login success writes the cached auth profile');
+requireText('public/index.html', 'const clearAuthSession = () => {', 'auth cleanup clears token and cached auth user together');
+requireText('public/index.html', 'clearCachedAuthUser();', 'auth cleanup removes cached auth profile');
 requireText('public/index.html', 'const scheduleInitialCompassLoad = (options = {}) => {', 'initial compass loading is scheduled instead of blocking fast OTA navigation');
 requireText('public/index.html', "scheduleInitialCompassLoad({ force: true, delayMs: 4500 });", 'login startup leaves a larger window for fast OTA page switches before compass loading');
 requireText('public/index.html', 'const scheduleInitialBackendNotificationRefresh = (delayMs = 8000) => {', 'startup backend notification refresh is delayed behind core OTA navigation');
@@ -713,9 +725,19 @@ requireNoText('app/controller/SystemNotificationController.php', 'filterRowsByCu
 }
 requireText('app/model/SystemConfig.php', 'public static function getConfigsByKeys(array $keys): array', 'system config model supports bounded key reads');
 requireText('app/model/SystemConfig.php', 'private static array $valueCache = [];', 'system config model keeps request-local value cache for repeated key reads');
+requireText('app/model/SystemConfig.php', 'private const DURABLE_VALUE_CACHE_KEYS = [', 'system config model keeps selected high-frequency keys in short cross-request cache');
+requireNoText('app/model/SystemConfig.php', "'protected_capability_policy' => true,", 'protected capability policy must not use cross-request cache');
+requireText('app/model/SystemConfig.php', "'ctrip_config_list' => true,", 'Ctrip config list uses short cross-request cache');
+requireText('app/model/SystemConfig.php', "'meituan_config_list' => true,", 'Meituan config list uses short cross-request cache');
 requireText('app/model/SystemConfig.php', 'if (array_key_exists($key, self::$valueCache)) {', 'system config getValue checks request-local cache before querying');
+requireText('app/model/SystemConfig.php', '$cached = self::readDurableValueCache($key);', 'system config getValue checks selected cross-request cache before querying');
 requireText('app/model/SystemConfig.php', "self::where('config_key', $key)->field('config_value')->find()", 'system config getValue reads only the config_value column');
 requireText('app/model/SystemConfig.php', "self::$valueCache[$key] = ['found' => $found, 'value' => $value];", 'system config cache preserves missing-row vs null-value semantics');
+requireText('app/model/SystemConfig.php', 'self::writeDurableValueCache($key, $found, $value);', 'system config getValue refreshes selected cross-request cache after DB reads');
+requireText('app/model/SystemConfig.php', 'self::writeDurableValueCache($key, true, $value);', 'system config setValue refreshes selected cross-request cache after writes');
+requireNoText('app/service/ProtectedCapabilityService.php', 'mightMatchDefaultCapabilityPath', 'protected capability classification must not be gated by default policy paths');
+requireNoText('app/middleware/Auth.php', 'ProtectedCapabilityService::mightMatchDefaultCapabilityPath', 'auth middleware must load the configured protected policy before classification');
+requireText('app/middleware/Auth.php', '$protectedCapabilityService = $this->protectedCapabilityService();\n        $capability = $protectedCapabilityService->classifyPath($request->method(), $request->url());', 'auth middleware classifies with the configured protected policy');
 requireNoText('public/index.html', 'const isItemVisible = (item) => {', 'visible menu permission filter is not re-inlined');
 requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform next action metadata is not re-inlined');
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');

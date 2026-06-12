@@ -18,6 +18,12 @@ class SystemConfig extends Model
      */
     private static array $valueCache = [];
 
+    private const DURABLE_VALUE_CACHE_TTL = 300;
+    private const DURABLE_VALUE_CACHE_KEYS = [
+        'ctrip_config_list' => true,
+        'meituan_config_list' => true,
+    ];
+
     // 自动时间戳
     protected $autoWriteTimestamp = true;
     protected $createTime = 'create_time';
@@ -85,11 +91,17 @@ class SystemConfig extends Model
         if (array_key_exists($key, self::$valueCache)) {
             return self::$valueCache[$key]['found'] ? self::$valueCache[$key]['value'] : $default;
         }
+        $cached = self::readDurableValueCache($key);
+        if ($cached !== null) {
+            self::$valueCache[$key] = $cached;
+            return $cached['found'] ? $cached['value'] : $default;
+        }
 
         $config = self::where('config_key', $key)->field('config_value')->find();
         $found = $config !== null;
         $value = $found ? $config->config_value : null;
         self::$valueCache[$key] = ['found' => $found, 'value' => $value];
+        self::writeDurableValueCache($key, $found, $value);
 
         return $found ? $value : $default;
     }
@@ -105,6 +117,7 @@ class SystemConfig extends Model
             $saved = $config->save();
             if ($saved) {
                 self::$valueCache[$key] = ['found' => true, 'value' => $value];
+                self::writeDurableValueCache($key, true, $value);
             }
             return $saved;
         } else {
@@ -115,6 +128,7 @@ class SystemConfig extends Model
             $saved = $config->save();
             if ($saved) {
                 self::$valueCache[$key] = ['found' => true, 'value' => $value];
+                self::writeDurableValueCache($key, true, $value);
             }
             return $saved;
         }
@@ -130,6 +144,7 @@ class SystemConfig extends Model
         foreach ($configs as $config) {
             $result[$config->config_key] = $config->config_value;
             self::$valueCache[$config->config_key] = ['found' => true, 'value' => $config->config_value];
+            self::writeDurableValueCache((string)$config->config_key, true, $config->config_value);
         }
         return $result;
     }
@@ -164,15 +179,61 @@ class SystemConfig extends Model
         foreach ($configs as $config) {
             $result[$config->config_key] = $config->config_value;
             self::$valueCache[$config->config_key] = ['found' => true, 'value' => $config->config_value];
+            self::writeDurableValueCache((string)$config->config_key, true, $config->config_value);
             $foundKeys[$config->config_key] = true;
         }
         foreach ($missingKeys as $key) {
             if (!isset($foundKeys[$key])) {
                 self::$valueCache[$key] = ['found' => false, 'value' => null];
+                self::writeDurableValueCache($key, false, null);
             }
         }
 
         return $result;
+    }
+
+    /**
+     * @return array{found: bool, value: mixed}|null
+     */
+    private static function readDurableValueCache(string $key): ?array
+    {
+        if (!self::shouldUseDurableValueCache($key)) {
+            return null;
+        }
+        try {
+            $cached = cache(self::durableValueCacheKey($key));
+        } catch (\Throwable $e) {
+            return null;
+        }
+        if (!is_array($cached) || !array_key_exists('found', $cached)) {
+            return null;
+        }
+        return [
+            'found' => (bool)$cached['found'],
+            'value' => $cached['value'] ?? null,
+        ];
+    }
+
+    private static function writeDurableValueCache(string $key, bool $found, $value): void
+    {
+        if (!self::shouldUseDurableValueCache($key)) {
+            return;
+        }
+        try {
+            cache(self::durableValueCacheKey($key), ['found' => $found, 'value' => $value], self::DURABLE_VALUE_CACHE_TTL);
+        } catch (\Throwable $e) {
+            // Runtime cache availability must not block configuration reads or writes.
+        }
+    }
+
+    private static function shouldUseDurableValueCache(string $key): bool
+    {
+        return isset(self::DURABLE_VALUE_CACHE_KEYS[$key]);
+    }
+
+    private static function durableValueCacheKey(string $key): string
+    {
+        return 'system_config_value_' . sha1($key);
     }
 
     /**

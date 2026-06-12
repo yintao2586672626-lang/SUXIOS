@@ -18347,12 +18347,70 @@
             DataTable
         },
         setup() {
+            const authUserCacheKey = 'suxios_auth_user_cache_v1';
+            const authUserCacheMaxAgeMs = 12 * 60 * 60 * 1000;
+            const sanitizeCachedAuthUser = (profile = null) => {
+                if (!profile || typeof profile !== 'object') return null;
+                const permissions = profile.permissions && typeof profile.permissions === 'object' && !Array.isArray(profile.permissions)
+                    ? { ...profile.permissions }
+                    : {};
+                const permitted = Array.isArray(profile.permitted_hotels)
+                    ? profile.permitted_hotels
+                        .filter(item => item && item.id)
+                        .map(item => ({
+                            id: item.id,
+                            tenant_id: item.tenant_id ?? null,
+                            name: item.name || '',
+                            code: item.code || '',
+                            status: item.status ?? 1,
+                        }))
+                    : [];
+                return {
+                    id: profile.id ?? null,
+                    username: profile.username || '',
+                    realname: profile.realname || '',
+                    role_id: profile.role_id ?? null,
+                    role_name: profile.role_name || '',
+                    hotel_id: profile.hotel_id ?? null,
+                    is_super_admin: profile.is_super_admin === true,
+                    is_hotel_manager: profile.is_hotel_manager === true,
+                    permissions,
+                    permitted_hotels: permitted,
+                };
+            };
+            const loadCachedAuthUser = () => {
+                try {
+                    const payload = JSON.parse(localStorage.getItem(authUserCacheKey) || 'null');
+                    if (!payload || typeof payload !== 'object') return null;
+                    if (Date.now() - Number(payload.saved_at || 0) > authUserCacheMaxAgeMs) return null;
+                    return sanitizeCachedAuthUser(payload.user);
+                } catch (e) {
+                    return null;
+                }
+            };
+            const saveCachedAuthUser = (profile) => {
+                const cachedUser = sanitizeCachedAuthUser(profile);
+                if (!cachedUser) return;
+                try {
+                    localStorage.setItem(authUserCacheKey, JSON.stringify({ saved_at: Date.now(), user: cachedUser }));
+                } catch (e) {
+                    // Auth cache only improves first paint and should not block login.
+                }
+            };
+            const clearCachedAuthUser = () => {
+                try {
+                    localStorage.removeItem(authUserCacheKey);
+                } catch (e) {
+                    // Ignore localStorage cleanup failures.
+                }
+            };
             // 状态
-            const isLoggedIn = ref(false);
             const loading = ref(false);
             const loginError = ref('');
-            const user = ref(null);
             const token = ref(localStorage.getItem('token') || '');
+            const cachedAuthUser = token.value ? loadCachedAuthUser() : null;
+            const isLoggedIn = ref(!!token.value && !!cachedAuthUser);
+            const user = ref(cachedAuthUser);
             const currentLocale = ref(getInitialLocale());
             document.documentElement.lang = currentLocale.value;
             const aiModelConfigText = createAiModelConfigText(() => currentLocale.value);
@@ -18407,6 +18465,13 @@
                     return;
                 }
                 deferUiTask(callback, delay);
+            };
+            const clearAuthSession = () => {
+                isLoggedIn.value = false;
+                user.value = null;
+                token.value = '';
+                localStorage.removeItem('token');
+                clearCachedAuthUser();
             };
             const postFetchRefreshTimers = new Map();
             const schedulePostFetchRefresh = (key, callback, delay = 240) => {
@@ -24719,8 +24784,9 @@
             };
 
             // 数据
-            const hotels = ref([]);
-            const permittedHotels = ref([]);
+            const cachedPermittedHotels = Array.isArray(cachedAuthUser?.permitted_hotels) ? cachedAuthUser.permitted_hotels : [];
+            const hotels = ref(cachedPermittedHotels);
+            const permittedHotels = ref(cachedPermittedHotels);
             const platformDataSourceHotelOptions = computed(() => {
                 const pool = permittedHotels.value.length ? permittedHotels.value : hotels.value;
                 return (Array.isArray(pool) ? pool : []).filter(item => item && item.id);
@@ -25231,10 +25297,7 @@
 
                     // 处理 401 认证失败
                     if (response.status === 401 || data.code === 401) {
-                        isLoggedIn.value = false;
-                        user.value = null;
-                        token.value = '';
-                        localStorage.removeItem('token');
+                        clearAuthSession();
                         // 只在非初始化请求时显示提示
                         if (url !== '/auth/info') {
                             showToast('登录已过期，请重新登录', 'error');
@@ -28471,6 +28534,7 @@
                         loginError.value = '';
                         token.value = res.data.token;
                         user.value = res.data.user;
+                        saveCachedAuthUser(res.data.user);
                         localStorage.setItem('token', token.value);
 
                         // 只记住账号，不持久化密码
@@ -28539,11 +28603,8 @@
 
             const handleLogout = async () => {
                 await request('/auth/logout', { method: 'POST' });
-                isLoggedIn.value = false;
-                user.value = null;
-                token.value = '';
                 globalNotificationOpen.value = false;
-                localStorage.removeItem('token');
+                clearAuthSession();
             };
 
             const dedupeHotels = (items = []) => {
@@ -29673,10 +29734,7 @@
                 });
                 const data = await response.json().catch(() => ({}));
                 if (response.status === 401 || data.code === 401) {
-                    isLoggedIn.value = false;
-                    user.value = null;
-                    token.value = '';
-                    localStorage.removeItem('token');
+                    clearAuthSession();
                     throw new Error('登录已过期，请重新登录');
                 }
                 if (!response.ok || data.code !== 0) {
@@ -29842,10 +29900,7 @@
                     });
                     const res = await response.json().catch(() => ({}));
                     if (response.status === 401 || res.code === 401) {
-                        isLoggedIn.value = false;
-                        user.value = null;
-                        token.value = '';
-                        localStorage.removeItem('token');
+                        clearAuthSession();
                         throw new Error('登录已过期，请重新登录');
                     }
                     if (!response.ok) {
@@ -35420,6 +35475,7 @@
                     request('/auth/info').then(res => {
                         if (res.code === 200) {
                             user.value = res.data;
+                            saveCachedAuthUser(res.data);
                             permittedHotels.value = res.data.permitted_hotels || [];
                             // 单门店用户自动选择其唯一的酒店
                             if (!user.value.is_super_admin && permittedHotels.value.length === 1) {
@@ -35436,13 +35492,11 @@
                             }
                         } else {
                             // token 无效，清除本地存储
-                            localStorage.removeItem('token');
-                            token.value = '';
+                            clearAuthSession();
                         }
                     }).catch(() => {
                         // 请求失败，清除本地存储
-                        localStorage.removeItem('token');
-                        token.value = '';
+                        clearAuthSession();
                     });
                 }
             });
