@@ -1046,7 +1046,7 @@ window.SUXI_CTRIP_STATIC = (() => {
 
         try {
             debugLog('发送携程数据请求...', requestContext.debugMeta);
-            const requestBody = { ...requestContext.requestBody, async: true };
+            const requestBody = { ...requestContext.requestBody, async: false, background: false };
             const res = await requestFetch(requestBody);
             debugLog('携程数据响应:', res);
 
@@ -1266,9 +1266,9 @@ window.SUXI_CTRIP_STATIC = (() => {
             cookies,
             systemHotelId: selectedCtripHotelId || null,
         });
-        const queuedRequestBody = { ...requestBody, async: true };
+        const directRequestBody = { ...requestBody, async: false, background: false };
         try {
-            const res = await requestFetch(queuedRequestBody);
+            const res = await requestFetch(directRequestBody);
             if (isCtripBackgroundAcceptedResponse(res)) {
                 const data = res.data || {};
                 const runningPayload = {
@@ -1286,7 +1286,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 if (getOnlineDataTab() === 'data') {
                     refreshOnlineData();
                 }
-                return { status: 'accepted', response: res, requestBody: queuedRequestBody, data: runningPayload };
+                return { status: 'accepted', response: res, requestBody: directRequestBody, data: runningPayload };
             }
             if (res.code === 200) {
                 const trafficModel = buildCtripTrafficResponseModel(res.data || {});
@@ -1300,7 +1300,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 const savedCount = trafficModel.savedCount;
                 if (rows.length === 0) {
                     notify('当前日期范围暂无流量数据', 'warning');
-                    return { status: 'empty', response: res, requestBody: queuedRequestBody, trafficModel, rows, savedCount };
+                    return { status: 'empty', response: res, requestBody: directRequestBody, trafficModel, rows, savedCount };
                 }
 
                 notify(`获取成功，已保存 ${savedCount} 条流量数据`);
@@ -1308,14 +1308,14 @@ window.SUXI_CTRIP_STATIC = (() => {
                 if (getOnlineDataTab() === 'data') {
                     refreshOnlineData();
                 }
-                return { status: 'success', response: res, requestBody: queuedRequestBody, trafficModel, rows, savedCount };
+                return { status: 'success', response: res, requestBody: directRequestBody, trafficModel, rows, savedCount };
             }
 
             await handleFetchFailure(res.message || '获取失败');
-            return { status: 'failed', response: res, requestBody: queuedRequestBody };
+            return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
             await handleFetchFailure('请求失败: ' + error.message);
-            return { status: 'exception', error, requestBody: queuedRequestBody };
+            return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
             setFetching(false);
         }
@@ -1522,8 +1522,8 @@ window.SUXI_CTRIP_STATIC = (() => {
                 cookies,
                 form,
             });
-            const queuedRequestBody = { ...requestBody, async: true };
-            const res = await requestFetch(queuedRequestBody);
+            const directRequestBody = { ...requestBody, async: false, background: false };
+            const res = await requestFetch(directRequestBody);
             if (isCtripBackgroundAcceptedResponse(res)) {
                 const data = res.data || {};
                 const runningPayload = {
@@ -1541,7 +1541,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 notify(res.message || '携程广告手动获取已提交后台执行，完成后会更新数据列表和通知', 'info');
                 runPostFetchRefresh(refreshLatestCtripData, { silent: true });
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'accepted', response: res, requestBody: queuedRequestBody, data: runningPayload };
+                return { status: 'accepted', response: res, requestBody: directRequestBody, data: runningPayload };
             }
             if (res.code === 200) {
                 const data = res.data || {};
@@ -1551,11 +1551,11 @@ window.SUXI_CTRIP_STATIC = (() => {
                 notify(res.message || `广告数据获取完成，已入库 ${data.saved_count || 0} 条`);
                 runPostFetchRefresh(refreshLatestCtripData, { silent: true });
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, requestBody: queuedRequestBody };
+                return { status: 'success', response: res, requestBody: directRequestBody };
             }
 
             notify(res.message || '广告数据获取失败', 'error');
-            return { status: 'failed', response: res, requestBody: queuedRequestBody };
+            return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
             notify('广告数据获取失败: ' + error.message, 'error');
             setResult(error?.data?.data || { error: error.message });

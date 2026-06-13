@@ -96,7 +96,7 @@ window.SUXI_COMPASS_STATIC = (() => {
     ];
     const defaultCompassWeatherCity = '成都市';
     const homeQuickEntryDefinitions = [
-        { key: 'online-data', title: 'OTA数据同步', desc: '采集校验携程美团', page: 'ctrip-ebooking', tab: 'ctrip-ranking', icon: 'fas fa-cloud-download-alt', permission: 'can_view_online_data' },
+        { key: 'online-data', title: 'OTA数据同步', desc: '采集校验携程美团', page: 'online-data', tab: 'data-health', icon: 'fas fa-cloud-download-alt', permission: 'can_view_online_data' },
         { key: 'operation-diagnosis', title: '收益诊断', desc: '收入与OTA漏斗', page: 'ops-source', icon: 'fas fa-search' },
         { key: 'operation-root-cause', title: '根因定位', desc: '找获客和收入问题', page: 'ops-analysis', icon: 'fas fa-microscope' },
         { key: 'operation-alerts', title: '预警建议', desc: '查看风险与动作', page: 'ops-insight', icon: 'fas fa-bell' },

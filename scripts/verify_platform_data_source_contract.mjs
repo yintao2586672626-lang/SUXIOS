@@ -325,6 +325,8 @@ for (const [needle, label] of [
 for (const [needle, label] of [
   ['--login-only=true', 'async login command runs browser capture in login-only mode'],
   ['--headless=false', 'async login command always opens a visible browser for manual verification'],
+  ['--post-login-wait-ms=', 'async login command keeps the visible login browser open after auth checks'],
+  ['?? 120000', 'async login command defaults to a visible two-minute manual verification window'],
   ['platform_profile_login_task_', 'async login command writes task status cache'],
   ['current_key', 'async login command updates current task cache for polling'],
   ['PlatformDataSyncService', 'async login command binds successful Profile to platform data source'],

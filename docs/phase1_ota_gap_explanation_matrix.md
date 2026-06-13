@@ -29,6 +29,7 @@ Updated: 2026-06-12
 | `meituan_etl_not_ready` | 美团源数据没有形成可读的标准事实层，不能进入统一收益诊断。 | 美团标准事实、收益指标、字段可信判断 | 已保存的原始/历史参考状态和采集日志 | 复核现有美团 ETL 输入、data_type、raw_data 标准化证据 |
 | `meituan_revenue_metrics_not_ready` | 美团收益指标未就绪，不能计算美团收入、间夜、客单等经营结论。 | 美团收益、ADR、订单、间夜和相关 AI 建议 | 其它已 ready 平台的收益指标可单独复核 | 补齐美团目标日源数据和标准事实后复跑收益指标 |
 | `meituan_traffic_facts_missing` | 美团目标日缺少流量/转化事实，不能判断曝光、访问、转化链路。 | 美团流量、转化率、漏斗诊断、AI 对流量问题的确定结论 | 美团历史参考行只能说明最近有数据，不证明目标日流量 | 使用现有美团流量获取入口补齐目标日流量事实 |
+| `ai_diagnosis_evidence_sample_missing` | 尚未提供真实 OTA 诊断证据样例，不能证明 AI 建议已有证据来源、数据缺口和动作项支撑。 | AI 建议依据、自动动作项、运营执行前置判断 | 已验证的 OTA 数据缺口和字段缺口可作为补证据清单 | 调用现有 OTA 诊断接口并附脱敏证据 JSON，必须包含证据来源、数据缺口和动作项 |
 | `ai_diagnosis_action_items_blocked` | AI 诊断已有阻断依据，但 action_items 不能作为可执行经营建议。 | AI 自动建议、执行意图创建、运营闭环完成判断 | 阻断原因、证据来源和 data_gaps 可作为补证据清单 | 先解除上游 OTA 缺口，再重新生成包含非 blocked action_items 的诊断 |
 | `operation_execution_sample_missing` | 尚无能追溯到 OTA 诊断的执行意图、审批、执行证据或复盘样例。 | 运营执行闭环、动作完成、复盘和 ROI 判断 | 下一步动作和阻断链可见，但不能算执行完成 | 取得可执行 AI action_items 后，创建或附上执行意图和证据 |
 | `operation_execution_ai_action_link_missing` | 已有执行相关数据，但未能追溯到 OTA 诊断 action_items，不能证明这一步是 AI 建议的运营承接。 | AI 建议执行承接、运营执行闭环、动作完成归因 | 普通执行流可作为运营参考，OTA 诊断缺口和动作队列仍可作为待处理清单 | 将执行意图或执行流程的 source/evidence 关联到 OTA 诊断 action_items，再补齐审批、执行证据或复盘 |

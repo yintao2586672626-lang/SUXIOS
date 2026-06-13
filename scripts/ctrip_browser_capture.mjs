@@ -141,6 +141,7 @@ const browser = await launchOtaPersistentContext(storageDir, args);
 await grantCtripBrowserPermissions(browser);
 payload.cookie_injection = await injectBrowserCookies(browser, args, 'ctrip');
 const page = await browser.newPage();
+await bringLoginPageToFront(page);
 registerResponseCapture(page, payload, defaultCaptureState);
 
 try {
@@ -196,6 +197,7 @@ try {
 
 async function ensureLoggedIn(page) {
   await page.goto(ctripLoginEntryUrl(), { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
+  await bringLoginPageToFront(page);
   await page.waitForTimeout(2000);
   await dismissBlockingOverlays(page);
   if (await looksLoggedIn(page)) {
@@ -218,6 +220,12 @@ async function ensureLoggedIn(page) {
     timeout_ms: timeoutMs,
     message: `Ctrip login timeout after ${Math.round(timeoutMs / 1000)} seconds`,
   };
+}
+
+async function bringLoginPageToFront(page) {
+  if (typeof page.bringToFront === 'function') {
+    await page.bringToFront().catch(() => null);
+  }
 }
 
 async function holdInteractiveLoginWindow(page, platformName) {

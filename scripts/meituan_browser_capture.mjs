@@ -63,6 +63,7 @@ const browser = await launchOtaPersistentContext(storageDir, args);
 payload.cookie_injection = await injectBrowserCookies(browser, args, 'meituan');
 
 const page = await browser.newPage();
+await bringLoginPageToFront(page);
 registerResponseCapture(page, payload);
 
 try {
@@ -128,6 +129,7 @@ try {
 
 async function ensureLoggedIn(page) {
   await page.goto(URLS.check, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
+  await bringLoginPageToFront(page);
   await page.waitForTimeout(2000);
   if (await looksLoggedIn(page)) {
     return { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' };
@@ -144,6 +146,7 @@ async function ensureLoggedIn(page) {
     }
 
     await page.goto(URLS.login, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
+    await bringLoginPageToFront(page);
     console.log(`Open login page and complete Meituan login. Profile will be saved at ${storageDir}`);
     if (args.loginMode === 'manual') {
       await waitForEnter('Press Enter after login succeeds...');
@@ -171,6 +174,12 @@ async function ensureLoggedIn(page) {
   }
 
   return { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' };
+}
+
+async function bringLoginPageToFront(page) {
+  if (typeof page.bringToFront === 'function') {
+    await page.bringToFront().catch(() => null);
+  }
 }
 
 async function holdInteractiveLoginWindow(page, platformName) {

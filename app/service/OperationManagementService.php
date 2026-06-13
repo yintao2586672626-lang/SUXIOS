@@ -776,6 +776,86 @@ class OperationManagementService
         return $this->executionIntentDetail($id, $hotelIds);
     }
 
+    public function syncDailyWorkbenchPatrolAction(array $hotelIds, array $input, int $userId): array
+    {
+        $this->ensureExecutionTables();
+
+        $hotelIds = array_values(array_unique(array_map('intval', $hotelIds)));
+        $hotelId = (int)($input['hotel_id'] ?? 0);
+        if ($hotelId <= 0 || !in_array($hotelId, $hotelIds, true)) {
+            throw new \InvalidArgumentException('hotel_id is not permitted');
+        }
+
+        $runId = trim((string)($input['run_id'] ?? ''));
+        $actionCode = trim((string)($input['action_code'] ?? ''));
+        $questionKey = trim((string)($input['question_key'] ?? ''));
+        $status = strtolower(trim((string)($input['status'] ?? '')));
+        if ($runId === '' || ($actionCode === '' && $questionKey === '')) {
+            throw new \InvalidArgumentException('patrol run_id and action identity are required');
+        }
+        if (!in_array($status, ['pending', 'in_progress', 'done', 'skipped', 'review_needed'], true)) {
+            throw new \InvalidArgumentException('patrol action status is not supported');
+        }
+
+        $sourceRecordId = $this->dailyWorkbenchPatrolSourceRecordId($runId, $hotelId, $actionCode, $questionKey);
+        $intent = $this->findDailyWorkbenchPatrolIntent($hotelId, $sourceRecordId);
+        if ($intent === null) {
+            $intent = $this->createExecutionIntent($hotelIds, $hotelId, $this->buildDailyWorkbenchPatrolExecutionIntentInput($input, $sourceRecordId), $userId);
+        } else {
+            $intent = $this->executionIntentDetail((int)$intent['id'], $hotelIds);
+        }
+
+        $task = null;
+        if ($status === 'done') {
+            if ((string)($intent['status'] ?? '') !== 'approved') {
+                $intent = $this->approveExecutionIntent(
+                    (int)$intent['id'],
+                    true,
+                    'operator marked action done from daily workbench patrol',
+                    $userId,
+                    $hotelIds
+                );
+            }
+            $task = $this->latestExecutionTask(is_array($intent['tasks'] ?? null) ? $intent['tasks'] : []);
+            $taskId = (int)($task['id'] ?? 0);
+            if ($taskId > 0 && (string)($task['status'] ?? '') !== 'executed') {
+                $task = $this->executeExecutionTask($taskId, $hotelIds, [
+                    'status' => 'executed',
+                    'current_value' => [
+                        'patrol_action_status' => $status,
+                        'source' => 'daily_workbench_patrol',
+                    ],
+                    'evidence_type' => 'manual',
+                    'evidence' => [
+                        'before' => [
+                            'patrol_action_status' => 'pending',
+                            'run_id' => $runId,
+                        ],
+                        'after' => [
+                            'patrol_action_status' => 'done',
+                            'run_id' => $runId,
+                            'action_code' => $actionCode,
+                            'question_key' => $questionKey,
+                        ],
+                        'remark' => trim((string)($input['note'] ?? 'operator marked action done from daily workbench')),
+                    ],
+                ], $userId);
+            }
+        }
+
+        return [
+            'status' => $status === 'done' ? 'synced_executed' : 'synced_intent',
+            'source_module' => 'ota_diagnosis',
+            'source_record_id' => $sourceRecordId,
+            'intent_id' => (int)($intent['id'] ?? 0),
+            'intent_status' => (string)($intent['status'] ?? ''),
+            'task_id' => (int)($task['id'] ?? ($intent['tasks'][0]['id'] ?? 0)),
+            'task_status' => (string)($task['status'] ?? ($intent['tasks'][0]['status'] ?? '')),
+            'metric_scope' => 'ota_channel',
+            'source_policy' => 'daily_workbench_patrol_to_operation_execution_loop',
+        ];
+    }
+
     public function executionIntents(array $hotelIds, ?int $hotelId, array $filters = []): array
     {
         if (!$this->tableExists('operation_execution_intents')) {
@@ -907,7 +987,7 @@ class OperationManagementService
         return $this->executionTaskDetail($taskId, $hotelIds);
     }
 
-    public function reviewExecutionTask(int $taskId, array $hotelIds): array
+    public function reviewExecutionTask(int $taskId, array $hotelIds, array $input = []): array
     {
         $this->ensureExecutionTables();
         $task = $this->executionTaskRow($taskId, $hotelIds);
@@ -917,8 +997,18 @@ class OperationManagementService
 
         $summary = 'waiting for action tracking data';
         $resultStatus = 'observing';
-        $actionTrackId = (int)($task['action_track_id'] ?? 0);
-        if ($actionTrackId > 0 && $this->finishAction($actionTrackId, [(int)$task['hotel_id']])) {
+        $manualResultStatus = strtolower(trim((string)($input['result_status'] ?? $input['review_status'] ?? '')));
+        $manualSummary = trim((string)($input['result_summary'] ?? $input['review_summary'] ?? ''));
+        if ($manualResultStatus !== '' || $manualSummary !== '') {
+            if ($manualResultStatus === '') {
+                $manualResultStatus = 'observing';
+            }
+            if (!in_array($manualResultStatus, ['observing', 'success', 'near_success', 'failed'], true)) {
+                throw new \InvalidArgumentException('review result_status must be observing, success, near_success, or failed');
+            }
+            $resultStatus = $manualResultStatus;
+            $summary = $manualSummary !== '' ? $manualSummary : 'manual review recorded from daily workbench patrol';
+        } elseif (($actionTrackId = (int)($task['action_track_id'] ?? 0)) > 0 && $this->finishAction($actionTrackId, [(int)$task['hotel_id']])) {
             $action = Db::name('operation_action_tracks')->where('id', $actionTrackId)->find();
             if ($action) {
                 $summary = (string)($action['result_summary'] ?? $summary);
@@ -1117,6 +1207,84 @@ class OperationManagementService
         }
 
         return $tasks[0];
+    }
+
+    private function dailyWorkbenchPatrolSourceRecordId(string $runId, int $hotelId, string $actionCode, string $questionKey): int
+    {
+        return (int)sprintf('%u', crc32($runId . '|' . $hotelId . '|' . $actionCode . '|' . $questionKey));
+    }
+
+    private function findDailyWorkbenchPatrolIntent(int $hotelId, int $sourceRecordId): ?array
+    {
+        $row = Db::name('operation_execution_intents')
+            ->where('source_module', 'ota_diagnosis')
+            ->where('source_record_id', $sourceRecordId)
+            ->where('hotel_id', $hotelId)
+            ->whereNull('deleted_at')
+            ->find();
+
+        return is_array($row) ? $row : null;
+    }
+
+    private function buildDailyWorkbenchPatrolExecutionIntentInput(array $input, int $sourceRecordId): array
+    {
+        $targetDate = trim((string)($input['target_date'] ?? date('Y-m-d')));
+        $actionCode = trim((string)($input['action_code'] ?? ''));
+        $questionKey = trim((string)($input['question_key'] ?? ''));
+        $platform = strtolower(trim((string)($input['platform'] ?? 'ota')));
+        $actionIdentity = $actionCode !== '' ? $actionCode : $questionKey;
+        $actionText = trim((string)($input['action_text'] ?? $input['action'] ?? $actionIdentity));
+        $entry = trim((string)($input['entry'] ?? ''));
+        $status = strtolower(trim((string)($input['status'] ?? 'pending')));
+        $priority = strtolower(trim((string)($input['priority'] ?? 'medium')));
+        $riskLevel = $priority === 'high' ? 'high' : ($priority === 'low' ? 'low' : 'medium');
+        $dataGaps = array_values(array_filter(array_map('strval', (array)($input['data_gaps'] ?? $input['blocking_missing_codes'] ?? []))));
+        if ($dataGaps === [] && $questionKey !== '') {
+            $dataGaps[] = $questionKey;
+        }
+        if ($dataGaps === [] && $actionCode !== '') {
+            $dataGaps[] = $actionCode;
+        }
+
+        return [
+            'source_module' => 'ota_diagnosis',
+            'source_record_id' => $sourceRecordId,
+            'hotel_id' => (int)($input['hotel_id'] ?? 0),
+            'platform' => $platform !== '' ? $platform : 'ota',
+            'object_type' => 'data_collection',
+            'action_type' => $actionIdentity,
+            'date_start' => $targetDate !== '' ? $targetDate : date('Y-m-d'),
+            'date_end' => $targetDate !== '' ? $targetDate : date('Y-m-d'),
+            'current_value' => [
+                'patrol_action_status' => $status,
+                'source' => 'daily_workbench_patrol',
+            ],
+            'target_value' => [
+                'collection_scope' => 'daily_workbench_patrol_action',
+                'target_date' => $targetDate !== '' ? $targetDate : date('Y-m-d'),
+                'action_text' => $actionText,
+                'entry' => $entry,
+                'question_key' => $questionKey,
+            ],
+            'evidence' => [
+                'evidence_refs' => [
+                    'daily_workbench_patrol#' . (string)($input['run_id'] ?? ''),
+                    '/api/online-data/daily-workbench-patrols',
+                    '/api/online-data/daily-workbench',
+                ],
+                'data_gaps' => $dataGaps,
+                'source_policy' => 'read_existing_daily_workbench_patrol_snapshot_only',
+                'protected_boundary' => 'Operation execution record is created from patrol snapshot; it does not change OTA acquisition logic or fields.',
+                'action_item_id' => $actionIdentity,
+                'action_item_status' => $status,
+                'diagnosis_summary' => $actionText,
+                'metric_scope' => 'ota_channel',
+            ],
+            'expected_metric' => 'ota_operation_closure',
+            'expected_delta' => 0,
+            'risk_level' => $riskLevel,
+            'status' => 'pending_approval',
+        ];
     }
 
     private function executionFlowStage(array $intent, array $task, int $evidenceCount, string $reviewStatus): string

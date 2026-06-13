@@ -1,4 +1,40 @@
 window.SUXI_SYSTEM_STATIC = (() => {
+    const CHART_JS_SRC = 'https://unpkg.com/chart.js@4.4.1/dist/chart.umd.js';
+    let chartJsLoadPromise = null;
+    const loadChartJs = () => {
+        if (window.Chart) {
+            return Promise.resolve(window.Chart);
+        }
+        if (!chartJsLoadPromise) {
+            chartJsLoadPromise = new Promise((resolve, reject) => {
+                const existing = document.querySelector('script[data-suxi-chartjs="1"]');
+                if (existing) {
+                    existing.addEventListener('load', () => resolve(window.Chart), { once: true });
+                    existing.addEventListener('error', () => reject(new Error('Chart.js加载失败')), { once: true });
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = CHART_JS_SRC;
+                script.async = true;
+                script.dataset.suxiChartjs = '1';
+                script.onload = () => {
+                    if (window.Chart) {
+                        resolve(window.Chart);
+                    } else {
+                        reject(new Error('Chart.js加载后未暴露Chart对象'));
+                    }
+                };
+                script.onerror = () => reject(new Error('Chart.js加载失败'));
+                document.head.appendChild(script);
+            }).catch((error) => {
+                chartJsLoadPromise = null;
+                console.warn(error.message || 'Chart.js加载失败');
+                return null;
+            });
+        }
+        return chartJsLoadPromise;
+    };
+
     const aiModelConfigI18n = {
         'zh-CN': {
             'global.languageLabel': '语言',
@@ -1132,5 +1168,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
         filterVisibleMenuItems,
         platformNextActionMeta,
         platformAccountStoreText,
+        loadChartJs,
     };
 })();

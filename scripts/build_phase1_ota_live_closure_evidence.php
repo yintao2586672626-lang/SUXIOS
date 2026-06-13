@@ -822,6 +822,7 @@ function operation_signal_counts(array $operation): array
     $evidenceReadyItems = count_operation_items($linkedItems, static fn(array $item): bool => (int)($item['evidence']['count'] ?? 0) > 0);
     $reviewedItems = count_operation_items($linkedItems, static fn(array $item): bool => (string)($item['stage'] ?? '') === 'reviewed'
         || in_array((string)($item['review']['status'] ?? ''), ['success', 'near_success', 'failed'], true));
+    $roiReadyItems = count_operation_items($linkedItems, static fn(array $item): bool => (string)($item['roi']['status'] ?? '') === 'ready');
     $blockedItems = count_operation_items($linkedItems, static fn(array $item): bool => in_array((string)($item['stage'] ?? ''), ['blocked', 'rejected', 'failed'], true)
         || in_array((string)($item['approval']['status'] ?? ''), ['blocked', 'rejected'], true)
         || in_array((string)($item['execution']['status'] ?? ''), ['blocked', 'failed'], true));
@@ -842,8 +843,9 @@ function operation_signal_counts(array $operation): array
         'evidence_ready_count' => $evidenceReadyItems,
         'execution_evidence_count' => $executionEvidenceCount,
         'reviewed_count' => $reviewedItems,
-        'roi_ready_count' => count_operation_items($linkedItems, static fn(array $item): bool => (string)($item['roi']['status'] ?? '') === 'ready'),
+        'roi_ready_count' => $roiReadyItems,
         'blocked_execution_count' => $blockedItems,
+        'completion_signal_count' => $approvedItems + $executedItems + $evidenceReadyItems + $reviewedItems + $roiReadyItems,
     ];
 }
 
@@ -1268,6 +1270,95 @@ function entry_options_with_readiness(string $platform, array $options): array
 
 function next_action_entry_options(string $code): array
 {
+    if (str_contains($code, 'traffic_facts_missing')) {
+        if (str_starts_with($code, 'ctrip_')) {
+            return entry_options_with_readiness('ctrip', [
+                [
+                    'mode' => 'manual_cookie_api',
+                    'label' => '手动流量 Cookie/API',
+                    'entry' => '/api/online-data/fetch-ctrip-traffic',
+                    'use_when' => '已取得携程流量接口 Cookie、URL、spiderkey 或必要参数，需要临时补齐目标日流量事实。',
+                    'requires' => '用户提供授权上下文、流量接口参数和目标日期。',
+                    'boundary' => '不自动登录携程后台，不改变流量采集字段或字段映射。',
+                ],
+                [
+                    'mode' => 'browser_profile',
+                    'label' => '浏览器 Profile',
+                    'entry' => '/api/online-data/capture-ctrip-browser',
+                    'use_when' => '门店携程浏览器 Profile 已登录授权，需要走现有自动采集路径补齐流量事实。',
+                    'requires' => '本地 Profile 存在且携程账号登录态有效。',
+                    'boundary' => '不绕过验证码、短信或人机验证，不改变自动采集逻辑。',
+                ],
+                [
+                    'mode' => 'status_check',
+                    'label' => '状态核对',
+                    'entry' => '/api/online-data/collection-reliability',
+                    'use_when' => '只核对目标日流量事实是否已有入库行、最近可用日期和失败原因。',
+                    'requires' => '读取现有采集可靠性和 online_daily_data 状态。',
+                    'boundary' => '只读状态，不写 OTA 数据，不改变字段映射。',
+                ],
+            ]);
+        }
+        if (str_starts_with($code, 'meituan_')) {
+            return entry_options_with_readiness('meituan', [
+                [
+                    'mode' => 'manual_cookie_api',
+                    'label' => '手动流量 Cookie/API',
+                    'entry' => '/api/online-data/fetch-meituan-traffic',
+                    'use_when' => '已取得美团流量接口 Cookie、Partner ID、POI ID 或必要参数，需要临时补齐目标日流量事实。',
+                    'requires' => '用户提供授权上下文、门店/POI 标识、流量接口参数和目标日期。',
+                    'boundary' => '不代登录美团后台，不改变流量采集字段或字段映射。',
+                ],
+                [
+                    'mode' => 'browser_profile',
+                    'label' => '浏览器 Profile',
+                    'entry' => '/api/online-data/capture-meituan-browser',
+                    'use_when' => '门店美团浏览器 Profile 已登录授权，需要走现有自动采集路径补齐流量事实。',
+                    'requires' => '本地 Profile 存在且美团账号登录态有效。',
+                    'boundary' => '不绕过验证码、短信或人机验证，不改变自动采集逻辑。',
+                ],
+                [
+                    'mode' => 'status_check',
+                    'label' => '状态核对',
+                    'entry' => '/api/online-data/collection-reliability',
+                    'use_when' => '只核对目标日流量事实是否已有入库行、最近可用日期和失败原因。',
+                    'requires' => '读取现有采集可靠性和 online_daily_data 状态。',
+                    'boundary' => '只读状态，不写 OTA 数据，不改变字段映射。',
+                ],
+            ]);
+        }
+    }
+    if (in_array($code, ['collect_ai_diagnosis_evidence', 'resolve_ai_diagnosis_blocked_action_items', 'collect_operation_execution_evidence'], true)) {
+        $primaryEntry = $code === 'collect_operation_execution_evidence'
+            ? '/api/operation/execution-intents'
+            : '/api/agent/ota-diagnosis';
+        return entry_options_with_readiness('ctrip', [
+            [
+                'mode' => 'manual_cookie_api',
+                'label' => 'Evidence/API',
+                'entry' => $primaryEntry,
+                'use_when' => 'Use existing API evidence after target-date OTA facts are present.',
+                'requires' => 'Target-date OTA facts, diagnosis/action evidence, and authorized user context.',
+                'boundary' => 'Does not change Ctrip/Meituan acquisition logic, fields, or mappings.',
+            ],
+            [
+                'mode' => 'browser_profile',
+                'label' => 'Profile evidence refresh',
+                'entry' => '/api/online-data/capture-ctrip-browser',
+                'use_when' => 'Use only when an authorized browser Profile must refresh target-date OTA evidence.',
+                'requires' => 'Local Profile exists and platform login state is manually verified.',
+                'boundary' => 'Does not bypass captcha, SMS, human verification, or platform permissions.',
+            ],
+            [
+                'mode' => 'status_check',
+                'label' => 'Read-only status check',
+                'entry' => '/api/online-data/collection-reliability',
+                'use_when' => 'Verify target-date rows, latest available date, and explicit missing reasons.',
+                'requires' => 'Read existing collection reliability and online_daily_data state.',
+                'boundary' => 'Read-only; does not write OTA data or alter field mappings.',
+            ],
+        ]);
+    }
     if (!str_contains($code, 'source_rows_missing')) {
         return [];
     }
@@ -1476,7 +1567,74 @@ function next_action_row(string $code, string $priority, string $status, string 
         ));
         $row['explanation_next_action'] = (string)($explanation['explanation_next_action'] ?? '');
     }
+    $row['employee_action'] = evidence_employee_readable_copy((string)($row['employee_action'] ?? $row['action'] ?? ''));
+    $row['employee_evidence_needed'] = array_values(array_filter(array_map(
+        static fn($value): string => evidence_employee_readable_copy((string)$value),
+        (array)($row['employee_evidence_needed'] ?? $row['evidence_needed'] ?? [])
+    ), static fn(string $value): bool => $value !== ''));
+    $row['employee_success_criteria'] = evidence_employee_readable_copy((string)($row['employee_success_criteria'] ?? $row['success_criteria'] ?? ''));
+    $row['employee_explanation_next_action'] = evidence_employee_readable_copy((string)($row['employee_explanation_next_action'] ?? $row['explanation_next_action'] ?? ''));
+    $row['employee_verification_steps'] = array_values(array_filter(array_map(
+        static fn($value): string => evidence_employee_readable_copy((string)$value),
+        (array)($row['employee_verification_steps'] ?? next_action_employee_verification_steps($row))
+    ), static fn(string $value): bool => $value !== ''));
+    if ((string)($row['action_code'] ?? '') === 'resolve_ai_diagnosis_blocked_action_items') {
+        $row['employee_action'] = 'AI 动作项被上游缺口阻断；先处理上游 OTA 缺口后重新生成非阻断动作项。';
+    }
     return $row;
+}
+
+/**
+ * @param array<string, mixed> $action
+ * @return array<int, string>
+ */
+function next_action_employee_verification_steps(array $action): array
+{
+    $code = (string)($action['action_code'] ?? '');
+    $family = (string)($action['action_family'] ?? next_action_family($code));
+    $platformLabel = next_action_platform_label($code);
+
+    return match ($family) {
+        'target_date_source_rows' => [
+            '刷新数据健康页的员工六问闭环。',
+            '确认' . $platformLabel . '目标日入库行数大于 0。',
+            '确认相关未完成问题和巡检缺口减少。',
+        ],
+        'standard_facts' => [
+            '刷新员工六问里的收入、流量和转化问题。',
+            '确认' . $platformLabel . '标准事实层变为可复核。',
+            '确认字段可信或收益指标不再被该项阻断。',
+        ],
+        'revenue_metric_inputs' => [
+            '刷新收入、流量和转化问题。',
+            '确认' . $platformLabel . '收益输入变为可复核。',
+            '确认 AI 依据不再因为该收益缺口被阻断。',
+        ],
+        'traffic_conversion_facts' => [
+            '刷新收入、流量和转化问题。',
+            '确认' . $platformLabel . '流量/转化事实变为可复核。',
+            '确认漏斗判断不再显示该平台流量/转化缺口。',
+        ],
+        'ai_diagnosis_evidence' => [
+            '重新运行现有 OTA 诊断。',
+            '确认 AI 动作项不再被上游缺口阻断。',
+            '确认 AI 依据仍保留证据来源和数据缺口说明。',
+        ],
+        'operation_execution_evidence' => [
+            '刷新运营执行闭环摘要。',
+            '确认执行意图能追溯到 OTA 诊断动作。',
+            '确认出现审批、执行证据、复盘或 ROI 信号。',
+        ],
+        'evidence_scope' => [
+            '刷新员工六问闭环。',
+            '确认目标日期和证据日期一致。',
+            '确认最近可用数据没有替代目标日证明。',
+        ],
+        default => [
+            '刷新员工六问闭环。',
+            '确认该动作对应缺口从未证明变为可复核。',
+        ],
+    };
 }
 
 function build_next_actions(array $platformEvidence, array $diagnosis, array $operation, array $options): array
@@ -1484,6 +1642,10 @@ function build_next_actions(array $platformEvidence, array $diagnosis, array $op
     $actions = [];
     $missingCodes = evidence_missing_codes($platformEvidence, $diagnosis, $operation);
     $aiBlockers = ai_blocking_codes($missingCodes);
+    $aiPrerequisiteBlockers = array_values(array_filter(
+        $aiBlockers,
+        static fn(string $code): bool => $code !== 'ai_diagnosis_evidence_sample_missing'
+    ));
     foreach ($platformEvidence as $item) {
         $platform = (string)($item['platform'] ?? '');
         if ($platform === '') {
@@ -1496,7 +1658,7 @@ function build_next_actions(array $platformEvidence, array $diagnosis, array $op
                 'high',
                 'missing',
                 '酒店运营人员',
-                '使用现有 ' . $label . ' 手动或自动获取入口补齐 ' . (string)$options['date'] . ' 的 OTA 数据，然后重新运行真实闭环巡检。',
+                '使用现有' . $label . '手动或自动获取入口补齐 ' . (string)$options['date'] . ' 的 OTA 数据，然后重新运行真实闭环巡检。',
                 ['online_daily_data 同日期源数据行', 'data_source_id 或 sync_task_id', 'source_trace_id 或 raw_data 追踪证据'],
                 '不改变采集字段、字段映射、携程/美团手动或自动获取逻辑。'
             );
@@ -1552,12 +1714,12 @@ function build_next_actions(array $platformEvidence, array $diagnosis, array $op
         $actions[] = next_action_row(
             'collect_ai_diagnosis_evidence',
             'high',
-            $aiBlockers === [] ? 'missing' : 'blocked',
+            $aiPrerequisiteBlockers === [] ? 'missing' : 'blocked',
             'AI 运营人员',
             '调用现有 OTA 诊断接口，并为本次巡检范围附上脱敏证据 JSON。',
             ['evidence_sources', 'data_gaps', 'action_items'],
             'AI 建议必须引用 OTA 证据，不能把缺失数据写成确定结论。',
-            $aiBlockers
+            $aiPrerequisiteBlockers
         );
     } elseif (evidence_scope_date_aligned($diagnosis) && !has_actionable_diagnosis_evidence($diagnosis)) {
         $actions[] = next_action_row(
@@ -1763,9 +1925,361 @@ function with_employee_question_action_codes(array $questions, array $actions): 
             $question['blocking_gap_codes'] = $blockingGapCodes;
             $evidence['blocking_gap_codes'] = $blockingGapCodes;
         }
+        $rawEmployeeDetail = (string)($question['employee_detail'] ?? $question['detail'] ?? '');
+        $question['employee_detail'] = evidence_employee_readable_copy($rawEmployeeDetail !== ''
+            ? $rawEmployeeDetail
+            : evidence_employee_question_detail($question));
+        $question['employee_next_action'] = evidence_employee_readable_copy((string)($question['employee_next_action'] ?? $question['next_action'] ?? ''));
         $question['evidence'] = $evidence;
         return $question;
     }, $questions));
+}
+
+function evidence_employee_readable_copy(string $text): string
+{
+    if ($text === '') {
+        return '';
+    }
+
+    return strtr($text, [
+        'CTRIP' => '携程',
+        'MEITUAN' => '美团',
+        'ctrip_source_rows_missing' => '携程目标日源数据缺失',
+        'meituan_source_rows_missing' => '美团目标日源数据缺失',
+        'ctrip_target_date_source_rows_missing' => '携程目标日源数据缺失',
+        'meituan_target_date_source_rows_missing' => '美团目标日源数据缺失',
+        'ctrip_etl_not_ready' => '携程标准事实层未就绪',
+        'meituan_etl_not_ready' => '美团标准事实层未就绪',
+        'ctrip_revenue_metrics_not_ready' => '携程收益指标未就绪',
+        'meituan_revenue_metrics_not_ready' => '美团收益指标未就绪',
+        'ctrip_traffic_facts_missing' => '携程流量/转化事实缺失',
+        'meituan_traffic_facts_missing' => '美团流量/转化事实缺失',
+        'ai_diagnosis_evidence_sample_missing' => 'AI 诊断证据样例缺失',
+        'ai_diagnosis_action_items_blocked' => 'AI 动作项被上游缺口阻断',
+        'ai_action_items_blocked' => 'AI 动作项被上游缺口阻断',
+        'ai_action_items_missing' => 'AI 动作项缺失',
+        'operation_execution_sample_missing' => '运营执行样例缺失',
+        'operation_execution_ai_action_link_missing' => '运营执行未关联 OTA 诊断动作',
+        'operation_execution_evidence_incomplete' => '运营执行证据不完整',
+        '按 metric_trust 判断' => '按指标可信证据判断',
+        '按 data_gaps 处理' => '按数据缺口处理',
+        '按 数据缺口 处理' => '按数据缺口处理',
+        '非 blocked action_items' => '非阻断动作项',
+        'non blocked action_items' => '非阻断动作项',
+        '非阻断 action_items' => '非阻断动作项',
+        '非阻断 动作项' => '非阻断动作项',
+        '非 blocked 动作项' => '非阻断动作项',
+        'blocked action_items' => '阻断动作项',
+        'blocked 动作项' => '阻断动作项',
+        '为 blocked' => '为阻断',
+        'blocked_by 上游缺口' => '上游阻断缺口',
+        'blocked_by' => '上游阻断',
+        'OTA 诊断 action_items' => 'OTA 诊断动作项',
+        'AI action_items' => 'AI 动作项',
+        'collection-reliability.source_date_evidence' => '采集可靠性里的目标日来源证据',
+        'source_date_evidence' => '目标日来源证据',
+        'evidence_sources/data_gaps/action_items' => '证据来源、数据缺口和动作项',
+        'evidence_sources、data_gaps、action_items' => '证据来源、数据缺口、动作项',
+        'evidence_sources、data_gaps 和 action_items' => '证据来源、数据缺口和动作项',
+        'evidence_sources' => '证据来源',
+        'evidence_refs' => '证据引用',
+        'source_module=ota_diagnosis' => '来源模块=OTA 诊断',
+        'source=ota_diagnosis#action_item' => '来源=OTA 诊断动作项',
+        'latest_available' => '最近可用数据',
+        'ETL status=ready' => '标准化状态已就绪',
+        'revenue_status=ready' => '收益状态已就绪',
+        'traffic_status=ready' => '流量状态已就绪',
+        'conversion_status=ready' => '转化状态已就绪',
+        'status=ready' => '状态已就绪',
+        'OTA diagnosis' => 'OTA 诊断',
+        'source_trace_id' => '来源追踪标识',
+        'sync_task_id' => '同步任务标识',
+        'data_source_id' => '数据来源标识',
+        'data_gaps' => '数据缺口',
+        'action_items' => '动作项',
+        'action_item_id' => '动作项标识',
+        'approval.status=approved' => '审批已通过',
+        'execution.status=executed' => '执行已完成',
+        'evidence.count>0' => '已有执行证据',
+        'review.status' => '复盘状态',
+        'execution_intents' => '执行意图',
+        'execution_flow' => '执行流程',
+        'metric_trust' => '指标可信证据',
+        'raw_data' => '脱敏原始响应追踪',
+        'data_type' => '数据类型',
+        'accepted_rows' => '已接收行数',
+        'rejected_rows' => '已拒绝行数',
+        'validation_flags' => '校验标记',
+        'online_daily_data' => 'OTA 日数据表',
+        'source_date_evidence.platforms' => '目标日来源证据平台列表',
+        'target_date_rows' => '目标日入库行数',
+        'target_date_data_types' => '目标日数据类型',
+        'revenue_metrics' => '收益指标',
+        'amount' => '收入金额',
+        'quantity' => '间夜数量',
+        'room_nights' => '间夜数',
+        'book_order_num' => '订单数',
+        'order_count' => '订单数',
+        'list_exposure' => '列表曝光',
+        'detail_exposure' => '详情曝光',
+        'flow_rate' => '流量转化率',
+        'order_filling_num' => '填单数',
+        'order_submit_num' => '提交订单数',
+        'totals' => '收益汇总',
+    ]);
+}
+
+function evidence_employee_question_detail(array $question): string
+{
+    $key = (string)($question['key'] ?? $question['question'] ?? '');
+    $status = (string)($question['status'] ?? '');
+    $evidence = is_array($question['evidence'] ?? null) ? $question['evidence'] : [];
+    $missingPlatforms = evidence_employee_platform_list_text((array)($evidence['missing_platforms'] ?? []));
+    $revenueReadyPlatforms = evidence_employee_platform_list_text((array)($evidence['revenue_ready_platforms'] ?? []));
+
+    return match ($key) {
+        'today_ota_collected' => $status === 'proved'
+            ? '目标日携程和美团 OTA 数据均有入库证据；最近可用数据只作参考。'
+            : '目标日 OTA 数据尚未完整证明' . ($missingPlatforms !== '' ? '，缺失平台：' . $missingPlatforms : '') . '；最近可用或历史数据不能替代目标日入库。',
+        'trusted_fields' => $status === 'proved'
+            ? '字段可信度已有目标日入库、字段资产、数据质量和指标可信证据支撑。'
+            : '字段可信度仍受目标日源数据、字段资产、数据质量或指标可信证据缺口影响；未证明字段不能写成可信。',
+        'missing_fields' => ((array)($evidence['data_gap_codes'] ?? [])) !== [] || ((array)($evidence['missing_field_codes'] ?? [])) !== []
+            ? '字段缺口已显式列出；按数据缺口处理，不用 0 或空值兜底。'
+            : '当前未返回字段缺口；仍以目标日采集和指标可信证据为准，不代表所有平台字段完备。',
+        'revenue_traffic_conversion' => $status === 'proved'
+            ? '收益、流量、转化均可基于目标日 OTA 事实复核。'
+            : (($revenueReadyPlatforms !== '' ? '收益可先复核：' . $revenueReadyPlatforms . '；' : '') . '流量或转化事实不足的平台不得输出确定漏斗判断。'),
+        'ai_evidence' => $status === 'proved'
+            ? 'AI 建议已有证据来源、数据缺口和可执行动作项支撑。'
+            : 'AI 依据被上游 OTA 证据缺口阻断；当前只能定位缺口，不能当作可执行经营建议。',
+        'next_operation_action' => $status === 'proved'
+            ? '运营动作已追溯到 OTA 诊断，并有审批、执行证据、复盘或 ROI 信号。'
+            : '执行闭环尚未证明；必须先有可执行 AI 动作项，再保留审批、执行证据和复盘。',
+        default => '当前员工问题尚未形成完整说明；按动作队列补齐证据后重新巡检。',
+    };
+}
+
+function evidence_employee_platform_list_text(array $platforms): string
+{
+    $labels = [];
+    foreach ($platforms as $platform) {
+        $value = strtolower(trim((string)$platform));
+        $label = match ($value) {
+            'ctrip' => '携程',
+            'meituan' => '美团',
+            default => evidence_employee_readable_copy((string)$platform),
+        };
+        if ($label !== '') {
+            $labels[] = $label;
+        }
+    }
+    return implode('、', array_values(array_unique($labels)));
+}
+
+function evidence_missing_field_summary(array $dataGapCodes, array $missingFieldCodes): array
+{
+    $sourcesByCode = [];
+    foreach ($dataGapCodes as $code) {
+        $code = trim((string)$code);
+        if ($code !== '') {
+            $sourcesByCode[$code]['data_gap_codes'] = true;
+        }
+    }
+    foreach ($missingFieldCodes as $code) {
+        $code = trim((string)$code);
+        if ($code !== '') {
+            $sourcesByCode[$code]['missing_field_codes'] = true;
+        }
+    }
+
+    $summary = [];
+    foreach ($sourcesByCode as $code => $sources) {
+        $sourceKeys = array_keys($sources);
+        $summary[] = [
+            'code' => $code,
+            'label' => evidence_missing_field_label($code),
+            'source_keys' => $sourceKeys,
+            'source_text' => evidence_missing_field_source_text($sourceKeys),
+            'business_impact' => evidence_missing_field_business_impact($code),
+            'next_action' => evidence_missing_field_next_action($code, $sourceKeys),
+            'policy' => '显式保留缺口；不使用 0、空值或成功状态替代。',
+        ];
+    }
+
+    return $summary;
+}
+
+function evidence_missing_field_label(string $code): string
+{
+    return [
+        'available_room_nights_missing' => '可售房晚缺失',
+        'commission_fields_missing' => '佣金字段缺失',
+        'net_revenue_fields_missing' => '净收入字段缺失',
+        'lead_time_fields_missing' => '提前预订字段缺失',
+        'cancellation_fields_missing' => '取消字段缺失',
+        'cancel_room_nights_missing' => '取消房晚缺失',
+        'competitor_price_fields_missing' => '竞品价格字段缺失',
+    ][$code] ?? ($code !== '' ? '未识别字段缺口' : '未命名缺口');
+}
+
+function evidence_missing_field_business_impact(string $code): string
+{
+    return [
+        'available_room_nights_missing' => '缺可售房晚，暂不能可靠计算 OCC、RevPAR 或可售基准。',
+        'commission_fields_missing' => '缺佣金金额或佣金率，暂不能核算净收入和渠道成本。',
+        'net_revenue_fields_missing' => '缺净收入输入，暂不能输出净 RevPAR 或真实到手收入。',
+        'lead_time_fields_missing' => '缺提前预订天数，暂不能判断提前期结构和临近入住风险。',
+        'cancellation_fields_missing' => '缺取消订单或取消金额，暂不能判断取消对收入的影响。',
+        'cancel_room_nights_missing' => '缺取消房晚，暂不能计算房晚取消率。',
+        'competitor_price_fields_missing' => '缺竞品价格，暂不能做竞品价差和调价判断。',
+    ][$code] ?? '该缺口需要补齐字段定义或目标日样本后再判断。';
+}
+
+function evidence_missing_field_next_action(string $code, array $sourceKeys): string
+{
+    if (preg_match('/available_room_nights|net_revenue|commission|lead_time|cancellation|cancel_room_nights|competitor_price/i', $code)) {
+        return '按字段资产核对平台返回和入库字段，再重跑收益指标核验。';
+    }
+    if (in_array('missing_field_codes', $sourceKeys, true)) {
+        return '按字段缺口清单补齐字段定义或样本证据。';
+    }
+    return '按数据缺口清单补齐目标日证据后复跑诊断。';
+}
+
+function evidence_missing_field_source_text(array $sourceKeys): string
+{
+    $hasDataGap = in_array('data_gap_codes', $sourceKeys, true);
+    $hasFieldGap = in_array('missing_field_codes', $sourceKeys, true);
+    if ($hasDataGap && $hasFieldGap) {
+        return '数据缺口 / 字段缺口';
+    }
+    return $hasFieldGap ? '字段缺口' : '数据缺口';
+}
+
+function evidence_metric_domain_summary(array $metricDomainReadiness): array
+{
+    $summary = [];
+    foreach ($metricDomainReadiness as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $platform = strtolower(trim((string)($row['platform'] ?? '')));
+        if ($platform === '') {
+            continue;
+        }
+        $sourceRows = max(0, (int)($row['source_rows'] ?? $row['target_date_rows'] ?? 0));
+        $trafficRows = max(0, (int)($row['traffic_rows'] ?? 0));
+        $revenueReady = (string)($row['revenue_status'] ?? '') === 'ready';
+        $trafficReady = (string)($row['traffic_status'] ?? '') === 'ready';
+        $conversionReady = (string)($row['conversion_status'] ?? '') === 'ready';
+        $targetTypes = array_values(array_filter(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            (array)($row['target_date_data_types'] ?? [])
+        ), static fn(string $value): bool => $value !== ''));
+        $missingDomains = array_values(array_unique(array_filter(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            (array)($row['missing_domains'] ?? [])
+        ), static fn(string $value): bool => $value !== '')));
+        $dataTypeText = evidence_metric_domain_data_type_list_text($targetTypes);
+
+        $summary[] = [
+            'platform' => $platform,
+            'platform_label' => evidence_metric_domain_platform_text($platform),
+            'revenue_text' => evidence_metric_domain_status_text((string)($row['revenue_status'] ?? 'missing')),
+            'traffic_text' => evidence_metric_domain_status_text((string)($row['traffic_status'] ?? 'missing')),
+            'conversion_text' => evidence_metric_domain_status_text((string)($row['conversion_status'] ?? 'missing')),
+            'missing_text' => evidence_metric_domain_missing_list_text($missingDomains),
+            'source_text' => '目标日源数据 ' . $sourceRows . ' 行 / 流量事实 ' . $trafficRows . ' 行',
+            'problem' => evidence_metric_domain_problem_text($revenueReady, $trafficReady, $conversionReady, $sourceRows, $trafficRows),
+            'next_action' => evidence_metric_domain_next_action_text($revenueReady, $trafficReady, $conversionReady, $sourceRows, $trafficRows),
+            'policy' => '只读目标日 OTA 指标域' . ($dataTypeText !== '' ? ' / ' . $dataTypeText : '') . '；缺失时不输出确定结论。',
+        ];
+    }
+
+    return $summary;
+}
+
+function evidence_metric_domain_platform_text(string $platform): string
+{
+    return match (strtolower(trim($platform))) {
+        'ctrip' => '携程',
+        'meituan' => '美团',
+        default => $platform !== '' ? 'OTA 平台' : 'OTA',
+    };
+}
+
+function evidence_metric_domain_status_text(string $status): string
+{
+    return strtolower(trim($status)) === 'ready' ? '可复核' : '缺失';
+}
+
+function evidence_metric_domain_data_type_list_text(array $types): string
+{
+    $labels = [];
+    foreach ($types as $type) {
+        $raw = strtolower(trim((string)$type));
+        $labels[] = match (true) {
+            in_array($raw, ['business', 'business_overview', 'revenue', 'order', 'orders'], true) => '经营/收益',
+            in_array($raw, ['traffic', 'flow', 'flow_data'], true) => '流量/转化',
+            in_array($raw, ['advertising', 'ads'], true) => '广告',
+            in_array($raw, ['quality', 'quality_psi'], true) => '服务质量',
+            in_array($raw, ['review', 'comment'], true) => '点评',
+            $raw !== '' => '未识别数据类型',
+            default => '',
+        };
+    }
+
+    return implode('、', array_values(array_unique(array_filter($labels))));
+}
+
+function evidence_metric_domain_missing_list_text(array $domains): string
+{
+    $labels = [];
+    foreach ($domains as $domain) {
+        $labels[] = match (strtolower(trim((string)$domain))) {
+            'revenue' => '收益',
+            'traffic' => '流量',
+            'conversion' => '转化',
+            default => '',
+        };
+    }
+
+    return implode('、', array_values(array_unique(array_filter($labels))));
+}
+
+function evidence_metric_domain_problem_text(bool $revenueReady, bool $trafficReady, bool $conversionReady, int $sourceRows, int $trafficRows): string
+{
+    if ($revenueReady && $trafficReady && $conversionReady) {
+        return '收益、流量、转化均可复核。';
+    }
+    if ($sourceRows <= 0) {
+        return '目标日源数据缺失，收益、流量、转化都不能证明。';
+    }
+    if ($revenueReady && (!$trafficReady || !$conversionReady || $trafficRows <= 0)) {
+        return '收益可先复核；流量/转化缺失，不能判断曝光到下单漏斗。';
+    }
+    if (!$trafficReady || !$conversionReady || $trafficRows <= 0) {
+        return '流量/转化缺失，不能判断曝光、访问或下单转化问题。';
+    }
+    return '收益指标缺失，不能输出收入问题结论。';
+}
+
+function evidence_metric_domain_next_action_text(bool $revenueReady, bool $trafficReady, bool $conversionReady, int $sourceRows, int $trafficRows): string
+{
+    if ($revenueReady && $trafficReady && $conversionReady) {
+        return '可进入 OTA 经营诊断。';
+    }
+    if ($sourceRows <= 0) {
+        return '先补目标日 OTA 源数据，再复跑收益指标核验。';
+    }
+    if (!$revenueReady) {
+        return '复核标准事实层和收益指标输入。';
+    }
+    if (!$trafficReady || !$conversionReady || $trafficRows <= 0) {
+        return '补齐流量/转化事实，再复核漏斗诊断。';
+    }
+    return '按缺口补齐目标日证据后复跑诊断。';
 }
 
 function build_employee_questions(array $platformEvidence, array $diagnosis, array $operation): array
@@ -1782,6 +2296,7 @@ function build_employee_questions(array $platformEvidence, array $diagnosis, arr
     $missingPlatformText = implode('、', array_map('strtoupper', $missingPlatforms));
     $domainReadiness = metric_domain_readiness($platformEvidence);
     $revenueReadyPlatforms = ready_metric_platforms($domainReadiness, 'revenue_status');
+    $revenueReadyText = implode('、', array_map('strtoupper', $revenueReadyPlatforms));
     $trafficReadyPlatforms = ready_metric_platforms($domainReadiness, 'traffic_status');
     $conversionReadyPlatforms = ready_metric_platforms($domainReadiness, 'conversion_status');
     $revenueMissingPlatforms = missing_metric_platforms($domainReadiness, 'revenue_status');
@@ -1792,10 +2307,22 @@ function build_employee_questions(array $platformEvidence, array $diagnosis, arr
         ? 'ready'
         : ($revenueReadyPlatforms !== [] ? 'partial' : 'empty');
     $aiBlockers = ai_blocking_codes(evidence_missing_codes($platformEvidence, $diagnosis, $operation));
-    $aiBlockerText = implode('、', array_slice($aiBlockers, 0, 6));
+    $aiUpstreamBlockers = array_values(array_filter(
+        $aiBlockers,
+        static fn(string $code): bool => !in_array($code, ['ai_diagnosis_evidence_sample_missing', 'ai_diagnosis_action_items_blocked', 'ai_action_items_blocked', 'ai_action_items_missing'], true)
+    ));
+    $aiBlockerText = implode('、', array_slice($aiUpstreamBlockers, 0, 6));
     $diagnosisStatus = diagnosis_evidence_status($diagnosis);
     $actionableDiagnosisCount = actionable_diagnosis_action_count($diagnosis);
     $blockedDiagnosisCount = blocked_diagnosis_action_count($diagnosis);
+    $aiDiagnosisBlocker = diagnosis_blocking_code($diagnosis);
+    $aiHasExistingBlockerEvidence = $aiUpstreamBlockers !== []
+        || $blockedDiagnosisCount > 0
+        || in_array('ai_diagnosis_action_items_blocked', $aiBlockers, true);
+    $aiQuestionBlockers = $diagnosisStatus === 'proved'
+        ? []
+        : ($aiBlockers !== [] ? $aiBlockers : array_values(array_filter([$aiDiagnosisBlocker ?: 'ai_diagnosis_evidence_sample_missing'])));
+    $aiQuestionBlockerText = implode('、', array_slice($aiQuestionBlockers, 0, 6));
     $operationStatus = operation_evidence_status($operation);
     $operationCounts = operation_signal_counts($operation);
     $operationGapCode = operation_blocking_code($operation);
@@ -1848,18 +2375,20 @@ function build_employee_questions(array $platformEvidence, array $diagnosis, arr
             'evidence' => [
                 'data_gap_codes' => $gapCodes,
                 'missing_field_codes' => $gapCodes,
+                'missing_field_summary' => evidence_missing_field_summary($gapCodes, $gapCodes),
             ],
             'next_action' => $gapCodes !== [] ? '按 data_gaps 处理字段缺口，不使用 0 或空值兜底。' : '',
         ],
         [
             'key' => 'revenue_traffic_conversion',
             'question' => '收入/流量/转化出了什么问题',
-            'status' => $metricsReady && $trafficRows > 0 ? 'proved' : ($metricsReady ? 'warning' : 'not_proved'),
+            'status' => $metricsReady && $trafficRows > 0 && $metricDomainGapCodes === [] ? 'proved' : ($metricsReady ? 'warning' : 'not_proved'),
             'evidence' => [
                 'revenue_metric_status' => $revenueMetricStatus,
                 'primary_revenue_metric_status' => (string)($metrics['status'] ?? 'empty'),
                 'traffic_rows' => $trafficRows,
                 'metric_domain_readiness' => $domainReadiness,
+                'metric_domain_summary' => evidence_metric_domain_summary($domainReadiness),
                 'revenue_ready_platforms' => $revenueReadyPlatforms,
                 'traffic_ready_platforms' => $trafficReadyPlatforms,
                 'conversion_ready_platforms' => $conversionReadyPlatforms,
@@ -1870,29 +2399,35 @@ function build_employee_questions(array $platformEvidence, array $diagnosis, arr
                 'totals' => $metrics['totals'] ?? [],
                 'traffic' => $metrics['traffic'] ?? [],
             ],
-            'next_action' => $metricsReady ? '收益指标可先复核；流量/转化事实不足时，不输出流量/转化确定结论。' : '先补齐同日 OTA 源数据和标准事实层。',
+            'next_action' => $metricsReady ? '收益指标可先复核：' . ($revenueReadyText !== '' ? $revenueReadyText : '部分平台') . '；流量/转化事实不足时，不输出流量/转化确定结论。' : '先补齐同日 OTA 源数据和标准事实层。',
         ],
         [
             'key' => 'ai_evidence',
             'question' => 'AI 建议依据是什么',
             'status' => $diagnosisStatus,
             'evidence' => [
+                'diagnosis_status' => $diagnosisStatus === 'proved'
+                    ? 'proved'
+                    : ($aiHasExistingBlockerEvidence ? 'blocked_by_verified_ota_gaps' : 'missing_real_api_response'),
+                'action_item_status' => $actionableDiagnosisCount > 0
+                    ? 'actionable'
+                    : ($aiHasExistingBlockerEvidence ? 'blocked_by_verified_ota_gaps' : 'missing'),
+                'source_policy' => $aiHasExistingBlockerEvidence ? 'read_existing_ota_gap_evidence_only' : 'missing_real_ota_diagnosis_response',
                 'evidence_source_count' => count((array)($diagnosis['evidence_sources'] ?? [])),
                 'data_gap_count' => count((array)($diagnosis['data_gaps'] ?? [])),
                 'action_item_count' => count((array)($diagnosis['action_items'] ?? [])),
                 'actionable_action_item_count' => $actionableDiagnosisCount,
                 'blocked_action_item_count' => $blockedDiagnosisCount,
                 'action_item_statuses' => diagnosis_action_item_statuses($diagnosis),
+                'data_gap_evidence_present' => $aiBlockers !== [],
                 'scope_date_status' => (string)($diagnosis['scope_date_status'] ?? 'missing'),
                 'scope_date' => $diagnosis['scope_date'] ?? null,
                 'expected_scope_date' => $diagnosis['expected_scope_date'] ?? null,
-                'blocking_missing_codes' => $aiBlockers,
+                'blocking_missing_codes' => $aiQuestionBlockers,
             ],
-            'next_action' => match ($diagnosisStatus) {
-                'proved' => '',
-                'warning' => 'AI 诊断已返回阻断依据，但 action_items 仍不可执行；先处理阻断项后重新生成诊断：' . ($aiBlockerText !== '' ? $aiBlockerText : 'ai_diagnosis_action_items_blocked'),
-                default => '先处理阻断项后再调用现有 OTA 诊断并附脱敏 evidence_sources/data_gaps/action_items：' . ($aiBlockerText !== '' ? $aiBlockerText : 'ai_diagnosis_evidence_sample_missing'),
-            },
+            'next_action' => $diagnosisStatus === 'proved'
+                ? ''
+                : '先处理阻断项后再调用现有 OTA 诊断并附脱敏 evidence_sources/data_gaps/action_items：' . ($aiQuestionBlockerText !== '' ? $aiQuestionBlockerText : 'ai_diagnosis_evidence_sample_missing'),
         ],
         [
             'key' => 'next_operation_action',
@@ -1914,20 +2449,21 @@ function build_employee_questions(array $platformEvidence, array $diagnosis, arr
                 'reviewed_count' => $operationCounts['reviewed_count'],
                 'roi_ready_count' => $operationCounts['roi_ready_count'],
                 'blocked_execution_count' => $operationCounts['blocked_execution_count'],
+                'completion_signal_count' => $operationCounts['completion_signal_count'],
+                'source_policy' => 'read_existing_operation_execution_state_only',
+                'raw_data_exposed' => false,
                 'scope_date_status' => (string)($operation['scope_date_status'] ?? 'missing'),
                 'scope_date' => $operation['scope_date'] ?? null,
                 'expected_scope_date' => $operation['expected_scope_date'] ?? null,
                 'blocking_missing_codes' => $operationBlockingCodes,
             ],
-            'next_action' => $operationStatus === 'proved' ? '' : (has_actionable_diagnosis_evidence($diagnosis)
+            'next_action' => $operationStatus === 'proved' ? '' : ($diagnosisStatus === 'proved'
                 ? ($operationGapCode === 'operation_execution_ai_action_link_missing'
                     ? '已有执行流但未关联 OTA 诊断 action_items；先补齐 source、evidence_refs 或 action_item_id 关联。'
                     : ($operationStatus === 'warning'
                     ? '补齐执行意图的审批通过、执行证据或复盘状态；未补齐前不标记运营闭环完成。'
                     : '创建或附上一个真实执行意图/执行流程样例，包含审批、执行证据或复盘状态。'))
-                : (has_diagnosis_evidence($diagnosis)
-                    ? '先解除 AI action_items 阻断，再创建执行意图并保留审批、执行证据和复盘。'
-                    : '先取得真实 OTA 诊断 action_items，再创建执行意图并保留审批、执行证据和复盘。')),
+                : '先取得真实 OTA 诊断 action_items，再创建执行意图并保留审批、执行证据和复盘。'),
         ],
     ];
 }
@@ -1978,6 +2514,7 @@ function closure_top_action(array $questions): array
             'top_action_resolves_missing_codes' => $resolvesMissingCodes,
             'top_action_live_closure_gap_codes' => $liveClosureGapCodes,
             'top_action' => (string)($question['next_action'] ?? ''),
+            'top_action_employee_text' => (string)($question['employee_next_action'] ?? $question['next_action'] ?? ''),
             'top_question_key' => (string)($question['key'] ?? ''),
             'top_question' => (string)($question['question'] ?? ''),
         ];
@@ -1995,6 +2532,7 @@ function closure_top_action(array $questions): array
         'top_action_resolves_missing_codes' => [],
         'top_action_live_closure_gap_codes' => [],
         'top_action' => '',
+        'top_action_employee_text' => '',
         'top_question_key' => '',
         'top_question' => '',
     ];
@@ -2014,6 +2552,18 @@ function top_action_source_snapshot(array $topAction, array $collectionSourceSum
             if (str_contains($actionCode, $candidate)) {
                 $platform = $candidate;
                 break;
+            }
+        }
+    }
+    if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+        $actionCode = strtolower((string)($topAction['top_action_code'] ?? $topAction['action_code'] ?? ''));
+        if (in_array($actionCode, ['collect_ai_diagnosis_evidence', 'resolve_ai_diagnosis_blocked_action_items', 'collect_operation_execution_evidence'], true)) {
+            foreach ($collectionSourceSummary as $row) {
+                $candidate = strtolower((string)($row['platform'] ?? ''));
+                if (in_array($candidate, ['ctrip', 'meituan'], true)) {
+                    $platform = $candidate;
+                    break;
+                }
             }
         }
     }

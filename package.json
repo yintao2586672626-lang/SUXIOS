@@ -41,6 +41,8 @@
     "verify:phase1-gap-explanations": "node scripts/verify_phase1_ota_gap_explanations.mjs",
     "verify:phase1-live-closure-contract": "node scripts/verify_phase1_ota_live_closure_contract.mjs",
     "verify:phase1-live-action-queue": "node scripts/verify_phase1_live_action_queue_runtime.mjs",
+    "verify:phase2-daily-workbench-runtime": "C:\\xampp\\php\\php.exe scripts\\verify_phase2_daily_workbench_runtime.php",
+    "verify:phase3-operation-effect-loop": "node scripts/verify_phase3_operation_effect_loop_contract.mjs && C:\\xampp\\php\\php.exe scripts\\verify_phase3_operation_effect_loop_runtime.php",
     "build:phase1-live-evidence": "C:\\xampp\\php\\php.exe scripts\\build_phase1_ota_live_closure_evidence.php",
     "inspect:phase1-live-closure": "C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php",
     "report:phase1-live-closure": "C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php --format=markdown",

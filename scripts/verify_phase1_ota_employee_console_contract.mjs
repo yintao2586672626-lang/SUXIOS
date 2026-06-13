@@ -19,6 +19,12 @@ function includesAll(file, label, needles) {
   check(file, label, missing.length === 0, missing.join(', '));
 }
 
+function includesAllSources(files, label, needles) {
+  const source = files.map((file) => read(file)).join('\n');
+  const missing = needles.filter((needle) => !source.includes(needle));
+  check(files.join(' + '), label, missing.length === 0, missing.join(', '));
+}
+
 function packageScript(name, command) {
   let actual = '';
   try {
@@ -154,7 +160,11 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   'primaryNextActionSuccessCriteria',
   'directNextActionSuccessCriteria',
   'blockedActionCodes',
+  'employeeAction',
   'employeeExplanation',
+  'employeeEvidenceNeeded',
+  'employeeSuccessCriteria',
+  'employeeExplanationNextAction',
   'limitedConclusions',
   'stillUsableMetrics',
   'explanationNextAction',
@@ -172,10 +182,12 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   'phase1EmployeeActionEntryOptionRawText',
   'entryOptionsRawText',
   'phase1EmployeeActionEntryOptionGuidanceText',
+  'phase1EmployeeActionEntryOptionGuidanceRawText',
   'phase1EmployeeActionEntryOptionReadinessText',
   'phase1EmployeeReadinessStatusText',
   'phase1EmployeeReadinessEvidenceText',
   'entryOptionGuidanceText',
+  'entryOptionGuidanceRawText',
   'entryReadinessText',
   'readiness.can_run_now === true',
   '可直接执行',
@@ -195,23 +207,29 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   'phase1EmployeeActionCodeText',
   'phase1EmployeeActionSuccessCriteriaText',
   'phase1EmployeeActionEvidenceNeededText',
-  'related_question_keys.map(phase1EmployeeQuestionKeyText)',
-  'top_action_related_question_keys.map(phase1EmployeeQuestionKeyText)',
+  'phase1EmployeeKnownQuestionListText(item?.related_question_keys)',
+  'phase1EmployeeKnownQuestionListText(backendTopActionImpactRaw)',
   'missing_question_keys) ? backendSummary.missing_question_keys.map',
-  'backendMissingQuestionKeys.map(phase1EmployeeQuestionKeyText)',
-  'topActionCodeText = phase1EmployeeActionCodeText(topActionCode)',
+  'backendMissingQuestionKeys.map(phase1EmployeeKnownQuestionText)',
+  'phase1EmployeeActionDisplayText({',
   'topActionTextRaw',
   'unresolvedQuestionTextRaw',
   'blocking_missing_codes.slice(0, 3).map(phase1EmployeeGapCodeText)',
   'phase1EmployeeActionCodeText(directNextActionCode)',
   'entryOptions,',
   "entryOptionsText: entryOptions.join('、')",
+  "employeeAction: String(item?.employee_action || '')",
   'successCriteria: String(item?.success_criteria || \'\')',
+  "employeeSuccessCriteria: String(item?.employee_success_criteria || '')",
   'successCriteriaText: phase1EmployeeActionSuccessCriteriaText(item)',
+  'employeeEvidenceNeeded: Array.isArray(item?.employee_evidence_needed)',
   'evidenceNeededText: phase1EmployeeActionEvidenceNeededText(item)',
+  'employeeVerificationSteps: Array.isArray(item?.employee_verification_steps)',
+  'verificationStepsText: phase1EmployeeActionVerificationStepsText(item)',
   "employeeExplanation: String(item?.employee_explanation || '')",
   'limitedConclusions: Array.isArray(item?.limited_conclusions)',
   'stillUsableMetrics: Array.isArray(item?.still_usable_metrics)',
+  "employeeExplanationNextAction: String(item?.employee_explanation_next_action || '')",
   "explanationNextAction: String(item?.explanation_next_action || '')",
   'liveClosureGapCodes: Array.isArray(item?.live_closure_gap_codes)',
   'actionCodes: Array.isArray(row?.next_action_codes)',
@@ -311,6 +329,7 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   'top_action_success_criteria',
   'topActionEntryOptionsText',
   'topActionEntryOptionGuidanceText',
+  'topActionEntryOptionGuidanceRawText',
   'topActionEntryReadinessText',
   'topActionImpactText',
   'topActionResolvesText',
@@ -335,22 +354,23 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   '证明要求：',
   '平台源数据摘要',
   '字段可信摘要',
-  '只按目标日源数据 + metric_trust 判断',
+  '只按目标日源数据 + 指标可信证据判断',
   '缺失字段摘要',
-  '来自 data_gaps / missing_field_codes',
+  '来自数据缺口和字段缺口证据',
   '收入/流量/转化证据摘要',
   '只按目标日 OTA 指标域判断',
   'AI 依据摘要',
-  '只读 evidence_sources / data_gaps / action_items',
+  '只读证据来源、数据缺口和动作项',
   '运营执行摘要',
-  '只读 execution_intents / execution_flow',
+  '只读执行意图和执行流',
   '证据来源',
+  '数据缺口',
   '可执行动作',
   '执行意图',
   '执行流',
   '执行证据',
-  'AI 建议必须引用 evidence_sources、data_gaps、action_items',
-  '只有可追溯到 OTA diagnosis action_items',
+  'AI 建议必须引用证据来源、数据缺口和动作项',
+  '只有可追溯到 OTA 诊断动作项',
   '不能替代目标日',
   '最近 ',
   '覆盖 ${evidence.coverage_status}',
@@ -458,7 +478,10 @@ includesAll('public/index.html', 'AI diagnosis and operation UI bindings exist',
   '/operation/execution-intents',
 ]);
 
-includesAll('app/controller/OnlineData.php', 'collection reliability backend keeps explicit states and actions', [
+includesAllSources([
+  'app/controller/OnlineData.php',
+  'app/controller/concern/Phase1EmployeeConsoleConcern.php',
+], 'collection reliability backend keeps explicit states and actions', [
   'public function collectionReliability',
   'data_quality',
   'missing_count',
@@ -467,6 +490,9 @@ includesAll('app/controller/OnlineData.php', 'collection reliability backend kee
   'field_missing',
   'phase1_employee_questions',
   'withPhase1EmployeeQuestions',
+  'phase1EmployeeReadableCopy',
+  'employee_detail',
+  'employee_next_action',
   'phase1EmployeeClosureSummary',
   'buildDashboardDataSources',
   'read_existing_collection_reliability_only',
@@ -670,6 +696,86 @@ includesAll('docs/phase1_ota_trusted_loop_audit.md', 'audit document references 
 packageScript('verify:phase1-employee-console', 'node scripts/verify_phase1_ota_employee_console_contract.mjs');
 
 const publicEntry = read('public/index.html');
+const collectionSourceRowStart = publicEntry.indexOf('const phase1EmployeeCollectionDataTypeText = (type) => {');
+const collectionSourceRowEnd = publicEntry.indexOf('const phase1EmployeeCollectionSourceRows = computed', collectionSourceRowStart);
+const collectionSourceRowSource = collectionSourceRowStart >= 0 && collectionSourceRowEnd > collectionSourceRowStart
+  ? publicEntry.slice(collectionSourceRowStart, collectionSourceRowEnd)
+  : '';
+const metricDomainRowStart = publicEntry.indexOf('const phase1MetricDomainProblemText = ({ revenueReady, trafficReady, conversionReady, sourceRows, trafficRows }) => {');
+const metricDomainRowEnd = publicEntry.indexOf('const phase1EmployeeMetricDomainRows = computed', metricDomainRowStart);
+const metricDomainRowSource = metricDomainRowStart >= 0 && metricDomainRowEnd > metricDomainRowStart
+  ? publicEntry.slice(metricDomainRowStart, metricDomainRowEnd)
+  : '';
+const questionEvidenceStart = publicEntry.indexOf('const phase1EmployeeQuestionEvidenceText = (evidence) => {');
+const questionEvidenceEnd = publicEntry.indexOf('const phase1EmployeeActionFamilyText = (family) =>', questionEvidenceStart);
+const questionEvidenceSource = questionEvidenceStart >= 0 && questionEvidenceEnd > questionEvidenceStart
+  ? publicEntry.slice(questionEvidenceStart, questionEvidenceEnd)
+  : '';
+const questionRowsStart = publicEntry.indexOf('const phase1EmployeeQuestionRows = computed');
+const questionRowsEnd = publicEntry.indexOf('const phase1EmployeeRequiredActions = computed', questionRowsStart);
+const questionRowsSource = questionRowsStart >= 0 && questionRowsEnd > questionRowsStart
+  ? publicEntry.slice(questionRowsStart, questionRowsEnd)
+  : '';
+const gapCodeTextStart = publicEntry.indexOf('const phase1EmployeeGapCodeText = (code) => {');
+const gapCodeTextEnd = publicEntry.indexOf('const phase1EmployeePlatformText = (platform) => ({', gapCodeTextStart);
+const gapCodeTextSource = gapCodeTextStart >= 0 && gapCodeTextEnd > gapCodeTextStart
+  ? publicEntry.slice(gapCodeTextStart, gapCodeTextEnd)
+  : '';
+const actionCodeTextStart = publicEntry.indexOf('const phase1EmployeeActionCodeText = (code) => {');
+const actionCodeTextEnd = publicEntry.indexOf('const phase1EmployeeQuestionNextActionText = (row) => {', actionCodeTextStart);
+const actionCodeTextSource = actionCodeTextStart >= 0 && actionCodeTextEnd > actionCodeTextStart
+  ? publicEntry.slice(actionCodeTextStart, actionCodeTextEnd)
+  : '';
+const questionNextActionStart = publicEntry.indexOf('const phase1EmployeeQuestionNextActionText = (row) => {');
+const questionNextActionEnd = publicEntry.indexOf('const phase1EmployeeActionRawCode = (item) => {', questionNextActionStart);
+const questionNextActionSource = questionNextActionStart >= 0 && questionNextActionEnd > questionNextActionStart
+  ? publicEntry.slice(questionNextActionStart, questionNextActionEnd)
+  : '';
+const actionSuccessCriteriaStart = publicEntry.indexOf('const phase1EmployeeActionSuccessCriteriaText = (item) => {');
+const actionSuccessCriteriaEnd = publicEntry.indexOf('const phase1EmployeeActionEvidenceNeededText = (item) => {', actionSuccessCriteriaStart);
+const actionSuccessCriteriaSource = actionSuccessCriteriaStart >= 0 && actionSuccessCriteriaEnd > actionSuccessCriteriaStart
+  ? publicEntry.slice(actionSuccessCriteriaStart, actionSuccessCriteriaEnd)
+  : '';
+const employeeActionExplanationStart = publicEntry.indexOf('const phase1EmployeeActionEmployeeExplanationText = (item) => {');
+const employeeActionExplanationEnd = publicEntry.indexOf('const phase1EmployeeActionLimitedConclusionsText = (item) => {', employeeActionExplanationStart);
+const employeeActionExplanationSource = employeeActionExplanationStart >= 0 && employeeActionExplanationEnd > employeeActionExplanationStart
+  ? publicEntry.slice(employeeActionExplanationStart, employeeActionExplanationEnd)
+  : '';
+const actionExplanationNextActionStart = publicEntry.indexOf('const phase1EmployeeActionExplanationNextActionText = (item) => {');
+const actionExplanationNextActionEnd = publicEntry.indexOf('const phase1EmployeeActionDisplayText = (item) => {', actionExplanationNextActionStart);
+const actionExplanationNextActionSource = actionExplanationNextActionStart >= 0 && actionExplanationNextActionEnd > actionExplanationNextActionStart
+  ? publicEntry.slice(actionExplanationNextActionStart, actionExplanationNextActionEnd)
+  : '';
+const actionMetaTextStart = publicEntry.indexOf('const phase1EmployeeActionMetaText = (item) => {');
+const actionMetaTextEnd = publicEntry.indexOf('const phase1EmployeeActionProtectedBoundaryText = (item) => {', actionMetaTextStart);
+const actionMetaTextSource = actionMetaTextStart >= 0 && actionMetaTextEnd > actionMetaTextStart
+  ? publicEntry.slice(actionMetaTextStart, actionMetaTextEnd)
+  : '';
+const entryOptionGuidanceStart = publicEntry.indexOf('const phase1EmployeeActionEntryOptionGuidanceText = (option) => {');
+const entryOptionGuidanceEnd = publicEntry.indexOf('const phase1EmployeeReadinessStatusText = (status) =>', entryOptionGuidanceStart);
+const entryOptionGuidanceSource = entryOptionGuidanceStart >= 0 && entryOptionGuidanceEnd > entryOptionGuidanceStart
+  ? publicEntry.slice(entryOptionGuidanceStart, entryOptionGuidanceEnd)
+  : '';
+const employeeSummaryTemplateStart = publicEntry.indexOf('data-testid="phase1-employee-field-trust-summary"');
+const employeeSummaryTemplateEnd = publicEntry.indexOf('<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">', employeeSummaryTemplateStart);
+const employeeSummaryTemplateSource = employeeSummaryTemplateStart >= 0 && employeeSummaryTemplateEnd > employeeSummaryTemplateStart
+  ? publicEntry.slice(employeeSummaryTemplateStart, employeeSummaryTemplateEnd)
+  : '';
+const fieldTrustRowStart = publicEntry.indexOf('const normalizePhase1EmployeeFieldTrustRow = (row) => {');
+const fieldTrustRowEnd = publicEntry.indexOf('const phase1EmployeeFieldTrustRows = computed', fieldTrustRowStart);
+const fieldTrustRowSource = fieldTrustRowStart >= 0 && fieldTrustRowEnd > fieldTrustRowStart
+  ? publicEntry.slice(fieldTrustRowStart, fieldTrustRowEnd)
+  : '';
+const aiEvidenceSummaryStart = publicEntry.indexOf('const phase1EmployeeAiEvidenceSummary = computed');
+const aiEvidenceSummaryEnd = publicEntry.indexOf('const phase1EmployeeOperationSummary = computed', aiEvidenceSummaryStart);
+const aiEvidenceSummarySource = aiEvidenceSummaryStart >= 0 && aiEvidenceSummaryEnd > aiEvidenceSummaryStart
+  ? publicEntry.slice(aiEvidenceSummaryStart, aiEvidenceSummaryEnd)
+  : '';
+const operationSummaryStart = publicEntry.indexOf('const phase1EmployeeOperationSummary = computed');
+const operationSummaryEnd = publicEntry.indexOf('const phase1EmployeeQuestionRows = computed', operationSummaryStart);
+const operationSummarySource = operationSummaryStart >= 0 && operationSummaryEnd > operationSummaryStart
+  ? publicEntry.slice(operationSummaryStart, operationSummaryEnd)
+  : '';
 const platformAutoSettingsPanelsContent = read('public/components/online-data/platform-auto-settings-panels.js');
 check(
   'public/index.html',
@@ -691,7 +797,16 @@ check(
     publicEntry.includes('item.resolves_missing_codes.map(phase1EmployeeGapCodeText)') &&
     publicEntry.includes('item.live_closure_gap_codes.map(phase1EmployeeGapCodeText)') &&
     publicEntry.includes('backendSummary.top_action_resolves_missing_codes.map(phase1EmployeeGapCodeText)') &&
-    publicEntry.includes('backendSummary.top_action_live_closure_gap_codes.map(phase1EmployeeGapCodeText)'),
+    publicEntry.includes('backendSummary.top_action_live_closure_gap_codes.map(phase1EmployeeGapCodeText)') &&
+    publicEntry.includes('phase1EmployeeKnownQuestionListText') &&
+    publicEntry.includes('relatedQuestionKeysRawText') &&
+    publicEntry.includes('topActionImpactRawText') &&
+    gapCodeTextSource.includes('const questionText = phase1EmployeeKnownQuestionText(raw)') &&
+    gapCodeTextSource.includes("[raw] || '未识别证据缺口')") &&
+    !gapCodeTextSource.includes('phase1EmployeeQuestionKeyText(raw)') &&
+    !gapCodeTextSource.includes('} || raw)') &&
+    !publicEntry.includes('related_question_keys.map(phase1EmployeeQuestionKeyText)') &&
+    !publicEntry.includes('top_action_related_question_keys.map(phase1EmployeeQuestionKeyText)'),
   'phase1EmployeeGapCodeText + blocking/resolves/live closure mappings'
 );
 check(
@@ -702,6 +817,9 @@ check(
     publicEntry.includes('actionCodesText: Array.isArray(row?.next_action_codes)') &&
     publicEntry.includes('blockedActionCodesText: Array.isArray(row?.blocked_action_codes') &&
     publicEntry.includes('item.blocked_by_action_codes.map(phase1EmployeeActionCodeText)') &&
+    actionCodeTextSource.includes("return '未识别补证动作'") &&
+    actionCodeTextSource.includes("phase1EmployeeKnownQuestionText(localMatch[1]) || '未识别员工问题'") &&
+    !actionCodeTextSource.includes('return raw;') &&
     publicEntry.includes('row.directNextActionText || row.directNextActionCode') &&
     publicEntry.includes('row.actionCodesText || row.actionCodes'),
   'phase1EmployeeActionCodeText + direct/primary/blocked/linked mappings'
@@ -711,11 +829,18 @@ check(
   'employee question next action prefers readable action-code text',
   publicEntry.includes('phase1EmployeeQuestionNextActionText') &&
     publicEntry.includes('nextActionText: phase1EmployeeQuestionNextActionText(row)') &&
-    publicEntry.includes('nextActionText: localRow?.nextActionText || backendRow?.nextActionText ||') &&
-    publicEntry.includes('row.nextActionText || row.nextAction') &&
+    publicEntry.includes('nextActionText: backendRow?.nextActionText || localRow?.nextActionText ||') &&
+    publicEntry.includes('row.nextActionText || row.employeeNextActionText || row.nextAction') &&
+    publicEntry.includes("String(row?.nextActionText || row?.employeeNextActionText || row?.nextAction || '').trim()") &&
+    publicEntry.includes("next_action: String(row?.nextActionText || row?.employeeNextActionText || row?.nextAction || '复核当前问题对应证据。')") &&
     publicEntry.includes('row?.direct_next_action_code || row?.evidence?.direct_next_action_code') &&
     publicEntry.includes('row?.primary_next_action_code || row?.evidence?.primary_next_action_code') &&
-    publicEntry.includes('row?.next_action_codes'),
+    publicEntry.includes('row?.next_action_codes') &&
+    questionNextActionSource.includes("const fallbackQuestionText = phase1EmployeeKnownQuestionText(row?.key || row?.question || '') || '当前员工问题';") &&
+    questionNextActionSource.includes('return `先处理${primaryText}，再执行${directText || `补齐${fallbackQuestionText}证据`}`;') &&
+    questionNextActionSource.includes("return questionText ? `补齐${questionText}证据` : '按动作队列补齐证据'") &&
+    !questionNextActionSource.includes("phase1EmployeeQuestionKeyText(row?.key || row?.question || '')") &&
+    !questionNextActionSource.includes("return String(row?.next_action || row?.nextAction || '').trim();"),
   'next_action display is derived from direct/primary/linked action codes with raw title trace'
 );
 check(
@@ -729,10 +854,21 @@ check(
     publicEntry.includes("question_key: 'next_operation_action'") &&
     publicEntry.includes("action_family: row?.direct_next_action_family || row?.evidence?.direct_next_action_family || 'ai_diagnosis_evidence'") &&
     publicEntry.includes("action_family: row?.direct_next_action_family || row?.evidence?.direct_next_action_family || 'operation_execution_evidence'") &&
+    publicEntry.includes('const rowBlocking = Array.isArray(row?.blocking_gap_codes)') &&
+    publicEntry.includes('const allBlocking = Array.from(new Set([...blocking, ...rowBlocking]))') &&
+    publicEntry.includes('const dataGapPresent = evidence.data_gap_evidence_present === true || allBlocking.length > 0') &&
+    publicEntry.includes('phase1EmployeeAiJudgementText') &&
+    publicEntry.includes('phase1EmployeeAiLimitText') &&
+    publicEntry.includes('phase1EmployeeOperationJudgementText') &&
+    publicEntry.includes('phase1EmployeeOperationLimitText') &&
     publicEntry.includes("blockingText: blocking.map(phase1EmployeeGapCodeText).filter(Boolean).join('、')") &&
     publicEntry.includes("blockingRawText: blocking.join('、')") &&
     publicEntry.includes('phase1EmployeeAiEvidenceSummary.blockingRawText || phase1EmployeeAiEvidenceSummary.blockingText') &&
     publicEntry.includes('phase1EmployeeOperationSummary.blockingRawText || phase1EmployeeOperationSummary.blockingText') &&
+    publicEntry.includes('phase1EmployeeAiEvidenceSummary.judgementRawText || phase1EmployeeAiEvidenceSummary.judgementText') &&
+    publicEntry.includes('phase1EmployeeAiEvidenceSummary.limitRawText || phase1EmployeeAiEvidenceSummary.limitText') &&
+    publicEntry.includes('phase1EmployeeOperationSummary.judgementRawText || phase1EmployeeOperationSummary.judgementText') &&
+    publicEntry.includes('phase1EmployeeOperationSummary.limitRawText || phase1EmployeeOperationSummary.limitText') &&
     publicEntry.includes('policyRawText: entryRaw') &&
     publicEntry.includes('phase1EmployeeAiEvidenceSummary.policyRawText || phase1EmployeeAiEvidenceSummary.policyText') &&
     publicEntry.includes('phase1EmployeeOperationSummary.policyRawText || phase1EmployeeOperationSummary.policyText') &&
@@ -744,22 +880,145 @@ check(
   'public/index.html',
   'employee question presentation fallback does not override backend facts',
   publicEntry.includes('phase1EmployeeQuestionPresentationRow') &&
+    publicEntry.includes('detail: String(row?.employee_detail || row?.detail || row?.message || \'\')') &&
+    publicEntry.includes('detailRawText: String(row?.detail || row?.message || \'\')') &&
+    publicEntry.includes('employeeNextActionText: String(row?.employee_next_action || \'\')') &&
+    publicEntry.includes(':title="row.detailRawText || row.detail"') &&
+    publicEntry.includes(':title="row.nextActionRawText || row.employeeNextActionText || row.nextActionText"') &&
+    publicEntry.includes('const merged = { ...(localRow || {}), ...(backendRow || {}) };') &&
     publicEntry.includes('detail: backendRow?.detail || localRow?.detail ||') &&
+    publicEntry.includes('detailRawText: backendRow?.detailRawText || localRow?.detailRawText ||') &&
     publicEntry.includes('nextActionText: backendRow?.nextActionText || localRow?.nextActionText ||') &&
+    publicEntry.includes('nextActionRawText: backendRow?.nextActionRawText || localRow?.nextActionRawText ||') &&
+    publicEntry.includes('employeeNextActionText: backendRow?.employeeNextActionText || localRow?.employeeNextActionText ||') &&
+    publicEntry.includes('blockingReasonText: backendRow?.blockingReasonText || localRow?.blockingReasonText ||') &&
+    !publicEntry.includes('const merged = { ...(backendRow || {}), ...(localRow || {}) };') &&
+    !publicEntry.includes('nextActionText: localRow?.nextActionText || backendRow?.nextActionText ||') &&
+    !publicEntry.includes('blockingReasonText: localRow?.blockingReasonText || backendRow?.blockingReasonText ||') &&
     publicEntry.includes("['today_ota_collected', 'trusted_fields', 'missing_fields'].includes(row.key)") &&
     publicEntry.includes('return phase1EmployeeQuestionPresentationRow(row, local)'),
-  'presentation fallback fills question/detail text only and keeps backend status/evidence/actions'
+  'presentation fallback keeps backend facts but uses stable readable display text'
 );
 check(
   'public/index.html',
   'employee closure summary maps missing question keys and top action codes',
-  publicEntry.includes('backendMissingQuestionKeys.map(phase1EmployeeQuestionKeyText)') &&
-    publicEntry.includes('topActionCodeText = phase1EmployeeActionCodeText(topActionCode)') &&
+  publicEntry.includes('backendMissingQuestionKeys.map(phase1EmployeeKnownQuestionText)') &&
+    publicEntry.includes('phase1EmployeeKnownQuestionText') &&
+    publicEntry.includes('phase1EmployeeActionDisplayText({') &&
     publicEntry.includes('topActionTextRaw') &&
     publicEntry.includes('unresolvedQuestionTextRaw') &&
     publicEntry.includes('phase1EmployeeClosureSummary.topActionTextRaw || phase1EmployeeClosureSummary.topActionText') &&
-    publicEntry.includes('phase1EmployeeClosureSummary.unresolvedQuestionTextRaw || phase1EmployeeClosureSummary.unresolvedQuestionText'),
+    publicEntry.includes('phase1EmployeeClosureSummary.unresolvedQuestionTextRaw || phase1EmployeeClosureSummary.unresolvedQuestionText') &&
+    publicEntry.includes("return '现有首要补证动作'") &&
+    publicEntry.includes("unresolvedCount > 0 ? '未识别员工问题' : ''") &&
+    !publicEntry.includes("|| topActionTextRaw ||") &&
+    !publicEntry.includes(").join('、') || unresolvedQuestionTextRaw") &&
+    !publicEntry.includes("return String(source.next_action || source.action || '').trim();"),
   'missing_question_keys/top_action_code readable summary mappings with raw-title trace'
+);
+check(
+  'public/index.html',
+  'employee question evidence maps platform date relation and metric domain labels',
+  questionEvidenceSource.includes('platformCoverage.missing_platforms.filter(Boolean).map(phase1EmployeePlatformText)') &&
+    questionEvidenceSource.includes("const platform = phase1EmployeePlatformText(row?.platform || '')") &&
+    questionEvidenceSource.includes('phase1EmployeeDateRelationText(latestRelation)') &&
+    questionEvidenceSource.includes('items.filter(Boolean).map(phase1EmployeePlatformText).join') &&
+    questionEvidenceSource.includes('row.missing_domains.filter(Boolean).map(phase1MetricDomainMissingLabel).join') &&
+    questionRowsSource.includes('const sourceDateMissingPlatformText = sourceDateMissingPlatforms.map(phase1EmployeePlatformText).join') &&
+    questionRowsSource.includes('；缺失平台 ${sourceDateMissingPlatformText}') &&
+    !questionEvidenceSource.includes("const platform = String(row?.platform || '').toUpperCase()") &&
+    !questionEvidenceSource.includes("latestRelation ? `(${latestRelation})`") &&
+    !questionEvidenceSource.includes("String(row?.platform || '').toUpperCase()}:${domains}"),
+  'six-question evidence details use readable platform/date/domain labels while raw values stay structured'
+);
+check(
+  'public/index.html',
+  'employee question evidence maps gap action entry and criteria codes',
+  questionEvidenceSource.includes('const phase1EmployeeReadableGapText = (code) => {') &&
+    questionEvidenceSource.includes('const fieldText = phase1MissingFieldLabel(raw)') &&
+    questionEvidenceSource.includes('const gapText = phase1EmployeeGapCodeText(raw)') &&
+    questionEvidenceSource.includes('const phase1EmployeeReadableActionOrGapText = (code) => {') &&
+    questionEvidenceSource.includes('const actionText = phase1EmployeeActionCodeText(raw)') &&
+    questionEvidenceSource.includes('const metricDomainGapCodes = evidenceKeyText(evidence.metric_domain_gap_codes, 4, phase1EmployeeReadableGapText)') &&
+    questionEvidenceSource.includes('const dataGapCodes = evidenceKeyText(evidence.data_gap_codes, 4, phase1EmployeeReadableGapText)') &&
+    questionEvidenceSource.includes('const missingFieldCodes = evidenceKeyText(evidence.missing_field_codes, 4, phase1EmployeeReadableGapText)') &&
+    publicEntry.includes('normalizePhase1EmployeeMissingFieldSummaryRow') &&
+    publicEntry.includes('evidence.missing_field_summary.map(normalizePhase1EmployeeMissingFieldSummaryRow)') &&
+    publicEntry.includes('String(source.business_impact || source.businessImpact ||') &&
+    publicEntry.includes('String(source.next_action || source.nextAction ||') &&
+    questionEvidenceSource.includes('const fieldPendingActionCodes = evidenceKeyText(evidence.field_pending_action_codes, 4, phase1EmployeeReadableActionOrGapText)') &&
+    questionEvidenceSource.includes('const blockedActionCodes = evidenceKeyText(evidence.blocked_action_codes, 3, phase1EmployeeReadableActionOrGapText)') &&
+    questionEvidenceSource.includes('const blockingMissingCodes = evidenceKeyText(evidence.blocking_missing_codes, 5, phase1EmployeeReadableGapText)') &&
+    questionEvidenceSource.includes('入口 ${phase1EmployeeActionEntryText(evidence.direct_next_action_entry, nextActionContext)}') &&
+    questionEvidenceSource.includes('完成判定 ${phase1EmployeeActionSuccessCriteriaText({') &&
+    questionEvidenceSource.includes("parts.push('需复核指标可信证据')") &&
+    !questionEvidenceSource.includes('const metricDomainGapCodes = evidenceKeyText(evidence.metric_domain_gap_codes);') &&
+    !questionEvidenceSource.includes('if (dataGapCodes) parts.push(`data_gaps ${dataGapCodes}`)') &&
+    !questionEvidenceSource.includes('if (evidence.direct_next_action_entry) parts.push(`入口 ${evidence.direct_next_action_entry}`)') &&
+    !questionEvidenceSource.includes('if (evidence.direct_next_action_success_criteria) parts.push(`完成判定 ${evidence.direct_next_action_success_criteria}`)') &&
+    !questionEvidenceSource.includes("parts.push('需复核 metric_trust')"),
+  'six-question evidence gap/action/entry/criteria raw codes are mapped before display'
+);
+check(
+  'public/index.html',
+  'employee summaries avoid technical evidence names in visible copy',
+  employeeSummaryTemplateSource.includes('只按目标日源数据 + 指标可信证据判断') &&
+    employeeSummaryTemplateSource.includes('只读证据来源、数据缺口和动作项') &&
+    employeeSummaryTemplateSource.includes('只读执行意图和执行流') &&
+    employeeSummaryTemplateSource.includes(':title="row.metricRawText || row.metricText"') &&
+    !employeeSummaryTemplateSource.includes('只按目标日源数据 + metric_trust 判断') &&
+    !employeeSummaryTemplateSource.includes('只读 evidence_sources / data_gaps / action_items') &&
+    !employeeSummaryTemplateSource.includes('只读 execution_intents / execution_flow'),
+  'field trust / AI / operation summary headers use readable copy and raw details stay in titles'
+);
+check(
+  'public/index.html',
+  'employee field trust row maps metric trust status to readable text',
+  fieldTrustRowSource.includes('const metricStatusText = ({') &&
+    publicEntry.includes("target_date_revenue_sample_present: '待指标可信证据'") &&
+    fieldTrustRowSource.includes('platformLabel: phase1EmployeePlatformText(platform)') &&
+    fieldTrustRowSource.includes('metricText: `目标日 ${targetRows} 行 / 指标可信证据 ${trustKeyCount} 项 / ${metricStatusText}`') &&
+    fieldTrustRowSource.includes('metricRawText: `target_date_rows=${targetRows} / metric_trust_key_count=${trustKeyCount} / metric_status=${metricStatusRaw}`') &&
+    !fieldTrustRowSource.includes('metricText: `目标日 ${targetRows} 行 / metric_trust') &&
+    !fieldTrustRowSource.includes("platformLabel: platform ? platform.toUpperCase() : 'OTA'"),
+  'field trust metric text is readable while metric_trust raw count remains traceable'
+);
+check(
+  'public/index.html',
+  'employee AI and operation summaries use readable evidence names',
+  aiEvidenceSummarySource.includes("phase1EmployeeCountItem('data_gaps', '数据缺口'") &&
+    aiEvidenceSummarySource.includes('dataGapPresent = evidence.data_gap_evidence_present === true || allBlocking.length > 0') &&
+    aiEvidenceSummarySource.includes('blockingText: allBlocking.map(phase1EmployeeGapCodeText).filter(Boolean).join') &&
+    aiEvidenceSummarySource.includes('judgementText: phase1EmployeeAiJudgementText({ status, blockingCount: allBlocking.length, actionableCount })') &&
+    aiEvidenceSummarySource.includes('limitText: phase1EmployeeAiLimitText({ blockingCount: allBlocking.length, actionableCount })') &&
+    aiEvidenceSummarySource.includes('AI 建议必须引用证据来源、数据缺口和动作项') &&
+    !aiEvidenceSummarySource.includes("phase1EmployeeCountItem('data_gaps', 'data_gaps'") &&
+    !aiEvidenceSummarySource.includes('AI 建议必须引用 evidence_sources、data_gaps、action_items') &&
+    operationSummarySource.includes('const linkedIntentCount = Number(evidence.ota_diagnosis_linked_intent_count || 0)') &&
+    operationSummarySource.includes('const linkedFlowCount = Number(evidence.ota_diagnosis_linked_flow_item_count || 0)') &&
+    operationSummarySource.includes('completion_signal_count=${completionSignalCount}') &&
+    operationSummarySource.includes('judgementText: phase1EmployeeOperationJudgementText({ status, executionIntentCount, executionFlowItemCount, completionSignalCount })') &&
+    operationSummarySource.includes('limitText: phase1EmployeeOperationLimitText({ completionSignalCount, linkedIntentCount, linkedFlowCount })') &&
+    operationSummarySource.includes('先取得真实 OTA 诊断动作项') &&
+    operationSummarySource.includes('只有可追溯到 OTA 诊断动作项且有审批、执行、复盘或 ROI 信号时才算闭环') &&
+    !operationSummarySource.includes('先取得真实 OTA 诊断 action_items') &&
+    !operationSummarySource.includes('OTA diagnosis action_items'),
+  'AI/operation summary main text maps evidence_sources/data_gaps/action_items to readable labels'
+);
+check(
+  'public/index.html',
+  'employee question rows use readable evidence wording',
+  questionRowsSource.includes('指标可信证据和数据质量状态复核') &&
+    questionRowsSource.includes('按数据缺口、字段资产和质量任务处理缺口') &&
+    questionRowsSource.includes('指标可信证据、数据缺口和目标日指标域证据') &&
+    questionRowsSource.includes('确认返回证据来源、数据缺口和动作项') &&
+    questionRowsSource.includes('缺少目标日来源证据') &&
+    !questionRowsSource.includes('结合目标日样例、metric_trust') &&
+    !questionRowsSource.includes('按 data_gaps、字段资产') &&
+    !questionRowsSource.includes('引用 metric_trust、data_gaps') &&
+    !questionRowsSource.includes('确认返回 evidence_sources、data_gaps、action_items') &&
+    !questionRowsSource.includes('缺少 source_date_evidence'),
+  'employee question card detail/next-action text avoids raw evidence field names'
 );
 check(
   'public/index.html',
@@ -767,13 +1026,20 @@ check(
   publicEntry.includes('phase1EmployeeActionEntryText') &&
     publicEntry.includes('entryText: phase1EmployeeActionEntryText(item?.entry || \'\', item)') &&
     publicEntry.includes('row.directNextActionEntryText || row.directNextActionEntry') &&
-    publicEntry.includes('item.entryText || item.entry') &&
+    publicEntry.includes('v-if="item.entryText"') &&
+    publicEntry.includes('入口：{{ item.entryText }}') &&
+    publicEntry.includes(':title="item.entry || item.entryText"') &&
     publicEntry.includes('topActionEntryText') &&
+    publicEntry.includes('v-if="phase1EmployeeClosureSummary.topActionEntryText || phase1EmployeeClosureSummary.topActionSuccessCriteria"') &&
+    publicEntry.includes('入口：{{ phase1EmployeeClosureSummary.topActionEntryText }}') &&
     publicEntry.includes('美团手动 Cookie/API 获取入口') &&
     publicEntry.includes('美团浏览器 Profile 采集入口') &&
     publicEntry.includes('OTA 收益指标与标准事实核对') &&
     publicEntry.includes('AI 诊断证据核对入口') &&
-    publicEntry.includes('运营执行意图入口'),
+    publicEntry.includes('运营执行意图入口') &&
+    publicEntry.includes("return '现有核验入口'") &&
+    !publicEntry.includes('入口：{{ phase1EmployeeClosureSummary.topActionEntryText || phase1EmployeeClosureSummary.topActionEntry }}') &&
+    !publicEntry.includes('入口：{{ item.entryText || item.entry }}'),
   'phase1EmployeeActionEntryText + readable entry names + raw-title trace'
 );
 check(
@@ -795,16 +1061,28 @@ check(
 check(
   'public/index.html',
   'employee action success criteria and evidence are mapped to readable labels',
-  publicEntry.includes('phase1EmployeeActionSuccessCriteriaText') &&
+    publicEntry.includes('phase1EmployeeActionSuccessCriteriaText') &&
     publicEntry.includes('phase1EmployeeActionEvidenceNeededText') &&
+    publicEntry.includes('phase1EmployeeActionVerificationStepsText') &&
+    publicEntry.includes('source.employee_success_criteria || source.employeeSuccessCriteria') &&
+    publicEntry.includes('source.employee_evidence_needed || source.employeeEvidenceNeeded') &&
+    publicEntry.includes('source.employee_verification_steps || source.employeeVerificationSteps') &&
+    publicEntry.includes("employeeSuccessCriteria: String(item?.employee_success_criteria || '')") &&
+    publicEntry.includes('employeeEvidenceNeeded: Array.isArray(item?.employee_evidence_needed)') &&
+    publicEntry.includes('employeeVerificationSteps: Array.isArray(item?.employee_verification_steps)') &&
     publicEntry.includes('successCriteriaText: phase1EmployeeActionSuccessCriteriaText(item)') &&
     publicEntry.includes('evidenceNeededText: phase1EmployeeActionEvidenceNeededText(item)') &&
+    publicEntry.includes('verificationStepsText: phase1EmployeeActionVerificationStepsText(item)') &&
     publicEntry.includes('v-if="item.successCriteriaText"') &&
     publicEntry.includes('v-if="item.evidenceNeededText"') &&
+    publicEntry.includes('v-if="item.verificationStepsText"') &&
+    publicEntry.includes('phase1EmployeeClosureSummary.topActionVerificationText') &&
     publicEntry.includes('v-if="row.directNextActionSuccessCriteriaText"') &&
     publicEntry.includes('{{ item.successCriteriaText }}') &&
     publicEntry.includes('{{ item.evidenceNeededText }}') &&
+    publicEntry.includes('{{ item.verificationStepsText }}') &&
     publicEntry.includes('{{ row.directNextActionSuccessCriteriaText }}') &&
+    publicEntry.includes('topActionVerificationText') &&
     publicEntry.includes('topActionSuccessCriteriaRaw') &&
     !publicEntry.includes('item.successCriteriaText || item.successCriteria') &&
     !publicEntry.includes('item.evidenceNeededText || item.evidenceNeeded') &&
@@ -813,7 +1091,9 @@ check(
     publicEntry.includes('目标日入库行数 > 0；最近可用/历史数据只作参考') &&
     publicEntry.includes('AI 动作项不再被上游 OTA 缺口阻断') &&
     publicEntry.includes('原始完成条件仅保留追溯') &&
-    publicEntry.includes('当前动作对应的目标日 OTA 证据、状态快照和缺口清单'),
+    publicEntry.includes('当前动作对应的目标日 OTA 证据、状态快照和缺口清单') &&
+    actionSuccessCriteriaSource.includes("const questionText = phase1EmployeeKnownQuestionText(questionKey) || '当前员工问题';") &&
+    !actionSuccessCriteriaSource.includes('phase1EmployeeQuestionKeyText(questionKey)'),
   'phase1EmployeeActionSuccessCriteriaText + phase1EmployeeActionEvidenceNeededText + no raw main-text fallback'
 );
 check(
@@ -958,6 +1238,8 @@ check(
     publicEntry.includes('phase1EmployeeActionStillUsableMetricsText') &&
     publicEntry.includes('phase1EmployeeActionExplanationNextActionText') &&
     publicEntry.includes('phase1EmployeeActionBlockedActionText') &&
+    publicEntry.includes('source.employee_explanation_next_action || source.employeeExplanationNextAction') &&
+    publicEntry.includes("employeeExplanationNextAction: String(item?.employee_explanation_next_action || '')") &&
     publicEntry.includes('employeeExplanationText: phase1EmployeeActionEmployeeExplanationText(item)') &&
     publicEntry.includes('limitedConclusionsText: phase1EmployeeActionLimitedConclusionsText(item)') &&
     publicEntry.includes('stillUsableMetricsText: phase1EmployeeActionStillUsableMetricsText(item)') &&
@@ -965,7 +1247,13 @@ check(
     publicEntry.includes('item.employeeExplanationText || item.employeeExplanation') &&
     publicEntry.includes('item.limitedConclusionsText || item.limitedConclusions') &&
     publicEntry.includes('item.stillUsableMetricsText || item.stillUsableMetrics') &&
-    publicEntry.includes('item.explanationNextActionText || item.explanationNextAction'),
+    publicEntry.includes('item.explanationNextActionText || item.explanationNextAction') &&
+    employeeActionExplanationSource.includes("const questionText = phase1EmployeeKnownQuestionText(questionKey) || '当前员工问题';") &&
+    employeeActionExplanationSource.includes('return `${questionText}还没有形成完整证据，只能作为待补证据项处理。`;') &&
+    actionExplanationNextActionSource.includes("const questionText = phase1EmployeeKnownQuestionText(questionKey) || '当前员工问题';") &&
+    actionExplanationNextActionSource.includes('return `按“${questionText}”对应证据清单补齐后复跑员工六问。`;') &&
+    !employeeActionExplanationSource.includes('phase1EmployeeQuestionKeyText(questionKey)') &&
+    !actionExplanationNextActionSource.includes('phase1EmployeeQuestionKeyText(questionKey)'),
   'employee_explanation/limited_conclusions/still_usable_metrics/explanation_next_action mapped with raw-title trace'
 );
 check(
@@ -975,13 +1263,21 @@ check(
     publicEntry.includes('phase1EmployeeActionOwnerText') &&
     publicEntry.includes('phase1EmployeeActionMetaText') &&
     publicEntry.includes('phase1EmployeeActionProtectedBoundaryText') &&
+    publicEntry.includes('source.employee_action || source.employeeAction') &&
+    publicEntry.includes("employeeAction: String(item?.employee_action || '')") &&
     publicEntry.includes('actionText: phase1EmployeeActionDisplayText(item)') &&
     publicEntry.includes('ownerText: phase1EmployeeActionOwnerText(item)') &&
     publicEntry.includes('actionMetaText: phase1EmployeeActionMetaText(item)') &&
     publicEntry.includes('protectedBoundaryText: phase1EmployeeActionProtectedBoundaryText(item)') &&
     publicEntry.includes('item.actionText || item.action') &&
     publicEntry.includes('item.actionMetaRawText || item.actionMetaText') &&
-    publicEntry.includes('item.protectedBoundaryText || item.protectedBoundary') &&
+    publicEntry.includes('v-if="item.protectedBoundaryText"') &&
+    publicEntry.includes('边界：{{ item.protectedBoundaryText }}') &&
+    publicEntry.includes(':title="item.protectedBoundary || item.protectedBoundaryText"') &&
+    publicEntry.includes('不改变采集逻辑和字段，不把缺失证据写成完成') &&
+    actionMetaTextSource.includes("const questionText = phase1EmployeeKnownQuestionText(source.question_key || source.questionKey || '') || '当前员工问题';") &&
+    !actionMetaTextSource.includes("phase1EmployeeQuestionKeyText(source.question_key || source.questionKey || '')") &&
+    !publicEntry.includes('边界：{{ item.protectedBoundaryText || item.protectedBoundary }}') &&
     publicEntry.includes('item.actionCode && (item.action || item.actionText)'),
   'action/action owner/reason/protected_boundary mapped with raw-title trace'
 );
@@ -1015,6 +1311,64 @@ check(
 );
 check(
   'public/index.html',
+  'employee missing field codes use readable impact and action labels',
+    publicEntry.includes('phase1MissingFieldDetailText') &&
+    publicEntry.includes('phase1MissingFieldNextActionText') &&
+    publicEntry.includes('phase1MissingFieldSourceText') &&
+    publicEntry.includes('normalizePhase1EmployeeMissingFieldSummaryRow') &&
+    publicEntry.includes('sourceText: String(source.source_text || source.sourceText ||') &&
+    publicEntry.includes('detailText: String(source.business_impact || source.businessImpact ||') &&
+    publicEntry.includes('nextActionText: String(source.next_action || source.nextAction ||') &&
+    publicEntry.includes('缺可售房晚，暂不能可靠计算 OCC、RevPAR 或可售基准') &&
+    publicEntry.includes('缺佣金金额或佣金率，暂不能核算净收入和渠道成本') &&
+    publicEntry.includes('按字段资产核对平台返回和入库字段，再重跑收益指标核验') &&
+    publicEntry.includes('来自数据缺口和字段缺口证据') &&
+    publicEntry.includes('{{ row.detailText }}') &&
+    publicEntry.includes('处理：{{ row.nextActionText }}') &&
+    publicEntry.includes(':title="row.code"') &&
+    publicEntry.includes(':title="row.nextActionRawText || row.nextActionText"') &&
+    publicEntry.includes(':title="row.policyRawText || row.policyText"') &&
+    !publicEntry.includes('<div class="mt-1 text-xs text-slate-500 truncate" :title="row.code">{{ row.code }}</div>') &&
+    !publicEntry.includes('<div class="text-[11px] text-amber-700">来自 data_gaps / missing_field_codes</div>'),
+  'missing field/data gap codes mapped to readable business impact and action with raw title trace'
+);
+check(
+  'public/index.html',
+  'employee metric domain evidence uses readable platform and data-type labels',
+  publicEntry.includes('phase1MetricDomainPlatformText') &&
+    publicEntry.includes('phase1MetricDomainDataTypeText') &&
+    publicEntry.includes("ctrip: '携程'") &&
+    publicEntry.includes("meituan: '美团'") &&
+    publicEntry.includes("return '经营/收益'") &&
+    publicEntry.includes("return '流量/转化'") &&
+    metricDomainRowSource.includes('sourceText: `目标日源数据 ${sourceRows} 行 / 流量事实 ${trafficRows} 行`') &&
+    publicEntry.includes('normalizePhase1EmployeeMetricDomainSummaryRow') &&
+    publicEntry.includes('revenueQuestion.evidence.metric_domain_summary') &&
+    publicEntry.includes('summaryRows.map(normalizePhase1EmployeeMetricDomainSummaryRow)') &&
+    publicEntry.includes('String(source.problem || source.problemText ||') &&
+    publicEntry.includes('String(source.next_action || source.nextAction ||') &&
+    metricDomainRowSource.includes('target_date_data_types=${dataTypes.join') &&
+    metricDomainRowSource.includes('phase1MetricDomainProblemText') &&
+    metricDomainRowSource.includes('phase1MetricDomainNextActionText') &&
+    metricDomainRowSource.includes('收益可先复核；流量/转化缺失，不能判断曝光到下单漏斗。') &&
+    metricDomainRowSource.includes('补齐流量/转化事实，再复核漏斗诊断。') &&
+    metricDomainRowSource.includes('目标日源数据缺失，收益、流量、转化都不能证明。') &&
+    metricDomainRowSource.includes('missingText: missingDomains.join') &&
+    metricDomainRowSource.includes('Array.from(new Set(row.missing_domains.map(phase1MetricDomainMissingLabel).filter(Boolean)))') &&
+    publicEntry.includes('判断：{{ row.problemText }}') &&
+    publicEntry.includes('处理：{{ row.nextActionText }}') &&
+    publicEntry.includes(':title="row.problemRawText || row.problemText"') &&
+    publicEntry.includes(':title="row.nextActionRawText || row.nextActionText"') &&
+    publicEntry.includes(':title="row.sourceRawText || row.sourceText"') &&
+    publicEntry.includes(':title="row.policyRawText || row.policyText"') &&
+    !metricDomainRowSource.includes('platformLabel: platform ? platform.toUpperCase() :') &&
+    !metricDomainRowSource.includes('trafficRows ?') &&
+    !metricDomainRowSource.includes('sourceText: `源数据 ${sourceRows} 行${trafficRows ? ` / traffic ${trafficRows} 行` : \'\'}') &&
+    !metricDomainRowSource.includes('policyText: `只读目标日指标域${dataTypes.length ? ` / ${dataTypes.join'),
+  'metric domain platform/data-type/source labels mapped to readable text with raw title trace'
+);
+check(
+  'public/index.html',
   'employee evidence policy and storage codes are mapped to readable labels',
   publicEntry.includes('phase1EmployeeEvidencePolicyText') &&
     publicEntry.includes('phase1EmployeeStorageTableText') &&
@@ -1029,6 +1383,24 @@ check(
     publicEntry.includes('row.boundaryRawText || row.boundaryText') &&
     publicEntry.includes('row.policyRawText || row.policyText'),
   'phase1EmployeeEvidencePolicyText + phase1EmployeeStorageTableText + raw title trace for source_policy/storage_table'
+);
+check(
+  'public/index.html',
+  'employee collection source summary maps platform data type and date relation labels',
+  collectionSourceRowSource.includes('phase1EmployeeCollectionDataTypeText') &&
+    collectionSourceRowSource.includes("return '经营/收益'") &&
+    collectionSourceRowSource.includes("return '流量/转化'") &&
+    collectionSourceRowSource.includes('const latestRelationText = phase1EmployeeDateRelationText(latestRelation);') &&
+    collectionSourceRowSource.includes('platformLabel: phase1EmployeePlatformText(platform)') &&
+    collectionSourceRowSource.includes('targetText: `目标日 ${targetRows} 行${targetTypeText ? ` / ${targetTypeText}` : \'\'}') &&
+    collectionSourceRowSource.includes('latestRelationText ? ` / ${latestRelationText}` : \'\'') &&
+    collectionSourceRowSource.includes('targetRawText: `target_date_data_types=${targetTypes.join') &&
+    collectionSourceRowSource.includes('latestRawText: `latest_available.date=${latestDate || \'empty\'} / date_relation=${latestRelation || \'empty\'}') &&
+    publicEntry.includes(':title="row.targetRawText || row.targetText"') &&
+    publicEntry.includes(':title="row.latestRawText || row.latestText"') &&
+    !collectionSourceRowSource.includes('platformLabel: platform ? platform.toUpperCase()') &&
+    !collectionSourceRowSource.includes('latestRelation ? ` / ${latestRelation}`'),
+  'collection_source_summary platform/data type/date relation are readable with raw title trace'
 );
 check(
   'public/index.html',
@@ -1057,6 +1429,26 @@ check(
     publicEntry.includes('phase1EmployeeReadinessEvidenceText(readiness.source_policy)'),
   'phase1EmployeeReadinessStatusText + phase1EmployeeReadinessEvidenceText'
 );
+check(
+  'public/index.html',
+  'employee entry option guidance uses stable mode text with raw title trace',
+  publicEntry.includes('phase1EmployeeActionEntryOptionPlatformText') &&
+    entryOptionGuidanceSource.includes('manual_cookie_api') &&
+    entryOptionGuidanceSource.includes('用于已取得${platformText} Cookie/Payload/导出上下文时补齐目标日数据') &&
+    entryOptionGuidanceSource.includes('browser_profile') &&
+    entryOptionGuidanceSource.includes('用于${platformPrefix}已授权本机浏览器 Profile 走现有自动采集路径') &&
+    entryOptionGuidanceSource.includes('status_check') &&
+    entryOptionGuidanceSource.includes('用于只读核对目标日入库、最近可用日期和失败原因') &&
+    entryOptionGuidanceSource.includes('不改变采集逻辑和字段') &&
+    entryOptionGuidanceSource.includes('phase1EmployeeActionEntryOptionGuidanceRawText') &&
+    entryOptionGuidanceSource.includes("String(option.use_when || '').trim()") &&
+    publicEntry.includes('entryOptionGuidanceRawText: entryOptionGuidanceRaw.join') &&
+    publicEntry.includes('topActionEntryOptionGuidanceRawText') &&
+    publicEntry.includes(':title="item.entryOptionGuidanceRawText || item.entryOptionGuidanceText"') &&
+    publicEntry.includes(':title="phase1EmployeeClosureSummary.topActionEntryOptionGuidanceRawText || phase1EmployeeClosureSummary.topActionEntryOptionGuidanceText"') &&
+    !entryOptionGuidanceSource.includes('const details = [useWhen, requires, boundary]'),
+  'entry option guidance is mode-derived; raw use_when/requires/boundary stay in title trace'
+);
 
 const acceptanceDoc = read('docs/phase1_ota_employee_console_acceptance.md');
 check(
@@ -1080,6 +1472,14 @@ check(
     acceptanceDoc.includes('后端原始解释字段只能保留在结构化数据或标题追溯中') &&
     acceptanceDoc.includes('不能因为编码异常、技术码或平台原文让员工看到乱码主文案'),
   'employee action explanation fields mapped from action metadata with raw trace'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
+  'unknown action question_key stays out of main employee copy',
+  acceptanceDoc.includes('未知 `question_key`') &&
+    acceptanceDoc.includes('主文案只能显示“当前员工问题”或“未识别员工问题”') &&
+    acceptanceDoc.includes('原始 key 只能保留在标题追溯或结构化响应中'),
+  'unknown question_key maps to readable placeholder with raw trace only'
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',
@@ -1139,15 +1539,29 @@ check(
     acceptanceDoc.includes('manual_cookie_api=手动 Cookie/API') &&
     acceptanceDoc.includes('browser_profile=浏览器 Profile') &&
     acceptanceDoc.includes('status_check=状态核对') &&
-    acceptanceDoc.includes('后端 `label` 和原始 `entry` 只能保留在结构化数据或标题追溯中') &&
+    acceptanceDoc.includes('入口选择说明也必须由前端按 `mode` 生成稳定员工话术') &&
+    acceptanceDoc.includes('不能把后端 `use_when`、`requires`、`boundary` 原样作为主展示文案') &&
+    acceptanceDoc.includes('原始 `use_when/requires/boundary` 只能保留在结构化数据或标题追溯中') &&
     acceptanceDoc.includes('不能因为 label 编码异常'),
-  'entry_options mode stable labels / raw label and entry title trace'
+  'entry_options mode stable labels / raw label entry and guidance title trace'
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',
   'employee action code mapping is documented',
-  acceptanceDoc.includes('direct_next_action_code') && acceptanceDoc.includes('映射成员工可读动作名') && acceptanceDoc.includes('原始 action code 仍保留'),
-  'direct_next_action_code / 映射成员工可读动作名 / 原始 action code 仍保留'
+  acceptanceDoc.includes('direct_next_action_code') &&
+    acceptanceDoc.includes('映射成员工可读动作名') &&
+    acceptanceDoc.includes('原始 action code 仍保留') &&
+    acceptanceDoc.includes('未知 action code') &&
+    acceptanceDoc.includes('未识别补证动作'),
+  'direct_next_action_code / 映射成员工可读动作名 / unknown action code boundary'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
+  'unknown related_question_keys are raw-title only',
+  acceptanceDoc.includes('未知 `related_question_keys`') &&
+    acceptanceDoc.includes('未识别员工问题') &&
+    acceptanceDoc.includes('原始 key 只能保留在标题追溯或结构化响应中'),
+  'unknown related_question_keys do not become main employee copy'
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',
@@ -1157,7 +1571,8 @@ check(
     acceptanceDoc.includes('primary_next_action_code') &&
     acceptanceDoc.includes('next_action_codes') &&
     acceptanceDoc.includes('映射成员工可读下一步') &&
-    acceptanceDoc.includes('原始 `next_action` 只能保留'),
+    acceptanceDoc.includes('原始 `next_action` 只能保留') &&
+    acceptanceDoc.includes('按动作队列补齐证据'),
   'next_action / direct_next_action_code / primary_next_action_code readable mapping and raw trace'
 );
 check(
@@ -1175,11 +1590,33 @@ check(
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',
+  'AI and operation judgement limit summaries are documented',
+  acceptanceDoc.includes('`ai_evidence` 摘要必须把 `blocking_missing_codes` 和行级 `blocking_gap_codes` 合并') &&
+    acceptanceDoc.includes('`data_gaps` 主展示就必须显示“已返回”') &&
+    acceptanceDoc.includes('AI 建议依据已暴露上游缺口，动作项仍被阻断') &&
+    acceptanceDoc.includes('不能把 blocked 动作项当成可执行经营建议') &&
+    acceptanceDoc.includes('运营执行摘要必须展示员工可读“判断”和“限制”') &&
+    acceptanceDoc.includes('还没有可追溯执行意图或执行流') &&
+    acceptanceDoc.includes('不能证明动作已落地') &&
+    acceptanceDoc.includes('不能把未关联 OTA 诊断的普通执行记录算作闭环'),
+  'AI/operation judgement and limit copy documented'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
   'employee question presentation fallback boundary is documented',
-  acceptanceDoc.includes('缺少 `detail`/`message` 展示说明') &&
+    acceptanceDoc.includes('缺少 `detail`/`message` 展示说明') &&
     acceptanceDoc.includes('复用本地六问说明文本') &&
     acceptanceDoc.includes('不能覆盖后端 `status`') &&
-    acceptanceDoc.includes('不能把本地说明当作采集成功'),
+    acceptanceDoc.includes('不能把本地说明当作采集成功') &&
+    acceptanceDoc.includes('`nextActionText`、`blockingReasonText` 这类员工主文案必须优先使用后端动作码、缺口码和 `employee_*` 字段派生出的稳定映射结果') &&
+    acceptanceDoc.includes('本地六问说明只能在后端缺展示文本时兜底') &&
+    acceptanceDoc.includes('`employee_detail`、`employee_next_action`') &&
+    acceptanceDoc.includes('`employee_detail` 不能为空') &&
+    acceptanceDoc.includes('不能只依赖前端本地说明兜底') &&
+    acceptanceDoc.includes('等技术字段名，以及') &&
+    acceptanceDoc.includes('只能出现在原始字段、证据键、title 追溯或契约检查里') &&
+    acceptanceDoc.includes('`CTRIP`、`MEITUAN` 这类平台码') &&
+    acceptanceDoc.includes('不能直接作为员工卡片正文或下一步主文案'),
   'backend facts remain authoritative when local detail text fills card explanation'
 );
 check(
@@ -1187,16 +1624,27 @@ check(
   'employee closure summary readable mapping is documented',
   acceptanceDoc.includes('missing_question_keys') &&
     acceptanceDoc.includes('top_action_code') &&
-    acceptanceDoc.includes('映射成员工可读问题名和动作名') &&
-    acceptanceDoc.includes('原始文案只能保留在结构化数据或标题追溯中') &&
-    acceptanceDoc.includes('不能让后端原始文案、编码异常或技术码替代稳定展示'),
-  'missing_question_keys/top_action_code 映射成员工可读问题名和动作名'
+    acceptanceDoc.includes('top_action_entry') &&
+    acceptanceDoc.includes('top_action_success_criteria') &&
+    acceptanceDoc.includes('映射成员工可读问题名、动作名、入口名和完成判定') &&
+    acceptanceDoc.includes('API 路径') &&
+    acceptanceDoc.includes('不能让后端原始文案、API 路径、编码异常或技术码替代稳定展示') &&
+    acceptanceDoc.includes('未知 `missing_question_keys`') &&
+    acceptanceDoc.includes('现有首要补证动作'),
+  'missing_question_keys/top_action_code/top_action_entry mapped to readable closure summary text'
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',
   'employee action success criteria and evidence mapping is documented',
   acceptanceDoc.includes('success_criteria') &&
     acceptanceDoc.includes('evidence_needed') &&
+    acceptanceDoc.includes('employee_action') &&
+    acceptanceDoc.includes('employee_evidence_needed') &&
+    acceptanceDoc.includes('employee_success_criteria') &&
+    acceptanceDoc.includes('employee_explanation_next_action') &&
+    acceptanceDoc.includes('employee_verification_steps') &&
+    acceptanceDoc.includes('作为“复核方式”') &&
+    acceptanceDoc.includes('执行动作后应刷新哪个闭环') &&
     acceptanceDoc.includes('映射成员工可读完成判定和所需证据') &&
     acceptanceDoc.includes('原始技术值仍保留') &&
     acceptanceDoc.includes('不能作为主文案') &&
@@ -1206,8 +1654,54 @@ check(
 check(
   'docs/phase1_ota_employee_console_acceptance.md',
   'employee gap codes mapping is documented',
-  acceptanceDoc.includes('映射成员工可读缺口文案') && acceptanceDoc.includes('原始技术码仍保留'),
-  '映射成员工可读缺口文案 / 原始技术码仍保留'
+  acceptanceDoc.includes('映射成员工可读缺口文案') &&
+    acceptanceDoc.includes('原始技术码仍保留') &&
+    acceptanceDoc.includes('未知缺口码主文案只能显示“未识别证据缺口”') &&
+    acceptanceDoc.includes('不能直接把未知机器码作为主文案'),
+  '映射成员工可读缺口文案 / unknown gap code boundary'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
+  'employee question evidence readable platform/date/domain mapping is documented',
+  acceptanceDoc.includes('员工六问的证据摘要展示平台覆盖、平台明细、最近可用日期关系和指标域缺失') &&
+    acceptanceDoc.includes('latest_available.date_relation') &&
+    acceptanceDoc.includes('revenue/traffic/conversion') &&
+    acceptanceDoc.includes('映射成员工可读的平台、日期关系和指标域名称') &&
+    acceptanceDoc.includes('stale_before_target') &&
+    acceptanceDoc.includes('future_dated_for_target') &&
+    acceptanceDoc.includes('metric_domain_readiness.missing_domains') &&
+    acceptanceDoc.includes('不能作为主文案'),
+  'six-question evidence platform/date/domain raw codes are title/structured only'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
+  'employee question evidence gap action entry criteria mapping is documented',
+  acceptanceDoc.includes('员工六问的证据摘要展示 `metric_domain_gap_codes`') &&
+    acceptanceDoc.includes('data_gap_codes') &&
+    acceptanceDoc.includes('missing_field_codes') &&
+    acceptanceDoc.includes('field_pending_action_codes') &&
+    acceptanceDoc.includes('blocked_action_codes') &&
+    acceptanceDoc.includes('blocking_missing_codes') &&
+    acceptanceDoc.includes('direct_next_action_entry') &&
+    acceptanceDoc.includes('direct_next_action_success_criteria') &&
+    acceptanceDoc.includes('映射成员工可读的指标域缺口、数据缺口、字段缺口、字段动作、阻断动作、阻断缺口、入口名称和完成判定') &&
+    acceptanceDoc.includes('原始缺口码、动作码、API 路径和原始完成条件') &&
+    acceptanceDoc.includes('不能作为主文案'),
+  'six-question evidence gap/action/entry/criteria raw codes are title/structured only'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
+  'employee summary technical evidence names are documented as raw-only',
+  acceptanceDoc.includes('员工控制台的字段可信摘要、AI 依据摘要和运营执行摘要不得把 `metric_trust`') &&
+    acceptanceDoc.includes('data_gaps') &&
+    acceptanceDoc.includes('evidence_sources') &&
+    acceptanceDoc.includes('action_items') &&
+    acceptanceDoc.includes('execution_intents') &&
+    acceptanceDoc.includes('execution_flow') &&
+    acceptanceDoc.includes('source_date_evidence') &&
+    acceptanceDoc.includes('“指标可信证据”“数据缺口”“证据来源”“动作项”“执行意图”“执行流”“目标日来源证据”') &&
+    acceptanceDoc.includes('原始字段名只能用于结构化响应、title 追溯或契约检查'),
+  'metric_trust/data_gaps/evidence_sources/action_items/execution terms are raw-only in summaries'
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',
@@ -1233,6 +1727,52 @@ check(
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',
+  'employee missing field code readable mapping is documented',
+  acceptanceDoc.includes('缺失字段摘要展示 `data_gap_codes` 和 `missing_field_codes`') &&
+    acceptanceDoc.includes('available_room_nights_missing') &&
+    acceptanceDoc.includes('commission_fields_missing') &&
+    acceptanceDoc.includes('net_revenue_fields_missing') &&
+    acceptanceDoc.includes('lead_time_fields_missing') &&
+    acceptanceDoc.includes('cancellation_fields_missing') &&
+    acceptanceDoc.includes('cancel_room_nights_missing') &&
+    acceptanceDoc.includes('competitor_price_fields_missing') &&
+    acceptanceDoc.includes('映射成员工可读的业务影响和处理动作') &&
+    acceptanceDoc.includes('missing_fields.evidence.missing_field_summary') &&
+    acceptanceDoc.includes('`business_impact`') &&
+    acceptanceDoc.includes('原始 `code` 只用于追溯') &&
+    acceptanceDoc.includes('原始缺口码只能保留在标题追溯或结构化响应中') &&
+    acceptanceDoc.includes('数据缺口 / 字段缺口') &&
+    acceptanceDoc.includes('不能直接把 `data_gaps` 或 `missing_field_codes` 当作主文案'),
+  'data_gap_codes/missing_field_codes readable business impact/action mapping documented'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
+  'employee metric domain readable mapping is documented',
+    acceptanceDoc.includes('收入/流量/转化证据摘要展示 `platform`') &&
+    acceptanceDoc.includes('metric_domain_summary') &&
+    acceptanceDoc.includes('`platform_label`') &&
+    acceptanceDoc.includes('`problem`') &&
+    acceptanceDoc.includes('前端优先展示该摘要') &&
+    acceptanceDoc.includes('target_date_data_types') &&
+    acceptanceDoc.includes('source_rows') &&
+    acceptanceDoc.includes('traffic_rows') &&
+    acceptanceDoc.includes('revenue_status') &&
+    acceptanceDoc.includes('traffic_status') &&
+    acceptanceDoc.includes('conversion_status') &&
+    acceptanceDoc.includes('映射成员工可读的平台、目标日源数据、流量事实、经营/收益、流量/转化和可复核/缺失状态') &&
+    acceptanceDoc.includes('`traffic_rows=0` 也必须显示为“流量事实 0 行”') &&
+    acceptanceDoc.includes('每个平台卡片还必须展示员工可读“判断”和“处理”') &&
+    acceptanceDoc.includes('只能先复核收益、不能判断曝光到下单漏斗') &&
+    acceptanceDoc.includes('补齐流量/转化事实后复核漏斗诊断') &&
+    acceptanceDoc.includes('目标日源数据为 0 时，必须说明收益、流量、转化都不能证明') &&
+    acceptanceDoc.includes('原始 `ctrip`、`meituan`、`business`、`traffic`') &&
+    acceptanceDoc.includes('`revenue_status`、`traffic_status`、`conversion_status` 和 `missing_domains`') &&
+    acceptanceDoc.includes('不能作为员工主文案') &&
+    acceptanceDoc.includes('缺少流量或转化事实时必须明确显示“流量/转化缺失”'),
+  'metric domain source/type/status readable labels and raw-title boundary documented'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
   'collection pending actions readable mapping is documented',
   acceptanceDoc.includes('collectionReliability.pending_actions') &&
     acceptanceDoc.includes('历史回放 / 待处理') &&
@@ -1254,6 +1794,16 @@ check(
     acceptanceDoc.includes('原始机器口径只能保留在标题追溯') &&
     acceptanceDoc.includes('phase1EmployeeEvidencePolicyText'),
   'source_policy/storage_table/field_trust_policy/metric_domain_policy readable evidence mapping documented'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
+  'employee collection source summary readable platform type date mapping is documented',
+  acceptanceDoc.includes('平台源数据摘要展示 `collection_source_summary.platform`') &&
+    acceptanceDoc.includes('target_date_data_types') &&
+    acceptanceDoc.includes('latest_available.date_relation') &&
+    acceptanceDoc.includes('主文案必须映射成“携程/美团”“经营/收益/流量/转化”“早于目标日/晚于目标日/目标日”') &&
+    acceptanceDoc.includes('原始 `ctrip`、`meituan`、`business`、`traffic`、`stale_before_target`、`future_dated_for_target` 只能保留在标题追溯'),
+  'collection_source_summary platform/type/date relation raw codes are title/structured only'
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',

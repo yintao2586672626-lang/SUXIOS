@@ -94,25 +94,25 @@ function fileText(relativePath) {
 function regressionSignals() {
   const meituanStatic = fileText('public/meituan-static.js');
   const signals = [];
-  if (!meituanStatic.includes('const requestBody = { ...task.body, async: true, background: true }')) {
+  if (!meituanStatic.includes('const requestBody = { ...task.body, async: false, background: false }')) {
     signals.push({
-      code: 'meituan_manual_batch_not_background',
+      code: 'meituan_manual_batch_not_direct',
       path: 'public/meituan-static.js',
-      message: 'Meituan manual ranking fetch is not submitting background work.',
+      message: 'Meituan manual ranking fetch is not requesting direct results.',
     });
   }
-  if (meituanStatic.includes('const requestBody = { ...task.body, async: false, background: false }')) {
+  if (meituanStatic.includes('const requestBody = { ...task.body, async: true, background: true }')) {
     signals.push({
-      code: 'meituan_manual_batch_blocking_direct',
+      code: 'meituan_manual_batch_background_default',
       path: 'public/meituan-static.js',
-      message: 'Meituan manual ranking fetch is blocking on direct collection results.',
+      message: 'Meituan manual ranking fetch is still submitting background work by default.',
     });
   }
   if (!meituanStatic.includes('await Promise.all(fetchTasks.map(async (task, index) => {')) {
     signals.push({
       code: 'meituan_manual_batch_not_concurrent',
       path: 'public/meituan-static.js',
-      message: 'Meituan manual ranking fetch is not submitting independent background tasks concurrently.',
+      message: 'Meituan manual ranking fetch is not requesting independent rank results concurrently.',
     });
   }
   if (!meituanStatic.includes('const modelRes = await requestDisplayModel')) {

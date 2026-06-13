@@ -154,7 +154,7 @@ class PlatformProfileLogin extends Command
 
         $loginTimeoutMs = (string)max(30000, min(600000, (int)($request['login_timeout_ms'] ?? 300000)));
         $args = [$node, $script, '--output=' . $outputPath, '--login-timeout-ms=' . $loginTimeoutMs, '--login-only=true'];
-        $postLoginWaitMs = max(0, min(600000, (int)($request['post_login_wait_ms'] ?? $request['postLoginWaitMs'] ?? 0)));
+        $postLoginWaitMs = max(0, min(600000, (int)($request['post_login_wait_ms'] ?? $request['postLoginWaitMs'] ?? 120000)));
         $args[] = '--interactive-login=' . ($postLoginWaitMs > 0 ? 'true' : 'false');
         $args[] = '--headless=false';
         $args[] = '--post-login-wait-ms=' . (string)$postLoginWaitMs;

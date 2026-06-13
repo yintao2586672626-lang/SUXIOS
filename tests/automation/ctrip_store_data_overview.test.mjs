@@ -416,7 +416,9 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
   }
   assert.match(configApplier, /const ctripHotelId = String\(config\.ota_hotel_id \|\| config\.ctrip_hotel_id \|\| config\.ctripHotelId \|\| ''\)/);
   assert.doesNotMatch(configApplier, /const ctripHotelId = String\([\s\S]*node_id|const ctripHotelId = String\([\s\S]*nodeId/);
-  assert.match(profileLoginPayload, /const profileId = resolveCtripBrowserProfileId\(\{ item \}\)/);
+  assert.match(html, /const defaultCtripBrowserProfileId = \(hotelId = getAutoFetchHotelId\(\)\) =>/);
+  assert.match(profileLoginPayload, /const profileId = resolveCtripBrowserProfileId\(\{ item, hotelId, allowDefault: true \}\)/);
+  assert.match(profileLoginPayload, /form\.profileId = profileId/);
   assert.match(profileLoginTrigger, /buildPlatformProfileLoginPayload\(platform, item\)/);
   assert.match(profileLoginTrigger, /platform === 'ctrip' && !payload\.profile_id/);
   assert.doesNotMatch(profileLoginPayload, /form\.profileId \|\| hotelIdValue \|\| hotelId/);

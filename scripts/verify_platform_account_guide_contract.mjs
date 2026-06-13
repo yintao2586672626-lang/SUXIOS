@@ -64,7 +64,7 @@ const hotelActionBlock = sliceBetween(
   'const platformAccountStoreText ='
 ) + '\n' + sliceBetween(
   publicSource,
-  'const buildHotelPlatformAccountRowStatic',
+  'const buildHotelPlatformBindingRowsStatic',
   'const refreshHotelBindingPanel = async'
 );
 
@@ -78,10 +78,10 @@ const checks = [
   },
   {
     name: 'online data tabs expose a direct platform account guide entry',
-    pass: onlineDataTabs.includes("onlineDataTab = 'platform-sources'")
+    pass: onlineDataTabs.includes('@click="openPlatformSourcesTab()"')
       && onlineDataTabs.includes("onlineDataTab === 'platform-sources'")
-      && onlineDataTabs.includes('loadPlatformDataSourcePanel()')
-      && onlineDataTabs.includes('loadPlatformProfileStatus({ silent: true })'),
+      && publicSource.includes("const openPlatformSourcesTab = (options = {}) => {\n                return openOnlineDataTab('platform-sources', options);\n            };")
+      && publicSource.includes("if (newTab === 'platform-sources') {\n                    platformSourceGuidePanelsReady.value = false;\n                    schedulePlatformSourceGuidePanelsReady();"),
   },
   {
     name: 'guide presets cover Ctrip Profile, Meituan Profile and Cookie/API',
@@ -138,7 +138,7 @@ const checks = [
   {
     name: 'hotel management next action carries direct targets',
     pass: systemStaticSource.includes('const buildHotelPlatformAccountRow')
-      && hotelActionBlock.includes('buildHotelPlatformAccountRowStatic')
+      && hotelActionBlock.includes('buildHotelPlatformBindingRowsStatic')
       && hotelActionBlock.includes("target: 'profile-login'")
       && hotelActionBlock.includes("target: 'sync-logs'")
       && hotelActionBlock.includes('nextActionTarget')

@@ -115,6 +115,7 @@ test('Home lower dashboard panels mount after the first OTA navigation window', 
   const currentPageWatcher = sliceFrom('watch(currentPage, (newPage) => {', '\n\n            watch(isLoggedIn');
 
   assert.match(html, /const HOME_SECONDARY_PANEL_DELAY_MS = 4200;/);
+  assert.match(html, /const COMPASS_WEATHER_REFRESH_DELAY_MS = 3200;/);
   assert.match(html, /const homeSecondaryPanelsReady = ref\(false\);/);
   assert.match(html, /const scheduleHomeSecondaryPanelsReady = \(delayMs = HOME_SECONDARY_PANEL_DELAY_MS\) => \{/);
   assert.match(currentPageWatcher, /clearHomeSecondaryPanelsReadyTimer\(\);\s*homeSecondaryPanelsReady\.value = false;\s*destroyHomeTrendChart\(\);/);
@@ -173,7 +174,7 @@ test('eBooking startup refreshes are deduplicated during quick page returns', ()
   const currentPageWatcher = sliceFrom('watch(currentPage, (newPage) => {', '\n\n            watch(isLoggedIn');
 
   assert.match(html, /const EBOOKING_STARTUP_REFRESH_CACHE_TTL_MS = 45000;/);
-  assert.match(currentPageWatcher, /runPageLoadOnce\(newPage, 'main', \(\) => \{\s*scheduleDataHealthPanelRefresh\('light'\);\s*scheduleCtripEbookingDeferredStartupRefresh\(\);\s*\}, \{ ttlMs: EBOOKING_STARTUP_REFRESH_CACHE_TTL_MS \}\);/);
+  assert.match(currentPageWatcher, /runPageLoadOnce\(newPage, 'main', \(\) => \{\s*scheduleDelayedPageTask\(\(\) => \{\s*if \(!isCtripEbookingDataHealthVisible\(\)\) return null;\s*scheduleDataHealthPanelRefresh\('light'\);\s*return null;\s*\}, CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS\);\s*scheduleCtripEbookingDeferredStartupRefresh\(\);\s*\}, \{ ttlMs: EBOOKING_STARTUP_REFRESH_CACHE_TTL_MS \}\);/);
   assert.match(currentPageWatcher, /if \(newPage === 'meituan-ebooking'\) \{\s*onlineDataTab\.value = 'meituan-ranking';\s*ensureMeituanManualHotelSelected\(\);\s*runPageLoadOnce\(newPage, 'main', \(\) => \{\s*scheduleMeituanEbookingDeferredStartupRefresh\(\);\s*\}, \{ ttlMs: EBOOKING_STARTUP_REFRESH_CACHE_TTL_MS \}\);/);
 });
 
@@ -294,25 +295,27 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(findMeituanConfigByHotelId, /configHotelName === hotelName \|\| configName === hotelName/);
   assert.doesNotMatch(meituanHotelSelectPanel, /meituanConfigListLoading && !selectedMeituanHotelConfig/);
   assert.doesNotMatch(meituanHotelSelectPanel, /正在匹配美团数据源/);
-  assert.match(meituanHotelSelectPanel, /!meituanConfigListLoading && !meituanConfigListLoaded && !meituanConfigListLoadFailed && !selectedMeituanHotelConfig/);
+  assert.doesNotMatch(meituanHotelSelectPanel, /配置待读取，正在准备美团数据源匹配/);
+  assert.doesNotMatch(meituanHotelSelectPanel, /!meituanConfigListLoading && !meituanConfigListLoaded && !meituanConfigListLoadFailed && !selectedMeituanHotelConfig/);
   assert.match(meituanHotelSelectPanel, /:disabled="fetchingData \|\| !canFetchMeituanRankingData\(\)"/);
   assert.match(fetchMeituanData, /const preparingConfig = meituanManualFetchConfigProofPending\(\);/);
   assert.match(fetchMeituanData, /ensureMeituanConfigSecret: async config => ensureMeituanConfigSecret\(await resolveMeituanManualFetchConfig\(config\)\)/);
   assert.match(fetchMeituanData, /finally \{\s*if \(preparingConfig\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
-  assert.match(meituanManualFetchConfigGuard, /return !!meituanConfigListLoadingPromise\s*\|\| \(!meituanConfigListLoaded\.value && !meituanConfigListLoadFailed\.value\);/);
+  assert.match(meituanManualFetchConfigGuard, /return false;/);
   assert.match(meituanManualFetchConfigGuard, /const canFetchMeituanRankingData = \(\) => \{/);
-  assert.match(meituanManualFetchConfigGuard, /await loadMeituanConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
+  assert.match(meituanManualFetchConfigGuard, /return !!meituanForm\.value\.hotelId && !!selectedMeituanHotelConfig\.value;/);
+  assert.doesNotMatch(meituanManualFetchConfigGuard, /await loadMeituanConfigList\(/);
   assert.match(meituanManualFetchConfigGuard, /return selectedMeituanHotelConfig\.value;/);
   assert.doesNotMatch(meituanHotelSelectPanel, /@change="applyMeituanHotelConfig/);
   assert.match(meituanHotelWatcher, /if \(onlineDataTab\.value === 'meituan-ranking'\) \{/);
-  assert.match(meituanHotelWatcher, /scheduleMeituanHotelConfigApply\(\{ delayMs: 80 \}\);/);
+  assert.match(meituanHotelWatcher, /scheduleMeituanHotelConfigApply\(\{ delayMs: 0 \}\);/);
   assert.match(html, /let meituanHotelConfigApplyVersion = 0;/);
   assert.match(html, /requestedHotelId !== String\(meituanForm\.value\.hotelId \|\| ''\)/);
   assert.doesNotMatch(handleMenuClick, /await loadCompetitorSummary\(\)/);
   assert.match(handleMenuClick, /scheduleMeituanRankingSummaryRefresh\(\)/);
   assert.match(currentPageWatcher, /scheduleMeituanEbookingDeferredStartupRefresh\(\);/);
   assert.match(currentPageWatcher, /ensureMeituanManualHotelSelected\(\);/);
-  assert.match(html, /const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS = 160;/);
+  assert.match(html, /const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS = 16;/);
   assert.match(html, /const MEITUAN_EBOOKING_SECONDARY_CONFIG_DELAY_MS = 5200;/);
   assert.match(html, /const MEITUAN_EBOOKING_HOTEL_LIST_DELAY_MS = 6400;/);
   assert.match(html, /let suppressNextMeituanHotelConfigApply = false;/);
@@ -325,7 +328,7 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(ensureMeituanManualHotelSelected, /meituanForm\.value\.hotelId = hotelId;/);
   assert.match(scheduleMeituanEbookingDeferredStartupRefresh, /applySelectedConfig: false/);
   assert.match(scheduleMeituanEbookingDeferredStartupRefresh, /ensureMeituanManualHotelSelected\(\);/);
-  assert.match(scheduleMeituanEbookingDeferredStartupRefresh, /scheduleMeituanHotelConfigApply\(\{\s*delayMs: 120,\s*refreshList: false,\s*skipIfAligned: true,\s*\}\);/);
+  assert.match(scheduleMeituanEbookingDeferredStartupRefresh, /scheduleMeituanHotelConfigApply\(\{\s*delayMs: 0,\s*refreshList: false,\s*skipIfAligned: true,\s*\}\);/);
   assert.match(scheduleMeituanEbookingDeferredStartupRefresh, /}, MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS\);/);
   assert.doesNotMatch(scheduleMeituanEbookingDeferredStartupRefresh, /return null;\s*\}, 0\);\s*scheduleDelayedPageTask\(\(\) => \{/);
   assert.match(scheduleMeituanEbookingDeferredStartupRefresh, /return loadMeituanConfig\(\);/);
@@ -337,8 +340,9 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.doesNotMatch(applyMeituanHotelConfig, /await loadCompetitorSummary\(\)/);
   assert.match(applyMeituanHotelConfig, /const requestedHotelId = String\(meituanForm\.value\.hotelId \|\| ''\);/);
   assert.match(applyMeituanHotelConfig, /if \(requestedHotelId !== String\(meituanForm\.value\.hotelId \|\| ''\)\) return;/);
-  assert.match(applyMeituanHotelConfig, /options\.refreshList !== false/);
-  assert.match(applyMeituanHotelConfig, /applySelectedConfig: false/);
+  assert.doesNotMatch(applyMeituanHotelConfig, /options\.refreshList !== false/);
+  assert.doesNotMatch(applyMeituanHotelConfig, /await loadMeituanConfigList\(/);
+  assert.doesNotMatch(applyMeituanHotelConfig, /applySelectedConfig: false/);
   assert.match(applyMeituanHotelConfig, /options\.skipIfAligned === true && config && isMeituanRankingFormAlignedWithConfig\(meituanForm\.value, config\)/);
   assert.doesNotMatch(applyMeituanHotelConfig, /scheduleMeituanRankingSummaryRefresh/);
   assert.match(openMeituanManualTab, /applySelectedConfig: false/);
@@ -377,21 +381,38 @@ test('Ctrip manual startup keeps config list responsive without first-paint bloc
     '\n            const shouldRefreshAutoFetchStatusPanel'
   );
 
-  assert.match(html, /const CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS = 420;/);
+  assert.match(html, /const CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS = 1600;/);
+  assert.match(html, /const CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS = 2600;/);
   assert.match(html, /const CTRIP_EBOOKING_LATEST_DATA_DELAY_MS = 5200;/);
   assert.match(html, /const CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS = 6400;/);
   assert.match(html, /const CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS = 7600;/);
-  assert.match(html, /const CTRIP_EBOOKING_MODULE_CARD_DELAY_MS = 320;/);
+  assert.match(html, /const CTRIP_EBOOKING_MODULE_CARD_DELAY_MS = 1000;/);
   assert.match(html, /const ctripEbookingModuleCardsReady = ref\(false\);/);
-  assert.match(html, /const CTRIP_EBOOKING_SECONDARY_PANEL_DELAY_MS = 900;/);
+  assert.match(html, /const CTRIP_EBOOKING_SECONDARY_PANEL_DELAY_MS = 4200;/);
   assert.match(html, /const ctripEbookingSecondaryPanelsReady = ref\(false\);/);
+  assert.match(html, /const CTRIP_EBOOKING_DEEP_PANEL_DELAY_MS = 6200;/);
+  assert.match(html, /const ctripEbookingDeepPanelsReady = ref\(false\);/);
+  assert.match(html, /const CTRIP_EBOOKING_BUSINESS_DETAIL_DELAY_MS = 8200;/);
+  assert.match(html, /const ctripEbookingBusinessDetailsReady = ref\(false\);/);
+  assert.match(html, /const ctripEbookingDiagnosticsPanelsReady = ref\(false\);/);
   assert.match(ctripSecondaryScheduler, /const scheduleCtripEbookingModuleCardsReady = \(delayMs = CTRIP_EBOOKING_MODULE_CARD_DELAY_MS\) => \{/);
   assert.match(ctripSecondaryScheduler, /const scheduleCtripEbookingSecondaryPanelsReady = \(delayMs = CTRIP_EBOOKING_SECONDARY_PANEL_DELAY_MS\) => \{/);
+  assert.match(ctripSecondaryScheduler, /const scheduleCtripEbookingDeepPanelsReady = \(delayMs = CTRIP_EBOOKING_DEEP_PANEL_DELAY_MS\) => \{/);
+  assert.match(ctripSecondaryScheduler, /const scheduleCtripEbookingBusinessDetailsReady = \(delayMs = CTRIP_EBOOKING_BUSINESS_DETAIL_DELAY_MS\) => \{/);
+  assert.match(ctripSecondaryScheduler, /const handleCtripEbookingDiagnosticsToggle = \(event\) => \{\s*if \(event\?\.target\?\.open\) \{\s*ctripEbookingDiagnosticsPanelsReady\.value = true;/);
   assert.match(ctripSecondaryScheduler, /currentPage\.value === 'ctrip-ebooking' && onlineDataTab\.value === 'data-health'/);
   assert.match(ctripEbookingDefaultLoader, /ctripEbookingModuleCardsReady\.value = false;\s*scheduleCtripEbookingModuleCardsReady\(\);/);
   assert.match(ctripEbookingDefaultLoader, /ctripEbookingSecondaryPanelsReady\.value = false;\s*scheduleCtripEbookingSecondaryPanelsReady\(\);/);
+  assert.match(ctripEbookingDefaultLoader, /ctripEbookingDeepPanelsReady\.value = false;\s*scheduleCtripEbookingDeepPanelsReady\(\);/);
+  assert.match(ctripEbookingDefaultLoader, /ctripEbookingBusinessDetailsReady\.value = false;\s*scheduleCtripEbookingBusinessDetailsReady\(\);/);
+  assert.match(ctripEbookingDefaultLoader, /ctripEbookingDiagnosticsPanelsReady\.value = false;/);
+  assert.match(html, /<div v-if="ctripEbookingModuleCardsReady" class="px-4 py-3 border-b bg-gray-50 grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">/);
   assert.match(html, /v-if="ctripEbookingModuleCardsReady" data-testid="ctrip-overview-module-cards" class="p-4"/);
   assert.match(html, /v-if="ctripEbookingSecondaryPanelsReady" class="space-y-4"/);
+  assert.match(html, /v-if="ctripEbookingDeepPanelsReady" class="space-y-4"/);
+  assert.match(html, /v-if="ctripEbookingBusinessDetailsReady" data-testid="ctrip-store-overview-business-details" class="space-y-4"/);
+  assert.match(html, /data-testid="ctrip-store-overview-diagnostics"[^>]+@toggle="handleCtripEbookingDiagnosticsToggle"/);
+  assert.match(html, /v-if="ctripEbookingDiagnosticsPanelsReady" class="p-4 border-t space-y-4"/);
   assert.match(scheduleCtripEbookingDeferredStartupRefresh, /await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
   assert.match(scheduleCtripEbookingDeferredStartupRefresh, /scheduleCtripHotelConfigApply\(null, \{\s*refreshList: false,\s*skipIfAligned: true,\s*\}\);/);
   assert.match(scheduleCtripEbookingDeferredStartupRefresh, /if \(currentPage\.value !== 'ctrip-ebooking'\) return null;/);
@@ -474,7 +495,7 @@ test('Platform auto-fetch panel prewarms static helper without blocking first pa
   assert.match(html, /void staticReadyPromise;/);
   assert.match(autoFetchPanelArea, /const PLATFORM_AUTO_PANEL_START_DELAY_MS = 16;/);
   assert.match(html, /const AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS = AUTO_FETCH_PANEL_CACHE_TTL_MS;/);
-  assert.match(html, /const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 260;/);
+  assert.match(html, /const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;/);
   assert.match(html, /const platformAutoSettingsPanelsReady = ref\(false\);/);
   assert.match(html, /const platformAutoSettingsPanelsBody = shallowRef\(null\);/);
   assert.match(html, /const platformAutoPanelsScript = 'components\/online-data\/platform-auto-settings-panels\.js\?v=20260613-platform-auto-lazy';/);
@@ -483,6 +504,10 @@ test('Platform auto-fetch panel prewarms static helper without blocking first pa
   assert.match(html, /requireOnlineDataComponent\('PlatformAutoSecondaryPanelsBody'\)/);
   assert.doesNotMatch(html, /<script src="components\/online-data\/platform-auto-settings-panels\.js/);
   assert.match(html, /<platform-auto-settings-panels\s+v-if="platformAutoSettingsPanelsReady"\s+:ctx="\$root">/);
+  assert.ok(
+    html.indexOf('@click="triggerAutoFetch"') < html.indexOf('<platform-auto-settings-panels'),
+    'platform-auto immediate collect button must stay above delayed settings panels'
+  );
   assert.match(html, /data-testid="platform-auto-settings-panels-loading"/);
   assert.match(platformAutoSettingsPanels, /components\.PlatformAutoSettingsPanelsBody/);
   assert.match(platformAutoSettingsPanels, /data-testid="platform-auto-settings-panels"/);
@@ -491,7 +516,7 @@ test('Platform auto-fetch panel prewarms static helper without blocking first pa
   assert.match(platformAutoSettingsPanels, /v-model="ctx\.autoFetchBrowserHeadless"/);
   assert.match(platformAutoSettingsPanels, /v-model\.number="ctx\.autoFetchCtripSectionConcurrency"/);
   assert.doesNotMatch(html, /实时采集间隔（小时）/);
-  assert.match(html, /const PLATFORM_AUTO_SECONDARY_PANEL_DELAY_MS = 700;/);
+  assert.match(html, /const PLATFORM_AUTO_SECONDARY_PANEL_DELAY_MS = 2600;/);
   assert.match(html, /const platformAutoSecondaryPanelsReady = ref\(false\);/);
   assert.match(html, /const platformAutoSecondaryPanelsBody = shallowRef\(null\);/);
   assert.match(html, /void ensurePlatformAutoPanelsReady\(\)\.catch/);
@@ -508,6 +533,7 @@ test('Platform auto-fetch panel prewarms static helper without blocking first pa
   assert.match(html, /platformAutoSecondaryPanelsReady\.value = false;\s*schedulePlatformAutoSecondaryPanelsReady\(\);\s*return runIfCurrent\(\(\) => schedulePlatformAutoFetchPanelLoad\(options\)\);/);
   assert.match(autoFetchPanelArea, /const waitForPlatformAutoPanelStart = async \(options = \{\}\) => \{/);
   assert.match(loadAutoFetchPanel, /if \(!await waitForPlatformAutoPanelStart\(options\)\) \{\s*return;\s*\}/);
+  assert.match(loadAutoFetchPanel, /const defaultAutoFetchHotelId = getAutoFetchHotelId\(\);\s*if \(!autoFetchHotelId\.value && defaultAutoFetchHotelId\) \{\s*autoFetchHotelId\.value = defaultAutoFetchHotelId;\s*\}/);
   assert.match(loadAutoFetchPanel, /let panelLoaded = false;/);
   assert.match(loadAutoFetchPanel, /const hotelsPromise = shouldLoadHotels \? loadHotels\(\{ cacheMs: HOTEL_LIST_CACHE_TTL_MS \}\) : Promise\.resolve\(\);/);
   assert.match(
@@ -548,11 +574,21 @@ test('Platform source panel staggers secondary sync and log reads', () => {
     'const loadPlatformDataSourcePanel = async (options = {}) => {',
     '\n            const savePlatformDataSource = async'
   );
+  const scheduleOnlineDataTabLoad = sliceFrom(
+    'const scheduleOnlineDataTabLoad = (newTab, options = {}) => {',
+    '\n            const openOnlineDataTab'
+  );
 
   assert.match(html, /const PLATFORM_SOURCE_SECONDARY_REFRESH_DELAY_MS = 3200;/);
+  assert.match(html, /const PLATFORM_SOURCE_GUIDE_PANEL_DELAY_MS = 1200;/);
   assert.match(html, /const PLATFORM_SOURCE_PANEL_CACHE_TTL_MS = 30000;/);
+  assert.match(html, /const platformSourceGuidePanelsReady = ref\(false\);/);
+  assert.match(html, /const schedulePlatformSourceGuidePanelsReady = \(delayMs = PLATFORM_SOURCE_GUIDE_PANEL_DELAY_MS\) => \{/);
+  assert.match(html, /v-if="platformSourceGuidePanelsReady" data-testid="platform-account-binding-guide"/);
+  assert.match(html, /v-if="platformSourceGuidePanelsReady" data-testid="platform-batch-health-check"/);
   assert.match(html, /const competitorSummaryRequestPromises = new Map\(\);/);
   assert.match(html, /const competitorSummaryResultCache = new Map\(\);/);
+  assert.match(scheduleOnlineDataTabLoad, /if \(newTab === 'platform-sources'\) \{\s*platformSourceGuidePanelsReady\.value = false;\s*schedulePlatformSourceGuidePanelsReady\(\);/);
   assert.match(loadPlatformDataSourcePanel, /await Promise\.allSettled\(\[\s*loadPlatformDataSources\(\{/);
   assert.match(loadPlatformDataSourcePanel, /loadPlatformProfileStatus\(\{\s*silent: true,\s*cacheMs: options\.force \? 0 : PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS,/);
   assert.match(loadPlatformDataSourcePanel, /scheduleDelayedPageTask\(\(\) => \{\s*if \(!shouldRefreshPlatformDataSourcesPanel\(\)\) return null;\s*return Promise\.allSettled\(\[/);
@@ -561,6 +597,7 @@ test('Platform source panel staggers secondary sync and log reads', () => {
   assert.match(loadPlatformDataSourcePanel, /loadPlatformCollectionResources\(\{/);
   assert.match(loadPlatformDataSourcePanel, /loadCompetitorSummary\(\{\s*includeByHotel: true,\s*force: options\.force === true,\s*cacheMs: options\.force \? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,\s*\}\)/);
   assert.match(loadPlatformDataSourcePanel, /\}, PLATFORM_SOURCE_SECONDARY_REFRESH_DELAY_MS\);/);
+  assert.match(html, /platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel/);
   assert.doesNotMatch(loadPlatformDataSourcePanel, /deferUiTask\(\(\) => \{\s*if \(!shouldRefreshPlatformDataSourcesPanel\(\)\) return null;\s*return Promise\.allSettled\(\[\s*loadPlatformSyncTasks\(\{/);
 });
 
@@ -595,21 +632,27 @@ test('Online data health tab schedules light refresh outside the switch path', (
     /scheduleDataHealthPanelRefresh\('light', options\.force \? \{ force: true \} : \{\}\)/
   );
   assert.match(html, /const DATA_HEALTH_SECONDARY_PANEL_DELAY_MS = 900;/);
+  assert.match(html, /const DATA_HEALTH_DETAIL_PANEL_DELAY_MS = 2600;/);
+  assert.match(html, /const DATA_HEALTH_EMPLOYEE_PANEL_DELAY_MS = 4200;/);
   assert.match(html, /const dataHealthSecondaryPanelsReady = ref\(false\);/);
+  assert.match(html, /const dataHealthDetailPanelsReady = ref\(false\);/);
+  assert.match(html, /const dataHealthEmployeePanelsReady = ref\(false\);/);
   assert.match(dataHealthSecondaryScheduler, /const scheduleDataHealthSecondaryPanelsReady = \(delayMs = DATA_HEALTH_SECONDARY_PANEL_DELAY_MS\) => \{/);
+  assert.match(dataHealthSecondaryScheduler, /const scheduleDataHealthDetailPanelsReady = \(delayMs = DATA_HEALTH_DETAIL_PANEL_DELAY_MS\) => \{/);
+  assert.match(dataHealthSecondaryScheduler, /const scheduleDataHealthEmployeePanelsReady = \(delayMs = DATA_HEALTH_EMPLOYEE_PANEL_DELAY_MS\) => \{/);
   assert.match(dataHealthSecondaryScheduler, /currentPage\.value !== 'online-data' \|\| onlineDataTab\.value !== 'data-health'/);
-  assert.match(scheduleOnlineDataTabLoad, /newTab === 'data-health'[\s\S]*dataHealthSecondaryPanelsReady\.value = false;[\s\S]*scheduleDataHealthSecondaryPanelsReady\(\);/);
-  assert.match(onlineDataDefaultLoader, /dataHealthSecondaryPanelsReady\.value = false;\s*scheduleDataHealthSecondaryPanelsReady\(\);/);
-  assert.match(openOnlineDataEntryTab, /clearDataHealthSecondaryPanelsReadyTimer\(\);\s*dataHealthSecondaryPanelsReady\.value = false;/);
+  assert.match(scheduleOnlineDataTabLoad, /newTab === 'data-health'[\s\S]*dataHealthSecondaryPanelsReady\.value = false;[\s\S]*scheduleDataHealthSecondaryPanelsReady\(\);[\s\S]*dataHealthDetailPanelsReady\.value = false;[\s\S]*scheduleDataHealthDetailPanelsReady\(\);[\s\S]*dataHealthEmployeePanelsReady\.value = false;[\s\S]*scheduleDataHealthEmployeePanelsReady\(\);/);
+  assert.match(onlineDataDefaultLoader, /dataHealthSecondaryPanelsReady\.value = false;\s*scheduleDataHealthSecondaryPanelsReady\(\);\s*dataHealthDetailPanelsReady\.value = false;\s*scheduleDataHealthDetailPanelsReady\(\);\s*dataHealthEmployeePanelsReady\.value = false;\s*scheduleDataHealthEmployeePanelsReady\(\);/);
+  assert.match(openOnlineDataEntryTab, /clearDataHealthSecondaryPanelsReadyTimer\(\);\s*dataHealthSecondaryPanelsReady\.value = false;\s*clearDataHealthDetailPanelsReadyTimer\(\);\s*dataHealthDetailPanelsReady\.value = false;\s*clearDataHealthEmployeePanelsReadyTimer\(\);\s*dataHealthEmployeePanelsReady\.value = false;/);
   assert.match(openOnlineDataEntryTab, /clearPlatformAutoSettingsPanelsReadyTimer\(\);\s*platformAutoSettingsPanelsReady\.value = false;/);
   assert.match(openOnlineDataEntryTab, /clearPlatformAutoSecondaryPanelsReadyTimer\(\);\s*platformAutoSecondaryPanelsReady\.value = false;/);
   assert.match(openOnlineDataEntryTab, /onlineDataTab\.value = targetTab;\s*currentPage\.value = 'online-data';/);
-  assert.match(html, /v-if="dataHealthSecondaryPanelsReady" data-testid="phase1-employee-six-question-summary"/);
+  assert.match(html, /v-if="dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"/);
   assert.match(html, /v-if="dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"/);
-  assert.match(html, /v-if="dataHealthSecondaryPanelsReady && !dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit-pending"/);
-  assert.match(html, /v-else-if="dataHealthSecondaryPanelsReady" data-testid="hotel-data-cockpit"/);
-  assert.match(html, /v-if="dataHealthSecondaryPanelsReady" data-testid="data-health-drilldown"/);
-  assert.match(html, /v-if="dataHealthSecondaryPanelsReady" data-testid="mixed-collection-lifecycle-panel"/);
+  assert.match(html, /v-if="dataHealthDetailPanelsReady && !dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit-pending"/);
+  assert.match(html, /v-else-if="dataHealthDetailPanelsReady" data-testid="hotel-data-cockpit"/);
+  assert.match(html, /v-if="dataHealthDetailPanelsReady" data-testid="data-health-drilldown"/);
+  assert.match(html, /v-if="dataHealthDetailPanelsReady" data-testid="mixed-collection-lifecycle-panel"/);
   assert.doesNotMatch(scheduleOnlineDataTabLoad, /return runIfCurrent\(\(\) => loadDataHealthPanel\('light'\)\);/);
   assert.match(
     onlineDataDefaultLoader,
@@ -617,13 +660,13 @@ test('Online data health tab schedules light refresh outside the switch path', (
   );
   assert.doesNotMatch(onlineDataDefaultLoader, /runPageLoadOnce\(newPage, 'main', \(\) => loadDataHealthPanel\('light'\)\);/);
   assert.match(openCtripManualTab, /loadDataHealthPanel:\s*scheduleDataHealthPanelRefresh/);
-  assert.match(openCtripManualTab, /tab === 'data-health'[\s\S]*ctripEbookingSecondaryPanelsReady\.value = false;[\s\S]*scheduleCtripEbookingSecondaryPanelsReady\(\);/);
-  assert.match(openCtripManualTab, /clearCtripEbookingSecondaryPanelsReadyTimer\(\);[\s\S]*ctripEbookingSecondaryPanelsReady\.value = false;/);
+  assert.match(openCtripManualTab, /tab === 'data-health'[\s\S]*ctripEbookingSecondaryPanelsReady\.value = false;[\s\S]*scheduleCtripEbookingSecondaryPanelsReady\(\);[\s\S]*ctripEbookingDeepPanelsReady\.value = false;[\s\S]*scheduleCtripEbookingDeepPanelsReady\(\);[\s\S]*ctripEbookingBusinessDetailsReady\.value = false;[\s\S]*scheduleCtripEbookingBusinessDetailsReady\(\);[\s\S]*ctripEbookingDiagnosticsPanelsReady\.value = false;/);
+  assert.match(openCtripManualTab, /clearCtripEbookingSecondaryPanelsReadyTimer\(\);[\s\S]*ctripEbookingSecondaryPanelsReady\.value = false;[\s\S]*clearCtripEbookingDeepPanelsReadyTimer\(\);[\s\S]*ctripEbookingDeepPanelsReady\.value = false;[\s\S]*clearCtripEbookingBusinessDetailsReadyTimer\(\);[\s\S]*ctripEbookingBusinessDetailsReady\.value = false;[\s\S]*ctripEbookingDiagnosticsPanelsReady\.value = false;/);
   assert.match(openCtripManualTab, /applySelectedConfig: false/);
   assert.match(openCtripManualTab, /refreshLatest: false/);
   assert.match(openCtripManualTab, /skipIfAligned: true/);
   assert.doesNotMatch(openCtripManualTab, /loadDataHealthPanel,\s*loadConfigList/);
-  assert.match(goAiDailyReportDataGap, /currentPage\.value = 'online-data';\s*onlineDataTab\.value = 'data-health';\s*scheduleDataHealthPanelRefresh\('light'\);/);
+  assert.match(goAiDailyReportDataGap, /currentPage\.value = 'online-data';\s*onlineDataTab\.value = 'data-health';\s*dataHealthSecondaryPanelsReady\.value = false;\s*scheduleDataHealthSecondaryPanelsReady\(\);\s*dataHealthDetailPanelsReady\.value = false;\s*scheduleDataHealthDetailPanelsReady\(\);\s*dataHealthEmployeePanelsReady\.value = false;\s*scheduleDataHealthEmployeePanelsReady\(\);\s*scheduleDataHealthPanelRefresh\('light'\);/);
   assert.doesNotMatch(goAiDailyReportDataGap, /await loadDataHealthPanel\('light'\);/);
   assert.match(html, /const MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS = 60;/);
   assert.match(html, /const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set\(\['ctrip', 'meituan', 'custom'\]\);/);
@@ -701,6 +744,8 @@ test('Download center defers hotel filter loading after primary data', () => {
   assert.match(downloadCenterScheduler, /await loadOnlineDataList\(\{ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS \}\);/);
   assert.match(downloadCenterScheduler, /scheduleDelayedPageTask\(\(\) => \{\s*if \(seq !== downloadCenterTabLoadSeq \|\| !isCurrentTab\(\)\) return null;\s*return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);\s*\}, 720\);/);
   assert.match(downloadCenterScheduler, /return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);/);
+  assert.match(html, /const meituanDownloadData = computed\(\(\) => \{/);
+  assert.match(html, /switchToMeituanDownloadCenter, meituanDownloadData,/);
   assert.doesNotMatch(downloadCenterScheduler, /await refreshOnlineHistory\(\);\s*return null;/);
   assert.doesNotMatch(
     downloadCenterScheduler,

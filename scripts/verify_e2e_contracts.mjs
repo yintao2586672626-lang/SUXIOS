@@ -26,6 +26,18 @@ function requireNoText(file, needle, label) {
   });
 }
 
+function requireOrder(file, firstNeedle, secondNeedle, label) {
+  const source = read(file);
+  const first = source.indexOf(firstNeedle);
+  const second = source.indexOf(secondNeedle);
+  checks.push({
+    file,
+    label,
+    ok: first >= 0 && second >= 0 && first < second,
+    detail: `${firstNeedle} -> ${secondNeedle}`,
+  });
+}
+
 function requireTextInFiles(files, needle, label) {
   const source = files.map(read).join('\n');
   checks.push({
@@ -86,8 +98,8 @@ requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user f
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
-requireText('public/index.html', 'ctrip-static.js?v=20260612-manual-efficiency', 'entry bumps Ctrip static helper version for manual-fetch efficiency exports');
-requireText('public/index.html', 'meituan-static.js?v=20260613-ranking-background-fetch', 'entry bumps Meituan static helper version for background ranking fetch exports');
+requireText('public/index.html', 'ctrip-static.js?v=20260613-manual-direct-fetch', 'entry bumps Ctrip static helper version for direct manual-fetch exports');
+requireText('public/index.html', 'meituan-static.js?v=20260613-manual-direct-fetch', 'entry bumps Meituan static helper version for direct manual-fetch exports');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -216,6 +228,7 @@ requireText('public/index.html', 'const PLATFORM_AUTO_PANEL_START_DELAY_MS = 16;
 requireText('public/index.html', 'const waitForPlatformAutoPanelStart = async (options = {}) => {', 'platform-auto panel checks visibility before starting first requests');
 requireText('public/index.html', 'if (!await waitForPlatformAutoPanelStart(options)) {\n                        return;\n                    }', 'platform-auto panel cancels first requests after the user leaves the tab');
 requireText('public/index.html', 'const canLoadStatusBeforeHotels = !!autoFetchHotelId.value;', 'platform-auto panel can load light status before the hotel list when a selected hotel is already known');
+requireText('public/index.html', "const defaultAutoFetchHotelId = getAutoFetchHotelId();\n                    if (!autoFetchHotelId.value && defaultAutoFetchHotelId) {\n                        autoFetchHotelId.value = defaultAutoFetchHotelId;\n                    }", 'platform-auto resolves cached user hotel before deciding whether status must wait for hotel list');
 requireText('public/index.html', 'const autoFetchConfigProofPendingForHotelId = (hotelId) => {', 'platform-auto trigger can recognize in-flight light config proof');
 requireText('public/index.html', 'autoFetchStatusRequestPromises.has(`${keyPrefix}light`)', 'platform-auto trigger stays clickable while light status proof is in flight');
 requireText('public/index.html', 'const canTriggerAutoFetchByHotelId = (hotelId) => {', 'platform-auto trigger uses a dedicated clickability guard');
@@ -248,7 +261,7 @@ requireText('public/index.html', 'scheduleDelayedPageTask(run, delayMs);', 'plat
 requireText('public/index.html', "if (!isVisibleOnlineDataTab('platform-auto')) return null;", 'platform auto-fetch panel load is skipped after the user leaves the visible tab');
 requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>', 'platform auto tab opens through one deduplicated entrypoint');
 requireText('public/index.html', 'const openOnlinePlatformAutoTab = (options = {}) =>', 'cross-page platform auto navigation uses the deduplicated entrypoint');
-requireText('public/index.html', 'const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 260;', 'platform auto-fetch delays schedule/browser settings behind immediate collect controls');
+requireText('public/index.html', 'const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;', 'platform auto-fetch delays schedule/browser settings behind immediate collect controls');
 requireText('public/index.html', 'const platformAutoSettingsPanelsReady = ref(false);', 'platform auto-fetch tracks settings readiness separately from core controls');
 requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';", 'platform auto-fetch extension panels use a versioned lazy component script');
 requireText('public/index.html', 'const ensurePlatformAutoPanelsReady = async () => {', 'platform auto-fetch extension panels load only after the delayed panel timers fire');
@@ -259,6 +272,7 @@ requireText('public/index.html', 'const platformAutoSettingsPanelsBody = shallow
 requireText('public/index.html', 'const schedulePlatformAutoSettingsPanelsReady = (delayMs = PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS) => {', 'platform auto-fetch schedules settings rendering through a visible-tab timer');
 requireText('public/index.html', 'void ensurePlatformAutoPanelsReady().catch', 'platform auto-fetch panel timers start non-blocking component loading');
 requireText('public/index.html', '<platform-auto-settings-panels', 'platform auto-fetch schedule/browser settings mount through the split component after immediate collect controls');
+requireOrder('public/index.html', '@click="triggerAutoFetch"', '<platform-auto-settings-panels', 'platform auto-fetch immediate collect button stays above delayed settings panels');
 requireText('public/index.html', 'data-testid="platform-auto-settings-panels-loading"', 'platform auto-fetch settings wrapper shows an explicit loading state while the lazy body loads');
 requireText('public/components/online-data/platform-auto-settings-panels.js', 'components.PlatformAutoSettingsPanelsBody', 'platform auto-fetch settings body registers under a lazy component key');
 requireText('public/components/online-data/platform-auto-settings-panels.js', 'data-testid="platform-auto-settings-panels" class="grid grid-cols-1 lg:grid-cols-2 gap-4"', 'platform auto-fetch schedule/browser settings stay in the split component');
@@ -276,7 +290,7 @@ requireText('public/components/online-data/ctrip-profile-field-config-panel.js',
 requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'props.ctx[key] = value;', 'Ctrip profile-field lazy component writes v-model updates back to root bindings');
 requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'getOwnPropertyDescriptor() {', 'Ctrip profile-field lazy component exposes proxy properties to Vue setup-state lookup');
 requireNoText('public/index.html', '携程登录会话字段配置', 'Ctrip profile-field admin template is no longer in the initial entry HTML');
-requireText('public/index.html', 'const PLATFORM_AUTO_SECONDARY_PANEL_DELAY_MS = 700;', 'platform auto-fetch delays secondary status/result panels behind first paint');
+requireText('public/index.html', 'const PLATFORM_AUTO_SECONDARY_PANEL_DELAY_MS = 2600;', 'platform auto-fetch delays secondary status/result panels behind first paint');
 requireText('public/index.html', 'const platformAutoSecondaryPanelsReady = ref(false);', 'platform auto-fetch tracks secondary panel readiness separately from core controls');
 requireText('public/index.html', 'const platformAutoSecondaryPanelsBody = shallowRef(null);', 'platform auto-fetch secondary panel stores its lazy body outside the first-paint path');
 requireText('public/index.html', 'const schedulePlatformAutoSecondaryPanelsReady = (delayMs = PLATFORM_AUTO_SECONDARY_PANEL_DELAY_MS) => {', 'platform auto-fetch schedules secondary panel rendering through a visible-tab timer');
@@ -298,7 +312,13 @@ requireText('public/index.html', "const schedulePlatformSyncLogPanelRefresh = (o
 requireText('public/index.html', "if (!isVisibleOnlineDataTab('platform-sources')) return null;", 'platform source and sync-log loads are skipped after the user leaves the visible tab');
 requireText('public/index.html', "const openPlatformSourcesTab = (options = {}) =>", 'platform source tab opens through a single deduplicated entrypoint');
 requireText('public/index.html', 'const PLATFORM_SOURCE_SECONDARY_REFRESH_DELAY_MS = 3200;', 'platform source panel delays secondary sync/log/resource refreshes behind first paint');
+requireText('public/index.html', 'const PLATFORM_SOURCE_GUIDE_PANEL_DELAY_MS = 1200;', 'platform source panel delays guide and batch-health cards behind first paint');
 requireText('public/index.html', 'const PLATFORM_SOURCE_PANEL_CACHE_TTL_MS = 30000;', 'platform source panel uses a 30s cache window for normal tab returns');
+requireText('public/index.html', 'const platformSourceGuidePanelsReady = ref(false);', 'platform source panel tracks non-core guide card readiness separately from core controls');
+requireText('public/index.html', 'const schedulePlatformSourceGuidePanelsReady = (delayMs = PLATFORM_SOURCE_GUIDE_PANEL_DELAY_MS) => {', 'platform source panel schedules non-core guide cards through a visible-tab timer');
+requireText('public/index.html', '<div v-if="platformSourceGuidePanelsReady" data-testid="platform-account-binding-guide"', 'platform source account-binding guide mounts after the core configuration area');
+requireText('public/index.html', '<div v-if="platformSourceGuidePanelsReady" data-testid="platform-batch-health-check"', 'platform source batch health card mounts after the core configuration area');
+requireText('public/index.html', "if (newTab === 'platform-sources') {\n                    platformSourceGuidePanelsReady.value = false;\n                    schedulePlatformSourceGuidePanelsReady();", 'platform source tab switch schedules guide cards separately from panel data loading');
 requireText('public/index.html', 'await Promise.allSettled([\n                    loadPlatformDataSources({', 'platform source panel loads data sources in the primary first-paint group');
 requireText('public/index.html', 'loadPlatformProfileStatus({\n                        silent: true,\n                        cacheMs: options.force ? 0 : PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS,', 'platform source panel keeps profile status in the primary first-paint group');
 requireText('public/index.html', 'scheduleDelayedPageTask(() => {\n                    if (!shouldRefreshPlatformDataSourcesPanel()) return null;\n                    return Promise.allSettled([', 'platform source panel schedules secondary refreshes through a real timer and visible-tab guard');
@@ -314,6 +334,7 @@ requireNoText('public/index.html', 'await Promise.all([loadPlatformSyncTasks(), 
 requireNoText('public/index.html', '@click="loadPlatformSyncTasks(); loadPlatformSyncLogs()"', 'platform source log button does not synchronously request logs inline');
 requireNoText('public/index.html', '@click="loadPlatformDataSourcePanel"', 'platform source refresh buttons do not bypass the visible-tab scheduler');
 requireText('public/index.html', '@click="schedulePlatformDataSourcePanelLoad({ force: true })"', 'platform source refresh buttons use the forced visible-tab scheduler');
+requireText('public/index.html', 'platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel', 'platform source guide readiness is exposed to the Vue template with the platform source controls');
 requireText('public/index.html', 'schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh', 'platform source refresh scheduler is exposed to the Vue template');
 requireText('public/index.html', 'schedulePlatformDataSourcePanelLoad({ force: true });', 'platform source mutations schedule forced panel refresh after server writes');
 requireText('public/index.html', 'const platformCollectionResourcesRequestPromises = new Map();', 'platform collection-resource reads are deduplicated');
@@ -362,6 +383,8 @@ requireText('public/index.html', 'const scheduleDownloadCenterTabLoad = (tab, co
 requireText('public/index.html', "const switchDownloadTab = (tab) => {", 'download center tab switch is non-blocking');
 requireText('public/index.html', "const switchToDownloadCenter = () => {", 'Ctrip download center entry is non-blocking');
 requireText('public/index.html', "const switchToMeituanDownloadCenter = () => {", 'Meituan download center entry is non-blocking');
+requireText('public/index.html', 'const meituanDownloadData = computed(() => {', 'Meituan download center computes empty data into explicit zero-valued dashboard rows');
+requireText('public/index.html', 'switchToMeituanDownloadCenter, meituanDownloadData,', 'Meituan download center dashboard data is exposed to the Vue template');
 requireNoText('public/index.html', 'const switchDownloadTab = async (tab) => {', 'download center tab switch must not serially await tab data loads');
 requireNoText('public/index.html', 'const switchToDownloadCenter = async () => {', 'Ctrip download center entry must not wait on history refresh before returning');
 requireNoText('public/index.html', 'const switchToMeituanDownloadCenter = async () => {', 'Meituan download center entry must not wait on list refresh before returning');
@@ -461,32 +484,42 @@ requireText('public/index.html', 'if (!isLoggedIn.value || !token.value || isCor
 requireText('public/index.html', 'scheduleStartupHotelListLoad();\n                schedulePublicSystemConfigRefresh(1800);', 'loadData schedules hotel loading before public system config refresh');
 requireNoText('public/index.html', 'const loadData = async () => {\n                loadHotels({ cacheMs: HOTEL_LIST_CACHE_TTL_MS });', 'login startup must not request /hotels/all directly on first paint');
 requireText('public/index.html', 'const scheduleCtripEbookingDeferredStartupRefresh = () => {\n                scheduleDelayedPageTask(async () => {', 'Ctrip manual startup refresh is delayed outside first paint');
-requireText('public/index.html', 'const CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS = 420;', 'Ctrip manual startup config-list read is responsive while still yielding first paint');
+requireText('public/index.html', 'const CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS = 2600;', 'Ctrip manual startup config-list read stays outside the first interaction window while preserving on-demand fetch config reads');
 requireText('public/index.html', 'const CTRIP_EBOOKING_LATEST_DATA_DELAY_MS = 5200;', 'Ctrip latest-data refresh stays outside the first interaction window');
 requireText('public/index.html', 'const CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS = 6400;', 'Ctrip cookie-list refresh stays outside the first interaction window');
 requireText('public/index.html', 'const CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS = 7600;', 'Ctrip bookmarklet loading stays outside the first interaction window');
-requireText('public/index.html', 'const CTRIP_EBOOKING_MODULE_CARD_DELAY_MS = 320;', 'Ctrip manual module fetch cards yield to the immediate one-click fetch controls');
+requireText('public/index.html', 'const CTRIP_EBOOKING_MODULE_CARD_DELAY_MS = 1000;', 'Ctrip manual module fetch cards yield to the immediate one-click fetch controls');
 requireText('public/index.html', 'const ctripEbookingModuleCardsReady = ref(false);', 'Ctrip manual module-card readiness uses explicit state');
+requireText('public/index.html', '<div v-if="ctripEbookingModuleCardsReady" class="px-4 py-3 border-b bg-gray-50 grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">', 'Ctrip manual status cards are delayed with module fetch cards outside the click frame');
 requireText('public/index.html', '<div v-if="ctripEbookingModuleCardsReady" data-testid="ctrip-overview-module-cards" class="p-4">', 'Ctrip manual module fetch cards are not mounted during the first click frame');
-requireText('public/index.html', 'const CTRIP_EBOOKING_SECONDARY_PANEL_DELAY_MS = 900;', 'Ctrip manual overview secondary panels are delayed behind the first interaction window');
+requireText('public/index.html', 'const CTRIP_EBOOKING_SECONDARY_PANEL_DELAY_MS = 4200;', 'Ctrip manual overview secondary panels are delayed behind the first interaction and light-refresh window');
 requireText('public/index.html', 'const ctripEbookingSecondaryPanelsReady = ref(false);', 'Ctrip manual overview secondary panel readiness uses explicit state');
 requireText('public/index.html', '<div v-if="ctripEbookingSecondaryPanelsReady" class="space-y-4">', 'Ctrip manual overview secondary panels are not mounted during the immediate fetch-control window');
+requireText('public/index.html', 'const CTRIP_EBOOKING_DEEP_PANEL_DELAY_MS = 6200;', 'Ctrip manual deep overview panels are delayed behind lightweight reminders and work orders');
+requireText('public/index.html', 'const ctripEbookingDeepPanelsReady = ref(false);', 'Ctrip manual deep overview readiness uses explicit state');
+requireText('public/index.html', '<div v-if="ctripEbookingDeepPanelsReady" class="space-y-4">', 'Ctrip manual deep business and diagnostics panels are not mounted with lightweight secondary panels');
+requireText('public/index.html', 'const CTRIP_EBOOKING_BUSINESS_DETAIL_DELAY_MS = 8200;', 'Ctrip manual detailed business panels are delayed behind the first deep revenue overview');
+requireText('public/index.html', 'const ctripEbookingBusinessDetailsReady = ref(false);', 'Ctrip manual detailed business readiness uses explicit state');
+requireText('public/index.html', '<div v-if="ctripEbookingBusinessDetailsReady" data-testid="ctrip-store-overview-business-details" class="space-y-4">', 'Ctrip manual traffic/funnel/detail business panels are not mounted with the first deep revenue overview');
+requireText('public/index.html', 'const ctripEbookingDiagnosticsPanelsReady = ref(false);', 'Ctrip manual diagnostics readiness uses explicit state');
+requireText('public/index.html', '@toggle="handleCtripEbookingDiagnosticsToggle"', 'Ctrip manual collapsed diagnostics mount content only after first expansion');
+requireText('public/index.html', '<div v-if="ctripEbookingDiagnosticsPanelsReady" class="p-4 border-t space-y-4">', 'Ctrip manual collapsed diagnostics content is not mounted while collapsed');
 requireText('public/index.html', '}, CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS);\n                scheduleDelayedPageTask(() => {', 'Ctrip manual startup config-list read uses the explicit short delay constant');
-requireNoText('public/index.html', "prewarmSelectedCtripConfigSecret();\n                    return null;\n                }, 1800);", 'Ctrip manual startup config-list read must not wait 1.8s before saved configs become available');
+requireNoText('public/index.html', "prewarmSelectedCtripConfigSecret();\n                    return null;\n                }, 1800);", 'Ctrip manual startup config-list read must not use an unlabeled hard-coded delay');
 requireText('public/index.html', 'return loadLatestCtripData({ silent: true });\n                }, CTRIP_EBOOKING_LATEST_DATA_DELAY_MS);', 'Ctrip latest-data refresh uses a long explicit delay');
 requireText('public/index.html', 'return loadCookiesList();\n                }, CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS);', 'Ctrip cookie-list refresh uses a long explicit delay');
 requireText('public/index.html', 'return loadBookmarklet();\n                }, CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS);', 'Ctrip bookmarklet loading uses a long explicit delay');
 requireNoText('public/index.html', 'return loadLatestCtripData({ silent: true });\n                }, 2400);', 'Ctrip latest-data refresh must not compete with the first interaction window');
 requireNoText('public/index.html', 'return loadCookiesList();\n                }, 3000);', 'Ctrip cookie-list refresh must not compete with the first interaction window');
 requireNoText('public/index.html', 'return loadBookmarklet();\n                }, 3600);', 'Ctrip bookmarklet loading must not compete with the first interaction window');
-requireText('public/index.html', 'const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS = 160;', 'Meituan manual startup config-list read yields so quick tab exits can cancel it');
+requireText('public/index.html', 'const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS = 16;', 'Meituan manual startup config-list read starts near immediately without blocking route entry');
 requireText('public/index.html', 'const MEITUAN_EBOOKING_SECONDARY_CONFIG_DELAY_MS = 5200;', 'Meituan manual secondary config refresh stays outside the first interaction window');
 requireText('public/index.html', 'const MEITUAN_EBOOKING_HOTEL_LIST_DELAY_MS = 6400;', 'Meituan manual hotel-list refresh stays outside the first interaction window');
 requireText('public/index.html', 'const scheduleMeituanEbookingDeferredStartupRefresh = () => {\n                ensureMeituanManualHotelSelected();\n                scheduleDelayedPageTask(async () => {', 'Meituan manual startup refresh is delayed outside first paint');
-requireText('public/index.html', 'const resolveMeituanManualDefaultHotelId = () => {', 'Meituan manual fetch resolves a default hotel before waiting on config-list proof');
-requireText('public/index.html', 'const ensureMeituanManualHotelSelected = () => {', 'Meituan manual fetch sets the current hotel context before config proof loading');
+requireText('public/index.html', 'const resolveMeituanManualDefaultHotelId = () => {', 'Meituan manual fetch resolves a default hotel before fast local config matching');
+requireText('public/index.html', 'const ensureMeituanManualHotelSelected = () => {', 'Meituan manual fetch sets the current hotel context before fast local matching');
 requireText('public/index.html', "onlineDataTab.value = 'meituan-ranking';\n                    ensureMeituanManualHotelSelected();", 'Meituan route entry selects hotel context before startup refresh scheduling');
-requireText('public/index.html', 'const openMeituanManualTab = (tab) => {\n                onlineDataTab.value = tab;\n                ensureMeituanManualHotelSelected();', 'Meituan manual tab switching keeps the fetch button eligible while config proof is pending');
+requireText('public/index.html', 'const openMeituanManualTab = (tab) => {\n                onlineDataTab.value = tab;\n                ensureMeituanManualHotelSelected();', 'Meituan manual tab switching keeps the hotel context ready for fast local matching');
 requireText('public/index.html', 'if (suppressNextMeituanHotelConfigApply) {\n                    suppressNextMeituanHotelConfigApply = false;\n                    return;', 'programmatic Meituan hotel selection does not trigger an extra immediate config-list match');
 requireText('public/index.html', '}, MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS);\n                scheduleDelayedPageTask(() => {', 'Meituan manual startup config-list read is not scheduled at 0ms');
 requireNoText('public/index.html', "prewarmSelectedMeituanConfigSecret();\n                    if (onlineDataTab.value === 'meituan-ranking') {\n                        scheduleMeituanHotelConfigApply({\n                            delayMs: 120,\n                            refreshList: false,\n                            skipIfAligned: true,\n                        });\n                    }\n                    return null;\n                }, 0);", 'Meituan manual startup config-list read must not fire immediately on route entry');
@@ -504,7 +537,8 @@ requireText('public/index.html', 'scheduleDelayedPageTask(async () => {\n       
 requireText('public/index.html', 'if (force) {\n                        await loadCompetitorSummary({ includeByHotel: false });\n                        return;\n                    }', 'Meituan manual ranking summary only requests competitor summary when forced');
 requireNoText('public/index.html', 'if (force || !competitorSummary.value) {\n                        await loadCompetitorSummary({ includeByHotel: false });', 'Meituan manual page must not auto-start slow competitor summary on first paint');
 requireText('public/index.html', "if (currentPage.value !== 'compass') return;", 'weather request does not run after leaving the compass page');
-requireText('public/index.html', "scheduleDelayedPageTask(() => {\n                            if (currentPage.value !== 'compass') return null;\n                            loadWeatherForCity();\n                            return null;\n                        }, 1600);", 'compass response delays weather and skips after leaving the compass page');
+requireText('public/index.html', 'const COMPASS_WEATHER_REFRESH_DELAY_MS = 3200;', 'compass weather refresh stays outside the fast OTA navigation window');
+requireText('public/index.html', "scheduleDelayedPageTask(() => {\n                            if (currentPage.value !== 'compass') return null;\n                            loadWeatherForCity();\n                            return null;\n                        }, COMPASS_WEATHER_REFRESH_DELAY_MS);", 'compass response delays weather and skips after leaving the compass page');
 requireText('public/index.html', "if (currentPage.value !== 'compass') return null;", 'deferred compass background jobs are skipped after page switch');
 requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true })', 'deferred compass competitor summary uses page visibility guard');
 requireText('public/index.html', 'const compassBackgroundJobs = [', 'deferred compass background jobs are queued explicitly');
@@ -605,7 +639,8 @@ requireText('public/index.html', "await syncCtripOverviewTargetHotel({ clearDisp
 requireNoText('public/index.html', "await syncCtripOverviewTargetHotel({ clearDisplay: true, loadConfig: true });\n                await loadDataHealthPanel('light');", 'Ctrip overview hotel switching must not wait on data-health light status');
 requireText('public/index.html', "if (selectedCtripHotelId.value && shouldApplySelectedConfig) {\n                                prewarmSelectedCtripConfigSecret();\n                                deferUiTask(() => applyCtripHotelConfig(false, {\n                                    refreshList: false,\n                                    skipIfAligned: true,", 'Ctrip config-list loader does not wait for full config detail before returning');
 requireNoText('public/index.html', "if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;", 'Ctrip config-list loader must not wait for full config detail application');
-requireText('public/index.html', "runPageLoadOnce(newPage, 'main', () => {\n                        scheduleDataHealthPanelRefresh('light');", 'Ctrip manual page schedules light health status without blocking the page switch');
+requireText('public/index.html', 'const CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS = 1600;', 'Ctrip manual light health status read stays outside the immediate interaction window');
+requireText('public/index.html', "runPageLoadOnce(newPage, 'main', () => {\n                        scheduleDelayedPageTask(() => {\n                            if (!isCtripEbookingDataHealthVisible()) return null;\n                            scheduleDataHealthPanelRefresh('light');\n                            return null;\n                        }, CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS);", 'Ctrip manual page delays light health status without blocking the page switch');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', async () => {\n                        await loadDataHealthPanel('light');", 'Ctrip manual page first paint must not await light health status during page switching');
 requireNoText('public/index.html', "await Promise.allSettled([\n                            loadOnlineDataHotelList(),\n                            loadDataHealthPanel('light'),\n                        ]);", 'Ctrip manual page first paint must not block on hotel-list loading');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => Promise.allSettled([\n                        loadOnlineDataHotelList(),\n                        loadCtripConfigList().then(() => loadLatestCtripData({ silent: true })),\n                        loadDataHealthPanel('light'),\n                        loadCookiesList(),\n                        loadBookmarklet(),\n                    ]));", 'Ctrip manual page must not start config/latest/cookie/bookmarklet work in the first-paint loader');
@@ -616,7 +651,10 @@ requireText('public/index.html', 'getCurrentTab: () => onlineDataTab.value', 'Ct
 requireText('public/index.html', 'loadDataHealthPanel: scheduleDataHealthPanelRefresh', 'Ctrip manual data-health tab schedules light status refresh after switching');
 requireText('public/index.html', "if (tab === 'data-health') {\n                    ctripEbookingModuleCardsReady.value = false;\n                    scheduleCtripEbookingModuleCardsReady();", 'Ctrip manual data-health tab schedules delayed module fetch cards after switching');
 requireText('public/index.html', "ctripEbookingSecondaryPanelsReady.value = false;\n                    scheduleCtripEbookingSecondaryPanelsReady();", 'Ctrip manual data-health tab schedules delayed secondary overview panels after switching');
-requireText('public/index.html', "if (newPage !== 'ctrip-ebooking') {\n                    clearCtripEbookingModuleCardsReadyTimer();\n                    ctripEbookingModuleCardsReady.value = false;\n                    clearCtripEbookingSecondaryPanelsReadyTimer();\n                    ctripEbookingSecondaryPanelsReady.value = false;\n                }", 'Ctrip manual delayed panels are cleared when leaving the page');
+requireText('public/index.html', "ctripEbookingDeepPanelsReady.value = false;\n                    scheduleCtripEbookingDeepPanelsReady();", 'Ctrip manual data-health tab schedules deep business and diagnostics panels after lightweight secondary panels');
+requireText('public/index.html', "ctripEbookingBusinessDetailsReady.value = false;\n                    scheduleCtripEbookingBusinessDetailsReady();", 'Ctrip manual data-health tab schedules detailed business panels after the first deep revenue overview');
+requireText('public/index.html', "ctripEbookingDiagnosticsPanelsReady.value = false;", 'Ctrip manual diagnostics content readiness resets on page and tab entry');
+requireText('public/index.html', "if (newPage !== 'ctrip-ebooking') {\n                    clearCtripEbookingModuleCardsReadyTimer();\n                    ctripEbookingModuleCardsReady.value = false;\n                    clearCtripEbookingSecondaryPanelsReadyTimer();\n                    ctripEbookingSecondaryPanelsReady.value = false;\n                    clearCtripEbookingDeepPanelsReadyTimer();\n                    ctripEbookingDeepPanelsReady.value = false;\n                    clearCtripEbookingBusinessDetailsReadyTimer();\n                    ctripEbookingBusinessDetailsReady.value = false;\n                    ctripEbookingDiagnosticsPanelsReady.value = false;\n                }", 'Ctrip manual delayed panels are cleared when leaving the page');
 requireNoText('public/index.html', "loadDataHealthPanel,\n                    loadConfigList: () => loadCtripConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS })", 'Ctrip manual data-health tab must not pass the blocking panel loader into the click path');
 requireText('public/index.html', '@click="openCtripManualTab(\'data-health\')"', 'Ctrip data-health tab uses the non-blocking tab helper');
 requireText('public/index.html', '@click="openCtripManualTab(\'ctrip-flow-overview\')"', 'Ctrip flow overview tab does not inline config-list loading');
@@ -676,19 +714,21 @@ requireNoText('public/index.html', "onlineDataTab = 'meituan-ranking'; loadMeitu
 requireNoText('public/index.html', "onlineDataTab = 'meituan-traffic'; loadMeituanConfigList(); syncMeituanTrafficConfigFromSelectedConfig()", 'Meituan traffic tab must not sync before config-list loading settles');
 requireNoText('public/index.html', "await loadMeituanConfigList();\n                    if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== tab) return null;", 'Meituan manual tab switch must not re-inline config loading and stale-tab checks');
 requireText('public/index.html', "scheduleMeituanEbookingDeferredStartupRefresh();\n                    return;\n                }\n\n                if (target === 'analysis')", 'platform profile Meituan ranking action does not await config-list loading before navigation returns');
-requireText('public/index.html', '配置待读取，正在准备美团数据源匹配...', 'Meituan manual page does not present unloaded configs as missing');
 requireText('public/index.html', '配置读取失败，请刷新后重试；未读取成功前不会判断为未配置。', 'Meituan manual page exposes config-list load failures explicitly');
 requireText('public/index.html', 'meituanConfigListLoaded && !selectedMeituanHotelConfig', 'Meituan manual page only shows unconfigured after the config list has loaded');
-requireText('public/index.html', ':disabled="fetchingData || !canFetchMeituanRankingData()"', 'Meituan ranking manual fetch button stays clickable while config proof is pending');
-requireText('public/index.html', 'const meituanManualFetchConfigProofPending = () => {', 'Meituan ranking manual fetch can recognize pending config proof');
-requireText('public/index.html', 'return !!meituanConfigListLoadingPromise', 'Meituan ranking manual fetch reuses an in-flight config-list proof request');
+requireNoText('public/index.html', '配置待读取，正在准备美团数据源匹配...', 'Meituan manual page must not show a slow pending data-source match state');
+requireText('public/index.html', ':disabled="fetchingData || !canFetchMeituanRankingData()"', 'Meituan ranking manual fetch button stays disabled until a config is already matched');
+requireText('public/index.html', 'const meituanManualFetchConfigProofPending = () => {', 'Meituan ranking manual fetch keeps the old helper as a non-waiting compatibility boundary');
+requireText('public/index.html', 'return !!meituanForm.value.hotelId && !!selectedMeituanHotelConfig.value;', 'Meituan ranking manual fetch requires an already matched config before submission');
 requireText('public/index.html', 'const resolveMeituanManualFetchConfig = async (config) => {', 'Meituan ranking manual fetch resolves config before backend submission');
-requireText('public/index.html', 'ensureMeituanConfigSecret: async config => ensureMeituanConfigSecret(await resolveMeituanManualFetchConfig(config))', 'Meituan ranking manual fetch waits for pending config proof without misreporting missing config');
+requireNoText('public/index.html', 'return !!meituanConfigListLoadingPromise', 'Meituan ranking manual fetch must not reuse an in-flight config-list request as a click-time wait');
+requireNoText('public/index.html', "await loadMeituanConfigList({\n                    cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                    applySelectedConfig: false,\n                });", 'Meituan ranking manual fetch must not wait for config-list loading before backend submission');
+requireText('public/index.html', 'ensureMeituanConfigSecret: async config => ensureMeituanConfigSecret(await resolveMeituanManualFetchConfig(config))', 'Meituan ranking manual fetch uses only the currently matched config before backend submission');
 requireText('public/index.html', 'meituanConfigListLoaded, meituanConfigListLoadFailed', 'Meituan config-list loaded and failed states are exposed to the template');
-requireText('public/index.html', "await loadMeituanConfigList({\n                            cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                            applySelectedConfig: false,\n                        });\n                        if (requestedHotelId !== String(meituanForm.value.hotelId || '')) return;", 'Meituan hotel selection reuses the deduplicated short-cache config-list loader without implicit config application');
+requireNoText('public/index.html', "await loadMeituanConfigList({\n                            cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                            applySelectedConfig: false,\n                        });\n                        if (requestedHotelId !== String(meituanForm.value.hotelId || '')) return;", 'Meituan hotel selection must not wait on the config-list loader during fast matching');
 requireText('public/index.html', 'let meituanHotelConfigApplyVersion = 0;', 'Meituan hotel selection tracks stale deferred config applications');
 requireText('public/index.html', 'const scheduleMeituanHotelConfigApply = (options = {}) => {', 'Meituan hotel selection uses a deferred config apply scheduler');
-requireText('public/index.html', 'scheduleMeituanHotelConfigApply({ delayMs: 80 });', 'Meituan hotel selection defers config matching until after the select paint');
+requireText('public/index.html', 'scheduleMeituanHotelConfigApply({ delayMs: 0 });', 'Meituan hotel selection applies already matched config immediately after selection');
 requireNoText('public/index.html', "if (onlineDataTab.value === 'meituan-ranking') {\n                    applyMeituanHotelConfig(false);\n                }", 'Meituan hotel watcher must not directly start config matching on selection change');
 requireText('public/index.html', "const switchMeituanCaptureTab = async (tab, sections = []) => {\n                onlineDataTab.value = tab;\n                meituanBrowserCaptureForm.value.captureSections = normalizeMeituanCaptureSections(sections);\n                meituanBrowserCaptureResult.value = null;\n                await loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS });", 'Meituan browser capture tab switches reuse the short config-list cache');
 requireNoText('public/index.html', "const res = await request('/online-data/get-meituan-config-list');\n                            if (res.code === 200) {\n                                meituanConfigList.value = Array.isArray(res.data) ? res.data : [];\n                            }", 'Meituan hotel selection does not bypass config-list loading flags and request dedupe');
@@ -731,7 +771,7 @@ requireText('public/index.html', "runPageLoadOnce(newPage, 'main', () => {\n    
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => loadDataHealthPanel('light'));", 'online-data default first paint must not directly start light data-health loading from the page switch');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => Promise.allSettled([\n                            loadOnlineDataHotelList(),\n                            loadDataHealthPanel('light'),\n                        ]));", 'online-data default first paint must not block on hotel-list loading');
 requireText('public/index.html', "const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {\n                const targetTab = String(tab || 'data-health');", 'online-data external entries share one tab navigation helper');
-requireText('public/index.html', "clearDataHealthSecondaryPanelsReadyTimer();\n                dataHealthSecondaryPanelsReady.value = false;\n                clearPlatformAutoSettingsPanelsReadyTimer();\n                platformAutoSettingsPanelsReady.value = false;\n                clearPlatformAutoSecondaryPanelsReadyTimer();\n                platformAutoSecondaryPanelsReady.value = false;", 'online-data external entries clear secondary panel readiness before the page switch');
+requireText('public/index.html', "clearDataHealthSecondaryPanelsReadyTimer();\n                dataHealthSecondaryPanelsReady.value = false;\n                clearDataHealthDetailPanelsReadyTimer();\n                dataHealthDetailPanelsReady.value = false;\n                clearDataHealthEmployeePanelsReadyTimer();\n                dataHealthEmployeePanelsReady.value = false;\n                clearPlatformAutoSettingsPanelsReadyTimer();\n                platformAutoSettingsPanelsReady.value = false;\n                clearPlatformAutoSecondaryPanelsReadyTimer();\n                platformAutoSecondaryPanelsReady.value = false;", 'online-data external entries clear secondary, detail, and employee panel readiness before the page switch');
 requireText('public/index.html', "if (targetTab !== 'data-health') {\n                    pendingOnlineDataEntryTab = targetTab;\n                }", 'online-data external entries skip default first-paint loading for non-default target tabs');
 requireText('public/index.html', "onlineDataTab.value = targetTab;\n                currentPage.value = 'online-data';", 'online-data external entries set the target tab before making the page visible');
 requireText('public/index.html', "const openOnlinePlatformAutoTab = (options = {}) => {\n                return openOnlineDataEntryTab('platform-auto', options);\n            };", 'platform-auto quick entry skips the default data-health first-paint load');
@@ -747,15 +787,23 @@ requireText('public/index.html', 'data-testid="data-health-loading-banner"', 'da
 requireNoText('public/index.html', '<template v-else>\n                                        <div data-testid="data-health-command-center"', 'data-health command center must remain visible while light diagnostics refresh');
 requireNoText('public/index.html', '<div v-if="hotelDashboardLoading || collectionReliabilityLoading" class="rounded-xl border border-gray-200 bg-white p-5">', 'data-health loading must not block the whole cockpit body');
 requireText('public/index.html', 'const DATA_HEALTH_SECONDARY_PANEL_DELAY_MS = 900;', 'data-health secondary diagnostics are delayed behind the first switch frame');
+requireText('public/index.html', 'const DATA_HEALTH_DETAIL_PANEL_DELAY_MS = 2600;', 'data-health detail diagnostics are delayed behind the secondary command center');
+requireText('public/index.html', 'const DATA_HEALTH_EMPLOYEE_PANEL_DELAY_MS = 4200;', 'data-health employee six-question panel is delayed behind detail diagnostics');
 requireText('public/index.html', 'const dataHealthSecondaryPanelsReady = ref(false);', 'data-health secondary diagnostics use an explicit readiness flag');
+requireText('public/index.html', 'const dataHealthDetailPanelsReady = ref(false);', 'data-health detail diagnostics use an explicit readiness flag');
+requireText('public/index.html', 'const dataHealthEmployeePanelsReady = ref(false);', 'data-health employee diagnostics use an explicit readiness flag');
 requireText('public/index.html', 'const scheduleDataHealthSecondaryPanelsReady = (delayMs = DATA_HEALTH_SECONDARY_PANEL_DELAY_MS) => {', 'data-health secondary diagnostics readiness is scheduled and cancellable');
+requireText('public/index.html', 'const scheduleDataHealthDetailPanelsReady = (delayMs = DATA_HEALTH_DETAIL_PANEL_DELAY_MS) => {', 'data-health detail diagnostics readiness is scheduled and cancellable');
+requireText('public/index.html', 'const scheduleDataHealthEmployeePanelsReady = (delayMs = DATA_HEALTH_EMPLOYEE_PANEL_DELAY_MS) => {', 'data-health employee diagnostics readiness is scheduled and cancellable');
 requireText('public/index.html', "if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') {\n                    dataHealthSecondaryPanelsReady.value = false;\n                    return;\n                }", 'data-health secondary diagnostics are scoped to the visible online-data health tab');
-requireText('public/index.html', '<div v-if="dataHealthSecondaryPanelsReady" data-testid="phase1-employee-six-question-summary"', 'data-health employee six-question panel is not mounted during the immediate manual-entry switch window');
+requireText('public/index.html', "if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') {\n                    dataHealthDetailPanelsReady.value = false;\n                    return;\n                }", 'data-health detail diagnostics are scoped to the visible online-data health tab');
+requireText('public/index.html', "if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') {\n                    dataHealthEmployeePanelsReady.value = false;\n                    return;\n                }", 'data-health employee diagnostics are scoped to the visible online-data health tab');
+requireText('public/index.html', '<div v-if="dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"', 'data-health employee six-question panel waits for the employee readiness window');
 requireText('public/index.html', '<div v-if="dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"', 'data-health command center is not mounted during the immediate manual-entry switch window');
-requireText('public/index.html', '<div v-if="dataHealthSecondaryPanelsReady && !dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit-pending"', 'data-health full-diagnostic CTA is not mounted during the immediate manual-entry switch window');
-requireText('public/index.html', '<div v-else-if="dataHealthSecondaryPanelsReady" data-testid="hotel-data-cockpit"', 'data-health full cockpit is not mounted during the immediate manual-entry switch window');
-requireText('public/index.html', 'dataHealthSecondaryPanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, dashboardHotelId', 'data-health secondary readiness flag is returned for template gating');
-requireText('public/index.html', "currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                scheduleDataHealthPanelRefresh('light');", 'AI daily report data-gap navigation schedules data-health refresh after the route switch');
+requireText('public/index.html', '<div v-if="dataHealthDetailPanelsReady && !dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit-pending"', 'data-health full-diagnostic CTA waits for the detail readiness window');
+requireText('public/index.html', '<div v-else-if="dataHealthDetailPanelsReady" data-testid="hotel-data-cockpit"', 'data-health full cockpit waits for the detail readiness window');
+requireText('public/index.html', 'dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId', 'data-health readiness flags are returned for template gating');
+requireText('public/index.html', "currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                dataHealthSecondaryPanelsReady.value = false;\n                scheduleDataHealthSecondaryPanelsReady();\n                dataHealthDetailPanelsReady.value = false;\n                scheduleDataHealthDetailPanelsReady();\n                dataHealthEmployeePanelsReady.value = false;\n                scheduleDataHealthEmployeePanelsReady();\n                scheduleDataHealthPanelRefresh('light');", 'AI daily report data-gap navigation schedules data-health refresh and readiness after the route switch');
 requireNoText('public/index.html', "currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                await loadDataHealthPanel('light');", 'AI daily report data-gap navigation must not wait on light data-health refresh');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
@@ -766,10 +814,19 @@ requireText('public/index.html', 'const schedulePlatformProfileStatusRefresh', '
 requireText('public/index.html', 'const schedulePlatformDataSourcesRefresh', 'entry defers platform data-source refresh after manual collection');
 requireText('app/service/ManualOnlineFetchTaskService.php', 'final class ManualOnlineFetchTaskService', 'manual OTA background task creation and launch lives in a focused service');
 requireText('app/service/ManualOnlineFetchTaskService.php', 'online-data:manual-fetch-once', 'manual OTA background task service launches the shared one-shot worker');
+requireText('app/service/ManualOnlineFetchTaskService.php', 'launchWindowsBatchFile($batPath)', 'manual OTA background task launch uses the Windows fast launcher wrapper');
+requireText('app/service/ManualOnlineFetchTaskService.php', 'launchWindowsScriptHost($launcherPath)', 'manual OTA background task launch confirms the Windows script host path ran');
+requireText('app/service/ManualOnlineFetchTaskService.php', 'launchWindowsBatchFileWithStart($batPath)', 'manual OTA background task launch falls back to cmd start when wscript does not execute');
+requireText('app/service/ManualOnlineFetchTaskService.php', 'appendWindowsLauncherDiagnostic($batPath', 'manual OTA background task launch records launcher fallback diagnostics');
+requireNoText('app/service/ManualOnlineFetchTaskService.php', 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand', 'manual OTA background task service must not launch via powershell on the API request path');
 requireText('app/controller/OnlineData.php', "createTask('ctrip'", 'backend can run Ctrip manual fetch as a background task through the manual OTA task service');
 requireText('app/controller/OnlineData.php', "createTask(strtolower($platform) . '_traffic'", 'backend can run Ctrip traffic manual fetch as a background task through the manual OTA task service');
 requireText('app/controller/OnlineData.php', "createTask('ctrip_ads'", 'backend can run Ctrip ads manual fetch as a background task through the manual OTA task service');
 requireText('app/controller/OnlineData.php', 'launchTask($task)', 'backend launches manual OTA fetch tasks through the manual OTA task service');
+requireText('app/controller/OnlineData.php', 'launchWindowsBatchFile($batPath)', 'platform auto-fetch background launch uses the Windows fast launcher wrapper');
+requireText('app/controller/OnlineData.php', 'launchWindowsScriptHost($launcherPath)', 'platform auto-fetch background launch confirms the Windows script host path ran');
+requireText('app/controller/OnlineData.php', 'launchWindowsBatchFileWithStart($batPath)', 'platform auto-fetch background launch falls back to cmd start when wscript does not execute');
+requireText('app/controller/OnlineData.php', 'appendWindowsLauncherDiagnostic($batPath', 'platform auto-fetch background launch records launcher fallback diagnostics');
 requireNoText('app/controller/OnlineData.php', 'private function createManualCtripFetchBackgroundTask', 'OnlineData does not re-inline Ctrip manual background task creation');
 requireNoText('app/controller/OnlineData.php', 'private function launchManualCtripFetchBackgroundTask', 'OnlineData does not re-inline manual background task launching');
 requireText('app/command/ManualFetchOnlineDataOnce.php', 'online-data:manual-fetch-once', 'manual Ctrip fetch has a one-shot background worker command');
@@ -816,13 +873,14 @@ requireText('public/auto-fetch-static.js', "return { status: 'accepted'", 'auto-
 requireText('public/index.html', 'async: true, ...buildAutoFetchModePayload()', 'retry auto-fetch submits quickly and lets backend continue collection');
 requireText('public/index.html', "['running', 'queued', 'accepted'].includes(retryStatus)", 'retry auto-fetch treats backend queued state as non-blocking');
 requireText('public/ctrip-static.js', 'const isCtripBackgroundAcceptedResponse', 'Ctrip static shares accepted/running/queued background response detection');
-requireText('public/ctrip-static.js', 'const requestBody = { ...requestContext.requestBody, async: true };', 'Ctrip ranking manual fetch submits quickly and lets backend continue collection');
-requireNoText('public/ctrip-static.js', 'const requestBody = { ...requestContext.requestBody, async: false };', 'Ctrip ranking manual fetch must not block on direct collection results');
-requireText('public/ctrip-static.js', 'const queuedRequestBody = { ...requestBody, async: true };', 'Ctrip traffic and ads manual fetch flows keep queued execution where still required');
+requireText('public/ctrip-static.js', 'const requestBody = { ...requestContext.requestBody, async: false, background: false };', 'Ctrip ranking manual fetch requests direct results for immediate display');
+requireNoText('public/ctrip-static.js', 'const requestBody = { ...requestContext.requestBody, async: true };', 'Ctrip ranking manual fetch must not enqueue background tasks by default');
+requireText('public/ctrip-static.js', 'const directRequestBody = { ...requestBody, async: false, background: false };', 'Ctrip traffic and ads manual fetch flows request direct results');
+requireNoText('public/ctrip-static.js', 'const queuedRequestBody = { ...requestBody, async: true };', 'Ctrip manual fetch flows must not enqueue background tasks by default');
 requireText('public/ctrip-static.js', "return { status: 'accepted'", 'Ctrip manual fetch flows keep defensive backend queued-state handling');
-requireText('public/meituan-static.js', 'const requestBody = { ...task.body, async: true, background: true }', 'Meituan manual ranking fetch submits quickly and lets backend continue collection');
-requireText('public/meituan-static.js', 'await Promise.all(fetchTasks.map(async (task, index) => {', 'Meituan manual ranking fetch submits independent background tasks concurrently');
-requireNoText('public/meituan-static.js', 'const requestBody = { ...task.body, async: false, background: false }', 'Meituan manual ranking fetch must not block on direct collection results');
+requireText('public/meituan-static.js', 'const requestBody = { ...task.body, async: false, background: false }', 'Meituan manual ranking fetch requests direct results for immediate display');
+requireText('public/meituan-static.js', 'await Promise.all(fetchTasks.map(async (task, index) => {', 'Meituan manual ranking fetch keeps independent direct requests concurrent');
+requireNoText('public/meituan-static.js', 'const requestBody = { ...task.body, async: true, background: true }', 'Meituan manual ranking fetch must not enqueue background tasks by default');
 requireText('public/meituan-static.js', 'const modelRes = await requestDisplayModel', 'Meituan manual ranking fetch still builds the display model when direct results are returned');
 requireText('app/controller/OnlineData.php', 'markAutoFetchRunningStatus', 'backend records running auto-fetch task status');
 requireText('app/controller/OnlineData.php', 'createAutoFetchBackgroundTask', 'backend creates one-shot auto-fetch background tasks');
@@ -2124,7 +2182,7 @@ try {
         && modelPayload.competitor_room_count === '20'
         && flowResult.status === 'success'
         && requestedBodies.length === 4
-        && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.cookies === 'mt-cookie' && body.async === true && body.background === true)
+        && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.cookies === 'mt-cookie' && body.async === false && body.background === false)
         && flowOnlineResult.length === requestedBodies.length
         && flowDisplayPayload.display_hotels.length === requestedBodies.length
         && flowDisplayPayload.target_poi_id === 'poi-1'
@@ -2145,7 +2203,7 @@ try {
         && acceptedMeituanResult.status === 'accepted'
         && acceptedMeituanResult.acceptedCount === 4
         && acceptedMeituanBodies.length === acceptedMeituanResult.acceptedCount
-        && acceptedMeituanBodies.every(body => body.async === true && body.background === true)
+        && acceptedMeituanBodies.every(body => body.async === false && body.background === false)
         && Array.isArray(acceptedMeituanOnlineResult)
         && acceptedMeituanOnlineResult.length === acceptedMeituanBodies.length
         && acceptedMeituanOnlineResult[0].status === 'running'
@@ -2595,7 +2653,8 @@ try {
       label: 'Meituan traffic fetch flow preserves success, failed and exception states',
       ok: trafficFlowResult.status === 'success'
         && trafficRequestedBody.partner_id === 'partner-flow'
-        && trafficRequestedBody.async === true
+        && trafficRequestedBody.async === false
+        && trafficRequestedBody.background === false
         && trafficRequestedBody.poi_id === 'poi-flow'
         && trafficRequestedBody.cookies === 'mt-traffic-flow-cookie'
         && trafficRequestedBody.system_hotel_id === '20'
@@ -2608,7 +2667,8 @@ try {
         && delayedTrafficReturnedBeforeHistory === true
         && trafficEvents.some(event => event === 'notify:info:获取成功！已保存 6 条流量数据')
         && acceptedTrafficResult.status === 'accepted'
-        && acceptedTrafficRequestedBody.async === true
+        && acceptedTrafficRequestedBody.async === false
+        && acceptedTrafficRequestedBody.background === false
         && acceptedTrafficOnlinePayload.status === 'running'
         && acceptedTrafficOnlinePayload.task_id === 'mt-traffic-task-1'
         && acceptedTrafficLatestPayload.status === 'running'
@@ -2766,7 +2826,8 @@ try {
       label: 'Meituan order fetch flow preserves success, failed and exception states',
       ok: orderFlowResult.status === 'success'
         && orderRequestedBody.partner_id === 'partner-20'
-        && orderRequestedBody.async === true
+        && orderRequestedBody.async === false
+        && orderRequestedBody.background === false
         && orderRequestedBody.method === 'GET'
         && orderRequestedBody.hotel_name === 'Hotel 20'
         && orderResultPayload.saved_count === 4
@@ -2775,7 +2836,8 @@ try {
         && orderEvents.includes('history')
         && orderEvents.some(event => event === 'notify:success:订单数据获取成功，已入库 4 条')
         && acceptedOrderResult.status === 'accepted'
-        && acceptedOrderRequestedBody.async === true
+        && acceptedOrderRequestedBody.async === false
+        && acceptedOrderRequestedBody.background === false
         && acceptedOrderResultPayload.status === 'running'
         && acceptedOrderResultPayload.task_id === 'mt-order-task-1'
         && acceptedOrderOnlinePayload.status === 'running'
@@ -2938,7 +3000,8 @@ try {
       label: 'Meituan ads fetch flow preserves success, failed and exception states',
       ok: adsFlowResult.status === 'success'
         && adsRequestedBody.partner_id === 'partner-40'
-        && adsRequestedBody.async === true
+        && adsRequestedBody.async === false
+        && adsRequestedBody.background === false
         && adsRequestedBody.method === 'GET'
         && adsRequestedBody.poi_id === 'shop-40'
         && adsRequestedBody.shop_id === 'shop-40'
@@ -2949,7 +3012,8 @@ try {
         && adsEvents.includes('history')
         && adsEvents.some(event => event === 'notify:success:广告数据获取成功，已入库 5 条')
         && acceptedAdsResult.status === 'accepted'
-        && acceptedAdsRequestedBody.async === true
+        && acceptedAdsRequestedBody.async === false
+        && acceptedAdsRequestedBody.background === false
         && acceptedAdsResultPayload.status === 'running'
         && acceptedAdsResultPayload.task_id === 'mt-ads-task-1'
         && acceptedAdsOnlinePayload.status === 'running'
@@ -5300,7 +5364,8 @@ try {
         && rawFailure.raw.length === 1000
         && rawFailure.hint.includes('Cookie是否过期')
         && fetchFlowResult.status === 'success'
-        && fetchFlowRequestedBody.async === true
+        && fetchFlowRequestedBody.async === false
+        && fetchFlowRequestedBody.background === false
         && fetchFlowRequestedBody.cookies === 'sid=fetch'
         && fetchFlowRequestedBody.node_id === '24588'
         && fetchFlowRequestedBody.system_hotel_id === '58'
@@ -5320,7 +5385,8 @@ try {
         && alignedCtripRankingForm === true
         && staleCtripRankingForm === false
         && acceptedFetchFlowResult.status === 'accepted'
-        && acceptedFetchFlowRequestedBody.async === true
+        && acceptedFetchFlowRequestedBody.async === false
+        && acceptedFetchFlowRequestedBody.background === false
         && acceptedFetchFlowResultPayload.status === 'running'
         && acceptedFetchFlowResultPayload.task_id === 'manual-task-1'
         && acceptedFetchFlowEvents.includes('notify:info:queued')
@@ -5387,7 +5453,8 @@ try {
       label: 'Ctrip traffic fetch flow preserves success, empty, failed and exception states',
       ok: trafficFlowSuccess.result.status === 'success'
         && trafficFlowSuccess.trafficRequestBody.url === 'https://ebooking.ctrip.test/traffic'
-        && trafficFlowSuccess.trafficRequestBody.async === true
+        && trafficFlowSuccess.trafficRequestBody.async === false
+        && trafficFlowSuccess.trafficRequestBody.background === false
         && trafficFlowSuccess.trafficRequestBody.cookies === 'sid=traffic-flow'
         && trafficFlowSuccess.trafficRequestBody.system_hotel_id === '58'
         && trafficFlowSuccess.trafficRequestBody.extra_params === '{"scope":"self"}'
@@ -5400,7 +5467,8 @@ try {
         && trafficFlowSuccess.events.some(event => event[0] === 'refresh-data')
         && trafficFlowSuccess.events.some(event => event[0] === 'notify' && event[1] === 'success' && event[2].includes('获取成功，已保存 3 条流量数据'))
         && trafficFlowAccepted.result.status === 'accepted'
-        && trafficFlowAccepted.trafficRequestBody.async === true
+        && trafficFlowAccepted.trafficRequestBody.async === false
+        && trafficFlowAccepted.trafficRequestBody.background === false
         && trafficFlowAccepted.trafficOnlinePayload.status === 'running'
         && trafficFlowAccepted.trafficOnlinePayload.task_id === 'traffic-task-1'
         && trafficFlowAccepted.trafficOnlinePayload.saved_count === 0
@@ -5524,7 +5592,8 @@ try {
       label: 'Ctrip ads fetch flow refreshes persisted and UI data on success',
       ok: adsFlowSuccess.result.status === 'success'
         && adsFlowSuccess.adsRequestBody.system_hotel_id === '58'
-        && adsFlowSuccess.adsRequestBody.async === true
+        && adsFlowSuccess.adsRequestBody.async === false
+        && adsFlowSuccess.adsRequestBody.background === false
         && adsFlowSuccess.adsRequestBody.hotel_id === 'ctrip-hotel-1'
         && adsFlowSuccess.adsRequestBody.hotel_name === 'hotel-58'
         && adsFlowSuccess.adsRequestBody.url.includes('queryCampaignReportList')
@@ -5547,7 +5616,8 @@ try {
       file: 'public/ctrip-static.js',
       label: 'Ctrip ads fetch flow treats background accepted state as explicit running task',
       ok: adsFlowAccepted.result.status === 'accepted'
-        && adsFlowAccepted.adsRequestBody.async === true
+        && adsFlowAccepted.adsRequestBody.async === false
+        && adsFlowAccepted.adsRequestBody.background === false
         && adsFlowAccepted.adsResultPayload?.status === 'running'
         && adsFlowAccepted.adsResultPayload?.task_id === 'ads-task-1'
         && adsFlowAccepted.adsOnlinePayload?.status === 'running'

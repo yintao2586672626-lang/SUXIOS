@@ -628,9 +628,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
             form,
             systemHotelId: getSystemHotelId(),
         });
+        const directRequestBody = { ...requestBody, async: false, background: false };
         try {
-            const queuedRequestBody = { ...requestBody, async: true };
-            const res = await requestFetch(queuedRequestBody);
+            const res = await requestFetch(directRequestBody);
             if (isMeituanBackgroundAcceptedResponse(res)) {
                 const data = res.data || {};
                 const runningPayload = {
@@ -649,7 +649,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 if (getOnlineDataTab() === 'data') {
                     refreshOnlineData();
                 }
-                return { status: 'accepted', response: res, requestBody: queuedRequestBody, data: runningPayload, savedCount: 0 };
+                return { status: 'accepted', response: res, requestBody: directRequestBody, data: runningPayload, savedCount: 0 };
             }
             if (res.code === 200) {
                 const data = res.data || {};
@@ -666,14 +666,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 } else {
                     notify('获取成功，但未解析到有效流量数据');
                 }
-                return { status: 'success', response: res, requestBody, data: trafficData, savedCount };
+                return { status: 'success', response: res, requestBody: directRequestBody, data: trafficData, savedCount };
             }
 
             notify(res.message || '获取失败', 'error');
-            return { status: 'failed', response: res, requestBody };
+            return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
             notify('请求失败: ' + error.message, 'error');
-            return { status: 'exception', error, requestBody };
+            return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
             setFetching(false);
         }
@@ -755,9 +755,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
             systemHotelId,
             hotelName: getHotelNameById(systemHotelId),
         });
+        const directRequestBody = { ...requestBody, async: false, background: false };
         try {
-            const queuedRequestBody = { ...requestBody, async: true };
-            const res = await requestFetch(queuedRequestBody);
+            const res = await requestFetch(directRequestBody);
             if (isMeituanBackgroundAcceptedResponse(res)) {
                 const data = res.data || {};
                 const runningPayload = {
@@ -773,7 +773,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 setOnlineDataResult(runningPayload);
                 notify(res.message || '美团订单手动获取已提交后台执行，完成后会更新数据列表和通知', 'info');
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'accepted', response: res, requestBody: queuedRequestBody, data: runningPayload, savedCount: 0 };
+                return { status: 'accepted', response: res, requestBody: directRequestBody, data: runningPayload, savedCount: 0 };
             }
             if (res.code === 200) {
                 const data = res.data || {};
@@ -785,14 +785,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     savedCount > 0 ? 'success' : 'warning'
                 );
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, requestBody, data, savedCount };
+                return { status: 'success', response: res, requestBody: directRequestBody, data, savedCount };
             }
 
             notify(res.message || '订单数据获取失败', 'error');
-            return { status: 'failed', response: res, requestBody };
+            return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
             notify('订单数据获取失败: ' + error.message, 'error');
-            return { status: 'exception', error, requestBody };
+            return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
             setFetching(false);
         }
@@ -873,9 +873,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
             systemHotelId,
             hotelName: getHotelNameById(systemHotelId),
         });
+        const directRequestBody = { ...requestBody, async: false, background: false };
         try {
-            const queuedRequestBody = { ...requestBody, async: true };
-            const res = await requestFetch(queuedRequestBody);
+            const res = await requestFetch(directRequestBody);
             if (isMeituanBackgroundAcceptedResponse(res)) {
                 const data = res.data || {};
                 const runningPayload = {
@@ -891,7 +891,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 setOnlineDataResult(runningPayload);
                 notify(res.message || '美团广告手动获取已提交后台执行，完成后会更新数据列表和通知', 'info');
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'accepted', response: res, requestBody: queuedRequestBody, data: runningPayload, savedCount: 0 };
+                return { status: 'accepted', response: res, requestBody: directRequestBody, data: runningPayload, savedCount: 0 };
             }
             if (res.code === 200) {
                 const data = res.data || {};
@@ -903,14 +903,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     savedCount > 0 ? 'success' : 'warning'
                 );
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, requestBody, data, savedCount };
+                return { status: 'success', response: res, requestBody: directRequestBody, data, savedCount };
             }
 
             notify(res.message || '广告数据获取失败', 'error');
-            return { status: 'failed', response: res, requestBody };
+            return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
             notify('广告数据获取失败: ' + error.message, 'error');
-            return { status: 'exception', error, requestBody };
+            return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
             setFetching(false);
         }
@@ -1025,7 +1025,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         try {
             await Promise.all(fetchTasks.map(async (task, index) => {
                 notify(task.toastText);
-                const requestBody = { ...task.body, async: true, background: true };
+                const requestBody = { ...task.body, async: false, background: false };
                 const res = await requestFetch(requestBody);
                 const accepted = isMeituanBackgroundAcceptedResponse(res);
                 if (accepted) {

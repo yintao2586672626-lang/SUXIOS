@@ -54,6 +54,118 @@ function nonEmptyString(value) {
   return typeof value === 'string' && value.trim() !== '';
 }
 
+function hasTechnicalEmployeeCopy(value) {
+  const text = String(value ?? '');
+  return /\b(metric_trust|evidence_sources|evidence_refs|data_gaps|action_items|source_date_evidence|raw_data|data_type|source_trace_id|sync_task_id|data_source_id|accepted_rows|rejected_rows|validation_flags|online_daily_data|target_date_rows|target_date_data_types|revenue_metrics|book_order_num|room_nights|order_count|list_exposure|detail_exposure|flow_rate|order_filling_num|order_submit_num|execution_intents|execution_flow|latest_available|revenue_status|traffic_status|conversion_status|blocked)\b/.test(text)
+    || /\b(?:ETL status|OTA diagnosis)\b/.test(text)
+    || /\b(?:approval\.status|execution\.status|evidence\.count|review\.status|source_date_evidence\.platforms)\b/.test(text)
+    || /\b(CTRIP|MEITUAN)\b/.test(text)
+    || /\b(?:ctrip|meituan|ai|operation)_[a-z0-9_]+\b/i.test(text);
+}
+
+function validateEmployeeActionCopy(label, action) {
+  const rawAction = String(action?.action ?? action?.next_action ?? '');
+  const employeeAction = String(action?.employee_action ?? '');
+  if (rawAction.trim() !== '') {
+    check(`${label} employee action exists beside raw action`, employeeAction.trim() !== '', JSON.stringify(action));
+  }
+  check(`${label} employee action avoids technical evidence names`, !hasTechnicalEmployeeCopy(employeeAction), employeeAction);
+
+  const rawExplanationNextAction = String(action?.explanation_next_action ?? '');
+  const employeeExplanationNextAction = String(action?.employee_explanation_next_action ?? '');
+  if (rawExplanationNextAction.trim() !== '') {
+    check(`${label} employee explanation next action exists beside raw explanation_next_action`, employeeExplanationNextAction.trim() !== '', JSON.stringify(action));
+  }
+  check(`${label} employee explanation next action avoids technical evidence names`, !hasTechnicalEmployeeCopy(employeeExplanationNextAction), employeeExplanationNextAction);
+
+  const rawSuccessCriteria = String(action?.success_criteria ?? '');
+  const employeeSuccessCriteria = String(action?.employee_success_criteria ?? '');
+  if (rawSuccessCriteria.trim() !== '') {
+    check(`${label} employee success criteria exists beside raw success_criteria`, employeeSuccessCriteria.trim() !== '', JSON.stringify(action));
+  }
+  check(`${label} employee success criteria avoids technical evidence names`, !hasTechnicalEmployeeCopy(employeeSuccessCriteria), employeeSuccessCriteria);
+
+  const rawEvidenceNeeded = asArray(action?.evidence_needed);
+  const employeeEvidenceNeeded = asArray(action?.employee_evidence_needed);
+  if (rawEvidenceNeeded.length > 0) {
+    check(`${label} employee evidence needed exists beside raw evidence_needed`, employeeEvidenceNeeded.length > 0, JSON.stringify(action));
+  }
+  for (const [index, item] of employeeEvidenceNeeded.entries()) {
+    check(`${label} employee evidence needed ${index + 1} avoids technical evidence names`, !hasTechnicalEmployeeCopy(item), String(item ?? ''));
+  }
+
+  const employeeVerificationSteps = asArray(action?.employee_verification_steps);
+  check(`${label} employee verification steps exist`, employeeVerificationSteps.length > 0, JSON.stringify(action));
+  for (const [index, item] of employeeVerificationSteps.entries()) {
+    check(`${label} employee verification step ${index + 1} avoids technical evidence names`, !hasTechnicalEmployeeCopy(item), String(item ?? ''));
+  }
+}
+
+function missingFieldSummaryDigest(question) {
+  return asArray(question?.evidence?.missing_field_summary).map((row) => ({
+    code: String(row?.code ?? ''),
+    label: String(row?.label ?? ''),
+    source_text: String(row?.source_text ?? ''),
+    business_impact: String(row?.business_impact ?? ''),
+    next_action: String(row?.next_action ?? ''),
+    policy: String(row?.policy ?? ''),
+  }));
+}
+
+function validateMissingFieldSummary(label, question) {
+  const evidence = question?.evidence ?? {};
+  const rawCodes = [
+    ...asArray(evidence?.data_gap_codes),
+    ...asArray(evidence?.missing_field_codes),
+  ].map((value) => String(value ?? '').trim()).filter(Boolean);
+  const summary = asArray(evidence?.missing_field_summary);
+  if (rawCodes.length > 0) {
+    check(`${label} exposes missing field readable summary`, summary.length > 0, JSON.stringify(evidence));
+  }
+  for (const [index, row] of summary.entries()) {
+    const prefix = `${label} missing field summary ${index + 1}`;
+    check(`${prefix} keeps raw code for trace`, nonEmptyString(row?.code), JSON.stringify(row));
+    for (const field of ['label', 'source_text', 'business_impact', 'next_action', 'policy']) {
+      const value = String(row?.[field] ?? '');
+      check(`${prefix} ${field} exists`, value.trim() !== '', JSON.stringify(row));
+      check(`${prefix} ${field} avoids technical names`, !hasTechnicalEmployeeCopy(value), value);
+    }
+  }
+}
+
+function metricDomainSummaryDigest(question) {
+  return asArray(question?.evidence?.metric_domain_summary).map((row) => ({
+    platform: String(row?.platform ?? ''),
+    platform_label: String(row?.platform_label ?? ''),
+    revenue_text: String(row?.revenue_text ?? ''),
+    traffic_text: String(row?.traffic_text ?? ''),
+    conversion_text: String(row?.conversion_text ?? ''),
+    missing_text: String(row?.missing_text ?? ''),
+    source_text: String(row?.source_text ?? ''),
+    problem: String(row?.problem ?? ''),
+    next_action: String(row?.next_action ?? ''),
+    policy: String(row?.policy ?? ''),
+  }));
+}
+
+function validateMetricDomainSummary(label, question) {
+  const evidence = question?.evidence ?? {};
+  const readiness = asArray(evidence?.metric_domain_readiness);
+  const summary = asArray(evidence?.metric_domain_summary);
+  if (readiness.length > 0) {
+    check(`${label} exposes metric domain readable summary`, summary.length === readiness.length, JSON.stringify(evidence));
+  }
+  for (const [index, row] of summary.entries()) {
+    const prefix = `${label} metric domain summary ${index + 1}`;
+    check(`${prefix} keeps platform for trace`, nonEmptyString(row?.platform), JSON.stringify(row));
+    for (const field of ['platform_label', 'revenue_text', 'traffic_text', 'conversion_text', 'source_text', 'problem', 'next_action', 'policy']) {
+      const value = String(row?.[field] ?? '');
+      check(`${prefix} ${field} exists`, value.trim() !== '', JSON.stringify(row));
+      check(`${prefix} ${field} avoids technical names`, !hasTechnicalEmployeeCopy(value), value);
+    }
+  }
+}
+
 function collectKeys(value, keys = []) {
   if (Array.isArray(value)) {
     for (const item of value) collectKeys(item, keys);
@@ -343,6 +455,13 @@ function actionBlockedByActionCodesList(value) {
 
 function questionStatusMap(rows) {
   return Object.fromEntries(asArray(rows).map((row) => [String(row?.question ?? ''), String(row?.status ?? '')]).filter(([question]) => question !== ''));
+}
+
+function questionStringFieldMap(rows, field) {
+  return Object.fromEntries(asArray(rows).map((row) => [
+    String(row?.key ?? row?.question ?? ''),
+    String(row?.[field] ?? ''),
+  ]).filter(([key]) => key !== ''));
 }
 
 function runInspector(options, extraArgs = [], label = 'inspector') {
@@ -828,6 +947,18 @@ if (payload) {
   ]) {
     check(`employee question: ${question}`, questions.some((row) => row.question === question));
   }
+  for (const row of questions) {
+    const key = String(row?.key ?? row?.question ?? 'unknown');
+    const rawNextAction = String(row?.next_action ?? '');
+    const employeeNextAction = String(row?.employee_next_action ?? '');
+    const employeeDetail = String(row?.employee_detail ?? '');
+    if (rawNextAction.trim() !== '') {
+      check(`${key} employee next action exists beside raw next_action`, employeeNextAction.trim() !== '', JSON.stringify(row));
+    }
+    check(`${key} employee detail exists`, employeeDetail.trim() !== '', JSON.stringify(row));
+    check(`${key} employee next action avoids technical evidence names`, !hasTechnicalEmployeeCopy(employeeNextAction), employeeNextAction);
+    check(`${key} employee detail avoids technical evidence names`, !hasTechnicalEmployeeCopy(employeeDetail), employeeDetail);
+  }
 
   const actions = asArray(payload.next_actions);
   const missingRequirements = asArray(payload.missing_requirements);
@@ -866,6 +997,7 @@ if (payload) {
   check('markdown report exposes resolved missing codes', inspectorSource.includes('inspection_next_action_resolves_missing_codes') && inspectorSource.includes('解除缺口'));
   check('markdown report exposes employee question action codes', inspectorSource.includes('next_action_codes') && inspectorSource.includes('with_inspection_employee_question_action_codes'));
   check('markdown report exposes employee question action summaries', inspectorSource.includes('primary_next_action_code') && inspectorSource.includes('direct_next_action_code') && inspectorSource.includes('linked_action_count'));
+  check('markdown report uses employee next action copy', inspectorSource.includes('employee_next_action') && inspectorSource.includes('inspection_employee_readable_copy'));
   check('markdown report exposes employee question evidence summary', inspectorSource.includes('inspection_employee_question_evidence') && inspectorSource.includes('证据摘要'));
   check('markdown report exposes platform latest-available summary', inspectorSource.includes('inspection_platform_coverage_summary') && inspectorSource.includes('platform_rows') && inspectorSource.includes('latest_available') && inspectorSource.includes('date_relation'));
   check('markdown report exposes platform field trust summary', inspectorSource.includes('inspection_platform_field_trust_summary') && inspectorSource.includes('field_trust_by_platform'));
@@ -921,6 +1053,7 @@ if (payload) {
   if (missingFieldsQuestion) {
     check('missing fields row exposes data_gap_codes array', Array.isArray(missingFieldsQuestion.evidence?.data_gap_codes), JSON.stringify(missingFieldsQuestion.evidence ?? {}));
     check('missing fields row exposes missing_field_codes array', Array.isArray(missingFieldsQuestion.evidence?.missing_field_codes), JSON.stringify(missingFieldsQuestion.evidence ?? {}));
+    validateMissingFieldSummary('missing fields row', missingFieldsQuestion);
   }
 
   for (const platform of asArray(payload.platforms)) {
@@ -974,6 +1107,7 @@ if (payload) {
   const metricQuestion = questions.find((row) => row.question === '收入/流量/转化出了什么问题');
   if (metricQuestion) {
     check('metric domain readiness is present', asArray(metricQuestion.evidence?.metric_domain_readiness).length > 0);
+    validateMetricDomainSummary('metric question', metricQuestion);
     check('revenue ready platforms are explicit', Array.isArray(metricQuestion.evidence?.revenue_ready_platforms));
     check('traffic ready platforms are explicit', Array.isArray(metricQuestion.evidence?.traffic_ready_platforms));
     check('conversion ready platforms are explicit', Array.isArray(metricQuestion.evidence?.conversion_ready_platforms));
@@ -985,8 +1119,24 @@ if (payload) {
 
   const aiQuestion = questions.find((row) => row.question === 'AI 建议依据是什么');
   if (aiQuestion && aiQuestion.status !== 'proved') {
-    check('AI evidence blockers are visible when AI evidence is missing', asArray(aiQuestion.evidence?.blocking_missing_codes).length > 0);
+    const aiBlockingCodes = asArray(aiQuestion.evidence?.blocking_missing_codes).map(String);
+    check('AI evidence blockers are visible when AI evidence is missing', aiBlockingCodes.length > 0);
     check('AI evidence row keeps blockers in summary evidence', collectKeys(aiQuestion.evidence ?? {}).includes('blocking_missing_codes'), JSON.stringify(aiQuestion.evidence ?? {}));
+    check('AI evidence row exposes diagnosis status', String(aiQuestion.evidence?.diagnosis_status ?? '').length > 0, JSON.stringify(aiQuestion.evidence ?? {}));
+    check('AI evidence row exposes action item status', String(aiQuestion.evidence?.action_item_status ?? '').length > 0, JSON.stringify(aiQuestion.evidence ?? {}));
+    check('AI evidence row exposes readable source policy key', String(aiQuestion.evidence?.source_policy ?? '').length > 0, JSON.stringify(aiQuestion.evidence ?? {}));
+    if (aiBlockingCodes.length > 0) {
+      const diagnosisStatus = String(aiQuestion.evidence?.diagnosis_status ?? '');
+      const sourcePolicy = String(aiQuestion.evidence?.source_policy ?? '');
+      const onlyMissingRealDiagnosis = aiBlockingCodes.length === 1 && aiBlockingCodes.includes('ai_diagnosis_evidence_sample_missing');
+      if (onlyMissingRealDiagnosis) {
+        check('AI evidence row marks missing real diagnosis response', diagnosisStatus === 'missing_real_api_response', JSON.stringify(aiQuestion.evidence ?? {}));
+        check('AI evidence row uses missing diagnosis response policy', sourcePolicy === 'missing_real_ota_diagnosis_response', JSON.stringify(aiQuestion.evidence ?? {}));
+      } else {
+        check('AI evidence row marks verified upstream OTA blocker', diagnosisStatus === 'blocked_by_verified_ota_gaps', JSON.stringify(aiQuestion.evidence ?? {}));
+        check('AI evidence row uses read-only OTA gap policy', sourcePolicy === 'read_existing_ota_gap_evidence_only', JSON.stringify(aiQuestion.evidence ?? {}));
+      }
+    }
     check('AI evidence row points to direct diagnosis action', ['phase1_collect_ai_diagnosis_evidence', 'collect_ai_diagnosis_evidence', 'resolve_ai_diagnosis_blocked_action_items'].includes(String(aiQuestion.direct_next_action_code ?? aiQuestion.evidence?.direct_next_action_code ?? '')), JSON.stringify(aiQuestion));
   }
 
@@ -994,6 +1144,9 @@ if (payload) {
   if (nextStepQuestion && nextStepQuestion.status !== 'proved') {
     check('operation action blockers include AI action gap when execution is missing', ['ai_action_items_missing', 'ai_action_items_blocked'].some((code) => asArray(nextStepQuestion.evidence?.blocking_missing_codes).includes(code)), JSON.stringify(nextStepQuestion.evidence ?? {}));
     check('operation action row keeps blockers in summary evidence', collectKeys(nextStepQuestion.evidence ?? {}).includes('blocking_missing_codes'), JSON.stringify(nextStepQuestion.evidence ?? {}));
+    check('operation action row exposes execution source policy', String(nextStepQuestion.evidence?.source_policy ?? '') === 'read_existing_operation_execution_state_only', JSON.stringify(nextStepQuestion.evidence ?? {}));
+    check('operation action row exposes completion signal count', Number.isFinite(Number(nextStepQuestion.evidence?.completion_signal_count)), JSON.stringify(nextStepQuestion.evidence ?? {}));
+    check('operation action row never exposes raw execution payload', nextStepQuestion.evidence?.raw_data_exposed === false || nextStepQuestion.evidence?.raw_data_exposed === undefined, JSON.stringify(nextStepQuestion.evidence ?? {}));
     check('operation action row points to direct execution evidence action', ['phase1_create_operation_execution_evidence', 'collect_operation_execution_evidence'].includes(String(nextStepQuestion.direct_next_action_code ?? nextStepQuestion.evidence?.direct_next_action_code ?? '')), JSON.stringify(nextStepQuestion));
     if (String(nextStepQuestion.evidence?.operation_evidence_status ?? '') === 'missing' && asArray(nextStepQuestion.evidence?.blocking_missing_codes).length > 0) {
       check('operation action row is warning when blockers define the next step', nextStepQuestion.status === 'warning', JSON.stringify(nextStepQuestion));
@@ -1052,6 +1205,7 @@ if (payload) {
     check(`${prefix} has limited conclusions`, asArray(action.limited_conclusions).length > 0, JSON.stringify(action));
     check(`${prefix} has still usable metrics`, asArray(action.still_usable_metrics).length > 0, JSON.stringify(action));
     check(`${prefix} has explanation next action`, nonEmptyString(action.explanation_next_action), JSON.stringify(action));
+    validateEmployeeActionCopy(prefix, action);
     check(`${prefix} has protected boundary`, typeof action.protected_boundary === 'string' && action.protected_boundary.trim().length > 0);
     if (action.action_family === 'target_date_source_rows') {
       const expectedEntries = expectedSourceRowsActionEntries(action);
@@ -1206,9 +1360,14 @@ if (evidencePayload) {
   if (evidenceMissingFieldsQuestion) {
     check('evidence package missing fields row exposes data_gap_codes array', Array.isArray(evidenceMissingFieldsQuestion.evidence?.data_gap_codes), JSON.stringify(evidenceMissingFieldsQuestion.evidence ?? {}));
     check('evidence package missing fields row exposes missing_field_codes array', Array.isArray(evidenceMissingFieldsQuestion.evidence?.missing_field_codes), JSON.stringify(evidenceMissingFieldsQuestion.evidence ?? {}));
+    validateMissingFieldSummary('evidence package missing fields row', evidenceMissingFieldsQuestion);
   }
 
   const evidenceMetrics = evidencePayload.revenue_metrics ?? {};
+  const evidenceMetricQuestionForSummary = evidenceQuestions.find((row) => row?.key === 'revenue_traffic_conversion' || row?.question === '收入/流量/转化出了什么问题');
+  if (evidenceMetricQuestionForSummary) {
+    validateMetricDomainSummary('evidence package metric question', evidenceMetricQuestionForSummary);
+  }
   check('evidence package revenue metric status is platform-aware', ['ready', 'partial', 'empty'].includes(evidenceMetrics.status), JSON.stringify(evidenceMetrics));
   if (asArray(evidenceMetrics.revenue_ready_platforms).length > 0) {
     check('evidence package exposes revenue-ready platforms', evidenceMetrics.status !== 'empty', JSON.stringify(evidenceMetrics));
@@ -1242,6 +1401,7 @@ if (evidencePayload) {
     check(`${prefix} has resolves_missing_codes`, Array.isArray(action.resolves_missing_codes) && action.resolves_missing_codes.length > 0);
     check(`${prefix} has blocked_by_action_codes`, Array.isArray(action.blocked_by_action_codes));
     check(`${prefix} has status`, ['missing', 'blocked'].includes(action.status), String(action.status ?? ''));
+    validateEmployeeActionCopy(prefix, action);
     check(`${prefix} has protected boundary`, typeof action.protected_boundary === 'string' && action.protected_boundary.trim().length > 0);
     if (action.action_family === 'target_date_source_rows') {
       const expectedEntries = expectedSourceRowsActionEntries(action);
@@ -1422,6 +1582,31 @@ if (unlinkedOperationInspectionPayload) {
   check('inspector keeps unlinked operation closure incomplete', unlinkedOperationInspectionPayload.closure_summary?.status === 'incomplete', JSON.stringify(unlinkedOperationInspectionPayload.closure_summary ?? {}));
 }
 
+if (evidencePayload) {
+  for (const row of asArray(evidencePayload.employee_questions)) {
+    const key = String(row?.key ?? row?.question ?? 'unknown');
+    const rawNextAction = String(row?.next_action ?? '');
+    const employeeNextAction = String(row?.employee_next_action ?? '');
+    const employeeDetail = String(row?.employee_detail ?? '');
+    if (rawNextAction.trim() !== '') {
+      check(`evidence ${key} employee next action exists beside raw next_action`, employeeNextAction.trim() !== '', JSON.stringify(row));
+    }
+    check(`evidence ${key} employee detail exists`, employeeDetail.trim() !== '', JSON.stringify(row));
+    check(`evidence ${key} employee next action avoids technical evidence names`, !hasTechnicalEmployeeCopy(employeeNextAction), employeeNextAction);
+    check(`evidence ${key} employee detail avoids technical evidence names`, !hasTechnicalEmployeeCopy(employeeDetail), employeeDetail);
+    if (key === 'ai_evidence' && String(row?.status ?? '') !== 'proved') {
+      check('evidence package AI row exposes diagnosis status', String(row?.evidence?.diagnosis_status ?? '').length > 0, JSON.stringify(row?.evidence ?? {}));
+      check('evidence package AI row exposes action item status', String(row?.evidence?.action_item_status ?? '').length > 0, JSON.stringify(row?.evidence ?? {}));
+      check('evidence package AI row exposes source policy', String(row?.evidence?.source_policy ?? '').length > 0, JSON.stringify(row?.evidence ?? {}));
+    }
+    if (key === 'next_operation_action' && String(row?.status ?? '') !== 'proved') {
+      check('evidence package operation row exposes execution source policy', String(row?.evidence?.source_policy ?? '') === 'read_existing_operation_execution_state_only', JSON.stringify(row?.evidence ?? {}));
+      check('evidence package operation row exposes completion signal count', Number.isFinite(Number(row?.evidence?.completion_signal_count)), JSON.stringify(row?.evidence ?? {}));
+      check('evidence package operation row does not expose raw payload', row?.evidence?.raw_data_exposed === false || row?.evidence?.raw_data_exposed === undefined, JSON.stringify(row?.evidence ?? {}));
+    }
+  }
+}
+
 if (payload && evidencePayload) {
   const inspectorQuestions = asArray(payload.employee_questions);
   const evidenceQuestions = asArray(evidencePayload.employee_questions);
@@ -1463,11 +1648,15 @@ if (payload && evidencePayload) {
   check('cross-output collection source summary matches', JSON.stringify(collectionSourceSummaryDigest(payload.collection_source_summary)) === JSON.stringify(collectionSourceSummaryDigest(evidencePayload.collection_source_summary)), `${JSON.stringify(collectionSourceSummaryDigest(payload.collection_source_summary))} vs ${JSON.stringify(collectionSourceSummaryDigest(evidencePayload.collection_source_summary))}`);
   check('cross-output employee platform coverage details match', JSON.stringify(platformCoverageDigest(inspectorToday?.evidence?.platforms)) === JSON.stringify(platformCoverageDigest(evidenceToday?.evidence?.platforms)), `${JSON.stringify(platformCoverageDigest(inspectorToday?.evidence?.platforms))} vs ${JSON.stringify(platformCoverageDigest(evidenceToday?.evidence?.platforms))}`);
   check('cross-output employee question statuses match', JSON.stringify(questionStatusMap(inspectorQuestions)) === JSON.stringify(questionStatusMap(evidenceQuestions)), `${JSON.stringify(questionStatusMap(inspectorQuestions))} vs ${JSON.stringify(questionStatusMap(evidenceQuestions))}`);
+  check('cross-output employee question details match', JSON.stringify(questionStringFieldMap(inspectorQuestions, 'employee_detail')) === JSON.stringify(questionStringFieldMap(evidenceQuestions, 'employee_detail')), `${JSON.stringify(questionStringFieldMap(inspectorQuestions, 'employee_detail'))} vs ${JSON.stringify(questionStringFieldMap(evidenceQuestions, 'employee_detail'))}`);
+  check('cross-output employee question next actions match', JSON.stringify(questionStringFieldMap(inspectorQuestions, 'employee_next_action')) === JSON.stringify(questionStringFieldMap(evidenceQuestions, 'employee_next_action')), `${JSON.stringify(questionStringFieldMap(inspectorQuestions, 'employee_next_action'))} vs ${JSON.stringify(questionStringFieldMap(evidenceQuestions, 'employee_next_action'))}`);
   check('cross-output employee question action codes match', JSON.stringify(questionActionCodeMap(inspectorQuestions)) === JSON.stringify(questionActionCodeMap(evidenceQuestions)), `${JSON.stringify(questionActionCodeMap(inspectorQuestions))} vs ${JSON.stringify(questionActionCodeMap(evidenceQuestions))}`);
   check('cross-output employee question action summaries match', JSON.stringify(questionActionSummaryMap(inspectorQuestions)) === JSON.stringify(questionActionSummaryMap(evidenceQuestions)), `${JSON.stringify(questionActionSummaryMap(inspectorQuestions))} vs ${JSON.stringify(questionActionSummaryMap(evidenceQuestions))}`);
   check('cross-output metric_trust_keys match', sameStringList(inspectorTrustedFields?.evidence?.metric_trust_keys, evidenceTrustedFields?.evidence?.metric_trust_keys), `${JSON.stringify(inspectorTrustedFields?.evidence?.metric_trust_keys)} vs ${JSON.stringify(evidenceTrustedFields?.evidence?.metric_trust_keys)}`);
   check('cross-output platform field trust details match', JSON.stringify(platformFieldTrustDigest(inspectorTrustedFields?.evidence?.platform_field_trust)) === JSON.stringify(platformFieldTrustDigest(evidenceTrustedFields?.evidence?.platform_field_trust)), `${JSON.stringify(platformFieldTrustDigest(inspectorTrustedFields?.evidence?.platform_field_trust))} vs ${JSON.stringify(platformFieldTrustDigest(evidenceTrustedFields?.evidence?.platform_field_trust))}`);
   check('cross-output data_gap_codes match', sameStringList(inspectorMissingFields?.evidence?.data_gap_codes, evidenceMissingFields?.evidence?.data_gap_codes), `${JSON.stringify(inspectorMissingFields?.evidence?.data_gap_codes)} vs ${JSON.stringify(evidenceMissingFields?.evidence?.data_gap_codes)}`);
+  check('cross-output missing field summaries match', JSON.stringify(missingFieldSummaryDigest(inspectorMissingFields)) === JSON.stringify(missingFieldSummaryDigest(evidenceMissingFields)), `${JSON.stringify(missingFieldSummaryDigest(inspectorMissingFields))} vs ${JSON.stringify(missingFieldSummaryDigest(evidenceMissingFields))}`);
+  check('cross-output metric domain summaries match', JSON.stringify(metricDomainSummaryDigest(inspectorMetricQuestion)) === JSON.stringify(metricDomainSummaryDigest(evidenceMetricQuestion)), `${JSON.stringify(metricDomainSummaryDigest(inspectorMetricQuestion))} vs ${JSON.stringify(metricDomainSummaryDigest(evidenceMetricQuestion))}`);
   check('cross-output metric domain gap codes match', sameStringList(inspectorMetricQuestion?.evidence?.metric_domain_gap_codes, evidenceMetricQuestion?.evidence?.metric_domain_gap_codes), `${JSON.stringify(inspectorMetricQuestion?.evidence?.metric_domain_gap_codes)} vs ${JSON.stringify(evidenceMetricQuestion?.evidence?.metric_domain_gap_codes)}`);
   check('cross-output traffic missing platforms match', sameStringList(inspectorMetricQuestion?.evidence?.traffic_missing_platforms, evidenceMetricQuestion?.evidence?.traffic_missing_platforms), `${JSON.stringify(inspectorMetricQuestion?.evidence?.traffic_missing_platforms)} vs ${JSON.stringify(evidenceMetricQuestion?.evidence?.traffic_missing_platforms)}`);
   check('cross-output next action code order matches', JSON.stringify(actionCodeList(payload.next_actions)) === JSON.stringify(actionCodeList(evidencePayload.next_actions)), `${JSON.stringify(actionCodeList(payload.next_actions))} vs ${JSON.stringify(actionCodeList(evidencePayload.next_actions))}`);
@@ -1478,6 +1667,11 @@ if (payload && evidencePayload) {
   check('cross-output next action resolved missing codes match', JSON.stringify(actionResolvesMissingCodesList(payload.next_actions)) === JSON.stringify(actionResolvesMissingCodesList(evidencePayload.next_actions)), `${JSON.stringify(actionResolvesMissingCodesList(payload.next_actions))} vs ${JSON.stringify(actionResolvesMissingCodesList(evidencePayload.next_actions))}`);
   check('cross-output next action live closure gap codes match', JSON.stringify(actionArrayFieldList(payload.next_actions, 'live_closure_gap_codes')) === JSON.stringify(actionArrayFieldList(evidencePayload.next_actions, 'live_closure_gap_codes')), `${JSON.stringify(actionArrayFieldList(payload.next_actions, 'live_closure_gap_codes'))} vs ${JSON.stringify(actionArrayFieldList(evidencePayload.next_actions, 'live_closure_gap_codes'))}`);
   check('cross-output next action employee explanations match', JSON.stringify(actionStringFieldList(payload.next_actions, 'employee_explanation')) === JSON.stringify(actionStringFieldList(evidencePayload.next_actions, 'employee_explanation')), `${JSON.stringify(actionStringFieldList(payload.next_actions, 'employee_explanation'))} vs ${JSON.stringify(actionStringFieldList(evidencePayload.next_actions, 'employee_explanation'))}`);
+  check('cross-output next action employee actions match', JSON.stringify(actionStringFieldList(payload.next_actions, 'employee_action')) === JSON.stringify(actionStringFieldList(evidencePayload.next_actions, 'employee_action')), `${JSON.stringify(actionStringFieldList(payload.next_actions, 'employee_action'))} vs ${JSON.stringify(actionStringFieldList(evidencePayload.next_actions, 'employee_action'))}`);
+  check('cross-output next action employee evidence needed match', JSON.stringify(actionArrayFieldList(payload.next_actions, 'employee_evidence_needed')) === JSON.stringify(actionArrayFieldList(evidencePayload.next_actions, 'employee_evidence_needed')), `${JSON.stringify(actionArrayFieldList(payload.next_actions, 'employee_evidence_needed'))} vs ${JSON.stringify(actionArrayFieldList(evidencePayload.next_actions, 'employee_evidence_needed'))}`);
+  check('cross-output next action employee verification steps match', JSON.stringify(actionArrayFieldList(payload.next_actions, 'employee_verification_steps')) === JSON.stringify(actionArrayFieldList(evidencePayload.next_actions, 'employee_verification_steps')), `${JSON.stringify(actionArrayFieldList(payload.next_actions, 'employee_verification_steps'))} vs ${JSON.stringify(actionArrayFieldList(evidencePayload.next_actions, 'employee_verification_steps'))}`);
+  check('cross-output next action employee success criteria match', JSON.stringify(actionStringFieldList(payload.next_actions, 'employee_success_criteria')) === JSON.stringify(actionStringFieldList(evidencePayload.next_actions, 'employee_success_criteria')), `${JSON.stringify(actionStringFieldList(payload.next_actions, 'employee_success_criteria'))} vs ${JSON.stringify(actionStringFieldList(evidencePayload.next_actions, 'employee_success_criteria'))}`);
+  check('cross-output next action employee explanation next actions match', JSON.stringify(actionStringFieldList(payload.next_actions, 'employee_explanation_next_action')) === JSON.stringify(actionStringFieldList(evidencePayload.next_actions, 'employee_explanation_next_action')), `${JSON.stringify(actionStringFieldList(payload.next_actions, 'employee_explanation_next_action'))} vs ${JSON.stringify(actionStringFieldList(evidencePayload.next_actions, 'employee_explanation_next_action'))}`);
   check('cross-output next action limited conclusions match', JSON.stringify(actionArrayFieldList(payload.next_actions, 'limited_conclusions')) === JSON.stringify(actionArrayFieldList(evidencePayload.next_actions, 'limited_conclusions')), `${JSON.stringify(actionArrayFieldList(payload.next_actions, 'limited_conclusions'))} vs ${JSON.stringify(actionArrayFieldList(evidencePayload.next_actions, 'limited_conclusions'))}`);
   check('cross-output next action still usable metrics match', JSON.stringify(actionArrayFieldList(payload.next_actions, 'still_usable_metrics')) === JSON.stringify(actionArrayFieldList(evidencePayload.next_actions, 'still_usable_metrics')), `${JSON.stringify(actionArrayFieldList(payload.next_actions, 'still_usable_metrics'))} vs ${JSON.stringify(actionArrayFieldList(evidencePayload.next_actions, 'still_usable_metrics'))}`);
   check('cross-output next action explanation next actions match', JSON.stringify(actionStringFieldList(payload.next_actions, 'explanation_next_action')) === JSON.stringify(actionStringFieldList(evidencePayload.next_actions, 'explanation_next_action')), `${JSON.stringify(actionStringFieldList(payload.next_actions, 'explanation_next_action'))} vs ${JSON.stringify(actionStringFieldList(evidencePayload.next_actions, 'explanation_next_action'))}`);

@@ -3,6 +3,11 @@ import { readFileSync } from 'node:fs';
 const read = (path) => readFileSync(path, 'utf8');
 const controllerSource = read('app/controller/OnlineData.php');
 const publicSource = read('public/index.html');
+const ctripProfileFieldComponentSource = read('public/components/online-data/ctrip-profile-field-config-panel.js');
+const ctripProfileFieldComponentTemplateSource = ctripProfileFieldComponentSource
+  .replace(/\\n/g, '\n')
+  .replace(/\\"/g, '"');
+const profileUiSource = `${publicSource}\n${ctripProfileFieldComponentTemplateSource}`;
 const packageSource = read('package.json');
 
 const sliceBetween = (source, startNeedle, endNeedle) => {
@@ -27,11 +32,11 @@ const dataHealthFieldPanel = sliceBetween(
   'data-testid="field-asset-summary-panel"',
   'data-testid="ctrip-capture-catalog-health"'
 );
-const profileFieldPanel = sliceBetween(
+const profileFieldPanel = `${sliceBetween(
   publicSource,
   'data-testid="ctrip-profile-field-config-panel"',
   '<!-- 展开数据 -->'
-);
+) }\n${ctripProfileFieldComponentTemplateSource}`;
 const profileFieldComputeds = sliceBetween(
   publicSource,
   'const ctripProfileForbiddenFieldKeys = new Set',
@@ -44,7 +49,7 @@ const profileFieldFilterLogic = sliceBetween(
 );
 const publicReturn = sliceBetween(
   publicSource,
-  'ctripProfileFieldSampledCount',
+  'aiProject, aiStrategyParams',
   'quickCookiesName'
 );
 const platformPlaceholder = sliceBetween(
@@ -116,8 +121,8 @@ const checks = [
   },
   {
     name: 'profile field recheck includes enabled fields with no returned sample',
-    pass: publicSource.includes('重抓缺口/不符')
-      && publicSource.includes('!ctripProfileFieldSamplesLoaded')
+    pass: profileUiSource.includes('recheckCtripProfileMismatchedFields')
+      && profileUiSource.includes('!ctripProfileFieldSamplesLoaded')
       && publicSource.includes('const noReturnedValue = ctripProfileFieldSamplesLoaded.value')
       && publicSource.includes("String(field.latest_value || '').trim() === ''")
       && publicReturn.includes('ctripProfileFieldRecheckTargetCount'),

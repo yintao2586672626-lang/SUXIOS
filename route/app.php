@@ -6,9 +6,89 @@ declare(strict_types=1);
 // +----------------------------------------------------------------------
 use think\facade\Route;
 
+if (!function_exists('suxi_root_index_response')) {
+    function suxi_root_index_response(): \think\Response
+    {
+        $indexFile = public_path() . 'index.html';
+        if (!is_file($indexFile)) {
+            return response('index.html missing', 500);
+        }
+
+        $mtime = (int)filemtime($indexFile);
+        $size = (int)filesize($indexFile);
+        $etag = '"' . md5($indexFile . '|' . $mtime . '|' . $size . '|root-index-gzip-v1') . '"';
+        $lastModified = gmdate('D, d M Y H:i:s', $mtime) . ' GMT';
+        $headers = [
+            'Content-Type' => 'text/html; charset=utf-8',
+            'ETag' => $etag,
+            'Last-Modified' => $lastModified,
+            'Vary' => 'Accept-Encoding',
+            'Cache-Control' => 'no-cache',
+        ];
+
+        $request = request();
+        $requestHeaders = function_exists('getallheaders') ? (array)getallheaders() : [];
+        $ifNoneMatch = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
+        if ($ifNoneMatch === '') {
+            $ifNoneMatch = trim((string)$request->header('If-None-Match', ''));
+        }
+        if ($ifNoneMatch === '') {
+            $ifNoneMatch = trim((string)$request->header('if-none-match', ''));
+        }
+        if ($ifNoneMatch === '') {
+            $ifNoneMatch = trim((string)($requestHeaders['If-None-Match'] ?? $requestHeaders['if-none-match'] ?? ''));
+        }
+
+        $ifModifiedSince = trim((string)($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? ''));
+        if ($ifModifiedSince === '') {
+            $ifModifiedSince = trim((string)$request->header('If-Modified-Since', ''));
+        }
+        if ($ifModifiedSince === '') {
+            $ifModifiedSince = trim((string)$request->header('if-modified-since', ''));
+        }
+        if ($ifModifiedSince === '') {
+            $ifModifiedSince = trim((string)($requestHeaders['If-Modified-Since'] ?? $requestHeaders['if-modified-since'] ?? ''));
+        }
+        $etagValue = trim($etag, '"');
+        $ifNoneMatchValues = array_map(
+            static fn(string $value): string => trim($value, " \t\n\r\0\x0B\""),
+            explode(',', $ifNoneMatch)
+        );
+        $etagMatches = in_array('*', $ifNoneMatchValues, true)
+            || in_array($etagValue, $ifNoneMatchValues, true);
+        if ($etagMatches || ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime)) {
+            return response('', 304, $headers);
+        }
+
+        $acceptEncoding = strtolower((string)($_SERVER['HTTP_ACCEPT_ENCODING'] ?? ''));
+        if ($size > 1024 && function_exists('gzencode') && str_contains($acceptEncoding, 'gzip')) {
+            $gzipRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'static-gzip';
+            $gzipFile = $gzipRoot . DIRECTORY_SEPARATOR . md5($indexFile) . '-' . $mtime . '-' . $size . '.gz';
+            if (!is_file($gzipFile)) {
+                $content = (string)file_get_contents($indexFile);
+                $encoded = gzencode($content, 1);
+                if ($encoded !== false && (is_dir($gzipRoot) || mkdir($gzipRoot, 0775, true)) && is_writable($gzipRoot)) {
+                    file_put_contents($gzipFile, $encoded, LOCK_EX);
+                }
+            }
+
+            if (is_file($gzipFile)) {
+                $headers['Content-Encoding'] = 'gzip';
+                $headers['Content-Length'] = (string)filesize($gzipFile);
+                return response((string)file_get_contents($gzipFile), 200, $headers);
+            }
+        }
+
+        $content = (string)file_get_contents($indexFile);
+        $headers['Content-Length'] = (string)strlen($content);
+
+        return response($content, 200, $headers);
+    }
+}
+
 // 根路径 - 返回前端页面
 Route::get('/', function () {
-    return file_get_contents(public_path() . 'index.html');
+    return suxi_root_index_response();
 });
 
 // CORS 预检请求
@@ -204,6 +284,16 @@ Route::group('api/online-data', function () {
     Route::get('/cookie-status', 'OnlineData/cookieStatus');
     Route::get('/public-endpoint-security', 'OnlineData/publicEndpointSecurity');
     Route::get('/collection-reliability', 'OnlineData/collectionReliability');
+    Route::get('/daily-workbench', 'OnlineData/dailyWorkbench');
+    Route::get('/daily-workbench-patrols', 'OnlineData/dailyWorkbenchPatrols');
+    Route::get('/daily-workbench-patrols/report', 'OnlineData/dailyWorkbenchPatrolReport');
+    Route::post('/daily-workbench-patrols/run', 'OnlineData/runDailyWorkbenchPatrol');
+    Route::post('/daily-workbench-patrols/actions/update', 'OnlineData/updateDailyWorkbenchPatrolAction');
+    Route::post('/daily-workbench-patrols/actions/review', 'OnlineData/reviewDailyWorkbenchPatrolAction');
+    Route::get('/phase3-operation-effect-loop', 'OnlineData/phase3OperationEffectLoop');
+    Route::get('/phase3-operation-effect-loop/ledger', 'OnlineData/phase3OperationEffectLoopLedger');
+    Route::post('/phase3-operation-effect-loop/sops/publish', 'OnlineData/publishPhase3OperationSop');
+    Route::post('/phase3-operation-effect-loop/replications/create', 'OnlineData/createPhase3ReplicationPlan');
     Route::get('/history/:id', 'OnlineData/historyDetail');
     Route::get('/history', 'OnlineData/history');
     Route::get('/daily-data-list', 'OnlineData/dailyDataList');
@@ -440,6 +530,7 @@ Route::rule('api/online-data/receive-cookies', 'OnlineData/receiveCookies', 'POS
 
 // 定时任务触发接口（不需要认证，通过X-Cron-Token验证）
 Route::get('api/online-data/cron-trigger', 'OnlineData/cronTrigger');
+Route::get('api/online-data/daily-workbench-patrol-cron', 'OnlineData/dailyWorkbenchPatrolCron');
 
 // ==================== 操作日志路由 ====================
 Route::group('api/operation-logs', function () {
