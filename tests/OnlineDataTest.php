@@ -943,6 +943,59 @@ final class OnlineDataTest extends TestCase
         self::assertSame('-', $cardsByKey['avgPayConversionRate']['value']);
     }
 
+    public function testBackendKeepsMeituanTodayRealtimePercentOnlyValuesMissing(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplayHotels', [[
+            'data' => [
+                'peerRankData' => [
+                    [
+                        'dimName' => '入住间夜榜',
+                        'aiMetricName' => 'P_RZ_NIGHT_COUNT',
+                        'roundRanks' => [
+                            ['poiId' => 'TOP', 'poiName' => 'Top Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 0, 'rank' => 11],
+                        ],
+                    ],
+                    [
+                        'dimName' => '房费收入榜',
+                        'aiMetricName' => 'P_RZ_ROOM_PAY',
+                        'roundRanks' => [
+                            ['poiId' => 'TOP', 'poiName' => 'Top Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 0, 'rank' => 11],
+                        ],
+                    ],
+                ],
+            ],
+        ], [
+            'target_poi_id' => 'SELF',
+            'date_range' => '0',
+        ]]);
+
+        $rowsByPoi = [];
+        foreach ($rows as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame(0.0, $rowsByPoi['TOP']['roomNights']);
+        self::assertSame('-', $rowsByPoi['TOP']['roomNightsText']);
+        self::assertSame('-', $rowsByPoi['TOP']['roomRevenueText']);
+        self::assertSame('美团仅返回百分比', $rowsByPoi['TOP']['metricSourceStatus']['roomNights']);
+        self::assertSame('美团仅返回百分比', $rowsByPoi['TOP']['metricSourceStatus']['roomRevenue']);
+        self::assertArrayNotHasKey('roomNights', $rowsByPoi['TOP']['metricDerived']);
+
+        $summary = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplaySummary', [$rows, []]);
+        $healthByKey = [];
+        foreach ($summary['rank_health_rows'] as $row) {
+            $healthByKey[$row['key']] = $row;
+        }
+        self::assertSame('rank_only', $healthByKey['P_RZ']['status']);
+        self::assertSame('仅排名', $healthByKey['P_RZ']['statusText']);
+        self::assertSame(0, $summary['metrics']['rankHealthReadyCount']);
+        self::assertStringContainsString('不用 0', $summary['source_notice']);
+    }
+
     public function testBackendFillsMeituanFunnelColumnsFromPercentDerivedTrafficAndSales(): void
     {
         $controller = $this->controller();
@@ -1643,6 +1696,7 @@ final class OnlineDataTest extends TestCase
             'failed',
             'partial_success',
             'success',
+            'not_collected',
         ], $catalog);
 
         $emptySummary = $this->invokeNonPublic($controller, 'buildCollectionAuthorizationSummary', [[]]);
@@ -1652,6 +1706,12 @@ final class OnlineDataTest extends TestCase
             ['hotel_id' => 7, 'status' => 'expired'],
         ]]);
         self::assertSame('expired', $expiredSummary['overall_status']);
+
+        $notCollectedSummary = $this->invokeNonPublic($controller, 'buildCollectionAuthorizationSummary', [[
+            ['hotel_id' => 7, 'status' => 'not_collected'],
+        ]]);
+        self::assertSame('not_collected', $notCollectedSummary['overall_status']);
+        self::assertSame(1, $notCollectedSummary['not_collected']);
     }
 
     public function testDashboardMetricValueStateDistinguishesZeroNullMissingAndFailureStates(): void
@@ -1774,6 +1834,851 @@ final class OnlineDataTest extends TestCase
         self::assertSame($actions[0]['action'], $actions[0]['next_action']);
         self::assertContains('online_daily_data 同日期源数据行', $actions[0]['evidence_needed']);
         self::assertStringContainsString('不改变采集字段', $actions[0]['protected_boundary']);
+    }
+
+    public function testPhase1EmployeeQuestionsStayIncompleteWithoutOtaEvidence(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'withPhase1EmployeeQuestions', [[
+            'mode' => 'light',
+            'period' => ['start_date' => '2026-06-12', 'end_date' => '2026-06-12', 'days' => 1],
+            'hotel_id' => 1,
+            'collection_logs' => [],
+            'history_replay' => [],
+            'data_quality' => ['status' => 'not_loaded', 'checked_records' => 0, 'missing_count' => 0],
+            'field_definitions' => [
+                ['source' => 'ctrip', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+            ],
+            'pending_actions' => [],
+            'failure_reasons' => [],
+        ]]);
+
+        $questions = $payload['phase1_employee_questions'];
+        self::assertSame('ota_channel', $questions['scope']['metric_scope']);
+        self::assertSame('read_existing_collection_reliability_only', $questions['source_policy']);
+        self::assertSame('incomplete', $questions['summary']['status']);
+        self::assertSame($questions['summary'], $questions['closure_summary']);
+        self::assertSame('read_existing_phase1_employee_question_rows_only', $questions['closure_summary']['source_policy']);
+        self::assertSame('phase1_confirm_source_date_evidence', $questions['closure_summary']['top_action_code']);
+        self::assertSame('/api/online-data/collection-reliability', $questions['closure_summary']['top_action_entry']);
+        self::assertContains('today_ota_collected', $questions['closure_summary']['missing_question_keys']);
+        self::assertSame('latest_available_and_history_rows_are_reference_only_not_target_date_proof', $questions['closure_summary']['reference_policy']);
+        self::assertCount(6, $questions['rows']);
+        self::assertSame('today_ota_collected', $questions['rows'][0]['key']);
+        self::assertSame('not_proved', $questions['rows'][0]['status']);
+        self::assertSame('missing', $questions['rows'][0]['evidence']['target_date_platform_coverage']['status']);
+        self::assertTrue($questions['rows'][0]['evidence']['target_date_platform_coverage']['source_date_evidence_missing']);
+        self::assertSame('warning', $questions['rows'][4]['status']);
+        self::assertSame('missing', $questions['rows'][5]['status']);
+        self::assertGreaterThanOrEqual(3, $questions['summary']['next_action_count']);
+        self::assertContains('phase1_confirm_source_date_evidence', array_column($questions['next_required_actions'], 'action_code'));
+        self::assertContains('phase1_collect_ai_diagnosis_evidence', array_column($questions['next_required_actions'], 'action_code'));
+    }
+
+    public function testPhase1EmployeeQuestionsExposeEvidenceButKeepAiAndExecutionOpen(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'withPhase1EmployeeQuestions', [[
+            'mode' => 'full',
+            'period' => ['start_date' => '2026-06-12', 'end_date' => '2026-06-12', 'days' => 1],
+            'hotel_id' => 1,
+            'collection_logs' => [
+                ['status' => 'success', 'saved_count' => 2, 'run_time' => '2026-06-12 09:00:00'],
+            ],
+            'history_replay' => [],
+            'data_quality' => ['status' => 'warning', 'checked_records' => 2, 'missing_count' => 1, 'missing_fields' => ['quantity']],
+            'revenue_metric_evidence' => [
+                'status' => 'ready',
+                'metric_trust_keys' => ['totals.revenue', 'totals.room_nights'],
+                'data_gap_codes' => ['available_room_nights_missing'],
+                'source_policy' => 'read_existing_ota_standard_revenue_metrics_only',
+            ],
+            'field_definitions' => [
+                ['source' => 'ctrip', 'module' => 'business', 'fields' => [['field' => 'amount'], ['field' => 'quantity']]],
+            ],
+            'pending_actions' => [
+                ['type' => 'field_quality', 'action_code' => 'ota_field_quality_warning', 'reason' => 'field missing'],
+            ],
+            'failure_reasons' => [],
+        ]]);
+
+        $rowsByKey = [];
+        foreach ($payload['phase1_employee_questions']['rows'] as $row) {
+            $rowsByKey[$row['key']] = $row;
+        }
+
+        self::assertSame('warning', $rowsByKey['today_ota_collected']['status']);
+        self::assertSame(2, $rowsByKey['today_ota_collected']['evidence']['source_rows']);
+        self::assertSame(0, $rowsByKey['today_ota_collected']['evidence']['target_date_source_rows']);
+        self::assertSame('unknown', $rowsByKey['today_ota_collected']['evidence']['target_date_platform_coverage']['status']);
+        self::assertTrue($rowsByKey['today_ota_collected']['evidence']['target_date_platform_coverage']['source_date_evidence_missing']);
+        self::assertTrue($rowsByKey['today_ota_collected']['evidence']['source_date_evidence_missing']);
+        self::assertSame('warning', $rowsByKey['trusted_fields']['status']);
+        self::assertSame(2, $rowsByKey['trusted_fields']['evidence']['field_definition_count']);
+        self::assertSame(['ctrip.business.amount', 'ctrip.business.quantity'], $rowsByKey['trusted_fields']['evidence']['field_definition_keys']);
+        self::assertSame(0, $rowsByKey['trusted_fields']['evidence']['target_date_source_rows']);
+        self::assertTrue($rowsByKey['trusted_fields']['evidence']['metric_trust_required']);
+        self::assertSame(['totals.revenue', 'totals.room_nights'], $rowsByKey['trusted_fields']['evidence']['metric_trust_keys']);
+        self::assertSame(['available_room_nights_missing'], $rowsByKey['trusted_fields']['evidence']['data_gap_codes']);
+        self::assertSame('requires_target_date_rows_field_definitions_metric_trust_and_data_quality', $rowsByKey['trusted_fields']['evidence']['field_trust_policy']);
+        self::assertSame(['ota_field_quality_warning'], $rowsByKey['trusted_fields']['evidence']['field_pending_action_codes']);
+        self::assertContains('/api/ota-standard/revenue-metrics.metric_trust', $rowsByKey['trusted_fields']['evidence']['evidence_refs']);
+        self::assertSame('proved', $rowsByKey['missing_fields']['status']);
+        self::assertSame(['quantity'], $rowsByKey['missing_fields']['evidence']['missing_field_codes']);
+        self::assertSame(['available_room_nights_missing'], $rowsByKey['missing_fields']['evidence']['data_gap_codes']);
+        self::assertSame(['ota_field_quality_warning'], $rowsByKey['missing_fields']['evidence']['field_pending_action_codes']);
+        self::assertSame('not_proved', $rowsByKey['revenue_traffic_conversion']['status']);
+        self::assertSame('warning', $rowsByKey['ai_evidence']['status']);
+        self::assertContains('source_date_evidence_missing', $rowsByKey['ai_evidence']['evidence']['upstream_blockers']);
+        self::assertSame('blocked_by_verified_ota_gaps', $rowsByKey['ai_evidence']['evidence']['diagnosis_status']);
+        self::assertSame('blocked_by_verified_ota_gaps', $rowsByKey['ai_evidence']['evidence']['action_item_status']);
+        self::assertContains('source_date_evidence_missing', $rowsByKey['ai_evidence']['evidence']['blocking_missing_codes']);
+        self::assertSame('warning', $rowsByKey['next_operation_action']['status']);
+        self::assertSame('missing', $rowsByKey['next_operation_action']['evidence']['operation_evidence_status']);
+        self::assertSame('read_existing_operation_execution_state_only', $rowsByKey['next_operation_action']['evidence']['source_policy']);
+        self::assertSame(0, $rowsByKey['next_operation_action']['evidence']['ota_diagnosis_linked_intent_count']);
+        self::assertContains('operation_execution_context_missing', $rowsByKey['next_operation_action']['evidence']['data_gap_codes']);
+        self::assertContains('operation_execution_sample_missing', $rowsByKey['next_operation_action']['evidence']['blocking_missing_codes']);
+        self::assertContains('source_date_evidence_missing', $rowsByKey['next_operation_action']['evidence']['blocking_missing_codes']);
+        self::assertContains('phase1_confirm_source_date_evidence', array_column($payload['phase1_employee_questions']['next_required_actions'], 'action_code'));
+        foreach ($payload['phase1_employee_questions']['rows'] as $row) {
+            self::assertArrayHasKey('next_action_codes', $row);
+            self::assertIsArray($row['next_action_codes']);
+        }
+        self::assertContains('phase1_confirm_source_date_evidence', $rowsByKey['today_ota_collected']['next_action_codes']);
+        self::assertContains('phase1_collect_ai_diagnosis_evidence', $rowsByKey['ai_evidence']['next_action_codes']);
+        self::assertContains('phase1_create_operation_execution_evidence', $rowsByKey['next_operation_action']['next_action_codes']);
+        self::assertSame('incomplete', $payload['phase1_employee_questions']['summary']['status']);
+        self::assertSame('incomplete', $payload['phase1_employee_questions']['closure_summary']['status']);
+        self::assertSame($payload['phase1_employee_questions']['summary'], $payload['phase1_employee_questions']['closure_summary']);
+    }
+
+    public function testPhase1EmployeeQuestionsDoNotUseStaleOrFutureRowsAsTargetDateProof(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'withPhase1EmployeeQuestions', [[
+            'mode' => 'full',
+            'period' => ['start_date' => '2026-06-12', 'end_date' => '2026-06-12', 'days' => 1],
+            'hotel_id' => 1,
+            'collection_logs' => [
+                ['status' => 'success', 'saved_count' => 9, 'run_time' => '2026-06-12 09:00:00'],
+            ],
+            'history_replay' => [],
+            'source_date_evidence' => [
+                'status' => 'target_date_missing',
+                'target_date' => '2026-06-12',
+                'source_policy' => 'read_online_daily_data_aggregate_only',
+                'platforms' => [
+                    [
+                        'platform' => 'ctrip',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 0,
+                        'target_date_data_types' => [],
+                        'latest_available' => ['date' => '2026-06-14', 'rows' => 4, 'data_types' => ['business']],
+                        'date_relation' => 'future_dated_for_target',
+                    ],
+                    [
+                        'platform' => 'meituan',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 0,
+                        'target_date_data_types' => [],
+                        'latest_available' => ['date' => '2026-06-11', 'rows' => 176, 'data_types' => ['business']],
+                        'date_relation' => 'stale_before_target',
+                    ],
+                ],
+            ],
+            'data_quality' => ['status' => 'warning', 'checked_records' => 9, 'missing_count' => 0],
+            'field_definitions' => [
+                ['source' => 'ctrip', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+            ],
+            'pending_actions' => [],
+            'failure_reasons' => [],
+        ]]);
+
+        $first = $payload['phase1_employee_questions']['rows'][0];
+        self::assertSame('today_ota_collected', $first['key']);
+        self::assertSame('not_proved', $first['status']);
+        self::assertSame(9, $first['evidence']['source_rows']);
+        self::assertSame(0, $first['evidence']['target_date_source_rows']);
+        self::assertSame('future_dated_for_target', $first['evidence']['source_date_evidence']['platforms'][0]['date_relation']);
+        self::assertSame('stale_before_target', $first['evidence']['source_date_evidence']['platforms'][1]['date_relation']);
+        $sourceSummary = $payload['phase1_employee_questions']['collection_source_summary'];
+        self::assertSame($sourceSummary, $payload['collection_source_summary']);
+        self::assertCount(2, $sourceSummary);
+        self::assertSame('online_daily_data', $sourceSummary[0]['storage_table']);
+        self::assertSame('read_existing_online_daily_data_only', $sourceSummary[0]['source_policy']);
+        self::assertSame('ota_channel', $sourceSummary[0]['metric_scope']);
+        self::assertSame(0, $sourceSummary[0]['target_date_rows']);
+        self::assertSame('2026-06-14', $sourceSummary[0]['latest_available']['date']);
+        self::assertSame('future_dated_for_target', $sourceSummary[0]['latest_available']['date_relation']);
+        self::assertTrue($sourceSummary[0]['latest_available_reference_only']);
+        self::assertFalse($sourceSummary[0]['collection_logic_changed']);
+        self::assertSame('stale_before_target', $sourceSummary[1]['latest_available']['date_relation']);
+        $rowsByKey = [];
+        foreach ($payload['phase1_employee_questions']['rows'] as $row) {
+            $rowsByKey[$row['key']] = $row;
+        }
+        self::assertSame('warning', $rowsByKey['trusted_fields']['status']);
+        self::assertContains('ctrip_target_date_source_rows_missing', $rowsByKey['today_ota_collected']['blocking_gap_codes']);
+        self::assertContains('ctrip_target_date_source_rows_missing', $rowsByKey['trusted_fields']['blocking_gap_codes']);
+        self::assertSame(0, $rowsByKey['trusted_fields']['evidence']['target_date_source_rows']);
+        self::assertSame('target_date_source_missing', $rowsByKey['trusted_fields']['evidence']['platform_field_trust'][0]['field_trust_status']);
+        self::assertSame('target_date_source_missing', $rowsByKey['trusted_fields']['evidence']['platform_field_trust'][1]['field_trust_status']);
+        self::assertContains('ctrip_target_date_source_rows_missing', $rowsByKey['trusted_fields']['evidence']['platform_field_trust'][0]['reason_codes']);
+        self::assertSame('not_proved', $rowsByKey['revenue_traffic_conversion']['status']);
+        self::assertContains('ctrip_revenue_metric_inputs_missing', $rowsByKey['revenue_traffic_conversion']['blocking_gap_codes']);
+        self::assertSame(0, $rowsByKey['revenue_traffic_conversion']['evidence']['target_date_source_rows']);
+        self::assertSame([], $rowsByKey['revenue_traffic_conversion']['evidence']['revenue_ready_platforms']);
+        self::assertSame(['ctrip', 'meituan'], $rowsByKey['revenue_traffic_conversion']['evidence']['revenue_missing_platforms']);
+        self::assertSame(['ctrip', 'meituan'], $rowsByKey['revenue_traffic_conversion']['evidence']['traffic_missing_platforms']);
+        self::assertContains('ctrip_revenue_metric_inputs_missing', $rowsByKey['revenue_traffic_conversion']['evidence']['metric_domain_gap_codes']);
+        self::assertContains('meituan_traffic_conversion_facts_missing', $rowsByKey['revenue_traffic_conversion']['evidence']['metric_domain_gap_codes']);
+        self::assertSame('missing', $rowsByKey['revenue_traffic_conversion']['evidence']['metric_domain_readiness'][0]['revenue_status']);
+        $sourceActionByCode = [];
+        foreach ($payload['phase1_employee_questions']['next_required_actions'] as $action) {
+            $sourceActionByCode[$action['action_code']] = $action;
+        }
+        self::assertSame('/api/online-data/fetch-ctrip-overview', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry']);
+        self::assertContains('/api/online-data/capture-ctrip-browser', array_column($sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'], 'entry'));
+        self::assertContains('手动 Cookie/API', array_column($sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'], 'label'));
+        self::assertStringContainsString('已取得携程 Cookie', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['use_when']);
+        self::assertStringContainsString('不改变采集字段', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['boundary']);
+        self::assertSame('requires_user_context', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['readiness']['status']);
+        self::assertFalse($sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['readiness']['can_run_now']);
+        self::assertContains($sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['readiness']['status'], ['profile_missing', 'profile_found_login_unverified']);
+        self::assertArrayHasKey('profile_count', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['readiness']);
+        self::assertSame('/api/online-data/fetch-meituan', $sourceActionByCode['phase1_collect_meituan_target_date_source_rows']['entry']);
+        self::assertContains('/api/online-data/capture-meituan-browser', array_column($sourceActionByCode['phase1_collect_meituan_target_date_source_rows']['entry_options'], 'entry'));
+        self::assertStringContainsString('已取得美团 Cookie', $sourceActionByCode['phase1_collect_meituan_target_date_source_rows']['entry_options'][0]['use_when']);
+        self::assertSame('requires_user_context', $sourceActionByCode['phase1_collect_meituan_target_date_source_rows']['entry_options'][0]['readiness']['status']);
+        self::assertSame('incomplete', $payload['phase1_employee_questions']['summary']['status']);
+        self::assertSame('phase1_collect_ctrip_target_date_source_rows', $payload['phase1_employee_questions']['closure_summary']['top_action_code']);
+        self::assertContains('/api/online-data/fetch-ctrip-overview', array_column($payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'], 'entry'));
+        self::assertContains('/api/online-data/capture-ctrip-browser', array_column($payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'], 'entry'));
+        self::assertContains('/api/online-data/collection-reliability', array_column($payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'], 'entry'));
+        self::assertStringContainsString('用户提供授权上下文', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][0]['requires']);
+        self::assertStringContainsString('只读状态', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][2]['boundary']);
+        self::assertSame('ready', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][2]['readiness']['status']);
+        self::assertTrue($payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][2]['readiness']['can_run_now']);
+        self::assertContains('today_ota_collected', $payload['phase1_employee_questions']['closure_summary']['top_action_related_question_keys']);
+        self::assertContains('trusted_fields', $payload['phase1_employee_questions']['closure_summary']['top_action_related_question_keys']);
+        self::assertSame(['ctrip_target_date_source_rows_missing'], $payload['phase1_employee_questions']['closure_summary']['top_action_resolves_missing_codes']);
+        self::assertSame(['ctrip_source_rows_missing'], $payload['phase1_employee_questions']['closure_summary']['top_action_live_closure_gap_codes']);
+        self::assertSame('ctrip', $payload['phase1_employee_questions']['closure_summary']['top_action_source_snapshot']['platform']);
+        self::assertSame(0, $payload['phase1_employee_questions']['closure_summary']['top_action_source_snapshot']['target_date_rows']);
+        self::assertSame('future_dated_for_target', $payload['phase1_employee_questions']['closure_summary']['top_action_source_snapshot']['latest_available']['date_relation']);
+        self::assertTrue($payload['phase1_employee_questions']['closure_summary']['top_action_source_snapshot']['latest_available_reference_only']);
+        self::assertStringContainsString('target_date_rows > 0', $payload['phase1_employee_questions']['closure_summary']['top_action_source_snapshot']['proof_requirement']);
+    }
+
+    public function testPhase1EmployeeQuestionsTreatSinglePlatformTargetRowsAsPartialCoverage(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'withPhase1EmployeeQuestions', [[
+            'mode' => 'full',
+            'period' => ['start_date' => '2026-06-12', 'end_date' => '2026-06-12', 'days' => 1],
+            'hotel_id' => 1,
+            'collection_logs' => [
+                ['status' => 'success', 'saved_count' => 88, 'run_time' => '2026-06-12 09:00:00'],
+            ],
+            'history_replay' => [],
+            'source_date_evidence' => [
+                'status' => 'target_date_present',
+                'target_date' => '2026-06-12',
+                'source_policy' => 'read_online_daily_data_aggregate_only',
+                'platforms' => [
+                    [
+                        'platform' => 'ctrip',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 0,
+                        'target_date_data_types' => [],
+                        'latest_available' => ['date' => '2026-06-14', 'rows' => 4, 'data_types' => ['business']],
+                        'date_relation' => 'future_dated_for_target',
+                    ],
+                    [
+                        'platform' => 'meituan',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 88,
+                        'target_date_data_types' => ['business'],
+                        'latest_available' => ['date' => '2026-06-12', 'rows' => 88, 'data_types' => ['business']],
+                        'date_relation' => 'target_date',
+                    ],
+                ],
+            ],
+            'data_quality' => ['status' => 'warning', 'checked_records' => 88, 'missing_count' => 0],
+            'field_definitions' => [
+                ['source' => 'meituan', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+            ],
+            'pending_actions' => [],
+            'failure_reasons' => [],
+        ]]);
+
+        $rowsByKey = [];
+        foreach ($payload['phase1_employee_questions']['rows'] as $row) {
+            $rowsByKey[$row['key']] = $row;
+        }
+
+        self::assertSame('warning', $rowsByKey['today_ota_collected']['status']);
+        self::assertSame(88, $rowsByKey['today_ota_collected']['evidence']['target_date_source_rows']);
+        self::assertSame('partial', $rowsByKey['today_ota_collected']['evidence']['target_date_platform_coverage']['status']);
+        self::assertSame(['ctrip'], $rowsByKey['today_ota_collected']['evidence']['target_date_platform_coverage']['missing_platforms']);
+        self::assertSame('warning', $rowsByKey['trusted_fields']['status']);
+        self::assertSame('target_date_source_missing', $rowsByKey['trusted_fields']['evidence']['platform_field_trust'][0]['field_trust_status']);
+        self::assertSame('target_date_revenue_sample_present', $rowsByKey['trusted_fields']['evidence']['platform_field_trust'][1]['field_trust_status']);
+        self::assertSame(88, $rowsByKey['trusted_fields']['evidence']['platform_field_trust'][1]['target_date_rows']);
+        self::assertSame('warning', $rowsByKey['revenue_traffic_conversion']['status']);
+        self::assertSame(['meituan'], $rowsByKey['revenue_traffic_conversion']['evidence']['revenue_ready_platforms']);
+        self::assertSame([], $rowsByKey['revenue_traffic_conversion']['evidence']['traffic_ready_platforms']);
+        self::assertSame([], $rowsByKey['revenue_traffic_conversion']['evidence']['conversion_ready_platforms']);
+        self::assertSame(['ctrip'], $rowsByKey['revenue_traffic_conversion']['evidence']['revenue_missing_platforms']);
+        self::assertSame(['ctrip', 'meituan'], $rowsByKey['revenue_traffic_conversion']['evidence']['traffic_missing_platforms']);
+        self::assertSame(['ctrip', 'meituan'], $rowsByKey['revenue_traffic_conversion']['evidence']['conversion_missing_platforms']);
+        self::assertContains('ctrip_revenue_metric_inputs_missing', $rowsByKey['revenue_traffic_conversion']['evidence']['metric_domain_gap_codes']);
+        self::assertContains('meituan_traffic_conversion_facts_missing', $rowsByKey['revenue_traffic_conversion']['evidence']['metric_domain_gap_codes']);
+        self::assertSame('ready', $rowsByKey['revenue_traffic_conversion']['evidence']['metric_domain_readiness'][1]['revenue_status']);
+        self::assertSame('missing', $rowsByKey['revenue_traffic_conversion']['evidence']['metric_domain_readiness'][1]['traffic_status']);
+        self::assertContains('traffic', $rowsByKey['revenue_traffic_conversion']['evidence']['metric_domain_readiness'][1]['missing_domains']);
+        self::assertSame(['ctrip_target_date_source_rows_missing'], $rowsByKey['ai_evidence']['evidence']['upstream_blockers']);
+        self::assertContains('ai_action_items_blocked', $rowsByKey['next_operation_action']['evidence']['upstream_blockers']);
+        self::assertContains('operation_execution_sample_missing', $rowsByKey['next_operation_action']['evidence']['blocking_missing_codes']);
+        $actionCodes = array_column($payload['phase1_employee_questions']['next_required_actions'], 'action_code');
+        self::assertSame('phase1_collect_ctrip_target_date_source_rows', $actionCodes[0]);
+        self::assertContains('phase1_collect_ctrip_target_date_source_rows', $actionCodes);
+        self::assertContains('phase1_confirm_meituan_traffic_conversion_facts', $actionCodes);
+        self::assertContains('phase1_collect_ai_diagnosis_evidence', $actionCodes);
+        self::assertContains('phase1_create_operation_execution_evidence', $actionCodes);
+        foreach ($payload['phase1_employee_questions']['rows'] as $row) {
+            self::assertArrayHasKey('next_action_codes', $row);
+            self::assertIsArray($row['next_action_codes']);
+            if (!in_array($row['status'], ['proved', 'no_gap_reported'], true) && $row['next_action_codes'] !== []) {
+                self::assertArrayHasKey('primary_next_action_code', $row);
+                self::assertArrayHasKey('direct_next_action_code', $row);
+                self::assertContains($row['primary_next_action_code'], $row['next_action_codes']);
+                self::assertContains($row['direct_next_action_code'], $row['next_action_codes']);
+                self::assertSame(count($row['next_action_codes']), $row['evidence']['linked_action_count'] ?? null);
+            }
+        }
+        self::assertContains('phase1_collect_ctrip_target_date_source_rows', $rowsByKey['today_ota_collected']['next_action_codes']);
+        self::assertContains('phase1_confirm_meituan_traffic_conversion_facts', $rowsByKey['revenue_traffic_conversion']['next_action_codes']);
+        self::assertContains('phase1_collect_ai_diagnosis_evidence', $rowsByKey['ai_evidence']['next_action_codes']);
+        self::assertContains('phase1_create_operation_execution_evidence', $rowsByKey['next_operation_action']['next_action_codes']);
+        self::assertSame('phase1_collect_ai_diagnosis_evidence', $rowsByKey['ai_evidence']['direct_next_action_code']);
+        self::assertSame('ai_diagnosis_evidence', $rowsByKey['ai_evidence']['direct_next_action_family']);
+        self::assertSame('phase1_create_operation_execution_evidence', $rowsByKey['next_operation_action']['direct_next_action_code']);
+        self::assertSame('operation_execution_evidence', $rowsByKey['next_operation_action']['direct_next_action_family']);
+        $actionByCode = [];
+        $seenBlockedAction = false;
+        foreach ($payload['phase1_employee_questions']['next_required_actions'] as $action) {
+            self::assertArrayHasKey('success_criteria', $action);
+            self::assertNotSame('', $action['success_criteria']);
+            self::assertArrayHasKey('resolves_missing_codes', $action);
+            self::assertIsArray($action['resolves_missing_codes']);
+            self::assertArrayHasKey('live_closure_gap_codes', $action);
+            self::assertIsArray($action['live_closure_gap_codes']);
+            self::assertNotSame([], $action['live_closure_gap_codes']);
+            self::assertArrayHasKey('blocked_by_action_codes', $action);
+            self::assertIsArray($action['blocked_by_action_codes']);
+            self::assertNotContains($action['action_code'], $action['blocked_by_action_codes']);
+            self::assertArrayHasKey('related_question_keys', $action);
+            self::assertIsArray($action['related_question_keys']);
+            self::assertArrayHasKey('employee_explanation', $action);
+            self::assertNotSame('', $action['employee_explanation']);
+            self::assertArrayHasKey('limited_conclusions', $action);
+            self::assertIsArray($action['limited_conclusions']);
+            self::assertNotSame([], $action['limited_conclusions']);
+            self::assertArrayHasKey('still_usable_metrics', $action);
+            self::assertIsArray($action['still_usable_metrics']);
+            self::assertNotSame([], $action['still_usable_metrics']);
+            self::assertArrayHasKey('explanation_next_action', $action);
+            self::assertNotSame('', $action['explanation_next_action']);
+            if (($action['status'] ?? '') === 'blocked') {
+                $seenBlockedAction = true;
+                self::assertNotSame([], $action['blocked_by_action_codes']);
+            }
+            if ($seenBlockedAction) {
+                self::assertNotSame('missing', $action['status'] ?? '');
+            }
+            $actionByCode[$action['action_code']] = $action;
+        }
+        self::assertSame('high', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['priority']);
+        self::assertSame('target_date_source_rows', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['action_family']);
+        self::assertSame('/api/online-data/fetch-ctrip-overview', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry']);
+        self::assertContains('/api/online-data/capture-ctrip-browser', array_column($actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'], 'entry'));
+        self::assertContains('/api/online-data/collection-reliability', array_column($actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'], 'entry'));
+        self::assertStringContainsString('本地 Profile 存在', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['requires']);
+        self::assertStringContainsString('只核对目标日', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][2]['use_when']);
+        self::assertSame('requires_user_context', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['readiness']['status']);
+        self::assertContains($actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['readiness']['status'], ['profile_missing', 'profile_found_login_unverified']);
+        self::assertSame('read_local_profile_directory_names_only', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['readiness']['source_policy']);
+        self::assertSame('ready', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][2]['readiness']['status']);
+        self::assertStringContainsString('target_date_rows', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['success_criteria']);
+        self::assertSame(['ctrip_target_date_source_rows_missing'], $actionByCode['phase1_collect_ctrip_target_date_source_rows']['resolves_missing_codes']);
+        self::assertSame(['ctrip_source_rows_missing'], $actionByCode['phase1_collect_ctrip_target_date_source_rows']['live_closure_gap_codes']);
+        self::assertSame([], $actionByCode['phase1_collect_ctrip_target_date_source_rows']['blocked_by_action_codes']);
+        self::assertContains('trusted_fields', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['related_question_keys']);
+        self::assertContains('phase1_collect_ctrip_target_date_source_rows', $rowsByKey['trusted_fields']['next_action_codes']);
+        self::assertSame('traffic_conversion_facts', $actionByCode['phase1_confirm_meituan_traffic_conversion_facts']['action_family']);
+        self::assertSame('/api/online-data/fetch-meituan-traffic', $actionByCode['phase1_confirm_meituan_traffic_conversion_facts']['entry']);
+        self::assertNotSame('/api/ota-standard/revenue-metrics', $actionByCode['phase1_confirm_meituan_traffic_conversion_facts']['entry']);
+        self::assertSame('ai_diagnosis_evidence', $actionByCode['phase1_collect_ai_diagnosis_evidence']['action_family']);
+        self::assertSame('operation_execution_evidence', $actionByCode['phase1_create_operation_execution_evidence']['action_family']);
+        self::assertSame(['meituan_traffic_facts_missing'], $actionByCode['phase1_confirm_meituan_traffic_conversion_facts']['live_closure_gap_codes']);
+        self::assertSame(['ai_diagnosis_action_items_blocked'], $actionByCode['phase1_collect_ai_diagnosis_evidence']['live_closure_gap_codes']);
+        self::assertSame(['operation_execution_sample_missing'], $actionByCode['phase1_create_operation_execution_evidence']['live_closure_gap_codes']);
+        self::assertContains('list_exposure', $actionByCode['phase1_confirm_meituan_traffic_conversion_facts']['evidence_needed']);
+        self::assertStringContainsString('不改变采集字段', $actionByCode['phase1_confirm_meituan_traffic_conversion_facts']['protected_boundary']);
+        self::assertContains('approval.status=approved', $actionByCode['phase1_create_operation_execution_evidence']['evidence_needed']);
+        self::assertStringContainsString('OTA diagnosis action_items', $actionByCode['phase1_create_operation_execution_evidence']['success_criteria']);
+        self::assertContains('phase1_collect_ctrip_target_date_source_rows', $actionByCode['phase1_collect_ai_diagnosis_evidence']['blocked_by_action_codes']);
+        self::assertContains('phase1_collect_ai_diagnosis_evidence', $actionByCode['phase1_create_operation_execution_evidence']['blocked_by_action_codes']);
+        self::assertSame('incomplete', $payload['phase1_employee_questions']['summary']['status']);
+    }
+
+    public function testPhase1SourceDateEvidenceStatusSeparatesPartialCoverage(): void
+    {
+        $controller = $this->controller();
+
+        $complete = $this->invokeNonPublic($controller, 'phase1SourceDateEvidenceStatus', [[
+            ['platform' => 'ctrip', 'target_date_rows' => 2],
+            ['platform' => 'meituan', 'target_date_rows' => 88],
+        ]]);
+        $partial = $this->invokeNonPublic($controller, 'phase1SourceDateEvidenceStatus', [[
+            ['platform' => 'ctrip', 'target_date_rows' => 2],
+            ['platform' => 'meituan', 'target_date_rows' => 0],
+        ]]);
+        $missing = $this->invokeNonPublic($controller, 'phase1SourceDateEvidenceStatus', [[
+            ['platform' => 'ctrip', 'target_date_rows' => 0],
+            ['platform' => 'meituan', 'target_date_rows' => 0],
+        ]]);
+
+        self::assertSame('target_date_complete', $complete);
+        self::assertSame('target_date_partial', $partial);
+        self::assertSame('target_date_missing', $missing);
+    }
+
+    public function testPhase1EmployeeQuestionsMakeAiDiagnosisActionRunnableWhenUpstreamEvidenceIsReady(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'withPhase1EmployeeQuestions', [[
+            'mode' => 'full',
+            'period' => ['start_date' => '2026-06-12', 'end_date' => '2026-06-12', 'days' => 1],
+            'hotel_id' => 1,
+            'collection_logs' => [
+                ['status' => 'success', 'saved_count' => 24, 'run_time' => '2026-06-12 09:00:00'],
+            ],
+            'history_replay' => [],
+            'source_date_evidence' => [
+                'status' => 'target_date_present',
+                'target_date' => '2026-06-12',
+                'source_policy' => 'read_online_daily_data_aggregate_only',
+                'platforms' => [
+                    [
+                        'platform' => 'ctrip',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 12,
+                        'target_date_data_types' => ['business', 'traffic'],
+                        'latest_available' => ['date' => '2026-06-12', 'rows' => 12, 'data_types' => ['business', 'traffic']],
+                        'date_relation' => 'target_date',
+                    ],
+                    [
+                        'platform' => 'meituan',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 12,
+                        'target_date_data_types' => ['business', 'traffic'],
+                        'latest_available' => ['date' => '2026-06-12', 'rows' => 12, 'data_types' => ['business', 'traffic']],
+                        'date_relation' => 'target_date',
+                    ],
+                ],
+            ],
+            'data_quality' => ['status' => 'ok', 'checked_records' => 24, 'missing_count' => 0],
+            'revenue_metric_evidence' => [
+                'status' => 'ready',
+                'metric_trust_keys' => ['totals.revenue', 'traffic.rows'],
+                'data_gap_codes' => [],
+                'source_policy' => 'read_existing_ota_standard_revenue_metrics_only',
+            ],
+            'field_definitions' => [
+                ['source' => 'ctrip', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+                ['source' => 'meituan', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+            ],
+            'pending_actions' => [],
+            'failure_reasons' => [],
+        ]]);
+
+        $rowsByKey = [];
+        foreach ($payload['phase1_employee_questions']['rows'] as $row) {
+            $rowsByKey[$row['key']] = $row;
+        }
+        self::assertSame('proved', $rowsByKey['today_ota_collected']['status']);
+        self::assertSame('proved', $rowsByKey['trusted_fields']['status']);
+        self::assertSame(['totals.revenue', 'traffic.rows'], $rowsByKey['trusted_fields']['evidence']['metric_trust_keys']);
+        self::assertSame('proved', $rowsByKey['revenue_traffic_conversion']['status']);
+        self::assertSame([], $rowsByKey['ai_evidence']['evidence']['upstream_blockers']);
+
+        $actionByCode = [];
+        foreach ($payload['phase1_employee_questions']['next_required_actions'] as $action) {
+            $actionByCode[$action['action_code']] = $action;
+        }
+
+        self::assertSame('missing', $actionByCode['phase1_collect_ai_diagnosis_evidence']['status']);
+        self::assertSame([], $actionByCode['phase1_collect_ai_diagnosis_evidence']['blocked_by']);
+        self::assertSame([], $actionByCode['phase1_collect_ai_diagnosis_evidence']['blocked_by_action_codes']);
+        self::assertContains('ai_action_items_missing', $actionByCode['phase1_collect_ai_diagnosis_evidence']['resolves_missing_codes']);
+        self::assertStringContainsString('调用现有 OTA 诊断', $actionByCode['phase1_collect_ai_diagnosis_evidence']['action']);
+        self::assertStringContainsString('evidence_sources', $actionByCode['phase1_collect_ai_diagnosis_evidence']['success_criteria']);
+        self::assertContains('phase1_collect_ai_diagnosis_evidence', $rowsByKey['ai_evidence']['next_action_codes']);
+        self::assertSame('phase1_collect_ai_diagnosis_evidence', $rowsByKey['ai_evidence']['primary_next_action_code']);
+        self::assertSame('phase1_collect_ai_diagnosis_evidence', $rowsByKey['ai_evidence']['direct_next_action_code']);
+        self::assertSame('missing', $rowsByKey['ai_evidence']['primary_next_action_status']);
+        self::assertSame('blocked', $actionByCode['phase1_create_operation_execution_evidence']['status']);
+        self::assertContains('ai_action_items_missing', $actionByCode['phase1_create_operation_execution_evidence']['blocked_by']);
+        self::assertContains('phase1_collect_ai_diagnosis_evidence', $actionByCode['phase1_create_operation_execution_evidence']['blocked_by_action_codes']);
+    }
+
+    public function testPhase1EmployeeQuestionsRequireMetricTrustForTrustedFieldsAndMetricProof(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'withPhase1EmployeeQuestions', [[
+            'mode' => 'full',
+            'period' => ['start_date' => '2026-06-12', 'end_date' => '2026-06-12', 'days' => 1],
+            'hotel_id' => 1,
+            'collection_logs' => [
+                ['status' => 'success', 'saved_count' => 24, 'run_time' => '2026-06-12 09:00:00'],
+            ],
+            'history_replay' => [],
+            'source_date_evidence' => [
+                'status' => 'target_date_present',
+                'target_date' => '2026-06-12',
+                'source_policy' => 'read_online_daily_data_aggregate_only',
+                'platforms' => [
+                    [
+                        'platform' => 'ctrip',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 12,
+                        'target_date_data_types' => ['business', 'traffic'],
+                        'latest_available' => ['date' => '2026-06-12', 'rows' => 12, 'data_types' => ['business', 'traffic']],
+                        'date_relation' => 'target_date',
+                    ],
+                    [
+                        'platform' => 'meituan',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 12,
+                        'target_date_data_types' => ['business', 'traffic'],
+                        'latest_available' => ['date' => '2026-06-12', 'rows' => 12, 'data_types' => ['business', 'traffic']],
+                        'date_relation' => 'target_date',
+                    ],
+                ],
+            ],
+            'data_quality' => ['status' => 'ok', 'checked_records' => 24, 'missing_count' => 0],
+            'revenue_metric_evidence' => [
+                'status' => 'ready',
+                'metric_trust_keys' => [],
+                'data_gap_codes' => [],
+                'source_policy' => 'read_existing_ota_standard_revenue_metrics_only',
+            ],
+            'field_definitions' => [
+                ['source' => 'ctrip', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+                ['source' => 'meituan', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+            ],
+            'pending_actions' => [],
+            'failure_reasons' => [],
+        ]]);
+
+        $rowsByKey = [];
+        foreach ($payload['phase1_employee_questions']['rows'] as $row) {
+            $rowsByKey[$row['key']] = $row;
+        }
+
+        self::assertSame('proved', $rowsByKey['today_ota_collected']['status']);
+        self::assertSame('warning', $rowsByKey['trusted_fields']['status']);
+        self::assertSame(0, $rowsByKey['trusted_fields']['evidence']['metric_trust_key_count']);
+        self::assertSame([], $rowsByKey['trusted_fields']['evidence']['metric_trust_keys']);
+        self::assertTrue($rowsByKey['trusted_fields']['evidence']['metric_trust_required']);
+        self::assertStringContainsString('metric_trust', $rowsByKey['trusted_fields']['next_action']);
+        self::assertSame('warning', $rowsByKey['revenue_traffic_conversion']['status']);
+        self::assertSame(0, $rowsByKey['revenue_traffic_conversion']['evidence']['metric_trust_key_count']);
+        self::assertTrue($rowsByKey['revenue_traffic_conversion']['evidence']['metric_trust_required']);
+        self::assertStringContainsString('metric_trust', $rowsByKey['revenue_traffic_conversion']['next_action']);
+
+        $actionByCode = [];
+        foreach ($payload['phase1_employee_questions']['next_required_actions'] as $action) {
+            $actionByCode[$action['action_code']] = $action;
+        }
+
+        self::assertArrayHasKey('phase1_check_ctrip_revenue_metric_inputs', $actionByCode);
+        self::assertArrayHasKey('phase1_check_meituan_revenue_metric_inputs', $actionByCode);
+        self::assertContains('ctrip_metric_trust_missing', $actionByCode['phase1_check_ctrip_revenue_metric_inputs']['resolves_missing_codes']);
+        self::assertContains('meituan_metric_trust_missing', $actionByCode['phase1_check_meituan_revenue_metric_inputs']['resolves_missing_codes']);
+        self::assertContains('ctrip_metric_trust_missing', $actionByCode['phase1_check_ctrip_revenue_metric_inputs']['live_closure_gap_codes']);
+        self::assertContains('meituan_metric_trust_missing', $actionByCode['phase1_check_meituan_revenue_metric_inputs']['live_closure_gap_codes']);
+        self::assertSame('incomplete', $payload['phase1_employee_questions']['summary']['status']);
+    }
+
+    public function testPhase1EmployeeQuestionsUseReadOnlyOperationExecutionEvidence(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'withPhase1EmployeeQuestions', [[
+            'mode' => 'full',
+            'period' => ['start_date' => '2026-06-12', 'end_date' => '2026-06-12', 'days' => 1],
+            'hotel_id' => 1,
+            'collection_logs' => [
+                ['status' => 'success', 'saved_count' => 24, 'run_time' => '2026-06-12 09:00:00'],
+            ],
+            'history_replay' => [],
+            'source_date_evidence' => [
+                'status' => 'target_date_present',
+                'target_date' => '2026-06-12',
+                'source_policy' => 'read_online_daily_data_aggregate_only',
+                'platforms' => [
+                    [
+                        'platform' => 'ctrip',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 12,
+                        'target_date_data_types' => ['business', 'traffic'],
+                        'latest_available' => ['date' => '2026-06-12', 'rows' => 12, 'data_types' => ['business', 'traffic']],
+                        'date_relation' => 'target_date',
+                    ],
+                    [
+                        'platform' => 'meituan',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 12,
+                        'target_date_data_types' => ['business', 'traffic'],
+                        'latest_available' => ['date' => '2026-06-12', 'rows' => 12, 'data_types' => ['business', 'traffic']],
+                        'date_relation' => 'target_date',
+                    ],
+                ],
+            ],
+            'data_quality' => ['status' => 'ok', 'checked_records' => 24, 'missing_count' => 0],
+            'revenue_metric_evidence' => [
+                'status' => 'ready',
+                'metric_trust_keys' => ['totals.revenue', 'traffic.rows'],
+                'data_gap_codes' => [],
+                'source_policy' => 'read_existing_ota_standard_revenue_metrics_only',
+            ],
+            'field_definitions' => [
+                ['source' => 'ctrip', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+                ['source' => 'meituan', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+            ],
+            'pending_actions' => [],
+            'failure_reasons' => [],
+            'operation_execution_flow' => [
+                'summary' => [
+                    'total' => 1,
+                    'stage_counts' => ['reviewed' => 1],
+                ],
+                'list' => [
+                    [
+                        'stage' => 'reviewed',
+                        'recommendation' => [
+                            'source_module' => 'ota_diagnosis',
+                            'evidence' => [
+                                'evidence_refs' => ['ota_diagnosis#1'],
+                                'data_gaps' => [],
+                                'action_item_id' => 'act-1',
+                                'action_item_status' => 'ready',
+                                'diagnosis_summary' => 'same-day OTA action',
+                            ],
+                        ],
+                        'approval' => ['status' => 'approved'],
+                        'execution' => ['status' => 'executed'],
+                        'evidence' => ['count' => 1],
+                        'review' => ['status' => 'success'],
+                        'roi' => ['status' => 'ready'],
+                    ],
+                ],
+                'data_status' => 'ok',
+                'data_gaps' => [],
+            ],
+        ]]);
+
+        $rowsByKey = [];
+        foreach ($payload['phase1_employee_questions']['rows'] as $row) {
+            $rowsByKey[$row['key']] = $row;
+        }
+
+        self::assertSame('proved', $rowsByKey['next_operation_action']['status']);
+        self::assertSame('proved', $rowsByKey['next_operation_action']['evidence']['operation_evidence_status']);
+        self::assertSame('read_existing_operation_execution_state_only', $rowsByKey['next_operation_action']['evidence']['source_policy']);
+        self::assertSame(1, $rowsByKey['next_operation_action']['evidence']['execution_intent_count']);
+        self::assertSame(1, $rowsByKey['next_operation_action']['evidence']['ota_diagnosis_linked_intent_count']);
+        self::assertSame(1, $rowsByKey['next_operation_action']['evidence']['ota_diagnosis_linked_flow_item_count']);
+        self::assertSame(1, $rowsByKey['next_operation_action']['evidence']['approved_count']);
+        self::assertSame(1, $rowsByKey['next_operation_action']['evidence']['executed_count']);
+        self::assertSame(1, $rowsByKey['next_operation_action']['evidence']['evidence_ready_count']);
+        self::assertSame(1, $rowsByKey['next_operation_action']['evidence']['reviewed_count']);
+        self::assertSame(1, $rowsByKey['next_operation_action']['evidence']['roi_ready_count']);
+        self::assertSame(5, $rowsByKey['next_operation_action']['evidence']['completion_signal_count']);
+        self::assertSame([], $rowsByKey['next_operation_action']['evidence']['operation_blocking_missing_codes']);
+        self::assertSame(
+            $payload['phase1_employee_questions']['operation_execution_evidence']['completion_signal_count'],
+            $rowsByKey['next_operation_action']['evidence']['completion_signal_count']
+        );
+        self::assertSame('proved', $payload['phase1_employee_questions']['summary']['operation_evidence_status']);
+        self::assertFalse($payload['phase1_employee_questions']['operation_execution_evidence']['raw_data_exposed']);
+    }
+
+    public function testPhase1EmployeeQuestionsRejectUnlinkedOperationFlowAsClosedLoop(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'withPhase1EmployeeQuestions', [[
+            'mode' => 'full',
+            'period' => ['start_date' => '2026-06-12', 'end_date' => '2026-06-12', 'days' => 1],
+            'hotel_id' => 1,
+            'collection_logs' => [
+                ['status' => 'success', 'saved_count' => 24, 'run_time' => '2026-06-12 09:00:00'],
+            ],
+            'history_replay' => [],
+            'source_date_evidence' => [
+                'status' => 'target_date_present',
+                'target_date' => '2026-06-12',
+                'source_policy' => 'read_online_daily_data_aggregate_only',
+                'platforms' => [
+                    [
+                        'platform' => 'ctrip',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 12,
+                        'target_date_data_types' => ['business', 'traffic'],
+                        'latest_available' => ['date' => '2026-06-12', 'rows' => 12, 'data_types' => ['business', 'traffic']],
+                        'date_relation' => 'target_date',
+                    ],
+                    [
+                        'platform' => 'meituan',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 12,
+                        'target_date_data_types' => ['business', 'traffic'],
+                        'latest_available' => ['date' => '2026-06-12', 'rows' => 12, 'data_types' => ['business', 'traffic']],
+                        'date_relation' => 'target_date',
+                    ],
+                ],
+            ],
+            'data_quality' => ['status' => 'ok', 'checked_records' => 24, 'missing_count' => 0],
+            'revenue_metric_evidence' => [
+                'status' => 'ready',
+                'metric_trust_keys' => ['totals.revenue', 'traffic.rows'],
+                'data_gap_codes' => [],
+                'source_policy' => 'read_existing_ota_standard_revenue_metrics_only',
+            ],
+            'field_definitions' => [
+                ['source' => 'ctrip', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+                ['source' => 'meituan', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+            ],
+            'pending_actions' => [],
+            'failure_reasons' => [],
+            'operation_execution_flow' => [
+                'summary' => [
+                    'total' => 1,
+                    'stage_counts' => ['reviewed' => 1],
+                ],
+                'list' => [
+                    [
+                        'stage' => 'reviewed',
+                        'recommendation' => [
+                            'source_module' => 'manual',
+                            'evidence' => [
+                                'evidence_refs' => ['manual#1'],
+                            ],
+                        ],
+                        'approval' => ['status' => 'approved'],
+                        'execution' => ['status' => 'executed'],
+                        'evidence' => ['count' => 1],
+                        'review' => ['status' => 'success'],
+                        'roi' => ['status' => 'ready'],
+                    ],
+                ],
+                'data_status' => 'ok',
+                'data_gaps' => [],
+            ],
+        ]]);
+
+        $rowsByKey = [];
+        foreach ($payload['phase1_employee_questions']['rows'] as $row) {
+            $rowsByKey[$row['key']] = $row;
+        }
+        $operationEvidence = $rowsByKey['next_operation_action']['evidence'];
+
+        self::assertSame('warning', $rowsByKey['next_operation_action']['status']);
+        self::assertSame('warning', $operationEvidence['operation_evidence_status']);
+        self::assertSame(1, $operationEvidence['execution_intent_count']);
+        self::assertSame(1, $operationEvidence['execution_flow_item_count']);
+        self::assertSame(0, $operationEvidence['ota_diagnosis_linked_intent_count']);
+        self::assertSame(0, $operationEvidence['ota_diagnosis_linked_flow_item_count']);
+        self::assertSame(0, $operationEvidence['approved_count']);
+        self::assertSame(0, $operationEvidence['executed_count']);
+        self::assertSame(0, $operationEvidence['evidence_ready_count']);
+        self::assertSame(0, $operationEvidence['reviewed_count']);
+        self::assertSame(0, $operationEvidence['roi_ready_count']);
+        self::assertSame(0, $operationEvidence['completion_signal_count']);
+        self::assertContains('operation_execution_ai_action_link_missing', $operationEvidence['operation_blocking_missing_codes']);
+        self::assertContains('operation_execution_ai_action_link_missing', $operationEvidence['blocking_missing_codes']);
+
+        $actionByCode = [];
+        foreach ($payload['phase1_employee_questions']['next_required_actions'] as $action) {
+            $actionByCode[$action['action_code']] = $action;
+        }
+        $operationAction = $actionByCode['phase1_create_operation_execution_evidence'];
+        self::assertContains('operation_execution_ai_action_link_missing', $operationAction['resolves_missing_codes']);
+        self::assertContains('operation_execution_ai_action_link_missing', $operationAction['live_closure_gap_codes']);
+        self::assertFalse(in_array('operation_execution_ai_action_link_missing', $operationAction['blocked_by'], true));
+        self::assertContains('ai_action_items_missing', $operationAction['blocked_by']);
+        self::assertContains('source_module=ota_diagnosis 或 source=ota_diagnosis#action_item', $operationAction['evidence_needed']);
+        self::assertStringContainsString('不改携程/美团采集字段和采集逻辑', $operationAction['protected_boundary']);
+        self::assertSame('incomplete', $payload['phase1_employee_questions']['summary']['status']);
+    }
+
+    public function testDashboardDataSourcesExposePhase1EmployeeQuestions(): void
+    {
+        $controller = $this->controller();
+
+        $dataSources = $this->invokeNonPublic($controller, 'buildDashboardDataSources', [[
+            'period' => ['start_date' => '2026-06-12', 'end_date' => '2026-06-12', 'days' => 1],
+            'authorization' => ['summary' => ['overall_status' => 'ok'], 'list' => []],
+            'collection_logs' => [],
+            'history_replay' => [],
+            'source_date_evidence' => [
+                'status' => 'target_date_missing',
+                'target_date' => '2026-06-12',
+                'source_policy' => 'read_online_daily_data_aggregate_only',
+                'platforms' => [
+                    [
+                        'platform' => 'ctrip',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 0,
+                        'target_date_data_types' => [],
+                        'latest_available' => ['date' => '2026-06-11', 'rows' => 4, 'data_types' => ['business']],
+                        'date_relation' => 'stale_before_target',
+                    ],
+                ],
+            ],
+            'data_quality' => ['status' => 'not_loaded', 'checked_records' => 0, 'missing_count' => 0],
+            'field_definitions' => [],
+            'pending_actions' => [],
+            'failure_reasons' => [],
+        ]]);
+
+        self::assertArrayHasKey('phase1_employee_questions', $dataSources);
+        self::assertArrayHasKey('source_date_evidence', $dataSources);
+        self::assertArrayHasKey('collection_source_summary', $dataSources);
+        self::assertArrayHasKey('operation_execution_evidence', $dataSources);
+        self::assertSame($dataSources['collection_source_summary'], $dataSources['phase1_employee_questions']['collection_source_summary']);
+        self::assertSame($dataSources['operation_execution_evidence'], $dataSources['phase1_employee_questions']['operation_execution_evidence']);
+        self::assertSame('ctrip', $dataSources['collection_source_summary'][0]['platform']);
+        self::assertSame('stale_before_target', $dataSources['collection_source_summary'][0]['latest_available']['date_relation']);
+        self::assertTrue($dataSources['collection_source_summary'][0]['latest_available_reference_only']);
+        self::assertSame('incomplete', $dataSources['phase1_employee_questions']['summary']['status']);
+        self::assertSame($dataSources['phase1_employee_questions']['summary'], $dataSources['phase1_employee_questions']['closure_summary']);
+        self::assertArrayHasKey('top_action_code', $dataSources['phase1_employee_questions']['closure_summary']);
+        self::assertSame('read_existing_collection_reliability_only', $dataSources['phase1_employee_questions']['source_policy']);
+        self::assertArrayHasKey('next_required_actions', $dataSources['phase1_employee_questions']);
+        self::assertSame('ai_evidence', $dataSources['phase1_employee_questions']['rows'][4]['key']);
+        self::assertSame('warning', $dataSources['phase1_employee_questions']['rows'][4]['status']);
     }
 
     public function testDashboardHotelPortraitContainsRequiredSections(): void

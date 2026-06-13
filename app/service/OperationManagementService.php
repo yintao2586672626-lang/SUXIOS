@@ -642,7 +642,7 @@ class OperationManagementService
         $objectType = trim((string)($input['object_type'] ?? ''));
         $targetValue = $this->arrayValue($input['target_value'] ?? []);
         $currentValue = $this->arrayValue($input['current_value'] ?? []);
-        $evidence = $this->arrayValue($input['evidence'] ?? $input['evidence_json'] ?? []);
+        $evidence = $this->buildExecutionIntentEvidence($input);
         $blockedReasons = $this->executionIntentBlockedReasons($objectType, $input, $targetValue, $evidence);
         $status = $blockedReasons ? 'blocked' : (in_array((string)($input['status'] ?? ''), ['draft', 'pending_approval'], true) ? (string)$input['status'] : 'pending_approval');
 
@@ -665,6 +665,31 @@ class OperationManagementService
             'blocked_reason' => implode('; ', $blockedReasons),
             'created_by' => $createdBy,
         ];
+    }
+
+    private function buildExecutionIntentEvidence(array $input): array
+    {
+        $evidence = $this->arrayValue($input['evidence'] ?? $input['evidence_json'] ?? []);
+        foreach ([
+            'evidence_refs',
+            'data_gaps',
+            'source_policy',
+            'ai_governance',
+            'protected_boundary',
+            'action_item_id',
+            'action_item_status',
+            'diagnosis_summary',
+        ] as $field) {
+            if (array_key_exists($field, $evidence) || !array_key_exists($field, $input)) {
+                continue;
+            }
+            $value = $input[$field];
+            if (is_array($value) ? $value !== [] : trim((string)$value) !== '') {
+                $evidence[$field] = $value;
+            }
+        }
+
+        return $evidence;
     }
 
     public function buildExecutionTaskUpdate(array $task, array $intent, array $input, int $operatorId): array
@@ -1224,6 +1249,13 @@ class OperationManagementService
                 if (trim((string)($targetValue[$field] ?? '')) === '') {
                     $reasons[] = $field . ' missing';
                 }
+            }
+        } elseif ($objectType === 'data_collection') {
+            if (trim((string)($targetValue['collection_scope'] ?? '')) === '' && trim((string)($targetValue['target_date'] ?? '')) === '') {
+                $reasons[] = 'collection_scope or target_date missing';
+            }
+            if (empty($evidence['evidence_refs']) && empty($evidence['data_gaps'])) {
+                $reasons[] = 'ota evidence refs or data_gaps missing';
             }
         } elseif ($objectType !== '') {
             $reasons[] = 'object_type not supported';

@@ -97,6 +97,46 @@ window.SUXI_CTRIP_STATIC = (() => {
         const status = String(response.data?.status || '').toLowerCase();
         return ['accepted', 'running', 'queued'].includes(status);
     };
+    const normalizeCtripCookieText = value => String(value || '').trim();
+    const firstCtripConfigText = (...values) => {
+        for (const value of values) {
+            const text = String(value || '').trim();
+            if (text) return text;
+        }
+        return '';
+    };
+    const hasCtripObjectValue = (value) => value && typeof value === 'object' && Object.keys(value).length > 0;
+    const isSameCtripJsonObject = (left = {}, right = {}) => {
+        try {
+            return JSON.stringify(left || {}) === JSON.stringify(right || {});
+        } catch (error) {
+            return false;
+        }
+    };
+    const isCtripRankingFormAlignedWithConfig = (form = {}, config = {}, options = {}) => {
+        if (!form || !config) return false;
+        const selectedHotelId = String(options.selectedHotelId || form.hotelId || '').trim();
+        const configHotelId = firstCtripConfigText(config.hotel_id, config.system_hotel_id);
+        if (selectedHotelId && configHotelId && selectedHotelId !== configHotelId) return false;
+
+        const formUrl = String(form.url || '').trim();
+        const configUrl = firstCtripConfigText(config.url, config.request_url, config.requestUrl);
+        if (!formUrl) return false;
+        if (configUrl && formUrl !== configUrl) return false;
+
+        const formNodeId = String(form.nodeId || form.node_id || '').trim();
+        const configNodeId = firstCtripConfigText(config.node_id, config.nodeId) || '24588';
+        if (!formNodeId || formNodeId !== configNodeId) return false;
+
+        const formCookies = normalizeCtripCookieText(form.cookies);
+        const configCookies = normalizeCtripCookieText(config.cookies || config.cookie);
+        if (!formCookies || !configCookies || formCookies !== configCookies) return false;
+
+        if (hasCtripObjectValue(config.auth_data) && !isSameCtripJsonObject(form.auth_data || {}, config.auth_data || {})) {
+            return false;
+        }
+        return true;
+    };
 
     const createCtripFetchForm = () => ({
         url: defaultCtripConfigUrl,
@@ -285,7 +325,10 @@ window.SUXI_CTRIP_STATIC = (() => {
         }
 
         if (hasSelectedHotel()) {
-            await applyHotelConfig(false);
+            await applyHotelConfig(false, {
+                refreshList: false,
+                skipIfAligned: true,
+            });
             if (!isActive()) {
                 return { status: 'stale_after_apply', tab };
             }
@@ -980,10 +1023,14 @@ window.SUXI_CTRIP_STATIC = (() => {
             notify('当前酒店未配置携程数据源', 'warning');
             return { status: 'missing_config' };
         }
-        applyCtripConfigObject(selectedConfig);
+        let form = getForm() || {};
+        if (!isCtripRankingFormAlignedWithConfig(form, selectedConfig, { selectedHotelId: selectedCtripHotelId })) {
+            applyCtripConfigObject(selectedConfig);
+            form = getForm() || form;
+        }
 
         const requestContext = buildCtripFetchRequestContext({
-            form: getForm(),
+            form,
             selectedCtripHotelId,
         });
         if (!requestContext.ok) {
@@ -2300,6 +2347,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         validateCtripConfigSaveInput,
         runCtripConfigSaveFlow,
         runCtripManualTabSwitch,
+        isCtripRankingFormAlignedWithConfig,
         createCtripProfileFieldForm,
         buildCtripProfileFieldSmartDefaults,
         buildCtripProfileFieldSavePayload,

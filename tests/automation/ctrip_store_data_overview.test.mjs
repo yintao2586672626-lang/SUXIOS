@@ -152,10 +152,11 @@ test('Ctrip profile field config manages modules from the same panel', () => {
   assert.match(ctripProfileFieldConfigPanel, /ctripProfileFieldDisplaySampleLabel\(field\)/);
   assert.match(html, /最近历史获取值/);
   assert.match(ctripProfileFieldConfigPanel, /未获取到值/);
-  assert.match(html, /const ctripProfileFieldSampleItems = \(field\) =>/);
+  assert.match(html, /const ctripProfileFieldSampleItems = ctripProfileFieldSampleHelpers\.sampleItems;/);
+  assert.match(ctripStatic, /const sampleItems = \(field\) =>/);
   assert.match(html, /const ctripProfileFieldDisplaySampleItems = \(field\) =>/);
-  assert.match(html, /field\.latest_values/);
-  assert.match(html, /field\.latest_value/);
+  assert.match(ctripStatic, /field\.latest_values/);
+  assert.match(ctripStatic, /field\.latest_value/);
   assert.match(html, /include_samples=1/);
   assert.match(ctripProfileFieldConfigPanel, /data-testid="ctrip-profile-module-manager"/);
   assert.match(ctripProfileFieldConfigPanel, /对应网页URL/);
@@ -207,7 +208,7 @@ test('Online data records tab reads persisted daily data instead of task logs', 
 
   const loader = sliceBetween(
     html,
-    'const loadOnlineDataList = async () =>',
+    'const loadOnlineDataList = async (options = {}) =>',
     '// 加载数据汇总'
   );
   assert.match(loader, /\/online-data\/daily-data-list/);
@@ -273,16 +274,22 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   );
   assert.match(html, /const prepareCtripOverviewFetchAction = async \(tabName\) =>/);
   assert.match(quickActionRunner, /await prepareCtripOverviewFetchAction\(tabName\)/);
+  assert.match(quickActionRunner, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}\)/);
+  assert.doesNotMatch(quickActionRunner, /await loadDataHealthPanel\('light', \{ force: true \}\)/);
   assert.doesNotMatch(quickActionRunner, /openCtripOverviewFetchTab/);
   assert.doesNotMatch(quickActionRunner, /onlineDataTab\.value\s*=\s*tabName/);
+  assert.doesNotMatch(quickActionRunner, /onlineDataTab\.value\s*=\s*'data-health'/);
   assert.match(coreActionRunner, /await prepareCtripOverviewFetchAction\('core'\)/);
   assert.match(coreActionRunner, /const coreFetchTabs = \['ctrip-flow-overview', 'ctrip-traffic', 'ctrip-ranking', 'ctrip-quality', 'ctrip-ads'\]/);
   assert.match(coreActionRunner, /const action = ctripOverviewFetchActionMap\(\)\[tabName\]/);
   assert.match(coreActionRunner, /await action\(\)/);
+  assert.match(coreActionRunner, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}\)/);
+  assert.doesNotMatch(coreActionRunner, /await loadDataHealthPanel\('light', \{ force: true \}\)/);
   assert.doesNotMatch(coreActionRunner, /runCtripBrowserCapture/);
   assert.doesNotMatch(coreActionRunner, /ctripBrowserCaptureForm\.value\.sections/);
   assert.doesNotMatch(coreActionRunner, /openCtripOverviewFetchTab/);
   assert.doesNotMatch(coreActionRunner, /onlineDataTab\.value\s*=\s*tabName/);
+  assert.doesNotMatch(coreActionRunner, /onlineDataTab\.value\s*=\s*'data-health'/);
 
   const cookieApiRunner = sliceBetween(
     html,
@@ -439,8 +446,8 @@ test('Platform account badge treats browser profile login timeout as login expir
   );
   const accountRowWrapper = sliceBetween(
     html,
-    'const buildHotelPlatformAccountRowStatic',
-    'const hotelPlatformBindingRows'
+    'const buildHotelPlatformBindingRowsStatic',
+    'const hotelAccountSummary'
   );
 
   assert.match(loginExpiredDetector, /browser_profile/);
@@ -449,8 +456,9 @@ test('Platform account badge treats browser profile login timeout as login expir
   assert.match(accountRowBuilder, /const loginExpired = isPlatformSourceLoginExpired\(source, config\)/);
   assert.match(accountRowBuilder, /loginExpired \? 'login_expired'/);
   assert.match(accountRowBuilder, /effectiveReady \? 'logged_in'/);
-  assert.match(accountRowWrapper, /buildHotelPlatformAccountRowStatic/);
-  assert.match(accountRowWrapper, /platformSourceForHotel\(options\.hotel\?\.id, options\.platform\)/);
+  assert.match(accountRowWrapper, /buildHotelPlatformBindingRowsStatic/);
+  assert.match(accountRowWrapper, /platformSourceForHotel\(hotelId, 'ctrip'\)/);
+  assert.match(accountRowWrapper, /platformSourceForHotel\(hotelId, 'meituan'\)/);
 });
 
 test('Ctrip collection quality rows overfetch before identity filtering', () => {
@@ -508,6 +516,10 @@ test('Ctrip store overview ignores stale health responses after hotel switching'
   assert.match(html, /let collectionReliabilityRequestSeq = 0/);
   assert.match(html, /const handleCtripOverviewHotelChange = async \(event = null\) =>/);
   assert.match(html, /autoFetchHotelId\.value = String\(event\.target\.value \|\| ''\)/);
+  assert.match(html, /await syncCtripOverviewTargetHotel\(\{ clearDisplay: true, loadConfig: true \}\);\s*scheduleDataHealthPanelRefresh\('light', \{ force: true \}\);/);
+  assert.doesNotMatch(html, /await syncCtripOverviewTargetHotel\(\{ clearDisplay: true, loadConfig: true \}\);\s*await loadDataHealthPanel\('light'\);/);
+  assert.match(html, /await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
+  assert.match(html, /await applyCtripHotelConfig\(false, \{\s*refreshList: false,\s*refreshLatest: false,\s*skipIfAligned: true,\s*\}\);/);
   assert.match(html, /const requestSeq = \+\+collectionReliabilityRequestSeq/);
   assert.match(html, /requestSeq !== collectionReliabilityRequestSeq \|\| String\(hotelId \|\| ''\) !== String\(getAutoFetchHotelId\(\) \|\| ''\)/);
   assert.match(html, /if \(requestSeq === collectionReliabilityRequestSeq\) \{\s*collectionReliabilityLoading\.value = false;/);
@@ -546,6 +558,15 @@ test('Ctrip platform authorization status supports inline view and edit', () => 
   assert.match(html, /ctripCookieEditorForm/);
   assert.match(html, /openCtripCookieEditorFromHealth/);
   assert.match(html, /saveCtripCookieFromHealth/);
+  assert.match(html, /const listConfig = ctripConfigList\.value\.find\(item => String\(item\.id \|\| ''\) === configId\);\s*const config = listConfig\s*\? await ensureCtripConfigSecret\(listConfig\)\s*: await loadCtripConfigDetail\(configId\);/);
+  assert.doesNotMatch(html, /if \(!ctripConfigList\.value\.length\) \{\s*await loadCtripConfigList\(\);\s*\}\s*const listConfig = ctripConfigList\.value\.find\(item => String\(item\.id \|\| ''\) === configId\);/);
+  assert.match(html, /loadCtripConfigList\(\);\s*scheduleDataHealthPanelRefresh\('light', \{ force: true \}\);/);
+  assert.match(html, /await deleteCtripConfig\(configId\);\s*scheduleDataHealthPanelRefresh\('light', \{ force: true \}\);/);
+  assert.doesNotMatch(html, /await loadCtripConfigList\(\);\s*await loadDataHealthPanel\('light', \{ force: true \}\);/);
+  assert.doesNotMatch(html, /await deleteCtripConfig\(configId\);\s*await loadDataHealthPanel\('light', \{ force: true \}\);/);
+  assert.match(html, /const results = await Promise\.all\(ids\.map\(async \(id\) => \{/);
+  assert.match(html, /deferUiTask\(\(\) => loadCtripConfigList\(\), 80\);/);
+  assert.doesNotMatch(html, /if \(deletedCount > 0\) \{\s*await loadCtripConfigList\(\);\s*\}/);
   assert.match(html, /查看 \/ 编辑携程平台授权/);
   assert.match(html, /v-model="ctripCookieEditorForm\.cookies"/);
 });

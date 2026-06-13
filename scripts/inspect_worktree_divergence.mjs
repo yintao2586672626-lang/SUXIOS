@@ -92,28 +92,34 @@ function fileText(relativePath) {
 }
 
 function regressionSignals() {
-  const indexHtml = fileText('public/index.html');
   const meituanStatic = fileText('public/meituan-static.js');
   const signals = [];
-  if (meituanStatic.includes('const requestBody = { ...task.body, async: true }')) {
+  if (!meituanStatic.includes('const requestBody = { ...task.body, async: true, background: true }')) {
     signals.push({
-      code: 'meituan_manual_batch_async_true',
+      code: 'meituan_manual_batch_not_background',
       path: 'public/meituan-static.js',
-      message: 'Meituan manual ranking fetch is submitting as async background work.',
+      message: 'Meituan manual ranking fetch is not submitting background work.',
     });
   }
-  if (indexHtml.includes('meituanFetchBackgroundAccepted')) {
+  if (meituanStatic.includes('const requestBody = { ...task.body, async: false, background: false }')) {
     signals.push({
-      code: 'meituan_background_accepted_ui',
-      path: 'public/index.html',
-      message: 'Meituan manual ranking UI exposes background accepted progress.',
+      code: 'meituan_manual_batch_blocking_direct',
+      path: 'public/meituan-static.js',
+      message: 'Meituan manual ranking fetch is blocking on direct collection results.',
     });
   }
-  if (indexHtml.includes('isMeituanBackgroundResult')) {
+  if (!meituanStatic.includes('await Promise.all(fetchTasks.map(async (task, index) => {')) {
     signals.push({
-      code: 'meituan_background_result_ui',
-      path: 'public/index.html',
-      message: 'Meituan manual ranking UI classifies queued/running backend state as a display result.',
+      code: 'meituan_manual_batch_not_concurrent',
+      path: 'public/meituan-static.js',
+      message: 'Meituan manual ranking fetch is not submitting independent background tasks concurrently.',
+    });
+  }
+  if (!meituanStatic.includes('const modelRes = await requestDisplayModel')) {
+    signals.push({
+      code: 'meituan_manual_batch_display_compat_missing',
+      path: 'public/meituan-static.js',
+      message: 'Meituan manual ranking fetch lost direct-response display compatibility.',
     });
   }
   return signals;

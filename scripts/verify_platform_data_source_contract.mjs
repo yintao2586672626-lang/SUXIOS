@@ -269,10 +269,10 @@ check(
     const loadData = source.match(/const loadData = async \(\) => \{[\s\S]*?\n            \};/);
     const loadHotels = source.match(/const loadHotels = async \(options = \{\}\) => \{[\s\S]*?\n            \};/);
     if (!loadData) return false;
-    return loadData[0].includes('loadHotels();')
+    return loadData[0].includes('scheduleStartupHotelListLoad();')
       && source.includes('const loadSystemConfig = async (options = {}) => {')
-      && source.includes("options.publicOnly ? '/system-config?scope=public' : '/system-config'")
-      && loadData[0].includes('deferUiTask(() => loadSystemConfig({ publicOnly: true }), 120);')
+      && source.includes("publicOnly ? '/system-config?scope=public' : '/system-config'")
+      && loadData[0].includes('schedulePublicSystemConfigRefresh(1800);')
       && !loadData[0].includes('loadRoles();')
       && !loadData[0].includes('loadUsers();')
       && !loadData[0].includes('loadRolesList();')
@@ -282,11 +282,17 @@ check(
       && source.includes("if (newPage === 'roles')")
       && source.includes('loadBookmarklet()')
       && loadHotels
+      && source.includes('const HOTEL_LIST_CACHE_TTL_MS = 30000;')
+      && source.includes('const scheduleStartupHotelListLoad = (delayMs = null) => {')
+      && source.includes('if (!hasKnownHotelOptions()) {')
+      && source.includes('if (!isLoggedIn.value || !token.value || isCoreOtaPageVisible()) return null;')
+      && loadHotels[0].includes('const cacheMs = Number(options.cacheMs || 0);')
+      && loadHotels[0].includes('readRequestCache(hotelListResultCache, requestKey, cacheMs)')
       && loadHotels[0].includes("options.includeInactive === true || currentPage.value === 'hotels'")
       && loadHotels[0].includes("user.value?.is_super_admin && includeInactive ? '/hotels?page=1&page_size=1000' : '/hotels/all'")
       && source.includes('loadHotels({ includeInactive: true })');
   },
-  'loadData defers system config, roles/users/cookies/bookmarklet and hotels full list'
+  'loadData defers system config, roles/users/cookies/bookmarklet and schedules hotels full list'
 );
 
 check(

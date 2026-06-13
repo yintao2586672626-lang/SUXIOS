@@ -329,55 +329,14 @@ class Agent extends Base
 
             $dataSet = $this->queryOtaDiagnosisData($hotelId, $hotelIdRaw, $platformHotelIdRaw, $platform, $startDate, $endDate, $analysisType);
             if (!$this->hasOtaDiagnosisData($dataSet)) {
-                return $this->success([
-                    'hotel' => $dataSet['hotel'] ?? ['id' => $hotelIdRaw, 'name' => $hotelName],
-                    'platform' => $platform,
-                    'date_range' => ['start_date' => $startDate, 'end_date' => $endDate],
-                    'data_summary' => [
-                        'has_ota_data' => false,
-                        'has_traffic_data' => false,
-                        'has_competitor_data' => false,
-                        'has_comment_data' => false,
-                        'has_advertising_data' => false,
-                        'has_service_quality_data' => false,
-                        'has_price_order_data' => false,
-                        'has_daily_report_data' => false,
-                        'last_sync_time' => $dataSet['last_sync_time'] ?? '',
-                        'source_counts' => [
-                            'online_rows' => 0,
-                            'daily_reports' => 0,
-                            'competitor_prices' => 0,
-                            'competitor_analyses' => 0,
-                            'price_suggestions' => 0,
-                            'sync_logs' => count($dataSet['sync_logs'] ?? []),
-                        ],
-                    ],
-                    'metrics' => [],
-                    'diagnosis' => [
-                        'summary' => '暂无该酒店在该日期范围内的OTA数据，请先同步/抓取数据。',
-                        'exposure_analysis' => '',
-                        'visit_conversion_analysis' => '',
-                        'order_conversion_analysis' => '',
-                        'price_analysis' => '',
-                        'competitor_analysis' => '',
-                        'advertising_analysis' => '',
-                        'service_quality_analysis' => '',
-                        'comment_analysis' => '',
-                        'actions' => [],
-                    ],
-                    'missing_sections' => ['OTA历史数据', 'OTA流量数据', '竞对数据', '价格/房态/订单相关数据', '日报经营数据'],
-                    'core_conclusion' => '暂无该酒店在该日期范围内的OTA数据，请先同步/抓取数据。',
-                    'evidence_sources' => [],
-                    'action_items' => [],
-                    'diagnosis_sections' => [],
-                    'evidence_report' => [
-                        'report_type' => 'daily_diagnosis_action_list',
-                        'source_policy' => 'database_only',
-                        'action_items' => [],
-                        'evidence_sources' => [],
-                    ],
-                    'priority' => 'none',
-                ], '暂无 OTA 数据');
+                return $this->success($this->buildOtaDiagnosisNoDataResult(
+                    $dataSet,
+                    $hotelIdRaw,
+                    $hotelName,
+                    $platform,
+                    $startDate,
+                    $endDate
+                ), '暂无 OTA 数据');
             }
 
             $effectiveStartDate = (string) ($dataSet['effective_start_date'] ?? $startDate);
@@ -390,6 +349,10 @@ class Agent extends Base
             if ($usedLatestAvailableData) {
                 $result['requested_date_range'] = ['start_date' => $startDate, 'end_date' => $endDate];
                 $result['data_summary']['used_latest_available_data'] = true;
+                $result['source_policy'] = 'database_only_latest_available_reference_not_execution_ready';
+                $result['data_gaps'] = array_values(array_merge((array)($result['data_gaps'] ?? []), [
+                    $this->buildOtaLatestAvailableDataGap($startDate, $endDate, $effectiveStartDate, $effectiveEndDate),
+                ]));
                 $result['data_summary']['analysis_date_note'] = sprintf(
                     '所选日期范围暂无OTA明细，已自动使用最近一次已抓取数据：%s 至 %s。',
                     $effectiveStartDate,
@@ -436,6 +399,9 @@ class Agent extends Base
             $result['priority'] = $result['diagnosis']['priority'] ?? $result['priority'];
             $result['evidence_sources'] = $this->buildOtaDiagnosisEvidenceSources($dataSet, $result['metrics'] ?? []);
             $result['action_items'] = $this->buildOtaDiagnosisActionItems($result['recommended_actions'], $result['evidence_sources']);
+            if ($usedLatestAvailableData) {
+                $result = $this->blockOtaDiagnosisActionsForLatestAvailableData($result, $startDate, $endDate, $effectiveStartDate, $effectiveEndDate);
+            }
             $result['diagnosis_sections'] = $this->buildOtaDiagnosisSections($result['diagnosis'] ?? [], $result['missing_sections'] ?? []);
             $result['evidence_report'] = $this->buildOtaEvidenceReport($result);
             $result['ai_governance'] = $this->buildAiGovernancePayload('ota_diagnosis', $result, $llmResult);
@@ -2043,6 +2009,104 @@ class Agent extends Base
             || !empty($dataSet['price_suggestions']);
     }
 
+    private function buildOtaDiagnosisNoDataResult(array $dataSet, string $hotelIdRaw, string $hotelName, string $platform, string $startDate, string $endDate): array
+    {
+        $sourceCounts = [
+            'online_rows' => 0,
+            'daily_reports' => 0,
+            'competitor_prices' => 0,
+            'competitor_analyses' => 0,
+            'price_suggestions' => 0,
+            'sync_logs' => count($dataSet['sync_logs'] ?? []),
+        ];
+        $missingSections = ['OTA历史数据', 'OTA流量数据', '竞对数据', '价格/房态/订单相关数据', '日报经营数据'];
+        $dataGaps = [[
+            'code' => 'ota_same_period_source_rows_missing',
+            'message' => '选定日期范围没有可用于 OTA 经营诊断的真实入库数据。',
+            'scope' => 'ota_channel',
+            'blocked_conclusions' => ['收入诊断', '流量诊断', '转化诊断', '价格/竞对诊断', '广告和服务质量诊断'],
+            'next_action' => '使用现有携程/美团手动或自动获取入口补齐同日 OTA 数据后重新诊断。',
+        ]];
+        $evidenceSources = [[
+            'ref' => 'ota_no_data_scope',
+            'table' => 'derived',
+            'record_id' => null,
+            'date' => $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate,
+            'tags' => ['scope', 'missing_data', 'ota_channel'],
+            'label' => 'OTA诊断无数据范围证据',
+            'metrics' => [
+                'online_rows' => 0,
+                'sync_logs' => $sourceCounts['sync_logs'],
+            ],
+        ]];
+        $actions = ['使用现有携程/美团手动或自动获取入口补齐同日 OTA 数据，再重新生成 AI 诊断和运营执行动作。'];
+        $actionItems = [[
+            'id' => 'ota_action_collect_same_period_data',
+            'action' => $actions[0],
+            'status' => 'blocked_by_missing_ota_data',
+            'evidence_refs' => ['ota_no_data_scope'],
+            'source_policy' => 'must collect same-period OTA evidence before diagnosis or execution',
+            'owner' => '酒店运营人员',
+            'protected_boundary' => '不改变采集字段、字段映射、携程/美团手动或自动获取逻辑。',
+        ]];
+        $diagnosis = [
+            'summary' => '暂无该酒店在该日期范围内的 OTA 数据，不能生成可信经营诊断。',
+            'exposure_analysis' => '',
+            'visit_conversion_analysis' => '',
+            'order_conversion_analysis' => '',
+            'price_analysis' => '',
+            'competitor_analysis' => '',
+            'advertising_analysis' => '',
+            'service_quality_analysis' => '',
+            'comment_analysis' => '',
+            'actions' => $actions,
+        ];
+
+        $result = [
+            'hotel' => $dataSet['hotel'] ?? ['id' => $hotelIdRaw, 'name' => $hotelName],
+            'platform' => $platform,
+            'date_range' => ['start_date' => $startDate, 'end_date' => $endDate],
+            'data_summary' => [
+                'has_ota_data' => false,
+                'has_traffic_data' => false,
+                'has_competitor_data' => false,
+                'has_comment_data' => false,
+                'has_advertising_data' => false,
+                'has_service_quality_data' => false,
+                'has_price_order_data' => false,
+                'has_daily_report_data' => false,
+                'last_sync_time' => $dataSet['last_sync_time'] ?? '',
+                'source_counts' => $sourceCounts,
+            ],
+            'metrics' => [],
+            'data_gaps' => $dataGaps,
+            'diagnosis' => $diagnosis,
+            'missing_sections' => $missingSections,
+            'core_conclusion' => $diagnosis['summary'],
+            'main_problems' => [],
+            'possible_reasons' => [],
+            'recommended_actions' => $actions,
+            'data_anomalies_needing_confirmation' => $missingSections,
+            'evidence_sources' => $evidenceSources,
+            'action_items' => $actionItems,
+            'diagnosis_sections' => $this->buildOtaDiagnosisSections($diagnosis, $missingSections),
+            'priority' => 'none',
+            'source_policy' => 'database_only_no_synthetic_conclusion',
+        ];
+        $result['evidence_report'] = $this->buildOtaEvidenceReport($result);
+        $result['ai_governance'] = $this->buildAiGovernancePayload('ota_diagnosis', $result, [
+            'ok' => true,
+            'data' => [
+                'governance' => [
+                    'status' => 'skipped',
+                    'prompt_version' => 'ota_diagnosis.no_data.v1',
+                ],
+            ],
+        ]);
+
+        return $result;
+    }
+
     private function buildOtaDiagnosisResult(array $dataSet, int $hotelId, string $hotelIdRaw, string $hotelName, string $platform, string $startDate, string $endDate, string $analysisType): array
     {
         $rows = $dataSet['online_rows'] ?? [];
@@ -2423,11 +2487,78 @@ class Agent extends Base
         return $items;
     }
 
+    private function buildOtaLatestAvailableDataGap(string $requestedStartDate, string $requestedEndDate, string $effectiveStartDate, string $effectiveEndDate): array
+    {
+        return [
+            'code' => 'ota_requested_period_source_rows_missing_used_latest_available',
+            'message' => '所选日期范围没有同日 OTA 明细，当前诊断仅可作为最近可用数据参考，不能作为目标日执行依据。',
+            'scope' => 'ota_channel',
+            'requested_date_range' => ['start_date' => $requestedStartDate, 'end_date' => $requestedEndDate],
+            'effective_date_range' => ['start_date' => $effectiveStartDate, 'end_date' => $effectiveEndDate],
+            'blocked_conclusions' => ['target_date_ai_action', 'operation_execution'],
+            'next_action' => '使用现有携程/美团手动或自动获取入口补齐目标日期 OTA 数据后重新诊断。',
+        ];
+    }
+
+    private function buildOtaLatestAvailableEvidenceSource(string $requestedStartDate, string $requestedEndDate, string $effectiveStartDate, string $effectiveEndDate): array
+    {
+        return [
+            'ref' => 'ota_latest_available_not_target_date',
+            'table' => 'derived',
+            'record_id' => null,
+            'date' => $effectiveStartDate === $effectiveEndDate ? $effectiveStartDate : $effectiveStartDate . ' 至 ' . $effectiveEndDate,
+            'tags' => ['scope', 'latest_available', 'not_target_date'],
+            'label' => '最近可用数据不是目标日期证据',
+            'metrics' => [
+                'requested_start_date' => $requestedStartDate,
+                'requested_end_date' => $requestedEndDate,
+                'effective_start_date' => $effectiveStartDate,
+                'effective_end_date' => $effectiveEndDate,
+            ],
+        ];
+    }
+
+    private function blockOtaDiagnosisActionsForLatestAvailableData(array $result, string $requestedStartDate, string $requestedEndDate, string $effectiveStartDate, string $effectiveEndDate): array
+    {
+        $guardRef = 'ota_latest_available_not_target_date';
+        $result['source_policy'] = 'database_only_latest_available_reference_not_execution_ready';
+        $result['data_summary']['target_date_execution_ready'] = false;
+        $result['evidence_sources'] = array_values(array_merge(
+            (array)($result['evidence_sources'] ?? []),
+            [$this->buildOtaLatestAvailableEvidenceSource($requestedStartDate, $requestedEndDate, $effectiveStartDate, $effectiveEndDate)]
+        ));
+        $existingGapCodes = array_values(array_filter(array_map(
+            static fn($item): string => is_array($item) ? (string)($item['code'] ?? '') : '',
+            (array)($result['data_gaps'] ?? [])
+        )));
+        if (!in_array('ota_requested_period_source_rows_missing_used_latest_available', $existingGapCodes, true)) {
+            $result['data_gaps'][] = $this->buildOtaLatestAvailableDataGap($requestedStartDate, $requestedEndDate, $effectiveStartDate, $effectiveEndDate);
+        }
+
+        $items = [];
+        foreach ((array)($result['action_items'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $refs = array_values(array_unique(array_filter(array_map('strval', array_merge((array)($item['evidence_refs'] ?? []), [$guardRef])))));
+            $item['original_status'] = (string)($item['status'] ?? '');
+            $item['status'] = 'blocked_by_non_target_date_data';
+            $item['evidence_refs'] = $refs;
+            $item['source_policy'] = 'target-date OTA evidence required before execution';
+            $item['blocked_reason'] = 'requested date has no same-period OTA rows; latest available data is reference only';
+            $item['protected_boundary'] = '不改变采集字段、字段映射、携程/美团手动或自动获取逻辑。';
+            $items[] = $item;
+        }
+        $result['action_items'] = $items;
+
+        return $result;
+    }
+
     private function buildOtaEvidenceReport(array $result): array
     {
         return [
             'report_type' => 'daily_diagnosis_action_list',
-            'source_policy' => 'database_only',
+            'source_policy' => (string)($result['source_policy'] ?? 'database_only'),
             'date_range' => $result['date_range'] ?? [],
             'source_counts' => $result['data_summary']['source_counts'] ?? [],
             'diagnosis' => [
@@ -2438,6 +2569,7 @@ class Agent extends Base
             'action_items' => $result['action_items'] ?? [],
             'diagnosis_sections' => $result['diagnosis_sections'] ?? [],
             'evidence_sources' => $result['evidence_sources'] ?? [],
+            'data_gaps' => $result['data_gaps'] ?? [],
         ];
     }
 

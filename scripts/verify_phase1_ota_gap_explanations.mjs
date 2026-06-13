@@ -37,7 +37,20 @@ const gapCodes = [
   'competitor_price_fields_missing',
 ];
 
+const liveClosureGapCodes = [
+  'ctrip_traffic_facts_missing',
+  'meituan_source_rows_missing',
+  'meituan_etl_not_ready',
+  'meituan_revenue_metrics_not_ready',
+  'meituan_traffic_facts_missing',
+  'ai_diagnosis_action_items_blocked',
+  'operation_execution_sample_missing',
+  'operation_execution_ai_action_link_missing',
+  'operation_execution_evidence_incomplete',
+];
+
 includesAll('docs/phase1_ota_gap_explanation_matrix.md', 'P0 gap codes are documented', gapCodes);
+includesAll('docs/phase1_ota_gap_explanation_matrix.md', 'live closure gap codes are documented', liveClosureGapCodes);
 
 includesAll('docs/phase1_ota_gap_explanation_matrix.md', 'limited metrics and remaining usable metrics are explicit', [
   'OCC',
@@ -50,6 +63,10 @@ includesAll('docs/phase1_ota_gap_explanation_matrix.md', 'limited metrics and re
   '已采收入',
   '间夜',
   'ADR',
+  '流量',
+  '转化',
+  '执行意图',
+  '复盘',
 ]);
 
 includesAll('docs/phase1_ota_gap_explanation_matrix.md', 'gap display rules prevent fallback masking', [

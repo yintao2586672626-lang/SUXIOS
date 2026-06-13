@@ -12,7 +12,7 @@ const sliceFrom = (source, needle, endNeedle) => {
   return end > start ? source.slice(start, end) : source.slice(start);
 };
 
-test('Meituan ranking fetch submits quickly and shows visible background progress', () => {
+test('Meituan ranking fetch submits in background mode and keeps direct-result display compatibility', () => {
   const resultPanel = sliceFrom(html, '<!-- 获取结果显示 -->', '<!-- 原始JSON数据 -->');
   const fetchFlow = sliceFrom(meituanStatic, 'const runMeituanBatchFetchFlow = async ({', 'const buildMeituanRankDisplayRows');
   const pendingSetup = sliceFrom(meituanStatic, 'const results = fetchTasks.map', 'let totalSavedCount = 0;');
@@ -21,8 +21,15 @@ test('Meituan ranking fetch submits quickly and shows visible background progres
 
   assert.match(meituanStatic, /const buildMeituanBatchFetchPendingEntry = \(task\) => \(\{/);
   assert.match(meituanStatic, /status: 'fetching'/);
-  assert.match(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: true \};/);
-  assert.doesNotMatch(fetchFlow, /async: false,\s*background: false/);
+  assert.match(meituanStatic, /const isMeituanRankingFormAlignedWithConfig = \(form = \{\}, config = \{\}\) => \{/);
+  assert.match(fetchFlow, /let form = getForm\(\) \|\| \{\};/);
+  assert.match(fetchFlow, /if \(!isMeituanRankingFormAlignedWithConfig\(form, selectedMeituanConfig\)\) \{/);
+  assert.match(fetchFlow, /skipIfAligned: true/);
+  assert.match(fetchFlow, /form = getForm\(\) \|\| form;/);
+  assert.doesNotMatch(fetchFlow, /await applyMeituanHotelConfig\(false, \{ resolvedConfig: selectedMeituanConfig, refreshList: false \}\);/);
+  assert.match(fetchFlow, /await Promise\.all\(fetchTasks\.map\(async \(task, index\) => \{/);
+  assert.match(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: true, background: true \};/);
+  assert.doesNotMatch(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: false, background: false \};/);
   assert.doesNotMatch(fetchFlow, /setHotelsList\(\[\]\);/);
   assert.doesNotMatch(fetchFlow, /setBusinessSummary\(getEmptyBusinessSummary\(\)\);/);
   assert.match(pendingSetup, /setOnlineDataResult\(\[\.\.\.results\]\);/);

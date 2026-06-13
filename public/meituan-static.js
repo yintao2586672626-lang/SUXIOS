@@ -490,6 +490,48 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const normalizeMeituanCookieText = (value) => String(value || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');
 
+    const firstMeituanConfigText = (...values) => {
+        const value = values.find(item => item !== undefined && item !== null && String(item).trim() !== '');
+        return value === undefined ? '' : String(value).trim();
+    };
+
+    const hasObjectValue = (value) => value && typeof value === 'object' && Object.keys(value).length > 0;
+
+    const isSameJsonObject = (left = {}, right = {}) => {
+        try {
+            return JSON.stringify(left || {}) === JSON.stringify(right || {});
+        } catch (error) {
+            return false;
+        }
+    };
+
+    const isMeituanRankingFormAlignedWithConfig = (form = {}, config = {}) => {
+        if (!form || !config) return false;
+        const formHotelId = String(form.hotelId || '').trim();
+        const configHotelId = firstMeituanConfigText(config.hotel_id, config.system_hotel_id);
+        if (formHotelId && configHotelId && formHotelId !== configHotelId) return false;
+
+        const formPartnerId = String(form.partnerId || '').trim();
+        const formPoiId = String(form.poiId || '').trim();
+        const formCookies = normalizeMeituanCookieText(form.cookies);
+        if (!formPartnerId || !formPoiId || !formCookies) return false;
+
+        const configPartnerId = firstMeituanConfigText(config.partner_id, config.partnerId);
+        const configPoiId = firstMeituanConfigText(config.poi_id, config.poiId, config.store_id, config.storeId);
+        if (!configPartnerId || !configPoiId) return false;
+        if (configPartnerId && formPartnerId !== configPartnerId) return false;
+        if (configPoiId && formPoiId !== configPoiId) return false;
+
+        const configCookies = normalizeMeituanCookieText(config.cookies);
+        if (!configCookies) return false;
+        if (configCookies && formCookies !== configCookies) return false;
+
+        if (hasObjectValue(config.auth_data) && !isSameJsonObject(form.auth_data || {}, config.auth_data || {})) {
+            return false;
+        }
+        return true;
+    };
+
     const runMeituanManualTabSwitch = async ({
         tab = '',
         getCurrentPage = () => '',
@@ -897,7 +939,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         getOnlineDataTab = () => '',
         refreshOnlineData = () => {},
     } = {}) => {
-        const form = getForm() || {};
+        let form = getForm() || {};
         if (!form.hotelId) {
             notify('请选择目标酒店', 'error');
             return { status: 'missing_hotel' };
@@ -907,7 +949,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
             notify('当前酒店未配置美团数据源', 'warning');
             return { status: 'missing_config' };
         }
-        await applyMeituanHotelConfig(false, { resolvedConfig: selectedMeituanConfig, refreshList: false });
+        if (!isMeituanRankingFormAlignedWithConfig(form, selectedMeituanConfig)) {
+            await applyMeituanHotelConfig(false, {
+                resolvedConfig: selectedMeituanConfig,
+                refreshList: false,
+                skipIfAligned: true,
+            });
+            form = getForm() || form;
+        }
         const meituanCookies = String(form.cookies || '').trim();
         const partnerId = String(form.partnerId || '').trim();
         const poiId = String(form.poiId || '').trim();
@@ -974,9 +1023,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         let acceptedCount = 0;
 
         try {
-            for (const [index, task] of fetchTasks.entries()) {
+            await Promise.all(fetchTasks.map(async (task, index) => {
                 notify(task.toastText);
-                const requestBody = { ...task.body, async: true };
+                const requestBody = { ...task.body, async: true, background: true };
                 const res = await requestFetch(requestBody);
                 const accepted = isMeituanBackgroundAcceptedResponse(res);
                 if (accepted) {
@@ -987,7 +1036,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 if (res.code === 200 && !accepted) {
                     totalSavedCount += res.data.saved_count || 0;
                 }
-            }
+            }));
 
             flushResultUpdate();
             setSavedCount(totalSavedCount);
@@ -1012,6 +1061,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
             const allHotels = useDisplayModel(modelRes.data || {});
             setDataFetchTime(getFetchTime());
+            setBusinessSummary(null);
             updateAiAnalysisHotelList();
 
             if (totalSavedCount > 0) {
@@ -1199,6 +1249,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanBatchFetchResultEntry,
         buildMeituanDisplayModelPayload,
         normalizeMeituanCookieText,
+        isMeituanRankingFormAlignedWithConfig,
         runMeituanManualTabSwitch,
         normalizeMeituanTrafficFetchForm,
         validateMeituanTrafficFetchInput,

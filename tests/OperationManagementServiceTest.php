@@ -76,6 +76,60 @@ final class OperationManagementServiceTest extends TestCase
         self::assertContains('operation_alerts_accuracy_label_missing', array_column($summary['data_gaps'], 'code'));
     }
 
+    public function testExecutionIntentKeepsOtaDiagnosisEvidenceForDataCollectionAction(): void
+    {
+        $service = new OperationManagementService();
+
+        $payload = $service->buildExecutionIntentPayload([1], 1, [
+            'hotel_id' => 1,
+            'platform' => 'ctrip',
+            'source_module' => 'ota_diagnosis',
+            'source_record_id' => 0,
+            'object_type' => 'data_collection',
+            'action_type' => 'collect_same_period_ota_data',
+            'date_start' => '2026-06-12',
+            'date_end' => '2026-06-12',
+            'target_value' => [
+                'collection_scope' => 'same_day_ota_channel',
+                'target_date' => '2026-06-12',
+            ],
+            'evidence_refs' => ['ota_no_data_scope'],
+            'data_gaps' => [[
+                'code' => 'ota_same_period_source_rows_missing',
+                'message' => '选定日期范围没有可用于 OTA 经营诊断的真实入库数据。',
+            ]],
+            'source_policy' => 'database_only_no_synthetic_conclusion',
+            'protected_boundary' => '不改变采集字段、字段映射、携程/美团手动或自动获取逻辑。',
+        ], 9);
+
+        self::assertSame('pending_approval', $payload['status']);
+        self::assertSame('', $payload['blocked_reason']);
+        self::assertSame('data_collection', $payload['object_type']);
+        self::assertSame(['ota_no_data_scope'], $payload['evidence']['evidence_refs']);
+        self::assertSame('ota_same_period_source_rows_missing', $payload['evidence']['data_gaps'][0]['code']);
+        self::assertSame('database_only_no_synthetic_conclusion', $payload['evidence']['source_policy']);
+        self::assertStringContainsString('不改变采集字段', $payload['evidence']['protected_boundary']);
+    }
+
+    public function testExecutionIntentBlocksDataCollectionWithoutOtaEvidence(): void
+    {
+        $service = new OperationManagementService();
+
+        $payload = $service->buildExecutionIntentPayload([1], 1, [
+            'hotel_id' => 1,
+            'platform' => 'ctrip',
+            'object_type' => 'data_collection',
+            'action_type' => 'collect_same_period_ota_data',
+            'target_value' => [
+                'collection_scope' => 'same_day_ota_channel',
+            ],
+        ], 9);
+
+        self::assertSame('blocked', $payload['status']);
+        self::assertStringContainsString('evidence missing', $payload['blocked_reason']);
+        self::assertStringContainsString('ota evidence refs or data_gaps missing', $payload['blocked_reason']);
+    }
+
     public function testDailyFinancialExtractorsUseFallbackFieldsWithoutInventingValues(): void
     {
         $service = new OperationManagementService();

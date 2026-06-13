@@ -824,12 +824,17 @@ window.SUXI_SYSTEM_STATIC = (() => {
         if (!currentUser) return [];
         if (currentUser.is_super_admin) return Array.isArray(items) ? items : [];
 
+        const hasPermission = (permissions, key) => {
+            if (Array.isArray(permissions)) return permissions.includes(key);
+            if (permissions && typeof permissions === 'object') return !!permissions[key];
+            return false;
+        };
         const isItemVisible = (item) => {
             if (item.requireSuper) return false;
             if (item.requireManager && currentUser.role_id !== 2) return false;
             if (item.permissions && item.permissions.length > 0) {
                 const perms = currentUser.permissions || {};
-                return item.permissions.some(p => perms[p]);
+                return item.permissions.some(p => hasPermission(perms, p));
             }
             return true;
         };

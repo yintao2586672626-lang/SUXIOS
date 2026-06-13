@@ -18,6 +18,22 @@ Updated: 2026-06-12
 | `cancellation_fields_missing` | 取消字段缺失，系统不能判断订单质量和取消风险。 | 取消率、间夜取消率、取消损失、售后风险 | 有效收入、间夜、客单的已采口径 | 补充取消订单数、取消间夜或平台取消率 |
 | `competitor_price_fields_missing` | 竞品价格字段缺失，系统不能判断价差和价格竞争力。 | 竞品价差、价差率、价格带竞争判断、调价依据 | 自身价格、收入、间夜、客单 | 补采竞品价格或榜单价格证据 |
 
+## 现场闭环缺口补充
+
+这些缺口来自第一阶段实时巡检 `missing_requirements`，用于解释“为什么员工六问仍是 warning / incomplete”。它们只描述证据缺口和后续动作，不改变携程/美团手动或自动获取逻辑，不改变获取字段和字段映射。
+
+| gap code | 员工可见解释 | 被限制的指标/结论 | 仍可使用的指标 | 下一步动作 |
+|---|---|---|---|---|
+| `ctrip_traffic_facts_missing` | 携程目标日缺少流量/转化事实，不能判断曝光、访问、下单链路是否异常。 | 携程流量、转化率、漏斗诊断、AI 对流量问题的确定结论 | 已采到的携程收入、间夜、订单等收益事实 | 使用现有携程流量获取入口补齐目标日流量事实，复跑巡检 |
+| `meituan_source_rows_missing` | 美团目标日没有同日 OTA 源数据行，不能证明今天美团数据已采到。 | 美团收入、流量、转化、字段可信度和 AI 诊断 | 美团最近可用历史数据只能作参考，不能替代目标日 | 使用现有美团手动或自动获取入口补齐目标日源数据 |
+| `meituan_etl_not_ready` | 美团源数据没有形成可读的标准事实层，不能进入统一收益诊断。 | 美团标准事实、收益指标、字段可信判断 | 已保存的原始/历史参考状态和采集日志 | 复核现有美团 ETL 输入、data_type、raw_data 标准化证据 |
+| `meituan_revenue_metrics_not_ready` | 美团收益指标未就绪，不能计算美团收入、间夜、客单等经营结论。 | 美团收益、ADR、订单、间夜和相关 AI 建议 | 其它已 ready 平台的收益指标可单独复核 | 补齐美团目标日源数据和标准事实后复跑收益指标 |
+| `meituan_traffic_facts_missing` | 美团目标日缺少流量/转化事实，不能判断曝光、访问、转化链路。 | 美团流量、转化率、漏斗诊断、AI 对流量问题的确定结论 | 美团历史参考行只能说明最近有数据，不证明目标日流量 | 使用现有美团流量获取入口补齐目标日流量事实 |
+| `ai_diagnosis_action_items_blocked` | AI 诊断已有阻断依据，但 action_items 不能作为可执行经营建议。 | AI 自动建议、执行意图创建、运营闭环完成判断 | 阻断原因、证据来源和 data_gaps 可作为补证据清单 | 先解除上游 OTA 缺口，再重新生成包含非 blocked action_items 的诊断 |
+| `operation_execution_sample_missing` | 尚无能追溯到 OTA 诊断的执行意图、审批、执行证据或复盘样例。 | 运营执行闭环、动作完成、复盘和 ROI 判断 | 下一步动作和阻断链可见，但不能算执行完成 | 取得可执行 AI action_items 后，创建或附上执行意图和证据 |
+| `operation_execution_ai_action_link_missing` | 已有执行相关数据，但未能追溯到 OTA 诊断 action_items，不能证明这一步是 AI 建议的运营承接。 | AI 建议执行承接、运营执行闭环、动作完成归因 | 普通执行流可作为运营参考，OTA 诊断缺口和动作队列仍可作为待处理清单 | 将执行意图或执行流程的 source/evidence 关联到 OTA 诊断 action_items，再补齐审批、执行证据或复盘 |
+| `operation_execution_evidence_incomplete` | 已有可追溯到 OTA 诊断的执行意图或执行流程，但缺少审批、执行证据、复盘或 ROI 信号。 | 运营执行闭环、动作完成、复盘和 ROI 判断 | 执行意图本身和阻断原因可用于跟进，但不能算闭环完成 | 补齐 approval.status=approved、execution.status=executed、evidence.count>0、review.status 或 ROI 信号 |
+
 ## 展示规则
 
 - 缺口必须进入 `data_gaps`，不能只写在日志里。

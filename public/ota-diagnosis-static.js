@@ -572,7 +572,7 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
                 const data = res.data || {};
                 const isEmpty = isEmptyOtaDiagnosisResult(data);
                 setEmpty(isEmpty);
-                setResult(isEmpty ? null : data);
+                setResult(data);
                 notify(isEmpty ? '暂无OTA数据' : 'OTA诊断已生成', isEmpty ? 'warning' : undefined);
                 return {
                     status: isEmpty ? 'empty' : 'success',

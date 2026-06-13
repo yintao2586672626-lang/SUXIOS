@@ -87,6 +87,7 @@ requirePackageScript('verify:phase1-ota-audit', 'node scripts/verify_phase1_ota_
 requirePackageScript('verify:phase1-employee-console', 'node scripts/verify_phase1_ota_employee_console_contract.mjs');
 requirePackageScript('verify:phase1-gap-explanations', 'node scripts/verify_phase1_ota_gap_explanations.mjs');
 requirePackageScript('verify:phase1-live-closure-contract', 'node scripts/verify_phase1_ota_live_closure_contract.mjs');
+requirePackageScript('verify:phase1-live-action-queue', 'node scripts/verify_phase1_live_action_queue_runtime.mjs');
 requirePackageScript('inspect:phase1-live-closure', 'C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php');
 requirePackageScript('verify:phase1-live-closure', 'C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php --strict');
 
@@ -96,6 +97,7 @@ requireIncludes('docs/release_functional_acceptance_matrix.md', 'functional acce
   'verify:phase1-employee-console',
   'verify:phase1-gap-explanations',
   'verify:phase1-live-closure-contract',
+  'verify:phase1-live-action-queue',
   'OTA trusted loop',
 ]);
 
@@ -104,12 +106,14 @@ requireIncludes('docs/phase1_ota_trusted_loop_goal.md', 'phase-one goal includes
   'npm.cmd run verify:phase1-employee-console',
   'npm.cmd run verify:phase1-gap-explanations',
   'npm.cmd run verify:phase1-live-closure-contract',
+  'npm.cmd run verify:phase1-live-action-queue',
 ]);
 
 requireIncludes('docs/phase1_ota_live_closure_evidence.md', 'phase-one live closure evidence gate is documented', [
   'capture -> persistence -> UI display -> revenue metrics -> AI evidence -> operation execution',
   'npm.cmd run inspect:phase1-live-closure',
   'npm.cmd run verify:phase1-live-closure',
+  'npm.cmd run verify:phase1-live-action-queue',
 ]);
 
 requireIncludes('route/app.php', 'OTA acquisition, diagnosis, revenue, AI, and execution routes exist', [
@@ -147,12 +151,21 @@ requireIncludes('app/controller/Agent.php', 'Agent OTA diagnosis keeps evidence 
   'public function otaDiagnosis()',
   'source_policy',
   'data_gaps',
+  'database_only_no_synthetic_conclusion',
+  'database_only_latest_available_reference_not_execution_ready',
+  'blocked_by_missing_ota_data',
+  'blocked_by_non_target_date_data',
+  'ota_latest_available_not_target_date',
 ]);
 
 requireIncludes('app/service/OperationManagementService.php', 'operation loop requires execution evidence', [
   'public function executionFlow',
   'execution evidence is required',
   'data_gaps',
+  'data_collection',
+  'evidence_refs',
+  'source_policy',
+  'protected_boundary',
 ]);
 
 requireIncludes('docs/revenue_agent_api.md', 'revenue recommendations remain advisory', [

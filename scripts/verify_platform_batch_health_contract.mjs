@@ -24,7 +24,7 @@ const batchState = sliceBetween(
 );
 const loadPanel = sliceBetween(
   publicSource,
-  'const loadPlatformDataSourcePanel = async () =>',
+  'const loadPlatformDataSourcePanel = async (options = {}) =>',
   'const savePlatformDataSource = async () =>'
 );
 const competitorLoader = sliceBetween(
@@ -78,7 +78,9 @@ const checks = [
   },
   {
     name: 'platform source panel refresh loads competitor by-hotel summaries for the batch health table',
-    pass: loadPanel.includes('loadCompetitorSummary({ includeByHotel: true })')
+    pass: loadPanel.includes('loadCompetitorSummary({')
+      && loadPanel.includes('includeByHotel: true')
+      && loadPanel.includes('cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS')
       && competitorLoader.includes("params.append('include_by_hotel', '1')")
       && competitorLoader.includes('hotelCompetitorSummaries.value'),
   },

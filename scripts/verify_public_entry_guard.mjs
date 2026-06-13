@@ -82,6 +82,14 @@ if (!fs.existsSync(indexPath)) {
   const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
   const dataHealthStaticPath = path.join(repoRoot, 'public/data-health-static.js');
   const dataHealthStaticContent = fs.existsSync(dataHealthStaticPath) ? fs.readFileSync(dataHealthStaticPath, 'utf8') : '';
+  const platformAutoSettingsPanelsPath = path.join(repoRoot, 'public/components/online-data/platform-auto-settings-panels.js');
+  const platformAutoSettingsPanelsContent = fs.existsSync(platformAutoSettingsPanelsPath)
+    ? fs.readFileSync(platformAutoSettingsPanelsPath, 'utf8')
+    : '';
+  const ctripProfileFieldConfigPanelPath = path.join(repoRoot, 'public/components/online-data/ctrip-profile-field-config-panel.js');
+  const ctripProfileFieldConfigPanelContent = fs.existsSync(ctripProfileFieldConfigPanelPath)
+    ? fs.readFileSync(ctripProfileFieldConfigPanelPath, 'utf8')
+    : '';
 
   if (stat.size < 500_000) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
@@ -101,9 +109,38 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
-  if (!content.includes('ctrip-static.js?v=20260612-sample-helper')
-    || !content.includes('meituan-static.js?v=20260612-manual-fetch-perf')) {
+  if (!content.includes('ctrip-static.js?v=20260612-manual-efficiency')
+    || !content.includes('meituan-static.js?v=20260613-ranking-background-fetch')) {
     failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance exports change.');
+  }
+  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';")
+    || !content.includes("const PlatformAutoSettingsPanels = {")
+    || !content.includes("const PlatformAutoSecondaryPanels = {")
+    || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
+    || !content.includes("requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')")
+    || !content.includes("requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')")
+    || !content.includes('platformAutoSettingsPanelsBody')
+    || !content.includes('platformAutoSecondaryPanelsBody')
+    || !platformAutoSettingsPanelsContent.includes('components.PlatformAutoSettingsPanelsBody')
+    || !platformAutoSettingsPanelsContent.includes('components.PlatformAutoSecondaryPanelsBody')
+    || content.includes('<script src="components/online-data/platform-auto-settings-panels.js')) {
+    failures.push('public/index.html must lazy-load the platform-auto extension panels instead of loading them before Vue mount.');
+  }
+  if (!content.includes('components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split')
+    || !content.includes("const CtripProfileFieldConfigPanel = {")
+    || !content.includes('const ensureCtripProfileFieldConfigPanelReady = async () => {')
+    || !content.includes("requireOnlineDataComponent('CtripProfileFieldConfigPanelBody')")
+    || !content.includes('void ensureCtripProfileFieldConfigPanelReady().catch')
+    || !content.includes('<ctrip-profile-field-config-panel')
+    || !content.includes('data-testid="ctrip-profile-field-config-loading"')
+    || !ctripProfileFieldConfigPanelContent.includes('components.CtripProfileFieldConfigPanelBody')
+    || !/data-testid=\\?"ctrip-profile-field-config-panel\\?"/.test(ctripProfileFieldConfigPanelContent)
+    || !ctripProfileFieldConfigPanelContent.includes('return new Proxy({}, {')
+    || !ctripProfileFieldConfigPanelContent.includes('return props.ctx?.[key] ?? target[key];')
+    || !ctripProfileFieldConfigPanelContent.includes('props.ctx[key] = value;')
+    || !ctripProfileFieldConfigPanelContent.includes('getOwnPropertyDescriptor() {')
+    || content.includes('携程登录会话字段配置')) {
+    failures.push('public/index.html must lazy-load the admin-only Ctrip profile-field config panel from public/components/online-data/ctrip-profile-field-config-panel.js.');
   }
 
   if (!content.includes('const suxiApp = createApp({')
@@ -154,12 +191,36 @@ if (!fs.existsSync(indexPath)) {
   if (tailwindOffset < 0 || vueScriptOffset < 0 || tailwindOffset > vueScriptOffset) {
     failures.push('public/index.html must discover core stylesheets before synchronous Vue/static scripts.');
   }
-  const loginBgPreloadOffset = content.indexOf('href="images/login-hotel-lobby-bg.avif"');
-  if (!/<link\s+rel=["']preload["']\s+href=["']images\/login-hotel-lobby-bg\.avif["']\s+as=["']image["']\s+type=["']image\/avif["']\s+fetchpriority=["']high["']/.test(content)) {
-    failures.push('public/index.html must preload the optimized AVIF login background with high fetch priority.');
+  const loginBgPreloadOffset = content.indexOf("const loginBackgroundPreload = 'images/login-hotel-lobby-bg.avif';");
+  if (/<link\s+rel=["']preload["']\s+href=["']images\/login-hotel-lobby-bg\.avif["']\s+as=["']image["']\s+type=["']image\/avif["']\s+fetchpriority=["']high["']/.test(content)) {
+    failures.push('public/index.html must not statically preload the login background for cached-auth users.');
+  }
+  if (!content.includes("const shouldPreloadLoginBackground = () => {")
+    || !content.includes("return !localStorage.getItem('token') || !localStorage.getItem('suxios_auth_user_cache_v1');")
+    || !content.includes("link.setAttribute('fetchpriority', 'high');")
+    || !content.includes("link.dataset.suxiLoginBgPreload = '1';")
+    || !content.includes('preloadLoginBackground();')) {
+    failures.push('public/index.html must conditionally preload the optimized AVIF login background only when the login shell can be shown.');
   }
   if (loginBgPreloadOffset < 0 || tailwindOffset < 0 || loginBgPreloadOffset > tailwindOffset) {
-    failures.push('public/index.html must discover the AVIF login background preload before core stylesheets.');
+    failures.push('public/index.html must evaluate login background preload before core stylesheets.');
+  }
+  if (!content.includes('const normalizePermissionMap = (permissions = null) => {')
+    || !content.includes('if (Array.isArray(permissions)) {')
+    || !content.includes('if (key) acc[String(key)] = true;')
+    || !content.includes('const permissions = normalizePermissionMap(profile.permissions);')) {
+    failures.push('public/index.html must normalize cached permission arrays before first-paint menu filtering.');
+  }
+  if (!systemStaticContent.includes('const hasPermission = (permissions, key) => {')
+    || !systemStaticContent.includes('if (Array.isArray(permissions)) return permissions.includes(key);')
+    || !systemStaticContent.includes('return item.permissions.some(p => hasPermission(perms, p));')) {
+    failures.push('public/system-static.js must keep visible menu filtering compatible with array and object permission payloads.');
+  }
+  if (/<link\s+href=["']font-awesome\.min\.css["']\s+rel=["']stylesheet["']/.test(content)
+    || !content.includes("const fontAwesomeStylesheet = 'font-awesome.min.css';")
+    || !content.includes("link.dataset.suxiFontawesome = '1';")
+    || !content.includes('window.setTimeout(loadFontAwesomeStylesheet, 1600);')) {
+    failures.push('public/index.html must idle-load FontAwesome so icon fonts do not compete with core OTA first-second rendering.');
   }
 
   if (/vue-router\.global\.prod\.js/.test(content)) {
@@ -229,6 +290,16 @@ if (!fs.existsSync(indexPath)) {
     || !/runPageLoadOnce\(currentPage\.value \|\| ['"]online-data['"], ['"]ai-analysis-static['"][\s\S]*await ensureAiAnalysisStaticReady\(\);/.test(content)) {
     failures.push('public/index.html must load AI analysis static data only from the OTA AI tab or online analysis tab.');
   }
+  if (/<script\s+src=["']ota-diagnosis-static\.js/.test(content)) {
+    failures.push('public/index.html must lazy-load ota-diagnosis-static.js; the login, home, and online-data shell do not need OTA diagnosis helpers.');
+  }
+  if (!/const\s+otaDiagnosisStaticScript\s*=\s*["']ota-diagnosis-static\.js/.test(content)
+    || !/const\s+loadOtaDiagnosisStatic\s*=\s*\(\)\s*=>/.test(content)
+    || !/const\s+ensureOtaDiagnosisStaticReady\s*=\s*async\s*\(\)\s*=>/.test(content)
+    || !/runPageLoadOnce\(newPage,\s*['"]ota-diagnosis-static['"][\s\S]*ensureOtaDiagnosisStaticReady\(\)/.test(content)
+    || !/const generateOtaDiagnosis = async \(\) => \{[\s\S]*await getOtaDiagnosisGenerateFlow\(\);/.test(content)) {
+    failures.push('public/index.html must keep OTA diagnosis helpers off the initial shell and load them before diagnosis generation.');
+  }
   const startAiAnalysisSource = content.slice(
     content.indexOf('const startAiAnalysis = async'),
     content.indexOf('const generateLocalAnalysis =', content.indexOf('const startAiAnalysis = async'))
@@ -246,9 +317,20 @@ if (!fs.existsSync(indexPath)) {
     || !/const\s+ensureAutoFetchStaticReady\s*=\s*async\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader and ready guard for auto-fetch-static.js.');
   }
-  if (!/const loadAutoFetchPanel = async[\s\S]*const staticReadyPromise = ensureAutoFetchStaticReady\(\);[\s\S]*Promise\.all\(\[[\s\S]*loadAutoFetchStatus\(\{ detail: false \}\),[\s\S]*staticReadyPromise/.test(content)
+  if (!/const prewarmAutoFetchStaticForPlatformAuto = \(\) => \{[\s\S]*if \(!isVisibleOnlineDataTab\(['"]platform-auto['"]\)\) return null;[\s\S]*const staticReadyPromise = loadAutoFetchStatic\(\)\.catch\(error => \{[\s\S]*void staticReadyPromise;/.test(content)
+    || /const loadAutoFetchPanel = async[\s\S]*const staticReadyPromise = loadAutoFetchStatic\(\)\.catch\(error => \{/.test(content)
+    || /const loadAutoFetchPanel = async[\s\S]*Promise\.all\(\[[\s\S]*staticReadyPromise/.test(content)
     || !/const triggerAutoFetch = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*requireAutoFetchStatic\(['"]runAutoFetchTriggerFlow['"]\)/.test(content)) {
-    failures.push('public/index.html must start auto-fetch-static.js in parallel with platform-auto panel status loading, and load it before triggering manual auto-fetch.');
+    failures.push('public/index.html must delay auto-fetch-static.js prewarm beyond platform-auto first paint, and load it before triggering manual auto-fetch.');
+  }
+  if (!content.includes('const autoFetchConfigProofPendingForHotelId = (hotelId) => {')
+    || !content.includes('autoFetchStatusRequestPromises.has(`${keyPrefix}light`)')
+    || !content.includes('autoFetchStatusRequestPromises.has(`${keyPrefix}full`)')
+    || !content.includes('const canTriggerAutoFetchByHotelId = (hotelId) => {')
+    || !content.includes('hasAnyPlatformFetchConfigByHotelId(hotelId) || autoFetchConfigProofPendingForHotelId(hotelId)')
+    || !content.includes('hasPlatformFetchConfig: canTriggerAutoFetchByHotelId,')
+    || (content.match(/:disabled="fetchingData \|\| !canTriggerAutoFetchByHotelId\(autoFetchHotelId\)"/g) || []).length < 2) {
+    failures.push('public/index.html must let platform-auto immediate collection stay clickable while light config proof is pending, without relaxing settings/backfill controls.');
   }
   const openDataConfigModalStart = content.indexOf('const openDataConfigModal =');
   const openDataConfigModalEnd = content.indexOf('const firstDataConfigValue =', openDataConfigModalStart);
@@ -268,6 +350,27 @@ if (!fs.existsSync(indexPath)) {
     || !/const saveDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*const testDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*requireAutoFetchStatic\(['"]runDataConfigTestFlow['"]\)/.test(content)) {
     failures.push('public/index.html must load auto-fetch-static.js before data-source config form parsing, saving, or testing.');
   }
+  if (!content.includes('const SAVED_OTA_DATA_CONFIG_CACHE_TTL_MS = 30000;')
+    || !content.includes('const savedOtaDataConfigCache = new Map();')
+    || !content.includes('const savedOtaDataConfigLoadingPromises = new Map();')
+    || !/const readSavedOtaDataConfigFromSystem = async \(type\) => \{[\s\S]*savedOtaDataConfigCache\.get\(configKey\)[\s\S]*savedOtaDataConfigLoadingPromises\.has\(configKey\)[\s\S]*request\(`\/system-config\?key=\$\{configKey\}`\)[\s\S]*savedOtaDataConfigCache\.set\(configKey/.test(content)
+    || !content.includes('const loadSavedDataConfigByType = async (type) => {\n                return await readSavedOtaDataConfigFromSystem(type);\n            };')
+    || !content.includes('clearSavedOtaDataConfigCache(currentDataConfigType.value);')) {
+    failures.push('public/index.html saved OTA data-source config reads must be short-cached, deduplicated, and invalidated after saves so manual tab switching does not repeat system-config reads.');
+  }
+  if (!content.includes('const CTRIP_PROFILE_FIELDS_TAB_CACHE_TTL_MS = 30000;')
+    || !content.includes('const ctripProfileFieldResultCache = new Map();')
+    || !content.includes('const ctripProfileFieldRequestPromises = new Map();')
+    || !/const requestCtripProfileFields = async \(includeSamples, options = \{\}\) => \{[\s\S]*const cached = readCtripProfileFieldCache\(key\)[\s\S]*ctripProfileFieldRequestPromises\.has\(key\)[\s\S]*request\(`\/online-data\/ctrip-profile-fields\?include_samples=\$\{includeSamples \? 1 : 0\}`\)[\s\S]*writeCtripProfileFieldCache\(key, res\.data \|\| \{\}\)/.test(content)
+    || !content.includes('void ensureCtripProfileFieldConfigPanelReady().catch')
+    || !content.includes('return runIfCurrent(() => loadCtripProfileFields(options));')
+    || !content.includes('const loadCtripProfileFields = async (options = {}) => {')
+    || !content.includes('const res = await requestCtripProfileFields(false, { force });')
+    || !content.includes('const res = await requestCtripProfileFields(true, { force: options.force === true });')
+    || !content.includes('clearCtripProfileFieldCache();\n                        await loadCtripProfileFields({ force: true });')
+    || !content.includes('clearCtripProfileFieldCache();\n                        mergeCtripProfileFieldUpdate(res.data || {});')) {
+    failures.push('public/index.html Ctrip profile-field config reads must be short-cached, deduplicated, force-refreshable, and invalidated after field mutations.');
+  }
   const testDataConfigStart = content.indexOf('const testDataConfig = async');
   const testDataConfigEnd = content.indexOf('const loadHolidayRevenueCountdown = async', testDataConfigStart);
   const testDataConfigSource = testDataConfigStart >= 0 && testDataConfigEnd > testDataConfigStart
@@ -285,18 +388,26 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('loadCompetitorSummary({ requireCompass: true })')) {
     failures.push('public/index.html compass background refreshes must stop after the user leaves the compass page.');
   }
-  if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*loadCtripConfigList\(\)[\s\S]*loadMeituanConfigList\(\)/.test(content)) {
-    failures.push('public/index.html must keep a lightweight manual-fetch config prewarm that loads saved Ctrip/Meituan config lists without opening the full platform-auto panel.');
+  if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\)[\s\S]*loadMeituanConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\)/.test(content)) {
+    failures.push('public/index.html must keep a lightweight cached manual-fetch config prewarm that loads saved Ctrip/Meituan config lists without opening the full platform-auto panel.');
   }
   if (!content.includes('const MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS = 15000;')
-    || !content.includes('loadConfigList: () => loadCtripConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS })')
-    || !content.includes('loadConfigList: () => loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS })')
+    || !/loadConfigList: \(\) => loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\)/.test(content)
+    || !/loadConfigList: \(\) => loadMeituanConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\)/.test(content)
     || !content.includes('let ctripConfigListLoadedAt = 0;')
     || !content.includes('let meituanConfigListLoadedAt = 0;')) {
     failures.push('public/index.html manual fetch tab switches must reuse recently loaded Ctrip/Meituan config lists without changing default full refresh behavior.');
   }
   if (!/let ctripConfigListLoadingPromise = null;[\s\S]*const loadCtripConfigList = async[\s\S]*if \(ctripConfigListLoadingPromise\) \{[\s\S]*return ctripConfigListLoadingPromise;[\s\S]*finally \{[\s\S]*ctripConfigListLoadingPromise = null;/.test(content)) {
     failures.push('public/index.html must deduplicate concurrent Ctrip config-list loads for manual-fetch prewarm and tab switching.');
+  }
+  if (!content.includes(':disabled="fetchingData || !canFetchCtripManualData()"')
+    || !content.includes('const ctripManualFetchConfigProofPending = () => {')
+    || !content.includes('return !!ctripConfigListLoadingPromise')
+    || !content.includes('const canFetchCtripManualData = () => {')
+    || !content.includes('const resolveCtripManualFetchConfig = async (config) => {')
+    || !content.includes('ensureCtripConfigSecret: async config => ensureCtripConfigSecret(await resolveCtripManualFetchConfig(config))')) {
+    failures.push('public/index.html Ctrip ranking/traffic manual fetch must stay clickable while pending config proof is loading and reuse the same config-list request before backend submission.');
   }
   if (!/const ctripConfigDetailCache = new Map\(\);[\s\S]*const ctripConfigDetailLoadingPromises = new Map\(\);[\s\S]*const loadCtripConfigDetail = async[\s\S]*if \(ctripConfigDetailLoadingPromises\.has\(cacheKey\)\)[\s\S]*return ctripConfigDetailLoadingPromises\.get\(cacheKey\);[\s\S]*const ensureCtripConfigSecret = async[\s\S]*const cached = cacheKey \? ctripConfigDetailCache\.get\(cacheKey\) : null;/.test(content)) {
     failures.push('public/index.html must cache and deduplicate full Ctrip config detail loads for manual-fetch hotel switching.');
@@ -310,9 +421,10 @@ if (!fs.existsSync(indexPath)) {
   if (!content.includes('const scheduleCtripHotelConfigApply = (event = null, options = {}) => {')
     || !content.includes('const applyVersion = ++ctripHotelConfigApplyVersion;')
     || !content.includes('const config = await ensureCtripConfigSecret(configSource, { silent: true });')
+    || !content.includes('isCtripRankingFormAlignedWithConfig(ctripForm.value, config, { selectedHotelId: requestedHotelId })')
     || !content.includes('@change="scheduleCtripHotelConfigApply"')
     || content.includes('@change="applyCtripHotelConfig"')) {
-    failures.push('public/index.html Ctrip hotel selection must apply list config immediately and defer full config detail loading.');
+    failures.push('public/index.html Ctrip hotel selection must defer full config detail loading and skip redundant form application when already aligned.');
   }
   if (!content.includes("clearCtripConfigDetailCache(body?.id || '');")
     || !content.includes("clearCtripConfigDetailCache(ctrip.id || existing?.id || '');")
@@ -320,46 +432,97 @@ if (!fs.existsSync(indexPath)) {
     || !/batchDeleteCtripConfigs = async[\s\S]*clearCtripConfigDetailCache\(id\);/.test(content)) {
     failures.push('public/index.html must invalidate cached full Ctrip config details after Ctrip config saves or deletes.');
   }
+  const batchDeleteCtripConfigsSource = content.slice(
+    content.indexOf('const batchDeleteCtripConfigs = async'),
+    content.indexOf('const generateCtripBookmarklet = async')
+  );
+  if (!batchDeleteCtripConfigsSource.includes('const results = await Promise.all(ids.map(async (id) => {')
+    || !batchDeleteCtripConfigsSource.includes('const failedIds = results.filter(item => !item.success).map(item => item.id);')
+    || !batchDeleteCtripConfigsSource.includes('deferUiTask(() => loadCtripConfigList(), 80);')
+    || batchDeleteCtripConfigsSource.includes('await loadCtripConfigList();')) {
+    failures.push('public/index.html Ctrip batch config delete must run delete requests in parallel and refresh the config list after feedback is released.');
+  }
   const onlineDataTabSchedulerStart = content.indexOf('const scheduleOnlineDataTabLoad = (newTab, options = {}) => {');
   const onlineDataTabSchedulerEnd = content.indexOf('const openOnlineDataTab =', onlineDataTabSchedulerStart);
   const onlineDataTabSchedulerSource = onlineDataTabSchedulerStart >= 0 && onlineDataTabSchedulerEnd > onlineDataTabSchedulerStart
     ? content.slice(onlineDataTabSchedulerStart, onlineDataTabSchedulerEnd)
     : '';
+  const manualOnlineDataConfigPrewarmStart = content.indexOf('const MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS = 60;');
+  const manualOnlineDataConfigPrewarmEnd = content.indexOf('let suppressNextOnlineDataTabWatcherLoad = false;', manualOnlineDataConfigPrewarmStart);
+  const manualOnlineDataConfigPrewarmSource = manualOnlineDataConfigPrewarmStart >= 0 && manualOnlineDataConfigPrewarmEnd > manualOnlineDataConfigPrewarmStart
+    ? content.slice(manualOnlineDataConfigPrewarmStart, manualOnlineDataConfigPrewarmEnd)
+    : '';
   const onlineDataTabWatchSource = content.slice(
     content.indexOf('watch(onlineDataTab'),
     content.indexOf('watch(() => meituanForm.value.hotelId')
   );
-  if (!/newTab === ['"]data['"][\s\S]*ensureManualOnlineFetchConfigReady\(\)/.test(onlineDataTabSchedulerSource)
+  const onlineDataDataTabStart = onlineDataTabSchedulerSource.indexOf("if (newTab === 'data') {");
+  const onlineDataManualPrewarmStart = onlineDataTabSchedulerSource.indexOf('if (shouldPrewarmManualConfig) {', onlineDataDataTabStart);
+  const onlineDataDataTabSource = onlineDataDataTabStart >= 0 && onlineDataManualPrewarmStart > onlineDataDataTabStart
+    ? onlineDataTabSchedulerSource.slice(onlineDataDataTabStart, onlineDataManualPrewarmStart)
+    : '';
+  if (!manualOnlineDataConfigPrewarmSource.includes('const MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS = 60;')
+    || !manualOnlineDataConfigPrewarmSource.includes("const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set(['ctrip', 'meituan', 'custom']);")
+    || !manualOnlineDataConfigPrewarmSource.includes("const shouldPrewarmManualOnlineFetchConfig = (newTab) => MANUAL_ONLINE_FETCH_CONFIG_TABS.has(String(newTab || ''));")
+    || !manualOnlineDataConfigPrewarmSource.includes('const clearManualOnlineFetchConfigPrewarmTimer = () => {')
+    || !manualOnlineDataConfigPrewarmSource.includes('const scheduleManualOnlineFetchConfigPrewarm = (newTab, delayMs = MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS) => {')
+    || !manualOnlineDataConfigPrewarmSource.includes('if (!isVisibleOnlineDataTab(newTab)) return;')
+    || !manualOnlineDataConfigPrewarmSource.includes('ensureManualOnlineFetchConfigReady();')
+    || !onlineDataTabSchedulerSource.includes('const shouldPrewarmManualConfig = shouldPrewarmManualOnlineFetchConfig(newTab);')
+    || !/if \(!shouldPrewarmManualConfig\) \{\s*clearManualOnlineFetchConfigPrewarmTimer\(\);\s*\}/.test(onlineDataTabSchedulerSource)
+    || !/newTab === ['"]data['"][\s\S]*refreshOnlineData\(\{ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS \}\);[\s\S]*return undefined;/.test(onlineDataTabSchedulerSource)
+    || onlineDataDataTabSource.includes('scheduleManualOnlineFetchConfigPrewarm')
+    || !/if \(shouldPrewarmManualConfig\) \{\s*scheduleManualOnlineFetchConfigPrewarm\(newTab, options\.configPrewarmDelayMs\);\s*return undefined;\s*\}/.test(onlineDataTabSchedulerSource)
+    || /ensureManualOnlineFetchConfigReady\(\);\s*refreshOnlineData\(\{ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS \}\);/.test(onlineDataTabSchedulerSource)
     || !/item\.path === ['"]online-data['"][\s\S]*openOnlineDataTab\(targetTab\)/.test(content)) {
-    failures.push('public/index.html must prewarm saved platform configs when the online-data manual data tab is opened.');
+    failures.push('public/index.html must keep saved platform config prewarm off the online-data data-records first paint and reserve it for manual fetch tabs.');
   }
   if (!content.includes("let pendingOnlineDataEntryTab = '';")
     || !content.includes("pendingOnlineDataEntryTab = String(item.tab || '');")
     || !content.includes("if (requestedOnlineDataTab && requestedOnlineDataTab !== 'data-health') {\n                        return;\n                    }")) {
     failures.push('public/index.html must skip default data-health first-paint loading when menu navigation targets another online-data tab.');
   }
-  if (!content.includes("const wasOnlineDataPage = currentPage.value === 'online-data';")
-    || !content.includes("const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {\n                const targetTab = String(tab || 'data-health');")
+  if (!content.includes("const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {\n                const targetTab = String(tab || 'data-health');")
+    || !content.includes("clearDataHealthSecondaryPanelsReadyTimer();\n                dataHealthSecondaryPanelsReady.value = false;\n                clearPlatformAutoSettingsPanelsReadyTimer();\n                platformAutoSettingsPanelsReady.value = false;\n                clearPlatformAutoSecondaryPanelsReadyTimer();\n                platformAutoSecondaryPanelsReady.value = false;")
     || !content.includes("if (targetTab !== 'data-health') {\n                    pendingOnlineDataEntryTab = targetTab;\n                }")
+    || !content.includes("onlineDataTab.value = targetTab;\n                currentPage.value = 'online-data';")
     || !content.includes("const openOnlinePlatformAutoTab = (options = {}) => {\n                return openOnlineDataEntryTab('platform-auto', options);\n            };")
     || !content.includes("const openOnlineDataManualEntry = () => {\n                return openOnlineDataEntryTab('data-health');\n            };")
-    || !content.includes("if (item.path === 'online-data' && !item.tab && wasOnlineDataPage) {\n                    openOnlineDataManualEntry();\n                }")) {
-    failures.push('public/index.html same-page online-data menu clicks must return to the default data-health tab.');
+    || !content.includes("if (item.path === 'online-data' && !item.tab) {\n                    openOnlineDataManualEntry();\n                    return;\n                }")) {
+    failures.push('public/index.html online-data menu clicks without an explicit tab must return to the default data-health tab.');
   }
   if (!content.includes('@click="handleParentMenuClick(item)"')
-    || !content.includes("const handleParentMenuClick = (item) => {")
-    || !content.includes("if (menuName === '线上数据手动获取') {\n                    openOnlineDataManualEntry();\n                }")
+    || !content.includes("const handleParentMenuClick = (item) => {\n                const menuName = item?.name || getMenuItemName(item);\n                toggleSubmenu(menuName);\n            };")
     || !content.includes('expandedMenus, toggleSubmenu, handleParentMenuClick,')) {
-    failures.push('public/index.html parent online-data menu clicks must switch content to the default data-health tab, not only expand the submenu.');
+    failures.push('public/index.html parent online-data menu clicks must only toggle the submenu and must not load the data-health panel.');
+  }
+  if (content.includes("if (menuName === '线上数据手动获取') {\n                    openOnlineDataManualEntry();\n                }")) {
+    failures.push('public/index.html parent online-data menu clicks must not trigger the default data-health load before the user chooses a manual platform.');
   }
   if (!content.includes("if (targetPage === 'online-data') {\n                    openOnlineDataEntryTab(targetTab || 'data-health');")
-    || !content.includes("} else if (targetPage === 'ctrip-ebooking') {\n                        loadDataHealthPanel('light');")
+    || !content.includes("} else if (targetPage === 'ctrip-ebooking') {\n                        scheduleDataHealthPanelRefresh('light');")
     || content.includes("item.target_page === 'online-data' || item.target_page === 'ctrip-ebooking'")
     || content.includes("if (item.target_tab) {\n                    onlineDataTab.value = item.target_tab;\n                }")) {
     failures.push('public/index.html global notifications targeting online-data must use openOnlineDataEntryTab and avoid loading data-health for other target tabs.');
   }
   if (!content.includes("if (entry.page === 'online-data') {\n                    openOnlineDataEntryTab(entry.tab || 'data-health');\n                    return;\n                }")) {
     failures.push('public/index.html home quick entries targeting online-data must use openOnlineDataEntryTab.');
+  }
+  if (!content.includes('const HOME_SECONDARY_PANEL_DELAY_MS = 4200;')
+    || !content.includes('const homeSecondaryPanelsReady = ref(false);')
+    || !content.includes('const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {')
+    || !content.includes('clearHomeSecondaryPanelsReadyTimer();\n                    homeSecondaryPanelsReady.value = false;\n                    destroyHomeTrendChart();')
+    || !content.includes("homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    runPageLoadOnce(newPage, 'main', () => loadCompassData());")
+    || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="daily-ops-monitor-card"/.test(content)
+    || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-weather-demand-card"/.test(content)
+    || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-market-signal-card"/.test(content)
+    || !content.includes('<div v-if="homeSecondaryPanelsReady && homeTrendCards.length"')
+    || !content.includes('homeSecondaryPanelsReady, homeClosedLoopStages')) {
+    failures.push('public/index.html must delay mounting lower home dashboard panels so core OTA navigation stays responsive after login.');
+  }
+  if (content.includes("runPageLoadOnce(newPage, 'auto-fetch-static', () => ensureAutoFetchStaticReady())")
+    || content.includes("runPageLoadOnce('compass', 'auto-fetch-static', () => ensureAutoFetchStaticReady(), runOptions)")) {
+    failures.push('public/index.html must not prewarm auto-fetch-static.js from the home/compass first paint path.');
   }
   if (!content.includes("@click=\"openOnlineDataTab('data-health')\"")
     || !content.includes("@click=\"openOnlineDataTab('data')\"")
@@ -378,6 +541,8 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("const isVisibleOnlineDataTab = isOnlineDataTabVisible;")
     || !onlineDataTabSchedulerSource.includes('if (!isVisibleOnlineDataTab(newTab)) return null;')
     || !onlineDataTabSchedulerSource.includes('if (!isVisibleOnlineDataTab(newTab)) return;')
+    || !onlineDataTabSchedulerSource.includes("scheduleDataHealthPanelRefresh('light', options.force ? { force: true } : {})")
+    || onlineDataTabSchedulerSource.includes("return runIfCurrent(() => loadDataHealthPanel('light'));")
     || !onlineDataTabWatchSource.includes("if (currentPage.value !== 'online-data') {")
     || onlineDataTabWatchSource.includes("loadDataHealthPanel('light')")
     || onlineDataTabWatchSource.includes('refreshOnlineAnalysis()')
@@ -393,10 +558,26 @@ if (!fs.existsSync(indexPath)) {
     || !ctripEbookingDefaultLoader.includes('scheduleCtripEbookingDeferredStartupRefresh();')) {
     failures.push('public/index.html must defer Ctrip eBooking config/latest/cookie/bookmarklet startup refreshes until after the first paint loader.');
   }
-  if (!content.includes("await loadCtripConfigList();\n                    if (currentPage.value !== 'ctrip-ebooking') return null;\n                    prewarmSelectedCtripConfigSecret();")
-    || !content.includes("prewarmSelectedCtripConfigSecret();\n                                deferUiTask(() => applyCtripHotelConfig(false), 80);")
+  if (!content.includes('const CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS = 420;')
+    || !content.includes('const CTRIP_EBOOKING_LATEST_DATA_DELAY_MS = 5200;')
+    || !content.includes('const CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS = 6400;')
+    || !content.includes('const CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS = 7600;')
+    || !content.includes('}, CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS);\n                scheduleDelayedPageTask(() => {')
+    || !content.includes('}, CTRIP_EBOOKING_LATEST_DATA_DELAY_MS);\n                scheduleDelayedPageTask(() => {')
+    || !content.includes('}, CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS);\n                scheduleDelayedPageTask(() => {')
+    || !content.includes('}, CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS);')
+    || content.includes("prewarmSelectedCtripConfigSecret();\n                    return null;\n                }, 1800);")
+    || content.includes("return loadLatestCtripData({ silent: true });\n                }, 2400);")
+    || content.includes("return loadCookiesList();\n                }, 3000);")
+    || content.includes("return loadBookmarklet();\n                }, 3600);")) {
+    failures.push('public/index.html Ctrip eBooking config-list startup refresh must stay responsive and use the explicit short delay constant.');
+  }
+  if (!/await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(currentPage\.value !== 'ctrip-ebooking'\) return null;\s*prewarmSelectedCtripConfigSecret\(\);/.test(content)
+    || !content.includes('const shouldApplySelectedConfig = options.applySelectedConfig === true;')
+    || !/if \(selectedCtripHotelId\.value && shouldApplySelectedConfig\) \{[\s\S]*deferUiTask\(\(\) => applyCtripHotelConfig\(false, \{[\s\S]*refreshList: false,[\s\S]*skipIfAligned: true,/.test(content)
+    || /if \(selectedCtripHotelId\.value\) \{\s*prewarmSelectedCtripConfigSecret\(\);\s*deferUiTask\(\(\) => applyCtripHotelConfig\(false\), 80\);/.test(content)
     || content.includes("if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;")) {
-    failures.push('public/index.html Ctrip config list must return after list data and prewarm full config detail in delayed deferred work.');
+    failures.push('public/index.html Ctrip config list must return after list data and only apply selected config when explicitly requested.');
   }
   if (!/scheduleDataHealthPanelRefresh\(['"]light['"]\);/.test(ctripEbookingDefaultLoader)
     || /await loadDataHealthPanel\(['"]light['"]\);/.test(ctripEbookingDefaultLoader)
@@ -405,6 +586,21 @@ if (!fs.existsSync(indexPath)) {
   }
   if (/runPageLoadOnce\(newPage,\s*['"]main['"][\s\S]*Promise\.allSettled\(\[[\s\S]*loadCtripConfigList\(\)[\s\S]*loadCookiesList\(\)[\s\S]*loadBookmarklet\(\)[\s\S]*\]\)/.test(ctripEbookingDefaultLoader)) {
     failures.push('public/index.html Ctrip eBooking default loader must not start config/latest/cookie/bookmarklet refreshes in the first-paint request group.');
+  }
+  if (!content.includes('const CTRIP_EBOOKING_MODULE_CARD_DELAY_MS = 320;')
+    || !content.includes('const ctripEbookingModuleCardsReady = ref(false);')
+    || !content.includes('const scheduleCtripEbookingModuleCardsReady = (delayMs = CTRIP_EBOOKING_MODULE_CARD_DELAY_MS) => {')
+    || !content.includes('<div v-if="ctripEbookingModuleCardsReady" data-testid="ctrip-overview-module-cards" class="p-4">')
+    || !ctripEbookingDefaultLoader.includes('ctripEbookingModuleCardsReady.value = false;\n                    scheduleCtripEbookingModuleCardsReady();')
+    || !content.includes('const CTRIP_EBOOKING_SECONDARY_PANEL_DELAY_MS = 900;')
+    || !content.includes('const ctripEbookingSecondaryPanelsReady = ref(false);')
+    || !content.includes('const scheduleCtripEbookingSecondaryPanelsReady = (delayMs = CTRIP_EBOOKING_SECONDARY_PANEL_DELAY_MS) => {')
+    || !content.includes('<div v-if="ctripEbookingSecondaryPanelsReady" class="space-y-4">')
+    || !ctripEbookingDefaultLoader.includes('ctripEbookingSecondaryPanelsReady.value = false;\n                    scheduleCtripEbookingSecondaryPanelsReady();')
+    || !content.includes("if (newPage !== 'ctrip-ebooking') {\n                    clearCtripEbookingModuleCardsReadyTimer();\n                    ctripEbookingModuleCardsReady.value = false;\n                    clearCtripEbookingSecondaryPanelsReadyTimer();\n                    ctripEbookingSecondaryPanelsReady.value = false;\n                }")
+    || !content.includes('clearCtripEbookingModuleCardsReadyTimer();\n                clearCtripEbookingSecondaryPanelsReadyTimer();\n                if (globalNotificationRefreshTimer) {')
+    || !content.includes('ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, dashboardHotelId')) {
+    failures.push('public/index.html Ctrip eBooking secondary data-health panels must be delayed behind the first manual-fetch interaction window.');
   }
   const ctripManualTabTemplate = content.slice(
     content.indexOf("currentPage === 'ctrip-ebooking'"),
@@ -430,12 +626,19 @@ if (!fs.existsSync(indexPath)) {
     || !ctripStaticContent.includes('const runCtripManualTabSwitch = async')) {
     failures.push('public/index.html must keep Ctrip manual tab async branching in public/ctrip-static.js.');
   }
+  if (!openCtripManualTabSource.includes('loadDataHealthPanel: scheduleDataHealthPanelRefresh')
+    || openCtripManualTabSource.includes('loadDataHealthPanel,')) {
+    failures.push('public/index.html Ctrip manual data-health tab must schedule the light health refresh instead of passing the blocking loader.');
+  }
+  if (!/if \(tab === 'data-health'\) \{\s*ctripEbookingModuleCardsReady\.value = false;\s*scheduleCtripEbookingModuleCardsReady\(\);\s*ctripEbookingSecondaryPanelsReady\.value = false;\s*scheduleCtripEbookingSecondaryPanelsReady\(\);\s*\} else \{\s*clearCtripEbookingModuleCardsReadyTimer\(\);\s*ctripEbookingModuleCardsReady\.value = false;\s*clearCtripEbookingSecondaryPanelsReadyTimer\(\);\s*ctripEbookingSecondaryPanelsReady\.value = false;\s*\}/.test(openCtripManualTabSource)) {
+    failures.push('public/index.html Ctrip manual tab switch must only mount secondary overview diagnostics after the data-health tab is visibly selected.');
+  }
   const refreshCtripHotelConfigOptionsSource = content.slice(
     content.indexOf('const refreshCtripHotelConfigOptions ='),
     content.indexOf('const applyMeituanHotelConfig = async')
   );
   if (!content.includes('const refreshCtripHotelConfigOptions = () => {')
-    || !/deferUiTask\(async \(\) =>[\s\S]*Promise\.allSettled\(\[loadHotels\(\), loadCtripConfigList\(\)\]\)[\s\S]*applyCtripHotelConfig\(false\)/.test(refreshCtripHotelConfigOptionsSource)
+    || !/deferUiTask\(async \(\) =>[\s\S]*Promise\.allSettled\(\[loadHotels\(\), loadCtripConfigList\(\{[\s\S]*applySelectedConfig: false,[\s\S]*\}\)\]\)[\s\S]*applyCtripHotelConfig\(false, \{[\s\S]*refreshList: false,[\s\S]*refreshLatest: false,[\s\S]*skipIfAligned: true,/.test(refreshCtripHotelConfigOptionsSource)
     || refreshCtripHotelConfigOptionsSource.includes('const refreshCtripHotelConfigOptions = async')
     || refreshCtripHotelConfigOptionsSource.includes('await Promise.all([loadHotels(), loadCtripConfigList()]);')) {
     failures.push('public/index.html Ctrip hotel config refresh must not block manual fetch controls on config-list loading.');
@@ -445,8 +648,18 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const ctripOverviewCookieApiSections')
   );
   if (!/onlineDataTab\.value = tabName;\s*deferUiTask\(async \(\) =>/.test(openCtripOverviewFetchTabSource)
+    || !/await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/.test(openCtripOverviewFetchTabSource)
+    || !/await applyCtripHotelConfig\(false, \{\s*refreshList: false,\s*refreshLatest: false,\s*skipIfAligned: true,\s*\}\);/.test(openCtripOverviewFetchTabSource)
     || /await loadCtripConfigList\(\);[\s\S]*onlineDataTab\.value = tabName/.test(openCtripOverviewFetchTabSource)) {
-    failures.push('public/index.html Ctrip overview external tab entry must switch tabs before deferred config loading.');
+    failures.push('public/index.html Ctrip overview external tab entry must switch tabs before deferred short-cache config loading.');
+  }
+  const ctripOverviewFetchRunnerSource = content.slice(
+    content.indexOf('const runCtripOverviewFetchActionInternal = async'),
+    content.indexOf('const refreshCtripHotelConfigOptions =')
+  );
+  if (!ctripOverviewFetchRunnerSource.includes("scheduleDataHealthPanelRefresh('light', { force: true });")
+    || ctripOverviewFetchRunnerSource.includes("await loadDataHealthPanel('light', { force: true });")) {
+    failures.push('public/index.html Ctrip overview fetch completion must schedule data-health refresh instead of waiting before releasing loading state.');
   }
   const openCtripCookieCreateFromHealthSource = content.slice(
     content.indexOf('const openCtripCookieCreateFromHealth ='),
@@ -458,24 +671,68 @@ if (!fs.existsSync(indexPath)) {
     || openCtripCookieCreateFromHealthSource.includes('await loadCtripConfigList();')) {
     failures.push('public/index.html Ctrip health Cookie create action must open the config form before config-list loading.');
   }
+  const openCtripCookieEditorFromHealthSource = content.slice(
+    content.indexOf('const openCtripCookieEditorFromHealth = async'),
+    content.indexOf('const editCtripCookieFromHealth = async')
+  );
+  if (!openCtripCookieEditorFromHealthSource.includes("const listConfig = ctripConfigList.value.find(item => String(item.id || '') === configId);")
+    || !openCtripCookieEditorFromHealthSource.includes('listConfig\n                        ? await ensureCtripConfigSecret(listConfig)\n                        : await loadCtripConfigDetail(configId);')
+    || openCtripCookieEditorFromHealthSource.includes('await loadCtripConfigList();')) {
+    failures.push('public/index.html Ctrip health Cookie editor must read the exact config detail without waiting for the full config list first.');
+  }
+  const ctripCookieHealthMutationSource = content.slice(
+    content.indexOf('const saveCtripCookieFromHealth = async'),
+    content.indexOf('const batchDeleteCtripConfigs = async')
+  );
+  if (!ctripCookieHealthMutationSource.includes('loadCtripConfigList();')
+    || !ctripCookieHealthMutationSource.includes("scheduleDataHealthPanelRefresh('light', { force: true });")
+    || ctripCookieHealthMutationSource.includes("await loadDataHealthPanel('light', { force: true });")) {
+    failures.push('public/index.html Ctrip health Cookie save/delete actions must refresh lists and data-health status without waiting on the data-health panel.');
+  }
   const meituanEbookingDefaultLoader = content.slice(
     content.indexOf("if (newPage === 'meituan-ebooking'"),
     content.indexOf("if (newPage === 'hotels'")
   );
-  if (!content.includes('const scheduleMeituanEbookingDeferredStartupRefresh = () => {')
+  const meituanStartupRefreshStart = content.indexOf('const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS = 160;');
+  const meituanStartupRefreshMarker = content.indexOf('const scheduleMeituanEbookingDeferredStartupRefresh = () => {');
+  const meituanStartupRefreshDefaultEnd = content.indexOf('const scheduleDefaultDashboardDeferredRefresh', meituanStartupRefreshMarker);
+  const meituanStartupRefreshFallbackEnd = content.indexOf('const openCtripManualTab', meituanStartupRefreshMarker);
+  const meituanStartupRefreshEnd = meituanStartupRefreshDefaultEnd >= 0
+    ? meituanStartupRefreshDefaultEnd
+    : meituanStartupRefreshFallbackEnd;
+  const meituanStartupRefreshSource = content.slice(
+    meituanStartupRefreshStart,
+    meituanStartupRefreshEnd
+  );
+  if (!content.includes('const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS = 160;')
+    || !content.includes('const MEITUAN_EBOOKING_SECONDARY_CONFIG_DELAY_MS = 5200;')
+    || !content.includes('const MEITUAN_EBOOKING_HOTEL_LIST_DELAY_MS = 6400;')
+    || !content.includes('const scheduleMeituanEbookingDeferredStartupRefresh = () => {')
+    || !content.includes('const resolveMeituanManualDefaultHotelId = () => {')
+    || !content.includes('const ensureMeituanManualHotelSelected = () => {')
+    || !content.includes('suppressNextMeituanHotelConfigApply = true;')
+    || !meituanStartupRefreshSource.includes('ensureMeituanManualHotelSelected();')
+    || !meituanStartupRefreshSource.includes('}, MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS);')
+    || !meituanStartupRefreshSource.includes('}, MEITUAN_EBOOKING_SECONDARY_CONFIG_DELAY_MS);')
+    || !meituanStartupRefreshSource.includes('}, MEITUAN_EBOOKING_HOTEL_LIST_DELAY_MS);')
+    || meituanStartupRefreshSource.includes('}, 0);')
+    || meituanStartupRefreshSource.includes('}, 2400);')
+    || meituanStartupRefreshSource.includes('}, 3000);')
     || !meituanEbookingDefaultLoader.includes('scheduleMeituanEbookingDeferredStartupRefresh();')) {
     failures.push('public/index.html must defer Meituan eBooking config matching and secondary startup refreshes until after route entry.');
   }
   if (!content.includes('const ensureMeituanConfigSecret = async (config, options = {}) => {')
-    || !content.includes("console.error('[Meituan] 预热完整配置失败:', e);")
+    || !content.includes("console.error('[Meituan]")
     || !content.includes('const prewarmSelectedMeituanConfigSecret = (config = selectedMeituanHotelConfig.value) => {')
     || !content.includes('deferUiTask(() => ensureMeituanConfigSecret(config, { silent: true }), 80);')
     || !content.includes('let configSource = options.resolvedConfig || selectedMeituanHotelConfig.value;')
     || !content.includes('const config = options.resolvedConfig || await ensureMeituanConfigSecret(configSource);')
-    || !meituanStaticContent.includes('await applyMeituanHotelConfig(false, { resolvedConfig: selectedMeituanConfig, refreshList: false });')
+    || !meituanStaticContent.includes('if (!isMeituanRankingFormAlignedWithConfig(form, selectedMeituanConfig)) {')
+    || !meituanStaticContent.includes('skipIfAligned: true,')
     || meituanStaticContent.includes('await applyMeituanHotelConfig(false);')
-    || !content.includes("await loadMeituanConfigList();\n                    if (currentPage.value !== 'meituan-ebooking') return null;\n                    prewarmSelectedMeituanConfigSecret();")
-    || !content.includes("prewarmSelectedMeituanConfigSecret();\n                                deferUiTask(() => applyMeituanHotelConfig(false, { refreshList: false }), 80);")
+    || !/await loadMeituanConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(currentPage\.value !== 'meituan-ebooking'\) return null;\s*prewarmSelectedMeituanConfigSecret\(\);/.test(content)
+    || !content.includes('const shouldApplySelectedConfig = options.applySelectedConfig === true;')
+    || !content.includes('if (meituanForm.value.hotelId && shouldApplySelectedConfig) {')
     || content.includes("if (meituanForm.value.hotelId) {\n                                await applyMeituanHotelConfig(false, { refreshList: false });\n                            }\n                            return meituanConfigList.value;")) {
     failures.push('public/index.html Meituan config list must return after list data and prewarm full config detail in deferred work.');
   }
@@ -510,6 +767,7 @@ if (!fs.existsSync(indexPath)) {
   );
   if (openMeituanManualTabSource.includes('await loadMeituanConfigList();')
     || openMeituanManualTabSource.includes("if (tab === 'meituan-traffic')")
+    || !openMeituanManualTabSource.includes('ensureMeituanManualHotelSelected();')
     || !meituanStaticContent.includes('const runMeituanManualTabSwitch = async')) {
     failures.push('public/index.html must keep Meituan manual tab async branching in public/meituan-static.js.');
   }
@@ -518,6 +776,7 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf("if (target === 'analysis')")
   );
   if (!platformProfileActionSource.includes('scheduleMeituanEbookingDeferredStartupRefresh();')
+    || !platformProfileActionSource.includes('ensureMeituanManualHotelSelected();')
     || platformProfileActionSource.includes('await loadMeituanConfigList();')) {
     failures.push('public/index.html platform profile Meituan ranking action must not await config-list loading before returning.');
   }
@@ -526,13 +785,35 @@ if (!fs.existsSync(indexPath)) {
     || !/meituanConfigListLoaded && !selectedMeituanHotelConfig/.test(content)) {
     failures.push('public/index.html Meituan manual fetch must distinguish pending, failed, and confirmed-missing config states.');
   }
+  if (!content.includes(':disabled="fetchingData || !canFetchMeituanRankingData()"')
+    || !content.includes('const meituanManualFetchConfigProofPending = () => {')
+    || !content.includes('return !!meituanConfigListLoadingPromise')
+    || !content.includes('const canFetchMeituanRankingData = () => {')
+    || !content.includes('const resolveMeituanManualFetchConfig = async (config) => {')
+    || !content.includes('ensureMeituanConfigSecret: async config => ensureMeituanConfigSecret(await resolveMeituanManualFetchConfig(config))')
+    || !content.includes('if (preparingConfig) {\n                        fetchingData.value = false;')) {
+    failures.push('public/index.html Meituan ranking manual fetch must stay clickable while pending config proof is loading and reuse the same config-list request before backend submission.');
+  }
   const applyMeituanHotelConfigSource = content.slice(
     content.indexOf('const applyMeituanHotelConfig = async'),
     content.indexOf('const syncMeituanTrafficConfigFromSelectedConfig')
   );
-  if (!/await loadMeituanConfigList\(\);\s*if \(requestedHotelId !== String\(meituanForm\.value\.hotelId \|\| ['"]['"]\)\) return;/.test(applyMeituanHotelConfigSource)
+  if (!/await loadMeituanConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(requestedHotelId !== String\(meituanForm\.value\.hotelId \|\| ['"]['"]\)\) return;/.test(applyMeituanHotelConfigSource)
     || applyMeituanHotelConfigSource.includes("request('/online-data/get-meituan-config-list')")) {
-    failures.push('public/index.html Meituan hotel selection must reuse the deduplicated config-list loader instead of issuing a direct list request.');
+    failures.push('public/index.html Meituan hotel selection must reuse the deduplicated short-cache config-list loader instead of issuing a direct list request.');
+  }
+  const meituanHotelWatcherSource = content.slice(
+    content.indexOf('watch(() => meituanForm.value.hotelId'),
+    content.indexOf('watch(competitorTab')
+  );
+  if (!content.includes('let meituanHotelConfigApplyVersion = 0;')
+    || !content.includes('let suppressNextMeituanHotelConfigApply = false;')
+    || !content.includes('const scheduleMeituanHotelConfigApply = (options = {}) => {')
+    || !meituanHotelWatcherSource.includes('if (suppressNextMeituanHotelConfigApply) {')
+    || !meituanHotelWatcherSource.includes('suppressNextMeituanHotelConfigApply = false;')
+    || !meituanHotelWatcherSource.includes('scheduleMeituanHotelConfigApply({ delayMs: 80 });')
+    || meituanHotelWatcherSource.includes('applyMeituanHotelConfig(false);')) {
+    failures.push('public/index.html Meituan hotel switching must defer config matching through a stale-guarded scheduler.');
   }
   if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*!ctripConfigListLoaded\.value && !ctripConfigList\.value\.length[\s\S]*!meituanConfigListLoaded\.value && !meituanConfigList\.value\.length/.test(content)) {
     failures.push('public/index.html manual online-data config prewarm must not refetch known-empty Ctrip or Meituan config lists.');
@@ -547,9 +828,10 @@ if (!fs.existsSync(indexPath)) {
   if (onlineDataDefaultLoader.includes('loadAutoFetchPanel()')) {
     failures.push('public/index.html must not preload the full platform-auto panel from the default online-data page load.');
   }
-  if (!onlineDataDefaultLoader.includes("runPageLoadOnce(newPage, 'main', () => loadDataHealthPanel('light'));")
+  if (!onlineDataDefaultLoader.includes("runPageLoadOnce(newPage, 'main', () => {\n                            scheduleDataHealthPanelRefresh('light');\n                            return null;\n                        });")
+    || onlineDataDefaultLoader.includes("runPageLoadOnce(newPage, 'main', () => loadDataHealthPanel('light'));")
     || /runPageLoadOnce\(newPage,\s*['"]main['"],\s*\(\)\s*=>\s*Promise\.allSettled\(\[\s*loadOnlineDataHotelList\(\),\s*loadDataHealthPanel\(['"]light['"]\),\s*\]\)\)/.test(onlineDataDefaultLoader)) {
-    failures.push('public/index.html default online-data first paint must keep only light data-health status and defer hotel-list loading.');
+    failures.push('public/index.html default online-data first paint must schedule only light data-health status and defer hotel-list loading.');
   }
   if (/onlineDataTab\s*=\s*['"]ctrip-fetch-settings['"][^@]*loadAutoFetchPanel\(\)/.test(content)
     || /tab\s*===\s*['"]traffic['"][\s\S]{0,220}loadAutoFetchPanel\(\)/.test(content)) {
@@ -563,7 +845,16 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const switchDownloadTab = (tab) => {')
     || !content.includes('const switchToDownloadCenter = () => {')
     || !content.includes('const switchToMeituanDownloadCenter = () => {')
-    || !/deferUiTask\(async \(\) =>[\s\S]*downloadCenterTab\.value === tab[\s\S]*Promise\.allSettled\(\[[\s\S]*loadOnlineDataList\(\{\s*cacheMs:\s*ONLINE_DATA_PANEL_CACHE_TTL_MS\s*\}\),[\s\S]*loadOnlineDataHotelList\(\{\s*cacheMs:\s*ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS\s*\}\)/.test(downloadCenterTabSource)
+    || !downloadCenterTabSource.includes("await refreshOnlineHistory({ refreshHotels: false });")
+    || !downloadCenterTabSource.includes('scheduleDelayedPageTask(() => {')
+    || !downloadCenterTabSource.includes('return loadOnlineHistoryHotelList();')
+    || !downloadCenterTabSource.includes('await loadOnlineDataList({ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS });')
+    || !downloadCenterTabSource.includes('return loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS });')
+    || downloadCenterTabSource.includes('deferUiTask(() => {\n                            if (!isCurrentTab()) return null;\n                            return loadOnlineHistoryHotelList();\n                        }, 720);')
+    || downloadCenterTabSource.includes('deferUiTask(() => {\n                        if (seq !== downloadCenterTabLoadSeq || !isCurrentTab()) return null;\n                        return loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS });\n                    }, 720);')
+    || !/await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/.test(downloadCenterTabSource)
+    || /Promise\.allSettled\(\[\s*loadOnlineDataList\(\{\s*cacheMs:\s*ONLINE_DATA_PANEL_CACHE_TTL_MS\s*\}\),\s*loadOnlineDataHotelList\(\{\s*cacheMs:\s*ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS\s*\}\),?\s*\]\)/.test(downloadCenterTabSource)
+    || downloadCenterTabSource.includes('await refreshOnlineHistory();')
     || downloadCenterTabSource.includes('const switchDownloadTab = async')
     || downloadCenterTabSource.includes('const switchToDownloadCenter = async')
     || downloadCenterTabSource.includes('const switchToMeituanDownloadCenter = async')
@@ -573,10 +864,27 @@ if (!fs.existsSync(indexPath)) {
     || downloadCenterTabSource.includes('await loadOnlineDataList();\n                    await loadOnlineDataHotelList();')) {
     failures.push('public/index.html download center tab switches must schedule list/config/AI loads after the tab changes.');
   }
+  const ctripOverviewTargetHotelSource = content.slice(
+    content.indexOf('const syncCtripOverviewTargetHotel = async'),
+    content.indexOf('const handleCtripOverviewHotelChange = async')
+  );
+  if (!/await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/.test(ctripOverviewTargetHotelSource)
+    || !/await applyCtripHotelConfig\(false, \{\s*refreshList: false,\s*refreshLatest: false,\s*skipIfAligned: true,\s*\}\);/.test(ctripOverviewTargetHotelSource)) {
+    failures.push('public/index.html Ctrip overview hotel switching must reuse the short config-list cache before applying manual fetch config.');
+  }
+  const ctripOverviewHotelChangeSource = content.slice(
+    content.indexOf('const handleCtripOverviewHotelChange = async'),
+    content.indexOf('const applyCtripHotelConfig = async')
+  );
+  if (!ctripOverviewHotelChangeSource.includes('await syncCtripOverviewTargetHotel({ clearDisplay: true, loadConfig: true });')
+    || !ctripOverviewHotelChangeSource.includes("scheduleDataHealthPanelRefresh('light', { force: true });")
+    || ctripOverviewHotelChangeSource.includes("await loadDataHealthPanel('light');")) {
+    failures.push('public/index.html Ctrip overview hotel switching must schedule data-health refresh after config sync instead of waiting on it.');
+  }
   if (!/newTab === ['"]platform-auto['"][\s\S]*schedulePlatformAutoFetchPanelLoad\((?:options)?\)/.test(onlineDataTabSchedulerSource)) {
     failures.push('public/index.html must lazy-load the platform-auto panel when the platform-auto tab is opened.');
   }
-  if (!/const\s+schedulePlatformAutoFetchPanelLoad\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-auto-panel['"],\s*\(\)\s*=>\s*\{[\s\S]*if\s*\(!isVisibleOnlineDataTab\(['"]platform-auto['"]\)\)\s*return\s+null;[\s\S]*return\s+loadAutoFetchPanel\(options\);[\s\S]*\}/.test(content)
+  if (!/const\s+schedulePlatformAutoFetchPanelLoad\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*\{[\s\S]*const\s+run\s*=\s*\(\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-auto-panel['"],\s*\(\)\s*=>\s*\{[\s\S]*if\s*\(!isVisibleOnlineDataTab\(['"]platform-auto['"]\)\)\s*return\s+null;[\s\S]*return\s+loadAutoFetchPanel\(options\);[\s\S]*scheduleDelayedPageTask\(run,\s*delayMs\);[\s\S]*return\s+run\(\);[\s\S]*\}/.test(content)
     || !/const\s+openPlatformAutoTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)
     || !/const\s+openOnlinePlatformAutoTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)) {
     failures.push('public/index.html must route platform-auto tab opens through one deduplicated visible-tab page-load scheduler.');
@@ -599,6 +907,43 @@ if (!fs.existsSync(indexPath)) {
     || platformAutoTemplateSource.includes('v-if="false &&')
     || platformAutoTemplateSource.includes('<details v-if="false"')) {
     failures.push('public/index.html platform-auto template must not keep disabled legacy blocks that still inflate Vue parsing work.');
+  }
+  if (!platformAutoTemplateSource.includes('<platform-auto-settings-panels')
+    || !platformAutoTemplateSource.includes(':ctx="$root"')
+    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';")
+    || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
+    || !content.includes("requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')")
+    || !content.includes("requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')")
+    || !content.includes('data-testid="platform-auto-settings-panels-loading"')
+    || !platformAutoSettingsPanelsContent.includes('data-testid="platform-auto-settings-panels"')
+    || !platformAutoSettingsPanelsContent.includes('v-model.number="ctx.autoFetchRealtimeIntervalHours"')
+    || !platformAutoSettingsPanelsContent.includes('v-model.number="ctx.autoFetchScheduleMinute"')
+    || !platformAutoSettingsPanelsContent.includes('v-model="ctx.autoFetchBrowserHeadless"')
+    || !platformAutoSettingsPanelsContent.includes('v-model.number="ctx.autoFetchCtripSectionConcurrency"')
+    || !content.includes('const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 260;')
+    || !content.includes('const platformAutoSettingsPanelsReady = ref(false);')
+    || !content.includes('const platformAutoSettingsPanelsBody = shallowRef(null);')
+    || !content.includes('const schedulePlatformAutoSettingsPanelsReady = (delayMs = PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS) => {')
+    || !content.includes("console.error('[platform-auto-settings-panels] load failed:', error);")
+    || !content.includes('platformAutoSettingsPanelsReady.value = false;\n                    schedulePlatformAutoSettingsPanelsReady();')
+    || !platformAutoTemplateSource.includes('<platform-auto-secondary-panels')
+    || !content.includes('data-testid="platform-auto-secondary-panels-loading"')
+    || !platformAutoSettingsPanelsContent.includes('data-testid="platform-auto-secondary-panels"')
+    || !platformAutoSettingsPanelsContent.includes('ctx.autoFetchCollectionBlueprintRows')
+    || !platformAutoSettingsPanelsContent.includes('ctx.meituanPlatformProfileStatusRow')
+    || !platformAutoSettingsPanelsContent.includes('ctx.autoFetchPlatformResultRows')
+    || !content.includes('const PLATFORM_AUTO_SECONDARY_PANEL_DELAY_MS = 700;')
+    || !content.includes('const platformAutoSecondaryPanelsReady = ref(false);')
+    || !content.includes('const platformAutoSecondaryPanelsBody = shallowRef(null);')
+    || !content.includes('const schedulePlatformAutoSecondaryPanelsReady = (delayMs = PLATFORM_AUTO_SECONDARY_PANEL_DELAY_MS) => {')
+    || !content.includes('platformAutoSecondaryPanelsReady.value = false;\n                    schedulePlatformAutoSecondaryPanelsReady();\n                    return runIfCurrent(() => schedulePlatformAutoFetchPanelLoad(options));')) {
+    failures.push('public/index.html platform-auto must keep secondary result/status panels delayed so core login and collect controls paint first.');
+  }
+  if (platformAutoTemplateSource.includes('实时采集间隔（小时）')
+    || platformAutoTemplateSource.includes('无头模式（后台运行，不显示浏览器窗口）')
+    || platformAutoTemplateSource.includes('采集闭环')
+    || platformAutoTemplateSource.includes('最近结果：')) {
+    failures.push('public/index.html platform-auto template must keep schedule/browser and secondary status panels inside the split component, not the root template.');
   }
   if (content.includes('v-if="false"') || content.includes("v-if='false'")) {
     failures.push('public/index.html must not keep disabled v-if=false template blocks that still inflate Vue parsing work.');
@@ -640,6 +985,35 @@ if (!fs.existsSync(indexPath)) {
     || !/const\s+openPlatformSourcesTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)) {
     failures.push('public/index.html must route platform source tab opens through one deduplicated visible-tab page-load scheduler.');
   }
+  const platformDataSourcePanelSource = content.slice(
+    content.indexOf('const loadPlatformDataSourcePanel = async (options = {}) => {'),
+    content.indexOf('const savePlatformDataSource = async', content.indexOf('const loadPlatformDataSourcePanel = async (options = {}) => {'))
+  );
+  if (!content.includes('const PLATFORM_SOURCE_SECONDARY_REFRESH_DELAY_MS = 3200;')
+    || !content.includes('const PLATFORM_SOURCE_PANEL_CACHE_TTL_MS = 30000;')
+    || !platformDataSourcePanelSource.includes('await Promise.allSettled([\n                    loadPlatformDataSources({')
+    || !platformDataSourcePanelSource.includes('loadPlatformProfileStatus({\n                        silent: true,')
+    || !platformDataSourcePanelSource.includes('scheduleDelayedPageTask(() => {')
+    || !platformDataSourcePanelSource.includes('if (!shouldRefreshPlatformDataSourcesPanel()) return null;')
+    || !platformDataSourcePanelSource.includes('loadPlatformSyncTasks({')
+    || !platformDataSourcePanelSource.includes('loadPlatformSyncLogs({')
+    || !platformDataSourcePanelSource.includes('loadPlatformCollectionResources({')
+    || !platformDataSourcePanelSource.includes('loadCompetitorSummary({\n                            includeByHotel: true,\n                            force: options.force === true,\n                            cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,')
+    || !platformDataSourcePanelSource.includes('}, PLATFORM_SOURCE_SECONDARY_REFRESH_DELAY_MS);')
+    || platformDataSourcePanelSource.includes('deferUiTask(() => {')) {
+    failures.push('public/index.html platform source panel must load primary data-source/profile state before delayed secondary sync/log/resource refreshes.');
+  }
+  if (!content.includes('const platformCollectionResourcesRequestPromises = new Map();')
+    || !content.includes('const platformCollectionResourcesResultCache = new Map();')
+    || !/const loadPlatformCollectionResources = async \(options = \{\}\) =>[\s\S]*readRequestCache\(platformCollectionResourcesResultCache, requestKey, cacheMs\)[\s\S]*platformCollectionResourcesRequestPromises\.has\(requestKey\)[\s\S]*writeRequestCache\(platformCollectionResourcesResultCache, requestKey, cacheMs\)/.test(content)
+    || !content.includes('loadPlatformCollectionResources({\n                            force: options.force === true,\n                            cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,')) {
+    failures.push('public/index.html must deduplicate and short-cache platform collection-resource reads from the platform source panel.');
+  }
+  if (!content.includes('const competitorSummaryRequestPromises = new Map();')
+    || !content.includes('const competitorSummaryResultCache = new Map();')
+    || !/const loadCompetitorSummary = async \(options = \{\}\) =>[\s\S]*readRequestCache\(competitorSummaryResultCache, requestKey, cacheMs\)[\s\S]*competitorSummaryRequestPromises\.has\(requestKey\)[\s\S]*writeRequestCache\(competitorSummaryResultCache, requestKey, cacheMs\)[\s\S]*competitorSummaryRequestPromises\.delete\(requestKey\)/.test(content)) {
+    failures.push('public/index.html must deduplicate and short-cache competitor summary reads during platform source panel tab switching.');
+  }
   const platformSyncLogPanelSource = content.slice(
     content.indexOf('const schedulePlatformSyncLogPanelRefresh ='),
     content.indexOf('const schedulePlatformAutoFetchPanelLoad =')
@@ -665,8 +1039,15 @@ if (!fs.existsSync(indexPath)) {
   if (content.includes('@click="loadPlatformSyncTasks(); loadPlatformSyncLogs()"')) {
     failures.push('public/index.html platform source log button must not synchronously request sync logs inline.');
   }
+  if (content.includes('@click="loadPlatformDataSourcePanel"')) {
+    failures.push('public/index.html platform source refresh buttons must use schedulePlatformDataSourcePanelLoad({ force: true }) instead of directly loading the full panel.');
+  }
   if (!content.includes('schedulePlatformDataSourcePanelLoad({ force: true });')) {
     failures.push('public/index.html must force-refresh the platform source panel through the page-load scheduler after source mutations.');
+  }
+  if (!content.includes('@click="schedulePlatformDataSourcePanelLoad({ force: true })"')
+    || !content.includes('schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh')) {
+    failures.push('public/index.html must expose and use the platform source refresh scheduler from template buttons.');
   }
   if (/onlineDataTab\s*=\s*['"]platform-sources['"][^@]*loadPlatformDataSourcePanel\(\);\s*loadPlatformProfileStatus/.test(content)) {
     failures.push('public/index.html must not duplicate platform profile status loading when opening platform-sources.');
@@ -758,12 +1139,25 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const loadAutoFetchPanel = async'),
     content.indexOf('const loadAutoFetchStatus = async')
   );
-  if (!autoFetchPanelLoader.includes('const staticReadyPromise = ensureAutoFetchStaticReady();')
+  if (!content.includes('const prewarmAutoFetchStaticForPlatformAuto = () => {')
+    || !content.includes("if (!isVisibleOnlineDataTab('platform-auto')) return null;")
+    || !content.includes('const staticReadyPromise = loadAutoFetchStatic().catch(error => {')
+    || !content.includes('void staticReadyPromise;')
+    || autoFetchPanelLoader.includes('const staticReadyPromise = loadAutoFetchStatic().catch(error => {')
+    || !content.includes('const PLATFORM_AUTO_PANEL_START_DELAY_MS = 16;')
+    || !content.includes('const waitForPlatformAutoPanelStart = async (options = {}) => {')
+    || !autoFetchPanelLoader.includes('if (!await waitForPlatformAutoPanelStart(options)) {')
+    || !autoFetchPanelLoader.includes('let panelLoaded = false;')
     || !autoFetchPanelLoader.includes('const canLoadStatusBeforeHotels = !!autoFetchHotelId.value;')
-    || !autoFetchPanelLoader.includes('const hotelsPromise = shouldLoadHotels ? loadHotels() : Promise.resolve();')
-    || !autoFetchPanelLoader.includes('if (canLoadStatusBeforeHotels) {\n                        await Promise.all([\n                            loadAutoFetchStatus({ detail: false }),\n                            staticReadyPromise,\n                            hotelsPromise,\n                        ]);')
-    || !autoFetchPanelLoader.includes('await hotelsPromise;\n                    if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {')
-    || !autoFetchPanelLoader.includes('await Promise.all([\n                        loadAutoFetchStatus({ detail: false }),\n                        staticReadyPromise,\n                    ]);')
+    || !autoFetchPanelLoader.includes('const hotelsPromise = shouldLoadHotels ? loadHotels({ cacheMs: HOTEL_LIST_CACHE_TTL_MS }) : Promise.resolve();')
+    || !autoFetchPanelLoader.includes('if (canLoadStatusBeforeHotels) {\n                        await Promise.all([\n                            loadAutoFetchStatus({ detail: false }),\n                            hotelsPromise,\n                        ]);')
+    || !autoFetchPanelLoader.includes("await hotelsPromise;\n                    if (!isVisibleOnlineDataTab('platform-auto')) {\n                        return;\n                    }\n                    if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {")
+    || !autoFetchPanelLoader.includes('await loadAutoFetchStatus({ detail: false });')
+    || !autoFetchPanelLoader.includes('if (panelLoaded) {')
+    || !autoFetchPanelLoader.includes('else if (autoFetchPanelCache.promise === run) {')
+    || !content.includes('prewarmAutoFetchStaticForPlatformAuto();')
+    || autoFetchPanelLoader.includes('staticReadyPromise,\n                            hotelsPromise')
+    || autoFetchPanelLoader.includes('staticReadyPromise,\n                    ]);')
     || /scheduleAutoFetchStatusDetailRefresh\(\);/.test(autoFetchPanelLoader)
     || /schedulePlatformProfileStatusRefresh\(\{ silent: true \}\);/.test(autoFetchPanelLoader)
     || /await Promise\.all\(\[[\s\S]*loadAutoFetchStatus\(\)[\s\S]*loadPlatformProfileStatus/.test(autoFetchPanelLoader)) {
@@ -790,7 +1184,7 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html must keep unloaded/failed platform config-list states explicit after platform-auto prewarm is deferred.');
   }
   if (!content.includes('const autoFetchStatusRequestPromises = new Map();')
-    || !content.includes('const AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS = 1800;')
+    || !content.includes('const AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS = AUTO_FETCH_PANEL_CACHE_TTL_MS;')
     || !content.includes('const autoFetchStatusResultCache = new Map();')
     || !content.includes('const resetAutoFetchStatusResultCache = () => {')
     || !content.includes("const requestKey = `${String(hotelId || '')}|${includeDetail ? 'full' : 'light'}`;")
@@ -799,7 +1193,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('if (autoFetchStatusRequestPromises.has(requestKey))')
     || !content.includes('autoFetchStatusRequestPromises.delete(requestKey);')
     || !content.includes('autoFetchStatusResultCache.set(requestKey, { expiresAt: Date.now() + AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS });')) {
-    failures.push('public/index.html must deduplicate concurrent and just-completed light auto-fetch status requests by hotel and detail level.');
+    failures.push('public/index.html must deduplicate concurrent and recent light auto-fetch status requests by hotel and detail level across core OTA page switches.');
   }
   if (!content.includes('const PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS = 20000;')
     || !content.includes('const platformProfileStatusPanelRefreshOptions = (params = {}) => (')
@@ -828,8 +1222,9 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html platform-auto settings/history actions must schedule light status plus deferred detail refresh instead of loading full status inline.');
   }
   if (content.includes('@change="loadAutoFetchStatus"')
-    || !content.includes('@change="schedulePlatformAutoFetchPanelLoad({ force: true })"')) {
-    failures.push('public/index.html platform-auto hotel switching must use the shared scheduler instead of directly loading full auto-fetch status.');
+    || !content.includes('@change="schedulePlatformAutoFetchPanelLoad({ force: true, delayMs: 80 })"')
+    || !content.includes('scheduleDelayedPageTask(run, delayMs);')) {
+    failures.push('public/index.html platform-auto hotel switching must defer the shared scheduler instead of directly loading full auto-fetch status.');
   }
   const dataHealthPanelSource = content.slice(
     content.indexOf('const buildDataHealthPanelJobs = (normalizedMode) =>'),
@@ -860,6 +1255,15 @@ if (!fs.existsSync(indexPath)) {
   if (dataHealthPanelSource.includes('loadCookieStatus()')) {
     failures.push('public/index.html data-health panel must not duplicate collection-reliability authorization work by also calling cookie-status.');
   }
+
+  if (!content.includes("if (!options.backendOnly) {\n                        scheduleDataHealthPanelRefresh('light');\n                    }\n                    await loadBackendGlobalNotifications();")
+    || content.includes("const jobs = [loadBackendGlobalNotifications()];\n                    if (!options.backendOnly) {\n                        jobs.push(loadDataHealthPanel('light'));\n                    }")) {
+    failures.push('public/index.html global notification refresh must not block on data-health light status; it should schedule the visible-tab refresh instead.');
+  }
+  if (!content.includes("currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                scheduleDataHealthPanelRefresh('light');")
+    || content.includes("currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                await loadDataHealthPanel('light');")) {
+    failures.push('public/index.html AI daily report data-gap navigation must switch immediately and schedule data-health light refresh.');
+  }
   if (dataHealthPanelSource.includes('loadCollectionReliability(normalizedMode)')) {
     failures.push('public/index.html data-health light first paint must not run collection-reliability; keep reliability diagnostics in full mode.');
   }
@@ -867,6 +1271,21 @@ if (!fs.existsSync(indexPath)) {
     || content.includes('<template v-else>\n                                        <div data-testid="data-health-command-center"')
     || content.includes('<div v-if="hotelDashboardLoading || collectionReliabilityLoading" class="rounded-xl border border-gray-200 bg-white p-5">')) {
     failures.push('public/index.html data-health loading must be a non-blocking banner so drilldowns remain clickable while light diagnostics refresh.');
+  }
+  if (!content.includes('const DATA_HEALTH_SECONDARY_PANEL_DELAY_MS = 900;')
+    || !content.includes('const dataHealthSecondaryPanelsReady = ref(false);')
+    || !content.includes('const scheduleDataHealthSecondaryPanelsReady = (delayMs = DATA_HEALTH_SECONDARY_PANEL_DELAY_MS) => {')
+    || !content.includes("if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') {\n                    dataHealthSecondaryPanelsReady.value = false;\n                    return;\n                }")
+    || !content.includes("if (newTab === 'data-health') {\n                    dataHealthSecondaryPanelsReady.value = false;\n                    scheduleDataHealthSecondaryPanelsReady();")
+    || !content.includes("if (newPage !== 'online-data') {\n                    clearDataHealthSecondaryPanelsReadyTimer();\n                    dataHealthSecondaryPanelsReady.value = false;")
+    || !content.includes('<div v-if="dataHealthSecondaryPanelsReady" data-testid="phase1-employee-six-question-summary"')
+    || !content.includes('<div v-if="dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"')
+    || !content.includes('<div v-if="dataHealthSecondaryPanelsReady && !dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit-pending"')
+    || !content.includes('<div v-else-if="dataHealthSecondaryPanelsReady" data-testid="hotel-data-cockpit"')
+    || !content.includes('<div v-if="dataHealthSecondaryPanelsReady" data-testid="data-health-drilldown"')
+    || !content.includes('<div v-if="dataHealthSecondaryPanelsReady" data-testid="mixed-collection-lifecycle-panel"')
+    || !content.includes('dataHealthSecondaryPanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, dashboardHotelId')) {
+    failures.push('public/index.html must delay data-health secondary diagnostic panels so manual online-data entry stays responsive.');
   }
   const autoFetchModePayloadSource = content.slice(
     content.indexOf('const buildAutoFetchModePayload = () => ({'),
@@ -914,6 +1333,14 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!content.includes('const ONLINE_DATA_PANEL_CACHE_TTL_MS = 8000;')
     || !content.includes('const ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS = 30000;')
+    || !content.includes('const HOTEL_LIST_CACHE_TTL_MS = 30000;')
+    || !content.includes('const hotelListResultCache = new Map();')
+    || !content.includes('readRequestCache(hotelListResultCache, requestKey, cacheMs)')
+    || !content.includes('const scheduleStartupHotelListLoad = (delayMs = null) => {')
+    || !content.includes('if (!hasKnownHotelOptions()) {')
+    || !content.includes('return loadHotels({ cacheMs: HOTEL_LIST_CACHE_TTL_MS });')
+    || !content.includes('if (!isLoggedIn.value || !token.value || isCoreOtaPageVisible()) return null;')
+    || !content.includes('scheduleStartupHotelListLoad();')
     || !content.includes('const onlineDataListRequestPromises = new Map();')
     || !content.includes('const onlineDataSummaryRequestPromises = new Map();')
     || !content.includes('const onlineDataHotelListRequestPromises = new Map();')
@@ -927,6 +1354,35 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('@click="refreshOnlineData({ force: true })"')
     || !content.includes('@click="loadOnlineDataList({ force: true })"')) {
     failures.push('public/index.html must deduplicate online-data list/summary/hotel reads for tab switching while keeping manual query and post-fetch refreshes forced.');
+  }
+  if (!content.includes('const ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS = 8000;')
+    || !content.includes('const onlineAnalysisDataResultCache = new Map();')
+    || !content.includes('const onlineAnalysisRowsResultCache = new Map();')
+    || !content.includes('const onlineAnalysisDataRequestPromises = new Map();')
+    || !content.includes('const onlineAnalysisRowsRequestPromises = new Map();')
+    || !content.includes('const clearOnlineAnalysisReadCaches = () => {')
+    || !content.includes('const loadAnalysisData = async (dimension = null, options = {}) => {')
+    || !content.includes('const loadOnlineAnalysisRows = async (options = {}) => {')
+    || !/const loadAnalysisData = async \(dimension = null, options = \{\}\) => \{[\s\S]*readOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, cacheMs\)[\s\S]*onlineAnalysisDataRequestPromises\.has\(requestKey\)[\s\S]*request\(`\/online-data\/data-analysis\?\$\{params\}`\)[\s\S]*writeOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, data, cacheMs\)/.test(content)
+    || !/const loadOnlineAnalysisRows = async \(options = \{\}\) => \{[\s\S]*readOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, cacheMs\)[\s\S]*onlineAnalysisRowsRequestPromises\.has\(requestKey\)[\s\S]*request\(`\/online-data\/daily-data-list\?\$\{params\}`\)[\s\S]*writeOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, data, cacheMs\)/.test(content)
+    || !content.includes('const refreshOnlineAnalysis = async (options = {}) => {')
+    || !content.includes('cacheMs: ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS,')
+    || !content.includes('loadAnalysisData(null, loadOptions),')
+    || !content.includes('loadOnlineDataSummary(loadOptions),')
+    || !content.includes('loadOnlineAnalysisRows(loadOptions),')
+    || !content.includes('return refreshOnlineAnalysis(options);')
+    || !content.includes('@click="loadOnlineAnalysisRows({ force: true })"')
+    || !content.includes('clearOnlineAnalysisReadCaches();')) {
+    failures.push('public/index.html online-data analysis tab must short-cache and deduplicate analysis summary/detail reads while preserving forced manual refresh.');
+  }
+  const startupLoadDataStart = content.indexOf('const loadData = async () => {');
+  const startupLoadDataEnd = content.indexOf('\n\n            //', startupLoadDataStart);
+  const startupLoadDataSource = startupLoadDataStart >= 0 && startupLoadDataEnd > startupLoadDataStart
+    ? content.slice(startupLoadDataStart, startupLoadDataEnd)
+    : '';
+  if (!startupLoadDataSource.includes('scheduleStartupHotelListLoad();')
+    || startupLoadDataSource.includes('loadHotels({ cacheMs: HOTEL_LIST_CACHE_TTL_MS });')) {
+    failures.push('public/index.html login startup must schedule the full hotel list instead of requesting /hotels/all on first paint.');
   }
   for (const requiredScheduler of [
     'scheduleLatestCtripRefresh',
@@ -978,15 +1434,20 @@ if (!fs.existsSync(indexPath)) {
     || !/\['running', 'queued', 'accepted'\]\.includes\(retryStatus\)/.test(retryAutoFetchSource)) {
     failures.push('public/index.html must submit retry auto-fetch in background mode and treat running responses as accepted.');
   }
-  if (!/\{\s*\.\.\.requestContext\.requestBody,\s*async:\s*true\s*\}/.test(ctripStaticContent)
-    || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody/.test(ctripStaticContent)) {
-    failures.push('public/ctrip-static.js must submit Ctrip manual fetch in background mode and treat running responses as accepted.');
-  }
   const ctripAcceptedHelperMatches = ctripStaticContent.match(/const\s+isCtripBackgroundAcceptedResponse\s*=/g) || [];
   if (ctripAcceptedHelperMatches.length !== 1) {
     failures.push('public/ctrip-static.js must define one shared Ctrip accepted/running/queued response helper.');
   }
+  const rankingFlowStart = ctripStaticContent.indexOf('const runCtripFetchDataFlow = async');
   const trafficFlowStart = ctripStaticContent.indexOf('const runCtripTrafficFetchFlow = async');
+  const ctripRankingFlowSource = rankingFlowStart >= 0 && trafficFlowStart > rankingFlowStart
+    ? ctripStaticContent.slice(rankingFlowStart, trafficFlowStart)
+    : '';
+  if (!/\{\s*\.\.\.requestContext\.requestBody,\s*async:\s*true\s*\}/.test(ctripRankingFlowSource)
+    || /\{\s*\.\.\.requestContext\.requestBody,\s*async:\s*false\s*\}/.test(ctripRankingFlowSource)
+    || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody/.test(ctripRankingFlowSource)) {
+    failures.push('public/ctrip-static.js Ctrip ranking manual fetch must submit in background mode while keeping direct-response compatibility.');
+  }
   const adsFlowStart = ctripStaticContent.indexOf('const runCtripAdsFetchFlow = async');
   const ctripTrafficFlowSource = trafficFlowStart >= 0 && adsFlowStart > trafficFlowStart
     ? ctripStaticContent.slice(trafficFlowStart, adsFlowStart)
@@ -1006,11 +1467,11 @@ if (!fs.existsSync(indexPath)) {
     || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody:\s*queuedRequestBody/.test(ctripAdsFlowSource)) {
     failures.push('public/ctrip-static.js must submit Ctrip ads manual fetch in background mode and keep running responses visible.');
   }
-  if (!/\{\s*\.\.\.task\.body,\s*async:\s*true\s*\}/.test(meituanStaticContent)
-    || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*acceptedCount/.test(meituanStaticContent)
-    || !content.includes('meituanFetchBackgroundAccepted')
-    || !content.includes('isMeituanBackgroundResult')) {
-    failures.push('public/meituan-static.js and public/index.html must submit Meituan manual batch fetches in the background and show running/queued/accepted states.');
+  if (!/\{\s*\.\.\.task\.body,\s*async:\s*true,\s*background:\s*true\s*\}/.test(meituanStaticContent)
+    || !/await\s+Promise\.all\(fetchTasks\.map\(async\s+\(task,\s*index\)\s*=>\s*\{/.test(meituanStaticContent)
+    || /\{\s*\.\.\.task\.body,\s*async:\s*false,\s*background:\s*false\s*\}/.test(meituanStaticContent)
+    || !/const\s+modelRes\s*=\s*await\s+requestDisplayModel/.test(meituanStaticContent)) {
+    failures.push('public/meituan-static.js must submit Meituan ranking in concurrent background mode while keeping direct-result display compatibility.');
   }
   const meituanAcceptedHelperMatches = meituanStaticContent.match(/const\s+isMeituanBackgroundAcceptedResponse\s*=/g) || [];
   if (meituanAcceptedHelperMatches.length !== 1) {
@@ -1064,6 +1525,19 @@ if (!fs.existsSync(indexPath)) {
     || !controllerContent.includes('private function getStoredCtripConfigListRaw')
     || !controllerContent.includes('private function getStoredMeituanConfigListRaw')) {
     failures.push('app/controller/OnlineData.php light auto-fetch platform status must use read-only raw config resolvers.');
+  }
+  if (!controllerContent.includes('private const AUTO_FETCH_LIGHT_READ_CACHE_TTL_SECONDS = 5;')
+    || !controllerContent.includes('private array $autoFetchLightReadCache = [];')
+    || !controllerContent.includes('readAutoFetchLightReadCache($cacheKey)')
+    || !controllerContent.includes('writeAutoFetchLightReadCache($cacheKey, $list)')
+    || !controllerContent.includes('writeAutoFetchLightReadCache($cacheKey, array_values(array_filter($rows, \'is_array\')))')) {
+    failures.push('app/controller/OnlineData.php light auto-fetch status must short-cache config-list and browser-profile source reads.');
+  }
+  if (!controllerContent.includes("clearAutoFetchLightConfigListCache('ctrip')")
+    || !controllerContent.includes("clearAutoFetchLightConfigListCache('meituan')")
+    || !controllerContent.includes('clearAutoFetchLightProfileSourcesCache((int)($data[\'system_hotel_id\'] ?? 0)')
+    || !controllerContent.includes('clearAutoFetchLightProfileSourcesCache($hotelId, $platform)')) {
+    failures.push('app/controller/OnlineData.php must clear light auto-fetch read caches after config/source mutations.');
   }
   if (!controllerContent.includes("'/api/online-data/retry-auto-fetch'")
     || !controllerContent.includes("'retry_auto_fetch_queued'")
@@ -1149,18 +1623,57 @@ if (!fs.existsSync(indexPath)) {
   if (!/const\s+testIdStaticScript\s*=\s*["']testid-static\.js["']/.test(content) || !/const\s+loadTestIdStatic\s*=\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader for testid-static.js.');
   }
+  if (!/const\s+pageControlTestIdsEnabledForShell\s*=\s*\(\)\s*=>\s*\{/.test(content)
+    || !content.includes("if (params.get('testids') === '1' || params.get('e2e') === '1') return true;")
+    || !content.includes("return localStorage.getItem('enablePageTestIds') === '1';")
+    || content.includes("host === 'localhost' || host === '127.0.0.1' || host === '::1'")) {
+    failures.push('public/index.html must only load page-control test ids by explicit opt-in, not ordinary localhost startup.');
+  }
+  if (/\b(?:fab|far)\s+fa-/.test(content)) {
+    failures.push('public/index.html must avoid FontAwesome brands/regular icon classes in the SPA entry because they trigger extra webfont downloads on core OTA pages.');
+  }
+  if (!content.includes('const SYSTEM_CONFIG_PUBLIC_CACHE_TTL_MS = 60 * 1000;')
+    || !content.includes('let systemConfigPublicLoadPromise = null;')
+    || !content.includes('const schedulePublicSystemConfigRefresh = (delayMs = 1800) => {')
+    || !content.includes('if (isCoreOtaPageVisible()) return undefined;')
+    || !content.includes('schedulePublicSystemConfigRefresh(1800);')
+    || content.includes('deferUiTask(() => loadSystemConfig({ publicOnly: true }), 120)')) {
+    failures.push('public/index.html must defer, deduplicate, and short-cache public system-config refreshes away from core OTA page switching.');
+  }
+  if (!/let\s+pageControlTestIdObserverTimer\s*=\s*null;/.test(content)
+    || !/const\s+schedulePageControlTestIdObserverStart\s*=\s*\(delayMs\s*=\s*520\)\s*=>\s*\{[\s\S]*deferUiTask\(\(\)\s*=>\s*\{[\s\S]*startPageControlTestIdObserver\(\);[\s\S]*scheduleTestIdRefresh\(\);/.test(content)
+    || !content.includes('const observerDelay = isCoreOtaPageVisible() ? Math.max(normalizedDelay, 1800) : normalizedDelay;')
+    || !/watch\(currentPage,\s*\(newPage\)\s*=>\s*\{[\s\S]*schedulePageControlTestIdObserverStart\(520\);/.test(content)
+    || !/watch\(isLoggedIn,\s*\(loggedIn\)\s*=>\s*\{[\s\S]*schedulePageControlTestIdObserverStart\(700\);/.test(content)) {
+    failures.push('public/index.html must defer page-control test id observer startup so page switching and login remain responsive.');
+  }
+  if (!/watch\(onlineDataTab,\s*\(newTab\)\s*=>\s*\{[\s\S]*schedulePageControlTestIdObserverStart\(1800\);/.test(content)) {
+    failures.push('public/index.html must reset page-control test id observer delay when switching online-data tabs.');
+  }
   if (!/const\s+pageTestId\s*=\s*\(page\)\s*=>/.test(content)
     || !/const\s+menuTestId\s*=\s*\(item\)\s*=>/.test(content)
     || !/createPageTestIdController/.test(content)) {
     failures.push('public/index.html must keep page/menu test ids available before lazy-loading the page-control test id controller.');
   }
 
-  if (!/<script\s+src=["']form-operation-support\.js["']\s+defer\s*><\/script>/.test(content)) {
-    failures.push('public/index.html must defer form-operation-support.js because it self-initializes and is not a Vue setup dependency.');
+  if (/<script\s+src=["']form-operation-support\.js["']/.test(content)
+    || !content.includes("const formOperationSupportScript = 'form-operation-support.js';")
+    || !content.includes('const scheduleFormOperationSupportLoad = (delayMs = null) => {')
+    || !content.includes("const shouldDeferFormOperationSupportLoad = () => currentPage.value === 'compass' || isCoreOtaPageVisible();")
+    || !content.includes('const pageDelay = shouldDeferFormOperationSupportLoad() ? 6400 : 5200;')
+    || !content.includes('if (shouldDeferFormOperationSupportLoad()) return;')
+    || !content.includes('scheduleFormOperationSupportLoad();')) {
+    failures.push('public/index.html must lazy-load form-operation-support.js after the first core OTA interaction window.');
+  }
+  if (!/const renderHomeTrendChart = \(retryCount = 0\) => \{\n\s+if \(!homeTrendHasSamples\.value\) \{\n\s+destroyHomeTrendChart\(\);\n\s+return;\n\s+\}\n\s+const ChartLib = window\.Chart;/.test(content)) {
+    failures.push('public/index.html must not load Chart.js for the home trend chart before confirming there are usable trend samples.');
+  }
+  if (!/data-testid=\\?"ctrip-profile-field-modal\\?"/.test(ctripProfileFieldConfigPanelContent)) {
+    failures.push('public/components/online-data/ctrip-profile-field-config-panel.js must keep the Ctrip profile-field modal marker in the lazy component.');
   }
 
   const vueBoundaryMarkers = [
-    { name: 'Ctrip Profile field modal', marker: 'data-testid="ctrip-profile-field-modal"' },
+    { name: 'Ctrip Profile field component', marker: '<ctrip-profile-field-config-panel' },
     { name: 'Ctrip Cookie editor modal', marker: 'v-if="showCtripCookieEditorModal"' },
     { name: 'Online data edit modal', marker: 'v-if="showOnlineDataEditModal"' },
     { name: 'Data config modal', marker: 'v-if="showDataConfigModal"' },

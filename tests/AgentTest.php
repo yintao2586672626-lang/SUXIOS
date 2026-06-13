@@ -230,6 +230,61 @@ final class AgentTest extends TestCase
         self::assertSame(['online_daily_data#10'], $refs);
     }
 
+    public function testOtaDiagnosisNoDataResultKeepsEvidenceGapsAndActionItems(): void
+    {
+        $controller = $this->controller();
+
+        $result = $this->invokeNonPublic($controller, 'buildOtaDiagnosisNoDataResult', [[
+            'hotel' => ['id' => '1', 'name' => '测试酒店'],
+            'sync_logs' => [['id' => 1]],
+            'last_sync_time' => '',
+        ], '1', '测试酒店', 'ctrip', '2026-06-12', '2026-06-12']);
+
+        self::assertFalse($result['data_summary']['has_ota_data']);
+        self::assertSame('database_only_no_synthetic_conclusion', $result['source_policy']);
+        self::assertSame('ota_same_period_source_rows_missing', $result['data_gaps'][0]['code']);
+        self::assertSame('ota_no_data_scope', $result['evidence_sources'][0]['ref']);
+        self::assertSame('blocked_by_missing_ota_data', $result['action_items'][0]['status']);
+        self::assertContains('ota_no_data_scope', $result['action_items'][0]['evidence_refs']);
+        self::assertSame($result['data_gaps'], $result['evidence_report']['data_gaps']);
+        self::assertSame('low', $result['ai_governance']['confidence_level']);
+        self::assertTrue($result['ai_governance']['human_confirmation_required']);
+        self::assertStringContainsString('不能生成可信经营诊断', $result['core_conclusion']);
+    }
+
+    public function testOtaDiagnosisLatestAvailableDataBlocksExecutionActions(): void
+    {
+        $controller = $this->controller();
+
+        $result = $this->invokeNonPublic($controller, 'blockOtaDiagnosisActionsForLatestAvailableData', [[
+            'date_range' => ['start_date' => '2026-06-14', 'end_date' => '2026-06-14'],
+            'data_summary' => ['used_latest_available_data' => true],
+            'data_gaps' => [],
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#10',
+                'table' => 'online_daily_data',
+            ]],
+            'action_items' => [[
+                'id' => 'ota_action_1',
+                'action' => 'review price',
+                'status' => 'pending_manual_review',
+                'evidence_refs' => ['online_daily_data#10'],
+            ]],
+        ], '2026-06-12', '2026-06-12', '2026-06-14', '2026-06-14']);
+
+        self::assertSame('database_only_latest_available_reference_not_execution_ready', $result['source_policy']);
+        self::assertFalse($result['data_summary']['target_date_execution_ready']);
+        self::assertSame('ota_requested_period_source_rows_missing_used_latest_available', $result['data_gaps'][0]['code']);
+        self::assertSame('ota_latest_available_not_target_date', $result['evidence_sources'][1]['ref']);
+        self::assertSame('blocked_by_non_target_date_data', $result['action_items'][0]['status']);
+        self::assertSame('pending_manual_review', $result['action_items'][0]['original_status']);
+        self::assertContains('ota_latest_available_not_target_date', $result['action_items'][0]['evidence_refs']);
+
+        $report = $this->invokeNonPublic($controller, 'buildOtaEvidenceReport', [$result]);
+        self::assertSame('database_only_latest_available_reference_not_execution_ready', $report['source_policy']);
+        self::assertSame($result['data_gaps'], $report['data_gaps']);
+    }
+
     public function testNormalizeRequestedModelKeyCoversDefaultAliasesAndFallback(): void
     {
         $controller = $this->controller();
