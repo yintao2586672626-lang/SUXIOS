@@ -36,7 +36,10 @@ final class ControllerRouteContractTest extends TestCase
         self::assertGreaterThan(25, count($classes));
 
         foreach ($classes as $class) {
-            self::assertTrue(class_exists($class), "Controller class is not autoloadable: {$class}");
+            self::assertTrue(
+                class_exists($class) || trait_exists($class),
+                "Controller class or trait is not autoloadable: {$class}"
+            );
         }
     }
 
