@@ -440,7 +440,7 @@ function trustedMetricTrustKeys(metricTrust) {
 
 function expectedTrafficActionEntry(action) {
   const actionCode = String(action?.action_code ?? '');
-  if (actionCode.includes('meituan')) return '/api/online-data/capture-meituan-browser';
+  if (actionCode.includes('meituan')) return '/api/online-data/fetch-meituan-traffic';
   if (actionCode.includes('ctrip')) return '/api/online-data/fetch-ctrip-traffic';
   return '';
 }
@@ -449,7 +449,7 @@ function expectedTrafficActionEntries(action) {
   const actionCode = String(action?.action_code ?? '');
   if (actionCode.includes('meituan')) {
     return {
-      primary: '/api/online-data/capture-meituan-browser',
+      primary: '/api/online-data/fetch-meituan-traffic',
       manual: '/api/online-data/fetch-meituan-traffic',
       profile: '/api/online-data/capture-meituan-browser',
       status: '/api/online-data/collection-reliability',

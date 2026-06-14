@@ -1476,7 +1476,7 @@ trait Phase1EmployeeConsoleConcern
     {
         return match (strtolower(trim($platform))) {
             'ctrip' => '/api/online-data/fetch-ctrip-traffic',
-            'meituan' => '/api/online-data/capture-meituan-browser',
+            'meituan' => '/api/online-data/fetch-meituan-traffic',
             default => '/api/online-data/collection-reliability',
         };
     }
@@ -1513,20 +1513,20 @@ trait Phase1EmployeeConsoleConcern
             ],
             'meituan' => [
                 [
-                    'mode' => 'browser_profile',
-                    'label' => 'Meituan browser Profile',
-                    'entry' => '/api/online-data/capture-meituan-browser',
-                    'use_when' => 'Use when an authorized local Meituan browser Profile exists and the page must trigger traffic JSON responses.',
-                    'requires' => 'target_date, system_hotel_id, authorized Meituan Profile, manually verified login state, traffic response listener.',
-                    'boundary' => 'Does not bypass captcha, SMS, human verification, or platform permissions.',
-                ],
-                [
                     'mode' => 'manual_cookie_api',
                     'label' => 'Meituan traffic manual Cookie/API',
                     'entry' => '/api/online-data/fetch-meituan-traffic',
                     'use_when' => 'Use when authorized traffic URL/CDP endpoint evidence, payload/query params, auth context, and POI id are available.',
                     'requires' => 'target_date, system_hotel_id, Meituan POI/partner id, authorized Cookie/headers, traffic payload/query params.',
                     'boundary' => 'Does not auto-login to Meituan, does not infer missing traffic fields, and does not expose raw Cookie/token values.',
+                ],
+                [
+                    'mode' => 'browser_profile',
+                    'label' => 'Meituan browser Profile',
+                    'entry' => '/api/online-data/capture-meituan-browser',
+                    'use_when' => 'Use when an authorized local Meituan browser Profile exists and the page must trigger traffic JSON responses.',
+                    'requires' => 'target_date, system_hotel_id, authorized Meituan Profile, manually verified login state, traffic response listener.',
+                    'boundary' => 'Does not bypass captcha, SMS, human verification, or platform permissions.',
                 ],
                 [
                     'mode' => 'status_check',

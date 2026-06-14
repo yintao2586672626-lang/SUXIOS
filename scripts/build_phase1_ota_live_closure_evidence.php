@@ -1868,7 +1868,7 @@ function next_action_entry(string $code): string
         return '/api/online-data/fetch-ctrip-traffic';
     }
     if ($code === 'meituan_traffic_facts_missing_confirm_traffic_collection') {
-        return '/api/online-data/capture-meituan-browser';
+        return '/api/online-data/fetch-meituan-traffic';
     }
     if (str_contains($code, 'etl_not_ready')
         || str_contains($code, 'revenue_metrics_not_ready')
@@ -2015,7 +2015,7 @@ function traffic_acceptance_contract(): array
 function traffic_entry_options_with_readiness(string $platform, array $options): array
 {
     $platform = strtolower(trim($platform));
-    $preferredMode = $platform === 'meituan' ? 'browser_profile' : 'manual_cookie_api';
+    $preferredMode = 'manual_cookie_api';
     $indexed = [];
     foreach ($options as $index => $option) {
         if (!is_array($option)) {
