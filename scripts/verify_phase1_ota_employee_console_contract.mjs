@@ -129,10 +129,13 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   'p0_required_storage_fields',
   'p0_required_field_fact_keys',
   'p0_missing_metric_keys',
+  'p0_traffic_closure_chain',
+  'p0_traffic_closure_chain_policy',
   'p0_target_traffic_data_types',
   'p0_source_chain_reference_only',
   'p0_source_chain_scope',
   'p0_source_chain_policy',
+  'no_target_date_source_rows',
   'reference_only_non_traffic_source_rows',
   'trafficActionModeLabel',
   'trafficPreImportEvidenceLabel',
@@ -529,14 +532,27 @@ includesAll('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'employee
   'p0_pre_import_evidence_status',
   'p0_pre_import_evidence_policy',
   'p0_traffic_field_fact_status',
+  'phase1P0TrafficFieldLoopMatrix',
+  'phase1P0TrafficRows',
+  'phase1P0CaptureEvidenceMatchesRow',
+  'phase1P0DesensitizedEvidence',
+  'complete_row_count',
+  'capture_evidence_matches_row',
+  'desensitized_capture_evidence_present',
+  "'complete'",
+  "'incomplete'",
+  "'missing'",
   'p0_required_metric_keys',
   'p0_required_storage_fields',
   'p0_required_field_fact_keys',
   'p0_missing_metric_keys',
+  'p0_traffic_closure_chain',
+  'p0_traffic_closure_chain_policy',
   'p0_target_traffic_data_types',
   'p0_source_chain_reference_only',
   'p0_source_chain_scope',
   'p0_source_chain_policy',
+  'no_target_date_source_rows',
   'reference_only_non_traffic_source_rows',
   'metadata_only_no_sensitive_commands',
   'phase1TrafficSourceRecommendedMode',
@@ -545,6 +561,27 @@ includesAll('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'employee
   '/api/online-data/capture-meituan-browser',
   'registered_waiting_config',
   'registered_ready_without_target_date_traffic',
+]);
+
+includesAllSources([
+  'scripts/build_phase1_ota_live_closure_evidence.php',
+  'scripts/inspect_phase1_ota_live_closure.php',
+], 'employee evidence scripts expose real P0 traffic field-loop matrix paths', [
+  'target_date',
+  'traffic_source_p0_field_loop_matrix',
+  'inspection_traffic_source_p0_field_loop_matrix',
+  'traffic_source_p0_closure_chain',
+  'inspection_traffic_source_p0_closure_chain',
+  'traffic_source_p0_traffic_rows',
+  'inspection_traffic_source_p0_traffic_rows',
+  'traffic_source_p0_capture_evidence_matches_row',
+  'inspection_traffic_source_p0_capture_evidence_matches_row',
+  'complete_row_count',
+  'capture_evidence_matches_row',
+  'desensitized_capture_evidence_present',
+  "'complete'",
+  "'incomplete'",
+  "'missing'",
 ]);
 
 includesAll('public/index.html', 'AI diagnosis and operation UI bindings exist', [
@@ -1154,11 +1191,37 @@ check(
     publicEntry.includes('p0_next_step_count') &&
     publicEntry.includes('p0_pre_import_evidence_status') &&
     publicEntry.includes('p0_traffic_field_fact_status') &&
+    publicEntry.includes('trafficFieldFactLabel') &&
+    publicEntry.includes('no_target_date_traffic_rows') &&
+    publicEntry.includes('目标日流量字段未加载') &&
     publicEntry.includes('p0_required_metric_keys') &&
     publicEntry.includes('p0_required_storage_fields') &&
+    publicEntry.includes('p0_field_loop_matrix') &&
+    publicEntry.includes('p0_traffic_closure_chain') &&
+    publicEntry.includes('closureChainNoTargetCount') &&
+    publicEntry.includes('closureChainVerifierCount') &&
+    publicEntry.includes('closureChainReadyCount') &&
+    publicEntry.includes('closureChainIncompleteCount') &&
+    publicEntry.includes('p0_platform_hotel_identifier_source') &&
+    publicEntry.includes('p0_platform_hotel_identifier_status') &&
+    publicEntry.includes('p0_platform_hotel_identifier_policy') &&
+    publicEntry.includes('platformHotelIdentifierStatus') &&
+    publicEntry.includes('platformHotelIdentifierSource') &&
+    publicEntry.includes('not raw IDs') &&
+    publicEntry.includes('completeFieldLoopCount') &&
+    publicEntry.includes('incompleteFieldLoopCount') &&
+    publicEntry.includes('missingFieldLoopCount') &&
+    publicEntry.includes('verifierFieldLoopCount') &&
+    publicEntry.includes('闭环链') &&
+    publicEntry.includes('链路未加载') &&
+    publicEntry.includes('链路待复验') &&
+    publicEntry.includes('字段矩阵') &&
+    publicEntry.includes('未加载') &&
     publicEntry.includes('p0_source_chain_reference_only') &&
     publicEntry.includes('p0_source_chain_scope') &&
+    publicEntry.includes('no_target_date_source_rows') &&
     publicEntry.includes('reference_only_non_traffic_source_rows') &&
+    publicEntry.includes('目标日源数据未入库') &&
     publicEntry.includes('源证据仅参考') &&
     publicEntry.includes('需闭环指标') &&
     publicEntry.includes('入库字段') &&
@@ -1699,10 +1762,27 @@ check(
     acceptanceDoc.includes('p0_external_evidence_status') &&
     acceptanceDoc.includes('p0_pre_import_evidence_status') &&
     acceptanceDoc.includes('p0_pre_import_evidence_policy') &&
+    acceptanceDoc.includes('no_target_date_traffic_rows') &&
+    acceptanceDoc.includes('p0_field_loop_matrix') &&
+    acceptanceDoc.includes('p0_traffic_closure_chain') &&
+    acceptanceDoc.includes('p0_traffic_closure_chain_policy') &&
+    acceptanceDoc.includes('platform_hotel_identifier') &&
+    acceptanceDoc.includes('whole-hotel operating truth') &&
+    acceptanceDoc.includes('p0_platform_hotel_identifier_source') &&
+    acceptanceDoc.includes('p0_platform_hotel_identifier_status') &&
+    acceptanceDoc.includes('p0_platform_hotel_identifier_policy') &&
+    acceptanceDoc.includes('hotel_id_family') &&
+    acceptanceDoc.includes('poi_id_family') &&
+    acceptanceDoc.includes('OTA 酒店 ID/POI ID') &&
+    acceptanceDoc.includes('complete') &&
+    acceptanceDoc.includes('incomplete') &&
+    acceptanceDoc.includes('requires_p0_verifier') &&
+    acceptanceDoc.includes('字段矩阵') &&
     acceptanceDoc.includes('p0_target_traffic_data_types') &&
     acceptanceDoc.includes('p0_source_chain_reference_only') &&
     acceptanceDoc.includes('p0_source_chain_scope') &&
     acceptanceDoc.includes('p0_source_chain_policy') &&
+    acceptanceDoc.includes('no_target_date_source_rows') &&
     acceptanceDoc.includes('reference_only_non_traffic_source_rows') &&
     acceptanceDoc.includes('next_command_policy=metadata_only_no_sensitive_commands') &&
     acceptanceDoc.includes('manual_login_state_verified') &&

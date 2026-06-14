@@ -93,7 +93,14 @@ class OpeningService
             ->order('id', 'desc');
         $this->applyOwnerScope($query, $userId, $isSuperAdmin);
 
-        return array_map([$this, 'normalizeProject'], $query->select()->toArray());
+        $projects = array_map([$this, 'normalizeProject'], $query->select()->toArray());
+        $intentIds = $this->executionIntentIdsForProjects(array_column($projects, 'id'));
+        foreach ($projects as &$project) {
+            $project['execution_intent_id'] = (int)($intentIds[(int)$project['id']] ?? 0);
+        }
+        unset($project);
+
+        return $projects;
     }
 
     public function updateProject(int $projectId, array $input, array $hotelIds): array
@@ -305,7 +312,61 @@ class OpeningService
             throw new \RuntimeException('开业项目不存在');
         }
 
-        return $this->normalizeProject($project);
+        $project = $this->normalizeProject($project);
+        $project['execution_intent_id'] = (int)($this->executionIntentIdsForProjects([(int)$project['id']])[(int)$project['id']] ?? 0);
+
+        return $project;
+    }
+
+    public function buildExecutionIntentInput(array $project, array $overview = [], array $overrides = []): array
+    {
+        $hotelId = (int)($project['hotel_id'] ?? 0);
+        if ($hotelId <= 0) {
+            throw new \InvalidArgumentException('hotel_id is required for opening execution tracking');
+        }
+
+        $metrics = is_array($overview['metrics'] ?? null) ? $overview['metrics'] : [];
+        $date = $this->nowDate();
+        $dateStart = trim((string)($overrides['date_start'] ?? '')) ?: $date;
+        $dateEnd = trim((string)($overrides['date_end'] ?? '')) ?: $dateStart;
+        $projectName = trim((string)($project['project_name'] ?? ''));
+
+        return [
+            'source_module' => 'opening',
+            'source_record_id' => (int)($project['id'] ?? 0),
+            'hotel_id' => $hotelId,
+            'platform' => 'internal',
+            'object_type' => 'opening',
+            'action_type' => 'go_live_preparation_tracking',
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+            'current_value' => [
+                'project_name' => $projectName,
+                'hotel_name' => (string)($project['hotel_name'] ?? ''),
+                'opening_date' => (string)($project['opening_date'] ?? ''),
+                'overall_score' => (float)($project['overall_score'] ?? 0),
+                'risk_level' => (string)($project['risk_level'] ?? ''),
+                'completion_rate' => (float)($metrics['completion_rate'] ?? 0),
+                'core_completion_rate' => (float)($metrics['core_completion_rate'] ?? 0),
+            ],
+            'target_value' => [
+                'project_name' => $projectName,
+                'tracking_status' => 'pending_opening_go_live_evidence',
+                'target_metric' => 'opening_go_live_closure',
+                'next_action' => 'record opening execution evidence and post-opening review',
+            ],
+            'evidence' => [
+                'source_scope' => 'opening_project_and_tasks',
+                'project_status' => (string)($project['status'] ?? ''),
+                'days_left' => (int)($project['days_left'] ?? 0),
+                'metrics' => $metrics,
+                'scope_notice' => 'Opening checklist evidence is project-preparation scope; OTA go-live and post-opening performance still require execution evidence.',
+            ],
+            'expected_metric' => 'opening_go_live_closure',
+            'expected_delta' => 0,
+            'risk_level' => $this->executionRiskLevel((string)($project['risk_level'] ?? '')),
+            'status' => 'pending_approval',
+        ];
     }
 
     private function calculateMetrics(array $project, array $tasks, bool $withSuggestions = true): array
@@ -779,6 +840,50 @@ class OpeningService
     private function now(): string
     {
         return date('Y-m-d H:i:s');
+    }
+
+    private function nowDate(): string
+    {
+        return date('Y-m-d');
+    }
+
+    private function executionIntentIdsForProjects(array $projectIds): array
+    {
+        $ids = array_values(array_filter(array_map('intval', $projectIds), static fn(int $id): bool => $id > 0));
+        if (empty($ids) || !$this->tableExists('operation_execution_intents')) {
+            return [];
+        }
+
+        try {
+            $rows = Db::name('operation_execution_intents')
+                ->where('source_module', 'opening')
+                ->whereIn('source_record_id', $ids)
+                ->whereNull('deleted_at')
+                ->order('id', 'desc')
+                ->field('id, source_record_id')
+                ->select()
+                ->toArray();
+        } catch (Throwable $e) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($rows as $row) {
+            $sourceId = (int)($row['source_record_id'] ?? 0);
+            if ($sourceId > 0 && !isset($result[$sourceId])) {
+                $result[$sourceId] = (int)($row['id'] ?? 0);
+            }
+        }
+        return $result;
+    }
+
+    private function executionRiskLevel(string $riskLevel): string
+    {
+        return match ($riskLevel) {
+            self::RISK_HIGH => 'high',
+            self::RISK_LOW => 'low',
+            default => 'medium',
+        };
     }
 
     private function resolveProjectTenantId(array $hotelIds): int

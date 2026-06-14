@@ -60,6 +60,41 @@ test('normalizes Ctrip capture presets for core and wide collection', () => {
   assert.equal(summary.interaction_plan_step_count > summary.interaction_plan_section_count, true);
 });
 
+test('does not use Profile ID as Ctrip platform hotel identity fallback', () => {
+  const facts = [{
+    metric_key: 'list_exposure',
+    metric_label: 'listExposure',
+    value: 128,
+    value_type: 'number',
+    source_key: 'listExposure',
+    source_path: 'data.flowData.0.listExposure',
+    source_parent_path: 'data.flowData.0',
+    endpoint_id: 'traffic_flow_analysis',
+    endpoint_label: 'traffic_flow_analysis',
+    section: 'traffic_report',
+    platform: 'ctrip',
+    data_date: '2026-06-15',
+    hotel_id: '',
+    captured_at: '2026-06-15T00:00:00.000Z',
+    source_url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1',
+  }];
+
+  const profileOnlyRows = buildCtripStandardRowsFromFacts(facts, {
+    profileId: 'local-profile-60',
+    dataDate: '2026-06-15',
+  });
+  assert.equal(profileOnlyRows.length, 1);
+  assert.equal(profileOnlyRows[0].hotel_id, '');
+
+  const platformScopedRows = buildCtripStandardRowsFromFacts(facts, {
+    profileId: 'local-profile-60',
+    hotelId: 'ctrip-platform-60',
+    dataDate: '2026-06-15',
+  });
+  assert.equal(platformScopedRows.length, 1);
+  assert.equal(platformScopedRows[0].hotel_id, 'ctrip-platform-60');
+});
+
 test('defines Ctrip section interaction plans for tabbed capture pages', () => {
   const sales = getCtripSectionInteractionPlan('sales_report').map(step => step.text);
   assert.equal(sales.includes('\u9500\u552e\u6570\u636e'), true);

@@ -209,6 +209,45 @@ final class OpeningServiceTest extends TestCase
         ]);
     }
 
+    public function testBuildExecutionIntentInputRequiresBoundOpeningHotel(): void
+    {
+        $service = new OpeningService();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $service->buildExecutionIntentInput(['id' => 1, 'hotel_id' => 0, 'project_name' => 'Opening Project']);
+    }
+
+    public function testBuildExecutionIntentInputUsesOpeningProjectScope(): void
+    {
+        $service = new OpeningService();
+
+        $input = $service->buildExecutionIntentInput([
+            'id' => 9,
+            'hotel_id' => 7,
+            'project_name' => 'Opening Project',
+            'hotel_name' => 'Hotel A',
+            'opening_date' => '2026-07-01',
+            'status' => 'preparing',
+            'overall_score' => 72.5,
+            'risk_level' => 'medium',
+            'days_left' => 17,
+        ], [
+            'metrics' => [
+                'completion_rate' => 61.2,
+                'core_completion_rate' => 70.0,
+            ],
+        ], ['date_start' => '2026-06-14']);
+
+        self::assertSame('opening', $input['source_module']);
+        self::assertSame(9, $input['source_record_id']);
+        self::assertSame(7, $input['hotel_id']);
+        self::assertSame('internal', $input['platform']);
+        self::assertSame('opening', $input['object_type']);
+        self::assertSame('opening_go_live_closure', $input['target_value']['target_metric']);
+        self::assertSame('opening_project_and_tasks', $input['evidence']['source_scope']);
+        self::assertSame('medium', $input['risk_level']);
+    }
+
     private function project(): array
     {
         return [

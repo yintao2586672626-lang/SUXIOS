@@ -310,6 +310,76 @@ final class TransferDecisionServiceTest extends TestCase
         self::assertTrue($approved['decision_ready']);
     }
 
+    public function testBuildExecutionIntentInputRequiresTransferRecordHotel(): void
+    {
+        $service = $this->fallbackService();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $service->buildExecutionIntentInput(['id' => 12, 'hotel_id' => 0]);
+    }
+
+    public function testBuildExecutionIntentInputUsesTransferDecisionScope(): void
+    {
+        $service = $this->fallbackService();
+        $pricingInput = $this->pricingInput();
+        $pricing = $service->calculateAssetPricing($pricingInput);
+        $timing = $service->calculateTransferTiming([
+            'current_revenue' => 120,
+            'previous_revenue' => 100,
+            'current_orders' => 620,
+            'previous_orders' => 520,
+            'current_adr' => 320,
+            'previous_adr' => 300,
+            'current_occupancy_rate' => 82,
+            'previous_occupancy_rate' => 76,
+            'rating' => 4.8,
+            'exposure' => 12000,
+            'visitors' => 1800,
+            'conversion_rate' => 6.5,
+            'order_count' => 620,
+            'room_nights' => 980,
+        ]);
+        $dashboard = $service->buildTransferDashboard($pricing, $timing, []);
+        $snapshot = [
+            'hotel_id' => 7,
+            'hotel_name' => 'Hotel A',
+            'source_date' => '2026-06-14',
+            'current' => ['actual_days' => 30, 'has_data_anomaly' => false],
+            'source_counts' => ['daily_reports' => 30, 'online_daily_data' => 30],
+        ];
+        $input = [
+            'pricing' => $pricing,
+            'timing' => $timing,
+            'pricing_input' => $pricingInput,
+            'diligence_evidence' => ['lease_contract' => 'checked'],
+            'review_status' => 'approved',
+        ];
+        $readiness = $service->buildDecisionReadiness('dashboard', $input, $dashboard, $snapshot, 7);
+
+        $intentInput = $service->buildExecutionIntentInput([
+            'id' => 12,
+            'record_type' => 'dashboard',
+            'hotel_id' => 7,
+            'hotel_name' => 'Hotel A',
+            'source_date' => '2026-06-14',
+            'decision' => (string)($dashboard['suggested_action'] ?? ''),
+            'risk_level' => 'medium',
+            'input' => $input,
+            'result' => $dashboard,
+            'snapshot' => $snapshot,
+            'decision_readiness' => $readiness,
+        ], ['date_start' => '2026-06-14']);
+
+        self::assertSame('transfer_decision', $intentInput['source_module']);
+        self::assertSame(12, $intentInput['source_record_id']);
+        self::assertSame(7, $intentInput['hotel_id']);
+        self::assertSame('investment', $intentInput['platform']);
+        self::assertSame('investment', $intentInput['object_type']);
+        self::assertSame('transfer_decision_closure', $intentInput['target_value']['target_metric']);
+        self::assertSame($readiness['stage'], $intentInput['evidence']['readiness_stage']);
+        self::assertSame('medium', $intentInput['risk_level']);
+    }
+
     private function pricingInput(): array
     {
         return [

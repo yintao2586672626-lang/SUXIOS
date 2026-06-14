@@ -1453,11 +1453,16 @@ function operation_blocking_code(array $operation): string
     return '';
 }
 
-function metric_domain_readiness(array $platformEvidence): array
+function metric_domain_readiness(array $platformEvidence, string $targetDate = ''): array
 {
-    return array_values(array_map(static function (array $item): array {
+    return array_values(array_map(static function (array $item) use ($targetDate): array {
         $revenueReady = (string)($item['revenue_metrics']['status'] ?? '') === 'ready';
         $trafficReady = (int)($item['revenue_metrics']['traffic']['rows'] ?? 0) > 0;
+        $targetDateRows = (int)($item['source_rows']['count'] ?? 0);
+        $targetDateDataTypes = array_values(array_unique(array_filter(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            (array)($item['source_rows']['data_types'] ?? [])
+        ), static fn(string $value): bool => $value !== '')));
         $missingDomains = [];
         if (!$revenueReady) {
             $missingDomains[] = 'revenue';
@@ -1469,13 +1474,16 @@ function metric_domain_readiness(array $platformEvidence): array
 
         return [
             'platform' => (string)($item['platform'] ?? ''),
+            'target_date' => $targetDate,
             'revenue_status' => $revenueReady ? 'ready' : 'missing',
             'traffic_status' => $trafficReady ? 'ready' : 'missing',
             'conversion_status' => $trafficReady ? 'ready' : 'missing',
             'missing_domains' => $missingDomains,
             'metric_status' => (string)($item['revenue_metrics']['status'] ?? 'unknown'),
             'traffic_rows' => (int)($item['revenue_metrics']['traffic']['rows'] ?? 0),
-            'source_rows' => (int)($item['source_rows']['count'] ?? 0),
+            'source_rows' => $targetDateRows,
+            'target_date_rows' => $targetDateRows,
+            'target_date_data_types' => $targetDateDataTypes,
         ];
     }, $platformEvidence));
 }
@@ -1530,12 +1538,13 @@ function traffic_source_readiness(array $domainReadiness): array
         }
         $targetDateDataTypes = array_values(array_filter(array_map(
             static fn($value): string => strtolower(trim((string)$value)),
-            (array)($row['target_date_data_types'] ?? [])
-        ), static fn(string $value): bool => $value !== ''));
-        $platforms[$platform] = [
-            'target_date_rows' => max(0, (int)($row['target_date_rows'] ?? $row['source_rows'] ?? 0)),
-            'target_date_traffic_rows' => max(0, (int)($row['traffic_rows'] ?? 0)),
-            'target_date_data_types' => array_values(array_unique($targetDateDataTypes)),
+            (array)($row['target_date_data_types'] ?? $row['data_types'] ?? [])
+                ), static fn(string $value): bool => $value !== ''));
+                $platforms[$platform] = [
+                    'target_date' => trim((string)($row['target_date'] ?? '')),
+                    'target_date_rows' => max(0, (int)($row['target_date_rows'] ?? $row['source_rows'] ?? 0)),
+                    'target_date_traffic_rows' => max(0, (int)($row['traffic_rows'] ?? 0)),
+                    'target_date_data_types' => array_values(array_unique($targetDateDataTypes)),
         ];
     }
 
@@ -1592,6 +1601,7 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
     $requiredMetricKeys = traffic_source_p0_required_metric_keys();
     $requiredStorageFields = traffic_source_p0_required_storage_fields();
     $requiredFieldFactKeys = traffic_source_p0_required_field_fact_keys();
+    $targetDate = trim((string)($context['target_date'] ?? ''));
     $targetDateRows = max(0, (int)($context['target_date_rows'] ?? 0));
     $targetDateTrafficRows = max(0, (int)($context['target_date_traffic_rows'] ?? 0));
     $targetDateDataTypes = array_values(array_filter(array_map(
@@ -1604,8 +1614,22 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
         && $targetDateTrafficRows <= 0
         && $targetDateDataTypes !== []
         && $targetDateTrafficDataTypes === [];
+    if ($targetDateRows <= 0) {
+        $sourceChainScope = 'no_target_date_source_rows';
+        $sourceChainPolicy = 'No target-date source rows are loaded; P0 closure still requires target-date traffic rows and ready verifier status.';
+    } elseif ($sourceChainReferenceOnly) {
+        $sourceChainScope = 'reference_only_non_traffic_source_rows';
+        $sourceChainPolicy = 'Target-date source rows without traffic/flow/conversion data types are reference only; P0 closure still requires target-date traffic rows and ready verifier status.';
+    } else {
+        $sourceChainScope = 'traffic_source_rows';
+        $sourceChainPolicy = 'Target-date source rows include traffic/flow/conversion data types; P0 closure still requires ready verifier status.';
+    }
+    $p0FieldLoopMatrix = traffic_source_p0_field_loop_matrix($requiredMetricKeys, $requiredStorageFields, $targetDateTrafficRows, $platform, $targetDate);
+    $p0PlatformHotelIdentifierSource = $platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
+    $p0PlatformHotelIdentifierStatus = $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'no_target_date_traffic_rows';
     $base = [
         'platform' => $platform,
+        'target_date' => $targetDate,
         'target_date_rows' => $targetDateRows,
         'target_date_traffic_rows' => $targetDateTrafficRows,
         'target_date_data_types' => $targetDateDataTypes,
@@ -1630,15 +1654,21 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
         'p0_external_evidence_status' => 'not_provided',
         'p0_pre_import_evidence_status' => 'not_provided',
         'p0_pre_import_evidence_policy' => 'External traffic evidence is source proof only; P0 closure still requires target-date traffic rows and ready verifier status.',
-        'p0_traffic_field_fact_status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'missing_target_date_traffic_rows',
+        'p0_traffic_field_fact_status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'no_target_date_traffic_rows',
         'p0_required_metric_keys' => $requiredMetricKeys,
         'p0_required_storage_fields' => $requiredStorageFields,
         'p0_required_field_fact_keys' => $requiredFieldFactKeys,
         'p0_missing_metric_keys' => $targetDateTrafficRows > 0 ? [] : $requiredMetricKeys,
+        'p0_field_loop_matrix' => $p0FieldLoopMatrix,
+        'p0_traffic_closure_chain' => traffic_source_p0_closure_chain($p0FieldLoopMatrix, $targetDateTrafficRows, $p0PlatformHotelIdentifierStatus, $p0PlatformHotelIdentifierSource),
+        'p0_traffic_closure_chain_policy' => 'Every chain item is OTA-channel evidence only and remains incomplete until the P0 field-loop verifier returns ready.',
+        'p0_platform_hotel_identifier_source' => $p0PlatformHotelIdentifierSource,
+        'p0_platform_hotel_identifier_status' => $p0PlatformHotelIdentifierStatus,
+        'p0_platform_hotel_identifier_policy' => 'P0 traffic rows must prove the OTA platform hotel identifier through importer/verifier checks; UI exposes only status and source family, not raw IDs.',
         'p0_target_traffic_data_types' => $targetDateTrafficDataTypes,
         'p0_source_chain_reference_only' => $sourceChainReferenceOnly,
-        'p0_source_chain_scope' => $sourceChainReferenceOnly ? 'reference_only_non_traffic_source_rows' : 'traffic_source_rows',
-        'p0_source_chain_policy' => 'Target-date source rows without traffic/flow/conversion data types are reference only; P0 closure still requires target-date traffic rows and ready verifier status.',
+        'p0_source_chain_scope' => $sourceChainScope,
+        'p0_source_chain_policy' => $sourceChainPolicy,
     ];
 
     try {
@@ -1742,6 +1772,280 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
     $base['required_next_inputs'] = traffic_source_required_next_inputs($platform, $base);
 
     return $base;
+}
+
+function traffic_source_p0_field_loop_matrix(array $requiredMetricKeys, array $requiredStorageFields, int $targetDateTrafficRows, string $platform = '', string $targetDate = ''): array
+{
+    $targetDateTrafficRows = max(0, $targetDateTrafficRows);
+    if ($targetDateTrafficRows <= 0) {
+        return array_values(traffic_source_p0_field_loop_matrix_index($requiredMetricKeys, $requiredStorageFields, $targetDateTrafficRows, 'no_target_date_traffic_rows'));
+    }
+    $platform = strtolower(trim($platform));
+    $targetDate = trim($targetDate);
+    $matrix = traffic_source_p0_field_loop_matrix_index($requiredMetricKeys, $requiredStorageFields, $targetDateTrafficRows, 'requires_p0_verifier');
+    if (!in_array($platform, ['ctrip', 'meituan'], true) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate)) {
+        return array_values($matrix);
+    }
+
+    $rows = traffic_source_p0_traffic_rows($platform, $targetDate);
+    if ($rows === []) {
+        return array_values($matrix);
+    }
+
+    $storageMap = [];
+    foreach (array_values($requiredMetricKeys) as $index => $metricKey) {
+        $storageMap[(string)$metricKey] = (string)($requiredStorageFields[$index] ?? '');
+    }
+
+    foreach ($rows as $row) {
+        $raw = decode_field_fact_raw_data($row['raw_data'] ?? null);
+        $rowEvidence = traffic_source_p0_desensitized_evidence($raw);
+        $rowSourceTraceId = trim((string)($row['source_trace_id'] ?? $raw['source_trace_id'] ?? $rowEvidence['source_trace_id'] ?? ''));
+        $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? ''));
+        $uiReady = traffic_source_p0_row_ui_ready($row, $raw, $requiredMetricKeys, $storageMap, $rowSourceTraceId, $rowSourceUrlHash);
+        foreach (extract_online_data_field_facts($row, $raw) as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            $metricKey = field_fact_text($fact, ['metric_key', 'field_key', 'field']);
+            if (!isset($matrix[$metricKey])) {
+                continue;
+            }
+            $sourcePath = field_fact_text($fact, ['source_path']);
+            [$storageField] = field_fact_storage_field($fact, $row, $raw, $metricKey);
+            $expectedStorageField = $storageMap[$metricKey] ?? '';
+            $desensitizedEvidence = traffic_source_p0_desensitized_evidence(is_array($fact['capture_evidence'] ?? null) ? (array)$fact['capture_evidence'] : []);
+            $captureEvidenceMatches = traffic_source_p0_capture_evidence_matches_row($desensitizedEvidence, $rowSourceTraceId, $rowSourceUrlHash);
+            $sourcePathStructured = field_fact_source_path_structured($sourcePath);
+            $storageMatches = $storageField !== '' && $storageField === $expectedStorageField;
+            $storedValuePresent = field_fact_stored_value_state($fact, $row, $raw, $storageField, $metricKey) === true;
+            $complete = $sourcePathStructured && $storageMatches && $storedValuePresent && $captureEvidenceMatches && $uiReady;
+
+            $entry = $matrix[$metricKey];
+            $entry['row_count'] = (int)($entry['row_count'] ?? 0) + 1;
+            $entry['complete_row_count'] = (int)($entry['complete_row_count'] ?? 0) + ($complete ? 1 : 0);
+            if (($entry['sample_row_id'] ?? null) === null) {
+                $entry['sample_row_id'] = $row['id'] ?? null;
+            }
+            $entry['capture_evidence_present'] = (bool)($entry['capture_evidence_present'] ?? false) || is_array($fact['capture_evidence'] ?? null);
+            $entry['desensitized_capture_evidence_present'] = (bool)($entry['desensitized_capture_evidence_present'] ?? false) || $desensitizedEvidence !== [];
+            $entry['capture_evidence_matches_row'] = (bool)($entry['capture_evidence_matches_row'] ?? false) || $captureEvidenceMatches;
+            $entry['source_path_structured'] = (bool)($entry['source_path_structured'] ?? false) || $sourcePathStructured;
+            $entry['storage_field_matches_expected'] = (bool)($entry['storage_field_matches_expected'] ?? false) || $storageMatches;
+            $entry['stored_value_present'] = (bool)($entry['stored_value_present'] ?? false) || $storedValuePresent;
+            $entry['ui_status_ready'] = (bool)($entry['ui_status_ready'] ?? false) || $uiReady;
+            $entry['status'] = $complete ? 'complete' : 'incomplete';
+            $matrix[$metricKey] = $entry;
+        }
+    }
+
+    foreach ($matrix as &$entry) {
+        if ((int)($entry['row_count'] ?? 0) <= 0) {
+            $entry['status'] = 'missing';
+        }
+    }
+    unset($entry);
+
+    return array_values($matrix);
+}
+
+function traffic_source_p0_closure_chain(array $fieldLoopMatrix, int $targetDateTrafficRows, string $platformHotelIdentifierStatus, string $platformHotelIdentifierSource): array
+{
+    $targetDateTrafficRows = max(0, $targetDateTrafficRows);
+    $chainStatus = static function (bool $ready) use ($targetDateTrafficRows): string {
+        if ($targetDateTrafficRows <= 0) {
+            return 'no_target_date_traffic_rows';
+        }
+        return $ready ? 'ready' : 'incomplete';
+    };
+    $all = static function (string $key) use ($fieldLoopMatrix): bool {
+        if ($fieldLoopMatrix === []) {
+            return false;
+        }
+        foreach ($fieldLoopMatrix as $item) {
+            if (!is_array($item) || empty($item[$key])) {
+                return false;
+            }
+        }
+        return true;
+    };
+    $allMetricRowsPresent = static function () use ($fieldLoopMatrix): bool {
+        if ($fieldLoopMatrix === []) {
+            return false;
+        }
+        foreach ($fieldLoopMatrix as $item) {
+            if (!is_array($item) || (int)($item['row_count'] ?? 0) <= 0) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    return [
+        'capture_evidence' => [
+            'status' => $chainStatus($all('capture_evidence_present') && $all('desensitized_capture_evidence_present') && $all('capture_evidence_matches_row')),
+            'required' => 'desensitized source_trace_id plus source_url_hash matched to each traffic row and field fact',
+        ],
+        'source_path' => [
+            'status' => $chainStatus($all('source_path_structured')),
+            'required' => 'structured source_path for every required traffic metric',
+        ],
+        'metric_key' => [
+            'status' => $chainStatus($allMetricRowsPresent()),
+            'required' => 'required traffic metric keys are present in field facts',
+        ],
+        'storage_field' => [
+            'status' => $chainStatus($all('storage_field_matches_expected')),
+            'required' => 'expected online_daily_data storage field for every required metric',
+        ],
+        'stored_value' => [
+            'status' => $chainStatus($all('stored_value_present')),
+            'required' => 'stored value present for every required traffic metric',
+        ],
+        'ui_status' => [
+            'status' => $chainStatus($all('ui_status_ready')),
+            'required' => 'ready UI field_fact_status with no raw_data exposure',
+        ],
+        'platform_hotel_identifier' => [
+            'status' => $platformHotelIdentifierStatus,
+            'required' => $platformHotelIdentifierSource,
+        ],
+        'verifier' => [
+            'status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'incomplete',
+            'required' => 'P0 field-loop verifier returns ready',
+        ],
+    ];
+}
+
+function traffic_source_p0_field_loop_matrix_index(array $requiredMetricKeys, array $requiredStorageFields, int $targetDateTrafficRows, string $status): array
+{
+    $matrix = [];
+    foreach (array_values($requiredMetricKeys) as $index => $metricKey) {
+        $metricKey = (string)$metricKey;
+        $matrix[$metricKey] = [
+            'metric_key' => $metricKey,
+            'expected_storage_field' => (string)($requiredStorageFields[$index] ?? ''),
+            'status' => $status,
+            'target_date_traffic_rows' => max(0, $targetDateTrafficRows),
+            'row_count' => 0,
+            'complete_row_count' => 0,
+            'sample_row_id' => null,
+            'capture_evidence_present' => false,
+            'desensitized_capture_evidence_present' => false,
+            'capture_evidence_matches_row' => false,
+            'source_path_structured' => false,
+            'storage_field_matches_expected' => false,
+            'stored_value_present' => false,
+            'ui_status_ready' => false,
+        ];
+    }
+    return $matrix;
+}
+
+function traffic_source_p0_traffic_rows(string $platform, string $targetDate): array
+{
+    if (!table_exists('online_daily_data')) {
+        return [];
+    }
+    $columns = table_columns('online_daily_data');
+    foreach (['source', 'data_date', 'data_type', 'raw_data'] as $required) {
+        if (!isset($columns[$required])) {
+            return [];
+        }
+    }
+    $fields = array_values(array_filter([
+        'id',
+        'source',
+        'data_date',
+        'data_type',
+        'raw_data',
+        isset($columns['list_exposure']) ? 'list_exposure' : '',
+        isset($columns['detail_exposure']) ? 'detail_exposure' : '',
+        isset($columns['flow_rate']) ? 'flow_rate' : '',
+        isset($columns['order_filling_num']) ? 'order_filling_num' : '',
+        isset($columns['order_submit_num']) ? 'order_submit_num' : '',
+        isset($columns['source_trace_id']) ? 'source_trace_id' : '',
+        isset($columns['sync_task_id']) ? 'sync_task_id' : '',
+    ], static fn(string $field): bool => $field !== ''));
+    try {
+        return Db::name('online_daily_data')
+            ->field(implode(',', $fields))
+            ->where('source', $platform)
+            ->where('data_date', $targetDate)
+            ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
+            ->select()
+            ->toArray();
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+function traffic_source_p0_row_ui_ready(array $row, array $raw, array $requiredMetricKeys, array $storageMap, string $rowSourceTraceId, string $rowSourceUrlHash): bool
+{
+    $complete = [];
+    foreach (extract_online_data_field_facts($row, $raw) as $fact) {
+        if (!is_array($fact)) {
+            continue;
+        }
+        $metricKey = field_fact_text($fact, ['metric_key', 'field_key', 'field']);
+        if (!isset($storageMap[$metricKey])) {
+            continue;
+        }
+        $sourcePath = field_fact_text($fact, ['source_path']);
+        [$storageField] = field_fact_storage_field($fact, $row, $raw, $metricKey);
+        $desensitizedEvidence = traffic_source_p0_desensitized_evidence(is_array($fact['capture_evidence'] ?? null) ? (array)$fact['capture_evidence'] : []);
+        if (field_fact_source_path_structured($sourcePath)
+            && $storageField === $storageMap[$metricKey]
+            && field_fact_stored_value_state($fact, $row, $raw, $storageField, $metricKey) === true
+            && traffic_source_p0_capture_evidence_matches_row($desensitizedEvidence, $rowSourceTraceId, $rowSourceUrlHash)
+        ) {
+            $complete[$metricKey] = true;
+        }
+    }
+
+    return count(array_intersect($requiredMetricKeys, array_keys($complete))) === count($requiredMetricKeys);
+}
+
+function traffic_source_p0_desensitized_evidence(array $source): array
+{
+    $evidence = [];
+    foreach ([
+        'source_trace_id' => ['source_trace_id', '_source_trace_id', 'trace_id', '_trace_id'],
+        'source_url_hash' => ['source_url_hash', '_source_url_hash', 'url_hash', '_url_hash'],
+    ] as $target => $keys) {
+        foreach ($keys as $key) {
+            $value = $source[$key] ?? null;
+            if (is_scalar($value) && trim((string)$value) !== '') {
+                $evidence[$target] = mb_substr((string)$value, 0, 300);
+                break;
+            }
+        }
+    }
+    $nested = $source['capture_evidence'] ?? null;
+    if (is_array($nested)) {
+        foreach (traffic_source_p0_desensitized_evidence($nested) as $key => $value) {
+            if (!isset($evidence[$key])) {
+                $evidence[$key] = $value;
+            }
+        }
+    }
+    return $evidence;
+}
+
+function traffic_source_p0_capture_evidence_matches_row(array $desensitizedEvidence, string $rowSourceTraceId, string $rowSourceUrlHash): bool
+{
+    $factSourceTraceId = trim((string)($desensitizedEvidence['source_trace_id'] ?? ''));
+    $factSourceUrlHash = trim((string)($desensitizedEvidence['source_url_hash'] ?? ''));
+    if ($factSourceTraceId === '' || $factSourceUrlHash === '') {
+        return false;
+    }
+    if ($rowSourceTraceId !== '' && $factSourceTraceId !== $rowSourceTraceId) {
+        return false;
+    }
+    if ($rowSourceUrlHash !== '' && $factSourceUrlHash !== $rowSourceUrlHash) {
+        return false;
+    }
+    return true;
 }
 
 function traffic_source_recommended_mode(string $platform, array $source): string
@@ -3221,7 +3525,7 @@ function evidence_metric_domain_summary(array $metricDomainReadiness, array $tra
         $conversionReady = (string)($row['conversion_status'] ?? '') === 'ready';
         $targetTypes = array_values(array_filter(array_map(
             static fn($value): string => strtolower(trim((string)$value)),
-            (array)($row['target_date_data_types'] ?? [])
+            (array)($row['target_date_data_types'] ?? $row['data_types'] ?? [])
         ), static fn(string $value): bool => $value !== ''));
         $missingDomains = array_values(array_unique(array_filter(array_map(
             static fn($value): string => strtolower(trim((string)$value)),
@@ -3331,7 +3635,7 @@ function evidence_metric_domain_next_action_text(bool $revenueReady, bool $traff
     return '按缺口补齐目标日证据后复跑诊断。';
 }
 
-function build_employee_questions(array $platformEvidence, array $diagnosis, array $operation): array
+function build_employee_questions(array $platformEvidence, array $diagnosis, array $operation, string $targetDate = ''): array
 {
     $sourceRows = total_source_rows($platformEvidence);
     $metrics = first_revenue_metrics($platformEvidence);
@@ -3343,7 +3647,7 @@ function build_employee_questions(array $platformEvidence, array $diagnosis, arr
     $coverageStatus = coverage_status($platformEvidence);
     $missingPlatforms = missing_source_platforms($platformEvidence);
     $missingPlatformText = implode('、', array_map('strtoupper', $missingPlatforms));
-    $domainReadiness = metric_domain_readiness($platformEvidence);
+    $domainReadiness = metric_domain_readiness($platformEvidence, $targetDate);
     $trafficSourceReadiness = traffic_source_readiness($domainReadiness);
     $revenueReadyPlatforms = ready_metric_platforms($domainReadiness, 'revenue_status');
     $revenueReadyText = implode('、', array_map('strtoupper', $revenueReadyPlatforms));
@@ -3633,7 +3937,7 @@ function top_action_source_snapshot(array $topAction, array $collectionSourceSum
             'storage_table' => (string)($row['storage_table'] ?? 'online_daily_data'),
             'source_policy' => (string)($row['source_policy'] ?? 'read_existing_online_daily_data_only'),
             'target_date_rows' => max(0, (int)($row['target_date_rows'] ?? 0)),
-            'target_date_data_types' => array_values(array_filter(array_map('strval', (array)($row['target_date_data_types'] ?? [])))),
+            'target_date_data_types' => array_values(array_filter(array_map('strval', (array)($row['target_date_data_types'] ?? $row['data_types'] ?? [])))),
             'latest_available' => is_array($row['latest_available'] ?? null) ? $row['latest_available'] : null,
             'latest_available_reference_only' => (bool)($row['latest_available_reference_only'] ?? true),
             'proof_requirement' => 'source_date_evidence.platforms 中该平台 target_date_rows > 0',
@@ -3646,7 +3950,7 @@ function top_action_source_snapshot(array $topAction, array $collectionSourceSum
 
 function build_closure_summary(array $platformEvidence, array $diagnosis, array $operation, ?array $questions = null, string $targetDate = ''): array
 {
-    $questions = $questions ?? build_employee_questions($platformEvidence, $diagnosis, $operation);
+    $questions = $questions ?? build_employee_questions($platformEvidence, $diagnosis, $operation, (string)$options['date']);
     $missing = array_values(array_filter($questions, static fn(array $item): bool => !in_array($item['status'], ['proved', 'no_gap_reported'], true)));
     $collectionSourceSummary = build_collection_source_summary($platformEvidence, $targetDate);
     $topAction = closure_top_action($missing);
@@ -3701,7 +4005,7 @@ try {
         ];
 
     $coverageStatus = coverage_status($platformEvidence);
-    $domainReadiness = metric_domain_readiness($platformEvidence);
+    $domainReadiness = metric_domain_readiness($platformEvidence, (string)$options['date']);
     $trafficSourceReadiness = traffic_source_readiness($domainReadiness);
     $revenueReadyPlatforms = ready_metric_platforms($domainReadiness, 'revenue_status');
     $trafficReadyPlatforms = ready_metric_platforms($domainReadiness, 'traffic_status');
@@ -3713,7 +4017,7 @@ try {
     $revenueMetricStatus = count($revenueReadyPlatforms) === count($platformEvidence)
         ? 'ready'
         : ($revenueReadyPlatforms !== [] ? 'partial' : 'empty');
-    $employeeQuestions = build_employee_questions($platformEvidence, $diagnosis, $operation);
+    $employeeQuestions = build_employee_questions($platformEvidence, $diagnosis, $operation, (string)$options['date']);
     $nextActions = build_next_actions($platformEvidence, $diagnosis, $operation, $options);
     $employeeQuestions = with_employee_question_action_codes($employeeQuestions, $nextActions);
     $collectionSourceSummary = build_collection_source_summary($platformEvidence, (string)$options['date']);

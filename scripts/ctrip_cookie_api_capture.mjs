@@ -534,8 +534,9 @@ export async function runCtripCookieApiCapture(config, options = {}) {
         const facts = extractCtripCatalogFacts(body, factContext);
         const rows = buildCtripStandardRowsFromFacts(facts, {
           systemHotelId: Number(config.system_hotel_id || config.systemHotelId || 0),
+          hotelId,
           hotelName,
-          profileId: hotelId || profileId,
+          profileId,
           dataDate,
           capturedAt,
         });

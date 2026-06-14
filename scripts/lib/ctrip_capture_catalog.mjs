@@ -3147,8 +3147,19 @@ function buildStandardRow(facts, context) {
   }
 
   const platform = normalizeCtripCapturePlatform(first.platform || context.platform);
+  const contextHotelId = String(
+    context.hotelId
+      || context.masterHotelId
+      || context.master_hotel_id
+      || context.requestHotelId
+      || context.otaHotelId
+      || context.ota_hotel_id
+      || context.ctripHotelId
+      || context.ctrip_hotel_id
+      || ''
+  ).trim();
   const row = {
-    hotel_id: String(first.hotel_id || context.hotelId || context.profileId || '').trim(),
+    hotel_id: String(first.hotel_id || contextHotelId || '').trim(),
     hotel_name: String(context.hotelName || '').trim(),
     system_hotel_id: context.systemHotelId ? Number(context.systemHotelId) : null,
     data_date: dataDate,
@@ -3196,7 +3207,7 @@ function buildStandardRow(facts, context) {
   finalizeTrafficStandardRow(row);
 
   if (!row.hotel_id) {
-    row.hotel_id = String(context.hotelId || context.profileId || '').trim();
+    row.hotel_id = contextHotelId;
   }
   if (!row.hotel_name) {
     row.hotel_name = String(row.raw_data.metric_hotel_name || context.hotelName || '').trim();
@@ -3733,8 +3744,9 @@ function compareTypeForFacts(facts, context = {}) {
   }
   const contextHotelIds = new Set([
     context.hotelId,
-    context.profileId,
     context.requestHotelId,
+    context.masterHotelId,
+    context.master_hotel_id,
   ].map((value) => String(value || '').trim()).filter(Boolean));
   if (hotelId && contextHotelIds.has(String(hotelId).trim())) {
     return 'self';

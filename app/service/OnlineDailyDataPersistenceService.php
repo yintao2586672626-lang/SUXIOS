@@ -353,7 +353,7 @@ final class OnlineDailyDataPersistenceService
                 continue;
             }
 
-            $hotelId = $item['hotelId'] ?? $item['hotel_id'] ?? $item['HotelId'] ?? $item['hotelID'] ?? $item['poiId'] ?? $item['poi_id'] ?? null;
+            $hotelId = $item['hotelId'] ?? $item['hotel_id'] ?? $item['HotelId'] ?? $item['hotelID'] ?? $item['poiId'] ?? $item['poi_id'] ?? $item['storeId'] ?? $item['store_id'] ?? $item['partnerId'] ?? $item['partner_id'] ?? null;
             $hotelName = $item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? $item['poiName'] ?? $item['poi_name'] ?? '';
 
             if (empty($hotelId) && empty($hotelName)) {

@@ -31,11 +31,11 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $config = is_array($source['config'] ?? null) ? $source['config'] : [];
         $secret = is_array($source['secret'] ?? null) ? $source['secret'] : [];
         $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
-        $storeId = $this->firstString($options, $config, ['store_id', 'storeId', 'profile_id', 'profileId', 'poi_id', 'poiId']);
+        $storeId = $this->firstString($options, $config, ['store_id', 'storeId', 'poi_id', 'poiId']);
         if ($storeId === '') {
             return [
                 'status' => 'waiting_config',
-                'message' => 'Meituan browser Profile store_id is not configured.',
+                'message' => 'Meituan browser Profile store_id/poi_id is not configured.',
                 'payload' => [],
             ];
         }
@@ -217,7 +217,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $fallbackHotelId): array
+    private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $platformHotelId): array
     {
         $rows = [];
         $forcedDataType = $this->forcedResourceDataType($source, $payload);
@@ -244,7 +244,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 $row['source'] = 'meituan';
                 $row['platform'] = $row['platform'] ?? 'meituan';
                 $row['system_hotel_id'] = $row['system_hotel_id'] ?? $systemHotelId;
-                $row['hotel_id'] = $row['hotel_id'] ?? $row['hotelId'] ?? $row['poi_id'] ?? $row['poiId'] ?? $fallbackHotelId;
+                $row['hotel_id'] = $this->firstRowString($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'store_id', 'storeId'], $platformHotelId);
                 $row['hotel_name'] = $row['hotel_name'] ?? $row['hotelName'] ?? $row['poi_name'] ?? $row['poiName'] ?? $source['name'] ?? '';
                 $row['data_date'] = $this->normalizeDate((string)($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? '')) ?: $dataDate;
                 $row['data_type'] = $row['data_type'] ?? $dataType;
@@ -254,6 +254,24 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
 
         return $rows;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, string> $keys
+     */
+    private function firstRowString(array $row, array $keys, string $default = ''): string
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $row)) {
+                continue;
+            }
+            $value = trim((string)$row[$key]);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return $default;
     }
 
     /**

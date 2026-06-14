@@ -35,6 +35,38 @@ function assertContract(condition, message) {
   }
 }
 
+function verifyCtripPlatformHotelIdentityBoundary() {
+  const catalogSource = readFileSync('scripts/lib/ctrip_capture_catalog.mjs', 'utf8');
+  const approvedMappingSource = readFileSync('scripts/lib/ctrip_approved_mapping.mjs', 'utf8');
+  const endpointEvidenceSource = readFileSync('scripts/lib/ctrip_endpoint_evidence.mjs', 'utf8');
+  const cookieApiCaptureSource = readFileSync('scripts/ctrip_cookie_api_capture.mjs', 'utf8');
+
+  assertContract(
+    !catalogSource.includes('context.hotelId || context.profileId')
+      && !catalogSource.includes('context.profileId,\n    context.requestHotelId')
+      && catalogSource.includes('context.requestHotelId')
+      && catalogSource.includes('context.ctrip_hotel_id'),
+    'Ctrip catalog standard rows must not use Profile ID as OTA platform hotel_id fallback'
+  );
+  assertContract(
+    !approvedMappingSource.includes('context.masterHotelId || context.master_hotel_id || context.hotelId || context.profileId')
+      && approvedMappingSource.includes('context.masterHotelId || context.master_hotel_id || context.hotelId || context.requestHotelId'),
+    'Ctrip approved mappings must not use Profile ID as OTA platform hotel_id fallback'
+  );
+  assertContract(
+    endpointEvidenceSource.includes('hotel_id: stringValue(item.hotel_id || item.hotelId || context.hotelId)')
+      && !endpointEvidenceSource.includes('hotel_id: stringValue(item.hotel_id || item.hotelId || context.hotelId || context.profileId)')
+      && endpointEvidenceSource.includes('hotelId: context.hotelId'),
+    'Ctrip endpoint evidence drafts must keep Profile ID separate from OTA platform hotel_id'
+  );
+  assertContract(
+    cookieApiCaptureSource.includes('hotelId,')
+      && cookieApiCaptureSource.includes('profileId,')
+      && !cookieApiCaptureSource.includes('profileId: hotelId || profileId'),
+    'Ctrip Cookie/API capture must pass platform hotelId separately from profileId'
+  );
+}
+
 function catalogFieldIds() {
   const ids = new Set();
   for (const endpoint of CTRIP_CAPTURE_ENDPOINTS) {
@@ -259,6 +291,8 @@ function resolveI18nPath(explicitPath) {
 }
 
 function verifyCatalog() {
+  verifyCtripPlatformHotelIdentityBoundary();
+
   assertContract(Object.keys(CTRIP_CAPTURE_SECTIONS).length >= 12, 'catalog must cover core Ctrip sections');
   assertContract(CTRIP_CAPTURE_ENDPOINTS.length >= 40, 'catalog must cover observed endpoint rules');
 

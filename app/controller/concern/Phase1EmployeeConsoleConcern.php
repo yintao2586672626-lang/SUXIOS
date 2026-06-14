@@ -39,7 +39,7 @@ trait Phase1EmployeeConsoleConcern
                 'storage_table' => (string)($row['storage_table'] ?? 'online_daily_data'),
                 'source_policy' => (string)($row['source_policy'] ?? 'read_existing_online_daily_data_only'),
                 'target_date_rows' => max(0, (int)($row['target_date_rows'] ?? 0)),
-                'target_date_data_types' => array_values(array_filter(array_map('strval', (array)($row['target_date_data_types'] ?? [])))),
+                'target_date_data_types' => $this->phase1TargetDateDataTypes($row),
                 'latest_available' => $latest,
                 'latest_available_reference_only' => (bool)($row['latest_available_reference_only'] ?? true),
                 'proof_requirement' => 'source_date_evidence.platforms 中该平台 target_date_rows > 0',
@@ -854,7 +854,7 @@ trait Phase1EmployeeConsoleConcern
             $conversionReady = (string)($row['conversion_status'] ?? '') === 'ready';
             $targetTypes = array_values(array_filter(array_map(
                 static fn($value): string => strtolower(trim((string)$value)),
-                (array)($row['target_date_data_types'] ?? [])
+                (array)($row['target_date_data_types'] ?? $row['data_types'] ?? [])
             ), static fn(string $value): bool => $value !== ''));
             $dataTypeText = $this->phase1MetricDomainDataTypeListText($targetTypes);
             $missingDomains = array_values(array_unique(array_filter(array_map(
@@ -2260,6 +2260,7 @@ trait Phase1EmployeeConsoleConcern
     private function phase1MetricDomainReadiness(array $sourceDateEvidence, array $targetDatePlatformCoverage): array
     {
         $platformEvidence = [];
+        $targetDate = trim((string)($targetDatePlatformCoverage['target_date'] ?? $sourceDateEvidence['target_date'] ?? ''));
         foreach ((array)($sourceDateEvidence['platforms'] ?? []) as $platform) {
             if (!is_array($platform)) {
                 continue;
@@ -2300,6 +2301,7 @@ trait Phase1EmployeeConsoleConcern
 
             $readiness[] = [
                 'platform' => $platform,
+                'target_date' => $targetDate,
                 'target_date_rows' => $targetRows,
                 'target_date_data_types' => $targetTypes,
                 'revenue_status' => $revenueReady ? 'ready' : 'missing',
@@ -2404,9 +2406,10 @@ trait Phase1EmployeeConsoleConcern
             if (in_array($platform, ['ctrip', 'meituan'], true)) {
                 $targetDateDataTypes = array_values(array_filter(array_map(
                     static fn($value): string => strtolower(trim((string)$value)),
-                    (array)($row['target_date_data_types'] ?? [])
+                    (array)($row['target_date_data_types'] ?? $row['data_types'] ?? [])
                 ), static fn(string $value): bool => $value !== ''));
                 $platforms[$platform] = [
+                    'target_date' => trim((string)($row['target_date'] ?? '')),
                     'target_date_rows' => max(0, (int)($row['target_date_rows'] ?? $row['source_rows'] ?? 0)),
                     'target_date_traffic_rows' => max(0, (int)($row['traffic_rows'] ?? 0)),
                     'target_date_data_types' => array_values(array_unique($targetDateDataTypes)),
@@ -2429,6 +2432,7 @@ trait Phase1EmployeeConsoleConcern
         $requiredMetricKeys = $this->phase1P0TrafficRequiredMetricKeys();
         $requiredStorageFields = $this->phase1P0TrafficRequiredStorageFields();
         $requiredFieldFactKeys = $this->phase1P0TrafficRequiredFieldFactKeys();
+        $targetDate = trim((string)($context['target_date'] ?? ''));
         $targetDateRows = max(0, (int)($context['target_date_rows'] ?? 0));
         $targetDateTrafficRows = max(0, (int)($context['target_date_traffic_rows'] ?? 0));
         $targetDateDataTypes = array_values(array_filter(array_map(
@@ -2441,8 +2445,22 @@ trait Phase1EmployeeConsoleConcern
             && $targetDateTrafficRows <= 0
             && $targetDateDataTypes !== []
             && $targetDateTrafficDataTypes === [];
+        if ($targetDateRows <= 0) {
+            $sourceChainScope = 'no_target_date_source_rows';
+            $sourceChainPolicy = 'No target-date source rows are loaded; P0 closure still requires target-date traffic rows and ready verifier status.';
+        } elseif ($sourceChainReferenceOnly) {
+            $sourceChainScope = 'reference_only_non_traffic_source_rows';
+            $sourceChainPolicy = 'Target-date source rows without traffic/flow/conversion data types are reference only; P0 closure still requires target-date traffic rows and ready verifier status.';
+        } else {
+            $sourceChainScope = 'traffic_source_rows';
+            $sourceChainPolicy = 'Target-date source rows include traffic/flow/conversion data types; P0 closure still requires ready verifier status.';
+        }
+        $p0FieldLoopMatrix = $this->phase1P0TrafficFieldLoopMatrix($requiredMetricKeys, $requiredStorageFields, $targetDateTrafficRows, $platform, $targetDate);
+        $p0PlatformHotelIdentifierSource = $platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
+        $p0PlatformHotelIdentifierStatus = $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'no_target_date_traffic_rows';
         $base = [
             'platform' => $platform,
+            'target_date' => $targetDate,
             'target_date_rows' => $targetDateRows,
             'target_date_traffic_rows' => $targetDateTrafficRows,
             'target_date_data_types' => $targetDateDataTypes,
@@ -2467,15 +2485,21 @@ trait Phase1EmployeeConsoleConcern
             'p0_external_evidence_status' => 'not_provided',
             'p0_pre_import_evidence_status' => 'not_provided',
             'p0_pre_import_evidence_policy' => 'External traffic evidence is source proof only; P0 closure still requires target-date traffic rows and ready verifier status.',
-            'p0_traffic_field_fact_status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'missing_target_date_traffic_rows',
+            'p0_traffic_field_fact_status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'no_target_date_traffic_rows',
             'p0_required_metric_keys' => $requiredMetricKeys,
             'p0_required_storage_fields' => $requiredStorageFields,
             'p0_required_field_fact_keys' => $requiredFieldFactKeys,
             'p0_missing_metric_keys' => $targetDateTrafficRows > 0 ? [] : $requiredMetricKeys,
+            'p0_field_loop_matrix' => $p0FieldLoopMatrix,
+            'p0_traffic_closure_chain' => $this->phase1P0TrafficClosureChain($p0FieldLoopMatrix, $targetDateTrafficRows, $p0PlatformHotelIdentifierStatus, $p0PlatformHotelIdentifierSource),
+            'p0_traffic_closure_chain_policy' => 'Every chain item is OTA-channel evidence only and remains incomplete until the P0 field-loop verifier returns ready.',
+            'p0_platform_hotel_identifier_source' => $p0PlatformHotelIdentifierSource,
+            'p0_platform_hotel_identifier_status' => $p0PlatformHotelIdentifierStatus,
+            'p0_platform_hotel_identifier_policy' => 'P0 traffic rows must prove the OTA platform hotel identifier through importer/verifier checks; UI exposes only status and source family, not raw IDs.',
             'p0_target_traffic_data_types' => $targetDateTrafficDataTypes,
             'p0_source_chain_reference_only' => $sourceChainReferenceOnly,
-            'p0_source_chain_scope' => $sourceChainReferenceOnly ? 'reference_only_non_traffic_source_rows' : 'traffic_source_rows',
-            'p0_source_chain_policy' => 'Target-date source rows without traffic/flow/conversion data types are reference only; P0 closure still requires target-date traffic rows and ready verifier status.',
+            'p0_source_chain_scope' => $sourceChainScope,
+            'p0_source_chain_policy' => $sourceChainPolicy,
         ];
 
         if (!$this->phase1TableExists('platform_data_sources')) {
@@ -2573,6 +2597,384 @@ trait Phase1EmployeeConsoleConcern
         return $base;
     }
 
+    private function phase1P0TrafficFieldLoopMatrix(array $requiredMetricKeys, array $requiredStorageFields, int $targetDateTrafficRows, string $platform = '', string $targetDate = ''): array
+    {
+        $targetDateTrafficRows = max(0, $targetDateTrafficRows);
+        if ($targetDateTrafficRows <= 0) {
+            return array_values($this->phase1P0TrafficFieldLoopMatrixIndex($requiredMetricKeys, $requiredStorageFields, $targetDateTrafficRows, 'no_target_date_traffic_rows'));
+        }
+
+        $platform = strtolower(trim($platform));
+        $targetDate = trim($targetDate);
+        $matrix = $this->phase1P0TrafficFieldLoopMatrixIndex($requiredMetricKeys, $requiredStorageFields, $targetDateTrafficRows, 'requires_p0_verifier');
+        if (!in_array($platform, ['ctrip', 'meituan'], true) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate)) {
+            return array_values($matrix);
+        }
+
+        $rows = $this->phase1P0TrafficRows($platform, $targetDate);
+        if ($rows === []) {
+            return array_values($matrix);
+        }
+
+        $storageMap = [];
+        foreach (array_values($requiredMetricKeys) as $index => $metricKey) {
+            $storageMap[(string)$metricKey] = (string)($requiredStorageFields[$index] ?? '');
+        }
+
+        foreach ($rows as $row) {
+            $raw = $this->phase1P0DecodeRawData($row['raw_data'] ?? null);
+            $facts = $this->phase1P0ExtractFieldFacts($row, $raw);
+            $rowEvidence = $this->phase1P0DesensitizedEvidence($raw);
+            $rowSourceTraceId = trim((string)($row['source_trace_id'] ?? $raw['source_trace_id'] ?? $rowEvidence['source_trace_id'] ?? ''));
+            $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? ''));
+            $uiStatus = method_exists($this, 'buildOnlineDataFieldFactStatus')
+                ? $this->buildOnlineDataFieldFactStatus($row, $raw)
+                : [];
+            $uiReady = (string)($uiStatus['status'] ?? $uiStatus['field_fact_status'] ?? '') === 'ready'
+                && ($uiStatus['raw_data_exposed'] ?? null) === false
+                && (int)($uiStatus['missing_count'] ?? -1) === 0
+                && (int)($uiStatus['stored_value_missing_count'] ?? -1) === 0;
+
+            foreach ($facts as $fact) {
+                if (!is_array($fact)) {
+                    continue;
+                }
+                $metricKey = trim((string)($fact['metric_key'] ?? $fact['field_key'] ?? $fact['field'] ?? ''));
+                if (!isset($matrix[$metricKey])) {
+                    continue;
+                }
+                $sourcePath = trim((string)($fact['source_path'] ?? ''));
+                $storageField = trim((string)($fact['storage_field'] ?? $fact['storage_target'] ?? ''));
+                $expectedStorageField = $storageMap[$metricKey] ?? '';
+                $captureEvidence = is_array($fact['capture_evidence'] ?? null) ? (array)$fact['capture_evidence'] : [];
+                $desensitizedEvidence = $this->phase1P0DesensitizedEvidence($captureEvidence);
+                $sourcePathStructured = $this->phase1P0SourcePathStructured($sourcePath);
+                $storageMatches = $storageField !== '' && $storageField === $expectedStorageField;
+                $storedValuePresent = $this->phase1P0StoredValueState($fact, $row, $raw, $storageField, $metricKey) === true;
+                $captureEvidenceMatches = $this->phase1P0CaptureEvidenceMatchesRow($desensitizedEvidence, $rowSourceTraceId, $rowSourceUrlHash);
+                $complete = $sourcePathStructured
+                    && $storageMatches
+                    && $storedValuePresent
+                    && $captureEvidenceMatches
+                    && $uiReady;
+
+                $entry = $matrix[$metricKey];
+                $entry['row_count'] = (int)($entry['row_count'] ?? 0) + 1;
+                $entry['complete_row_count'] = (int)($entry['complete_row_count'] ?? 0) + ($complete ? 1 : 0);
+                if (($entry['sample_row_id'] ?? null) === null) {
+                    $entry['sample_row_id'] = $row['id'] ?? null;
+                }
+                $entry['capture_evidence_present'] = (bool)($entry['capture_evidence_present'] ?? false) || $captureEvidence !== [];
+                $entry['desensitized_capture_evidence_present'] = (bool)($entry['desensitized_capture_evidence_present'] ?? false) || $desensitizedEvidence !== [];
+                $entry['capture_evidence_matches_row'] = (bool)($entry['capture_evidence_matches_row'] ?? false) || $captureEvidenceMatches;
+                $entry['source_path_structured'] = (bool)($entry['source_path_structured'] ?? false) || $sourcePathStructured;
+                $entry['storage_field_matches_expected'] = (bool)($entry['storage_field_matches_expected'] ?? false) || $storageMatches;
+                $entry['stored_value_present'] = (bool)($entry['stored_value_present'] ?? false) || $storedValuePresent;
+                $entry['ui_status_ready'] = (bool)($entry['ui_status_ready'] ?? false) || $uiReady;
+                $entry['status'] = $complete ? 'complete' : 'incomplete';
+                $matrix[$metricKey] = $entry;
+            }
+        }
+
+        foreach ($matrix as &$entry) {
+            if ((int)($entry['row_count'] ?? 0) <= 0) {
+                $entry['status'] = 'missing';
+            }
+        }
+        unset($entry);
+
+        return array_values($matrix);
+    }
+
+    private function phase1P0TrafficClosureChain(array $fieldLoopMatrix, int $targetDateTrafficRows, string $platformHotelIdentifierStatus, string $platformHotelIdentifierSource): array
+    {
+        $targetDateTrafficRows = max(0, $targetDateTrafficRows);
+        $chainStatus = static function (bool $ready) use ($targetDateTrafficRows): string {
+            if ($targetDateTrafficRows <= 0) {
+                return 'no_target_date_traffic_rows';
+            }
+            return $ready ? 'ready' : 'incomplete';
+        };
+        $all = static function (string $key) use ($fieldLoopMatrix): bool {
+            if ($fieldLoopMatrix === []) {
+                return false;
+            }
+            foreach ($fieldLoopMatrix as $item) {
+                if (!is_array($item) || empty($item[$key])) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        $allMetricRowsPresent = static function () use ($fieldLoopMatrix): bool {
+            if ($fieldLoopMatrix === []) {
+                return false;
+            }
+            foreach ($fieldLoopMatrix as $item) {
+                if (!is_array($item) || (int)($item['row_count'] ?? 0) <= 0) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        return [
+            'capture_evidence' => [
+                'status' => $chainStatus($all('capture_evidence_present') && $all('desensitized_capture_evidence_present') && $all('capture_evidence_matches_row')),
+                'required' => 'desensitized source_trace_id plus source_url_hash matched to each traffic row and field fact',
+            ],
+            'source_path' => [
+                'status' => $chainStatus($all('source_path_structured')),
+                'required' => 'structured source_path for every required traffic metric',
+            ],
+            'metric_key' => [
+                'status' => $chainStatus($allMetricRowsPresent()),
+                'required' => 'required traffic metric keys are present in field facts',
+            ],
+            'storage_field' => [
+                'status' => $chainStatus($all('storage_field_matches_expected')),
+                'required' => 'expected online_daily_data storage field for every required metric',
+            ],
+            'stored_value' => [
+                'status' => $chainStatus($all('stored_value_present')),
+                'required' => 'stored value present for every required traffic metric',
+            ],
+            'ui_status' => [
+                'status' => $chainStatus($all('ui_status_ready')),
+                'required' => 'ready UI field_fact_status with no raw_data exposure',
+            ],
+            'platform_hotel_identifier' => [
+                'status' => $platformHotelIdentifierStatus,
+                'required' => $platformHotelIdentifierSource,
+            ],
+            'verifier' => [
+                'status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'incomplete',
+                'required' => 'P0 field-loop verifier returns ready',
+            ],
+        ];
+    }
+
+    private function phase1P0TrafficFieldLoopMatrixIndex(array $requiredMetricKeys, array $requiredStorageFields, int $targetDateTrafficRows, string $status): array
+    {
+        $matrix = [];
+        foreach (array_values($requiredMetricKeys) as $index => $metricKey) {
+            $metricKey = (string)$metricKey;
+            $matrix[$metricKey] = [
+                'metric_key' => $metricKey,
+                'expected_storage_field' => (string)($requiredStorageFields[$index] ?? ''),
+                'status' => $status,
+                'target_date_traffic_rows' => max(0, $targetDateTrafficRows),
+                'row_count' => 0,
+                'complete_row_count' => 0,
+                'sample_row_id' => null,
+                'capture_evidence_present' => false,
+                'desensitized_capture_evidence_present' => false,
+                'capture_evidence_matches_row' => false,
+                'source_path_structured' => false,
+                'storage_field_matches_expected' => false,
+                'stored_value_present' => false,
+                'ui_status_ready' => false,
+            ];
+        }
+
+        return $matrix;
+    }
+
+    private function phase1P0TrafficRows(string $platform, string $targetDate): array
+    {
+        if (!$this->phase1TableExists('online_daily_data')) {
+            return [];
+        }
+        $columns = $this->phase1TableColumns('online_daily_data');
+        foreach (['source', 'data_date', 'data_type', 'raw_data'] as $required) {
+            if (!isset($columns[$required])) {
+                return [];
+            }
+        }
+        $fields = array_values(array_filter([
+            'id',
+            'source',
+            'data_date',
+            'data_type',
+            'raw_data',
+            isset($columns['list_exposure']) ? 'list_exposure' : '',
+            isset($columns['detail_exposure']) ? 'detail_exposure' : '',
+            isset($columns['flow_rate']) ? 'flow_rate' : '',
+            isset($columns['order_filling_num']) ? 'order_filling_num' : '',
+            isset($columns['order_submit_num']) ? 'order_submit_num' : '',
+            isset($columns['source_trace_id']) ? 'source_trace_id' : '',
+            isset($columns['sync_task_id']) ? 'sync_task_id' : '',
+        ], static fn(string $field): bool => $field !== ''));
+
+        try {
+            return Db::name('online_daily_data')
+                ->field(implode(',', $fields))
+                ->where('source', $platform)
+                ->where('data_date', $targetDate)
+                ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
+                ->select()
+                ->toArray();
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function phase1P0DecodeRawData(mixed $rawData): array
+    {
+        if (is_array($rawData)) {
+            return $rawData;
+        }
+        if (!is_string($rawData) || trim($rawData) === '') {
+            return [];
+        }
+        $decoded = json_decode($rawData, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function phase1P0ExtractFieldFacts(array $row, array $raw): array
+    {
+        foreach ([
+            $row['field_facts'] ?? null,
+            $row['raw_data']['field_facts'] ?? null,
+            $raw['field_facts'] ?? null,
+            $raw['row']['field_facts'] ?? null,
+            $raw['raw_data']['field_facts'] ?? null,
+            $row['facts'] ?? null,
+            $row['raw_data']['facts'] ?? null,
+            $raw['facts'] ?? null,
+            $raw['row']['facts'] ?? null,
+            $raw['raw_data']['facts'] ?? null,
+        ] as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+            $facts = array_values(array_filter($candidate, static fn($item): bool => is_array($item)));
+            if ($facts !== []) {
+                return $facts;
+            }
+        }
+        return [];
+    }
+
+    private function phase1P0DesensitizedEvidence(array $source): array
+    {
+        $evidence = [];
+        $aliases = [
+            'source_trace_id' => ['source_trace_id', '_source_trace_id', 'trace_id', '_trace_id'],
+            'source_url_hash' => ['source_url_hash', '_source_url_hash', 'url_hash', '_url_hash'],
+        ];
+        foreach ($aliases as $target => $keys) {
+            foreach ($keys as $key) {
+                $value = $source[$key] ?? null;
+                if (is_scalar($value) && trim((string)$value) !== '') {
+                    $evidence[$target] = mb_substr((string)$value, 0, 300);
+                    break;
+                }
+            }
+        }
+        $nested = $source['capture_evidence'] ?? null;
+        if (is_array($nested)) {
+            foreach ($this->phase1P0DesensitizedEvidence($nested) as $key => $value) {
+                if (!isset($evidence[$key])) {
+                    $evidence[$key] = $value;
+                }
+            }
+        }
+
+        return $evidence;
+    }
+
+    private function phase1P0CaptureEvidenceMatchesRow(array $desensitizedEvidence, string $rowSourceTraceId, string $rowSourceUrlHash): bool
+    {
+        $factSourceTraceId = trim((string)($desensitizedEvidence['source_trace_id'] ?? ''));
+        $factSourceUrlHash = trim((string)($desensitizedEvidence['source_url_hash'] ?? ''));
+        if ($factSourceTraceId === '' || $factSourceUrlHash === '') {
+            return false;
+        }
+        if ($rowSourceTraceId !== '' && $factSourceTraceId !== $rowSourceTraceId) {
+            return false;
+        }
+        if ($rowSourceUrlHash !== '' && $factSourceUrlHash !== $rowSourceUrlHash) {
+            return false;
+        }
+        return true;
+    }
+
+    private function phase1P0SourcePathStructured(string $sourcePath): bool
+    {
+        $sourcePath = trim($sourcePath);
+        return $sourcePath !== ''
+            && (str_contains($sourcePath, '.') || str_contains($sourcePath, '[') || str_contains($sourcePath, '/'));
+    }
+
+    private function phase1P0StoredValueState(array $fact, array $row, array $raw, string $storageField, string $metricKey): ?bool
+    {
+        $explicit = $this->phase1P0BoolState($fact['stored_value_present'] ?? null);
+        if ($explicit !== null) {
+            return $explicit;
+        }
+        $storageField = trim($storageField);
+        if ($storageField === '') {
+            return null;
+        }
+        $rawPrefix = 'online_daily_data.raw_data.';
+        if (str_starts_with($storageField, $rawPrefix)) {
+            return $this->phase1P0ValuePresent($this->phase1P0ReadPath($raw, substr($storageField, strlen($rawPrefix))));
+        }
+        $rowPrefix = 'online_daily_data.';
+        if (str_starts_with($storageField, $rowPrefix)) {
+            $field = substr($storageField, strlen($rowPrefix));
+            return array_key_exists($field, $row) ? $this->phase1P0ValuePresent($row[$field]) : null;
+        }
+        if (str_starts_with($storageField, 'online_daily_data.raw_data.facts.metric_key=')) {
+            return $this->phase1P0ValuePresent($fact['value'] ?? null);
+        }
+        return null;
+    }
+
+    private function phase1P0BoolState(mixed $value): ?bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_string($value)) {
+            $normalized = strtolower(trim($value));
+            if (in_array($normalized, ['1', 'true', 'yes'], true)) {
+                return true;
+            }
+            if (in_array($normalized, ['0', 'false', 'no'], true)) {
+                return false;
+            }
+        }
+        return null;
+    }
+
+    private function phase1P0ValuePresent(mixed $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+        if (is_string($value) && trim($value) === '') {
+            return false;
+        }
+        if (is_array($value) && $value === []) {
+            return false;
+        }
+        return true;
+    }
+
+    private function phase1P0ReadPath(array $value, string $path): mixed
+    {
+        $current = $value;
+        foreach (explode('.', $path) as $part) {
+            if (!is_array($current) || !array_key_exists($part, $current)) {
+                return null;
+            }
+            $current = $current[$part];
+        }
+        return $current;
+    }
+
     private function phase1TrafficSourceRecommendedMode(string $platform, array $source): string
     {
         $platform = strtolower(trim($platform));
@@ -2647,7 +3049,7 @@ trait Phase1EmployeeConsoleConcern
             $targetRows = max(0, (int)($item['target_date_rows'] ?? 0));
             $targetTypes = array_values(array_filter(array_map(
                 static fn($value): string => strtolower(trim((string)$value)),
-                (array)($item['target_date_data_types'] ?? [])
+                (array)($item['target_date_data_types'] ?? $item['data_types'] ?? [])
             ), static fn(string $value): bool => $value !== ''));
             $revenueReady = (string)($item['revenue_status'] ?? '') === 'ready';
             $fieldTrustStatus = match (true) {
@@ -2680,6 +3082,15 @@ trait Phase1EmployeeConsoleConcern
         $types = array_values(array_filter(array_map(
             static fn($value): string => strtolower(trim((string)$value)),
             (array)($platformEvidence['target_date_data_types'] ?? [])
+        ), static fn(string $value): bool => $value !== ''));
+
+        if ($types !== []) {
+            return array_values(array_unique($types));
+        }
+
+        $types = array_values(array_filter(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            (array)($platformEvidence['data_types'] ?? [])
         ), static fn(string $value): bool => $value !== ''));
 
         if ($types !== []) {

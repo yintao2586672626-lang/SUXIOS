@@ -265,8 +265,9 @@ function buildCtripCatalogPreviewFromEvidence({ endpoint, redactedBundle, params
   const facts = extractCtripCatalogFacts(redactedBundle.response, context);
   const rows = buildCtripStandardRowsFromFacts(facts, {
     systemHotelId: context.systemHotelId,
+    hotelId: context.hotelId,
     hotelName: context.hotelName,
-    profileId: context.hotelId,
+    profileId: '',
     dataDate: context.dataDate,
     capturedAt: context.capturedAt,
   });
@@ -294,7 +295,7 @@ export function buildCtripEndpointEvidenceDraftsFromCapture(entries = [], contex
     const pageContext = buildCapturePageContext(item, context);
     const params = {
       profile_id: stringValue(context.profileId || item.profile_id || item.profileId),
-      hotel_id: stringValue(item.hotel_id || item.hotelId || context.hotelId || context.profileId),
+      hotel_id: stringValue(item.hotel_id || item.hotelId || context.hotelId),
       data_date: stringValue(item.data_date || item.dataDate || context.defaultDataDate || context.dataDate),
       start_date: stringValue(item.start_date || item.startDate || context.startDate || item.payload?.startDate || item.payload?.start_date),
       end_date: stringValue(item.end_date || item.endDate || context.endDate || item.payload?.endDate || item.payload?.end_date),

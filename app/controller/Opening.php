@@ -3,8 +3,10 @@ declare(strict_types=1);
 
 namespace app\controller;
 
+use app\service\OperationManagementService;
 use app\service\OpeningService;
 use think\Response;
+use think\facade\Db;
 use Throwable;
 
 class Opening extends Base
@@ -132,6 +134,51 @@ class Opening extends Base
             return $this->success($task, '检查项已更新');
         } catch (Throwable $e) {
             return $this->error('更新检查项失败：' . $e->getMessage(), 400);
+        }
+    }
+
+    public function createExecutionIntent(int $id): Response
+    {
+        try {
+            $this->ensureReady();
+            if ($id <= 0) {
+                return $this->error('opening project id is invalid', 422);
+            }
+
+            $hotelIds = $this->hotelScope();
+            $overview = $this->service->overview($id, $hotelIds, $this->currentUserId(), $this->isSuperAdmin());
+            $project = is_array($overview['project'] ?? null) ? $overview['project'] : [];
+            $hotelId = (int)($project['hotel_id'] ?? 0);
+            if ($hotelId <= 0) {
+                return $this->error('opening project must bind a hotel before execution tracking', 422);
+            }
+            if (!in_array($hotelId, array_values(array_map('intval', $hotelIds)), true)) {
+                return $this->error('hotel_id is not permitted', 403);
+            }
+            if ((int)($project['execution_intent_id'] ?? 0) > 0) {
+                return $this->error('opening project already linked to execution intent', 409);
+            }
+
+            $userId = $this->currentUserId();
+            $result = Db::transaction(function () use ($project, $overview, $hotelIds, $hotelId, $userId): array {
+                $operationService = new OperationManagementService();
+                $input = $this->service->buildExecutionIntentInput($project, $overview, [
+                    'date_start' => (string)$this->request->param('date_start', ''),
+                    'date_end' => (string)$this->request->param('date_end', ''),
+                ]);
+                $intent = $operationService->createExecutionIntent($hotelIds, $hotelId, $input, $userId);
+
+                return [
+                    'execution_intent' => $intent,
+                    'project' => array_merge($project, ['execution_intent_id' => (int)($intent['id'] ?? 0)]),
+                ];
+            });
+
+            return $this->success($result, 'execution intent created');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            return $this->error('create opening execution intent failed: ' . $e->getMessage(), 400);
         }
     }
 

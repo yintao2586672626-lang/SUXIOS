@@ -212,4 +212,52 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         self::assertSame('ok', $elasticity['backtest']['data_status']);
         self::assertGreaterThanOrEqual(70, $elasticity['backtest']['hit_rate']);
     }
+
+    public function testEffectReviewWaitsForCompleteWindow(): void
+    {
+        $service = new RevenuePricingRecommendationService();
+
+        $readiness = $service->buildEffectReviewReadiness([
+            'status' => 4,
+            'applied_time' => '2026-06-14 10:00:00',
+        ], [
+            'data_status' => 'ok',
+            'sample_count' => 7,
+            'start_date' => '2026-06-07',
+            'end_date' => '2026-06-13',
+        ], [
+            'data_status' => 'ok',
+            'sample_count' => 1,
+            'start_date' => '2026-06-14',
+            'end_date' => '2026-06-20',
+        ], '2026-06-14');
+
+        self::assertSame('effect_review_window_open', $readiness['stage']);
+        self::assertFalse($readiness['review_ready']);
+        self::assertSame(['review_window'], array_column($readiness['missing_evidence'], 'code'));
+    }
+
+    public function testEffectReviewReadyRequiresBeforeAndAfterSamples(): void
+    {
+        $service = new RevenuePricingRecommendationService();
+
+        $readiness = $service->buildEffectReviewReadiness([
+            'status' => 4,
+            'applied_time' => '2026-06-01 10:00:00',
+        ], [
+            'data_status' => 'ok',
+            'sample_count' => 7,
+            'start_date' => '2026-05-25',
+            'end_date' => '2026-05-31',
+        ], [
+            'data_status' => 'ok',
+            'sample_count' => 7,
+            'start_date' => '2026-06-01',
+            'end_date' => '2026-06-07',
+        ], '2026-06-14');
+
+        self::assertSame('effect_review_ready', $readiness['stage']);
+        self::assertTrue($readiness['review_ready']);
+        self::assertSame([], $readiness['missing_evidence']);
+    }
 }

@@ -3,11 +3,13 @@ declare(strict_types=1);
 
 namespace app\controller;
 
+use app\service\OperationManagementService;
 use app\service\TransferDecisionService;
 use InvalidArgumentException;
 use RuntimeException;
 use think\App;
 use think\Response;
+use think\facade\Db;
 use Throwable;
 
 class TransferDecision extends Base
@@ -120,6 +122,49 @@ class TransferDecision extends Base
             return $this->success($this->service->detail($id, $hotelIds, (int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin()));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '获取转让记录详情失败'), 400);
+        }
+    }
+
+    public function createExecutionIntent(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('transfer record id is invalid', 422);
+            }
+
+            [$hotelIds] = $this->resolveHotelScope();
+            $record = $this->service->detail($id, $hotelIds, (int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
+            if ((int)($record['result']['operation_execution_intent_id'] ?? 0) > 0) {
+                return $this->error('transfer record already linked to execution intent', 409);
+            }
+
+            $userId = (int)($this->currentUser->id ?? 0);
+            $result = Db::transaction(function () use ($record, $id, $hotelIds, $userId): array {
+                $operationService = new OperationManagementService();
+                $input = $this->service->buildExecutionIntentInput($record, [
+                    'date_start' => (string)$this->request->param('date_start', ''),
+                    'date_end' => (string)$this->request->param('date_end', ''),
+                ]);
+                $intent = $operationService->createExecutionIntent($hotelIds, (int)$record['hotel_id'], $input, $userId);
+                $updatedRecord = $this->service->attachExecutionTracking($id, $hotelIds, $userId, $this->currentUser->isSuperAdmin(), [
+                    'execution_intent_id' => (int)($intent['id'] ?? 0),
+                    'hotel_id' => (int)$record['hotel_id'],
+                    'status' => (string)($intent['status'] ?? ''),
+                ]);
+
+                return [
+                    'execution_intent' => $intent,
+                    'record' => $updatedRecord,
+                ];
+            });
+
+            return $this->success($result, 'execution intent created');
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (RuntimeException $e) {
+            return $this->error($this->safeErrorMessage($e, 'transfer record not found'), 404);
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'create transfer execution intent failed'), 500);
         }
     }
 

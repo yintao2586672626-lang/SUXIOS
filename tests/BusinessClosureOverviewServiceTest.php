@@ -150,4 +150,58 @@ final class BusinessClosureOverviewServiceTest extends TestCase
         self::assertSame(3, $overview['summary']['closed_loop_count']);
         self::assertSame('revenue_pricing', $overview['weak_modules'][0]['key']);
     }
+
+    public function testModuleClosureIncludesAiTheoryAndEntryMetadata(): void
+    {
+        $service = new BusinessClosureOverviewService();
+
+        $module = $service->summarizeModuleClosure([
+            'key' => 'ai_daily_report',
+            'label' => 'AI经营日报 / AI决策',
+            'record_count' => 1,
+            'linked_execution_count' => 0,
+        ]);
+
+        self::assertSame('运营管理（P0）', $module['module_group']);
+        self::assertSame('ai-daily-report', $module['entry_page']);
+        self::assertSame('llm_optional', $module['ai_connection']);
+        self::assertSame('可接入AI日报', $module['ai_connection_label']);
+        self::assertSame('verified_ota_operation_records', $module['data_basis']);
+        self::assertSame('OTA/运营记录', $module['data_basis_label']);
+        self::assertStringContainsString('LLM不可用', $module['theory_basis']);
+        self::assertStringContainsString('转执行单', $module['closure_target']);
+        self::assertSame('record_only', $module['status']);
+    }
+
+    public function testAllClosureOverviewModulesDeclareCompletionMetadata(): void
+    {
+        $service = new BusinessClosureOverviewService();
+        $keys = [
+            'ai_daily_report',
+            'revenue_pricing',
+            'staff_service',
+            'asset_maintenance',
+            'operation_execution',
+            'transfer_investment',
+            'expansion',
+            'opening',
+            'strategy_simulation',
+            'feasibility_report',
+        ];
+
+        foreach ($keys as $key) {
+            $module = $service->summarizeModuleClosure([
+                'key' => $key,
+                'label' => $key,
+                'record_count' => 0,
+                'linked_execution_count' => 0,
+            ]);
+
+            self::assertNotSame('', $module['entry_page'], $key . ' entry_page');
+            self::assertNotSame('not_declared', $module['ai_connection'], $key . ' ai_connection');
+            self::assertNotSame('AI状态未声明', $module['ai_connection_label'], $key . ' ai_connection_label');
+            self::assertNotSame('现有记录', $module['data_basis_label'], $key . ' data_basis_label');
+            self::assertNotSame('', $module['closure_target'], $key . ' closure_target');
+        }
+    }
 }

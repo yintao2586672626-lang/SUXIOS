@@ -362,6 +362,69 @@ class RevenuePricingRecommendationService
         }, $rows);
     }
 
+    public function buildEffectReviewReadiness(array $suggestion, array $before, array $after, ?string $today = null): array
+    {
+        $today = $today ?: date('Y-m-d');
+        $status = (int)($suggestion['status'] ?? 0);
+        $applied = $status === 4 || trim((string)($suggestion['applied_time'] ?? '')) !== '';
+        $beforeStatus = (string)($before['data_status'] ?? 'unknown');
+        $afterStatus = (string)($after['data_status'] ?? 'unknown');
+        $beforeSamples = (int)($before['sample_count'] ?? 0);
+        $afterSamples = (int)($after['sample_count'] ?? 0);
+        $afterEnd = substr((string)($after['end_date'] ?? ''), 0, 10);
+        $windowClosed = $afterEnd !== '' && $afterEnd <= $today;
+
+        if (!$applied) {
+            return $this->effectReviewReadiness('effect_review_not_started', '未应用', 30, false, '先应用或完成执行意图后再复盘', [
+                $this->missingEvidence('local_price_applied', '本地价格应用', '先应用或完成执行意图后再复盘'),
+            ]);
+        }
+
+        if ($beforeStatus === 'read_failed' || $afterStatus === 'read_failed') {
+            return $this->effectReviewReadiness('effect_review_read_failed', '复盘读取失败', 35, false, '修复复盘数据读取错误后再判断效果', [
+                $this->missingEvidence('review_source_readable', '复盘数据可读', '修复 online_daily_data 读取错误'),
+            ]);
+        }
+
+        if (!$windowClosed) {
+            return $this->effectReviewReadiness('effect_review_window_open', '等待周期', 55, false, '等待应用后7天窗口结束再复盘', [
+                $this->missingEvidence('review_window', '完整复盘周期', '等待应用后7天窗口结束再复盘'),
+            ]);
+        }
+
+        if ($beforeSamples <= 0 || $afterSamples <= 0) {
+            return $this->effectReviewReadiness('effect_review_sample_missing', '样本不足', 60, false, '补齐应用前后线上经营样本后再判断效果', [
+                $this->missingEvidence('before_after_samples', '应用前后样本', '补齐应用前后线上经营样本'),
+            ]);
+        }
+
+        return $this->effectReviewReadiness('effect_review_ready', '复盘可用', 100, true, '将复盘结论沉淀到执行证据或 ROI 记录');
+    }
+
+    private function effectReviewReadiness(string $stage, string $label, int $score, bool $reviewReady, string $nextAction, array $missingEvidence = []): array
+    {
+        return [
+            'stage' => $stage,
+            'status_label' => $label,
+            'score' => $score,
+            'review_ready' => $reviewReady,
+            'missing_evidence' => $missingEvidence,
+            'next_action' => $nextAction,
+            'notice' => $missingEvidence
+                ? '仍缺：' . implode('、', array_map(static fn(array $item): string => (string)($item['label'] ?? $item['code'] ?? '未命名缺口'), $missingEvidence))
+                : '应用前后样本已满足复盘判断；需继续沉淀执行证据或 ROI 记录。',
+        ];
+    }
+
+    private function missingEvidence(string $code, string $label, string $nextAction): array
+    {
+        return [
+            'code' => $code,
+            'label' => $label,
+            'next_action' => $nextAction,
+        ];
+    }
+
     /**
      * @param array<int, array<string, mixed>> $rows
      * @return array<string, mixed>

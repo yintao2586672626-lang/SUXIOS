@@ -269,6 +269,68 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertArrayHasKey('report', $record);
     }
 
+    public function testBuildExecutionIntentInputRequiresExplicitHotel(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $service->buildExecutionIntentInput(['id' => 7], 0);
+    }
+
+    public function testBuildExecutionIntentInputCarriesReadinessAndInvestmentScope(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $input = $this->validInput(['manual_review' => 'approved']);
+        $snapshot = [
+            'source_counts' => ['daily_reports' => 12, 'competitor_price_logs' => 5],
+            'daily_summary' => ['avg_adr' => 310, 'avg_occ' => 0.76],
+            'competitor_summary' => ['avg_competitor_price' => 300],
+        ];
+        $calculation = $this->invokeNonPublic($service, 'calculate', [$input, $snapshot]);
+        $report = [
+            'conclusion_grade' => 'B',
+            'conclusion_text' => 'Proceed after review',
+            'core_reason' => 'Cashflow acceptable with source evidence',
+            'summary' => [
+                'project_name' => $input['project_name'],
+                'location' => 'Shanghai Pudong No.1',
+                'room_count' => 20,
+                'total_investment' => $calculation['total_investment'],
+                'payback_months' => 18,
+            ],
+            'financial_scenarios' => $calculation['scenarios'],
+            'risk_list' => [
+                ['risk' => 'cashflow', 'level' => 'low', 'reason' => 'positive cashflow', 'action' => 'review monthly'],
+            ],
+            'evidence' => [
+                ['source' => 'market_survey', 'title' => 'site survey', 'url' => 'https://example.test/evidence', 'summary' => 'verified'],
+            ],
+            'diligence_evidence' => ['lease_review' => 'passed'],
+        ];
+        $readiness = $service->buildFeasibilityReadiness($input, $snapshot, $report);
+
+        $intentInput = $service->buildExecutionIntentInput([
+            'id' => 7,
+            'project_name' => $input['project_name'],
+            'input' => $input,
+            'snapshot' => $snapshot,
+            'report' => $report,
+            'feasibility_readiness' => $readiness,
+            'conclusion_grade' => 'B',
+            'payback_months' => 18,
+            'total_investment' => $calculation['total_investment'],
+        ], 3, ['date_start' => '2026-06-14']);
+
+        self::assertSame('feasibility_report', $intentInput['source_module']);
+        self::assertSame(7, $intentInput['source_record_id']);
+        self::assertSame(3, $intentInput['hotel_id']);
+        self::assertSame('investment', $intentInput['platform']);
+        self::assertSame('investment', $intentInput['object_type']);
+        self::assertSame('investment_decision_closure', $intentInput['target_value']['target_metric']);
+        self::assertSame('approved_pending_tracking', $intentInput['evidence']['readiness_stage']);
+        self::assertSame('medium', $intentInput['risk_level']);
+    }
+
     private function validInput(array $overrides = []): array
     {
         return array_merge([

@@ -1250,6 +1250,16 @@
                                         </div>
                                         <p class="text-xs text-gray-500 leading-relaxed">{{ aiFeasibilityReadiness.notice }}</p>
                                         <p class="text-xs text-gray-500 leading-relaxed">{{ feasibilityReadinessMissingText(aiFeasibilityReadiness) }}</p>
+                                        <div class="pt-2 flex flex-col sm:flex-row gap-2">
+                                            <select v-model="aiFeasibilityExecutionHotelId" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-0 flex-1">
+                                                <option value="">选择跟踪酒店</option>
+                                                <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                            </select>
+                                            <button @click="createFeasibilityExecutionIntent" :disabled="aiFeasibilityExecutionLoading || !aiFeasibilityRecordId || feasibilityExecutionLinked" class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
+                                                <i :class="aiFeasibilityExecutionLoading ? 'fas fa-spinner fa-spin' : 'fas fa-tasks'" class="mr-1"></i>{{ feasibilityExecutionLinked ? '已转跟踪' : '转投后跟踪' }}
+                                            </button>
+                                        </div>
+                                        <p v-if="feasibilityExecutionIntentId" class="text-xs text-indigo-600">执行意图 #{{ feasibilityExecutionIntentId }}</p>
                                     </div>
                                 </section>
 
@@ -2038,8 +2048,20 @@
                                 </span>
                             </div>
                         </div>
+                        <div class="mb-4 flex flex-col lg:flex-row lg:items-end gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3">
+                            <div class="flex-1">
+                                <label class="block text-xs text-gray-500 mb-1">执行跟踪酒店</label>
+                                <select v-model="expansionExecutionHotelId" class="input-field w-full">
+                                    <option value="">请选择酒店</option>
+                                    <option v-for="hotel in expansionHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                </select>
+                            </div>
+                            <div class="text-xs text-slate-500 leading-5 lg:max-w-xl">
+                                拓展评估记录需显式绑定酒店后才能转执行跟踪；未绑定时不视为全店经营闭环。
+                            </div>
+                        </div>
                         <div v-if="visibleExpansionRecords.length" class="overflow-x-auto">
-                            <table class="min-w-[1020px] table-fixed text-sm">
+                            <table class="min-w-[1120px] table-fixed text-sm">
                                 <thead class="bg-gray-50 text-gray-500">
                                     <tr>
                                         <th class="w-20 px-3 py-3 text-left">类型</th>
@@ -2049,7 +2071,7 @@
                                         <th class="w-20 px-3 py-3 text-left">风险</th>
                                         <th class="w-28 px-3 py-3 text-left">立项状态</th>
                                         <th class="w-36 px-3 py-3 text-left">时间</th>
-                                        <th class="w-40 px-3 py-3 text-right">操作</th>
+                                        <th class="w-52 px-3 py-3 text-right">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-100">
@@ -2076,6 +2098,10 @@
                                         <td class="px-3 py-3 text-right whitespace-nowrap">
                                             <button @click="loadExpansionDetail(record.id)" :data-testid="`history-expansion-view-${record.id}`" class="text-blue-600 hover:text-blue-800 mr-3">查看</button>
                                             <button @click="reuseExpansionRecord(record)" :data-testid="`history-expansion-reuse-${record.id}`" class="text-emerald-600 hover:text-emerald-800 mr-3">复用输入</button>
+                                            <button v-if="!expansionExecutionIntentId(record)" @click="createExpansionExecutionIntent(record)" :disabled="expansionExecutionLoadingId === record.id" :data-testid="`history-expansion-execution-${record.id}`" class="text-indigo-600 hover:text-indigo-800 mr-3 disabled:opacity-50">
+                                                <i :class="expansionExecutionLoadingId === record.id ? 'fas fa-spinner fa-spin' : 'fas fa-tasks'" class="mr-1"></i>转跟踪
+                                            </button>
+                                            <span v-else class="text-xs text-indigo-600 mr-3">执行 #{{ expansionExecutionIntentId(record) }}</span>
                                             <button @click="archiveExpansionRecord(record)" :data-testid="`history-expansion-archive-${record.id}`" class="text-red-600 hover:text-red-800">归档</button>
                                         </td>
                                     </tr>
@@ -2568,6 +2594,10 @@
                                         <td class="px-4 py-3 text-right">
                                             <button @click="loadTransferDetail(record.id)" :data-testid="`history-transfer-view-${record.id}`" class="text-blue-600 hover:text-blue-800 mr-3">查看</button>
                                             <button @click="reuseTransferRecord(record)" :data-testid="`history-transfer-reuse-${record.id}`" class="text-emerald-600 hover:text-emerald-800 mr-3">复用输入</button>
+                                            <button v-if="!transferExecutionIntentId(record)" @click="createTransferExecutionIntent(record)" :disabled="transferExecutionLoadingId === record.id" :data-testid="`history-transfer-execution-${record.id}`" class="text-indigo-600 hover:text-indigo-800 mr-3 disabled:opacity-50">
+                                                <i :class="transferExecutionLoadingId === record.id ? 'fas fa-spinner fa-spin' : 'fas fa-tasks'" class="mr-1"></i>转跟踪
+                                            </button>
+                                            <span v-else class="text-xs text-indigo-600 mr-3">执行 #{{ transferExecutionIntentId(record) }}</span>
                                             <button @click="archiveTransferRecord(record)" :data-testid="`history-transfer-archive-${record.id}`" class="text-red-600 hover:text-red-800">归档</button>
                                         </td>
                                     </tr>
@@ -2687,6 +2717,8 @@
                                     <div v-if="selectedOpeningProjectId" class="grid grid-cols-2 gap-3">
                                         <button @click="openOpeningChecklist" :disabled="openingLoading" class="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>查看清单</button>
                                         <button @click="recalculateOpening" :disabled="openingLoading" class="px-4 py-2 rounded-lg border border-blue-200 text-blue-700 text-sm hover:bg-blue-50 disabled:opacity-50"><i class="fas fa-calculator mr-1"></i>刷新评分</button>
+                                        <button @click="createOpeningExecutionIntent" :disabled="openingLoading || !selectedOpeningProjectId || openingExecutionIntentId" class="px-4 py-2 rounded-lg border border-indigo-200 text-indigo-700 text-sm hover:bg-indigo-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>{{ openingExecutionIntentId ? '已转跟踪' : '转执行跟踪' }}</button>
+                                        <div v-if="openingExecutionIntentId" class="px-4 py-2 rounded-lg bg-indigo-50 text-indigo-700 text-sm">执行 #{{ openingExecutionIntentId }}</div>
                                     </div>
                                     <button v-if="selectedOpeningProjectId && openingTasks.length === 0" @click="generateOpeningTasks" :disabled="openingLoading" class="w-full px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"><i class="fas fa-magic mr-1"></i>生成检查清单</button>
                                     <button v-if="selectedOpeningProjectId" @click="archiveOpeningProject" :disabled="openingLoading" class="w-full px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm hover:bg-red-50 disabled:opacity-50"><i class="fas fa-archive mr-1"></i>归档项目</button>
@@ -3663,12 +3695,25 @@
                                         <span class="text-gray-500">成熟度</span>
                                         <span :class="operationClosureScoreClass(module.maturity_score)" class="font-bold">{{ module.maturity_score || 0 }}%</span>
                                     </div>
+                                    <div class="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+                                        <span class="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600">{{ module.module_group || '运营收益闭环' }}</span>
+                                        <span class="rounded-md border border-cyan-100 bg-cyan-50 px-2 py-0.5 text-cyan-700">{{ module.ai_connection_label || 'AI状态待确认' }}</span>
+                                        <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-gray-600">{{ module.data_basis_label || '现有记录' }}</span>
+                                    </div>
+                                    <div class="mt-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-xs text-gray-600 leading-5">
+                                        <div>闭环目标：{{ module.closure_target || '业务记录 -> 执行证据 -> 复盘' }}</div>
+                                        <div class="mt-1 text-gray-500">理论口径：{{ module.theory_basis || '缺少真实样本时只显示缺口，不推断闭环结果。' }}</div>
+                                    </div>
                                     <div class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
                                         下一步：{{ module.next_action_label }}
                                     </div>
                                     <div v-if="operationClosureGapText(module) !== '暂无显式缺口'" class="mt-2 text-xs text-amber-700">
                                         {{ operationClosureGapText(module) }}
                                     </div>
+                                    <button v-if="module.entry_page" type="button" @click="openOperationClosureModule(module)"
+                                        class="mt-3 inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                                        <i class="fas fa-arrow-right mr-1"></i>进入板块
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -10407,7 +10452,12 @@
                                         </div>
                                         <div v-if="priceSuggestionReview" class="mt-5 rounded-xl border border-purple-100 bg-purple-50 p-4">
                                             <div class="flex items-center justify-between gap-3 mb-3">
-                                                <div class="font-semibold text-purple-900">应用效果复盘</div>
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <div class="font-semibold text-purple-900">应用效果复盘</div>
+                                                    <span v-if="priceSuggestionReview.readiness" :title="priceSuggestionReview.readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', priceSuggestionReviewReadinessClass(priceSuggestionReview.readiness.stage)]">
+                                                        {{ priceSuggestionReview.readiness.status_label }}
+                                                    </span>
+                                                </div>
                                                 <button @click="priceSuggestionReview = null" class="text-purple-600 hover:text-purple-800 text-sm"><i class="fas fa-times mr-1"></i>关闭</button>
                                             </div>
                                             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
@@ -10426,6 +10476,12 @@
                                                 <div class="rounded-lg bg-white p-3 border border-purple-100">
                                                     <div class="text-gray-500">ADR变化</div>
                                                     <div class="font-semibold text-gray-800">¥{{ priceSuggestionReview.delta?.adr || 0 }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="mt-3 rounded-lg bg-white/70 border border-purple-100 p-3 text-xs text-purple-800">
+                                                <div>{{ priceSuggestionReview.scope_notice || '复盘仅基于当前可读样本。' }}</div>
+                                                <div class="mt-1 text-purple-700">
+                                                    样本：应用前 {{ priceSuggestionReview.before?.sample_count || 0 }} 条 · 应用后 {{ priceSuggestionReview.after?.sample_count || 0 }} 条 · {{ priceSuggestionReview.readiness?.next_action || '' }}
                                                 </div>
                                             </div>
                                         </div>
@@ -10544,12 +10600,48 @@
                                                     <input type="date" v-model="competitorFilter.date" class="input-field">
                                                     <button @click="loadCompetitorAnalysis" class="btn-primary"><i class="fas fa-search mr-2"></i>查询</button>
                                                 </div>
-                                                <div v-if="(competitorAnalysis.alerts || []).length" class="space-y-2">
+                                                <div class="overflow-x-auto">
+                                                    <table class="w-full text-sm">
+                                                        <thead class="bg-gray-50 text-gray-500">
+                                                            <tr>
+                                                                <th class="px-3 py-2 text-left">房型</th>
+                                                                <th class="px-3 py-2 text-left">竞对</th>
+                                                                <th class="px-3 py-2 text-right">本店价</th>
+                                                                <th class="px-3 py-2 text-right">竞对价</th>
+                                                                <th class="px-3 py-2 text-right">价差</th>
+                                                                <th class="px-3 py-2 text-left">闭环</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody class="divide-y divide-gray-100">
+                                                            <tr v-for="row in competitorPriceMatrixRows" :key="`${row.room_type_name || 'room'}-${row.competitor_name || row.competitor_hotel_id || 'competitor'}-${row.id || row.analysis_date}`">
+                                                                <td class="px-3 py-2 font-medium text-gray-800">{{ row.room_type_name || '-' }}</td>
+                                                                <td class="px-3 py-2 text-gray-600">{{ row.competitor_name || row.competitor_hotel_id || '-' }}</td>
+                                                                <td class="px-3 py-2 text-right">{{ toNumber(row.our_price, 0) > 0 ? formatCurrency(row.our_price) : '-' }}</td>
+                                                                <td class="px-3 py-2 text-right">{{ toNumber(row.competitor_price, 0) > 0 ? formatCurrency(row.competitor_price) : '-' }}</td>
+                                                                <td class="px-3 py-2 text-right" :class="toNumber(row.price_signal_readiness?.price_gap_percent ?? row.diff_percent, 0) > 0 ? 'text-red-600' : 'text-green-600'">
+                                                                    {{ revenueCompetitorGapText(row) }}
+                                                                </td>
+                                                                <td class="px-3 py-2">
+                                                                    <span v-if="row.price_signal_readiness" :title="row.price_signal_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', revenueCompetitorReadinessClass(row.price_signal_readiness.stage)]">
+                                                                        {{ row.price_signal_readiness.status_label }}
+                                                                    </span>
+                                                                    <div v-if="row.price_signal_readiness" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
+                                                                        引用 {{ row.price_signal_readiness.suggestion_count || 0 }} 条 · {{ row.price_signal_readiness.next_action }}
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                            <tr v-if="!competitorPriceMatrixRows.length">
+                                                                <td colspan="6" class="px-3 py-8 text-center text-gray-400">暂无竞对价格样本</td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                <div v-if="(competitorAnalysis.alerts || []).length" class="mt-4 space-y-2">
                                                     <div v-for="item in competitorAnalysis.alerts" :key="item.id || item.competitor_hotel_id" class="rounded-lg bg-orange-50 border border-orange-100 p-3 text-sm text-orange-800">
                                                         {{ item.competitor_hotel?.hotel_name || item.competitor_hotel_id || '竞对' }} 价格波动 {{ item.price_change_percent || item.price_index || 0 }}%
                                                     </div>
                                                 </div>
-                                                <div v-else class="py-8 text-center text-gray-400">暂无竞对价格预警</div>
+                                                <div v-else class="mt-4 py-4 text-center text-gray-400">暂无竞对价格预警</div>
                                             </div>
                                         </div>
                                     </div>
@@ -27519,7 +27611,8 @@
                     { label: '执行率', value: operationExecutionRateText(summary.execution_rate), hint: `已执行 ${summary.executed || 0}` },
                     { label: '证据率', value: operationExecutionRateText(summary.evidence_rate), hint: `证据齐备 ${summary.evidence_ready || 0}` },
                     { label: '净收益', value: operationMoney(summary.total_profit || 0), hint: `增量收入 ${operationMoney(summary.total_incremental_revenue || 0)}` },
-                    { label: '平均 ROI', value: summary.avg_roi === null || summary.avg_roi === undefined ? '-' : `${summary.avg_roi}%`, hint: `可计算样本 ${summary.roi_ready || 0}` },
+                    { label: '平均 ROI', value: summary.avg_roi === null || summary.avg_roi === undefined ? '-' : `${summary.avg_roi}%`, hint: `百分比样本 ${summary.roi_percent_ready || 0}` },
+                    { label: '价格 Lift', value: summary.avg_revenue_lift === null || summary.avg_revenue_lift === undefined ? '-' : operationMoney(summary.avg_revenue_lift), hint: `金额样本 ${summary.revenue_lift_ready || 0}` },
                 ];
             });
             const operationExecutionBottleneckText = computed(() => {
@@ -27582,6 +27675,7 @@
             };
             const operationExecutionRoiText = (roi) => {
                 if (!roi || roi.status !== 'ready') return roi?.message || '待计算';
+                if (roi.unit === 'amount') return `收入${operationMoney(roi.incremental_revenue || roi.value || 0)} / 利润${operationMoney(roi.profit)}`;
                 return `${roi.value}% / 利润${operationMoney(roi.profit)}`;
             };
             const operationExecutionNextActionClass = (action) => ({
@@ -27627,7 +27721,7 @@
                         label: 'ROI复盘',
                         value: roiReady ? `${roiReady}个样本` : '待计算',
                         className: roiReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                        detail: 'ROI 只基于执行前后数据和成本样本计算，缺数据时显示待计算。',
+                        detail: '活动等投入动作计算 ROI 百分比；价格调整记录收入 lift，缺执行前后样本时显示待计算。',
                     },
                 ];
             });
@@ -27666,6 +27760,28 @@
                 if (!gaps.length) return '暂无显式缺口';
                 const first = gaps[0] || {};
                 return first.message || first.code || '存在未说明缺口';
+            };
+            const openOperationClosureModule = (module) => {
+                const targetPage = String(module?.entry_page || '').trim();
+                if (!targetPage) {
+                    showToast('该板块暂未配置入口', 'warning');
+                    return;
+                }
+                currentPage.value = targetPage;
+                if (targetPage === 'ops-source') nextTick(() => loadOperationFullData());
+                if (targetPage === 'ops-analysis') nextTick(() => analyzeOperationRootCause());
+                if (targetPage === 'ops-insight') nextTick(() => loadOperationAlerts());
+                if (targetPage === 'ops-track') nextTick(() => loadOperationActions());
+                if (targetPage === 'ai-daily-report') nextTick(() => loadAiDailyReport());
+                if (['market-evaluation', 'market-eval', 'benchmark-model', 'collaboration-efficiency', 'sync-efficiency'].includes(targetPage)) {
+                    nextTick(() => loadExpansionRecords());
+                }
+                if (['asset-pricing', 'timing-strategy', 'decision-board'].includes(targetPage)) {
+                    nextTick(() => loadTransferRecords());
+                }
+                if (['opening-overview', 'opening-checklist'].includes(targetPage)) {
+                    nextTick(() => loadOpeningProjects());
+                }
             };
             const operationErrorMessage = (error, fallback) => {
                 const message = error?.message || '';
@@ -28107,14 +28223,17 @@
                 if (beforeText === null) return;
                 const afterText = prompt('请输入执行后收入，用于 ROI 复盘');
                 if (afterText === null) return;
-                const costText = prompt('请输入执行成本或投放成本');
-                if (costText === null) return;
+                const isPriceExecution = item?.recommendation?.object_type === 'price';
+                const costText = isPriceExecution ? '' : prompt('请输入执行成本或投放成本');
+                if (!isPriceExecution && costText === null) return;
                 const remark = (prompt('请输入执行证据备注，如平台、截图路径或操作说明') || '').trim();
 
                 try {
                     const beforeRevenue = parseOperationEvidenceNumber(beforeText, '执行前收入');
                     const afterRevenue = parseOperationEvidenceNumber(afterText, '执行后收入');
-                    const cost = parseOperationEvidenceNumber(costText, '执行成本');
+                    const cost = isPriceExecution ? null : parseOperationEvidenceNumber(costText, '执行成本');
+                    const after = { revenue: afterRevenue };
+                    if (cost !== null) after.cost = cost;
                     operationLoading.value.actions = true;
                     const res = await apiRequest(`/operation/execution-tasks/${taskId}/execute`, {
                         method: 'POST',
@@ -28123,7 +28242,7 @@
                             evidence_type: 'manual_finance',
                             evidence: {
                                 before: { revenue: beforeRevenue },
-                                after: { revenue: afterRevenue, cost },
+                                after,
                                 platform_response: { mode: 'manual' },
                                 remark,
                             },
@@ -28195,6 +28314,11 @@
             const selectedOpeningProject = computed(() => {
                 const id = Number(selectedOpeningProjectId.value);
                 return openingProjects.value.find(project => Number(project.id) === id) || null;
+            });
+            const openingExecutionIntentId = computed(() => {
+                const overviewId = Number(openingOverview.value?.project?.execution_intent_id || 0);
+                if (overviewId > 0) return overviewId;
+                return Number(selectedOpeningProject.value?.execution_intent_id || 0);
             });
 
             const openingOverviewCards = computed(() => buildOpeningOverviewCards(openingOverview.value));
@@ -28727,6 +28851,28 @@
                     } else {
                         showToast(`批量处理完成：已更新 ${successCount} 项`);
                     }
+                } finally {
+                    openingLoading.value = false;
+                }
+            };
+
+            const createOpeningExecutionIntent = async () => {
+                if (!selectedOpeningProjectId.value) {
+                    showToast('请先选择开业项目', 'error');
+                    return;
+                }
+                if (openingExecutionIntentId.value) {
+                    showToast('该开业项目已关联执行意图');
+                    return;
+                }
+                openingLoading.value = true;
+                try {
+                    const res = await request(`/opening/projects/${selectedOpeningProjectId.value}/execution-intent`, { method: 'POST' });
+                    if (res.code !== 200) throw new Error(res.message || '转执行跟踪失败');
+                    await Promise.all([loadOpeningProjects(), loadOpeningOverview()]);
+                    showToast('开业执行跟踪意图已创建');
+                } catch (e) {
+                    showToast(e.message || '转执行跟踪失败', 'error');
                 } finally {
                     openingLoading.value = false;
                 }
@@ -31908,6 +32054,10 @@
                         valid_external_evidence_with_ingested_rows: '外部证据已入库',
                         external_evidence_not_valid: '外部证据无效',
                     }[String(status || '')] || '');
+                    const trafficFieldFactLabel = (status) => ({
+                        no_target_date_traffic_rows: '目标日流量字段未加载',
+                        requires_p0_verifier: '需复验字段事实',
+                    }[String(status || '')] || '');
                     const trafficP0NextText = (row) => {
                         const gateLabel = trafficP0GateLabel(row?.p0_traffic_gate_status || '');
                         const modeLabel = trafficActionModeLabel(row?.p0_next_action_mode || row?.recommended_collection_mode || '');
@@ -31921,22 +32071,59 @@
                         const sourceChainScope = String(row?.p0_source_chain_scope || '');
                         const sourceChainPolicy = String(row?.p0_source_chain_policy || '');
                         const targetTrafficDataTypeCount = Array.isArray(row?.p0_target_traffic_data_types) ? row.p0_target_traffic_data_types.length : 0;
+                        const sourceChainNoTargetRows = sourceChainScope === 'no_target_date_source_rows';
                         const sourceChainReferenceOnly = targetTrafficDataTypeCount <= 0 && (row?.p0_source_chain_reference_only === true || sourceChainScope === 'reference_only_non_traffic_source_rows' || sourceChainPolicy.includes('reference only'));
                         const requiredMetricCount = Array.isArray(row?.p0_required_metric_keys) ? row.p0_required_metric_keys.length : 0;
                         const requiredStorageFieldCount = Array.isArray(row?.p0_required_storage_fields) ? row.p0_required_storage_fields.length : 0;
                         const requiredFieldFactCount = Array.isArray(row?.p0_required_field_fact_keys) ? row.p0_required_field_fact_keys.length : 0;
                         const missingMetricCount = Array.isArray(row?.p0_missing_metric_keys) ? row.p0_missing_metric_keys.length : 0;
+                        const fieldLoopMatrix = Array.isArray(row?.p0_field_loop_matrix) ? row.p0_field_loop_matrix : [];
+                        const unloadedFieldLoopCount = fieldLoopMatrix.filter(item => String(item?.status || '') === 'no_target_date_traffic_rows').length;
+                        const verifierFieldLoopCount = fieldLoopMatrix.filter(item => String(item?.status || '') === 'requires_p0_verifier').length;
+                        const completeFieldLoopCount = fieldLoopMatrix.filter(item => String(item?.status || '') === 'complete').length;
+                        const incompleteFieldLoopCount = fieldLoopMatrix.filter(item => String(item?.status || '') === 'incomplete').length;
+                        const missingFieldLoopCount = fieldLoopMatrix.filter(item => String(item?.status || '') === 'missing').length;
+                        const closureChain = row?.p0_traffic_closure_chain && typeof row.p0_traffic_closure_chain === 'object'
+                            ? Object.values(row.p0_traffic_closure_chain)
+                            : [];
+                        const closureChainPolicy = String(row?.p0_traffic_closure_chain_policy || '');
+                        const closureChainNoTargetCount = closureChain.filter(item => String(item?.status || '') === 'no_target_date_traffic_rows').length;
+                        const closureChainVerifierCount = closureChain.filter(item => String(item?.status || '') === 'requires_p0_verifier').length;
+                        const closureChainReadyCount = closureChain.filter(item => String(item?.status || '') === 'ready').length;
+                        const closureChainIncompleteCount = closureChain.filter(item => String(item?.status || '') === 'incomplete').length;
+                        const platformHotelIdentifierStatus = String(row?.p0_platform_hotel_identifier_status || '');
+                        const platformHotelIdentifierSource = String(row?.p0_platform_hotel_identifier_source || '');
+                        const platformHotelIdentifierPolicy = String(row?.p0_platform_hotel_identifier_policy || '');
                         const preImportLabel = trafficPreImportEvidenceLabel(preImportStatus);
                         const parts = [];
                         if (gateLabel) parts.push(gateLabel);
+                        if (sourceChainNoTargetRows) parts.push('目标日源数据未入库');
                         if (sourceChainReferenceOnly) parts.push('源证据仅参考');
                         if (preImportLabel && (preImportStatus !== 'not_provided' || row?.p0_traffic_gate_status !== 'ready')) parts.push(preImportLabel);
                         if (externalEvidenceStatus !== 'not_provided' && preImportPolicy.includes('source proof only')) parts.push('证据不等于闭环');
                         if (requiredMetricCount > 0) parts.push(`需闭环指标 ${requiredMetricCount} 项`);
                         if (requiredStorageFieldCount > 0) parts.push(`入库字段 ${requiredStorageFieldCount} 项`);
                         if (requiredFieldFactCount > 0) parts.push(`字段事实 ${requiredFieldFactCount} 项`);
+                        if (fieldLoopMatrix.length > 0) parts.push(`字段矩阵 ${fieldLoopMatrix.length} 项`);
+                        if (closureChain.length > 0) parts.push(`闭环链 ${closureChain.length} 项`);
+                        if (closureChainPolicy.includes('OTA-channel evidence only')) parts.push('仅OTA渠道证据');
+                        if (platformHotelIdentifierStatus === 'no_target_date_traffic_rows') parts.push('平台酒店身份未加载');
+                        if (platformHotelIdentifierStatus === 'requires_p0_verifier') parts.push('平台酒店身份待复验');
+                        if (platformHotelIdentifierStatus === 'ready') parts.push('平台酒店身份已证明');
+                        if (platformHotelIdentifierSource) parts.push(`身份来源 ${platformHotelIdentifierSource}`);
+                        if (platformHotelIdentifierPolicy.includes('not raw IDs')) parts.push('不展示平台原始ID');
+                        if (unloadedFieldLoopCount > 0) parts.push(`未加载 ${unloadedFieldLoopCount} 项`);
+                        if (verifierFieldLoopCount > 0) parts.push(`待复验 ${verifierFieldLoopCount} 项`);
+                        if (completeFieldLoopCount > 0) parts.push(`完成 ${completeFieldLoopCount} 项`);
+                        if (incompleteFieldLoopCount > 0) parts.push(`待补 ${incompleteFieldLoopCount} 项`);
+                        if (missingFieldLoopCount > 0) parts.push(`缺事实 ${missingFieldLoopCount} 项`);
+                        if (closureChainNoTargetCount > 0) parts.push(`链路未加载 ${closureChainNoTargetCount} 项`);
+                        if (closureChainVerifierCount > 0) parts.push(`链路待复验 ${closureChainVerifierCount} 项`);
+                        if (closureChainReadyCount > 0) parts.push(`链路完成 ${closureChainReadyCount} 项`);
+                        if (closureChainIncompleteCount > 0) parts.push(`链路待补 ${closureChainIncompleteCount} 项`);
                         if (missingMetricCount > 0) parts.push(`缺指标 ${missingMetricCount} 项`);
-                        if (trafficFieldFactStatus === 'requires_p0_verifier') parts.push('需复验字段事实');
+                        const fieldFactLabel = trafficFieldFactLabel(trafficFieldFactStatus);
+                        if (fieldFactLabel) parts.push(fieldFactLabel);
                         if (modeLabel) parts.push(`建议${modeLabel}`);
                         if (stepCount > 0) parts.push(`酒店级步骤 ${stepCount} 项`);
                         if (controlledEntry && noSensitiveCommand) parts.push('不展示敏感命令');
@@ -34478,6 +34665,21 @@
                 if (stage === 'forecast_metric_missing') return 'bg-rose-50 text-rose-700 border-rose-200';
                 return 'bg-gray-50 text-gray-600 border-gray-200';
             };
+            const revenueCompetitorReadinessClass = (stage) => {
+                if (stage === 'competitor_pricing_closed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (['competitor_pricing_applied', 'competitor_pricing_approved', 'competitor_pricing_linked'].includes(stage)) return 'bg-blue-50 text-blue-700 border-blue-200';
+                if (['competitor_room_type_missing', 'competitor_price_stale', 'competitor_not_priced', 'competitor_signal_observed'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (['competitor_price_missing', 'competitor_pricing_rejected'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+            const revenueCompetitorGapText = (row = {}) => {
+                const readiness = row.price_signal_readiness || {};
+                const value = readiness.price_gap_percent ?? row.diff_percent;
+                if (value === null || value === undefined || value === '') return '-';
+                const num = toNumber(value, NaN);
+                if (!Number.isFinite(num)) return '-';
+                return `${num > 0 ? '+' : ''}${toFixedSafe(num, 1)}%`;
+            };
             const revenueResearchForecastCards = (result = {}) => {
                 const forecast = result.business_forecast || {};
                 const forecast7 = forecast.forecast_7d || {};
@@ -34641,6 +34843,22 @@
             // 竞对分析
             const competitorAnalysis = ref({ price_matrix: {}, alerts: [], trends: {} });
             const competitorFilter = ref({ date: new Date().toISOString().split('T')[0] });
+            const competitorPriceMatrixRows = computed(() => {
+                const matrix = competitorAnalysis.value?.price_matrix || {};
+                const rows = [];
+                Object.entries(matrix).forEach(([roomTypeName, competitorRows]) => {
+                    if (!competitorRows || typeof competitorRows !== 'object') return;
+                    Object.entries(competitorRows).forEach(([competitorName, row]) => {
+                        const item = row && typeof row === 'object' ? row : {};
+                        rows.push({
+                            ...item,
+                            room_type_name: item.room_type_name || roomTypeName,
+                            competitor_name: item.competitor_name || competitorName,
+                        });
+                    });
+                });
+                return rows;
+            });
             const roundAgentMetric = (value, digits = 1) => Number((Number(value) || 0).toFixed(digits));
             const revenueAccuracyText = computed(() => {
                 const source = [
@@ -39759,6 +39977,8 @@
                 const aiFeasibilityRecords = ref([]);
                 const aiFeasibilityReadiness = ref(null);
                 const aiFeasibilityRecordId = ref(null);
+                const aiFeasibilityExecutionHotelId = ref('');
+                const aiFeasibilityExecutionLoading = ref(false);
                 const aiFeasibilityLoading = ref(false);
                 const aiFeasibilityRecordsLoading = ref(false);
                 const aiFeasibilityError = ref('');
@@ -40097,6 +40317,9 @@
             const collaborationEfficiencyLoading = ref(false);
             const expansionRecords = ref([]);
             const expansionRecordsLoading = ref(false);
+            const expansionExecutionHotelId = ref('');
+            const expansionExecutionLoadingId = ref(null);
+            const expansionHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
             const expansionRecordPageTypes = computed(() => simulationStaticOption('expansionRecordPageTypes', {}));
             const currentExpansionRecordType = computed(() => expansionRecordPageTypes.value[currentPage.value] || '');
             const visibleExpansionRecords = computed(() => {
@@ -40140,6 +40363,7 @@
             const transferSourceLoading = ref(false);
             const transferRecords = ref([]);
             const transferRecordsLoading = ref(false);
+            const transferExecutionLoadingId = ref(null);
             const transferHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
             const transferAiModelOptions = availableAiModelOptions;
             const buildTransferDecisionLayerRows = (...args) => hasSimulationStatic.value ? requireSimulationStatic('buildTransferDecisionLayerRows')(...args) : [];
@@ -40241,6 +40465,19 @@
             const feasibilityAiEmpowerment = computed(() => buildFeasibilityAiEmpowerment(aiFeasibilityResult.value));
 
             const feasibilityDecisionClass = computed(() => feasibilityDecisionClassForGrade(aiFeasibilityResult.value?.conclusion_grade));
+            const feasibilityExecutionIntentId = computed(() => {
+                const report = aiFeasibilityResult.value || {};
+                const direct = Number(report.execution_intent_id || report.operation_execution_intent_id || 0);
+                if (direct > 0) return direct;
+                const tracking = report.execution_tracking;
+                const rows = Array.isArray(tracking) ? tracking : (tracking && typeof tracking === 'object' ? [tracking] : []);
+                for (let i = rows.length - 1; i >= 0; i -= 1) {
+                    const id = Number(rows[i]?.execution_intent_id || rows[i]?.id || 0);
+                    if (id > 0) return id;
+                }
+                return 0;
+            });
+            const feasibilityExecutionLinked = computed(() => feasibilityExecutionIntentId.value > 0);
 
             const transferRiskTextClass = (risk) => {
                 if (risk === '高风险') return 'text-red-600';
@@ -40263,6 +40500,18 @@
                 const missing = Array.isArray(readiness?.missing_evidence) ? readiness.missing_evidence : [];
                 if (!missing.length) return '暂无显式缺口；立项后仍需关联执行和投后跟踪证据。';
                 return `缺口：${missing.slice(0, 3).map(item => item.label || item.code).join('、')}`;
+            };
+            const expansionExecutionIntentId = (record) => {
+                const result = record?.result || {};
+                const direct = Number(record?.execution_intent_id || result.operation_execution_intent_id || result.execution_intent_id || 0);
+                if (direct > 0) return direct;
+                const tracking = result.execution_tracking;
+                const rows = Array.isArray(tracking) ? tracking : (tracking && typeof tracking === 'object' ? [tracking] : []);
+                for (let i = rows.length - 1; i >= 0; i -= 1) {
+                    const id = Number(rows[i]?.execution_intent_id || rows[i]?.id || 0);
+                    if (id > 0) return id;
+                }
+                return 0;
             };
             const simulationReadinessBadgeClass = (stage) => {
                 if (stage === 'execution_ready' || stage === 'review_ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
@@ -40292,6 +40541,12 @@
                 if (['data_recheck_required', 'rejected', 'blocked'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
                 return 'bg-gray-50 text-gray-600 border-gray-200';
             };
+            const priceSuggestionReviewReadinessClass = (stage) => {
+                if (stage === 'effect_review_ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (['effect_review_window_open', 'effect_review_sample_missing', 'effect_review_not_started'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (stage === 'effect_review_read_failed') return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
             const agentClosureReadinessBadgeClass = (stage) => {
                 if (['service_closed', 'conversation_service_closed', 'saving_verified', 'maintenance_completed', 'knowledge_active_used'].includes(stage)) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
                 if (['conversation_observed', 'resolved_pending_review', 'completed_pending_saving', 'executed_pending_review'].includes(stage)) return 'bg-blue-50 text-blue-700 border-blue-200';
@@ -40309,6 +40564,18 @@
                 const missing = Array.isArray(readiness?.missing_evidence) ? readiness.missing_evidence : [];
                 if (!missing.length) return '暂无显式缺口；进入投决前仍需保留审批和跟踪证据。';
                 return `缺口：${missing.slice(0, 3).map(item => item.label || item.code).join('、')}`;
+            };
+            const transferExecutionIntentId = (record) => {
+                const result = record?.result || {};
+                const direct = Number(record?.execution_intent_id || result.operation_execution_intent_id || result.execution_intent_id || 0);
+                if (direct > 0) return direct;
+                const tracking = result.execution_tracking;
+                const rows = Array.isArray(tracking) ? tracking : (tracking && typeof tracking === 'object' ? [tracking] : []);
+                for (let i = rows.length - 1; i >= 0; i -= 1) {
+                    const id = Number(rows[i]?.execution_intent_id || rows[i]?.id || 0);
+                    if (id > 0) return id;
+                }
+                return 0;
             };
 
             const transferTimingDataCheck = computed(() => buildTransferTimingDataCheck(transferTimingForm.value || {}));
@@ -40517,6 +40784,38 @@
 
             const reuseExpansionRecord = async (record) => {
                 await loadExpansionDetail(record?.id, true);
+            };
+
+            const createExpansionExecutionIntent = async (record) => {
+                if (!record?.id) return;
+                if (expansionExecutionIntentId(record)) {
+                    showToast('该拓展记录已关联执行意图');
+                    return;
+                }
+
+                const hotelId = Number(expansionExecutionHotelId.value || 0);
+                if (!hotelId) {
+                    showToast('请选择执行跟踪酒店', 'error');
+                    return;
+                }
+
+                expansionExecutionLoadingId.value = record.id;
+                try {
+                    const res = await request(`/expansion/records/${record.id}/execution-intent`, {
+                        method: 'POST',
+                        body: JSON.stringify({ hotel_id: hotelId })
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '拓展转跟踪失败');
+                    if (res.data?.record && isExpansionRecordVisibleOnPage(res.data.record)) {
+                        applyExpansionRecord(res.data.record);
+                    }
+                    await loadExpansionRecords();
+                    showToast('拓展投后跟踪执行意图已创建');
+                } catch (error) {
+                    showToast(error.message || '拓展转跟踪失败', 'error');
+                } finally {
+                    expansionExecutionLoadingId.value = null;
+                }
             };
 
             const archiveExpansionRecord = async (record) => {
@@ -40803,6 +41102,26 @@
 
             const reuseTransferRecord = async (record) => {
                 await loadTransferDetail(record?.id, true);
+            };
+
+            const createTransferExecutionIntent = async (record) => {
+                if (!record?.id) return;
+                if (transferExecutionIntentId(record)) {
+                    showToast('该转让记录已关联执行意图');
+                    return;
+                }
+
+                transferExecutionLoadingId.value = record.id;
+                try {
+                    const res = await request(`/transfer/records/${record.id}/execution-intent`, { method: 'POST' });
+                    if (res.code !== 200) throw new Error(res.message || '转跟踪失败');
+                    await loadTransferRecords();
+                    showToast('转让投后跟踪执行意图已创建');
+                } catch (error) {
+                    showToast(error.message || '转跟踪失败', 'error');
+                } finally {
+                    transferExecutionLoadingId.value = null;
+                }
             };
 
             const archiveTransferRecord = async (record) => {
@@ -41447,6 +41766,41 @@
                 }
             };
 
+            const createFeasibilityExecutionIntent = async () => {
+                const reportId = Number(aiFeasibilityRecordId.value || 0);
+                const hotelId = Number(aiFeasibilityExecutionHotelId.value || 0);
+                if (!reportId) {
+                    showToast('请先生成或加载可行性报告', 'error');
+                    return;
+                }
+                if (!hotelId) {
+                    showToast('请选择跟踪酒店', 'error');
+                    return;
+                }
+                if (feasibilityExecutionLinked.value) {
+                    showToast('该可行性报告已关联执行意图');
+                    return;
+                }
+
+                aiFeasibilityExecutionLoading.value = true;
+                try {
+                    const res = await request(`/agent/feasibility-report/${reportId}/execution-intent`, {
+                        method: 'POST',
+                        body: JSON.stringify({ hotel_id: hotelId })
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '转投后跟踪失败');
+                    if (res.data?.report) {
+                        applyFeasibilityRecord(res.data.report);
+                    }
+                    await loadFeasibilityRecords();
+                    showToast('投后跟踪执行意图已创建');
+                } catch (error) {
+                    showToast(error.message || '转投后跟踪失败', 'error');
+                } finally {
+                    aiFeasibilityExecutionLoading.value = false;
+                }
+            };
+
             const stringifyFeasibilityReport = () => {
                 return stringifyFeasibilityReportText(aiFeasibilityResult.value, aiProject.value?.project_name || '');
             };
@@ -41503,17 +41857,17 @@
                 aiProject, aiStrategyParams, aiStrategyResult, aiStrategyRecords, aiStrategyRecordId, aiStrategyLoading, aiStrategyRecordsLoading, strategyCurrentReadiness, strategyScoreCards, strategyFreshnessLabel, strategyAiSourceLabel, strategyDataNotice, strategyDataSourceRows, strategyAiEmpowermentCards, handleStrategy, loadStrategyRecords, loadStrategyDetail, reuseStrategyRecord, archiveStrategyRecord,
                 aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationCurrentReadiness, simulationReadinessBadgeClass, simulationReadinessMissingText,
                 simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationCostSummary, simulationCostGroups, simulationOtaCommissionChannels, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord,
-                aiFeasibilityResult, aiFeasibilityRecords, aiFeasibilityReadiness, aiFeasibilityRecordId, aiFeasibilityLoading, aiFeasibilityRecordsLoading, aiFeasibilityError, feasibilityInputCards, feasibilityReportCards, feasibilityAiEmpowerment, feasibilityDecisionClass, feasibilityReadinessBadgeClass, feasibilityReadinessMissingText, handleFeasibility, loadFeasibilityRecords, loadFeasibilityDetail, reuseFeasibilityRecord, archiveFeasibilityRecord, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
+                aiFeasibilityResult, aiFeasibilityRecords, aiFeasibilityReadiness, aiFeasibilityRecordId, aiFeasibilityExecutionHotelId, aiFeasibilityExecutionLoading, aiFeasibilityLoading, aiFeasibilityRecordsLoading, aiFeasibilityError, feasibilityInputCards, feasibilityReportCards, feasibilityAiEmpowerment, feasibilityDecisionClass, feasibilityExecutionIntentId, feasibilityExecutionLinked, feasibilityReadinessBadgeClass, feasibilityReadinessMissingText, handleFeasibility, createFeasibilityExecutionIntent, loadFeasibilityRecords, loadFeasibilityDetail, reuseFeasibilityRecord, archiveFeasibilityRecord, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
                 marketEvaluationForm, marketEvaluationCityOptions, marketEvaluationCityTierOptions, filteredMarketEvaluationCityOptions, filteredStrategyCityOptions, filteredStrategyDistrictOptions, filteredStrategyAddressKeywordOptions, marketEvaluationConditionFields, marketEvaluationCustomerOptions, secondaryMarketEvaluationCustomerOptions, marketEvaluationDecorationOptions, marketEvaluationResult, marketEvaluationAiJudgementRows, marketEvaluationAiRecommendations, marketEvaluationAiRiskSuggestions, marketEvaluationRiskSeverityClass, marketEvaluationAiAssumptions, marketEvaluationScoreFormula, marketEvaluationScoreBreakdown, marketEvaluationScorePercent, formatMarketEvaluationScoreChange, marketEvaluationScoreChangeClass, marketEvaluationAiRiskNote, marketEvaluationLoading, handleMarketEvaluation,
                 benchmarkModelForm, benchmarkModelResult, benchmarkModelLoading, benchmarkModelDetailFields, benchmarkModelDetailCards, benchmarkModelDetailCompleteness, benchmarkModelEstimatedFields, benchmarkModelAiSourceLabel, benchmarkModelAiRecommendations, benchmarkModelAiWatchPoints, benchmarkModelAiAssumptionNote, benchmarkModelDataNotice, benchmarkModelAiOutcomeCards, benchmarkMetricValue, benchmarkSignedValue, benchmarkStrategyLabel, handleBenchmarkModel,
                 collaborationProject, collaborationTasks, collaborationStatusOptions, collaborationEfficiencyResult, collaborationEfficiencyLoading, handleCollaborationEfficiency,
-                expansionRecords, visibleExpansionRecords, expansionRecordsLoading, hasMarketEvaluationHistory, hasExpansionHistory, expansionCurrentReadiness,
-                expansionRecordTypeLabel, expansionReadinessBadgeClass, expansionReadinessMissingText, loadExpansionRecords, loadExpansionDetail, reuseExpansionRecord, archiveExpansionRecord, clearMarketEvaluationHistory, clearExpansionHistory,
+                expansionRecords, visibleExpansionRecords, expansionRecordsLoading, expansionExecutionHotelId, expansionExecutionLoadingId, expansionHotelOptions, hasMarketEvaluationHistory, hasExpansionHistory, expansionCurrentReadiness,
+                expansionRecordTypeLabel, expansionReadinessBadgeClass, expansionReadinessMissingText, expansionExecutionIntentId, loadExpansionRecords, loadExpansionDetail, reuseExpansionRecord, createExpansionExecutionIntent, archiveExpansionRecord, clearMarketEvaluationHistory, clearExpansionHistory,
                 transferPricingForm, transferPricingFields, transferAiModelOptions, transferPricingResult, transferPricingLoading, transferPricingCards, transferPricingValuationRows, transferPricingAdvice, transferPricingAiEvaluation, transferPricingAiEvaluationVisible, transferPricingAiEvaluationSourceLabel, handleTransferPricing,
                 transferTimingForm, transferTimingCompareFields, transferTimingNumberFields, transferTimingDataFields, transferTimingDataCheck, transferTimingResult, transferTimingLoading, handleTransferTiming, transferDecisionClass,
                 transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
-                transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceLoading, transferRecords, transferRecordsLoading, transferHotelOptions, transferDecisionLayerRows, transferCurrentReadiness,
-                transferRecordTypeLabel, transferReadinessBadgeClass, transferReadinessMissingText, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, archiveTransferRecord,
+                transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceLoading, transferRecords, transferRecordsLoading, transferExecutionLoadingId, transferHotelOptions, transferDecisionLayerRows, transferCurrentReadiness,
+                transferRecordTypeLabel, transferReadinessBadgeClass, transferReadinessMissingText, transferExecutionIntentId, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, createTransferExecutionIntent, archiveTransferRecord,
                     operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationExecutionFlow, operationClosureOverview, operationEffectValidation,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
                 operationStrategyRequirementText, operationStrategyAmountRequired, operationStrategyDiscountRequired,
@@ -41529,16 +41883,16 @@
                 operationAlertStatusLabel, operationAlertLevelClass, operationAlertSuggestion, operationRiskLevelLabel, operationStrategyTypeLabel,
                 operationActionStatusLabel, operationMetricRows, operationActionDataText, operationActionTarget,
                 operationEffectMetricCards, operationEffectDataGapText, operationEffectStatusLabel, operationEffectStatusClass, operationEffectMetricStatusLabel, operationEffectMetricValue,
-                    operationClosureModules, operationClosureSummaryCards, operationClosureStatusClass, operationClosureScoreClass, operationClosureGapText,
+                    operationClosureModules, operationClosureSummaryCards, operationClosureStatusClass, operationClosureScoreClass, operationClosureGapText, openOperationClosureModule,
                     operationExecutionItems, operationExecutionStages, operationExecutionSummaryCards, operationExecutionSourceText, operationExecutionActionText,
                 operationExecutionStatusLabel, operationExecutionStatusClass, operationExecutionReviewText, operationExecutionRoiText,
                 operationExecutionBottleneckText, operationExecutionMoneyStatusText, operationExecutionMoneyStatusClass, operationExecutionNextActionClass,
                 operationCanApproveExecution, operationCanExecuteWithEvidence, operationCanReviewExecution, operationExecutionActionAvailable, operationExecutionTraceRows,
                 approveOperationExecutionIntent, recordOperationExecutionEvidence, reviewOperationExecutionTask,
-                openingProjects, selectedOpeningProjectId, selectedOpeningProject, openingOverview, openingTasks, openingLoading,
+                openingProjects, selectedOpeningProjectId, selectedOpeningProject, openingExecutionIntentId, openingOverview, openingTasks, openingLoading,
                 openingProjectForm, openingPositioningImpact, openingTaskFilter, openingTaskPage, openingTaskPagination, pagedOpeningTasks, openingCategories, openingStatusOptions, openingProgressQuickValues, openingOverviewCards, openingCategoryProgressCards, openingTaskStats, openingTaskProgressCards, openingTaskProgressStages, openingAiOutputResult, openingStatusFilterChips, openingAttentionFilterChips, filteredOpeningTasks,
                 selectedOpeningTaskIds, selectedOpeningTasks, isAllFilteredOpeningTasksSelected, toggleSelectAllFilteredOpeningTasks, clearSelectedOpeningTasks, batchUpdateOpeningTasks,
-                loadOpeningProjects, createOpeningProject, saveOpeningProject, archiveOpeningProject, startOpeningProjectCreate, selectOpeningProject, generateOpeningTasks, openOpeningChecklist, updateOpeningTask, setOpeningTaskStatus, resetOpeningTaskFilter, changeOpeningTaskPage, recalculateOpening,
+                loadOpeningProjects, createOpeningProject, saveOpeningProject, archiveOpeningProject, startOpeningProjectCreate, selectOpeningProject, generateOpeningTasks, openOpeningChecklist, createOpeningExecutionIntent, updateOpeningTask, setOpeningTaskStatus, resetOpeningTaskFilter, changeOpeningTaskPage, recalculateOpening,
                 openingTaskDueLabel, openingTaskDueClass, openingTaskProgressPercent, openingTaskProgressStage, openingTaskProgressTextClass, handleOpeningTaskProgressInput, handleOpeningTaskStatusChange, setOpeningTaskProgress, saveOpeningTaskProgress,
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
@@ -41560,7 +41914,7 @@
                 markAllGlobalNotificationsRead, clearGlobalNotifications, globalNotificationSeverityDotClass, globalNotificationBadgeClass,
                 revenueResearchProducts, revenueResearchStatusClass, revenueResearchRuns, revenueResearchHotelId, revenueResearchHotelOptions, revenueResearchSteps, revenueResearchRunFor,
                 revenueResearchStepClass, revenueResearchStepIcon, revenueResearchResultStatusLabel, revenueResearchResultStatusClass, revenueResearchReadinessClass, revenueResearchMissingText,
-                revenueResearchForecastCards, revenueForecastReadinessClass, runRevenueResearchProduct, openRevenueResearchModule,
+                revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
                 hotels, permittedHotels, hotelColumns, userColumns, users, roles, getHotelNameById, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatConfigDate, secretPreview,
@@ -41713,7 +42067,7 @@
                 agentLogs, agentLogFilter,
                 loadAgentOverview, saveAgentConfig,
                 loadKnowledgeBase, openKnowledgeModal, saveKnowledge, deleteKnowledge,
-                loadPriceSuggestions, approvePrice, generatePriceSuggestions, applyPriceSuggestion, createPriceSuggestionExecutionIntent, reviewPriceSuggestion, pricingReadinessBadgeClass, agentClosureReadinessBadgeClass,
+                loadPriceSuggestions, approvePrice, generatePriceSuggestions, applyPriceSuggestion, createPriceSuggestionExecutionIntent, reviewPriceSuggestion, pricingReadinessBadgeClass, priceSuggestionReviewReadinessClass, agentClosureReadinessBadgeClass,
                 loadDevices, openDeviceModal, saveDevice,
                 loadEnergyData, loadAgentLogs,
                 // Agent中心 - 智能员工增强
@@ -41724,7 +42078,7 @@
                 // Agent中心 - 收益管理增强
                 demandForecasts, forecastFilter, forecastAccuracy, highDemandDates, revenueDashboard,
                 revenueAnalysisData, revenueAnalysisDataNotice, revenueAccuracyText, revenueRevparRows,
-                competitorAnalysis, competitorFilter,
+                competitorAnalysis, competitorFilter, competitorPriceMatrixRows,
                 loadDemandForecasts, loadCompetitorAnalysis, loadRevenueDashboard, loadRevenueAnalysis, loadRevenueAnalysisBundle,
                 // Agent中心 - 资产运维增强
                 energyBenchmarks, energySuggestions, suggestionFilter,

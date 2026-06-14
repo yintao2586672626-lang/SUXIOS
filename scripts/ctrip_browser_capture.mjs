@@ -730,13 +730,13 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
         },
       }], {
         profileId,
-        hotelId: hotelId || profileId,
+        hotelId,
         defaultDataDate,
         capturedAt,
         pageUrl: page.url(),
         activeSection: activeSection || p3Candidate.candidate_section,
         params: {
-          hotel_id: hotelId || profileId,
+          hotel_id: hotelId,
           data_date: defaultDataDate,
         },
       });
@@ -763,7 +763,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       endpoint,
       section,
       dataType,
-      hotelId: hotelId || profileId,
+      hotelId,
       dataDate: defaultDataDate,
       capturedAt,
       url,
@@ -1034,7 +1034,7 @@ function normalizeBusinessRow(row, sourceUrl) {
   }
 
   const dataDate = normalizeDate(firstValue(row, ['dataDate', 'date', 'data_date', 'statDate', 'stat_date', 'bizDate', 'businessDate', 'reportDate'])) || defaultDataDate;
-  const resolvedHotelId = ctripPlatformHotelId(row, hotelId || profileId);
+  const resolvedHotelId = ctripPlatformHotelId(row, hotelId);
   if (!resolvedHotelId) {
     return null;
   }
@@ -1092,7 +1092,7 @@ function normalizeTrafficRow(row, sourceUrl, requestDateEvidence = {}) {
 
   const compareText = String(firstValue(row, ['compareType', 'compare_type', 'type', 'rankType', 'name', 'hotelName'], '')).toLowerCase();
   const isCompetitor = /competitor|peer|average|avg|compete/.test(compareText);
-  const resolvedHotelId = ctripPlatformHotelId(row, isCompetitor ? '-1' : (hotelId || profileId));
+  const resolvedHotelId = ctripPlatformHotelId(row, isCompetitor ? '-1' : hotelId);
   if (!resolvedHotelId) {
     return null;
   }

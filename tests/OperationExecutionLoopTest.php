@@ -64,6 +64,116 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame('medium', $payload['risk_level']);
     }
 
+    public function testInvestmentIntentMovesToPendingApprovalWhenTrackingFieldsAreComplete(): void
+    {
+        $service = new OperationManagementService();
+
+        $payload = $service->buildExecutionIntentPayload([7], 7, [
+            'source_module' => 'feasibility_report',
+            'source_record_id' => 31,
+            'hotel_id' => 7,
+            'platform' => 'investment',
+            'object_type' => 'investment',
+            'action_type' => 'post_decision_tracking',
+            'target_value' => [
+                'project_name' => 'Valid Project',
+                'tracking_status' => 'pending_post_decision_tracking',
+                'target_metric' => 'investment_decision_closure',
+            ],
+            'evidence' => [
+                'readiness_stage' => 'approved_pending_tracking',
+                'source_scope' => 'daily_reports:12',
+            ],
+            'expected_metric' => 'investment_decision_closure',
+            'risk_level' => 'medium',
+        ], 3);
+
+        self::assertSame('pending_approval', $payload['status']);
+        self::assertSame('', $payload['blocked_reason']);
+        self::assertSame('investment', $payload['object_type']);
+    }
+
+    public function testInvestmentIntentIsBlockedWhenProjectTrackingFieldsAreMissing(): void
+    {
+        $service = new OperationManagementService();
+
+        $payload = $service->buildExecutionIntentPayload([7], 7, [
+            'source_module' => 'feasibility_report',
+            'source_record_id' => 31,
+            'hotel_id' => 7,
+            'platform' => 'investment',
+            'object_type' => 'investment',
+            'action_type' => 'post_decision_tracking',
+            'target_value' => [
+                'project_name' => '',
+            ],
+            'evidence' => ['readiness_stage' => 'review_ready'],
+        ], 3);
+
+        self::assertSame('blocked', $payload['status']);
+        self::assertStringContainsString('project_name missing', $payload['blocked_reason']);
+        self::assertStringContainsString('tracking_status missing', $payload['blocked_reason']);
+        self::assertStringContainsString('target_metric missing', $payload['blocked_reason']);
+    }
+
+    public function testOpeningIntentMovesToPendingApprovalWhenTrackingFieldsAreComplete(): void
+    {
+        $service = new OperationManagementService();
+
+        $payload = $service->buildExecutionIntentPayload([7], 7, [
+            'source_module' => 'opening',
+            'source_record_id' => 9,
+            'hotel_id' => 7,
+            'platform' => 'internal',
+            'object_type' => 'opening',
+            'action_type' => 'go_live_preparation_tracking',
+            'target_value' => [
+                'project_name' => 'Opening Project',
+                'tracking_status' => 'pending_opening_go_live_evidence',
+                'target_metric' => 'opening_go_live_closure',
+            ],
+            'evidence' => [
+                'source_scope' => 'opening_project_and_tasks',
+                'days_left' => 14,
+            ],
+            'expected_metric' => 'opening_go_live_closure',
+            'risk_level' => 'medium',
+        ], 3);
+
+        self::assertSame('pending_approval', $payload['status']);
+        self::assertSame('', $payload['blocked_reason']);
+        self::assertSame('opening', $payload['object_type']);
+    }
+
+    public function testExpansionIntentMovesToPendingApprovalWhenTrackingFieldsAreComplete(): void
+    {
+        $service = new OperationManagementService();
+
+        $payload = $service->buildExecutionIntentPayload([7], 7, [
+            'source_module' => 'expansion',
+            'source_record_id' => 9,
+            'hotel_id' => 7,
+            'platform' => 'investment',
+            'object_type' => 'expansion',
+            'action_type' => 'expansion_post_decision_tracking',
+            'target_value' => [
+                'project_name' => 'Expansion Project',
+                'tracking_status' => 'pending_expansion_post_decision_tracking',
+                'target_metric' => 'expansion_project_closure',
+            ],
+            'evidence' => [
+                'source_scope' => 'expansion_screening_and_project_decision',
+                'readiness_stage' => 'approved_pending_tracking',
+            ],
+            'expected_metric' => 'expansion_project_closure',
+            'risk_level' => 'medium',
+        ], 3);
+
+        self::assertSame('pending_approval', $payload['status']);
+        self::assertSame('', $payload['blocked_reason']);
+        self::assertSame('expansion', $payload['object_type']);
+    }
+
     public function testPriceSuggestionBuildsExecutionIntentInput(): void
     {
         $service = new OperationManagementService();
@@ -270,6 +380,119 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame(200.0, $summary['total_cost']);
         self::assertSame(100.0, $summary['total_profit']);
         self::assertSame(100.0, $summary['profitable_rate']);
+        self::assertSame(1, $summary['roi_percent_ready']);
+        self::assertSame(0, $summary['revenue_lift_ready']);
+        self::assertSame(50.0, $summary['avg_roi']);
+        self::assertNull($summary['avg_revenue_lift']);
+    }
+
+    public function testPriceExecutionRoiCanUseIncrementalRevenueWithoutCost(): void
+    {
+        $service = new OperationManagementService();
+
+        $item = $service->buildExecutionFlowItem([
+            'id' => 13,
+            'source_module' => 'price_suggestion',
+            'source_record_id' => 77,
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'price',
+            'action_type' => 'price_adjust',
+            'date_start' => '2026-06-01',
+            'date_end' => '2026-06-01',
+            'current_value_json' => json_encode(['current_price' => 280], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['target_price' => 318], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => json_encode(['reason' => 'competitor price higher'], JSON_UNESCAPED_UNICODE),
+            'expected_metric' => 'revenue',
+            'expected_delta' => 200,
+            'risk_level' => 'medium',
+            'status' => 'approved',
+            'approved_by' => 3,
+            'approved_at' => '2026-06-01 10:00:00',
+            'review_remark' => '',
+            'blocked_reason' => '',
+            'created_at' => '2026-06-01 09:00:00',
+        ], [[
+            'id' => 31,
+            'intent_id' => 13,
+            'hotel_id' => 7,
+            'execution_mode' => 'manual',
+            'status' => 'executed',
+            'operator_id' => 3,
+            'result_status' => 'success',
+            'result_summary' => 'ADR lifted after price adjustment',
+            'executed_at' => '2026-06-01 11:00:00',
+            'current_value_json' => json_encode(['revenue' => 1000], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['target_price' => 318], JSON_UNESCAPED_UNICODE),
+        ]], [[
+            'id' => 41,
+            'task_id' => 31,
+            'evidence_type' => 'manual',
+            'before_json' => json_encode(['revenue' => 1000], JSON_UNESCAPED_UNICODE),
+            'after_json' => json_encode(['revenue' => 1300], JSON_UNESCAPED_UNICODE),
+            'platform_response_json' => json_encode(['mode' => 'manual'], JSON_UNESCAPED_UNICODE),
+            'remark' => 'price updated manually',
+            'created_at' => '2026-06-08 11:10:00',
+        ]]);
+
+        self::assertSame('reviewed', $item['stage']);
+        self::assertSame('ready', $item['roi']['status']);
+        self::assertSame('amount', $item['roi']['unit']);
+        self::assertSame(300.0, $item['roi']['value']);
+        self::assertSame(0.0, $item['roi']['cost']);
+        self::assertSame('after_revenue - before_revenue', $item['roi']['formula']);
+
+        $summary = $service->buildExecutionFlowSummary([$item]);
+        self::assertSame(1, $summary['roi_ready']);
+        self::assertSame(0, $summary['roi_percent_ready']);
+        self::assertSame(1, $summary['revenue_lift_ready']);
+        self::assertNull($summary['avg_roi']);
+        self::assertSame(300.0, $summary['avg_revenue_lift']);
+        self::assertSame(300.0, $summary['total_profit']);
+    }
+
+    public function testExecutionSummaryDoesNotMixPercentRoiAndRevenueLift(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $service->buildExecutionFlowSummary([
+            [
+                'stage' => 'reviewed',
+                'approval' => ['status' => 'approved'],
+                'execution' => ['status' => 'executed'],
+                'evidence' => ['count' => 1],
+                'roi' => [
+                    'status' => 'ready',
+                    'unit' => '%',
+                    'value' => 50.0,
+                    'incremental_revenue' => 300.0,
+                    'cost' => 200.0,
+                    'profit' => 100.0,
+                ],
+            ],
+            [
+                'stage' => 'reviewed',
+                'approval' => ['status' => 'approved'],
+                'execution' => ['status' => 'executed'],
+                'evidence' => ['count' => 1],
+                'roi' => [
+                    'status' => 'ready',
+                    'unit' => 'amount',
+                    'value' => 300.0,
+                    'incremental_revenue' => 300.0,
+                    'cost' => 0.0,
+                    'profit' => 300.0,
+                ],
+            ],
+        ]);
+
+        self::assertSame(2, $summary['roi_ready']);
+        self::assertSame(1, $summary['roi_percent_ready']);
+        self::assertSame(1, $summary['revenue_lift_ready']);
+        self::assertSame(50.0, $summary['avg_roi']);
+        self::assertSame(300.0, $summary['avg_revenue_lift']);
+        self::assertSame(600.0, $summary['total_incremental_revenue']);
+        self::assertSame(400.0, $summary['total_profit']);
     }
 
     public function testExecutionFlowItemProvidesNextAction(): void

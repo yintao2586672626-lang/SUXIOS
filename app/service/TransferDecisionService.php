@@ -582,6 +582,122 @@ class TransferDecisionService
         return true;
     }
 
+    public function buildExecutionIntentInput(array $record, array $overrides = []): array
+    {
+        $hotelId = (int)($record['hotel_id'] ?? 0);
+        if ($hotelId <= 0) {
+            throw new InvalidArgumentException('hotel_id is required for transfer execution tracking');
+        }
+
+        $input = $this->decodeJson($record['input'] ?? $record['input_json'] ?? []);
+        $result = $this->decodeJson($record['result'] ?? $record['result_json'] ?? []);
+        $snapshot = $this->decodeJson($record['snapshot'] ?? $record['snapshot_json'] ?? []);
+        $recordType = (string)($record['record_type'] ?? '');
+        $readiness = is_array($record['decision_readiness'] ?? null)
+            ? $record['decision_readiness']
+            : $this->buildDecisionReadiness($recordType, $input, $result, $snapshot, $hotelId);
+        $date = date('Y-m-d');
+        $dateStart = trim((string)($overrides['date_start'] ?? '')) ?: $date;
+        $dateEnd = trim((string)($overrides['date_end'] ?? '')) ?: $dateStart;
+        $projectName = trim((string)($record['hotel_name'] ?? $snapshot['hotel_name'] ?? $input['hotel_name'] ?? ''));
+        if ($projectName === '') {
+            $projectName = 'transfer_record_' . (int)($record['id'] ?? 0);
+        }
+
+        return [
+            'source_module' => 'transfer_decision',
+            'source_record_id' => (int)($record['id'] ?? 0),
+            'hotel_id' => $hotelId,
+            'platform' => 'investment',
+            'object_type' => 'investment',
+            'action_type' => 'transfer_post_decision_tracking',
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+            'current_value' => [
+                'project_name' => $projectName,
+                'record_type' => $recordType,
+                'decision' => (string)($record['decision'] ?? $result['suggested_action'] ?? $result['decision'] ?? ''),
+                'risk_level' => (string)($record['risk_level'] ?? $result['risk_level'] ?? ''),
+                'readiness_stage' => (string)($readiness['stage'] ?? ''),
+            ],
+            'target_value' => [
+                'project_name' => $projectName,
+                'tracking_status' => 'pending_transfer_followup',
+                'target_metric' => 'transfer_decision_closure',
+                'decision_stage' => (string)($readiness['stage'] ?? ''),
+                'next_action' => (string)($readiness['next_action'] ?? ''),
+            ],
+            'evidence' => [
+                'record_type' => $recordType,
+                'readiness_stage' => (string)($readiness['stage'] ?? ''),
+                'readiness_score' => (int)($readiness['score'] ?? 0),
+                'source_scope' => (string)($readiness['source_scope'] ?? ''),
+                'missing_evidence' => array_values((array)($readiness['missing_evidence'] ?? [])),
+                'decision' => (string)($record['decision'] ?? ''),
+                'source_date' => (string)($record['source_date'] ?? ''),
+                'scope_notice' => 'Transfer decision evidence is investment decision scope; OTA evidence remains channel-scope unless backed by full hotel operating data.',
+            ],
+            'expected_metric' => 'transfer_decision_closure',
+            'expected_delta' => 0,
+            'risk_level' => $this->executionRiskLevel((string)($record['risk_level'] ?? ''), (string)($record['decision'] ?? '')),
+            'status' => 'pending_approval',
+        ];
+    }
+
+    public function attachExecutionTracking(int $id, array $hotelIds, int $userId, bool $isSuperAdmin, array $tracking): array
+    {
+        $this->ensureTable();
+        $intentId = (int)($tracking['execution_intent_id'] ?? $tracking['id'] ?? 0);
+        if ($intentId <= 0) {
+            throw new InvalidArgumentException('execution_intent_id is required');
+        }
+
+        $query = Db::name('transfer_records')->where('id', $id)->whereNull('deleted_at')->whereIn('hotel_id', $hotelIds);
+        $row = $query->find();
+        if (!$row) {
+            throw new RuntimeException('转让记录不存在或无权访问');
+        }
+
+        $result = $this->decodeJson($row['result_json'] ?? '');
+        $now = date('Y-m-d H:i:s');
+        $trackingPayload = [
+            'type' => 'operation_execution_intent',
+            'execution_intent_id' => $intentId,
+            'hotel_id' => (int)($tracking['hotel_id'] ?? $row['hotel_id'] ?? 0),
+            'status' => trim((string)($tracking['status'] ?? '')),
+            'source_module' => 'transfer_decision',
+            'linked_at' => $now,
+        ];
+
+        $existing = $result['execution_tracking'] ?? [];
+        if (!is_array($existing)) {
+            $existing = [];
+        }
+        if ($existing !== [] && array_keys($existing) !== range(0, count($existing) - 1)) {
+            $existing = [$existing];
+        }
+        $existing[] = $trackingPayload;
+
+        $result['execution_tracking'] = $existing;
+        $result['operation_execution_intent_id'] = $intentId;
+        $result['post_decision_tracking'] = [
+            'status' => 'linked',
+            'latest_execution_intent_id' => $intentId,
+            'latest_status' => $trackingPayload['status'],
+            'hotel_id' => $trackingPayload['hotel_id'],
+            'linked_at' => $now,
+        ];
+
+        Db::name('transfer_records')->where('id', $id)->update([
+            'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE),
+            'updated_at' => $now,
+        ]);
+
+        $row['result_json'] = $result;
+        $row['updated_at'] = $now;
+        return $this->formatRecord($row, true);
+    }
+
     public function ensureTable(): void
     {
         Db::execute("
@@ -1351,6 +1467,7 @@ class TransferDecisionService
             'source_date' => (string)($row['source_date'] ?? ''),
             'decision' => (string)($row['decision'] ?? ''),
             'risk_level' => (string)($row['risk_level'] ?? ''),
+            'execution_intent_id' => (int)($result['operation_execution_intent_id'] ?? $result['execution_intent_id'] ?? 0),
             'created_by' => (int)($row['created_by'] ?? 0),
             'created_at' => (string)($row['created_at'] ?? ''),
             'summary' => [
@@ -1375,6 +1492,18 @@ class TransferDecisionService
         }
 
         return $record;
+    }
+
+    private function executionRiskLevel(string $riskLevel, string $decision): string
+    {
+        $text = strtolower($riskLevel . ' ' . $decision);
+        if (str_contains($text, 'high') || str_contains($riskLevel, '高') || str_contains($decision, '暂缓') || str_contains($decision, '暂不')) {
+            return 'high';
+        }
+        if (str_contains($text, 'low') || str_contains($riskLevel, '低')) {
+            return 'low';
+        }
+        return 'medium';
     }
 
     private function dailyReportRows(array $hotelIds, string $startDate, string $endDate): array

@@ -194,7 +194,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $fallbackHotelId): array
+    private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $platformHotelId): array
     {
         $rows = [];
         foreach (['standard_rows', 'business', 'traffic'] as $section) {
@@ -206,7 +206,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 $row['source'] = 'ctrip';
                 $row['platform'] = $row['platform'] ?? 'ctrip';
                 $row['system_hotel_id'] = $row['system_hotel_id'] ?? $systemHotelId;
-                $row['hotel_id'] = $row['hotel_id'] ?? $row['hotelId'] ?? $fallbackHotelId;
+                $row['hotel_id'] = $row['hotel_id'] ?? $row['hotelId'] ?? $platformHotelId;
                 $row['hotel_name'] = $row['hotel_name'] ?? $row['hotelName'] ?? $source['name'] ?? '';
                 $row['data_date'] = $this->normalizeDate((string)($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? '')) ?: $dataDate;
                 if (!isset($row['data_type'])) {
@@ -459,7 +459,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             $gateWarning = $this->buildCaptureGateWarning($gate, $failedCheckIds);
         }
 
-        $rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $hotelId !== '' ? $hotelId : $profileId);
+        $rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $hotelId);
         if (empty($rows)) {
             return [
                 'status' => 'failed',

@@ -289,6 +289,56 @@ final class ExpansionServiceTest extends TestCase
         self::assertTrue($approved['project_ready']);
     }
 
+    public function testBuildExecutionIntentInputRequiresExplicitHotel(): void
+    {
+        $service = $this->fallbackService();
+
+        $this->expectException(InvalidArgumentException::class);
+        $service->buildExecutionIntentInput(['id' => 9], 0);
+    }
+
+    public function testBuildExecutionIntentInputUsesExpansionDecisionScope(): void
+    {
+        $service = $this->fallbackService();
+        $marketInput = $this->marketInput();
+        $benchmarkInput = $this->benchmarkInput();
+        $market = $service->evaluateMarket($marketInput);
+        $benchmark = $service->buildBenchmarkModel($benchmarkInput);
+        $collaborationInput = array_merge($this->collaborationInput(), [
+            'market_input' => $marketInput,
+            'market_result' => $market,
+            'benchmark_input' => $benchmarkInput,
+            'benchmark_result' => $benchmark,
+            'source_evidence' => ['competitor_samples' => 'checked'],
+            'review_status' => 'approved',
+        ]);
+        $collaboration = $service->improveCollaboration($collaborationInput);
+        $readiness = $service->buildProjectReadiness('collaboration', $collaborationInput, $collaboration);
+
+        $intentInput = $service->buildExecutionIntentInput([
+            'id' => 9,
+            'record_type' => 'collaboration',
+            'project_name' => '上海虹桥新店',
+            'city_area' => '上海虹桥',
+            'decision' => '可推进',
+            'risk_level' => '中风险',
+            'input' => $collaborationInput,
+            'result' => $collaboration,
+            'project_readiness' => $readiness,
+        ], 7, ['date_start' => '2026-06-14']);
+
+        self::assertSame('expansion', $intentInput['source_module']);
+        self::assertSame(9, $intentInput['source_record_id']);
+        self::assertSame(7, $intentInput['hotel_id']);
+        self::assertSame('investment', $intentInput['platform']);
+        self::assertSame('expansion', $intentInput['object_type']);
+        self::assertSame('expansion_project_closure', $intentInput['target_value']['target_metric']);
+        self::assertSame('pending_expansion_post_decision_tracking', $intentInput['target_value']['tracking_status']);
+        self::assertSame($readiness['stage'], $intentInput['evidence']['readiness_stage']);
+        self::assertSame('expansion_screening_and_project_decision', $intentInput['evidence']['source_scope']);
+        self::assertSame('medium', $intentInput['risk_level']);
+    }
+
     public static function invalidMarketInputProvider(): array
     {
         return [

@@ -25,6 +25,7 @@ use app\model\OperationLog;
 use app\model\SystemConfig;
 use app\model\AiModelConfig;
 use app\service\AgentClosureReadinessService;
+use app\service\CompetitorPriceReadinessService;
 use app\service\FeasibilityReportService;
 use app\service\LlmClient;
 use app\service\OperationManagementService;
@@ -3410,6 +3411,72 @@ class Agent extends Base
     /**
      * 获取Agent配置
      */
+    public function createFeasibilityExecutionIntent(): Response
+    {
+        $this->checkLogin();
+
+        $id = (int) $this->request->param('id', 0);
+        if ($id <= 0) {
+            return $this->error('feasibility report id is invalid', 422);
+        }
+
+        $hotelId = (int) $this->request->param('hotel_id', 0);
+        if ($hotelId <= 0) {
+            return $this->error('hotel_id is required for feasibility execution tracking', 422);
+        }
+
+        $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+        if (empty($permittedHotelIds) || !in_array($hotelId, $permittedHotelIds, true)) {
+            return $this->error('hotel_id is not permitted', 403);
+        }
+
+        $userId = (int) ($this->currentUser->id ?? 0);
+        $isSuperAdmin = $this->currentUser->isSuperAdmin();
+        $feasibilityService = $this->feasibilityService();
+        $report = $feasibilityService->detail($id, $userId, $isSuperAdmin);
+        if (!$report) {
+            return $this->error('feasibility report not found', 404);
+        }
+
+        if ((int)($report['report']['execution_intent_id'] ?? 0) > 0) {
+            return $this->error('feasibility report already linked to execution intent', 409);
+        }
+
+        try {
+            $result = Db::transaction(function () use ($feasibilityService, $report, $id, $hotelId, $permittedHotelIds, $userId, $isSuperAdmin): array {
+                $operationService = new OperationManagementService();
+                $input = $feasibilityService->buildExecutionIntentInput($report, $hotelId, [
+                    'date_start' => (string)$this->request->param('date_start', ''),
+                    'date_end' => (string)$this->request->param('date_end', ''),
+                ]);
+                $intent = $operationService->createExecutionIntent($permittedHotelIds, $hotelId, $input, $userId);
+                $updatedReport = $feasibilityService->attachExecutionTracking($id, $userId, $isSuperAdmin, [
+                    'execution_intent_id' => (int)($intent['id'] ?? 0),
+                    'hotel_id' => $hotelId,
+                    'status' => (string)($intent['status'] ?? ''),
+                ]);
+
+                return [
+                    'execution_intent' => $intent,
+                    'report' => $updatedReport,
+                ];
+            });
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            OperationLog::error('agent', 'feasibility_execution_intent_create', 'create feasibility execution intent failed', $e->getMessage(), $userId);
+            return $this->error($e->getMessage() ?: 'create feasibility execution intent failed', 500);
+        }
+
+        OperationLog::record('agent', 'feasibility_execution_intent_create', 'Create execution intent from feasibility report', $userId, null, null, [
+            'report_id' => $id,
+            'execution_intent_id' => (int)($result['execution_intent']['id'] ?? 0),
+            'hotel_id' => $hotelId,
+        ]);
+
+        return $this->success($result, 'execution intent created');
+    }
+
     public function getConfig(): Response
     {
         $this->checkAdmin();
@@ -4065,6 +4132,15 @@ class Agent extends Base
         
         // 获取价格矩阵
         $priceMatrix = CompetitorAnalysis::getPriceMatrix($hotelId, $date);
+        $competitorReadinessService = new CompetitorPriceReadinessService();
+        $priceMatrix = $competitorReadinessService->enrichPriceMatrix(
+            $priceMatrix,
+            $this->priceSuggestionStatsByRoomTypeId(
+                $hotelId,
+                $date,
+                $competitorReadinessService->roomTypeIdsFromPriceMatrix($priceMatrix)
+            )
+        );
         
         // 获取价格波动预警
         $alerts = CompetitorAnalysis::getAlertCompetitors($hotelId, 20);
@@ -4085,6 +4161,54 @@ class Agent extends Base
             'trends' => $trends,
             'date' => $date,
         ]);
+    }
+
+    /**
+     * @param array<int, mixed> $roomTypeIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function priceSuggestionStatsByRoomTypeId(int $hotelId, string $date, array $roomTypeIds): array
+    {
+        $roomTypeIds = array_values(array_unique(array_filter(
+            array_map('intval', $roomTypeIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($hotelId <= 0 || empty($roomTypeIds) || !$this->isDateString($date)) {
+            return [];
+        }
+
+        $rows = PriceSuggestion::where('hotel_id', $hotelId)
+            ->where('suggestion_date', $date)
+            ->whereIn('room_type_id', $roomTypeIds)
+            ->field(
+                'room_type_id, COUNT(*) AS suggestion_count, '
+                . 'SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS pending_count, '
+                . 'SUM(CASE WHEN status IN (2, 4) THEN 1 ELSE 0 END) AS approved_count, '
+                . 'SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) AS rejected_count, '
+                . 'SUM(CASE WHEN status = 4 THEN 1 ELSE 0 END) AS applied_count, '
+                . 'MAX(update_time) AS latest_suggestion_at'
+            )
+            ->group('room_type_id')
+            ->select()
+            ->toArray();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $roomTypeId = (int)($row['room_type_id'] ?? 0);
+            if ($roomTypeId <= 0) {
+                continue;
+            }
+            $result[$roomTypeId] = [
+                'suggestion_count' => (int)($row['suggestion_count'] ?? 0),
+                'pending_count' => (int)($row['pending_count'] ?? 0),
+                'approved_count' => (int)($row['approved_count'] ?? 0),
+                'rejected_count' => (int)($row['rejected_count'] ?? 0),
+                'applied_count' => (int)($row['applied_count'] ?? 0),
+                'latest_suggestion_at' => (string)($row['latest_suggestion_at'] ?? ''),
+            ];
+        }
+
+        return $result;
     }
 
     /**
@@ -4453,17 +4577,22 @@ class Agent extends Base
         $afterEnd = date('Y-m-d', strtotime($anchorDate . ' +6 days'));
         $before = $this->aggregateSuggestionEffect((int)$suggestion->hotel_id, $beforeStart, $beforeEnd);
         $after = $this->aggregateSuggestionEffect((int)$suggestion->hotel_id, $afterStart, $afterEnd);
+        $delta = [
+            'amount' => round($after['amount'] - $before['amount'], 2),
+            'quantity' => (int)($after['quantity'] - $before['quantity']),
+            'orders' => (int)($after['orders'] - $before['orders']),
+            'adr' => round($after['adr'] - $before['adr'], 2),
+        ];
+        $pricingService = new RevenuePricingRecommendationService();
 
         return $this->success([
             'suggestion' => $suggestion,
+            'anchor_date' => $anchorDate,
             'before' => $before,
             'after' => $after,
-            'delta' => [
-                'amount' => round($after['amount'] - $before['amount'], 2),
-                'quantity' => (int)($after['quantity'] - $before['quantity']),
-                'orders' => (int)($after['orders'] - $before['orders']),
-                'adr' => round($after['adr'] - $before['adr'], 2),
-            ],
+            'delta' => $delta,
+            'readiness' => $pricingService->buildEffectReviewReadiness($suggestion->toArray(), $before, $after),
+            'scope_notice' => '复盘基于 online_daily_data 线上/OTA经营样本，不等同于全酒店经营结论，也不能替代OTA后台执行证据。',
         ]);
     }
 
@@ -4473,17 +4602,28 @@ class Agent extends Base
             $row = Db::name('online_daily_data')
                 ->where('system_hotel_id', $hotelId)
                 ->whereBetween('data_date', [$startDate, $endDate])
-                ->field('COALESCE(SUM(amount),0) amount, COALESCE(SUM(quantity),0) quantity, COALESCE(SUM(book_order_num),0) orders')
+                ->field('COUNT(*) sample_count, COALESCE(SUM(amount),0) amount, COALESCE(SUM(quantity),0) quantity, COALESCE(SUM(book_order_num),0) orders')
                 ->find();
         } catch (\Throwable $e) {
-            $row = ['amount' => 0, 'quantity' => 0, 'orders' => 0];
+            $row = ['sample_count' => 0, 'amount' => 0, 'quantity' => 0, 'orders' => 0];
+            $dataStatus = 'read_failed';
+            $dataGaps = [['code' => 'online_daily_data_read_failed', 'message' => '复盘样本读取失败']];
         }
 
         $amount = (float)($row['amount'] ?? 0);
         $quantity = (int)($row['quantity'] ?? 0);
+        $sampleCount = (int)($row['sample_count'] ?? 0);
+        $dataStatus ??= $sampleCount > 0 ? 'ok' : 'no_sample';
+        $dataGaps ??= $sampleCount > 0 ? [] : [['code' => 'online_daily_data_no_sample', 'message' => '复盘周期内没有线上经营样本']];
+
         return [
             'start_date' => $startDate,
             'end_date' => $endDate,
+            'source' => 'online_daily_data',
+            'scope' => 'online_ota_operating_sample',
+            'data_status' => $dataStatus,
+            'sample_count' => $sampleCount,
+            'data_gaps' => $dataGaps,
             'amount' => round($amount, 2),
             'quantity' => $quantity,
             'orders' => (int)($row['orders'] ?? 0),

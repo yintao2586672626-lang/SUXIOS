@@ -507,7 +507,8 @@ class OperationManagementService
             'rejected' => 0,
             'failed' => 0,
         ];
-        $roiValues = [];
+        $roiPercentValues = [];
+        $revenueLiftValues = [];
         $profitable = 0;
         $approved = 0;
         $executed = 0;
@@ -533,8 +534,13 @@ class OperationManagementService
                 $evidenceReady++;
             }
             if (($item['roi']['status'] ?? '') === 'ready') {
+                $unit = (string)($item['roi']['unit'] ?? '%');
                 $value = (float)($item['roi']['value'] ?? 0);
-                $roiValues[] = $value;
+                if ($unit === 'amount') {
+                    $revenueLiftValues[] = $value;
+                } else {
+                    $roiPercentValues[] = $value;
+                }
                 $totalIncrementalRevenue += (float)($item['roi']['incremental_revenue'] ?? 0);
                 $totalCost += (float)($item['roi']['cost'] ?? 0);
                 $totalProfit += (float)($item['roi']['profit'] ?? 0);
@@ -545,7 +551,9 @@ class OperationManagementService
         }
 
         $total = count($items);
-        $roiReady = count($roiValues);
+        $roiPercentReady = count($roiPercentValues);
+        $revenueLiftReady = count($revenueLiftValues);
+        $roiReady = $roiPercentReady + $revenueLiftReady;
 
         return [
             'total' => $total,
@@ -555,7 +563,10 @@ class OperationManagementService
             'executed' => $executed,
             'evidence_ready' => $evidenceReady,
             'roi_ready' => $roiReady,
-            'avg_roi' => $roiReady > 0 ? round(array_sum($roiValues) / $roiReady, 2) : null,
+            'roi_percent_ready' => $roiPercentReady,
+            'revenue_lift_ready' => $revenueLiftReady,
+            'avg_roi' => $roiPercentReady > 0 ? round(array_sum($roiPercentValues) / $roiPercentReady, 2) : null,
+            'avg_revenue_lift' => $revenueLiftReady > 0 ? round(array_sum($revenueLiftValues) / $revenueLiftReady, 2) : null,
             'approval_rate' => $total > 0 ? round($approved / $total * 100, 2) : null,
             'execution_rate' => $total > 0 ? round($executed / $total * 100, 2) : null,
             'evidence_rate' => $total > 0 ? round($evidenceReady / $total * 100, 2) : null,
@@ -1347,6 +1358,22 @@ class OperationManagementService
         $cost ??= $this->firstNumericMetric($platformResponse, ['cost', 'ad_cost', 'spend', 'budget']);
         $cost ??= $this->firstNumericMetric($targetValue, ['cost', 'ad_cost', 'spend', 'budget']);
         if ($cost === null || $cost <= 0) {
+            if ((string)($intent['object_type'] ?? '') === 'price') {
+                $incrementalRevenue = $afterRevenue - $beforeRevenue;
+
+                return [
+                    'status' => 'ready',
+                    'value' => round($incrementalRevenue, 2),
+                    'unit' => 'amount',
+                    'before_revenue' => round($beforeRevenue, 2),
+                    'after_revenue' => round($afterRevenue, 2),
+                    'incremental_revenue' => round($incrementalRevenue, 2),
+                    'cost' => 0.0,
+                    'profit' => round($incrementalRevenue, 2),
+                    'formula' => 'after_revenue - before_revenue',
+                ];
+            }
+
             return ['status' => 'data_gap', 'message' => 'cost evidence missing'];
         }
 
@@ -1424,6 +1451,24 @@ class OperationManagementService
             }
             if (empty($evidence['evidence_refs']) && empty($evidence['data_gaps'])) {
                 $reasons[] = 'ota evidence refs or data_gaps missing';
+            }
+        } elseif ($objectType === 'investment') {
+            foreach (['project_name', 'tracking_status', 'target_metric'] as $field) {
+                if (trim((string)($targetValue[$field] ?? '')) === '') {
+                    $reasons[] = $field . ' missing';
+                }
+            }
+        } elseif ($objectType === 'opening') {
+            foreach (['project_name', 'tracking_status', 'target_metric'] as $field) {
+                if (trim((string)($targetValue[$field] ?? '')) === '') {
+                    $reasons[] = $field . ' missing';
+                }
+            }
+        } elseif ($objectType === 'expansion') {
+            foreach (['project_name', 'tracking_status', 'target_metric'] as $field) {
+                if (trim((string)($targetValue[$field] ?? '')) === '') {
+                    $reasons[] = $field . ' missing';
+                }
             }
         } elseif ($objectType !== '') {
             $reasons[] = 'object_type not supported';

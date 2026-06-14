@@ -442,6 +442,7 @@ Route::group('api/opening', function () {
     Route::get('/projects/:id/tasks', 'Opening/tasks');
     Route::put('/projects/:id', 'Opening/updateProject');
     Route::delete('/projects/:id', 'Opening/archiveProject');
+    Route::post('/projects/:id/execution-intent', 'Opening/createExecutionIntent');
     Route::put('/tasks/:id', 'Opening/updateTask');
     Route::post('/projects/:id/recalculate', 'Opening/recalculate');
     Route::post('/projects', 'Opening/createProject');
@@ -453,6 +454,7 @@ Route::group('api/expansion', function () {
     Route::post('/market-evaluation', 'Expansion/marketEvaluation');
     Route::post('/benchmark-model', 'Expansion/benchmarkModel');
     Route::post('/collaboration-efficiency', 'Expansion/collaborationEfficiency');
+    Route::post('/records/:id/execution-intent', 'Expansion/createExecutionIntent');
     Route::delete('/records/market-evaluation', 'Expansion/clearMarketEvaluation');
     Route::delete('/records/:id', 'Expansion/archive');
     Route::delete('/records', 'Expansion/clearRecords');
@@ -466,6 +468,7 @@ Route::group('api/transfer', function () {
     Route::post('/pricing', 'TransferDecision/pricing');
     Route::post('/timing', 'TransferDecision/timing');
     Route::post('/dashboard', 'TransferDecision/dashboard');
+    Route::post('/records/:id/execution-intent', 'TransferDecision/createExecutionIntent');
     Route::delete('/records/:id', 'TransferDecision/archive');
     Route::get('/records/:id', 'TransferDecision/detail');
     Route::get('/records', 'TransferDecision/records');
@@ -567,6 +570,7 @@ Route::group('api/agent', function () {
     Route::post('/feasibility-report/generate', 'Agent/feasibilityReportGenerate');
     Route::get('/feasibility-report/detail/:id', 'Agent/feasibilityReportDetail');
     Route::post('/feasibility-report/regenerate/:id', 'Agent/feasibilityReportRegenerate');
+    Route::post('/feasibility-report/:id/execution-intent', 'Agent/createFeasibilityExecutionIntent');
     Route::delete('/feasibility-report/:id', 'Agent/feasibilityReportArchive');
     Route::get('/feasibility-report/list', 'Agent/feasibilityReportList');
 

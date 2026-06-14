@@ -287,11 +287,14 @@ function registerResponseCapture(page, target) {
     const rows = normalizeCapturedList(safeBody, section, '', requestDateEvidence);
     const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource: `xhr:${section}` });
     target.responses.push({ url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section, status, row_count: rows.length, request_date_source: requestDateEvidence.date_source || '', data: safeBody });
-    target[section].push(...rows.map(row => attachOtaCaptureEvidence(row, 'meituan', {
-      url,
-      section,
-      captureSource: row._capture_source || `xhr:${section}`,
-    })));
+    target[section].push(...rows.map(row => {
+      row = withMeituanPlatformIdentifier(row);
+      return attachOtaCaptureEvidence(row, 'meituan', {
+        url,
+        section,
+        captureSource: row._capture_source || `xhr:${section}`,
+      });
+    }));
   });
 }
 
@@ -301,6 +304,25 @@ function normalizeCaptureSections(value) {
 
 function wantsSection(section) {
   return captureSections.has(section);
+}
+
+function withMeituanPlatformIdentifier(row) {
+  const next = { ...(row || {}) };
+  const hasPlatformIdentifier = [
+    next.poiId,
+    next.poi_id,
+    next.storeId,
+    next.store_id,
+    next.shopId,
+    next.shop_id,
+    next.partnerId,
+    next.partner_id,
+  ].some(value => String(value || '').trim() !== '');
+  if (!hasPlatformIdentifier) {
+    next.storeId = storeId;
+    next.store_id = storeId;
+  }
+  return next;
 }
 
 function parseResponseBody(text, contentType) {
@@ -433,11 +455,14 @@ async function collectDomFallback(page, target, section) {
     return;
   }
   const url = page.url();
-  target[section].push(...rows.map(row => attachOtaCaptureEvidence(row, 'meituan', {
-    url,
-    section,
-    captureSource: row._capture_source || `dom:${section}`,
-  })));
+  target[section].push(...rows.map(row => {
+    row = withMeituanPlatformIdentifier(row);
+    return attachOtaCaptureEvidence(row, 'meituan', {
+      url,
+      section,
+      captureSource: row._capture_source || `dom:${section}`,
+    });
+  }));
 }
 
 function dedupePayloadRows(target) {

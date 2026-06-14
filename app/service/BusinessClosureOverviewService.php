@@ -8,6 +8,109 @@ use Throwable;
 
 class BusinessClosureOverviewService
 {
+    private const MODULE_PROFILES = [
+        'ai_daily_report' => [
+            'module_group' => '运营管理（P0）',
+            'entry_page' => 'ai-daily-report',
+            'ai_connection' => 'llm_optional',
+            'ai_connection_label' => '可接入AI日报',
+            'data_basis' => 'verified_ota_operation_records',
+            'data_basis_label' => 'OTA/运营记录',
+            'theory_basis' => 'LLM不可用时使用日报规则摘要、异常指标和缺口清单。',
+            'closure_target' => '日报建议 -> 转执行单 -> 执行证据 -> ROI复盘',
+        ],
+        'revenue_pricing' => [
+            'module_group' => '运营管理（P0）',
+            'entry_page' => 'agent-center',
+            'ai_connection' => 'rule_agent',
+            'ai_connection_label' => '收益Agent/规则',
+            'data_basis' => 'price_suggestions_and_online_daily_data',
+            'data_basis_label' => '调价建议+OTA样本',
+            'theory_basis' => '无真实执行回写时使用ADR、RevPAR、价差和价格弹性规则估算。',
+            'closure_target' => '调价建议 -> 人工审批 -> 执行证据 -> 应用效果复盘',
+        ],
+        'staff_service' => [
+            'module_group' => '运营管理（P0）',
+            'entry_page' => 'agent-center',
+            'ai_connection' => 'agent_assisted',
+            'ai_connection_label' => '智能员工可接入',
+            'data_basis' => 'work_orders_conversations_knowledge',
+            'data_basis_label' => '工单/会话/知识库',
+            'theory_basis' => '缺少闭环样本时按工单状态、情绪风险和知识引用计算成熟度。',
+            'closure_target' => '服务信号 -> 工单 -> 处理证据 -> 关闭复盘',
+        ],
+        'asset_maintenance' => [
+            'module_group' => '运营管理（P0）',
+            'entry_page' => 'agent-center',
+            'ai_connection' => 'rule_agent',
+            'ai_connection_label' => '规则诊断/节能建议',
+            'data_basis' => 'devices_energy_maintenance_records',
+            'data_basis_label' => '设备/能耗/维保记录',
+            'theory_basis' => '缺少真实节能结果时使用监测覆盖、故障、维保次数和节能建议状态。',
+            'closure_target' => '异常/建议 -> 维保执行 -> 节能或修复证据 -> 复盘',
+        ],
+        'operation_execution' => [
+            'module_group' => '运营管理（P0）',
+            'entry_page' => 'ops-track',
+            'ai_connection' => 'execution_hub',
+            'ai_connection_label' => '承接AI/人工建议',
+            'data_basis' => 'execution_intents_tasks_evidence_roi',
+            'data_basis_label' => '执行单/证据/ROI',
+            'theory_basis' => '未产生ROI时只显示审批、执行和证据状态，不推断收益完成。',
+            'closure_target' => '建议池 -> 审批 -> 执行 -> 证据 -> 复盘/ROI',
+        ],
+        'transfer_investment' => [
+            'module_group' => '转让管理（二期）',
+            'entry_page' => 'asset-pricing',
+            'ai_connection' => 'ai_or_theory',
+            'ai_connection_label' => 'AI评估/理论测算',
+            'data_basis' => 'transfer_records_and_execution_tracking',
+            'data_basis_label' => '转让测算记录',
+            'theory_basis' => '无尽调证据时使用租金、流水、回本、风险折现等投决理论口径。',
+            'closure_target' => '资产定价/时机 -> 投后跟踪 -> 尽调证据 -> 决策复盘',
+        ],
+        'expansion' => [
+            'module_group' => '扩张管理（二期）',
+            'entry_page' => 'market-evaluation',
+            'ai_connection' => 'ai_or_theory',
+            'ai_connection_label' => 'AI评估/理论模型',
+            'data_basis' => 'expansion_records_and_market_inputs',
+            'data_basis_label' => '市场评估记录',
+            'theory_basis' => '缺少实勘或外部数据时使用城市层级、客群、竞对、租金和模型评分。',
+            'closure_target' => '市场评估 -> 项目筛选 -> 执行跟踪 -> 投后复盘',
+        ],
+        'opening' => [
+            'module_group' => '开业管理（二期）',
+            'entry_page' => 'opening-overview',
+            'ai_connection' => 'checklist_assisted',
+            'ai_connection_label' => '清单/规则辅助',
+            'data_basis' => 'opening_projects_tasks',
+            'data_basis_label' => '开业项目/任务',
+            'theory_basis' => '未绑定门店或未开业时使用开业检查清单、任务进度和风险评分。',
+            'closure_target' => '开业项目 -> 检查清单 -> go-live证据 -> 开业后复盘',
+        ],
+        'strategy_simulation' => [
+            'module_group' => '筹建管理（二期）',
+            'entry_page' => 'ai-strategy',
+            'ai_connection' => 'ai_or_simulation',
+            'ai_connection_label' => 'AI推演/量化模拟',
+            'data_basis' => 'strategy_and_quant_simulation_records',
+            'data_basis_label' => '战略/量化记录',
+            'theory_basis' => 'LLM或外部数据不可用时使用投资、房量、ADR、OCC和成本模型。',
+            'closure_target' => '战略推演 -> 量化模拟 -> 人工复核 -> 执行跟踪',
+        ],
+        'feasibility_report' => [
+            'module_group' => '筹建管理（二期）',
+            'entry_page' => 'ai-feasibility',
+            'ai_connection' => 'llm_optional',
+            'ai_connection_label' => '可接入AI报告',
+            'data_basis' => 'feasibility_reports_and_input_assumptions',
+            'data_basis_label' => '可行性报告/假设',
+            'theory_basis' => 'LLM不可用时使用投资测算、租金压力、回本周期和风险清单。',
+            'closure_target' => '可行性报告 -> 尽调/复核 -> 投后跟踪 -> 收益复盘',
+        ],
+    ];
+
     private const MODULE_ORDER = [
         'ai_daily_report',
         'revenue_pricing',
@@ -106,6 +209,7 @@ class BusinessClosureOverviewService
 
     public function summarizeModuleClosure(array $signal): array
     {
+        $profile = $this->moduleProfile((string)($signal['key'] ?? ''));
         $tableStatus = (string)($signal['table_status'] ?? 'ok');
         $recordCount = max(0, (int)($signal['record_count'] ?? 0));
         $linked = max(0, (int)($signal['linked_execution_count'] ?? 0));
@@ -174,6 +278,14 @@ class BusinessClosureOverviewService
         return [
             'key' => (string)($signal['key'] ?? ''),
             'label' => (string)($signal['label'] ?? $signal['key'] ?? ''),
+            'module_group' => $profile['module_group'],
+            'entry_page' => $profile['entry_page'],
+            'ai_connection' => $profile['ai_connection'],
+            'ai_connection_label' => $profile['ai_connection_label'],
+            'data_basis' => $profile['data_basis'],
+            'data_basis_label' => $profile['data_basis_label'],
+            'theory_basis' => $profile['theory_basis'],
+            'closure_target' => $profile['closure_target'],
             'status' => $status,
             'status_label' => $this->statusLabel($status),
             'closed_loop' => $status === 'roi_ready',
@@ -193,6 +305,20 @@ class BusinessClosureOverviewService
             'data_gaps' => $dataGaps,
             'detail' => (string)($signal['detail'] ?? ''),
         ];
+    }
+
+    private function moduleProfile(string $key): array
+    {
+        return array_merge([
+            'module_group' => '运营收益闭环',
+            'entry_page' => '',
+            'ai_connection' => 'not_declared',
+            'ai_connection_label' => 'AI状态未声明',
+            'data_basis' => 'existing_records',
+            'data_basis_label' => '现有记录',
+            'theory_basis' => '缺少真实样本时只显示缺口，不推断闭环结果。',
+            'closure_target' => '业务记录 -> 执行证据 -> 复盘',
+        ], self::MODULE_PROFILES[$key] ?? []);
     }
 
     private function aiDailyReportSignal(array $hotelIds, ?int $hotelId, array $executionStats): array

@@ -170,6 +170,16 @@ class CompetitorAnalysis extends Model
             }
             
             $matrix[$roomTypeName][$competitorName] = [
+                'id' => $item->id,
+                'analysis_date' => $item->analysis_date,
+                'hotel_id' => $item->hotel_id,
+                'room_type_id' => $item->room_type_id,
+                'room_type_name' => $roomTypeName,
+                'competitor_hotel_id' => $item->competitor_hotel_id,
+                'competitor_room_type_id' => $item->competitor_room_type_id,
+                'competitor_name' => $competitorName,
+                'ota_platform' => $item->ota_platform,
+                'ota_platform_name' => $item->ota_platform_name,
                 'our_price' => $item->our_price,
                 'competitor_price' => $item->competitor_price,
                 'difference' => $item->price_difference,

@@ -338,6 +338,27 @@ for (const [needle, label] of [
   check('app/service/platform/CtripBrowserProfileDataSourceAdapter.php', label, (source) => source.includes(needle), needle);
 }
 
+check(
+  'app/service/platform/CtripBrowserProfileDataSourceAdapter.php',
+  'Ctrip browser Profile adapter does not use Profile ID as platform hotel ID fallback',
+  (source) => source.includes("['hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'node_id', 'nodeId']")
+    && source.includes("$args[] = '--hotel-id=' . $hotelId;")
+    && source.includes('$rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $hotelId);')
+    && source.includes("$row['hotel_id'] = $row['hotel_id'] ?? $row['hotelId'] ?? $platformHotelId;")
+    && !source.includes('$hotelId !== \'\' ? $hotelId : $profileId')
+    && !source.includes('$fallbackHotelId'),
+  'Ctrip Profile ID cannot replace OTA platform hotel identity'
+);
+
+check(
+  'app/controller/OnlineData.php',
+  'Ctrip browser Profile save paths do not use Profile ID as request hotel ID fallback',
+  (source) => source.includes("$requestHotelId = $hotelId !== '' ? $hotelId : (string)($payload['hotel_id'] ?? '');")
+    && source.includes("$requestHotelId = $ctripHotelId !== '' ? $ctripHotelId : (string)($payload['hotel_id'] ?? '');")
+    && !source.includes("(string)($payload['hotel_id'] ?? $profileId)"),
+  'requestHotelId must come from platform hotel evidence, not Profile ID'
+);
+
 for (const [needle, label] of [
   ["'browser_profile'", 'Meituan browser Profile adapter supports browser_profile ingestion method'],
   ["'meituan_profile_'", 'Meituan browser Profile adapter checks local Profile directory'],
@@ -348,6 +369,18 @@ for (const [needle, label] of [
 ]) {
   check('app/service/platform/MeituanBrowserProfileDataSourceAdapter.php', label, (source) => source.includes(needle), needle);
 }
+
+check(
+  'app/service/platform/MeituanBrowserProfileDataSourceAdapter.php',
+  'Meituan browser Profile adapter does not use Profile ID as platform store/poi ID fallback',
+  (source) => source.includes("['store_id', 'storeId', 'poi_id', 'poiId']")
+    && source.includes("$rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $poiId !== '' ? $poiId : $storeId);")
+    && source.includes("private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $platformHotelId): array")
+    && source.includes("$row['hotel_id'] = $this->firstRowString($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'store_id', 'storeId'], $platformHotelId);")
+    && !source.includes("['store_id', 'storeId', 'profile_id', 'profileId', 'poi_id', 'poiId']")
+    && !source.includes('$fallbackHotelId'),
+  'Meituan Profile ID cannot replace OTA platform store/poi identity'
+);
 
 for (const [needle, label] of [
   ['value="browser_profile"', 'frontend data-source form exposes Ctrip browser Profile method'],
@@ -552,6 +585,18 @@ check(
     && source.includes('capture_context.default_data_date')
     && source.includes('row.source_trace_id || row.source_url_hash'),
   'attachCtripCaptureEvidence/buildOtaCaptureEvidence/source_trace_id/url_hash'
+);
+
+check(
+  'scripts/ctrip_browser_capture.mjs',
+  'Ctrip browser capture keeps Profile ID separate from OTA platform hotel ID',
+  (source) => source.includes('profile_id: profileId')
+    && source.includes('hotel_id: hotelId')
+    && source.includes('hotelId,')
+    && !source.includes('hotelId || profileId')
+    && !source.includes('hotel_id: hotelId || profileId')
+    && !source.includes('ctripPlatformHotelId(row, hotelId || profileId'),
+  'profile_id is not accepted as hotel_id/platform hotel identity'
 );
 
 check(

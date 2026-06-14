@@ -743,6 +743,127 @@ class ExpansionService
         ]);
     }
 
+    public function buildExecutionIntentInput(array $record, int $hotelId, array $overrides = []): array
+    {
+        if ($hotelId <= 0) {
+            throw new InvalidArgumentException('hotel_id is required for expansion execution tracking');
+        }
+
+        $input = $this->decodeJson($record['input'] ?? $record['input_json'] ?? []);
+        $result = $this->decodeJson($record['result'] ?? $record['result_json'] ?? []);
+        $recordType = trim((string)($record['record_type'] ?? ''));
+        $readiness = is_array($record['project_readiness'] ?? null)
+            ? $record['project_readiness']
+            : $this->buildProjectReadiness($recordType, $input, $result);
+        $date = date('Y-m-d');
+        $dateStart = trim((string)($overrides['date_start'] ?? '')) ?: $date;
+        $dateEnd = trim((string)($overrides['date_end'] ?? '')) ?: $dateStart;
+        $projectName = trim((string)($record['project_name'] ?? $input['project_name'] ?? ''));
+        if ($projectName === '') {
+            $projectName = 'expansion_record_' . (int)($record['id'] ?? 0);
+        }
+
+        return [
+            'source_module' => 'expansion',
+            'source_record_id' => (int)($record['id'] ?? 0),
+            'hotel_id' => $hotelId,
+            'platform' => 'investment',
+            'object_type' => 'expansion',
+            'action_type' => 'expansion_post_decision_tracking',
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+            'current_value' => [
+                'project_name' => $projectName,
+                'record_type' => $recordType,
+                'city_area' => (string)($record['city_area'] ?? $input['city_area'] ?? ''),
+                'decision' => (string)($record['decision'] ?? $result['decision'] ?? ''),
+                'risk_level' => (string)($record['risk_level'] ?? $result['investment_risk_level'] ?? ''),
+                'readiness_stage' => (string)($readiness['stage'] ?? ''),
+            ],
+            'target_value' => [
+                'project_name' => $projectName,
+                'tracking_status' => 'pending_expansion_post_decision_tracking',
+                'target_metric' => 'expansion_project_closure',
+                'decision_stage' => (string)($readiness['stage'] ?? ''),
+                'next_action' => (string)($readiness['next_action'] ?? ''),
+            ],
+            'evidence' => [
+                'record_type' => $recordType,
+                'readiness_stage' => (string)($readiness['stage'] ?? ''),
+                'readiness_score' => (int)($readiness['score'] ?? 0),
+                'missing_evidence' => array_values((array)($readiness['missing_evidence'] ?? [])),
+                'decision' => (string)($record['decision'] ?? ''),
+                'city_area' => (string)($record['city_area'] ?? ''),
+                'source_scope' => 'expansion_screening_and_project_decision',
+                'scope_notice' => 'Expansion evidence is project screening and investment-decision scope; OTA channel evidence remains channel-scope unless backed by whole-hotel operating data.',
+            ],
+            'expected_metric' => 'expansion_project_closure',
+            'expected_delta' => 0,
+            'risk_level' => $this->executionRiskLevel((string)($record['risk_level'] ?? $result['investment_risk_level'] ?? ''), (string)($record['decision'] ?? $result['decision'] ?? '')),
+            'status' => 'pending_approval',
+        ];
+    }
+
+    public function attachExecutionTracking(int $id, int $userId, bool $isSuperAdmin, array $tracking): array
+    {
+        $this->ensureTable();
+        $intentId = (int)($tracking['execution_intent_id'] ?? $tracking['id'] ?? 0);
+        if ($intentId <= 0) {
+            throw new InvalidArgumentException('execution_intent_id is required');
+        }
+
+        $query = Db::name('expansion_records')->where('id', $id)->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $userId);
+        }
+
+        $row = $query->find();
+        if (!$row) {
+            throw new RuntimeException('扩张记录不存在或无权访问');
+        }
+
+        $result = $this->decodeJson($row['result_json'] ?? '');
+        $now = date('Y-m-d H:i:s');
+        $trackingPayload = [
+            'type' => 'operation_execution_intent',
+            'execution_intent_id' => $intentId,
+            'hotel_id' => (int)($tracking['hotel_id'] ?? 0),
+            'status' => trim((string)($tracking['status'] ?? '')),
+            'source_module' => 'expansion',
+            'linked_at' => $now,
+        ];
+
+        $existing = $result['execution_tracking'] ?? [];
+        if (!is_array($existing)) {
+            $existing = [];
+        }
+        if ($existing !== [] && array_keys($existing) !== range(0, count($existing) - 1)) {
+            $existing = [$existing];
+        }
+        $existing[] = $trackingPayload;
+
+        $result['execution_tracking'] = $existing;
+        $result['operation_execution_intent_id'] = $intentId;
+        $result['execution_intent_id'] = $intentId;
+        $result['post_decision_tracking'] = [
+            'status' => 'linked',
+            'latest_execution_intent_id' => $intentId,
+            'latest_status' => $trackingPayload['status'],
+            'hotel_id' => $trackingPayload['hotel_id'],
+            'linked_at' => $now,
+        ];
+
+        Db::name('expansion_records')->where('id', $id)->update([
+            'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE),
+            'updated_at' => $now,
+        ]);
+
+        $row['result_json'] = $result;
+        $row['updated_at'] = $now;
+        return $this->formatRecord($row, true);
+    }
+
     public function ensureTable(): void
     {
         Db::execute("
@@ -1197,6 +1318,7 @@ class ExpansionService
             'city_area' => (string)($row['city_area'] ?? ''),
             'decision' => (string)($row['decision'] ?? ''),
             'risk_level' => (string)($row['risk_level'] ?? ''),
+            'execution_intent_id' => (int)($result['operation_execution_intent_id'] ?? $result['execution_intent_id'] ?? 0),
             'created_by' => (int)($row['created_by'] ?? 0),
             'created_at' => (string)($row['created_at'] ?? ''),
             'summary' => [
@@ -1218,6 +1340,22 @@ class ExpansionService
         }
 
         return $record;
+    }
+
+    private function executionRiskLevel(string $riskLevel, string $decision): string
+    {
+        $text = strtolower($riskLevel . ' ' . $decision);
+        if (str_contains($text, 'high') || str_contains($riskLevel, '高') || str_contains($decision, '暂缓') || str_contains($decision, '放弃')) {
+            return 'high';
+        }
+        if (str_contains($text, 'medium') || str_contains($riskLevel, '中')) {
+            return 'medium';
+        }
+        if (str_contains($text, 'low') || str_contains($riskLevel, '低') || str_contains($decision, '推进') || str_contains($decision, '通过')) {
+            return 'low';
+        }
+
+        return 'medium';
     }
 
     private function decodeJson(mixed $value): array

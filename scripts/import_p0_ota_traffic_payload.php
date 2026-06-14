@@ -185,6 +185,14 @@ function p0_import_project_payload_for_import(array $payload): array
         'source',
         'mode',
         'system_hotel_id',
+        'hotel_id',
+        'hotelId',
+        'poi_id',
+        'poiId',
+        'store_id',
+        'storeId',
+        'partner_id',
+        'partnerId',
         'default_data_date',
         'auth_status',
         'capture_gate',
@@ -307,6 +315,15 @@ function p0_import_payload_scope_issues(array $payload, string $platform, int $s
             'message' => 'Browser capture source does not match the import command platform.',
             'payload_source' => $source,
             'command_platform' => $platform,
+        ];
+    }
+
+    if (p0_import_platform_hotel_identifier($payload, $platform) === '') {
+        $issues[] = [
+            'code' => 'browser_capture_platform_hotel_identifier_missing',
+            'message' => $platform === 'ctrip'
+                ? 'Ctrip browser capture output must include a top-level hotel_id or hotelId from the OTA platform; profile_id and system_hotel_id cannot replace it.'
+                : 'Meituan browser capture output must include a top-level poi_id, poiId, store_id, or storeId from the OTA platform; system_hotel_id cannot replace it.',
         ];
     }
 
@@ -682,6 +699,24 @@ function p0_import_source_path_is_structured(string $sourcePath): bool
 
 /**
  * @param array<string, mixed> $row
+ */
+function p0_import_platform_hotel_identifier(array $row, string $platform): string
+{
+    $keys = $platform === 'meituan'
+        ? ['poiId', 'poi_id', 'storeId', 'store_id', 'shopId', 'shop_id', 'mtPoiId', 'mt_poi_id', 'partnerId', 'partner_id']
+        : ['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'masterHotelId', 'master_hotel_id', 'nodeId', 'node_id'];
+    foreach ($keys as $key) {
+        $value = trim((string)($row[$key] ?? ''));
+        if ($value !== '') {
+            return $value;
+        }
+    }
+
+    return '';
+}
+
+/**
+ * @param array<string, mixed> $row
  * @return array{list_exposure:int,detail_exposure:int,flow_rate:float,order_filling_num:int,order_submit_num:int}
  */
 function p0_import_traffic_metrics(array $row, string $platform): array
@@ -728,11 +763,12 @@ function p0_import_traffic_metrics(array $row, string $platform): array
 function p0_import_preview_field_facts(array $row, array $metrics, string $platform, int $systemHotelId, string $date): array
 {
     $requiredStorageFields = p0_import_required_traffic_storage_fields();
+    $platformHotelIdentifier = p0_import_platform_hotel_identifier($row, $platform);
     $previewRow = [
         'source' => $platform,
         'data_type' => 'traffic',
         'data_date' => p0_import_row_date($row, $date) ?: $date,
-        'hotel_id' => (string)($row['hotelId'] ?? $row['hotel_id'] ?? $row['HotelId'] ?? $row['hotelID'] ?? $row['poiId'] ?? $row['poi_id'] ?? $systemHotelId),
+        'hotel_id' => $platformHotelIdentifier,
         'system_hotel_id' => $systemHotelId,
         'dimension' => (string)($row['metric'] ?? $row['metricName'] ?? $row['dimension'] ?? $row['_metric'] ?? 'traffic'),
         'list_exposure' => $metrics['list_exposure'],
@@ -857,6 +893,86 @@ function p0_import_external_ui_status(array $status): array
     ];
 }
 
+/**
+ * @param array<int, array<string, mixed>> $fieldFacts
+ * @param array<string, mixed> $uiStatus
+ * @return array<string, array<string, mixed>>
+ */
+function p0_import_traffic_closure_chain(array $fieldFacts, array $uiStatus, bool $platformHotelIdentifierPresent, string $platformHotelIdentifierSource): array
+{
+    $requiredStorageFields = p0_import_required_traffic_storage_fields();
+    $requiredMetricKeys = array_keys($requiredStorageFields);
+    $factByMetric = [];
+    foreach ($fieldFacts as $fact) {
+        if (!is_array($fact)) {
+            continue;
+        }
+        $metricKey = trim((string)($fact['metric_key'] ?? ''));
+        if ($metricKey === '' || !array_key_exists($metricKey, $requiredStorageFields)) {
+            continue;
+        }
+        $factByMetric[$metricKey] = $fact;
+    }
+
+    $allRequiredFacts = static function (callable $predicate) use ($requiredMetricKeys, $factByMetric): bool {
+        if ($requiredMetricKeys === []) {
+            return false;
+        }
+        foreach ($requiredMetricKeys as $metricKey) {
+            $fact = $factByMetric[$metricKey] ?? null;
+            if (!is_array($fact) || !$predicate($fact, $metricKey)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    $chainStatus = static fn(bool $ready): string => $ready ? 'ready' : 'incomplete';
+    $metricKeyReady = $requiredMetricKeys !== [] && count($factByMetric) >= count($requiredMetricKeys);
+    $sourcePathReady = $allRequiredFacts(static fn(array $fact): bool => p0_import_source_path_is_structured((string)($fact['source_path'] ?? '')));
+    $captureEvidenceReady = $allRequiredFacts(static fn(array $fact): bool => p0_import_fact_has_desensitized_capture_evidence($fact));
+    $storageFieldReady = $allRequiredFacts(static fn(array $fact, string $metricKey): bool => trim((string)($fact['storage_field'] ?? '')) === $requiredStorageFields[$metricKey]);
+    $storedValueReady = $allRequiredFacts(static fn(array $fact): bool => ($fact['stored_value_present'] ?? null) === true);
+    $uiStatusReady = (string)($uiStatus['field_fact_status'] ?? '') === 'ready'
+        && (int)($uiStatus['missing_count'] ?? 0) === 0
+        && (int)($uiStatus['stored_value_missing_count'] ?? 0) === 0
+        && (bool)($uiStatus['raw_data_exposed'] ?? true) === false;
+
+    return [
+        'capture_evidence' => [
+            'status' => $chainStatus($captureEvidenceReady),
+            'required' => 'desensitized source_trace_id plus source_url_hash for every required traffic metric',
+        ],
+        'source_path' => [
+            'status' => $chainStatus($sourcePathReady),
+            'required' => 'structured source_path for every required traffic metric',
+        ],
+        'metric_key' => [
+            'status' => $chainStatus($metricKeyReady),
+            'required' => implode(',', $requiredMetricKeys),
+        ],
+        'storage_field' => [
+            'status' => $chainStatus($storageFieldReady),
+            'required' => implode(',', array_values($requiredStorageFields)),
+        ],
+        'stored_value' => [
+            'status' => $chainStatus($storedValueReady),
+            'required' => 'stored_value_present=true for every required traffic metric',
+        ],
+        'ui_status' => [
+            'status' => $chainStatus($uiStatusReady),
+            'required' => 'ready UI field_fact_status with zero missing fields and no raw_data exposure',
+        ],
+        'platform_hotel_identifier' => [
+            'status' => $chainStatus($platformHotelIdentifierPresent),
+            'required' => $platformHotelIdentifierSource,
+        ],
+        'verifier' => [
+            'status' => 'requires_execute_and_p0_verifier',
+            'required' => 'P0 complete only after --execute saves target-date traffic rows and verify:p0-ota-field-loop returns ready',
+        ],
+    ];
+}
+
 function p0_import_summarize_rows(array $rows, string $platform, int $systemHotelId, string $date, array $payload = []): array
 {
     $required = ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'];
@@ -870,6 +986,7 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
     $rowsWithBrowserResponseEvidence = 0;
     $rowsWithBrowserDateSourceEvidence = 0;
     $rowsWithExplicitSourcePath = 0;
+    $rowsWithPlatformHotelIdentifier = 0;
     $metricKeys = [];
     $sample = [];
     $payloadEvidence = p0_import_desensitized_capture_evidence($payload);
@@ -896,6 +1013,10 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
         $sourcePathStructured = p0_import_source_path_is_structured($explicitSourcePath);
         if ($sourcePathStructured) {
             $rowsWithExplicitSourcePath++;
+        }
+        $platformHotelIdentifier = p0_import_platform_hotel_identifier($row, $platform);
+        if ($platformHotelIdentifier !== '') {
+            $rowsWithPlatformHotelIdentifier++;
         }
         if (p0_import_desensitized_capture_evidence($row) !== []) {
             $rowsWithDesensitizedCaptureEvidence++;
@@ -928,6 +1049,7 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
                 'row_date' => $rowDate,
                 'source_path' => $explicitSourcePath,
                 'source_path_structured' => $sourcePathStructured,
+                'platform_hotel_identifier_present' => $platformHotelIdentifier !== '',
                 'desensitized_capture_evidence_present' => p0_import_desensitized_capture_evidence($row) !== [],
                 'complete_desensitized_capture_evidence_present' => p0_import_has_complete_desensitized_capture_evidence($row),
                 'row_level_desensitized_capture_evidence_present' => $rowLevelCaptureEvidence !== [],
@@ -963,6 +1085,8 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
         'missing_browser_date_source_evidence_rows' => max(0, $targetRows - $rowsWithBrowserDateSourceEvidence),
         'explicit_source_path_rows' => $rowsWithExplicitSourcePath,
         'missing_source_path_rows' => max(0, $targetRows - $rowsWithExplicitSourcePath),
+        'platform_hotel_identifier_rows' => $rowsWithPlatformHotelIdentifier,
+        'missing_platform_hotel_identifier_rows' => max(0, $targetRows - $rowsWithPlatformHotelIdentifier),
         'complete_metric_keys' => $completeMetricKeys,
         'missing_metric_keys' => array_values(array_diff($required, $completeMetricKeys)),
         'sample_rows' => $sample,
@@ -1004,17 +1128,24 @@ function p0_import_build_traffic_evidence(array $rows, string $platform, int $sy
         if ($fieldFacts === []) {
             continue;
         }
+        $platformHotelIdentifier = p0_import_platform_hotel_identifier($row, $platform);
+        $platformHotelIdentifierSource = $platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
+        $uiStatus = p0_import_external_ui_status((array)($preview['ui_status'] ?? []));
 
         $evidenceRows[] = [
             'platform' => $platform,
             'target_date' => $rowDate,
             'system_hotel_id' => $systemHotelId,
             'scope_policy' => 'ota_channel_only',
+            'platform_hotel_identifier_present' => $platformHotelIdentifier !== '',
+            'platform_hotel_identifier_source' => $platformHotelIdentifierSource,
             'source_trace_id' => (string)($captureEvidence['source_trace_id'] ?? ''),
             'capture_evidence' => $captureEvidence,
             'sensitive_values_exposed' => false,
-            'ui_status' => p0_import_external_ui_status((array)($preview['ui_status'] ?? [])),
+            'ui_status' => $uiStatus,
             'field_facts' => $fieldFacts,
+            'traffic_closure_chain' => p0_import_traffic_closure_chain($fieldFacts, $uiStatus, $platformHotelIdentifier !== '', $platformHotelIdentifierSource),
+            'traffic_closure_chain_policy' => 'External traffic_evidence closure chain is pre-import source proof only; P0 remains incomplete until --execute saves target-date traffic rows and verify:p0-ota-field-loop returns ready.',
         ];
     }
 
@@ -1050,16 +1181,9 @@ function p0_import_prepare_execute_payload(array $rows, string $platform, int $s
         $row['order_filling_num'] = $metrics['order_filling_num'];
         $row['order_submit_num'] = $metrics['order_submit_num'];
 
-        $hasHotelId = trim((string)($row['hotelId'] ?? $row['hotel_id'] ?? $row['HotelId'] ?? $row['hotelID'] ?? $row['poiId'] ?? $row['poi_id'] ?? '')) !== '';
-        $hasHotelName = trim((string)($row['hotelName'] ?? $row['hotel_name'] ?? $row['HotelName'] ?? $row['name'] ?? $row['poiName'] ?? $row['poi_name'] ?? '')) !== '';
-        if (!$hasHotelId) {
-            $row[$platform === 'meituan' ? 'poi_id' : 'hotel_id'] = (string)$systemHotelId;
-        }
-        if (!$hasHotelName && $platform === 'meituan') {
-            $row['poi_name'] = 'system_hotel_' . $systemHotelId;
-        }
-        if (trim((string)($row['_source_path'] ?? $row['source_path'] ?? '')) === '') {
-            $row['_source_path'] = 'validated_target_date_rows.' . count($preparedRows);
+        $explicitSourcePath = p0_import_explicit_source_path($row);
+        if ($explicitSourcePath !== '' && trim((string)($row['_source_path'] ?? '')) === '') {
+            $row['_source_path'] = $explicitSourcePath;
         }
         if (p0_import_desensitized_capture_evidence($row) !== []) {
             $evidenceRows++;
@@ -1115,6 +1239,70 @@ function p0_import_required_traffic_storage_fields(): array
 }
 
 /**
+ * @param array<string, mixed> $verification
+ * @param array<string, array<string, bool>> $stageMetricKeys
+ * @param array<int, string> $requiredMetricKeys
+ * @param array<string, string> $requiredStorageFields
+ * @return array<string, array<string, mixed>>
+ */
+function p0_import_post_execute_closure_chain(array $verification, array $stageMetricKeys, array $requiredMetricKeys, array $requiredStorageFields): array
+{
+    $trafficRows = (int)($verification['traffic_row_count'] ?? 0);
+    $stageStatus = static function (string $stage) use ($trafficRows, $stageMetricKeys, $requiredMetricKeys): string {
+        if ($trafficRows <= 0) {
+            return 'no_target_date_traffic_rows';
+        }
+        foreach ($requiredMetricKeys as $metricKey) {
+            if (empty($stageMetricKeys[$stage][$metricKey])) {
+                return 'incomplete';
+            }
+        }
+        return 'ready';
+    };
+    $uiStatusReady = $trafficRows > 0
+        && (int)($verification['ui_status_ready_rows'] ?? 0) > 0
+        && (int)($verification['ui_status_incomplete_rows'] ?? 0) === 0;
+    $platformIdentifierReady = $trafficRows > 0
+        && (int)($verification['platform_hotel_identifier_rows'] ?? 0) > 0
+        && (int)($verification['missing_platform_hotel_identifier_rows'] ?? 0) === 0;
+
+    return [
+        'capture_evidence' => [
+            'status' => $stageStatus('capture_evidence'),
+            'required' => 'desensitized source_trace_id plus source_url_hash, matched to the stored traffic row and each field fact',
+        ],
+        'source_path' => [
+            'status' => $stageStatus('source_path'),
+            'required' => 'structured source_path for every required traffic metric',
+        ],
+        'metric_key' => [
+            'status' => $stageStatus('metric_key'),
+            'required' => implode(',', $requiredMetricKeys),
+        ],
+        'storage_field' => [
+            'status' => $stageStatus('storage_field'),
+            'required' => implode(',', array_values($requiredStorageFields)),
+        ],
+        'stored_value' => [
+            'status' => $stageStatus('stored_value'),
+            'required' => 'stored value present for every required traffic metric',
+        ],
+        'ui_status' => [
+            'status' => $uiStatusReady ? 'ready' : ($trafficRows > 0 ? 'incomplete' : 'no_target_date_traffic_rows'),
+            'required' => 'ready UI field_fact_status with no raw_data exposure',
+        ],
+        'platform_hotel_identifier' => [
+            'status' => $platformIdentifierReady ? 'ready' : ($trafficRows > 0 ? 'incomplete' : 'no_target_date_traffic_rows'),
+            'required' => (string)($verification['platform_hotel_identifier_source'] ?? ''),
+        ],
+        'verifier' => [
+            'status' => (string)($verification['status'] ?? '') === 'ready' ? 'ready' : 'incomplete',
+            'required' => 'post_execute_verification.status=ready and verify:p0-ota-field-loop target-date traffic gate ready',
+        ],
+    ];
+}
+
+/**
  * @return array<string, bool>
  */
 function p0_import_table_columns(string $table): array
@@ -1156,6 +1344,9 @@ function p0_import_post_execute_verification(array $options): array
         'ready_ui_status_rows' => 0,
         'ui_status_ready_rows' => 0,
         'ui_status_incomplete_rows' => 0,
+        'platform_hotel_identifier_source' => $options['platform'] === 'meituan' ? 'poi_id_family' : 'hotel_id_family',
+        'platform_hotel_identifier_rows' => 0,
+        'missing_platform_hotel_identifier_rows' => 0,
         'complete_metric_keys' => [],
         'missing_metric_keys' => $requiredMetricKeys,
         'incomplete_metric_keys' => [],
@@ -1163,6 +1354,12 @@ function p0_import_post_execute_verification(array $options): array
         'sensitive_values_exposed' => false,
         'sample_ui_statuses' => [],
         'sample_rows' => [],
+        'traffic_closure_chain' => p0_import_post_execute_closure_chain([
+            'status' => 'not_run',
+            'traffic_row_count' => 0,
+            'platform_hotel_identifier_source' => $options['platform'] === 'meituan' ? 'poi_id_family' : 'hotel_id_family',
+        ], [], $requiredMetricKeys, $requiredStorageFields),
+        'traffic_closure_chain_policy' => 'Post-execute closure chain is DB readback evidence only; P0 remains incomplete unless stored target-date traffic rows and verify:p0-ota-field-loop are ready.',
     ];
 
     $columns = p0_import_table_columns('online_daily_data');
@@ -1217,6 +1414,13 @@ function p0_import_post_execute_verification(array $options): array
     $completeMetricKeys = [];
     $incompleteMetricKeys = [];
     $uiStatuses = [];
+    $stageMetricKeys = [
+        'capture_evidence' => [],
+        'source_path' => [],
+        'metric_key' => [],
+        'storage_field' => [],
+        'stored_value' => [],
+    ];
     foreach ($rows as $row) {
         if (!is_array($row)) {
             continue;
@@ -1269,6 +1473,11 @@ function p0_import_post_execute_verification(array $options): array
         $rowEvidence = p0_import_desensitized_capture_evidence($raw);
         $rowSourceTraceId = trim((string)($row['source_trace_id'] ?? $raw['source_trace_id'] ?? $rowEvidence['source_trace_id'] ?? ''));
         $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? ''));
+        if (p0_import_platform_hotel_identifier($raw, (string)$options['platform']) !== '') {
+            $base['platform_hotel_identifier_rows']++;
+        } else {
+            $base['missing_platform_hotel_identifier_rows']++;
+        }
         foreach ($facts as $fact) {
             if (!is_array($fact)) {
                 continue;
@@ -1277,7 +1486,20 @@ function p0_import_post_execute_verification(array $options): array
             if (!isset($requiredStorageFields[$metricKey])) {
                 continue;
             }
+            $stageMetricKeys['metric_key'][$metricKey] = true;
             $captureEvidence = is_array($fact['capture_evidence'] ?? null) ? (array)$fact['capture_evidence'] : [];
+            if (p0_import_source_path_is_structured((string)($fact['source_path'] ?? ''))) {
+                $stageMetricKeys['source_path'][$metricKey] = true;
+            }
+            if (trim((string)($fact['storage_field'] ?? '')) === $requiredStorageFields[$metricKey]) {
+                $stageMetricKeys['storage_field'][$metricKey] = true;
+            }
+            if (p0_import_fact_capture_evidence_matches_row($fact, $rowSourceTraceId, $rowSourceUrlHash)) {
+                $stageMetricKeys['capture_evidence'][$metricKey] = true;
+            }
+            if (($fact['stored_value_present'] ?? null) === true) {
+                $stageMetricKeys['stored_value'][$metricKey] = true;
+            }
             $factReady = p0_import_source_path_is_structured((string)($fact['source_path'] ?? ''))
                 && trim((string)($fact['storage_field'] ?? '')) === $requiredStorageFields[$metricKey]
                 && p0_import_fact_capture_evidence_matches_row($fact, $rowSourceTraceId, $rowSourceUrlHash)
@@ -1311,6 +1533,8 @@ function p0_import_post_execute_verification(array $options): array
         && (int)$base['rows_with_field_facts'] > 0
         && (int)$base['ready_ui_status_rows'] > 0
         && (int)$base['ui_status_incomplete_rows'] === 0
+        && (int)$base['missing_platform_hotel_identifier_rows'] === 0
+        && (int)$base['platform_hotel_identifier_rows'] > 0
         && !(bool)$base['sensitive_values_exposed']
         ? 'ready'
         : 'incomplete';
@@ -1318,7 +1542,10 @@ function p0_import_post_execute_verification(array $options): array
         $base['status'] = 'field_facts_missing';
     } elseif ((int)$base['ready_ui_status_rows'] === 0 || (int)$base['ui_status_incomplete_rows'] > 0) {
         $base['status'] = 'ui_status_incomplete';
+    } elseif ((int)$base['missing_platform_hotel_identifier_rows'] > 0 || (int)$base['platform_hotel_identifier_rows'] === 0) {
+        $base['status'] = 'platform_hotel_identifier_missing';
     }
+    $base['traffic_closure_chain'] = p0_import_post_execute_closure_chain($base, $stageMetricKeys, $requiredMetricKeys, $requiredStorageFields);
 
     return $base;
 }
@@ -1372,6 +1599,7 @@ function p0_import_render_markdown(array $result): string
     $lines[] = '- sensitive values exposed: `' . (!empty($result['sensitive_values_exposed']) ? 'true' : 'false') . '`';
     $lines[] = '- defaulted date rows: `' . (int)($summary['defaulted_date_rows'] ?? 0) . '`';
     $lines[] = '- missing source path rows: `' . (int)($summary['missing_source_path_rows'] ?? 0) . '`';
+    $lines[] = '- missing platform hotel identifier rows: `' . (int)($summary['missing_platform_hotel_identifier_rows'] ?? 0) . '`';
     $lines[] = '- incomplete field-fact preview rows: `' . (int)($summary['incomplete_field_fact_preview_rows'] ?? 0) . '`';
     $lines[] = '- rows with desensitized capture evidence: `' . (int)($summary['rows_with_desensitized_capture_evidence'] ?? 0) . '`';
     $lines[] = '- rows with complete desensitized capture evidence: `' . (int)($summary['rows_with_complete_desensitized_capture_evidence'] ?? 0) . '`';
@@ -1452,6 +1680,13 @@ try {
             'code' => 'target_date_source_path_missing',
             'message' => 'Every target-date traffic row must carry an explicit structured source path; field names alone are not accepted as source-path evidence.',
             'missing_source_path_rows' => (int)$summary['missing_source_path_rows'],
+        ];
+    }
+    if ((int)$summary['target_date_rows'] > 0 && (int)($summary['missing_platform_hotel_identifier_rows'] ?? 0) > 0) {
+        $issues[] = [
+            'code' => 'target_date_platform_hotel_identifier_missing',
+            'message' => 'Every target-date traffic row must carry a platform hotel identifier such as hotelId/hotel_id or poiId/poi_id; system_hotel_id is only the local scope and cannot replace OTA source identity.',
+            'missing_platform_hotel_identifier_rows' => (int)$summary['missing_platform_hotel_identifier_rows'],
         ];
     }
     if ((array)$summary['missing_metric_keys'] !== []) {
@@ -1555,14 +1790,15 @@ try {
     if ($status === 'ready_to_import') {
         $p0CompletionStatus = 'pre_import_ready_not_p0_complete';
     } elseif ($status === 'imported') {
-        $p0CompletionStatus = 'imported_and_post_execute_verifier_ready';
+        $p0CompletionStatus = 'imported_post_execute_readback_ready_requires_p0_verifier';
     }
 
     $result = array_merge([
         'script' => 'scripts/import_p0_ota_traffic_payload.php',
         'status' => $status,
         'p0_completion_status' => $p0CompletionStatus,
-        'p0_completion_gate' => 'P0 complete only when --execute saves target-date traffic rows and post-execute verify:p0-ota-field-loop returns ready.',
+        'p0_completion_gate' => 'P0 complete only when --execute saves target-date traffic rows and a separate verify:p0-ota-field-loop run returns ready.',
+        'post_execute_readback_policy' => 'Importer post_execute_verification is DB readback evidence only; final P0 closure still requires npm.cmd run verify:p0-ota-field-loop on the target date.',
         'mode' => (bool)$options['execute'] ? 'execute' : 'dry_run',
         'platform' => $options['platform'],
         'date' => $options['date'],

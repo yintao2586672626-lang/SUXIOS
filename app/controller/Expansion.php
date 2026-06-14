@@ -4,10 +4,13 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\ExpansionService;
+use app\service\OperationManagementService;
 use InvalidArgumentException;
 use RuntimeException;
 use think\App;
 use think\Response;
+use think\facade\Db;
+use Throwable;
 
 class Expansion extends Base
 {
@@ -92,6 +95,60 @@ class Expansion extends Base
             return $this->success($this->service->detail($id, (int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin()));
         } catch (\Throwable $e) {
             return $this->error('获取扩张记录详情失败: ' . $e->getMessage(), 400);
+        }
+    }
+
+    public function createExecutionIntent(int $id): Response
+    {
+        try {
+            $this->ensureLogin();
+            if ($id <= 0) {
+                return $this->error('expansion record id is invalid', 422);
+            }
+
+            $hotelId = (int)$this->request->param('hotel_id', 0);
+            if ($hotelId <= 0) {
+                return $this->error('hotel_id is required for expansion execution tracking', 422);
+            }
+
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (empty($permittedHotelIds) || !in_array($hotelId, $permittedHotelIds, true)) {
+                return $this->error('hotel_id is not permitted', 403);
+            }
+
+            $userId = (int)($this->currentUser->id ?? 0);
+            $isSuperAdmin = $this->currentUser->isSuperAdmin();
+            $record = $this->service->detail($id, $userId, $isSuperAdmin);
+            if ((int)($record['execution_intent_id'] ?? $record['result']['operation_execution_intent_id'] ?? $record['result']['execution_intent_id'] ?? 0) > 0) {
+                return $this->error('expansion record already linked to execution intent', 409);
+            }
+
+            $result = Db::transaction(function () use ($record, $id, $hotelId, $permittedHotelIds, $userId, $isSuperAdmin): array {
+                $operationService = new OperationManagementService();
+                $input = $this->service->buildExecutionIntentInput($record, $hotelId, [
+                    'date_start' => (string)$this->request->param('date_start', ''),
+                    'date_end' => (string)$this->request->param('date_end', ''),
+                ]);
+                $intent = $operationService->createExecutionIntent($permittedHotelIds, $hotelId, $input, $userId);
+                $updatedRecord = $this->service->attachExecutionTracking($id, $userId, $isSuperAdmin, [
+                    'execution_intent_id' => (int)($intent['id'] ?? 0),
+                    'hotel_id' => $hotelId,
+                    'status' => (string)($intent['status'] ?? ''),
+                ]);
+
+                return [
+                    'execution_intent' => $intent,
+                    'record' => $updatedRecord,
+                ];
+            });
+
+            return $this->success($result, 'execution intent created');
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), 404);
+        } catch (Throwable $e) {
+            return $this->error('create expansion execution intent failed: ' . $e->getMessage(), 500);
         }
     }
 

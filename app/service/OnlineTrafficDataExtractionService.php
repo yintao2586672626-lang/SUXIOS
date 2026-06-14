@@ -45,7 +45,7 @@ final class OnlineTrafficDataExtractionService
                 continue;
             }
             $itemPath = array_merge($path, [(string)$key]);
-            if (isset($value['hotelId']) || isset($value['hotel_id']) || isset($value['hotelName']) || isset($value['hotel_name']) || isset($value['poiId']) || isset($value['poiName'])) {
+            if (isset($value['hotelId']) || isset($value['hotel_id']) || isset($value['hotelName']) || isset($value['hotel_name']) || isset($value['poiId']) || isset($value['poi_id']) || isset($value['storeId']) || isset($value['store_id']) || isset($value['partnerId']) || isset($value['partner_id']) || isset($value['poiName'])) {
                 $result[] = self::withSourcePath($value, $itemPath);
             } elseif (isset($value[0]) && is_array($value[0])) {
                 $result = array_merge($result, self::extractGenericTrafficRows($value, $itemPath));

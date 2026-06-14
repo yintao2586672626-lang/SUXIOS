@@ -109,6 +109,120 @@ class FeasibilityReportService
         ]) > 0;
     }
 
+    public function buildExecutionIntentInput(array $record, int $hotelId, array $overrides = []): array
+    {
+        if ($hotelId <= 0) {
+            throw new \InvalidArgumentException('hotel_id is required for feasibility execution tracking');
+        }
+
+        $input = $this->decodeJson($record['input'] ?? $record['input_json'] ?? []);
+        $snapshot = $this->decodeJson($record['snapshot'] ?? $record['snapshot_json'] ?? []);
+        $report = $this->decodeJson($record['report'] ?? $record['report_json'] ?? []);
+        $readiness = is_array($record['feasibility_readiness'] ?? null)
+            ? $record['feasibility_readiness']
+            : $this->buildFeasibilityReadiness($input, $snapshot, $report);
+        $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
+        $projectName = trim((string)($record['project_name'] ?? $summary['project_name'] ?? $input['project_name'] ?? ''));
+        $date = date('Y-m-d');
+        $dateStart = trim((string)($overrides['date_start'] ?? '')) ?: $date;
+        $dateEnd = trim((string)($overrides['date_end'] ?? '')) ?: $dateStart;
+
+        return [
+            'source_module' => 'feasibility_report',
+            'source_record_id' => (int)($record['id'] ?? 0),
+            'hotel_id' => $hotelId,
+            'platform' => 'investment',
+            'object_type' => 'investment',
+            'action_type' => 'post_decision_tracking',
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+            'current_value' => [
+                'project_name' => $projectName,
+                'conclusion_grade' => (string)($record['conclusion_grade'] ?? $report['conclusion_grade'] ?? ''),
+                'payback_months' => $record['payback_months'] ?? $summary['payback_months'] ?? null,
+                'total_investment' => (float)($record['total_investment'] ?? $summary['total_investment'] ?? 0),
+                'readiness_stage' => (string)($readiness['stage'] ?? ''),
+            ],
+            'target_value' => [
+                'project_name' => $projectName,
+                'tracking_status' => 'pending_post_decision_tracking',
+                'target_metric' => 'investment_decision_closure',
+                'decision_stage' => (string)($readiness['stage'] ?? ''),
+                'next_action' => (string)($readiness['next_action'] ?? ''),
+            ],
+            'evidence' => [
+                'readiness_stage' => (string)($readiness['stage'] ?? ''),
+                'readiness_score' => (int)($readiness['score'] ?? 0),
+                'source_scope' => (string)($readiness['source_scope'] ?? ''),
+                'missing_evidence' => array_values((array)($readiness['missing_evidence'] ?? [])),
+                'conclusion_text' => (string)($report['conclusion_text'] ?? ''),
+                'core_reason' => (string)($report['core_reason'] ?? ''),
+                'financial_summary' => $summary,
+                'scope_notice' => 'Feasibility evidence is investment decision scope; OTA evidence remains channel-scope unless explicitly backed by whole-hotel data.',
+            ],
+            'expected_metric' => 'investment_decision_closure',
+            'expected_delta' => 0,
+            'risk_level' => $this->executionRiskLevel($report),
+            'status' => 'pending_approval',
+        ];
+    }
+
+    public function attachExecutionTracking(int $id, int $userId, bool $isSuperAdmin, array $tracking): ?array
+    {
+        $this->ensureTable();
+        $intentId = (int)($tracking['execution_intent_id'] ?? $tracking['id'] ?? 0);
+        if ($intentId <= 0) {
+            throw new \InvalidArgumentException('execution_intent_id is required');
+        }
+
+        $query = FeasibilityReport::where('id', $id)->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $userId);
+        }
+
+        $record = $query->find();
+        if (!$record) {
+            return null;
+        }
+
+        $report = $this->decodeJson($record->report_json ?? []);
+        $now = date('Y-m-d H:i:s');
+        $trackingPayload = [
+            'type' => 'operation_execution_intent',
+            'execution_intent_id' => $intentId,
+            'hotel_id' => (int)($tracking['hotel_id'] ?? 0),
+            'status' => trim((string)($tracking['status'] ?? '')),
+            'source_module' => 'feasibility_report',
+            'linked_at' => $now,
+        ];
+
+        $existing = $report['execution_tracking'] ?? [];
+        if (!is_array($existing)) {
+            $existing = [];
+        }
+        if ($existing !== [] && array_keys($existing) !== range(0, count($existing) - 1)) {
+            $existing = [$existing];
+        }
+        $existing[] = $trackingPayload;
+
+        $report['execution_tracking'] = $existing;
+        $report['execution_intent_id'] = $intentId;
+        $report['post_decision_tracking'] = [
+            'status' => 'linked',
+            'latest_execution_intent_id' => $intentId,
+            'latest_status' => $trackingPayload['status'],
+            'hotel_id' => $trackingPayload['hotel_id'],
+            'linked_at' => $now,
+        ];
+
+        $record->save(['report_json' => $report, 'updated_at' => $now]);
+        $record->report_json = $report;
+        $record->updated_at = $now;
+
+        return $this->formatRecord($record);
+    }
+
     public function buildFeasibilityReadiness(array $input, array $snapshot, array $report): array
     {
         $reportReady = trim((string)($report['conclusion_grade'] ?? '')) !== ''
@@ -896,6 +1010,17 @@ class FeasibilityReportService
             'C' => '中高风险',
             'D' => '高风险',
             default => '',
+        };
+    }
+
+    private function executionRiskLevel(array $report): string
+    {
+        $grade = strtoupper(trim((string)($report['conclusion_grade'] ?? '')));
+        return match ($grade) {
+            'A' => 'low',
+            'B' => 'medium',
+            'C', 'D' => 'high',
+            default => 'medium',
         };
     }
 
