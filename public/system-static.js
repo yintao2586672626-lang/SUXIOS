@@ -256,7 +256,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             ]
         },
         { name: '全生命周期辅助', path: 'lifecycle', icon: 'fas fa-share-alt', requireSuper: false, permissions: [], highlight: true },
-        { name: '门店管理', path: 'hotels', icon: 'fas fa-hotel', configKey: 'menu_hotel_name', requireSuper: false, permissions: [] },
+        { name: '门店管理', path: 'hotels', icon: 'fas fa-hotel', configKey: 'menu_hotel_name', requireSuper: false, permissions: ['can_manage_own_hotels'] },
         {
             name: '线上数据手动获取',
             icon: 'fas fa-cloud-download-alt',
@@ -275,7 +275,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         {
             name: '团队管理',
             icon: 'fas fa-users',
-            requireManager: true,
+            requireSuper: true,
             permissions: [],
             children: [
                 { name: '员工管理', path: 'users', icon: 'fas fa-user-friends' },

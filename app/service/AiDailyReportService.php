@@ -51,7 +51,7 @@ class AiDailyReportService
             ->toArray();
 
         return [
-            'list' => array_map([$this, 'normalizeReportRow'], $rows),
+            'list' => $this->enrichReportRows($rows, $hotelIds, $hotelId),
             'pagination' => [
                 'total' => $total,
                 'page' => $page,
@@ -76,8 +76,10 @@ class AiDailyReportService
         $this->applyHotelScope($query, $hotelIds, $hotelId);
         $row = $query->order('report_date', 'desc')->order('id', 'desc')->find();
 
+        $reports = is_array($row) ? $this->enrichReportRows([$row], $hotelIds, $hotelId) : [];
+
         return [
-            'report' => is_array($row) ? $this->normalizeReportRow($row) : null,
+            'report' => $reports[0] ?? null,
             'data_status' => is_array($row) ? self::DATA_OK : self::DATA_PENDING,
             'data_gaps' => is_array($row) ? [] : [['code' => 'ai_daily_report_not_generated', 'message' => 'AI daily report has not been generated for the selected hotel']],
         ];
@@ -99,7 +101,12 @@ class AiDailyReportService
             ->whereNull('deleted_at')
             ->find();
 
-        return is_array($row) ? $this->normalizeReportRow($row) : null;
+        if (!is_array($row)) {
+            return null;
+        }
+
+        $reports = $this->enrichReportRows([$row], $hotelIds, null);
+        return $reports[0] ?? null;
     }
 
     public function generate(array $hotelIds, ?int $hotelId, string $reportDate, int $userId, array $options = []): array
@@ -238,6 +245,506 @@ class AiDailyReportService
             'action_index' => $actionIndex,
             'execution_intent' => $intent,
         ];
+    }
+
+    public function enrichReportRows(array $rows, array $hotelIds = [], ?int $hotelId = null): array
+    {
+        $reportIds = array_values(array_filter(array_map(
+            static fn(array $row): int => (int)($row['id'] ?? 0),
+            $rows
+        ), static fn(int $id): bool => $id > 0));
+        $executionItemsByReportId = $this->executionItemsByReportId($hotelIds, $hotelId, $reportIds);
+
+        $result = [];
+        foreach ($rows as $row) {
+            $reportId = (int)($row['id'] ?? 0);
+            $result[] = $this->normalizeReportRow($row, $executionItemsByReportId[$reportId] ?? []);
+        }
+
+        return $result;
+    }
+
+    public function buildReportReadiness(array $report, array $executionItems = []): array
+    {
+        $actions = is_array($report['recommended_actions'] ?? null) ? $report['recommended_actions'] : [];
+        $dataGaps = is_array($report['data_gaps'] ?? null) ? $report['data_gaps'] : [];
+        $sourceRefs = is_array($report['source_refs'] ?? null) ? $report['source_refs'] : [];
+        $actionCount = count($actions);
+        $transferable = 0;
+        $transferred = 0;
+        $approved = 0;
+        $executed = 0;
+        $evidenceReady = 0;
+        $reviewed = 0;
+        $roiReady = 0;
+        $blocked = 0;
+        $missing = [];
+
+        foreach ($actions as $index => $action) {
+            if (!is_array($action)) {
+                continue;
+            }
+            if (($action['can_create_execution_intent'] ?? true) !== false) {
+                $transferable++;
+            }
+            $executionItem = $this->executionItemForAction($action, $executionItems, $index);
+            $readiness = is_array($action['action_readiness'] ?? null)
+                ? $action['action_readiness']
+                : $this->buildActionReadiness($action, $executionItem);
+            $stage = (string)($readiness['stage'] ?? '');
+            if ((int)($action['execution_intent_id'] ?? 0) > 0 || !empty($action['execution_flow']) || !empty($executionItem)) {
+                $transferred++;
+            }
+            if (($readiness['approved'] ?? false) === true) {
+                $approved++;
+            }
+            if (($readiness['executed'] ?? false) === true) {
+                $executed++;
+            }
+            if (($readiness['evidence_ready'] ?? false) === true) {
+                $evidenceReady++;
+            }
+            if (($readiness['reviewed'] ?? false) === true) {
+                $reviewed++;
+            }
+            if (($readiness['roi_ready'] ?? false) === true) {
+                $roiReady++;
+            }
+            if (in_array($stage, ['blocked_by_data_gap', 'blocked', 'rejected', 'failed'], true)) {
+                $blocked++;
+            }
+        }
+
+        if (empty($sourceRefs)) {
+            $missing[] = $this->readinessMissing('source_refs', '来源引用', '补充日报生成来源，避免孤立报告');
+        }
+        if (!empty($dataGaps)) {
+            $missing[] = $this->readinessMissing('data_gaps', '数据缺口处理', '先处理日报内显式数据缺口');
+        }
+        if ($actionCount <= 0) {
+            $missing[] = $this->readinessMissing('recommended_actions', '建议动作', '生成可执行建议动作');
+        } elseif ($transferable > 0 && $transferred < $transferable) {
+            $missing[] = $this->readinessMissing('execution_intent', '执行意图', '将可执行建议转成运营执行单');
+        }
+        if ($transferred > 0 && $approved < $transferred) {
+            $missing[] = $this->readinessMissing('manual_approval', '人工审批', '审批日报转出的执行意图');
+        }
+        if ($approved > 0 && $executed < $approved) {
+            $missing[] = $this->readinessMissing('execution_task', '执行任务', '完成已审批动作的执行');
+        }
+        if ($executed > 0 && $evidenceReady < $executed) {
+            $missing[] = $this->readinessMissing('execution_evidence', '执行证据', '补齐执行前后证据');
+        }
+        if ($evidenceReady > 0 && $reviewed < $evidenceReady) {
+            $missing[] = $this->readinessMissing('effect_review', '效果复盘', '记录执行效果复盘');
+        }
+        if ($reviewed > 0 && $roiReady < $reviewed) {
+            $missing[] = $this->readinessMissing('roi_evidence', 'ROI证据', '补充收入/成本证据以计算ROI');
+        }
+
+        if ($actionCount > 0 && $roiReady >= $actionCount && empty($dataGaps)) {
+            $stage = 'daily_loop_closed';
+            $score = 100;
+            $closedLoop = true;
+            $nextAction = '沉淀日报动作复盘和可复制SOP';
+        } elseif ($roiReady > 0) {
+            $stage = 'partial_roi_ready';
+            $score = 90;
+            $closedLoop = false;
+            $nextAction = '补齐剩余动作ROI证据';
+        } elseif ($reviewed > 0) {
+            $stage = 'reviewed_no_roi';
+            $score = 82;
+            $closedLoop = false;
+            $nextAction = '补ROI收入/成本证据';
+        } elseif ($evidenceReady > 0) {
+            $stage = 'evidence_pending_review';
+            $score = 74;
+            $closedLoop = false;
+            $nextAction = '做效果复盘';
+        } elseif ($executed > 0) {
+            $stage = 'executed_missing_evidence';
+            $score = 66;
+            $closedLoop = false;
+            $nextAction = '补执行证据';
+        } elseif ($transferred > 0) {
+            $stage = 'execution_in_progress';
+            $score = 56;
+            $closedLoop = false;
+            $nextAction = '推进审批和执行';
+        } elseif ($actionCount > 0 && $transferable > 0) {
+            $stage = 'pending_execution_transfer';
+            $score = !empty($dataGaps) ? 42 : 48;
+            $closedLoop = false;
+            $nextAction = '将可执行建议转执行单';
+        } elseif (!empty($dataGaps)) {
+            $stage = 'data_recheck_required';
+            $score = 30;
+            $closedLoop = false;
+            $nextAction = '先处理数据缺口';
+        } elseif ($actionCount > 0 && $blocked > 0) {
+            $stage = 'blocked';
+            $score = 25;
+            $closedLoop = false;
+            $nextAction = '处理阻塞原因后再转执行';
+        } else {
+            $stage = 'generated_no_action';
+            $score = 35;
+            $closedLoop = false;
+            $nextAction = '补可执行建议或明确无需动作';
+        }
+
+        return $this->withReadinessNotice([
+            'stage' => $stage,
+            'status_label' => $this->reportReadinessLabel($stage),
+            'score' => $score,
+            'closed_loop' => $closedLoop,
+            'next_action' => $nextAction,
+            'missing_evidence' => $missing,
+            'action_count' => $actionCount,
+            'transferable_count' => $transferable,
+            'transferred_count' => $transferred,
+            'approved_count' => $approved,
+            'executed_count' => $executed,
+            'evidence_ready_count' => $evidenceReady,
+            'reviewed_count' => $reviewed,
+            'roi_ready_count' => $roiReady,
+            'blocked_count' => $blocked,
+            'source_scope' => 'ai_daily_report_to_operation_execution_loop',
+        ]);
+    }
+
+    public function readinessSummaryFromRows(array $rows, array $hotelIds = [], ?int $hotelId = null): array
+    {
+        $reports = $this->enrichReportRows($rows, $hotelIds, $hotelId);
+        $summary = [
+            'record_count' => count($reports),
+            'best_score' => 0,
+            'best_status_label' => '',
+            'closed_loop_count' => 0,
+            'transferred_count' => 0,
+            'evidence_ready_count' => 0,
+            'reviewed_count' => 0,
+            'roi_ready_count' => 0,
+            'missing_evidence' => [],
+        ];
+
+        foreach ($reports as $report) {
+            $readiness = is_array($report['report_readiness'] ?? null) ? $report['report_readiness'] : [];
+            if (($readiness['closed_loop'] ?? false) === true) {
+                $summary['closed_loop_count']++;
+            }
+            $summary['transferred_count'] += (int)($readiness['transferred_count'] ?? 0);
+            $summary['evidence_ready_count'] += (int)($readiness['evidence_ready_count'] ?? 0);
+            $summary['reviewed_count'] += (int)($readiness['reviewed_count'] ?? 0);
+            $summary['roi_ready_count'] += (int)($readiness['roi_ready_count'] ?? 0);
+            if ((int)($readiness['score'] ?? 0) >= (int)$summary['best_score']) {
+                $summary['best_score'] = (int)($readiness['score'] ?? 0);
+                $summary['best_status_label'] = (string)($readiness['status_label'] ?? '');
+                $summary['missing_evidence'] = array_slice((array)($readiness['missing_evidence'] ?? []), 0, 4);
+            }
+        }
+
+        return $summary;
+    }
+
+    private function executionItemsByReportId(array $hotelIds, ?int $hotelId, array $reportIds): array
+    {
+        $reportIds = array_values(array_unique(array_filter(array_map('intval', $reportIds), static fn(int $id): bool => $id > 0)));
+        if (empty($reportIds) || !$this->tableExists('operation_execution_intents')) {
+            return [];
+        }
+
+        try {
+            $query = Db::name('operation_execution_intents')
+                ->whereNull('deleted_at')
+                ->where('source_module', 'ai_daily_report')
+                ->whereIn('source_record_id', $reportIds);
+            $this->applyHotelScope($query, $hotelIds, $hotelId);
+            $intentRows = $query->order('id', 'desc')->select()->toArray();
+            if (empty($intentRows)) {
+                return [];
+            }
+
+            $intentIds = array_map(static fn(array $row): int => (int)$row['id'], $intentRows);
+            $tasksByIntent = [];
+            $evidenceByIntent = [];
+            if ($this->tableExists('operation_execution_tasks')) {
+                $taskRows = Db::name('operation_execution_tasks')
+                    ->whereIn('intent_id', $intentIds)
+                    ->whereNull('deleted_at')
+                    ->order('id', 'desc')
+                    ->select()
+                    ->toArray();
+                $taskIntentMap = [];
+                foreach ($taskRows as $taskRow) {
+                    $intentId = (int)($taskRow['intent_id'] ?? 0);
+                    $taskId = (int)($taskRow['id'] ?? 0);
+                    if ($intentId <= 0) {
+                        continue;
+                    }
+                    $tasksByIntent[$intentId][] = $taskRow;
+                    if ($taskId > 0) {
+                        $taskIntentMap[$taskId] = $intentId;
+                    }
+                }
+
+                if (!empty($taskIntentMap) && $this->tableExists('operation_execution_evidence')) {
+                    $evidenceRows = Db::name('operation_execution_evidence')
+                        ->whereIn('task_id', array_keys($taskIntentMap))
+                        ->whereNull('deleted_at')
+                        ->order('id', 'desc')
+                        ->select()
+                        ->toArray();
+                    foreach ($evidenceRows as $evidenceRow) {
+                        $taskId = (int)($evidenceRow['task_id'] ?? 0);
+                        $intentId = $taskIntentMap[$taskId] ?? 0;
+                        if ($intentId > 0) {
+                            $evidenceByIntent[$intentId][] = $evidenceRow;
+                        }
+                    }
+                }
+            }
+
+            $itemsByReportId = [];
+            foreach ($intentRows as $intentRow) {
+                $intentId = (int)($intentRow['id'] ?? 0);
+                $reportId = (int)($intentRow['source_record_id'] ?? 0);
+                if ($intentId <= 0 || $reportId <= 0) {
+                    continue;
+                }
+                $itemsByReportId[$reportId][] = $this->operationService->buildExecutionFlowItem(
+                    $intentRow,
+                    $tasksByIntent[$intentId] ?? [],
+                    $evidenceByIntent[$intentId] ?? []
+                );
+            }
+
+            return $itemsByReportId;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    private function enrichRecommendedActions(array $actions, array $executionItems): array
+    {
+        $result = [];
+        foreach ($actions as $index => $action) {
+            if (!is_array($action)) {
+                continue;
+            }
+            $executionItem = $this->executionItemForAction($action, $executionItems, $index);
+            $action = $this->withExecutionFlowForAction($action, $executionItem);
+            $action['action_readiness'] = $this->buildActionReadiness($action, $executionItem);
+            $result[] = $action;
+        }
+
+        return $result;
+    }
+
+    private function executionItemForAction(array $action, array $executionItems, int $actionIndex): array
+    {
+        $intentId = (int)($action['execution_intent_id'] ?? 0);
+        foreach ($executionItems as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            if ($intentId > 0 && (int)($item['id'] ?? 0) === $intentId) {
+                return $item;
+            }
+        }
+
+        foreach ($executionItems as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $evidence = is_array($item['recommendation']['evidence'] ?? null) ? $item['recommendation']['evidence'] : [];
+            if ((int)($evidence['action_index'] ?? -1) === $actionIndex) {
+                return $item;
+            }
+        }
+
+        return [];
+    }
+
+    private function withExecutionFlowForAction(array $action, array $executionItem): array
+    {
+        if (empty($executionItem)) {
+            return $action;
+        }
+
+        $action['execution_intent_id'] = (int)($executionItem['id'] ?? ($action['execution_intent_id'] ?? 0));
+        $action['execution_status'] = (string)($executionItem['approval']['status'] ?? ($action['execution_status'] ?? ''));
+        $action['execution_blocked_reason'] = (string)($executionItem['approval']['blocked_reason'] ?? ($action['execution_blocked_reason'] ?? ''));
+        $action['execution_flow'] = [
+            'stage' => (string)($executionItem['stage'] ?? ''),
+            'intent_id' => (int)($executionItem['id'] ?? 0),
+            'task_id' => (int)($executionItem['execution']['task_id'] ?? 0),
+            'approval_status' => (string)($executionItem['approval']['status'] ?? ''),
+            'execution_status' => (string)($executionItem['execution']['status'] ?? ''),
+            'evidence_count' => (int)($executionItem['evidence']['count'] ?? 0),
+            'review_status' => (string)($executionItem['review']['status'] ?? ''),
+            'roi_status' => (string)($executionItem['roi']['status'] ?? ''),
+            'next_action' => $executionItem['next_action'] ?? [],
+        ];
+
+        return $action;
+    }
+
+    private function buildActionReadiness(array $action, array $executionItem = []): array
+    {
+        if (($action['can_create_execution_intent'] ?? true) === false) {
+            return $this->withReadinessNotice($this->actionReadiness(
+                'blocked_by_data_gap',
+                20,
+                false,
+                '先处理阻塞原因',
+                [$this->readinessMissing('blocked_reason', '阻塞原因', (string)($action['blocked_reason'] ?? '先处理数据缺口'))]
+            ));
+        }
+
+        if (empty($executionItem) && (int)($action['execution_intent_id'] ?? 0) <= 0) {
+            return $this->withReadinessNotice($this->actionReadiness(
+                'pending_transfer',
+                35,
+                false,
+                '转成运营执行单',
+                [$this->readinessMissing('execution_intent', '执行意图', '将该建议转成运营执行单')]
+            ));
+        }
+
+        $stage = (string)($executionItem['stage'] ?? '');
+        $approvalStatus = (string)($executionItem['approval']['status'] ?? $action['execution_status'] ?? '');
+        $executionStatus = (string)($executionItem['execution']['status'] ?? '');
+        $evidenceCount = (int)($executionItem['evidence']['count'] ?? 0);
+        $reviewStatus = (string)($executionItem['review']['status'] ?? '');
+        $roiStatus = (string)($executionItem['roi']['status'] ?? '');
+
+        if ($stage === 'rejected' || $approvalStatus === 'rejected') {
+            return $this->withReadinessNotice($this->actionReadiness('rejected', 20, false, '保留拒绝原因或重新生成建议', [
+                $this->readinessMissing('approval_rejected', '审批拒绝', '保留拒绝原因或重新评估建议'),
+            ]));
+        }
+        if ($stage === 'blocked' || $approvalStatus === 'blocked') {
+            return $this->withReadinessNotice($this->actionReadiness('blocked', 25, false, '处理阻塞原因', [
+                $this->readinessMissing('blocked_reason', '阻塞原因', (string)($executionItem['approval']['blocked_reason'] ?? '处理执行阻塞原因')),
+            ]));
+        }
+        if ($stage === 'failed' || $executionStatus === 'failed') {
+            return $this->withReadinessNotice($this->actionReadiness('failed', 30, false, '复盘失败原因', [
+                $this->readinessMissing('failure_review', '失败复盘', '记录失败原因和后续动作'),
+            ]));
+        }
+        if ($stage === 'reviewed' && $roiStatus === 'ready') {
+            return $this->withReadinessNotice($this->actionReadiness('action_closed_loop', 100, true, '沉淀复盘证据', [], true, true, true, true, true));
+        }
+        if ($stage === 'reviewed') {
+            return $this->withReadinessNotice($this->actionReadiness('reviewed_no_roi', 88, false, '补ROI证据', [
+                $this->readinessMissing('roi_evidence', 'ROI证据', '补收入、成本或增量结果证据'),
+            ], true, $executionStatus === 'executed', $evidenceCount > 0, true, false));
+        }
+        if ($stage === 'review' || $evidenceCount > 0) {
+            return $this->withReadinessNotice($this->actionReadiness('evidence_pending_review', 78, false, '做效果复盘', [
+                $this->readinessMissing('effect_review', '效果复盘', '记录执行效果复盘'),
+            ], $approvalStatus === 'approved', $executionStatus === 'executed', true, false, false));
+        }
+        if ($stage === 'evidence' || $executionStatus === 'executed') {
+            return $this->withReadinessNotice($this->actionReadiness('executed_missing_evidence', 68, false, '补执行证据', [
+                $this->readinessMissing('execution_evidence', '执行证据', '补执行前后证据'),
+            ], $approvalStatus === 'approved', true, false, false, false));
+        }
+        if ($stage === 'execution' || $approvalStatus === 'approved') {
+            return $this->withReadinessNotice($this->actionReadiness('approved_pending_execution', 58, false, '执行已审批动作', [
+                $this->readinessMissing('execution_task', '执行任务', '完成已审批动作的执行'),
+            ], true, false, false, false, false));
+        }
+
+        return $this->withReadinessNotice($this->actionReadiness('intent_pending_approval', 45, false, '审批执行意图', [
+            $this->readinessMissing('manual_approval', '人工审批', '审批日报转出的执行意图'),
+        ]));
+    }
+
+    private function actionReadiness(
+        string $stage,
+        int $score,
+        bool $closedLoop,
+        string $nextAction,
+        array $missingEvidence = [],
+        bool $approved = false,
+        bool $executed = false,
+        bool $evidenceReady = false,
+        bool $reviewed = false,
+        bool $roiReady = false
+    ): array {
+        return [
+            'stage' => $stage,
+            'status_label' => $this->actionReadinessLabel($stage),
+            'score' => $score,
+            'closed_loop' => $closedLoop,
+            'next_action' => $nextAction,
+            'missing_evidence' => $missingEvidence,
+            'approved' => $approved,
+            'executed' => $executed,
+            'evidence_ready' => $evidenceReady,
+            'reviewed' => $reviewed,
+            'roi_ready' => $roiReady,
+        ];
+    }
+
+    private function readinessMissing(string $code, string $label, string $nextAction): array
+    {
+        return [
+            'code' => $code,
+            'label' => $label,
+            'next_action' => $nextAction,
+        ];
+    }
+
+    private function withReadinessNotice(array $readiness): array
+    {
+        $missing = array_values(array_filter((array)($readiness['missing_evidence'] ?? []), 'is_array'));
+        $readiness['missing_evidence'] = $missing;
+        if (empty($missing)) {
+            $readiness['notice'] = '已具备当前阶段闭环证据';
+            return $readiness;
+        }
+
+        $labels = array_map(static fn(array $item): string => (string)($item['label'] ?? $item['code'] ?? '缺口'), $missing);
+        $readiness['notice'] = '仍缺：' . implode('、', array_slice($labels, 0, 4));
+        return $readiness;
+    }
+
+    private function reportReadinessLabel(string $stage): string
+    {
+        return [
+            'daily_loop_closed' => '日报闭环完成',
+            'partial_roi_ready' => '部分ROI就绪',
+            'reviewed_no_roi' => '已复盘缺ROI',
+            'evidence_pending_review' => '有证据待复盘',
+            'executed_missing_evidence' => '已执行缺证据',
+            'execution_in_progress' => '执行推进中',
+            'pending_execution_transfer' => '待转执行单',
+            'data_recheck_required' => '数据缺口待处理',
+            'blocked' => '动作受阻',
+            'generated_no_action' => '已生成缺动作',
+        ][$stage] ?? '状态待核验';
+    }
+
+    private function actionReadinessLabel(string $stage): string
+    {
+        return [
+            'action_closed_loop' => '动作已闭环',
+            'reviewed_no_roi' => '已复盘缺ROI',
+            'evidence_pending_review' => '待效果复盘',
+            'executed_missing_evidence' => '缺执行证据',
+            'approved_pending_execution' => '待执行',
+            'intent_pending_approval' => '待审批',
+            'pending_transfer' => '待转单',
+            'blocked_by_data_gap' => '数据阻塞',
+            'blocked' => '已阻塞',
+            'rejected' => '已拒绝',
+            'failed' => '执行失败',
+        ][$stage] ?? '状态待核验';
     }
 
     private function buildSnapshot(array $hotelIds, int $hotelId, string $reportDate): array
@@ -737,7 +1244,7 @@ class AiDailyReportService
         throw new \InvalidArgumentException('hotel_id is required for AI daily report generation');
     }
 
-    private function normalizeReportRow(array $row): array
+    private function normalizeReportRow(array $row, array $executionItems = []): array
     {
         foreach (['id', 'hotel_id', 'created_by'] as $field) {
             $row[$field] = (int)($row[$field] ?? 0);
@@ -754,6 +1261,8 @@ class AiDailyReportService
             $row[$field] = $this->decodeJson((string)($row[$field . '_json'] ?? ''));
             unset($row[$field . '_json']);
         }
+        $row['recommended_actions'] = $this->enrichRecommendedActions((array)($row['recommended_actions'] ?? []), $executionItems);
+        $row['report_readiness'] = $this->buildReportReadiness($row, $executionItems);
 
         return $row;
     }

@@ -21,6 +21,8 @@ const checks = [
       'public function detail(int $id): Response',
       'public function archive(int $id): Response',
       'private function formatRecord(array $row, bool $withDetail): array',
+      'SimulationExecutionReadinessService',
+      'execution_readiness',
       "'tenant_id' => $this->tenantIdForCurrentUser()",
       'private function applyTenantScope',
       "where('tenant_id', $tenantId)",
@@ -51,6 +53,9 @@ const checks = [
       'loadStrategyDetail',
       'reuseStrategyRecord',
       'archiveStrategyRecord',
+      'strategyCurrentReadiness',
+      'simulationReadinessBadgeClass',
+      'execution_readiness',
     ],
   },
 ];

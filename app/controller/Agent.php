@@ -24,10 +24,12 @@ use app\model\MaintenancePlan;
 use app\model\OperationLog;
 use app\model\SystemConfig;
 use app\model\AiModelConfig;
+use app\service\AgentClosureReadinessService;
 use app\service\FeasibilityReportService;
 use app\service\LlmClient;
 use app\service\OperationManagementService;
 use app\service\OtaOperatingScope;
+use app\service\RevenueForecastReadinessService;
 use app\service\RevenuePricingRecommendationService;
 use think\Response;
 use think\facade\Db;
@@ -3527,7 +3529,10 @@ class Agent extends Base
         $list = $query->with('category')
             ->order('sort_order', 'asc')
             ->page($pagination['page'], $pagination['page_size'])
-            ->select();
+            ->select()
+            ->toArray();
+        $knowledgeIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $list), static fn(int $id): bool => $id > 0));
+        $list = (new AgentClosureReadinessService())->enrichKnowledgeRows($list, $this->knowledgeUsageById($hotelId, $knowledgeIds));
         
         return $this->paginate($list, $total, $pagination['page'], $pagination['page_size']);
     }
@@ -3625,6 +3630,35 @@ class Agent extends Base
         return $this->success($tree);
     }
 
+    private function knowledgeUsageById(int $hotelId, array $knowledgeIds): array
+    {
+        $knowledgeIds = array_values(array_unique(array_filter(array_map('intval', $knowledgeIds), static fn(int $id): bool => $id > 0)));
+        if ($hotelId <= 0 || empty($knowledgeIds)) {
+            return [];
+        }
+
+        $rows = AgentConversation::where('hotel_id', $hotelId)
+            ->whereIn('knowledge_id', $knowledgeIds)
+            ->field('knowledge_id, COUNT(*) AS conversation_count, MAX(create_time) AS latest_used_at')
+            ->group('knowledge_id')
+            ->select()
+            ->toArray();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $knowledgeId = (int)($row['knowledge_id'] ?? 0);
+            if ($knowledgeId <= 0) {
+                continue;
+            }
+            $result[$knowledgeId] = [
+                'conversation_count' => (int)($row['conversation_count'] ?? 0),
+                'latest_used_at' => (string)($row['latest_used_at'] ?? ''),
+            ];
+        }
+
+        return $result;
+    }
+
     // ==================== 智能员工Agent - 增强功能 ====================
 
     /**
@@ -3657,7 +3691,9 @@ class Agent extends Base
             ->order('priority', 'desc')
             ->order('id', 'desc')
             ->page($pagination['page'], $pagination['page_size'])
-            ->select();
+            ->select()
+            ->toArray();
+        $list = (new AgentClosureReadinessService())->enrichWorkOrderRows($list);
         
         return $this->paginate($list, $total, $pagination['page'], $pagination['page_size']);
     }
@@ -3800,8 +3836,58 @@ class Agent extends Base
         
         $pagination = $this->getPagination();
         $result = AgentConversation::search($hotelId, $keyword, $channel, $pagination['page'], $pagination['page_size']);
+        $list = is_object($result['list'] ?? null) && method_exists($result['list'], 'toArray')
+            ? $result['list']->toArray()
+            : (array)($result['list'] ?? []);
+        $conversationIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $list), static fn(int $id): bool => $id > 0));
+        $workOrdersByConversationId = $this->workOrdersByConversationId($hotelId, $conversationIds);
+        $list = (new AgentClosureReadinessService())->enrichConversationRows($list, $workOrdersByConversationId);
         
-        return $this->paginate($result['list'], $result['total'], $pagination['page'], $pagination['page_size']);
+        return $this->paginate($list, $result['total'], $pagination['page'], $pagination['page_size']);
+    }
+
+    private function workOrdersByConversationId(int $hotelId, array $conversationIds): array
+    {
+        $conversationIds = array_values(array_unique(array_filter(array_map('intval', $conversationIds), static fn(int $id): bool => $id > 0)));
+        if ($hotelId <= 0 || empty($conversationIds)) {
+            return [];
+        }
+
+        try {
+            $query = AgentWorkOrder::where('hotel_id', $hotelId);
+            $query->where(function ($q) use ($conversationIds) {
+                foreach ($conversationIds as $index => $conversationId) {
+                    $method = $index === 0 ? 'whereLike' : 'whereOrLike';
+                    $q->{$method}('tags', '%"conversation:' . $conversationId . '"%');
+                }
+            });
+            $rows = $query->select()->toArray();
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($rows as $row) {
+            $tags = $row['tags'] ?? [];
+            if (is_string($tags)) {
+                $decoded = json_decode($tags, true);
+                $tags = is_array($decoded) ? $decoded : [];
+            }
+            if (!is_array($tags)) {
+                continue;
+            }
+            foreach ($tags as $tag) {
+                if (!is_string($tag) || !str_starts_with($tag, 'conversation:')) {
+                    continue;
+                }
+                $conversationId = (int)substr($tag, strlen('conversation:'));
+                if ($conversationId > 0) {
+                    $result[$conversationId][] = $row;
+                }
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -3885,7 +3971,9 @@ class Agent extends Base
         $startDate = (string) $this->request->param('start_date', date('Y-m-d'));
         $endDate = (string) $this->request->param('end_date', date('Y-m-d', strtotime('+30 days')));
         
-        $forecasts = DemandForecast::getForecastRange($hotelId, $startDate, $endDate);
+        $forecasts = DemandForecast::getForecastRange($hotelId, $startDate, $endDate)->toArray();
+        $forecastIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $forecasts), static fn(int $id): bool => $id > 0));
+        $forecasts = (new RevenueForecastReadinessService())->enrichForecastRows($forecasts, $this->priceSuggestionStatsByForecastId($hotelId, $forecastIds));
         
         // 获取准确率统计
         $accuracy = DemandForecast::getAccuracyStats($hotelId, 30);
@@ -3895,6 +3983,42 @@ class Agent extends Base
             'accuracy' => $accuracy,
             'high_demand_dates' => DemandForecast::getHighDemandDates($hotelId, 80),
         ]);
+    }
+
+    private function priceSuggestionStatsByForecastId(int $hotelId, array $forecastIds): array
+    {
+        $forecastIds = array_values(array_unique(array_filter(array_map('intval', $forecastIds), static fn(int $id): bool => $id > 0)));
+        if ($hotelId <= 0 || empty($forecastIds)) {
+            return [];
+        }
+
+        $rows = PriceSuggestion::where('hotel_id', $hotelId)
+            ->whereIn('demand_forecast_id', $forecastIds)
+            ->field(
+                'demand_forecast_id, COUNT(*) AS suggestion_count, '
+                . 'SUM(CASE WHEN status IN (2, 4) THEN 1 ELSE 0 END) AS approved_count, '
+                . 'SUM(CASE WHEN status = 4 THEN 1 ELSE 0 END) AS applied_count, '
+                . 'MAX(update_time) AS latest_suggestion_at'
+            )
+            ->group('demand_forecast_id')
+            ->select()
+            ->toArray();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $forecastId = (int)($row['demand_forecast_id'] ?? 0);
+            if ($forecastId <= 0) {
+                continue;
+            }
+            $result[$forecastId] = [
+                'suggestion_count' => (int)($row['suggestion_count'] ?? 0),
+                'approved_count' => (int)($row['approved_count'] ?? 0),
+                'applied_count' => (int)($row['applied_count'] ?? 0),
+                'latest_suggestion_at' => (string)($row['latest_suggestion_at'] ?? ''),
+            ];
+        }
+
+        return $result;
     }
 
     /**
@@ -4011,9 +4135,57 @@ class Agent extends Base
         $list = $query->with('roomType')
             ->order('id', 'desc')
             ->page($pagination['page'], $pagination['page_size'])
-            ->select();
+            ->select()
+            ->toArray();
+        $pricingService = new RevenuePricingRecommendationService();
+        $list = $pricingService->enrichSuggestionRows(
+            $list,
+            $this->priceSuggestionExecutionItemsByRecordId($hotelId, array_column($list, 'id'))
+        );
         
         return $this->paginate($list, $total, $pagination['page'], $pagination['page_size']);
+    }
+
+    /**
+     * @param array<int, mixed> $suggestionIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function priceSuggestionExecutionItemsByRecordId(int $hotelId, array $suggestionIds): array
+    {
+        $suggestionIds = array_values(array_filter(
+            array_map('intval', $suggestionIds),
+            static fn(int $id): bool => $id > 0
+        ));
+        if ($hotelId <= 0 || empty($suggestionIds)) {
+            return [];
+        }
+
+        try {
+            $flow = (new OperationManagementService())->executionFlow([$hotelId], $hotelId, ['object_type' => 'price']);
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        $idSet = array_fill_keys($suggestionIds, true);
+        $items = [];
+        foreach ((array)($flow['list'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $recommendation = is_array($item['recommendation'] ?? null) ? $item['recommendation'] : [];
+            if ((string)($recommendation['source_module'] ?? '') !== 'price_suggestion') {
+                continue;
+            }
+            $sourceRecordId = (int)($recommendation['source_record_id'] ?? 0);
+            if (!isset($idSet[$sourceRecordId])) {
+                continue;
+            }
+            if (!isset($items[$sourceRecordId]) || (int)($item['id'] ?? 0) > (int)($items[$sourceRecordId]['id'] ?? 0)) {
+                $items[$sourceRecordId] = $item;
+            }
+        }
+
+        return $items;
     }
 
     /**
@@ -4127,7 +4299,7 @@ class Agent extends Base
             $createdRow = $suggestion->toArray();
             $createdRow['risk_level'] = (string)($recommendation['risk_level'] ?? 'medium');
             $createdRow['review_checklist'] = array_values((array)($recommendation['review_checklist'] ?? []));
-            $created[] = $createdRow;
+            $created[] = $pricingService->enrichSuggestionRows([$createdRow])[0];
         }
 
         return $this->success([
@@ -4610,7 +4782,9 @@ class Agent extends Base
             ->order('priority', 'desc')
             ->order('id', 'desc')
             ->page($pagination['page'], $pagination['page_size'])
-            ->select();
+            ->select()
+            ->toArray();
+        $list = (new AgentClosureReadinessService())->enrichEnergySuggestionRows($list);
         
         return $this->paginate($list, $total, $pagination['page'], $pagination['page_size']);
     }
@@ -4702,7 +4876,9 @@ class Agent extends Base
             ->order('priority', 'desc')
             ->order('id', 'desc')
             ->page($pagination['page'], $pagination['page_size'])
-            ->select();
+            ->select()
+            ->toArray();
+        $list = (new AgentClosureReadinessService())->enrichMaintenancePlanRows($list);
         
         return $this->paginate($list, $total, $pagination['page'], $pagination['page_size']);
     }

@@ -116,6 +116,28 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   'traffic_source_text',
   'traffic_source_next_action',
   'traffic_source_policy',
+  'p0_traffic_gate_status',
+  'p0_next_action_mode',
+  'p0_next_action_entry',
+  'p0_next_step_count',
+  'next_command_policy',
+  'p0_external_evidence_status',
+  'p0_pre_import_evidence_status',
+  'p0_pre_import_evidence_policy',
+  'p0_traffic_field_fact_status',
+  'p0_required_metric_keys',
+  'p0_required_storage_fields',
+  'p0_required_field_fact_keys',
+  'p0_missing_metric_keys',
+  'p0_target_traffic_data_types',
+  'p0_source_chain_reference_only',
+  'p0_source_chain_scope',
+  'p0_source_chain_policy',
+  'reference_only_non_traffic_source_rows',
+  'trafficActionModeLabel',
+  'trafficPreImportEvidenceLabel',
+  'trafficP0NextText',
+  'manual_login_state_verified',
   'trafficSourceText',
   '采集源：',
   'read_platform_data_sources_metadata_only',
@@ -196,10 +218,12 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   'phase1EmployeeActionEntryOptionContractText',
   'input_contract',
   'required_metric_keys',
+  'required_storage_fields',
   'required_inputs',
   'required_field_fact_keys',
   'sensitive_values_allowed',
   '需闭环指标',
+  '需入库字段',
   '需补输入',
   '需证明采集证据、source path、metric key、入库字段和已入库值',
   '不展示 Cookie、token 或 Profile 原值',
@@ -496,6 +520,29 @@ includesAll('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'employee
   'traffic_source_policy',
   'read_platform_data_sources_metadata_only',
   'sensitive_values_exposed',
+  'p0_traffic_gate_status',
+  'p0_next_action_mode',
+  'p0_next_action_entry',
+  'p0_next_step_count',
+  'next_command_policy',
+  'p0_external_evidence_status',
+  'p0_pre_import_evidence_status',
+  'p0_pre_import_evidence_policy',
+  'p0_traffic_field_fact_status',
+  'p0_required_metric_keys',
+  'p0_required_storage_fields',
+  'p0_required_field_fact_keys',
+  'p0_missing_metric_keys',
+  'p0_target_traffic_data_types',
+  'p0_source_chain_reference_only',
+  'p0_source_chain_scope',
+  'p0_source_chain_policy',
+  'reference_only_non_traffic_source_rows',
+  'metadata_only_no_sensitive_commands',
+  'phase1TrafficSourceRecommendedMode',
+  'phase1TrafficSourceActionEntryForMode',
+  'manual_login_state_verified',
+  '/api/online-data/capture-meituan-browser',
   'registered_waiting_config',
   'registered_ready_without_target_date_traffic',
 ]);
@@ -1100,6 +1147,30 @@ check(
 );
 check(
   'public/index.html',
+  'employee traffic source summary exposes P0 gate metadata without raw commands',
+  publicEntry.includes('trafficActionModeLabel') &&
+    publicEntry.includes('trafficP0NextText') &&
+    publicEntry.includes('p0_next_action_mode') &&
+    publicEntry.includes('p0_next_step_count') &&
+    publicEntry.includes('p0_pre_import_evidence_status') &&
+    publicEntry.includes('p0_traffic_field_fact_status') &&
+    publicEntry.includes('p0_required_metric_keys') &&
+    publicEntry.includes('p0_required_storage_fields') &&
+    publicEntry.includes('p0_source_chain_reference_only') &&
+    publicEntry.includes('p0_source_chain_scope') &&
+    publicEntry.includes('reference_only_non_traffic_source_rows') &&
+    publicEntry.includes('源证据仅参考') &&
+    publicEntry.includes('需闭环指标') &&
+    publicEntry.includes('入库字段') &&
+    publicEntry.includes('trafficPreImportEvidenceLabel') &&
+    publicEntry.includes('预导入证据未提供') &&
+    publicEntry.includes('manual_login_state_verified') &&
+    publicEntry.includes('browser_profile') &&
+    publicEntry.includes('metadata_only_no_sensitive_commands'),
+  'trafficActionModeLabel / trafficP0NextText / P0 next metadata'
+);
+check(
+  'public/index.html',
   'employee action success criteria and evidence are mapped to readable labels',
     publicEntry.includes('phase1EmployeeActionSuccessCriteriaText') &&
     publicEntry.includes('phase1EmployeeActionEvidenceNeededText') &&
@@ -1485,10 +1556,12 @@ check(
     entryOptionGuidanceSource.includes('phase1EmployeeActionEntryOptionContractText(option)') &&
     publicEntry.includes("String(contract.target_data_type || '').trim() !== 'traffic'") &&
     publicEntry.includes('contract.required_metric_keys') &&
+    publicEntry.includes('contract.required_storage_fields') &&
     publicEntry.includes('contract.required_inputs') &&
     publicEntry.includes('contract.required_field_fact_keys') &&
     publicEntry.includes('contract.sensitive_values_allowed === false') &&
     publicEntry.includes('需闭环指标') &&
+    publicEntry.includes('需入库字段') &&
     publicEntry.includes('需补输入') &&
     publicEntry.includes('需证明采集证据、source path、metric key、入库字段和已入库值') &&
     publicEntry.includes('不展示 Cookie、token 或 Profile 原值') &&
@@ -1604,6 +1677,7 @@ check(
     acceptanceDoc.includes('entry_options[].acceptance_contract') &&
     acceptanceDoc.includes('target_data_type=traffic') &&
     acceptanceDoc.includes('required_metric_keys') &&
+    acceptanceDoc.includes('required_storage_fields') &&
     acceptanceDoc.includes('required_inputs') &&
     acceptanceDoc.includes('required_field_fact_keys') &&
     acceptanceDoc.includes('sensitive_values_allowed=false') &&
@@ -1614,6 +1688,26 @@ check(
     acceptanceDoc.includes('不能作为采集成功、目标日入库完成或 P0 闭环完成证据') &&
     acceptanceDoc.includes('状态核对入口不能挂采集型 input contract'),
   'input_contract / acceptance_contract / not completion proof'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
+  'traffic source P0 gate metadata is documented',
+  acceptanceDoc.includes('p0_traffic_gate_status') &&
+    acceptanceDoc.includes('p0_next_action_mode') &&
+    acceptanceDoc.includes('p0_next_action_entry') &&
+    acceptanceDoc.includes('p0_next_step_count') &&
+    acceptanceDoc.includes('p0_external_evidence_status') &&
+    acceptanceDoc.includes('p0_pre_import_evidence_status') &&
+    acceptanceDoc.includes('p0_pre_import_evidence_policy') &&
+    acceptanceDoc.includes('p0_target_traffic_data_types') &&
+    acceptanceDoc.includes('p0_source_chain_reference_only') &&
+    acceptanceDoc.includes('p0_source_chain_scope') &&
+    acceptanceDoc.includes('p0_source_chain_policy') &&
+    acceptanceDoc.includes('reference_only_non_traffic_source_rows') &&
+    acceptanceDoc.includes('next_command_policy=metadata_only_no_sensitive_commands') &&
+    acceptanceDoc.includes('manual_login_state_verified') &&
+    acceptanceDoc.includes('browser_profile'),
+  'P0 gate metadata / next action mode / manual login state evidence'
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',

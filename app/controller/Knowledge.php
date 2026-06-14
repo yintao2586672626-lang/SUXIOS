@@ -6,6 +6,7 @@ namespace app\controller;
 use app\model\Hotel;
 use app\model\KnowledgeChunk;
 use app\model\KnowledgeUnit;
+use app\service\KnowledgeCenterReadinessService;
 use app\service\KnowledgeDocumentTextExtractor;
 use app\service\KnowledgeDistillationService;
 use app\service\KnowledgeMaterialIngestionService;
@@ -697,6 +698,7 @@ class Knowledge extends Base
             $decoded = json_decode($tags, true);
             $tags = is_array($decoded) ? $decoded : [];
         }
+        $resolvedChunkCount = $chunkCount ?? (int)($row['chunk_count'] ?? 0);
 
         return [
             'unit_id' => (int)($row['unit_id'] ?? 0),
@@ -706,7 +708,8 @@ class Knowledge extends Base
             'status' => (string)($row['status'] ?? 'pending'),
             'description' => (string)($row['description'] ?? ''),
             'tags' => array_values(is_array($tags) ? $tags : []),
-            'chunk_count' => $chunkCount ?? (int)($row['chunk_count'] ?? 0),
+            'chunk_count' => $resolvedChunkCount,
+            'readiness' => (new KnowledgeCenterReadinessService())->buildUnitReadiness($row, $resolvedChunkCount),
             'created_by' => (int)($row['created_by'] ?? 0),
             'created_at' => (string)($row['created_at'] ?? ''),
             'updated_at' => (string)($row['updated_at'] ?? ''),

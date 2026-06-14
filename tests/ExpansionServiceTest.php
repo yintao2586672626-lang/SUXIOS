@@ -240,6 +240,55 @@ final class ExpansionServiceTest extends TestCase
         self::assertNotEmpty($result['next_actions']);
     }
 
+    public function testProjectReadinessKeepsMarketRecordAsScreeningOnly(): void
+    {
+        $service = $this->fallbackService();
+        $marketInput = $this->marketInput();
+        $market = $service->evaluateMarket($marketInput);
+
+        $readiness = $service->buildProjectReadiness('market', $marketInput, $market);
+        $missingCodes = array_column($readiness['missing_evidence'], 'code');
+
+        self::assertSame('screening_record_only', $readiness['stage']);
+        self::assertFalse($readiness['project_ready']);
+        self::assertContains('benchmark_model', $missingCodes);
+        self::assertContains('collaboration_plan', $missingCodes);
+        self::assertContains('source_evidence', $missingCodes);
+    }
+
+    public function testProjectReadinessRequiresEvidenceReviewAndTracking(): void
+    {
+        $service = $this->fallbackService();
+        $marketInput = $this->marketInput();
+        $benchmarkInput = $this->benchmarkInput();
+        $market = $service->evaluateMarket($marketInput);
+        $benchmark = $service->buildBenchmarkModel($benchmarkInput);
+        $collaborationInput = array_merge($this->collaborationInput(), [
+            'market_input' => $marketInput,
+            'market_result' => $market,
+            'benchmark_input' => $benchmarkInput,
+            'benchmark_result' => $benchmark,
+        ]);
+        $collaboration = $service->improveCollaboration($collaborationInput);
+
+        $readiness = $service->buildProjectReadiness('collaboration', $collaborationInput, $collaboration);
+        $missingCodes = array_column($readiness['missing_evidence'], 'code');
+
+        self::assertSame('diligence_required', $readiness['stage']);
+        self::assertFalse($readiness['project_ready']);
+        self::assertContains('source_evidence', $missingCodes);
+        self::assertContains('manual_review', $missingCodes);
+
+        $approved = $service->buildProjectReadiness('collaboration', array_merge($collaborationInput, [
+            'source_evidence' => ['competitor_samples' => 'checked'],
+            'review_status' => 'approved',
+            'opening_project_id' => 88,
+        ]), $collaboration);
+
+        self::assertSame('project_ready', $approved['stage']);
+        self::assertTrue($approved['project_ready']);
+    }
+
     public static function invalidMarketInputProvider(): array
     {
         return [
@@ -247,6 +296,65 @@ final class ExpansionServiceTest extends TestCase
             'negative rent' => [['estimated_rent' => -1]],
             'empty room count' => [['target_room_count' => 0]],
             'non numeric area' => [['property_area' => 'abc']],
+        ];
+    }
+
+    private function marketInput(): array
+    {
+        return [
+            'city' => '上海',
+            'business_area' => '虹桥',
+            'property_area' => 3200,
+            'estimated_rent' => 120000,
+            'target_room_count' => 80,
+            'city_tier' => '一线',
+            'decoration_level' => '中端精选',
+            'primary_customer' => '商务差旅',
+            'secondary_customer' => '会议会展',
+            'lease_years' => 10,
+            'rent_free_months' => 4,
+            'fitout_budget' => 420,
+            'expected_adr' => 320,
+            'expected_occupancy_rate' => 82,
+            'ota_market_penetration_rate' => 65,
+            'parking_spaces' => 30,
+        ];
+    }
+
+    private function benchmarkInput(): array
+    {
+        return [
+            'city' => '上海',
+            'business_area' => '虹桥',
+            'target_price_band' => '260-360',
+            'hotel_type' => '中端商务',
+            'target_room_count' => 80,
+            'competitor_count' => 12,
+            'avg_competitor_price' => 315,
+            'avg_competitor_score' => 4.7,
+            'avg_review_count' => 520,
+            'ota_heat_index' => 82,
+            'traffic_radius_km' => 3,
+        ];
+    }
+
+    private function collaborationInput(): array
+    {
+        $dueDate = date('Y-m-d', strtotime('+30 days'));
+        $tasks = array_map(static fn(string $name): array => [
+            'name' => $name,
+            'status' => '已完成',
+            'owner' => '拓展负责人',
+            'due_date' => $dueDate,
+        ], ['市场调研', '物业评估', '合同谈判', '装修筹建', '证照办理', 'OTA上线', '运营交接']);
+
+        return [
+            'project_name' => '上海虹桥新店',
+            'city_area' => '上海虹桥',
+            'current_stage' => '上线',
+            'owner' => '拓展负责人',
+            'expected_online_date' => date('Y-m-d', strtotime('+60 days')),
+            'tasks' => $tasks,
         ];
     }
 

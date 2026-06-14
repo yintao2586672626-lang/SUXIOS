@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  attachOtaCaptureEvidence,
   buildCapturePlan,
   buildCookieInjectionPlan,
+  buildOtaCaptureEvidence,
   classifyOtaResponse,
+  extractOtaRequestDateEvidence,
   normalizeCaptureSections,
   parseCookieHeader,
   sanitizeOtaPayloadForStorage,
@@ -96,6 +99,87 @@ test('classifies OTA JSON responses by platform and section', () => {
   });
   assert.equal(asset.capture, false);
   assert.equal(asset.reason, 'non_business_resource');
+});
+
+test('extracts request date evidence only when the request proves one target date', () => {
+  assert.deepEqual(
+    extractOtaRequestDateEvidence({
+      url: 'https://example.test/traffic?startDate=2026-06-14&endDate=2026-06-14',
+    }),
+    { date: '2026-06-14', date_source: 'request.query.startDate' },
+  );
+
+  assert.deepEqual(
+    extractOtaRequestDateEvidence({
+      payload: JSON.stringify({ filters: { dataDate: '2026/06/14' } }),
+    }),
+    { date: '2026-06-14', date_source: 'request.payload.filters.dataDate' },
+  );
+
+  assert.deepEqual(
+    extractOtaRequestDateEvidence({
+      payload: `params=${encodeURIComponent(JSON.stringify({ query: { statDate: '20260614' } }))}`,
+    }),
+    { date: '2026-06-14', date_source: 'request.payload.params.query.statDate' },
+  );
+
+  assert.deepEqual(
+    extractOtaRequestDateEvidence({
+      url: 'https://example.test/traffic?startDate=2026-06-13&endDate=2026-06-14',
+    }),
+    { date: '', date_source: '' },
+  );
+});
+
+test('builds complete desensitized capture evidence without raw source URLs', () => {
+  const evidence = buildOtaCaptureEvidence('meituan', {
+    url: 'https://eb.meituan.com/api/v1/ebooking/business/flow?token=secret&date=2026-06-14',
+    section: 'traffic',
+    sourcePath: 'data.rows.0',
+    captureSource: 'xhr:traffic',
+  });
+
+  assert.equal(evidence.section, 'traffic');
+  assert.equal(evidence.source_path, 'data.rows.0');
+  assert.equal(evidence.capture_source, 'xhr:traffic');
+  assert.match(evidence.source_url_hash, /^[a-f0-9]{64}$/);
+  assert.match(evidence.source_trace_id, /^meituan:[a-f0-9]{64}$/);
+  assert.equal(Object.hasOwn(evidence, 'url'), false);
+  assert.equal(Object.hasOwn(evidence, 'source_url'), false);
+});
+
+test('attaches row-level complete capture evidence and removes raw URL aliases', () => {
+  const row = attachOtaCaptureEvidence({
+    dataDate: '2026-06-14',
+    metric_key: 'traffic_flow',
+    value: 123,
+    _source_path: 'data.rows.0.flow',
+    url: 'https://ebooking.ctrip.com/datacenter/api/traffic?spiderToken=secret',
+    capture_evidence: {
+      _source_url: 'https://ebooking.ctrip.com/raw-url-should-not-survive?token=secret',
+      url: 'https://ebooking.ctrip.com/raw-url-should-not-survive?token=secret',
+    },
+  }, 'ctrip', {
+    section: 'traffic',
+    captureSource: 'xhr:traffic',
+  });
+
+  assert.equal(row.metric_key, 'traffic_flow');
+  assert.equal(row._source_path, 'data.rows.0.flow');
+  assert.equal(row.source_url, undefined);
+  assert.equal(row._source_url, undefined);
+  assert.equal(row.url, undefined);
+  assert.match(row.source_trace_id, /^ctrip:[a-f0-9]{64}$/);
+  assert.match(row.source_url_hash, /^[a-f0-9]{64}$/);
+  assert.equal(row.capture_evidence.source_path, 'data.rows.0.flow');
+  assert.equal(row.capture_evidence.section, 'traffic');
+  assert.equal(row.capture_evidence.capture_source, 'xhr:traffic');
+  assert.equal(row.capture_evidence.source_trace_id, row.source_trace_id);
+  assert.equal(row.capture_evidence.source_url_hash, row.source_url_hash);
+  assert.equal(Object.hasOwn(row.capture_evidence, 'source_url'), false);
+  assert.equal(Object.hasOwn(row.capture_evidence, '_source_url'), false);
+  assert.equal(Object.hasOwn(row.capture_evidence, 'url'), false);
+  assert.equal(JSON.stringify(row).includes('https://'), false);
 });
 
 test('sanitizes order payloads before capture output is written', () => {

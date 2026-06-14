@@ -350,6 +350,21 @@ export function sanitizeOtaPayloadForStorage(value, section = '') {
   return sanitizePayloadNode(value, orderContext);
 }
 
+export function extractOtaRequestDateEvidence({ url = '', payload = '' } = {}) {
+  const candidates = [];
+  collectRequestQueryDateCandidates(url, candidates);
+  collectRequestPayloadDateCandidates(payload, candidates);
+  const uniqueDates = Array.from(new Set(candidates.map(item => item.date).filter(Boolean)));
+  if (uniqueDates.length !== 1) {
+    return { date: '', date_source: '' };
+  }
+  const first = candidates.find(item => item.date === uniqueDates[0]) || {};
+  return {
+    date: uniqueDates[0],
+    date_source: first.source || 'request',
+  };
+}
+
 export function buildOtaCaptureEvidence(platform, options = {}) {
   const platformKey = String(platform || '').trim().toLowerCase() || 'ota';
   const section = safeEvidenceText(options.section || '');
@@ -394,7 +409,14 @@ export function attachOtaCaptureEvidence(row, platform, options = {}) {
     : {};
   const sourcePath = options.sourcePath || row._source_path || row.source_path || existingEvidence.source_path || '';
   const captureSource = options.captureSource || row._capture_source || existingEvidence.capture_source || '';
-  const sourceUrl = options.url || row._source_url || row.source_url || existingEvidence.source_url || '';
+  const sourceUrl = options.url
+    || row._source_url
+    || row.source_url
+    || row.url
+    || existingEvidence.source_url
+    || existingEvidence._source_url
+    || existingEvidence.url
+    || '';
   const evidence = {
     ...existingEvidence,
     ...buildOtaCaptureEvidence(platform, {
@@ -404,6 +426,9 @@ export function attachOtaCaptureEvidence(row, platform, options = {}) {
       captureSource,
     }),
   };
+  delete evidence._source_url;
+  delete evidence.source_url;
+  delete evidence.url;
   const next = {
     ...row,
     capture_evidence: evidence,
@@ -416,11 +441,137 @@ export function attachOtaCaptureEvidence(row, platform, options = {}) {
   }
   delete next._source_url;
   delete next.source_url;
+  delete next.url;
   return next;
 }
 
 function sha256Hex(value) {
   return createHash('sha256').update(String(value)).digest('hex');
+}
+
+function collectRequestQueryDateCandidates(url, candidates) {
+  const text = String(url || '').trim();
+  if (!text) {
+    return;
+  }
+  try {
+    const parsed = new URL(text);
+    for (const [key, value] of parsed.searchParams.entries()) {
+      const sourcePath = `request.query.${safeSourcePathKey(key)}`;
+      addRequestDateCandidate(candidates, key, value, sourcePath);
+      collectNestedRequestDateCandidatesFromText(value, sourcePath, candidates);
+    }
+  } catch {
+    const query = text.includes('?') ? text.slice(text.indexOf('?') + 1) : text;
+    for (const [key, value] of new URLSearchParams(query).entries()) {
+      const sourcePath = `request.query.${safeSourcePathKey(key)}`;
+      addRequestDateCandidate(candidates, key, value, sourcePath);
+      collectNestedRequestDateCandidatesFromText(value, sourcePath, candidates);
+    }
+  }
+}
+
+function collectRequestPayloadDateCandidates(payload, candidates) {
+  const text = String(payload || '').trim();
+  if (!text) {
+    return;
+  }
+  const parsed = parseRequestPayloadForEvidence(text);
+  if (parsed && typeof parsed === 'object') {
+    collectRequestDateCandidates(parsed, 'request.payload', candidates, 0);
+    return;
+  }
+  for (const [key, value] of new URLSearchParams(text).entries()) {
+    const sourcePath = `request.payload.${safeSourcePathKey(key)}`;
+    addRequestDateCandidate(candidates, key, value, sourcePath);
+    collectNestedRequestDateCandidatesFromText(value, sourcePath, candidates);
+  }
+}
+
+function parseRequestPayloadForEvidence(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function collectNestedRequestDateCandidatesFromText(text, sourcePath, candidates) {
+  const parsed = parseRequestPayloadForEvidence(String(text || '').trim());
+  if (parsed && typeof parsed === 'object') {
+    collectRequestDateCandidates(parsed, sourcePath, candidates, 0);
+  }
+}
+
+function collectRequestDateCandidates(value, sourcePath, candidates, depth) {
+  if (depth > 6 || value === null || value === undefined) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.slice(0, 80).forEach((item, index) => collectRequestDateCandidates(item, `${sourcePath}.${index}`, candidates, depth + 1));
+    return;
+  }
+  if (typeof value !== 'object') {
+    return;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const keyPath = `${sourcePath}.${safeSourcePathKey(key)}`;
+    addRequestDateCandidate(candidates, key, item, keyPath);
+    collectRequestDateCandidates(item, keyPath, candidates, depth + 1);
+  }
+}
+
+function addRequestDateCandidate(candidates, key, value, source) {
+  if (!isRequestDateKey(key)) {
+    return;
+  }
+  const date = normalizeRequestEvidenceDate(value);
+  if (!date) {
+    return;
+  }
+  candidates.push({ date, source });
+}
+
+function isRequestDateKey(key) {
+  const normalized = String(key || '').replace(/[^a-zA-Z0-9]+/g, '').toLowerCase();
+  return [
+    'date',
+    'day',
+    'datadate',
+    'statdate',
+    'bizdate',
+    'businessdate',
+    'reportdate',
+    'targetdate',
+    'querydate',
+    'startdate',
+    'enddate',
+    'begindate',
+    'fromdate',
+    'todate',
+  ].includes(normalized);
+}
+
+function normalizeRequestEvidenceDate(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  const text = String(value).trim();
+  let match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!match) {
+    match = text.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  }
+  if (!match) {
+    match = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  }
+  if (!match) {
+    return '';
+  }
+  return `${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`;
+}
+
+function safeSourcePathKey(key) {
+  return String(key || '').replace(/[^a-zA-Z0-9_:-]+/g, '_').slice(0, 80) || 'key';
 }
 
 function safeEvidenceText(value) {

@@ -184,6 +184,31 @@ final class OpeningServiceTest extends TestCase
         ]));
     }
 
+    public function testOpeningProjectHotelBindingUsesPermittedScope(): void
+    {
+        $service = new OpeningService();
+
+        self::assertSame(7, $this->invokeNonPublic($service, 'resolveProjectHotelId', [
+            [],
+            [7],
+        ]));
+        self::assertSame(8, $this->invokeNonPublic($service, 'resolveProjectHotelId', [
+            ['hotel_id' => 8],
+            [7, 8],
+        ]));
+        self::assertSame(0, $this->invokeNonPublic($service, 'resolveProjectHotelId', [
+            [],
+            [7, 8],
+        ]));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('开业项目门店不在当前权限范围');
+        $this->invokeNonPublic($service, 'resolveProjectHotelId', [
+            ['hotel_id' => 99],
+            [7, 8],
+        ]);
+    }
+
     private function project(): array
     {
         return [

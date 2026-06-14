@@ -30,6 +30,7 @@ import {
 import {
   attachOtaCaptureEvidence,
   buildOtaCaptureEvidence,
+  extractOtaRequestDateEvidence,
   sanitizeOtaPayloadForStorage,
 } from './lib/ota_capture_standard.mjs';
 import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
@@ -683,6 +684,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
 
     const request = response.request();
     const requestPayload = request?.postData?.() || '';
+    const requestDateEvidence = extractOtaRequestDateEvidence({ url, payload: requestPayload });
     const activeSection = state.activeCaptureSection || '';
     const endpoint = findCtripEndpointByUrl(url, { preferredSection: activeSection });
     const urlSection = endpoint?.section || '';
@@ -708,7 +710,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       body = parseResponseBody(text, contentType);
     } catch (error) {
       const responseEvidence = buildOtaCaptureEvidence('ctrip', { url, section: urlSection || 'unknown', captureSource: `xhr:${requestType || 'unknown'}` });
-      target.responses.push({ url, url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section: urlSection || 'unknown', endpoint_id: endpoint?.id || '', status: response.status(), request_type: requestType, error: error.message });
+      target.responses.push({ url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section: urlSection || 'unknown', endpoint_id: endpoint?.id || '', status: response.status(), request_type: requestType, error: error.message });
       return;
     }
 
@@ -750,7 +752,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     const platform = inferCtripResponsePlatform(section, endpoint, url, requestPayload, state);
     const sanitizerSection = endpoint?.section === 'comment_review' ? 'reviews' : dataType;
     const safeBody = sanitizeOtaPayloadForStorage(body, sanitizerSection);
-    const rows = normalizeRows(safeBody, dataType, url).map(row => attachCtripCaptureEvidence({
+    const rows = normalizeRows(safeBody, dataType, url, requestDateEvidence).map(row => attachCtripCaptureEvidence({
       ...row,
       section,
       data_type: dataType,
@@ -774,7 +776,9 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       hotelName: payload.hotel_name,
       profileId,
       defaultDataDate,
-    }).map(row => attachCtripCaptureEvidence(row, factContext));
+    })
+      .map(row => annotateCtripStandardRowDateSource(row, requestDateEvidence))
+      .map(row => attachCtripCaptureEvidence(row, factContext));
     const approvedRows = filterStandardRowsByProfileFieldConfig(extractCtripApprovedMappingRows(body, {
       ...factContext,
       mappings: approvedMappings,
@@ -782,13 +786,14 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       hotelName: payload.hotel_name,
       profileId,
       defaultDataDate,
-    })).map(row => attachCtripCaptureEvidence(row, factContext));
+    }))
+      .map(row => annotateCtripStandardRowDateSource(row, requestDateEvidence))
+      .map(row => attachCtripCaptureEvidence(row, factContext));
     const responseEvidence = buildOtaCaptureEvidence('ctrip', { url, section, captureSource: `xhr:${dataType}` });
     target.catalog_facts.push(...catalogFacts);
     target.standard_rows.push(...standardRows);
     target.standard_rows.push(...approvedRows);
     target.responses.push({
-      url,
       url_hash: responseEvidence.source_url_hash || '',
       source_trace_id: responseEvidence.source_trace_id || '',
       section,
@@ -800,6 +805,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       request_type: requestType,
       keyword_hit: Boolean(urlSection),
       row_count: rows.length,
+      request_date_source: requestDateEvidence.date_source || '',
       platform,
       catalog_fact_count: catalogFacts.length,
       standard_row_count: standardRows.length + approvedRows.length,
@@ -874,13 +880,28 @@ function parseResponseBody(text, contentType) {
   return { _raw_text: trimmed.slice(0, 2000) };
 }
 
-function normalizeRows(value, section, sourceUrl) {
+function annotateCtripStandardRowDateSource(row, requestDateEvidence = {}) {
+  if (!row || typeof row !== 'object' || Array.isArray(row) || row.date_source || row.dateSource) {
+    return row;
+  }
+  const rowDataDate = normalizeDate(firstValue(row, ['data_date', 'date', 'dataDate', 'statDate', 'stat_date', 'reportDate', 'day']));
+  if (!rowDataDate) {
+    return row;
+  }
+  const requestDataDate = normalizeDate(requestDateEvidence.date || '');
+  if (requestDataDate && rowDataDate === requestDataDate) {
+    return { ...row, date_source: requestDateEvidence.date_source || 'request' };
+  }
+  return { ...row, date_source: 'capture_context.default_data_date' };
+}
+
+function normalizeRows(value, section, sourceUrl, requestDateEvidence = {}) {
   if (section === 'reviews') {
     return normalizeCommentList(value).map(row => normalizeCommentRow(row, sourceUrl, 'xhr:getCommentList'));
   }
   if (section === 'traffic') {
     return normalizeGenericList(value, 'traffic')
-      .map(row => normalizeTrafficRow(row, sourceUrl))
+      .map(row => normalizeTrafficRow(row, sourceUrl, requestDateEvidence))
       .filter(Boolean);
   }
   if (!isLegacyCtripBusinessMetricUrl(sourceUrl)) {
@@ -1058,7 +1079,7 @@ function looksLikeTrafficRow(row) {
   return keys.some(key => Object.prototype.hasOwnProperty.call(row, key));
 }
 
-function normalizeTrafficRow(row, sourceUrl) {
+function normalizeTrafficRow(row, sourceUrl, requestDateEvidence = {}) {
   const listExposure = numberValue(firstValue(row, ['listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view']), 0);
   const detailExposure = numberValue(firstValue(row, ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views', 'pageViews']), 0);
   const orderFillingNum = numberValue(firstValue(row, ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'click_count', 'clicks', 'clickNum', 'fillUsers']), 0);
@@ -1075,12 +1096,18 @@ function normalizeTrafficRow(row, sourceUrl) {
   if (!resolvedHotelId) {
     return null;
   }
-  const dataDate = normalizeDate(firstValue(row, ['date', 'dataDate', 'statDate', 'data_date', 'stat_date', 'reportDate', 'day'])) || defaultDataDate;
+  const explicitDataDate = normalizeDate(firstValue(row, ['date', 'dataDate', 'statDate', 'data_date', 'stat_date', 'reportDate', 'day']));
+  const requestDataDate = normalizeDate(requestDateEvidence.date || '');
+  const dataDate = explicitDataDate || requestDataDate || defaultDataDate;
+  const dateSource = explicitDataDate
+    ? 'row'
+    : (requestDataDate ? (requestDateEvidence.date_source || 'request') : (defaultDataDate ? 'capture_context.default_data_date' : ''));
 
   return {
     ...row,
     hotelId: resolvedHotelId,
     date: dataDate,
+    ...(dateSource ? { date_source: dateSource } : {}),
     listExposure: Math.round(listExposure),
     detailExposure: Math.round(detailExposure),
     flowRate: Math.round(flowRate * 100) / 100,
@@ -1603,6 +1630,9 @@ function compactCapturedResponse(response) {
     return response;
   }
   const { data, ...summary } = response;
+  delete summary._source_url;
+  delete summary.source_url;
+  delete summary.url;
   if (data !== undefined) {
     summary.data_summary = summarizeCapturedResponseData(data);
   }

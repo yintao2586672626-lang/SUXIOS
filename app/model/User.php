@@ -78,7 +78,7 @@ class User extends Model
         }
 
         $role = $this->role;
-        return $role && $role->hasPermission('all');
+        return $role && (int)$role->status === Role::STATUS_ENABLED && $role->hasPermission('all');
     }
 
     /**
@@ -91,7 +91,22 @@ class User extends Model
         }
 
         $role = $this->role;
-        return $role && (int)$role->level === 2;
+        return $role && (int)$role->status === Role::STATUS_ENABLED && (int)$role->level === 2;
+    }
+
+    /**
+     * 是否是内测用户
+     */
+    public function isBetaUser(): bool
+    {
+        if ((int)$this->role_id === Role::BETA_USER) {
+            return true;
+        }
+
+        $role = $this->role;
+        return $role
+            && (int)$role->status === Role::STATUS_ENABLED
+            && in_array((string)$role->name, ['beta_user', 'hotel_manager'], true);
     }
 
     /**
@@ -104,7 +119,7 @@ class User extends Model
         }
 
         $role = $this->role;
-        return $role && (int)$role->level >= 3;
+        return $role && (int)$role->status === Role::STATUS_ENABLED && (int)$role->level >= 3;
     }
 
     /**
@@ -135,7 +150,7 @@ class User extends Model
         // 非超级管理员必须关联酒店
         // 检查角色是否拥有该权限
         $role = $this->role;
-        if (!$role || !$role->hasPermission($permission)) {
+        if (!$role || (int)$role->status !== Role::STATUS_ENABLED || !$role->hasPermission($permission)) {
             return false;
         }
         
@@ -165,7 +180,7 @@ class User extends Model
         // 非超级管理员必须关联酒店
         // 检查关联的酒店是否启用
         $role = $this->role;
-        if (!$role || !$role->hasPermission($permission)) {
+        if (!$role || (int)$role->status !== Role::STATUS_ENABLED || !$role->hasPermission($permission)) {
             return false;
         }
 
@@ -183,7 +198,24 @@ class User extends Model
      */
     public function canManageUser(): bool
     {
-        return $this->isSuperAdmin() || $this->isHotelManager();
+        return $this->isSuperAdmin();
+    }
+
+    /**
+     * 是否可以管理自己创建的酒店
+     */
+    public function canManageOwnHotels(): bool
+    {
+        if ($this->isSuperAdmin() || $this->isBetaUser()) {
+            return true;
+        }
+
+        if ((int)$this->role_id === Role::NORMAL_USER) {
+            return false;
+        }
+
+        $role = $this->role;
+        return $role && (int)$role->status === Role::STATUS_ENABLED && $role->hasPermission('can_manage_own_hotels');
     }
 
     /**

@@ -43,6 +43,7 @@ class TransferDecision extends Base
 
             $result = $this->service->calculateAssetPricing($input);
             $result['record_id'] = $this->service->saveRecord('pricing', $input, $result, $snapshot, $recordHotelId, (int)($this->currentUser->id ?? 0));
+            $result['decision_readiness'] = $this->service->buildDecisionReadiness('pricing', $input, $result, $snapshot, $recordHotelId);
             return $this->success($result, '资产定价计算成功');
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
@@ -62,6 +63,7 @@ class TransferDecision extends Base
 
             $result = $this->service->calculateTransferTiming($input);
             $result['record_id'] = $this->service->saveRecord('timing', $input, $result, $snapshot, $recordHotelId, (int)($this->currentUser->id ?? 0));
+            $result['decision_readiness'] = $this->service->buildDecisionReadiness('timing', $input, $result, $snapshot, $recordHotelId);
             return $this->success($result, '时机推演计算成功');
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
@@ -81,10 +83,13 @@ class TransferDecision extends Base
                 'pricing' => is_array($input['pricing'] ?? null) ? $input['pricing'] : [],
                 'timing' => is_array($input['timing'] ?? null) ? $input['timing'] : [],
                 'metrics' => is_array($input['metrics'] ?? null) ? $input['metrics'] : [],
+                'pricing_input' => is_array($input['pricing_input'] ?? null) ? $input['pricing_input'] : [],
+                'timing_input' => is_array($input['timing_input'] ?? null) ? $input['timing_input'] : [],
             ];
 
             $result = $this->service->buildTransferDashboard($dashboardInput['pricing'], $dashboardInput['timing'], $dashboardInput['metrics']);
             $result['record_id'] = $this->service->saveRecord('dashboard', $dashboardInput, $result, $snapshot, $recordHotelId, (int)($this->currentUser->id ?? 0));
+            $result['decision_readiness'] = $this->service->buildDecisionReadiness('dashboard', $dashboardInput, $result, $snapshot, $recordHotelId);
             return $this->success($result, '数据看板生成成功');
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);

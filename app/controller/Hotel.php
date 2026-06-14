@@ -5,6 +5,7 @@ namespace app\controller;
 
 use app\model\Hotel as HotelModel;
 use app\model\OperationLog;
+use app\model\UserHotelPermission;
 use think\exception\ValidateException;
 use think\Response;
 use think\facade\Db;
@@ -17,6 +18,14 @@ class Hotel extends Base
     public function index(): Response
     {
         $this->checkPermission();
+        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->canManageOwnHotels()) {
+            return $this->error('权限不足', 403);
+        }
+
+        $creatorColumnError = $this->ensureCreatorColumnIfRequired();
+        if ($creatorColumnError) {
+            return $creatorColumnError;
+        }
 
         $pagination = $this->getPagination();
         $name = $this->request->param('name', '');
@@ -33,8 +42,14 @@ class Hotel extends Base
 
         // 非超级管理员只能看到有权限的酒店
         if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (empty($permittedHotelIds)) {
+                return $this->paginate([], 0, $pagination['page'], $pagination['page_size']);
+            }
             $query->whereIn('id', $permittedHotelIds);
+            if ($this->requiresOwnHotelScope()) {
+                $query->where('created_by', (int)$this->currentUser->id);
+            }
         }
 
         $total = $query->count();
@@ -48,14 +63,29 @@ class Hotel extends Base
      */
     public function all(): Response
     {
+        if (!$this->currentUser) {
+            return $this->error('未登录', 401);
+        }
+
+        $creatorColumnError = $this->ensureCreatorColumnIfRequired();
+        if ($creatorColumnError) {
+            return $creatorColumnError;
+        }
+
         $query = HotelModel::where('status', HotelModel::STATUS_ENABLED)
             ->field('id, name, code, status')
             ->order('id', 'asc');
 
         // 非超级管理员只能看到有权限的酒店
         if ($this->currentUser && !$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (empty($permittedHotelIds)) {
+                return $this->success([]);
+            }
             $query->whereIn('id', $permittedHotelIds);
+            if ($this->requiresOwnHotelScope()) {
+                $query->where('created_by', (int)$this->currentUser->id);
+            }
         }
 
         $list = $query->select();
@@ -77,9 +107,18 @@ class Hotel extends Base
 
         // 权限检查
         if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
-            if (!in_array($id, $permittedHotelIds)) {
-                return $this->error('无权查看此酒店');
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (!in_array($id, $permittedHotelIds, true)) {
+                return $this->error('无权查看此酒店', 403);
+            }
+            if ($this->requiresOwnHotelScope()) {
+                $creatorColumnError = $this->ensureCreatorColumnIfRequired();
+                if ($creatorColumnError) {
+                    return $creatorColumnError;
+                }
+                if (!$this->currentUserOwnsHotel($hotel)) {
+                    return $this->error('只能查看自己添加的酒店', 403);
+                }
             }
         }
 
@@ -91,7 +130,15 @@ class Hotel extends Base
      */
     public function create(): Response
     {
-        $this->checkPermission(true);
+        $this->checkPermission();
+        if (!$this->currentUser->canManageOwnHotels()) {
+            return $this->error('权限不足', 403);
+        }
+
+        $hasCreatorColumn = $this->tableColumnExists('hotels', 'created_by');
+        if (!$this->currentUser->isSuperAdmin() && !$hasCreatorColumn) {
+            return $this->missingCreatorColumnResponse();
+        }
 
         $data = $this->requestData();
         $code = $this->normalizeHotelCode($data['code'] ?? null);
@@ -122,7 +169,13 @@ class Hotel extends Base
         $hotel->contact_phone = $data['contact_phone'] ?? '';
         $hotel->description = $data['description'] ?? '';
         $hotel->status = $data['status'] ?? HotelModel::STATUS_ENABLED;
+        if ($hasCreatorColumn) {
+            $hotel->created_by = (int)$this->currentUser->id;
+        }
         $hotel->save();
+        if (!$this->currentUser->isSuperAdmin()) {
+            $this->grantCurrentUserHotelPermission($hotel);
+        }
 
         OperationLog::record('hotel', 'create', '创建酒店: ' . $hotel->name, $this->currentUser->id ?? null);
 
@@ -134,11 +187,20 @@ class Hotel extends Base
      */
     public function update(int $id): Response
     {
-        $this->checkPermission(true);
+        $this->checkPermission();
 
         $hotel = HotelModel::find($id);
         if (!$hotel) {
             return $this->error('酒店不存在');
+        }
+        if (!$this->currentUser->isSuperAdmin() && $this->currentUser->canManageOwnHotels()) {
+            $creatorColumnError = $this->ensureCreatorColumnIfRequired();
+            if ($creatorColumnError) {
+                return $creatorColumnError;
+            }
+        }
+        if (!$this->currentUserCanManageHotelRecord($hotel)) {
+            return $this->error('权限不足', 403);
         }
 
         $data = $this->requestData();
@@ -215,25 +277,40 @@ class Hotel extends Base
      */
     public function delete(int $id): Response
     {
-        $this->checkPermission(true);
+        $this->checkPermission();
         $data = $this->requestData();
-        $forceDelete = $this->isForceDeleteRequested($data);
+        $forceDelete = $this->currentUser->isSuperAdmin() && $this->isForceDeleteRequested($data);
 
         $hotel = HotelModel::find($id);
         if (!$hotel) {
             return $this->error('酒店不存在');
         }
+        if (!$this->currentUser->isSuperAdmin() && $this->currentUser->canManageOwnHotels()) {
+            $creatorColumnError = $this->ensureCreatorColumnIfRequired();
+            if ($creatorColumnError) {
+                return $creatorColumnError;
+            }
+        }
+        if (!$this->currentUserCanManageHotelRecord($hotel)) {
+            return $this->error('权限不足', 403);
+        }
 
-        $references = $this->ensureHotelCanBeDeleted($id);
+        $references = $this->ensureHotelCanBeDeleted($id, !$this->currentUser->isSuperAdmin());
         if ($this->shouldBlockHotelDelete($references, $forceDelete)) {
-            return $this->error('该酒店存在关联数据，超级管理员可以确认后强制删除；如需保留历史经营入口，请改为禁用酒店', 409, [
+            $canForceDelete = $this->currentUser->isSuperAdmin();
+            return $this->error($canForceDelete ? '该酒店存在关联数据，超级管理员可以确认后强制删除；如需保留历史经营入口，请改为禁用酒店' : '该酒店存在关联数据，当前角色不能强制删除，请改为禁用酒店或联系管理员处理', 409, [
                 'references' => $references,
-                'can_force_delete' => true,
+                'can_force_delete' => $canForceDelete,
             ]);
         }
 
         $hotelName = $hotel->name;
         $forcedDelete = !empty($references) && $forceDelete;
+        if (!$this->currentUser->isSuperAdmin()) {
+            UserHotelPermission::where('user_id', (int)$this->currentUser->id)
+                ->where('hotel_id', $id)
+                ->delete();
+        }
         $hotel->delete();
 
         OperationLog::record(
@@ -268,7 +345,102 @@ class Hotel extends Base
         }
     }
 
-    private function ensureHotelCanBeDeleted(int $hotelId): array
+    private function requiresOwnHotelScope(): bool
+    {
+        return $this->currentUser
+            && !$this->currentUser->isSuperAdmin()
+            && $this->currentUser->isBetaUser();
+    }
+
+    private function ensureCreatorColumnIfRequired(): ?Response
+    {
+        if ($this->requiresOwnHotelScope() && !$this->tableColumnExists('hotels', 'created_by')) {
+            return $this->missingCreatorColumnResponse();
+        }
+
+        return null;
+    }
+
+    private function missingCreatorColumnResponse(): Response
+    {
+        return $this->error('酒店创建人字段未迁移，无法按创建人隔离酒店数据', 500, [
+            'missing_column' => 'hotels.created_by',
+        ]);
+    }
+
+    private function currentUserOwnsHotel(HotelModel $hotel): bool
+    {
+        return $this->currentUser
+            && (int)($hotel->created_by ?? 0) === (int)$this->currentUser->id;
+    }
+
+    private function currentUserCanManageHotelRecord(HotelModel $hotel): bool
+    {
+        if (!$this->currentUser) {
+            return false;
+        }
+
+        if ($this->currentUser->isSuperAdmin()) {
+            return true;
+        }
+
+        if (!$this->currentUser->canManageOwnHotels()) {
+            return false;
+        }
+
+        $creatorColumnError = $this->ensureCreatorColumnIfRequired();
+        if ($creatorColumnError) {
+            return false;
+        }
+
+        if (!$this->currentUserOwnsHotel($hotel)) {
+            return false;
+        }
+
+        $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+        return in_array((int)$hotel->id, $permittedHotelIds, true);
+    }
+
+    private function grantCurrentUserHotelPermission(HotelModel $hotel): void
+    {
+        if (!$this->currentUser || !$hotel->id) {
+            return;
+        }
+
+        $hotelId = (int)$hotel->id;
+        $payload = [
+            'user_id' => (int)$this->currentUser->id,
+            'hotel_id' => $hotelId,
+            'can_view_report' => 0,
+            'can_fill_daily_report' => 0,
+            'can_fill_monthly_task' => 0,
+            'can_edit_report' => 0,
+            'can_delete_report' => 0,
+            'can_view_online_data' => 1,
+            'can_fetch_online_data' => 1,
+            'can_delete_online_data' => 0,
+            'is_primary' => empty($this->currentUser->hotel_id) ? 1 : 0,
+            'update_time' => date('Y-m-d H:i:s'),
+        ];
+
+        if ($this->tableColumnExists('user_hotel_permissions', 'tenant_id')) {
+            $payload['tenant_id'] = (int)($hotel->tenant_id ?? $hotelId);
+        }
+
+        $existing = UserHotelPermission::where('user_id', (int)$this->currentUser->id)
+            ->where('hotel_id', $hotelId)
+            ->find();
+
+        if ($existing) {
+            $existing->save($payload);
+            return;
+        }
+
+        $payload['create_time'] = date('Y-m-d H:i:s');
+        UserHotelPermission::create($payload);
+    }
+
+    private function ensureHotelCanBeDeleted(int $hotelId, bool $ignoreCurrentUserHotelPermission = false): array
     {
         $checks = [
             ['users', 'hotel_id', '用户'],
@@ -296,13 +468,29 @@ class Hotel extends Base
 
         $references = [];
         foreach ($checks as [$table, $column, $label]) {
-            $count = $this->countReferenceRows($table, $column, $hotelId);
+            $count = $ignoreCurrentUserHotelPermission && $table === 'user_hotel_permissions'
+                ? $this->countHotelPermissionRowsExcludingCurrentUser($hotelId)
+                : $this->countReferenceRows($table, $column, $hotelId);
             if ($count > 0) {
                 $references[] = ['table' => $table, 'label' => $label, 'count' => $count];
             }
         }
 
         return $references;
+    }
+
+    private function countHotelPermissionRowsExcludingCurrentUser(int $hotelId): int
+    {
+        if (!$this->tableColumnExists('user_hotel_permissions', 'hotel_id')) {
+            return 0;
+        }
+
+        $query = Db::name('user_hotel_permissions')->where('hotel_id', $hotelId);
+        if ($this->currentUser) {
+            $query->where('user_id', '<>', (int)$this->currentUser->id);
+        }
+
+        return (int)$query->count();
     }
 
     protected function shouldBlockHotelDelete(array $references, bool $forceDelete): bool

@@ -167,6 +167,7 @@ class RoleController extends Base
             ['key' => 'can_view_online_data', 'name' => '查看线上数据', 'group' => '线上数据'],
             ['key' => 'can_fetch_online_data', 'name' => '获取线上数据', 'group' => '线上数据'],
             ['key' => 'can_delete_online_data', 'name' => '删除线上数据', 'group' => '线上数据'],
+            ['key' => 'can_manage_own_hotels', 'name' => '管理自己添加的酒店', 'group' => '酒店'],
             ['key' => 'can_use_ai_decision', 'name' => 'Use AI decision', 'group' => 'P0 protected core'],
             ['key' => 'can_use_investment', 'name' => 'Use investment simulation', 'group' => 'P0 protected core'],
             ['key' => 'can_export_data', 'name' => 'Export protected data', 'group' => 'P0 protected core'],

@@ -309,11 +309,19 @@ function p0_collect_external_traffic_evidence_rows(array $data): array
 /**
  * @param string $segment
  */
-function p0_external_is_raw_url_key(string $segment): bool
+function p0_external_normalize_sensitive_key_segment(string $segment): string
 {
     $normalized = strtolower((string)preg_replace('/(?<!^)[A-Z]/', '_$0', $segment));
     $normalized = (string)preg_replace('/[^a-z0-9]+/', '_', $normalized);
-    $normalized = ltrim($normalized, '_');
+    return trim($normalized, '_');
+}
+
+/**
+ * @param string $segment
+ */
+function p0_external_is_raw_url_key(string $segment): bool
+{
+    $normalized = p0_external_normalize_sensitive_key_segment($segment);
     return $normalized === 'url'
         || $normalized === 'endpoint'
         || $normalized === 'request_uri'
@@ -323,6 +331,15 @@ function p0_external_is_raw_url_key(string $segment): bool
 function p0_external_is_raw_url_value(string $value): bool
 {
     return preg_match('#https?://#i', $value) === 1;
+}
+
+function p0_external_is_sensitive_metadata_key(string $segment): bool
+{
+    $normalized = p0_external_normalize_sensitive_key_segment($segment);
+    return preg_match('/(^|_)(cookie|token|spider_token|authorization|password|secret|session|csrf)($|_)/i', $normalized) === 1
+        || preg_match('/(^|_)profile_(path|dir|directory)($|_)/i', $normalized) === 1
+        || preg_match('/(^|_)raw_(cookie|token|profile)($|_)/i', $normalized) === 1
+        || p0_external_is_raw_url_key($segment);
 }
 
 function p0_source_path_is_structured(string $sourcePath): bool
@@ -347,12 +364,7 @@ function p0_find_sensitive_external_values(array $value, string $path = ''): arr
     foreach ($value as $key => $item) {
         $segment = is_string($key) ? $key : (string)$key;
         $nextPath = $path === '' ? $segment : $path . '.' . $segment;
-        $lowerKey = strtolower($segment);
-        if (preg_match('/(^|_)(cookie|token|spidertoken|authorization|password|secret)($|_)/i', $segment)
-            || p0_external_is_raw_url_key($segment)
-            || preg_match('/profile_(path|dir)/i', $segment)
-            || preg_match('/raw_(cookie|token|profile)/i', $segment)
-        ) {
+        if (p0_external_is_sensitive_metadata_key($segment)) {
             $hits[] = ['path' => $nextPath, 'reason' => 'sensitive_key_present'];
         }
         if (is_string($item)) {
@@ -388,7 +400,7 @@ function p0_external_desensitized_capture_evidence(array $source): array
     $evidence = [];
     $aliases = [
         'source_trace_id' => ['source_trace_id', '_source_trace_id', 'trace_id', '_trace_id'],
-        'source_url_hash' => ['source_url_hash', '_source_url_hash'],
+        'source_url_hash' => ['source_url_hash', '_source_url_hash', 'url_hash', '_url_hash'],
         'request_hash' => ['request_hash', '_request_hash'],
         'payload_hash' => ['payload_hash', '_payload_hash'],
     ];
@@ -412,6 +424,29 @@ function p0_external_desensitized_capture_evidence(array $source): array
     }
 
     return $evidence;
+}
+
+function p0_field_fact_capture_evidence_matches_row(array $fact, string $rowSourceTraceId = '', string $rowSourceUrlHash = ''): bool
+{
+    $captureEvidence = p0_array($fact['capture_evidence'] ?? null);
+    if ($captureEvidence === []) {
+        return false;
+    }
+
+    $desensitized = p0_external_desensitized_capture_evidence($captureEvidence);
+    $factSourceTraceId = trim((string)($desensitized['source_trace_id'] ?? ''));
+    $factSourceUrlHash = trim((string)($desensitized['source_url_hash'] ?? ''));
+    if ($factSourceTraceId === '' || $factSourceUrlHash === '') {
+        return false;
+    }
+    if ($rowSourceTraceId !== '' && $factSourceTraceId !== $rowSourceTraceId) {
+        return false;
+    }
+    if ($rowSourceUrlHash !== '' && $factSourceUrlHash !== $rowSourceUrlHash) {
+        return false;
+    }
+
+    return true;
 }
 
 /**
@@ -486,16 +521,19 @@ function p0_validate_external_traffic_evidence_row(array $row, array $data, arra
     }
 
     $captureEvidence = p0_array($row['capture_evidence'] ?? null);
-    if (trim((string)($row['source_trace_id'] ?? $captureEvidence['source_trace_id'] ?? '')) === '') {
+    $desensitizedRowCaptureEvidence = p0_external_desensitized_capture_evidence($captureEvidence);
+    $rowSourceTraceId = trim((string)($row['source_trace_id'] ?? $desensitizedRowCaptureEvidence['source_trace_id'] ?? ''));
+    $rowSourceUrlHash = trim((string)($desensitizedRowCaptureEvidence['source_url_hash'] ?? ''));
+    if ($rowSourceTraceId === '') {
         $issues[] = [
             'code' => 'source_trace_id_missing',
             'message' => 'Evidence row must include a desensitized source_trace_id.',
         ];
     }
-    if (trim((string)($captureEvidence['source_url_hash'] ?? '')) === '') {
+    if ($rowSourceUrlHash === '') {
         $issues[] = [
             'code' => 'source_url_hash_missing',
-            'message' => 'Evidence row must include capture_evidence.source_url_hash instead of raw source_url.',
+            'message' => 'Evidence row must include capture_evidence.source_url_hash/url_hash instead of raw source_url.',
         ];
     }
 
@@ -561,11 +599,44 @@ function p0_validate_external_traffic_evidence_row(array $row, array $data, arra
             ];
         }
         $factCaptureEvidence = p0_array($fact['capture_evidence'] ?? null);
-        if (p0_external_desensitized_capture_evidence($factCaptureEvidence) === []) {
+        $desensitizedFactCaptureEvidence = p0_external_desensitized_capture_evidence($factCaptureEvidence);
+        if ($desensitizedFactCaptureEvidence === []) {
             $issues[] = [
                 'code' => 'field_fact_capture_evidence_missing',
                 'message' => 'field_facts[].capture_evidence must include desensitized capture evidence for its metric.',
                 'metric_key' => $metricKey,
+            ];
+        }
+        $factSourceTraceId = trim((string)($desensitizedFactCaptureEvidence['source_trace_id'] ?? ''));
+        if ($factSourceTraceId === '') {
+            $issues[] = [
+                'code' => 'field_fact_source_trace_id_missing',
+                'message' => 'field_facts[].capture_evidence.source_trace_id must prove the same response trace as the traffic row.',
+                'metric_key' => $metricKey,
+            ];
+        } elseif ($rowSourceTraceId !== '' && $factSourceTraceId !== $rowSourceTraceId) {
+            $issues[] = [
+                'code' => 'field_fact_source_trace_id_mismatch',
+                'message' => 'field_facts[].capture_evidence.source_trace_id must match the traffic row source_trace_id.',
+                'metric_key' => $metricKey,
+                'source_trace_id' => $factSourceTraceId,
+                'expected_source_trace_id' => $rowSourceTraceId,
+            ];
+        }
+        $factSourceUrlHash = trim((string)($desensitizedFactCaptureEvidence['source_url_hash'] ?? ''));
+        if ($factSourceUrlHash === '') {
+            $issues[] = [
+                'code' => 'field_fact_source_url_hash_missing',
+                'message' => 'field_facts[].capture_evidence.source_url_hash must prove the same source response as the traffic row.',
+                'metric_key' => $metricKey,
+            ];
+        } elseif ($rowSourceUrlHash !== '' && $factSourceUrlHash !== $rowSourceUrlHash) {
+            $issues[] = [
+                'code' => 'field_fact_source_url_hash_mismatch',
+                'message' => 'field_facts[].capture_evidence.source_url_hash must match the traffic row capture_evidence.source_url_hash.',
+                'metric_key' => $metricKey,
+                'source_url_hash' => $factSourceUrlHash,
+                'expected_source_url_hash' => $rowSourceUrlHash,
             ];
         }
         if (!array_key_exists('stored_value_present', $fact)) {
@@ -606,14 +677,17 @@ function p0_validate_external_traffic_evidence_row(array $row, array $data, arra
     $requiredUiCounts = [
         'captured_count' => count($requiredMetricKeys),
         'capture_evidence_count' => count($requiredMetricKeys),
+        'desensitized_capture_evidence_count' => count($requiredMetricKeys),
         'source_path_count' => count($requiredMetricKeys),
         'structured_source_path_count' => count($requiredMetricKeys),
         'metric_key_count' => count($requiredMetricKeys),
         'storage_field_count' => count($requiredMetricKeys),
         'stored_value_present_count' => count($requiredMetricKeys),
     ];
+    $uiCountsReady = true;
     foreach ($requiredUiCounts as $key => $minimum) {
         if (!array_key_exists($key, $uiStatus) || (int)$uiStatus[$key] < $minimum) {
+            $uiCountsReady = false;
             $issues[] = [
                 'code' => 'ui_status_count_incomplete',
                 'message' => 'Evidence row UI status counts must cover every required traffic metric.',
@@ -623,9 +697,11 @@ function p0_validate_external_traffic_evidence_row(array $row, array $data, arra
             ];
         }
     }
+    $uiMissingCountsReady = true;
     if (!array_key_exists('missing_count', $uiStatus) || (int)$uiStatus['missing_count'] !== 0
         || !array_key_exists('stored_value_missing_count', $uiStatus) || (int)$uiStatus['stored_value_missing_count'] !== 0
     ) {
+        $uiMissingCountsReady = false;
         $issues[] = [
             'code' => 'ui_status_missing_counts_not_zero',
             'message' => 'Evidence row UI status must keep missing_count and stored_value_missing_count at zero.',
@@ -657,9 +733,11 @@ function p0_validate_external_traffic_evidence_row(array $row, array $data, arra
         'ui_status_ready' => $uiFieldFactStatus === 'ready'
             && ($uiStatus['raw_data_exposed'] ?? null) === false
             && (int)($uiStatus['missing_count'] ?? -1) === 0
-            && (int)($uiStatus['stored_value_missing_count'] ?? -1) === 0,
-        'source_trace_id_present' => trim((string)($row['source_trace_id'] ?? $captureEvidence['source_trace_id'] ?? '')) !== '',
-        'source_url_hash_present' => trim((string)($captureEvidence['source_url_hash'] ?? '')) !== '',
+            && (int)($uiStatus['stored_value_missing_count'] ?? -1) === 0
+            && $uiCountsReady
+            && $uiMissingCountsReady,
+        'source_trace_id_present' => $rowSourceTraceId !== '',
+        'source_url_hash_present' => $rowSourceUrlHash !== '',
         'sensitive_values_exposed' => $sensitiveDeclared !== false || $sensitiveHits !== [],
         'issues' => $issues,
     ];
@@ -920,6 +998,9 @@ function p0_runtime_traffic_readiness_visible(array $inspection, array $platform
             || (bool)($row['sensitive_values_exposed'] ?? true)
             || !array_key_exists('target_date_traffic_rows', $row)
             || !array_key_exists('traffic_source_count', $row)
+            || !array_key_exists('p0_source_chain_reference_only', $row)
+            || !array_key_exists('p0_source_chain_scope', $row)
+            || !array_key_exists('p0_source_chain_policy', $row)
             || trim((string)($row['status'] ?? '')) === ''
         ) {
             return false;
@@ -1741,13 +1822,13 @@ function p0_hotel_scoped_capture_bridge_contract(string $platform, string $targe
 
     $output = 'reports/p0_traffic_' . $platform . '_' . $systemHotelId . '_' . str_replace('-', '', $targetDate) . '.json';
     if ($platform === 'ctrip') {
-        $loginCommand = 'node scripts/ctrip_browser_capture.mjs --profile-id=<authorized-profile-id> --system-hotel-id=' . $systemHotelId . ' --sections=traffic --data-date=' . $targetDate . ' --login-only --output=' . $output;
+        $loginCommand = 'node scripts/ctrip_browser_capture.mjs --profile-id=<authorized-profile-id> --system-hotel-id=' . $systemHotelId . ' --sections=traffic --data-date=' . $targetDate . ' --login-only --headless=false --interactive-login=true --post-login-wait-ms=120000 --output=' . $output;
         $captureCommand = 'node scripts/ctrip_browser_capture.mjs --profile-id=<authorized-profile-id> --system-hotel-id=' . $systemHotelId . ' --sections=traffic --data-date=' . $targetDate . ' --output=' . $output;
-        $expectedKeys = ['auth_status', 'capture_gate', 'traffic[]', 'responses[]', 'standard_rows[]', 'capture_evidence.source_trace_id', 'capture_evidence.source_url_hash'];
+        $expectedKeys = ['auth_status', 'capture_gate', 'system_hotel_id', 'default_data_date', 'requested_sections', 'traffic[]', 'traffic[].date_source', 'traffic[].capture_evidence.source_trace_id', 'traffic[].capture_evidence.source_url_hash', 'standard_rows[]', 'standard_rows[].date_source', 'standard_rows[].capture_evidence.source_trace_id', 'standard_rows[].capture_evidence.source_url_hash', 'responses[]', 'responses[].section', 'responses[].row_count', 'responses[].standard_row_count', 'responses[].source_trace_id', 'responses[].url_hash', 'responses[].request_date_source'];
     } else {
-        $loginCommand = 'node scripts/meituan_browser_capture.mjs --store-id=<authorized-platform-store-id> --system-hotel-id=' . $systemHotelId . ' --sections=traffic --login-only --output=' . $output;
-        $captureCommand = 'node scripts/meituan_browser_capture.mjs --store-id=<authorized-platform-store-id> --system-hotel-id=' . $systemHotelId . ' --sections=traffic --output=' . $output;
-        $expectedKeys = ['auth_status', 'capture_gate', 'traffic[]', 'responses[]', 'capture_evidence.source_trace_id', 'capture_evidence.source_url_hash'];
+        $loginCommand = 'node scripts/meituan_browser_capture.mjs --store-id=<authorized-platform-store-id> --system-hotel-id=' . $systemHotelId . ' --sections=traffic --data-date=' . $targetDate . ' --login-only --headless=false --interactive-login=true --post-login-wait-ms=120000 --output=' . $output;
+        $captureCommand = 'node scripts/meituan_browser_capture.mjs --store-id=<authorized-platform-store-id> --system-hotel-id=' . $systemHotelId . ' --sections=traffic --data-date=' . $targetDate . ' --output=' . $output;
+        $expectedKeys = ['auth_status', 'capture_gate', 'system_hotel_id', 'default_data_date', 'capture_sections', 'traffic[]', 'traffic[].date_source', 'traffic[].capture_evidence.source_trace_id', 'traffic[].capture_evidence.source_url_hash', 'responses[]', 'responses[].section', 'responses[].row_count', 'responses[].source_trace_id', 'responses[].url_hash', 'responses[].request_date_source'];
     }
 
     return [
@@ -1760,8 +1841,20 @@ function p0_hotel_scoped_capture_bridge_contract(string $platform, string $targe
         'browser_capture_command' => $captureCommand,
         'capture_sections' => ['traffic'],
         'expected_capture_output_keys' => $expectedKeys,
-        'bridge_to_importer_command' => 'npm.cmd run import:p0-ota-traffic-payload -- --platform=' . $platform . ' --date=' . $targetDate . ' --system-hotel-id=' . $systemHotelId . ' --payload=' . $output,
-        'bridge_execute_command' => 'npm.cmd run import:p0-ota-traffic-payload:execute -- --platform=' . $platform . ' --date=' . $targetDate . ' --system-hotel-id=' . $systemHotelId . ' --payload=' . $output,
+        'bridge_to_importer_command' => 'npm.cmd run import:p0-ota-traffic-payload -- --platform=' . $platform . ' --date=' . $targetDate . ' --system-hotel-id=' . $systemHotelId . ' --payload=' . $output . ' --format=json',
+        'bridge_execute_command' => 'npm.cmd run import:p0-ota-traffic-payload:execute -- --platform=' . $platform . ' --date=' . $targetDate . ' --system-hotel-id=' . $systemHotelId . ' --payload=' . $output . ' --format=json',
+        'bridge_importer_acceptance' => [
+            'status' => 'ready_to_import',
+            'payload_import_projection.applied' => true,
+            'payload_import_projection.reason' => 'browser_capture_import_projection',
+            'sensitive_values_exposed' => false,
+            'summary.target_date_rows' => '>0',
+            'summary.rows_with_complete_desensitized_capture_evidence' => 'equals summary.target_date_rows',
+            'summary.row_level_desensitized_capture_evidence_rows' => 'equals summary.target_date_rows',
+            'summary.row_level_complete_desensitized_capture_evidence_rows' => 'equals summary.target_date_rows',
+            'summary.browser_response_evidence_rows' => 'equals summary.target_date_rows',
+            'traffic_evidence[].ui_status.field_fact_status' => 'ready',
+        ],
         'post_import_verifier_command' => 'npm.cmd run verify:p0-ota-field-loop -- --date=' . $targetDate . ' --platform=' . $platform . ' --system-hotel-id=' . $systemHotelId,
         'manual_gates' => [
             'manual_login_state_verified',
@@ -1803,9 +1896,9 @@ function p0_hotel_scoped_traffic_payload_contract(string $platform, string $targ
         'system_hotel_id' => $systemHotelId,
         'accepted_payload_containers' => $acceptedContainers,
         'required_row_evidence' => [
-            'row_date' => 'Each imported row must carry an explicit date/dataDate/statDate/stat_date/data_date/reportDate/day equal to ' . $targetDate . '.',
+            'row_date' => 'Each imported row must carry an explicit date/dataDate/statDate/stat_date/data_date/reportDate/day equal to ' . $targetDate . '; browser-captured dates must carry row/date_source evidence from the response row or request.query.* / request.payload.*, while command/default dates are not accepted as row-date evidence.',
             'source_path' => 'Each imported row must carry _source_path/source_path/json_path/_capture_source with a structured location such as data.flowData.0.',
-            'capture_evidence' => 'Each imported row or payload must carry desensitized source_trace_id plus source_url_hash/request_hash/payload_hash; raw URL, Cookie, token, and profile path are forbidden.',
+            'capture_evidence' => 'Each imported row must carry complete desensitized evidence: source_trace_id plus source_url_hash/url_hash. request_hash and payload_hash are supplementary only; raw URL, Cookie, token, and profile path are forbidden.',
             'hotel_identifier' => 'Each row should include ' . $hotelIdField . '; missing platform hotel id is not proof of OTA scope.',
         ],
         'required_metric_aliases' => [
@@ -1837,7 +1930,8 @@ function p0_hotel_scoped_traffic_payload_contract(string $platform, string $targ
             'summary.target_date_rows' => '>0',
             'summary.defaulted_date_rows' => 0,
             'summary.missing_source_path_rows' => 0,
-            'summary.missing_capture_evidence_rows' => 0,
+            'summary.missing_complete_capture_evidence_rows' => 0,
+            'summary.rows_with_complete_desensitized_capture_evidence' => 'equals summary.target_date_rows',
             'summary.missing_metric_keys' => [],
             'traffic_evidence_contract.status' => 'ready_for_p0_verifier_external_evidence',
         ],
@@ -1990,6 +2084,9 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         'ui_statuses' => [],
         'ui_status_ready_rows' => 0,
         'ui_status_incomplete_rows' => 0,
+        'desensitized_capture_evidence_count' => 0,
+        'matched_capture_evidence_count' => 0,
+        'capture_evidence_mismatch_count' => 0,
         'sample_ui_statuses' => [],
         'sample_facts' => [],
         'sensitive_values_exposed' => false,
@@ -2052,6 +2149,9 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         if ($facts !== []) {
             $base['rows_with_field_facts']++;
         }
+        $rowEvidence = p0_external_desensitized_capture_evidence($raw);
+        $rowSourceTraceId = trim((string)($row['source_trace_id'] ?? $raw['source_trace_id'] ?? $rowEvidence['source_trace_id'] ?? ''));
+        $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? ''));
         $uiStatus = p0_traffic_row_ui_status($row, $raw);
         $uiFieldFactStatus = trim((string)($uiStatus['status'] ?? $uiStatus['field_fact_status'] ?? ''));
         if ($uiFieldFactStatus !== '') {
@@ -2063,6 +2163,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
             && (int)($uiStatus['stored_value_missing_count'] ?? -1) === 0
             && (int)($uiStatus['captured_count'] ?? 0) >= count($requiredMetricKeys)
             && (int)($uiStatus['capture_evidence_count'] ?? 0) >= count($requiredMetricKeys)
+            && (int)($uiStatus['desensitized_capture_evidence_count'] ?? 0) >= count($requiredMetricKeys)
             && (int)($uiStatus['source_path_count'] ?? 0) >= count($requiredMetricKeys)
             && (int)($uiStatus['structured_source_path_count'] ?? 0) >= count($requiredMetricKeys)
             && (int)($uiStatus['storage_field_count'] ?? 0) >= count($requiredMetricKeys);
@@ -2077,6 +2178,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
                 'field_fact_status' => $uiFieldFactStatus,
                 'raw_data_exposed' => (bool)($uiStatus['raw_data_exposed'] ?? true),
                 'captured_count' => (int)($uiStatus['captured_count'] ?? 0),
+                'desensitized_capture_evidence_count' => (int)($uiStatus['desensitized_capture_evidence_count'] ?? 0),
                 'structured_source_path_count' => (int)($uiStatus['structured_source_path_count'] ?? 0),
                 'missing_count' => (int)($uiStatus['missing_count'] ?? 0),
                 'stored_value_missing_count' => (int)($uiStatus['stored_value_missing_count'] ?? 0),
@@ -2094,11 +2196,21 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
             $sourcePath = trim((string)($fact['source_path'] ?? ''));
             $storageField = trim((string)($fact['storage_field'] ?? ''));
             $captureEvidence = p0_array($fact['capture_evidence'] ?? null);
+            $desensitizedCaptureEvidence = p0_external_desensitized_capture_evidence($captureEvidence);
+            $captureEvidenceMatchesRow = p0_field_fact_capture_evidence_matches_row($fact, $rowSourceTraceId, $rowSourceUrlHash);
+            if ($desensitizedCaptureEvidence !== []) {
+                $base['desensitized_capture_evidence_count']++;
+            }
+            if ($captureEvidenceMatchesRow) {
+                $base['matched_capture_evidence_count']++;
+            } else {
+                $base['capture_evidence_mismatch_count']++;
+            }
             $storedValuePresent = $fact['stored_value_present'] ?? null;
             $sourcePathStructured = p0_source_path_is_structured($sourcePath);
             $factReady = $sourcePathStructured
                 && $storageField === $requiredStorageFields[$metricKey]
-                && $captureEvidence !== []
+                && $captureEvidenceMatchesRow
                 && $storedValuePresent === true;
             if ($factReady) {
                 $complete[$metricKey] = true;
@@ -2114,6 +2226,8 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
                     'storage_field' => $storageField,
                     'expected_storage_field' => $requiredStorageFields[$metricKey],
                     'capture_evidence_present' => $captureEvidence !== [],
+                    'desensitized_capture_evidence_present' => $desensitizedCaptureEvidence !== [],
+                    'capture_evidence_matches_row' => $captureEvidenceMatchesRow,
                     'stored_value_present' => $storedValuePresent,
                     'status' => $factReady ? 'complete' : 'incomplete',
                 ];
@@ -2250,6 +2364,13 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
     }
 
     $targetRows = (int)($sourceRows['count'] ?? $summary['target_date_rows'] ?? 0);
+    $dataTypes = array_values(array_map('strval', (array)($summary['target_date_data_types'] ?? $sourceRows['data_types'] ?? [])));
+    $trafficDataTypes = array_values(array_intersect($dataTypes, ['traffic', 'flow', 'conversion']));
+    $sourceChainReferenceOnly = $trafficDataTypes === [];
+    $sourceChainScope = $sourceChainReferenceOnly ? 'reference_only_non_traffic_source_rows' : 'traffic_source_rows';
+    $sourceChainPolicy = $sourceChainReferenceOnly
+        ? 'Source field facts are non-traffic reference evidence; P0 traffic closure still requires target-date traffic rows and p0_traffic_gate.status=ready.'
+        : 'Source field facts include traffic-scope rows but P0 closure still requires p0_traffic_gate.status=ready.';
     $sampleTraces = p0_array($sourceRows['sample_traces'] ?? null);
     $traceCount = 0;
     foreach ($sampleTraces as $trace) {
@@ -2263,6 +2384,7 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
     $incompleteCapturedFactCount = (int)($fieldFacts['incomplete_captured_fact_count'] ?? 0);
     $metricKeyCount = (int)($fieldFacts['metric_key_count'] ?? 0);
     $captureEvidenceCount = (int)($fieldFacts['capture_evidence_count'] ?? 0);
+    $desensitizedCaptureEvidenceCount = (int)($fieldFacts['desensitized_capture_evidence_count'] ?? 0);
     $sourcePathCount = (int)($fieldFacts['source_path_count'] ?? 0);
     $structuredSourcePathCount = (int)($fieldFacts['structured_source_path_count'] ?? 0);
     $storageFieldCount = (int)($fieldFacts['storage_field_count'] ?? 0);
@@ -2279,15 +2401,17 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
         $name,
         'capture_evidence',
         $targetRows > 0
-            && ($traceCount > 0 || trim((string)($sourceRows['latest_trace_time'] ?? '')) !== '')
+            && $traceCount > 0
             && $completeFactCount > 0
-            && $captureEvidenceCount >= $completeFactCount,
-        'Target-date OTA source rows and field facts must include capture evidence.',
+            && $desensitizedCaptureEvidenceCount >= $completeFactCount,
+        'Target-date OTA source rows must include desensitized source_trace_id samples, and field facts must include desensitized source_trace_id plus source_url_hash evidence.',
         [
             'target_date_rows' => $targetRows,
             'sample_trace_id_count' => $traceCount,
             'latest_trace_time_present' => trim((string)($sourceRows['latest_trace_time'] ?? '')) !== '',
+            'latest_trace_time_reference_only' => true,
             'capture_evidence_count' => $captureEvidenceCount,
+            'desensitized_capture_evidence_count' => $desensitizedCaptureEvidenceCount,
             'complete_fact_count' => $completeFactCount,
         ]
     );
@@ -2380,7 +2504,11 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
     return [
         'platform' => $name,
         'target_date_rows' => $targetRows,
-        'data_types' => array_values(array_map('strval', (array)($summary['target_date_data_types'] ?? $sourceRows['data_types'] ?? []))),
+        'data_types' => $dataTypes,
+        'traffic_data_types' => $trafficDataTypes,
+        'source_chain_reference_only' => $sourceChainReferenceOnly,
+        'source_chain_scope' => $sourceChainScope,
+        'source_chain_policy' => $sourceChainPolicy,
         'latest_available' => $summary['latest_available'] ?? $sourceRows['latest_available'] ?? null,
         'latest_available_reference_only' => (bool)($summary['latest_available_reference_only'] ?? false),
         'field_fact_status' => $fieldFactStatus,
@@ -2391,6 +2519,7 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
             'incomplete_captured_fact_count' => $incompleteCapturedFactCount,
             'metric_key_count' => $metricKeyCount,
             'capture_evidence_count' => $captureEvidenceCount,
+            'desensitized_capture_evidence_count' => $desensitizedCaptureEvidenceCount,
             'source_path_count' => $sourcePathCount,
             'structured_source_path_count' => $structuredSourcePathCount,
             'storage_field_count' => $storageFieldCount,
@@ -2424,15 +2553,90 @@ function p0_traffic_availability_map(array $trafficAvailability): array
 
 /**
  * @param array<string, mixed> $traffic
+ * @return array<int, array<string, mixed>>
+ */
+function p0_platform_traffic_gate_next_steps(array $traffic): array
+{
+    $commandsByHotel = [];
+    foreach (p0_array($traffic['hotel_scoped_commands'] ?? null) as $command) {
+        if (!is_array($command)) {
+            continue;
+        }
+        $systemHotelId = (int)($command['system_hotel_id'] ?? 0);
+        if ($systemHotelId > 0) {
+            $commandsByHotel[$systemHotelId] = $command;
+        }
+    }
+
+    $bridgesByHotel = [];
+    foreach (p0_array($traffic['hotel_scoped_capture_bridges'] ?? null) as $bridge) {
+        if (!is_array($bridge)) {
+            continue;
+        }
+        $systemHotelId = (int)($bridge['system_hotel_id'] ?? 0);
+        if ($systemHotelId > 0) {
+            $bridgesByHotel[$systemHotelId] = $bridge;
+        }
+    }
+
+    $steps = [];
+    foreach (p0_array($traffic['hotel_scoped_sources'] ?? null) as $source) {
+        if (!is_array($source)) {
+            continue;
+        }
+        $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
+        if ($systemHotelId <= 0) {
+            continue;
+        }
+        $command = p0_array($commandsByHotel[$systemHotelId] ?? null);
+        $bridge = p0_array($bridgesByHotel[$systemHotelId] ?? null);
+        $steps[] = [
+            'platform' => (string)($source['platform'] ?? $traffic['platform'] ?? ''),
+            'system_hotel_id' => $systemHotelId,
+            'data_source_id' => $source['data_source_id'] ?? null,
+            'data_source_status' => (string)($source['status'] ?? ''),
+            'last_sync_status' => (string)($source['last_sync_status'] ?? ''),
+            'capture_sections_has_traffic' => (bool)($source['capture_sections_has_traffic'] ?? false),
+            'manual_login_state_verified' => (bool)($source['manual_login_state_verified'] ?? false),
+            'payload_import_command' => (string)($command['payload_import_command'] ?? ''),
+            'payload_import_execute_command' => (string)($command['payload_import_execute_command'] ?? ''),
+            'traffic_evidence_verifier_command' => (string)($command['traffic_evidence_verifier_command'] ?? ''),
+            'p0_verifier_command' => (string)($command['p0_verifier_command'] ?? ''),
+            'capture_output_path' => (string)($bridge['capture_output_path'] ?? ''),
+            'browser_login_prepare_command' => (string)($bridge['browser_login_prepare_command'] ?? ''),
+            'browser_capture_command' => (string)($bridge['browser_capture_command'] ?? ''),
+            'bridge_to_importer_command' => (string)($bridge['bridge_to_importer_command'] ?? ''),
+            'bridge_execute_command' => (string)($bridge['bridge_execute_command'] ?? ''),
+            'post_import_verifier_command' => (string)($bridge['post_import_verifier_command'] ?? ''),
+            'manual_gates' => array_values(array_map('strval', (array)($bridge['manual_gates'] ?? []))),
+        ];
+    }
+
+    return $steps;
+}
+
+/**
+ * @param array<string, mixed> $traffic
  * @return array<string, mixed>
  */
 function p0_platform_traffic_gate(array $traffic): array
 {
     $targetDate = p0_array($traffic['target_date'] ?? null);
     $trafficFieldFacts = p0_array($traffic['traffic_field_fact_closure'] ?? null);
+    $externalEvidence = p0_array($traffic['external_traffic_evidence'] ?? null);
     $trafficRows = (int)($targetDate['traffic_rows'] ?? 0);
     $availabilityStatus = (string)($traffic['status'] ?? 'not_loaded');
     $fieldFactStatus = (string)($trafficFieldFacts['status'] ?? 'not_loaded');
+    $recommendedAction = p0_array($traffic['recommended_action'] ?? null);
+    $nextSteps = p0_platform_traffic_gate_next_steps($traffic);
+    $externalEvidenceStatus = (string)($externalEvidence['status'] ?? 'not_provided');
+    $externalEvidenceValid = (bool)($traffic['validated_desensitized_evidence_present'] ?? $externalEvidence['validated_desensitized_evidence_present'] ?? false);
+    $preImportEvidenceStatus = 'not_provided';
+    if ($externalEvidenceStatus !== 'not_provided') {
+        $preImportEvidenceStatus = $externalEvidenceValid
+            ? ($trafficRows > 0 ? 'valid_external_evidence_with_ingested_rows' : 'valid_external_evidence_not_ingested')
+            : 'external_evidence_not_valid';
+    }
     $ready = $availabilityStatus === 'ready'
         && $fieldFactStatus === 'ready'
         && $trafficRows > 0
@@ -2454,8 +2658,24 @@ function p0_platform_traffic_gate(array $traffic): array
         'traffic_availability_status' => $availabilityStatus,
         'traffic_rows' => $trafficRows,
         'traffic_field_fact_status' => $fieldFactStatus,
+        'external_evidence_status' => $externalEvidenceStatus,
+        'external_evidence_validated_desensitized_source_proof' => $externalEvidenceValid,
+        'pre_import_evidence_status' => $preImportEvidenceStatus,
+        'pre_import_evidence_policy' => 'Valid external traffic_evidence proves desensitized source proof only; it is not P0 complete until target-date traffic rows are ingested and this gate is ready.',
         'missing_metric_keys' => array_values(array_map('strval', (array)($trafficFieldFacts['missing_metric_keys'] ?? []))),
         'required_next_inputs' => array_values(array_map('strval', (array)($traffic['required_next_inputs'] ?? []))),
+        'action_mode' => (string)($traffic['action_mode'] ?? $recommendedAction['mode'] ?? ''),
+        'action_entry' => (string)($traffic['action_entry'] ?? $recommendedAction['entry'] ?? ''),
+        'p0_next_action_mode' => (string)($traffic['action_mode'] ?? $recommendedAction['mode'] ?? ''),
+        'p0_next_action_entry' => (string)($traffic['action_entry'] ?? $recommendedAction['entry'] ?? ''),
+        'action_status' => (string)($recommendedAction['status'] ?? ''),
+        'can_run_now' => (bool)($recommendedAction['can_run_now'] ?? false),
+        'action_missing_inputs' => array_values(array_map('strval', (array)($recommendedAction['missing_inputs'] ?? []))),
+        'hotel_scoped_next_step_count' => count($nextSteps),
+        'p0_next_step_count' => count($nextSteps),
+        'hotel_scoped_next_steps' => $nextSteps,
+        'next_command_policy' => 'metadata_only_no_sensitive_commands',
+        'next_command_policy_detail' => 'Commands are operational handoffs only; they do not prove P0 completion until target-date traffic rows are imported and this verifier returns ready.',
         'gate_policy' => 'Source field facts are reference evidence only; P0 traffic closure requires target-date traffic rows plus ready traffic field facts.',
     ];
 }
@@ -2476,8 +2696,8 @@ function p0_render_markdown(array $result): string
     }
     $lines[] = '- completion gate: P0 passes only when each platform `p0_traffic_gate.status` is `ready`; source field status alone is reference evidence.';
     $lines[] = '';
-    $lines[] = '| platform | source rows | source field status | P0 traffic rows | P0 traffic gate | traffic field facts | facts | complete | structured source paths | stored values | incomplete | chain |';
-    $lines[] = '| --- | ---: | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |';
+    $lines[] = '| platform | source rows | source scope | source field status | P0 traffic rows | P0 traffic gate | external evidence | pre-import evidence | traffic field facts | facts | complete | structured source paths | stored values | incomplete | chain |';
+    $lines[] = '| --- | ---: | --- | --- | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |';
     foreach ((array)($result['platforms'] ?? []) as $platform) {
         if (!is_array($platform)) {
             continue;
@@ -2491,12 +2711,15 @@ function p0_render_markdown(array $result): string
         $field = is_array($platform['field_fact_summary'] ?? null) ? $platform['field_fact_summary'] : [];
         $trafficGate = p0_array($platform['p0_traffic_gate'] ?? null);
         $lines[] = sprintf(
-            '| `%s` | %d | `%s` | %d | `%s` | `%s` | %d | %d | %d/%d | %d/%d | %d | %s |',
+            '| `%s` | %d | `%s` | `%s` | %d | `%s` | `%s` | `%s` | `%s` | %d | %d | %d/%d | %d/%d | %d | %s |',
             (string)($platform['platform'] ?? ''),
             (int)($platform['target_date_rows'] ?? 0),
+            (string)($platform['source_chain_scope'] ?? 'unknown'),
             (string)($platform['field_fact_status'] ?? ''),
             (int)($trafficGate['traffic_rows'] ?? 0),
             (string)($trafficGate['status'] ?? 'not_loaded'),
+            (string)($trafficGate['external_evidence_status'] ?? 'not_provided'),
+            (string)($trafficGate['pre_import_evidence_status'] ?? 'not_provided'),
             (string)($trafficGate['traffic_field_fact_status'] ?? 'not_loaded'),
             (int)($field['fact_count'] ?? 0),
             (int)($field['complete_fact_count'] ?? 0),
@@ -2512,8 +2735,10 @@ function p0_render_markdown(array $result): string
         $lines[] = '';
         $lines[] = '## Traffic Evidence Availability';
         $lines[] = '';
-        $lines[] = '| platform | status | traffic rows | traffic field facts | missing traffic metrics | traffic sources | required next inputs | action entry |';
-        $lines[] = '| --- | --- | ---: | --- | --- | --- | --- | --- |';
+        $lines[] = '- pre-import evidence policy: valid external evidence is source proof only; it is not P0 complete until target-date traffic rows are ingested and `p0_traffic_gate.status` is `ready`.';
+        $lines[] = '';
+        $lines[] = '| platform | status | traffic rows | traffic field facts | external evidence | pre-import evidence | missing traffic metrics | traffic sources | required next inputs | action entry |';
+        $lines[] = '| --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- |';
         foreach ((array)$result['traffic_evidence_availability'] as $traffic) {
             if (!is_array($traffic)) {
                 continue;
@@ -2521,6 +2746,7 @@ function p0_render_markdown(array $result): string
             $targetDate = is_array($traffic['target_date'] ?? null) ? $traffic['target_date'] : [];
             $sources = is_array($traffic['registered_sources'] ?? null) ? $traffic['registered_sources'] : [];
             $trafficFieldFacts = is_array($traffic['traffic_field_fact_closure'] ?? null) ? $traffic['traffic_field_fact_closure'] : [];
+            $trafficGate = p0_platform_traffic_gate($traffic);
             $sourceText = sprintf(
                 'registered %d / ready %d / waiting_config %d',
                 (int)($sources['traffic_source_count'] ?? 0),
@@ -2528,11 +2754,13 @@ function p0_render_markdown(array $result): string
                 (int)($sources['traffic_waiting_config_count'] ?? 0)
             );
             $lines[] = sprintf(
-                '| `%s` | `%s` | %d | `%s` | %s | %s | %s | `%s` |',
+                '| `%s` | `%s` | %d | `%s` | `%s` | `%s` | %s | %s | %s | `%s` |',
                 (string)($traffic['platform'] ?? ''),
                 (string)($traffic['status'] ?? ''),
                 (int)($targetDate['traffic_rows'] ?? 0),
                 (string)($trafficFieldFacts['status'] ?? 'not_loaded'),
+                (string)($trafficGate['external_evidence_status'] ?? 'not_provided'),
+                (string)($trafficGate['pre_import_evidence_status'] ?? 'not_provided'),
                 implode(', ', array_map(static fn($item): string => '`' . (string)$item . '`', (array)($trafficFieldFacts['missing_metric_keys'] ?? []))),
                 $sourceText,
                 implode(', ', array_map(static fn($item): string => '`' . (string)$item . '`', (array)($traffic['required_next_inputs'] ?? []))),
@@ -2613,11 +2841,19 @@ function p0_render_markdown(array $result): string
             $lines[] = '';
             $lines[] = '### Hotel Scoped Capture Bridges';
             $lines[] = '';
-            $lines[] = '| platform | system_hotel_id | bridge status | capture output | login prepare | browser capture | importer dry-run | execute import | post verifier | manual gates |';
-            $lines[] = '| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |';
+            $lines[] = '| platform | system_hotel_id | bridge status | capture output | login prepare | browser capture | importer dry-run | importer acceptance | execute import | post verifier | manual gates |';
+            $lines[] = '| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |';
             foreach ($hotelScopedCaptureBridges as $bridge) {
+                $bridgeAcceptance = p0_array($bridge['bridge_importer_acceptance'] ?? null);
+                $bridgeAcceptanceText = [];
+                foreach ($bridgeAcceptance as $key => $value) {
+                    if (!is_scalar($value)) {
+                        continue;
+                    }
+                    $bridgeAcceptanceText[] = '`' . (string)$key . '=' . (is_bool($value) ? ($value ? 'true' : 'false') : (string)$value) . '`';
+                }
                 $lines[] = sprintf(
-                    '| `%s` | %d | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s |',
+                    '| `%s` | %d | `%s` | `%s` | `%s` | `%s` | `%s` | %s | `%s` | `%s` | %s |',
                     (string)($bridge['platform'] ?? ''),
                     (int)($bridge['system_hotel_id'] ?? 0),
                     (string)($bridge['status'] ?? ''),
@@ -2625,6 +2861,7 @@ function p0_render_markdown(array $result): string
                     (string)($bridge['browser_login_prepare_command'] ?? ''),
                     (string)($bridge['browser_capture_command'] ?? ''),
                     (string)($bridge['bridge_to_importer_command'] ?? ''),
+                    $bridgeAcceptanceText === [] ? '`not_declared`' : implode(', ', $bridgeAcceptanceText),
                     (string)($bridge['bridge_execute_command'] ?? ''),
                     (string)($bridge['post_import_verifier_command'] ?? ''),
                     implode(', ', array_map(static fn($item): string => '`' . (string)$item . '`', (array)($bridge['manual_gates'] ?? [])))
@@ -2770,11 +3007,23 @@ try {
         && p0_source_contains('public/index.html', 'onlineAnalysisFieldFactStatusClass(item)')
         && p0_source_contains('public/index.html', 'onlineAnalysisFieldFactDetailText(item)')
         && p0_source_contains('public/index.html', 'field_fact_status');
+    $uiP0SourceEvidence = p0_source_contains('public/index.html', 'onlineAnalysisP0CaptureEvidenceStatusText(item)')
+        && p0_source_contains('public/index.html', 'onlineAnalysisP0CaptureEvidenceStatusClass(item)')
+        && p0_source_contains('public/index.html', 'onlineAnalysisP0CaptureEvidenceDetailText(item)')
+        && p0_source_contains('public/index.html', 'desensitized_capture_evidence_count')
+        && p0_source_contains('public/index.html', 'P0证据待补')
+        && p0_source_contains('app/controller/OnlineData.php', 'desensitized_capture_evidence_count')
+        && p0_source_contains('app/controller/OnlineData.php', 'onlineDataFieldFactHasDesensitizedCaptureEvidence');
     $uiTrafficStatus = p0_source_contains('public/index.html', 'traffic_source_readiness')
         && p0_source_contains('public/index.html', 'target_date_traffic_rows')
+        && p0_source_contains('public/index.html', 'p0_source_chain_reference_only')
+        && p0_source_contains('public/index.html', 'p0_source_chain_scope')
+        && p0_source_contains('public/index.html', 'reference_only_non_traffic_source_rows')
         && p0_source_contains('public/index.html', '流量缺失')
         && p0_source_contains('public/index.html', '流量已入库')
         && p0_source_contains('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'traffic_status=ready')
+        && p0_source_contains('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'p0_source_chain_reference_only')
+        && p0_source_contains('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'reference_only_non_traffic_source_rows')
         && p0_source_contains('app/controller/concern/Phase1EmployeeConsoleConcern.php', '目标日流量事实已入库')
         && p0_source_contains('app/controller/concern/Phase1EmployeeConsoleConcern.php', '流量/转化事实缺失');
     $verifierRegistered = ($scripts['verify:p0-ota-field-loop'] ?? '') === $p0Command
@@ -2787,6 +3036,7 @@ try {
 
     p0_add_global_check($globalChecks, 'ui_backend_field_fact_status', $uiBackend, 'OnlineData daily rows expose field_fact_status.');
     p0_add_global_check($globalChecks, 'ui_frontend_field_fact_status', $uiFrontend, 'Online analysis UI renders field_fact_status.');
+    p0_add_global_check($globalChecks, 'ui_frontend_p0_source_evidence_status', $uiP0SourceEvidence, 'Online analysis UI exposes P0 desensitized capture evidence separately from loose field facts.');
     p0_add_global_check($globalChecks, 'ui_frontend_p0_traffic_status', $uiTrafficStatus, 'Employee UI exposes target-date traffic status separately from source field status.');
     p0_add_global_check($globalChecks, 'p0_verifier_registered', $verifierRegistered, 'Package scripts and trusted-loop contract register the P0 field-loop verifier.');
 

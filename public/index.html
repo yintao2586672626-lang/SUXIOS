@@ -639,6 +639,17 @@
                                         <div v-if="strategyDataNotice" class="rounded-lg border border-amber-100 bg-amber-50 text-amber-700 text-xs px-3 py-2">
                                             {{ strategyDataNotice }}
                                         </div>
+                                        <div v-if="strategyCurrentReadiness" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                                <div>
+                                                    <div class="font-semibold">{{ strategyCurrentReadiness.notice }}</div>
+                                                    <div class="mt-1">{{ simulationReadinessMissingText(strategyCurrentReadiness) }}</div>
+                                                </div>
+                                                <span :class="['rounded-md border px-2.5 py-1 whitespace-nowrap', simulationReadinessBadgeClass(strategyCurrentReadiness.stage)]">
+                                                    {{ strategyCurrentReadiness.status_label }} · {{ strategyCurrentReadiness.score }}分
+                                                </span>
+                                            </div>
+                                        </div>
                                         <div class="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600">
                                             <div class="font-semibold text-slate-800 mb-2">数据口径</div>
                                             <div class="space-y-1">
@@ -719,6 +730,7 @@
                                             </div>
                                             <div class="flex items-center gap-2">
                                                 <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level || '-' }}</span>
+                                                <span v-if="record.execution_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', simulationReadinessBadgeClass(record.execution_readiness.stage)]">{{ record.execution_readiness.status_label }}</span>
                                                 <button @click="loadStrategyDetail(record.id)" :data-testid="`history-strategy-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
                                                 <button @click="reuseStrategyRecord(record)" :data-testid="`history-strategy-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
                                                 <button @click="archiveStrategyRecord(record)" :data-testid="`history-strategy-archive-${record.id}`" class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs hover:bg-red-50">删除</button>
@@ -910,6 +922,18 @@
                                     </div>
                                 </div>
 
+                                <div v-if="simulationCurrentReadiness" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                        <div>
+                                            <div class="font-semibold">{{ simulationCurrentReadiness.notice }}</div>
+                                            <div class="mt-1">{{ simulationReadinessMissingText(simulationCurrentReadiness) }}</div>
+                                        </div>
+                                        <span :class="['rounded-md border px-2.5 py-1 whitespace-nowrap', simulationReadinessBadgeClass(simulationCurrentReadiness.stage)]">
+                                            {{ simulationCurrentReadiness.status_label }} · {{ simulationCurrentReadiness.score }}分
+                                        </span>
+                                    </div>
+                                </div>
+
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <div class="flex items-center justify-between mb-4">
                                         <h3 class="font-bold text-gray-800">三情景模拟</h3>
@@ -1024,6 +1048,7 @@
                                             </div>
                                             <div class="flex items-center gap-2">
                                                 <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level || '-' }}</span>
+                                                <span v-if="record.execution_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', simulationReadinessBadgeClass(record.execution_readiness.stage)]">{{ record.execution_readiness.status_label }}</span>
                                                 <button @click="loadSimulationDetail(record.id)" :data-testid="`history-simulation-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
                                                 <button @click="reuseSimulationRecord(record)" :data-testid="`history-simulation-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
                                                 <button @click="archiveSimulationRecord(record)" :data-testid="`history-simulation-archive-${record.id}`" class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs hover:bg-red-50">归档</button>
@@ -1157,6 +1182,7 @@
                                             <div class="text-xs text-gray-500 mt-1">{{ record.city || '-' }}{{ record.district ? ' · ' + record.district : '' }} · {{ record.conclusion_grade || '-' }}级 · {{ record.created_at || '-' }}</div>
                                         </div>
                                         <div class="flex items-center gap-2">
+                                            <span v-if="record.feasibility_readiness" :class="['px-2 py-1 rounded text-xs border', feasibilityReadinessBadgeClass(record.feasibility_readiness.stage)]">{{ record.feasibility_readiness.status_label }}</span>
                                             <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level || '-' }}</span>
                                             <button @click="loadFeasibilityDetail(record.id)" :data-testid="`history-feasibility-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
                                             <button @click="reuseFeasibilityRecord(record)" :data-testid="`history-feasibility-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
@@ -1211,6 +1237,20 @@
                                         <div :class="['feasibility-grade-large', feasibilityDecisionClass]">{{ aiFeasibilityResult.conclusion_grade || '-' }}</div>
                                     </div>
                                     <p>{{ aiFeasibilityResult.core_reason }}</p>
+                                </section>
+
+                                <section v-if="aiFeasibilityReadiness" class="feasibility-panel">
+                                    <div class="feasibility-section-head compact">
+                                        <h3>投决闭环状态</h3>
+                                    </div>
+                                    <div class="space-y-2">
+                                        <div class="flex items-center justify-between gap-3">
+                                            <span :class="['px-2 py-1 rounded text-xs border', feasibilityReadinessBadgeClass(aiFeasibilityReadiness.stage)]">{{ aiFeasibilityReadiness.status_label }}</span>
+                                            <strong class="text-sm text-gray-900">{{ aiFeasibilityReadiness.score }}分</strong>
+                                        </div>
+                                        <p class="text-xs text-gray-500 leading-relaxed">{{ aiFeasibilityReadiness.notice }}</p>
+                                        <p class="text-xs text-gray-500 leading-relaxed">{{ feasibilityReadinessMissingText(aiFeasibilityReadiness) }}</p>
+                                    </div>
                                 </section>
 
                                 <section class="feasibility-panel">
@@ -1987,8 +2027,19 @@
                                 </button>
                             </div>
                         </div>
+                        <div v-if="expansionCurrentReadiness" class="mb-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                <div>
+                                    <div class="font-semibold">{{ expansionCurrentReadiness.notice }}</div>
+                                    <div class="mt-1">{{ expansionReadinessMissingText(expansionCurrentReadiness) }}</div>
+                                </div>
+                                <span :class="['rounded-md border px-2.5 py-1 whitespace-nowrap', expansionReadinessBadgeClass(expansionCurrentReadiness.stage)]">
+                                    {{ expansionCurrentReadiness.status_label }} · {{ expansionCurrentReadiness.score }}分
+                                </span>
+                            </div>
+                        </div>
                         <div v-if="visibleExpansionRecords.length" class="overflow-x-auto">
-                            <table class="min-w-[900px] table-fixed text-sm">
+                            <table class="min-w-[1020px] table-fixed text-sm">
                                 <thead class="bg-gray-50 text-gray-500">
                                     <tr>
                                         <th class="w-20 px-3 py-3 text-left">类型</th>
@@ -1996,6 +2047,7 @@
                                         <th class="w-24 px-3 py-3 text-left">区域</th>
                                         <th class="w-48 px-3 py-3 text-left">结论</th>
                                         <th class="w-20 px-3 py-3 text-left">风险</th>
+                                        <th class="w-28 px-3 py-3 text-left">立项状态</th>
                                         <th class="w-36 px-3 py-3 text-left">时间</th>
                                         <th class="w-40 px-3 py-3 text-right">操作</th>
                                     </tr>
@@ -2014,6 +2066,10 @@
                                         </td>
                                         <td class="px-3 py-3">
                                             <span v-if="record.risk_level" :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level }}</span>
+                                            <span v-else class="text-gray-400">--</span>
+                                        </td>
+                                        <td class="px-3 py-3">
+                                            <span v-if="record.project_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', expansionReadinessBadgeClass(record.project_readiness.stage)]">{{ record.project_readiness.status_label }}</span>
                                             <span v-else class="text-gray-400">--</span>
                                         </td>
                                         <td class="px-3 py-3 text-gray-500 whitespace-nowrap">{{ record.created_at || '--' }}</td>
@@ -2076,7 +2132,16 @@
                                     <h4 class="font-semibold text-gray-900">投资决策信息层</h4>
                                     <div class="text-xs text-gray-500 mt-1">拆分事实、假设、测算和风险，避免把 OTA 渠道快照直接当作全酒店投资结论</div>
                                 </div>
-                                <span class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 whitespace-nowrap">决策前复核</span>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span v-if="transferCurrentReadiness" :class="['rounded-md border px-2.5 py-1 text-xs whitespace-nowrap', transferReadinessBadgeClass(transferCurrentReadiness.stage)]">
+                                        {{ transferCurrentReadiness.status_label }} · {{ transferCurrentReadiness.score }}分
+                                    </span>
+                                    <span v-else class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 whitespace-nowrap">决策前复核</span>
+                                </div>
+                            </div>
+                            <div v-if="transferCurrentReadiness" class="mb-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                <div class="font-semibold">{{ transferCurrentReadiness.notice }}</div>
+                                <div class="mt-1">{{ transferReadinessMissingText(transferCurrentReadiness) }}</div>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
                                 <div v-for="row in transferDecisionLayerRows" :key="row.key" class="rounded-lg border border-gray-200 bg-white p-3 min-w-0">
@@ -2480,6 +2545,7 @@
                                         <th class="px-4 py-3 text-left">取数日</th>
                                         <th class="px-4 py-3 text-left">结论</th>
                                         <th class="px-4 py-3 text-left">风险</th>
+                                        <th class="px-4 py-3 text-left">投决状态</th>
                                         <th class="px-4 py-3 text-left">时间</th>
                                         <th class="px-4 py-3 text-right">操作</th>
                                     </tr>
@@ -2492,6 +2558,10 @@
                                         <td class="px-4 py-3 text-gray-700">{{ record.decision || '--' }}</td>
                                         <td class="px-4 py-3">
                                             <span v-if="record.risk_level" :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level }}</span>
+                                            <span v-else class="text-gray-400">--</span>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <span v-if="record.decision_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', transferReadinessBadgeClass(record.decision_readiness.stage)]">{{ record.decision_readiness.status_label }}</span>
                                             <span v-else class="text-gray-400">--</span>
                                         </td>
                                         <td class="px-4 py-3 text-gray-500">{{ record.created_at || '--' }}</td>
@@ -2567,6 +2637,14 @@
                                     <div>
                                         <label class="block text-xs font-medium text-gray-600 mb-1">开业门店名称 <span class="text-red-500">*</span></label>
                                         <input v-model="openingProjectForm.hotel_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：巢湖测试店">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">绑定系统门店</label>
+                                        <select v-model="openingProjectForm.hotel_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                            <option value="">暂不绑定</option>
+                                            <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        </select>
+                                        <div v-if="!openingProjectForm.hotel_id" class="mt-1 text-xs text-amber-600">未绑定时只能作为开业清单，不能证明真实门店闭环。</div>
                                     </div>
                                     <div class="grid grid-cols-2 gap-3">
                                         <div>
@@ -3391,10 +3469,23 @@
                                         <div class="mt-1 text-lg font-bold text-gray-900">{{ aiDailyReport.summary || '暂无摘要' }}</div>
                                         <div class="mt-2 flex flex-wrap gap-2 text-xs">
                                             <span :class="aiDailyReportModelClass" class="rounded-full px-2 py-1">{{ aiDailyReportModelText }}</span>
+                                            <span v-if="aiDailyReportReadiness" :class="['rounded-full border px-2 py-1', aiDailyReportReadinessClass(aiDailyReportReadiness.stage)]">
+                                                {{ aiDailyReportReadiness.status_label }} · {{ aiDailyReportReadiness.score }}分
+                                            </span>
                                             <span class="rounded-full bg-white text-gray-500 px-2 py-1">来源 {{ aiDailyReportSourceCount }} 项</span>
                                             <span class="rounded-full bg-white text-gray-500 px-2 py-1">缺失 {{ aiDailyReportDataGaps.length }} 项</span>
                                             <span class="rounded-full bg-white text-gray-500 px-2 py-1">可转单 {{ aiDailyReportTransferableCount }} 条</span>
                                         </div>
+                                        <div v-if="aiDailyReportReadiness?.next_action" class="mt-2 text-xs text-blue-700">
+                                            下一步：{{ aiDailyReportReadiness.next_action }}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-if="aiDailyReportReadiness" class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
+                                    <div v-for="card in aiDailyReportReadinessCards" :key="card.key" class="rounded-lg border border-gray-100 bg-white p-3">
+                                        <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                        <div class="mt-1 text-xl font-bold text-gray-900">{{ card.value }}</div>
+                                        <div class="mt-1 text-[11px] text-gray-400">{{ card.hint }}</div>
                                     </div>
                                 </div>
                                 <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mt-4">
@@ -3459,6 +3550,9 @@
                                         <div class="col-span-6 md:col-span-2 text-gray-600">{{ action.expected_metric || '-' }}</div>
                                         <div class="col-span-6 md:col-span-2">
                                             <span :class="aiDailyReportActionStatusClass(action)" class="rounded-full px-2 py-1 text-xs">{{ aiDailyReportActionStatusText(action) }}</span>
+                                            <div v-if="action.action_readiness?.next_action" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
+                                                {{ action.action_readiness.next_action }}
+                                            </div>
                                         </div>
                                         <div class="col-span-12 md:col-span-1 md:text-right">
                                             <button @click="createAiDailyExecutionIntent(action, index)" :disabled="operationLoading.aiDailyReport || action.execution_intent_id || action.can_create_execution_intent === false" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 disabled:opacity-50">转单</button>
@@ -3524,6 +3618,59 @@
                                     </div>
                                 </div>
                             </template>
+                        </div>
+                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                            <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="font-bold text-gray-900">板块闭环成熟度</h3>
+                                    <p class="text-sm text-gray-500 mt-1">冻结采集和 OTA 标准化，仅核对收益分析之后的决策、执行、证据、复盘和效果证据。</p>
+                                </div>
+                                <span :class="operationClosureOverview.summary?.status === 'closed' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'" class="rounded-full border px-3 py-1 text-xs font-medium">
+                                    {{ operationClosureOverview.summary?.status === 'closed' ? '全部闭环' : '存在未闭环' }}
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                                <div v-for="card in operationClosureSummaryCards" :key="card.label" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                    <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                    <div class="mt-1 text-xl font-bold text-gray-900">{{ card.value }}</div>
+                                    <div class="mt-2 text-xs text-gray-400">{{ card.hint }}</div>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                <div v-for="module in operationClosureModules" :key="module.key" class="rounded-lg border border-gray-100 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <div class="font-semibold text-gray-900 truncate">{{ module.label }}</div>
+                                            <div class="mt-1 text-xs text-gray-400 line-clamp-1">{{ module.source_scope }}</div>
+                                        </div>
+                                        <span :class="operationClosureStatusClass(module.status)" class="shrink-0 rounded-full border px-2 py-1 text-xs">{{ module.status_label }}</span>
+                                    </div>
+                                    <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
+                                        <div>
+                                            <div class="text-gray-400">记录</div>
+                                            <div class="font-semibold text-gray-800">{{ module.record_count || 0 }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-gray-400">执行单</div>
+                                            <div class="font-semibold text-gray-800">{{ module.linked_execution_count || 0 }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-gray-400">复盘/ROI</div>
+                                            <div class="font-semibold text-gray-800">{{ module.roi_ready_count || 0 }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 flex items-center justify-between text-sm">
+                                        <span class="text-gray-500">成熟度</span>
+                                        <span :class="operationClosureScoreClass(module.maturity_score)" class="font-bold">{{ module.maturity_score || 0 }}%</span>
+                                    </div>
+                                    <div class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                                        下一步：{{ module.next_action_label }}
+                                    </div>
+                                    <div v-if="operationClosureGapText(module) !== '暂无显式缺口'" class="mt-2 text-xs text-amber-700">
+                                        {{ operationClosureGapText(module) }}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                             <h3 class="font-bold text-gray-900 mb-4">新增策略动作</h3>
@@ -3727,7 +3874,7 @@
                                         <i class="fas fa-sync-alt"></i>
                                         <span>刷新状态</span>
                                     </button>
-                                    <button v-if="user?.is_super_admin" @click="openHotelModal()"
+                                    <button v-if="canManageOwnHotels()" @click="openHotelModal()"
                                         class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
                                         <i class="fas fa-plus"></i>
                                         <span>添加</span>
@@ -3892,7 +4039,7 @@
                                                 </div>
                                             </td>
                                             <td class="px-4 py-4 w-[15%] text-right">
-                                                <div v-if="user?.is_super_admin" class="flex flex-wrap justify-end gap-1.5">
+                                                <div v-if="canManageOwnHotels()" class="flex flex-wrap justify-end gap-1.5">
                                                     <button type="button" @click="openHotelModal(hotel, { expandOta: true })"
                                                         class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs font-medium text-blue-700 hover:bg-blue-100">
                                                         账号
@@ -3938,7 +4085,7 @@
                                                 <span class="rounded bg-gray-50 border border-gray-100 px-2 py-0.5">ID {{ hotel.id || '-' }}</span>
                                             </div>
                                         </div>
-                                        <div v-if="user?.is_super_admin" class="shrink-0 max-w-[160px] flex flex-wrap justify-end gap-1">
+                                        <div v-if="canManageOwnHotels()" class="shrink-0 max-w-[160px] flex flex-wrap justify-end gap-1">
                                             <button type="button" @click="openHotelModal(hotel, { expandOta: true })"
                                                 class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs font-medium text-blue-700 hover:bg-blue-100">
                                                 账号
@@ -3991,7 +4138,7 @@
                                 class="border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm transition-colors">
                                 重置筛选
                             </button>
-                            <button v-else-if="user?.is_super_admin" type="button" @click="openHotelModal()"
+                            <button v-else-if="canManageOwnHotels()" type="button" @click="openHotelModal()"
                                 class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm transition-colors">
                                 添加门店
                             </button>
@@ -4153,7 +4300,15 @@
                                                 <span :class="['px-2.5 py-1 rounded-full text-xs font-medium', revenueResearchResultStatusClass(revenueResearchRunFor(product.key).result.status)]">
                                                     {{ revenueResearchResultStatusLabel(revenueResearchRunFor(product.key).result.status) }}
                                                 </span>
+                                                <span v-if="revenueResearchRunFor(product.key).result.readiness" :class="['px-2.5 py-1 rounded-full border text-xs font-medium', revenueResearchReadinessClass(revenueResearchRunFor(product.key).result.readiness.stage)]">
+                                                    {{ revenueResearchRunFor(product.key).result.readiness.status_label }} · {{ revenueResearchRunFor(product.key).result.readiness.score }}分
+                                                </span>
                                                 <span class="text-xs text-gray-500">{{ revenueResearchRunFor(product.key).result.model_key || 'deepseek_chat' }}</span>
+                                            </div>
+                                            <div v-if="revenueResearchRunFor(product.key).result.readiness" class="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-700 leading-5">
+                                                <div class="font-medium text-slate-900">{{ revenueResearchRunFor(product.key).result.readiness.notice }}</div>
+                                                <div class="mt-1">{{ revenueResearchMissingText(revenueResearchRunFor(product.key).result.readiness) }}</div>
+                                                <div class="mt-1 text-blue-700">下一步：{{ revenueResearchRunFor(product.key).result.readiness.next_action }}</div>
                                             </div>
                                             <p class="text-sm text-gray-700 leading-relaxed">{{ revenueResearchRunFor(product.key).result.result?.summary || '已生成经营预测。' }}</p>
                                             <div v-if="revenueResearchForecastCards(revenueResearchRunFor(product.key).result).length" class="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -4397,6 +4552,14 @@
                                                 <span :class="knowledgeCenterStatusClass(unit.status)" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium">
                                                     {{ knowledgeCenterStatusLabel(unit.status) }}
                                                 </span>
+                                                <div v-if="unit.readiness" class="mt-1">
+                                                    <span :title="unit.readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', knowledgeCenterReadinessClass(unit.readiness.stage)]">
+                                                        {{ unit.readiness.status_label }}
+                                                    </span>
+                                                </div>
+                                                <div v-if="unit.readiness?.next_action" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
+                                                    {{ unit.readiness.next_action }}
+                                                </div>
                                             </td>
                                             <td class="px-6 py-4 text-sm text-gray-500">{{ unit.updated_at || unit.created_at || '-' }}</td>
                                             <td class="px-6 py-4">
@@ -4505,7 +4668,7 @@
                                     class="text-sm text-blue-500 hover:text-blue-700 px-3 py-2">
                                     重置筛选
                                 </button>
-                                <button v-if="user?.is_super_admin || user?.role_id <= 2"
+                                <button v-if="user?.is_super_admin"
                                     @click="openUserModal()"
                                     class="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg flex items-center gap-2 ml-auto">
                                     <i class="fas fa-plus"></i> 添加用户
@@ -4551,12 +4714,12 @@
                                             </td>
                                             <td class="px-6 py-4">
                                                 <div class="flex items-center gap-2">
-                                                    <button v-if="u && (user?.is_super_admin || (user?.role_id === 2 && u.role_id === 3 && u.hotel_id === user?.hotel_id))"
+                                                    <button v-if="u && (user?.is_super_admin)"
                                                         @click="openUserModal(u)"
                                                         class="p-1.5 text-blue-500 hover:bg-blue-100 rounded transition-colors" title="编辑">
                                                         <i class="fas fa-edit text-sm"></i>
                                                     </button>
-                                                    <button v-if="u && u.id !== user?.id && (user?.is_super_admin || (user?.role_id === 2 && u.role_id === 3 && u.hotel_id === user?.hotel_id))"
+                                                    <button v-if="u && u.id !== user?.id && (user?.is_super_admin)"
                                                         @click="deleteUser(u)"
                                                         class="p-1.5 text-red-500 hover:bg-red-100 rounded transition-colors" title="删除">
                                                         <i class="fas fa-trash-alt text-sm"></i>
@@ -4576,7 +4739,7 @@
                             </div>
                             <h3 class="text-lg font-medium text-gray-800 mb-2">暂无员工数据</h3>
                             <p class="text-gray-500 text-sm mb-4">{{ searchUser || filterUserRoleId ? '没有符合筛选条件的员工' : '还没有添加任何员工，点击上方按钮添加' }}</p>
-                            <button v-if="(user?.is_super_admin || user?.role_id <= 2) && !searchUser && !filterUserRoleId"
+                            <button v-if="user?.is_super_admin && !searchUser && !filterUserRoleId"
                                 @click="openUserModal()"
                                 class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
                                 添加员工
@@ -6393,7 +6556,7 @@
                                     </div>
 
                                     <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店</label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-xs text-gray-400">可选，临时获取可不先保存配置</span></label>
                                         <div class="flex gap-2">
                                             <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply"
                                                 class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -8108,7 +8271,7 @@
                                     </div>
 
                                     <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店</label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-xs text-gray-400">可选，临时获取可不先保存配置</span></label>
                                         <select v-model="meituanForm.hotelId"
                                             class="w-full px-3 py-2 border rounded-lg">
                                             <option value="">请选择目标酒店</option>
@@ -8139,6 +8302,24 @@
 
                                     <!-- 榜单类型选择（多选） -->
                                     <!-- 榜单类型已隐藏，默认抓取全部4个榜单 -->
+
+                                    <div class="mb-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">一次性门店标识 <span class="text-xs text-gray-400">临时获取必填，可不保存</span></label>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">平台接口标识（Partner ID）</label>
+                                                <input v-model="meituanForm.partnerId" type="text"
+                                                    class="w-full px-3 py-2 border rounded-lg text-sm"
+                                                    placeholder="例如 detail?partnerId=4927325 中的 4927325">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">平台门店标识（POI ID）</label>
+                                                <input v-model="meituanForm.poiId" type="text"
+                                                    class="w-full px-3 py-2 border rounded-lg text-sm"
+                                                    placeholder="例如 detail?poiId=570866031 中的 570866031">
+                                            </div>
+                                        </div>
+                                    </div>
 
                                     <!-- 时间维度选择（多选） -->
                                     <div class="mb-4">
@@ -9956,9 +10137,25 @@
                                                     <tr v-for="item in knowledgeList" :key="item.id">
                                                         <td class="px-4 py-3 font-medium text-gray-800">{{ item.title }}</td>
                                                         <td class="px-4 py-3 text-gray-600">{{ item.category?.name || '-' }}</td>
-                                                        <td class="px-4 py-3 text-gray-500">{{ item.view_count }}</td>
+                                                        <td class="px-4 py-3 text-gray-500">
+                                                            <div>{{ item.view_count || 0 }} 浏览</div>
+                                                            <div v-if="item.knowledge_readiness" class="text-[11px] text-gray-400 mt-1">
+                                                                引用 {{ item.knowledge_readiness.conversation_count || 0 }} 次
+                                                            </div>
+                                                            <div v-if="item.knowledge_readiness?.latest_used_at" class="text-[11px] text-gray-400">
+                                                                最近 {{ item.knowledge_readiness.latest_used_at }}
+                                                            </div>
+                                                        </td>
                                                         <td class="px-4 py-3">
                                                             <span :class="item.is_enabled ? 'badge-success' : 'badge-danger'" class="badge">{{ item.is_enabled ? '启用' : '禁用' }}</span>
+                                                            <div v-if="item.knowledge_readiness" class="mt-1">
+                                                                <span :title="item.knowledge_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', agentClosureReadinessBadgeClass(item.knowledge_readiness.stage)]">
+                                                                    {{ item.knowledge_readiness.status_label }}
+                                                                </span>
+                                                            </div>
+                                                            <div v-if="item.knowledge_readiness?.next_action" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
+                                                                {{ item.knowledge_readiness.next_action }}
+                                                            </div>
                                                         </td>
                                                         <td class="px-4 py-3">
                                                             <div class="flex items-center gap-2">
@@ -10007,9 +10204,19 @@
                                                         <td class="px-4 py-3 font-medium text-gray-800">{{ item.title }}</td>
                                                         <td class="px-4 py-3 text-gray-600">{{ item.order_type_name }}</td>
                                                         <td class="px-4 py-3"><span class="badge" :class="{'bg-red-100 text-red-700': item.priority === 4, 'bg-orange-100 text-orange-700': item.priority === 3}">{{ item.priority_name }}</span></td>
-                                                        <td class="px-4 py-3"><span class="badge" :class="{'bg-yellow-100 text-yellow-700': item.status === 1, 'bg-blue-100 text-blue-700': item.status === 2, 'bg-green-100 text-green-700': item.status === 4}">{{ item.status_name }}</span></td>
                                                         <td class="px-4 py-3">
-                                                            <button v-if="item.status === 1" @click="resolveWorkOrder(item.id, '已处理')" class="text-green-600 hover:text-green-800 text-xs">解决</button>
+                                                            <span class="badge" :class="{'bg-yellow-100 text-yellow-700': Number(item.status) === 1, 'bg-blue-100 text-blue-700': Number(item.status) === 2, 'bg-green-100 text-green-700': Number(item.status) === 4}">{{ item.status_name }}</span>
+                                                            <div v-if="item.closure_readiness" class="mt-1">
+                                                                <span :title="item.closure_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', agentClosureReadinessBadgeClass(item.closure_readiness.stage)]">
+                                                                    {{ item.closure_readiness.status_label }}
+                                                                </span>
+                                                            </div>
+                                                            <div v-if="item.closure_readiness?.next_action" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
+                                                                {{ item.closure_readiness.next_action }}
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-4 py-3">
+                                                            <button v-if="[1,2,3].includes(Number(item.status))" @click="resolveWorkOrder(item.id, '已处理')" class="text-green-600 hover:text-green-800 text-xs">解决</button>
                                                         </td>
                                                     </tr>
                                                     <tr v-if="workOrderList.length === 0"><td colspan="5" class="px-4 py-8 text-center text-gray-400">暂无工单</td></tr>
@@ -10034,7 +10241,7 @@
                                         </div>
                                         <div class="table-container overflow-x-auto">
                                             <table class="w-full text-sm">
-                                                <thead><tr><th class="px-4 py-3 text-left">时间</th><th class="px-4 py-3 text-left">渠道</th><th class="px-4 py-3 text-left">意图</th><th class="px-4 py-3 text-left">用户消息</th><th class="px-4 py-3 text-left">AI回复</th></tr></thead>
+                                                <thead><tr><th class="px-4 py-3 text-left">时间</th><th class="px-4 py-3 text-left">渠道</th><th class="px-4 py-3 text-left">意图</th><th class="px-4 py-3 text-left">用户消息</th><th class="px-4 py-3 text-left">AI回复</th><th class="px-4 py-3 text-left">服务闭环</th><th class="px-4 py-3 text-left">操作</th></tr></thead>
                                                 <tbody>
                                                     <tr v-for="item in conversationList" :key="item.id">
                                                         <td class="px-4 py-3 text-gray-500 text-xs">{{ item.create_time }}</td>
@@ -10042,8 +10249,20 @@
                                                         <td class="px-4 py-3"><span class="badge bg-blue-100 text-blue-700">{{ item.intent_type_name }}</span></td>
                                                         <td class="px-4 py-3 text-gray-700 max-w-xs truncate">{{ item.user_message }}</td>
                                                         <td class="px-4 py-3 text-gray-600 max-w-xs truncate">{{ item.ai_response }}</td>
+                                                        <td class="px-4 py-3">
+                                                            <span v-if="item.service_readiness" :title="item.service_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', agentClosureReadinessBadgeClass(item.service_readiness.stage)]">
+                                                                {{ item.service_readiness.status_label }}
+                                                            </span>
+                                                            <div v-if="item.service_readiness?.next_action" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
+                                                                {{ item.service_readiness.next_action }}
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-4 py-3">
+                                                            <button v-if="item.service_readiness?.can_create_work_order" @click="createWorkOrderFromConversation(item)" class="text-blue-600 hover:text-blue-800 text-xs">转工单</button>
+                                                            <span v-else class="text-xs text-gray-400">-</span>
+                                                        </td>
                                                     </tr>
-                                                    <tr v-if="conversationList.length === 0"><td colspan="5" class="px-4 py-8 text-center text-gray-400">暂无对话记录</td></tr>
+                                                    <tr v-if="conversationList.length === 0"><td colspan="7" class="px-4 py-8 text-center text-gray-400">暂无对话记录</td></tr>
                                                 </tbody>
                                             </table>
                                         </div>
@@ -10163,11 +10382,17 @@
                                                                 'bg-red-100 text-red-700': Number(item.status) === 3,
                                                                 'bg-blue-100 text-blue-700': Number(item.status) === 4
                                                             }">{{ item.status_name }}</span>
+                                                            <div v-if="item.pricing_readiness" class="mt-1">
+                                                                <span :title="item.pricing_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', pricingReadinessBadgeClass(item.pricing_readiness.stage)]">
+                                                                    {{ item.pricing_readiness.status_label }}
+                                                                </span>
+                                                            </div>
                                                         </td>
                                                         <td class="px-4 py-3">
                                                             <div class="flex items-center gap-2">
                                                                 <button v-if="Number(item.status) === 1" @click="approvePrice(item.id, 'approve')" class="text-green-600 hover:text-green-800"><i class="fas fa-check"></i> 批准</button>
                                                                 <button v-if="Number(item.status) === 1" @click="approvePrice(item.id, 'reject')" class="text-red-600 hover:text-red-800"><i class="fas fa-times"></i> 拒绝</button>
+                                                                <button v-if="Number(item.status) === 2" @click="createPriceSuggestionExecutionIntent(item.id)" class="text-indigo-600 hover:text-indigo-800"><i class="fas fa-tasks"></i> 转单</button>
                                                                 <button v-if="Number(item.status) === 2" @click="applyPriceSuggestion(item.id)" class="text-blue-600 hover:text-blue-800"><i class="fas fa-paper-plane"></i> 应用</button>
                                                                 <button v-if="Number(item.status) === 4" @click="reviewPriceSuggestion(item.id)" class="text-purple-600 hover:text-purple-800"><i class="fas fa-chart-line"></i> 复盘</button>
                                                                 <span v-if="![1,2,4].includes(Number(item.status))" class="text-gray-400">-</span>
@@ -10287,6 +10512,7 @@
                                                                 <th class="px-3 py-2 text-right">入住率</th>
                                                                 <th class="px-3 py-2 text-right">RevPAR</th>
                                                                 <th class="px-3 py-2 text-right">置信度</th>
+                                                                <th class="px-3 py-2 text-left">闭环</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody class="divide-y divide-gray-100">
@@ -10295,9 +10521,17 @@
                                                                 <td class="px-3 py-2 text-right">{{ row.predicted_occupancy || 0 }}%</td>
                                                                 <td class="px-3 py-2 text-right">¥{{ row.predicted_revpar || 0 }}</td>
                                                                 <td class="px-3 py-2 text-right">{{ row.confidence_score || 0 }}%</td>
+                                                                <td class="px-3 py-2">
+                                                                    <span v-if="row.forecast_readiness" :title="row.forecast_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', revenueForecastReadinessClass(row.forecast_readiness.stage)]">
+                                                                        {{ row.forecast_readiness.status_label }}
+                                                                    </span>
+                                                                    <div v-if="row.forecast_readiness" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
+                                                                        引用 {{ row.forecast_readiness.suggestion_count || 0 }} 条 · {{ row.forecast_readiness.next_action }}
+                                                                    </div>
+                                                                </td>
                                                             </tr>
                                                             <tr v-if="!demandForecasts.length">
-                                                                <td colspan="4" class="px-3 py-8 text-center text-gray-400">暂无需求预测</td>
+                                                                <td colspan="5" class="px-3 py-8 text-center text-gray-400">暂无需求预测</td>
                                                             </tr>
                                                         </tbody>
                                                     </table>
@@ -10611,10 +10845,22 @@
                                                         </td>
                                                         <td class="px-4 py-3">{{ item.priority_name || item.priority || '-' }}</td>
                                                         <td class="px-4 py-3 text-right">¥{{ item.expected_saving || item.estimated_saving || 0 }}</td>
-                                                        <td class="px-4 py-3">{{ item.status_name || item.status || '-' }}</td>
                                                         <td class="px-4 py-3">
-                                                            <button @click="updateEnergySuggestion(item.id, 'approve')" class="text-green-600 hover:text-green-800 text-sm">批准</button>
-                                                            <button @click="updateEnergySuggestion(item.id, 'start')" class="text-blue-600 hover:text-blue-800 text-sm ml-3">开始</button>
+                                                            <div>{{ item.status_name || item.status || '-' }}</div>
+                                                            <div v-if="item.closure_readiness" class="mt-1">
+                                                                <span :title="item.closure_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', agentClosureReadinessBadgeClass(item.closure_readiness.stage)]">
+                                                                    {{ item.closure_readiness.status_label }}
+                                                                </span>
+                                                            </div>
+                                                            <div v-if="item.closure_readiness?.next_action" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
+                                                                {{ item.closure_readiness.next_action }}
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-4 py-3">
+                                                            <button v-if="Number(item.status) === 1" @click="updateEnergySuggestion(item.id, 'approve')" class="text-green-600 hover:text-green-800 text-sm">批准</button>
+                                                            <button v-if="Number(item.status) === 2" @click="updateEnergySuggestion(item.id, 'start')" class="text-blue-600 hover:text-blue-800 text-sm">开始</button>
+                                                            <button v-if="Number(item.status) === 3" @click="updateEnergySuggestion(item.id, 'complete')" class="text-emerald-600 hover:text-emerald-800 text-sm">完成</button>
+                                                            <span v-if="![1,2,3].includes(Number(item.status))" class="text-xs text-gray-400">-</span>
                                                         </td>
                                                     </tr>
                                                     <tr v-if="!energySuggestions.length">
@@ -10669,9 +10915,20 @@
                                                         <td class="px-4 py-3 text-gray-600">{{ item.device?.name || '-' }}</td>
                                                         <td class="px-4 py-3">{{ item.next_execute_date || item.next_maintenance_date || '-' }}</td>
                                                         <td class="px-4 py-3">{{ item.priority_name || item.priority || '-' }}</td>
-                                                        <td class="px-4 py-3">{{ item.status_name || item.status || '-' }}</td>
                                                         <td class="px-4 py-3">
-                                                            <button @click="executeMaintenancePlan(item.id)" class="text-blue-600 hover:text-blue-800 text-sm">执行</button>
+                                                            <div>{{ item.status_name || item.status || '-' }}</div>
+                                                            <div v-if="item.closure_readiness" class="mt-1">
+                                                                <span :title="item.closure_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', agentClosureReadinessBadgeClass(item.closure_readiness.stage)]">
+                                                                    {{ item.closure_readiness.status_label }}
+                                                                </span>
+                                                            </div>
+                                                            <div v-if="item.closure_readiness?.next_action" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
+                                                                {{ item.closure_readiness.next_action }}
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-4 py-3">
+                                                            <button v-if="Number(item.status) === 1" @click="executeMaintenancePlan(item.id)" class="text-blue-600 hover:text-blue-800 text-sm">执行</button>
+                                                            <span v-else class="text-xs text-gray-400">-</span>
                                                         </td>
                                                     </tr>
                                                     <tr v-if="!maintenancePlans.length">
@@ -13496,6 +13753,11 @@
                                                             <div class="mt-1 flex justify-center">
                                                                 <span :class="onlineAnalysisFieldFactStatusClass(item)" :title="onlineAnalysisFieldFactDetailText(item)">
                                                                     {{ onlineAnalysisFieldFactStatusText(item) }}
+                                                                </span>
+                                                            </div>
+                                                            <div class="mt-1 flex justify-center">
+                                                                <span :class="onlineAnalysisP0CaptureEvidenceStatusClass(item)" :title="onlineAnalysisP0CaptureEvidenceDetailText(item)">
+                                                                    {{ onlineAnalysisP0CaptureEvidenceStatusText(item) }}
                                                                 </span>
                                                             </div>
                                                         </td>
@@ -16506,6 +16768,8 @@
             const cachedAuthUser = token.value ? loadCachedAuthUser() : null;
             const isLoggedIn = ref(!!token.value && !!cachedAuthUser);
             const user = ref(cachedAuthUser);
+            const userHasPermission = (key) => !!(user.value?.permissions || {})[key];
+            const canManageOwnHotels = () => !!user.value?.is_super_admin || userHasPermission('can_manage_own_hotels');
             const currentLocale = ref(getInitialLocale());
             document.documentElement.lang = currentLocale.value;
             const aiModelConfigText = createAiModelConfigText(() => currentLocale.value);
@@ -20723,6 +20987,71 @@
                     ? item.field_fact_status
                     : { status: 'not_loaded', label: '字段事实未写入', detail: '未返回 field_fact_status' }
             );
+            const onlineAnalysisP0CaptureEvidenceStatus = (item) => {
+                const status = onlineAnalysisFieldFactStatus(item);
+                const fieldFactStatus = String(status.status || 'not_loaded');
+                const captured = Number(status.captured_count || 0);
+                const looseEvidence = Number(status.capture_evidence_count || 0);
+                const desensitizedEvidence = Number(status.desensitized_capture_evidence_count || 0);
+                if (fieldFactStatus === 'not_loaded') {
+                    return {
+                        status: 'not_loaded',
+                        label: 'P0证据未写入',
+                        captured,
+                        looseEvidence,
+                        desensitizedEvidence,
+                    };
+                }
+                if (captured <= 0) {
+                    return {
+                        status: 'missing',
+                        label: 'P0证据缺失',
+                        captured,
+                        looseEvidence,
+                        desensitizedEvidence,
+                    };
+                }
+                if (desensitizedEvidence >= captured) {
+                    return {
+                        status: 'ready',
+                        label: 'P0证据就绪',
+                        captured,
+                        looseEvidence,
+                        desensitizedEvidence,
+                    };
+                }
+                return {
+                    status: looseEvidence > 0 ? 'partial' : 'missing',
+                    label: looseEvidence > 0 ? 'P0证据待补' : 'P0证据缺失',
+                    captured,
+                    looseEvidence,
+                    desensitizedEvidence,
+                };
+            };
+            const onlineAnalysisP0CaptureEvidenceStatusText = (item) => {
+                const status = onlineAnalysisP0CaptureEvidenceStatus(item);
+                if (status.captured <= 0) return status.label;
+                return `${status.label} ${status.desensitizedEvidence}/${status.captured}`;
+            };
+            const onlineAnalysisP0CaptureEvidenceStatusClass = (item) => {
+                const status = String(onlineAnalysisP0CaptureEvidenceStatus(item).status || 'not_loaded');
+                const base = 'inline-flex max-w-[9rem] items-center justify-center rounded-full border px-2 py-0.5 text-[11px] leading-4';
+                if (status === 'ready') return `${base} border-emerald-100 bg-emerald-50 text-emerald-700`;
+                if (status === 'partial') return `${base} border-amber-100 bg-amber-50 text-amber-700`;
+                if (status === 'missing') return `${base} border-red-100 bg-red-50 text-red-700`;
+                return `${base} border-slate-200 bg-slate-50 text-slate-500`;
+            };
+            const onlineAnalysisP0CaptureEvidenceDetailText = (item) => {
+                const status = onlineAnalysisP0CaptureEvidenceStatus(item);
+                const parts = [
+                    `脱敏采集证据 source_trace_id + source_url_hash ${status.desensitizedEvidence}/${status.captured}`,
+                    `普通采集证据 ${status.looseEvidence}`,
+                ];
+                if (status.status !== 'ready') {
+                    parts.push('P0闭环需每个 metric 具备脱敏 trace 与 source URL hash');
+                }
+                return parts.join('；');
+            };
             const onlineAnalysisFieldFactStatusText = (item) => {
                 const status = onlineAnalysisFieldFactStatus(item);
                 const label = String(status.label || '').trim() || '字段事实';
@@ -26756,6 +27085,7 @@
             const operationStrategyResult = ref(null);
             const operationActions = ref([]);
             const operationExecutionFlow = ref({ summary: {}, stages: [], list: [], data_gaps: [], data_status: '' });
+            const operationClosureOverview = ref({ summary: {}, modules: [], weak_modules: [], data_gaps: [], data_status: '' });
             const operationEffectValidation = ref({ status: 'data_gap', metrics: [], data_gaps: [], action_counts: {} });
             const aiDailyReport = ref(null);
             const aiDailyReportForm = ref({
@@ -27000,6 +27330,17 @@
             const aiDailyReportCompetitorChanges = computed(() => aiDailyReportObjectList(aiDailyReport.value?.competitor_changes, 'label'));
             const aiDailyReportSourceCount = computed(() => aiDailyReportList(aiDailyReport.value?.source_refs).length);
             const aiDailyReportTransferableCount = computed(() => aiDailyReportActions.value.filter(action => action && !action.execution_intent_id && action.can_create_execution_intent !== false).length);
+            const aiDailyReportReadiness = computed(() => aiDailyReport.value?.report_readiness || null);
+            const aiDailyReportReadinessCards = computed(() => {
+                const readiness = aiDailyReportReadiness.value || {};
+                return [
+                    { key: 'actions', label: '建议动作', value: operationValue(readiness.action_count || 0), hint: `可转 ${readiness.transferable_count || 0}` },
+                    { key: 'transferred', label: '已转执行', value: operationValue(readiness.transferred_count || 0), hint: '进入审批/执行流' },
+                    { key: 'evidence', label: '执行证据', value: operationValue(readiness.evidence_ready_count || 0), hint: '已有前后证据' },
+                    { key: 'reviewed', label: '效果复盘', value: operationValue(readiness.reviewed_count || 0), hint: '已记录结果判断' },
+                    { key: 'roi', label: 'ROI证据', value: operationValue(readiness.roi_ready_count || 0), hint: '可计算收益成本' },
+                ];
+            });
             const aiDailyReportEvidenceRows = computed(() => {
                 const rows = [];
                 aiDailyReportObjectList(aiDailyReport.value?.source_refs, 'label').forEach((item, index) => {
@@ -27064,6 +27405,7 @@
                 return operationValue(metric.value);
             };
             const aiDailyReportActionStatusText = (action) => {
+                if (action?.action_readiness?.status_label) return action.action_readiness.status_label;
                 if (action?.execution_intent_id) {
                     return action.execution_blocked_reason ? '已生成，待补齐' : '已生成执行单';
                 }
@@ -27071,9 +27413,17 @@
                 return '可转执行单';
             };
             const aiDailyReportActionStatusClass = (action) => {
+                if (action?.action_readiness?.stage) return aiDailyReportReadinessClass(action.action_readiness.stage);
                 if (action?.execution_intent_id && !action?.execution_blocked_reason) return 'bg-green-50 text-green-700';
                 if (action?.execution_intent_id || action?.can_create_execution_intent === false) return 'bg-amber-50 text-amber-700';
                 return 'bg-blue-50 text-blue-700';
+            };
+            const aiDailyReportReadinessClass = (stage) => {
+                if (['daily_loop_closed', 'action_closed_loop'].includes(stage)) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (['partial_roi_ready', 'reviewed_no_roi', 'evidence_pending_review'].includes(stage)) return 'bg-blue-50 text-blue-700 border-blue-200';
+                if (['executed_missing_evidence', 'execution_in_progress', 'pending_execution_transfer', 'approved_pending_execution', 'intent_pending_approval', 'pending_transfer'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (['data_recheck_required', 'blocked', 'blocked_by_data_gap', 'rejected', 'failed'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
             };
             const aiDailyReportGapActionText = (gap) => {
                 const code = String(gap?.code || '').toLowerCase();
@@ -27281,6 +27631,42 @@
                     },
                 ];
             });
+            const operationClosureModules = computed(() => Array.isArray(operationClosureOverview.value?.modules) ? operationClosureOverview.value.modules : []);
+            const operationClosureSummaryCards = computed(() => {
+                const summary = operationClosureOverview.value?.summary || {};
+                return [
+                    { label: '板块数', value: summary.module_count ?? 0, hint: '收益分析之后的业务板块' },
+                    { label: '真闭环', value: summary.closed_loop_count ?? 0, hint: '必须有复盘或效果证据' },
+                    { label: '未闭环', value: summary.not_closed_count ?? 0, hint: '仍停在建议/记录/执行中' },
+                    { label: '平均成熟度', value: summary.avg_maturity_score === null || summary.avg_maturity_score === undefined ? '-' : `${summary.avg_maturity_score}%`, hint: '只读成熟度评分' },
+                ];
+            });
+            const operationClosureStatusClass = (status) => ({
+                roi_ready: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                reviewed_no_roi: 'bg-blue-50 text-blue-700 border-blue-100',
+                evidence_ready: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+                executed_missing_evidence: 'bg-amber-50 text-amber-700 border-amber-100',
+                approved_pending_execution: 'bg-amber-50 text-amber-700 border-amber-100',
+                pending_approval: 'bg-slate-50 text-slate-700 border-slate-200',
+                record_only: 'bg-orange-50 text-orange-700 border-orange-100',
+                not_started: 'bg-gray-50 text-gray-500 border-gray-200',
+                not_loaded: 'bg-red-50 text-red-700 border-red-100',
+                blocked: 'bg-red-50 text-red-700 border-red-100',
+                rejected: 'bg-gray-100 text-gray-500 border-gray-200',
+            }[status] || 'bg-gray-50 text-gray-500 border-gray-200');
+            const operationClosureScoreClass = (score) => {
+                const value = Number(score || 0);
+                if (value >= 90) return 'text-emerald-700';
+                if (value >= 70) return 'text-blue-700';
+                if (value >= 40) return 'text-amber-700';
+                return 'text-gray-500';
+            };
+            const operationClosureGapText = (module) => {
+                const gaps = Array.isArray(module?.data_gaps) ? module.data_gaps : [];
+                if (!gaps.length) return '暂无显式缺口';
+                const first = gaps[0] || {};
+                return first.message || first.code || '存在未说明缺口';
+            };
             const operationErrorMessage = (error, fallback) => {
                 const message = error?.message || '';
                 return /[\u4e00-\u9fa5]/.test(message) ? message : fallback;
@@ -27665,14 +28051,17 @@
                     if (hotelId === null) return;
                     if (hotelId) params.append('hotel_id', hotelId);
                     const query = params.toString() ? '?' + params.toString() : '';
-                    const [res, flowRes] = await Promise.all([
+                    const [res, flowRes, closureRes] = await Promise.all([
                         apiRequest(`/operation/action-tracking${query}`),
                         apiRequest(`/operation/execution-flow${query}`),
+                        apiRequest(`/operation/closure-overview${query}`),
                     ]);
                     if (res.code !== 200) throw new Error(res.message || '策略追踪加载失败');
                     if (flowRes.code !== 200) throw new Error(flowRes.message || '执行闭环加载失败');
+                    if (closureRes.code !== 200) throw new Error(closureRes.message || '闭环总览加载失败');
                     operationActions.value = res.data?.actions || [];
                     operationExecutionFlow.value = flowRes.data || { summary: {}, stages: [], list: [], data_gaps: [], data_status: '' };
+                    operationClosureOverview.value = closureRes.data || { summary: {}, modules: [], weak_modules: [], data_gaps: [], data_status: '' };
                     operationEffectValidation.value = res.data?.effect_validation || { status: 'data_gap', metrics: [], data_gaps: [], action_counts: {} };
                 } catch (error) {
                     operationError.value.actions = operationErrorMessage(error, '策略追踪加载失败');
@@ -27791,6 +28180,7 @@
             const selectedOpeningTaskIds = ref([]);
             const openingLoading = ref(false);
             const resetOpeningProjectForm = () => ({
+                hotel_id: '',
                 project_name: '',
                 hotel_name: '',
                 city: '',
@@ -28044,7 +28434,9 @@
 
             const normalizeOpeningProjectFormForSubmit = () => {
                 const form = { ...openingProjectForm.value };
-                delete form.hotel_id;
+                if (!form.hotel_id && operationHotelOptions.value.length === 1) {
+                    form.hotel_id = String(operationHotelOptions.value[0].id);
+                }
                 if (!form.project_name && form.hotel_name) {
                     form.project_name = `${form.hotel_name}开业项目`;
                 }
@@ -28060,6 +28452,7 @@
                 }
                 openingProjectForm.value = {
                     ...resetOpeningProjectForm(),
+                    hotel_id: project.hotel_id ? String(project.hotel_id) : '',
                     project_name: project.project_name || '',
                     hotel_name: project.hotel_name || '',
                     city: project.city || '',
@@ -29798,6 +30191,13 @@
                 error: 'bg-red-100 text-red-700',
             }[status] || 'bg-gray-100 text-gray-600');
 
+            const knowledgeCenterReadinessClass = (stage) => {
+                if (stage === 'unit_ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (['unit_pending', 'unit_done_no_chunks', 'unit_global_scope'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (stage === 'unit_error') return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+
             const knowledgeCenterSourceLabel = (source) => ({
                 video: '视频',
                 link: '链接',
@@ -31492,6 +31892,56 @@
                         platform_data_sources_schema: '采集源字段',
                         platform_data_sources_readable: '采集源可读',
                     }[String(key || '')] || String(key || ''));
+                    const trafficActionModeLabel = (mode) => ({
+                        manual_cookie_api: '手动 Cookie/API',
+                        browser_profile: '浏览器 Profile',
+                        status_check: '状态复核',
+                    }[String(mode || '')] || '');
+                    const trafficP0GateLabel = (status) => ({
+                        ready: 'P0流量已就绪',
+                        requires_p0_verifier: 'P0待字段复验',
+                        missing_target_date_traffic_rows: 'P0缺目标日流量',
+                    }[String(status || '')] || '');
+                    const trafficPreImportEvidenceLabel = (status) => ({
+                        not_provided: '预导入证据未提供',
+                        valid_external_evidence_not_ingested: '外部证据未入库',
+                        valid_external_evidence_with_ingested_rows: '外部证据已入库',
+                        external_evidence_not_valid: '外部证据无效',
+                    }[String(status || '')] || '');
+                    const trafficP0NextText = (row) => {
+                        const gateLabel = trafficP0GateLabel(row?.p0_traffic_gate_status || '');
+                        const modeLabel = trafficActionModeLabel(row?.p0_next_action_mode || row?.recommended_collection_mode || '');
+                        const controlledEntry = String(row?.p0_next_action_entry || row?.action_entry || '').startsWith('/api/online-data/');
+                        const noSensitiveCommand = row?.next_command_policy === 'metadata_only_no_sensitive_commands';
+                        const stepCount = Number(row?.p0_next_step_count || 0);
+                        const externalEvidenceStatus = String(row?.p0_external_evidence_status || row?.external_evidence_status || 'not_provided');
+                        const preImportStatus = String(row?.p0_pre_import_evidence_status || row?.pre_import_evidence_status || 'not_provided');
+                        const preImportPolicy = String(row?.p0_pre_import_evidence_policy || '');
+                        const trafficFieldFactStatus = String(row?.p0_traffic_field_fact_status || '');
+                        const sourceChainScope = String(row?.p0_source_chain_scope || '');
+                        const sourceChainPolicy = String(row?.p0_source_chain_policy || '');
+                        const targetTrafficDataTypeCount = Array.isArray(row?.p0_target_traffic_data_types) ? row.p0_target_traffic_data_types.length : 0;
+                        const sourceChainReferenceOnly = targetTrafficDataTypeCount <= 0 && (row?.p0_source_chain_reference_only === true || sourceChainScope === 'reference_only_non_traffic_source_rows' || sourceChainPolicy.includes('reference only'));
+                        const requiredMetricCount = Array.isArray(row?.p0_required_metric_keys) ? row.p0_required_metric_keys.length : 0;
+                        const requiredStorageFieldCount = Array.isArray(row?.p0_required_storage_fields) ? row.p0_required_storage_fields.length : 0;
+                        const requiredFieldFactCount = Array.isArray(row?.p0_required_field_fact_keys) ? row.p0_required_field_fact_keys.length : 0;
+                        const missingMetricCount = Array.isArray(row?.p0_missing_metric_keys) ? row.p0_missing_metric_keys.length : 0;
+                        const preImportLabel = trafficPreImportEvidenceLabel(preImportStatus);
+                        const parts = [];
+                        if (gateLabel) parts.push(gateLabel);
+                        if (sourceChainReferenceOnly) parts.push('源证据仅参考');
+                        if (preImportLabel && (preImportStatus !== 'not_provided' || row?.p0_traffic_gate_status !== 'ready')) parts.push(preImportLabel);
+                        if (externalEvidenceStatus !== 'not_provided' && preImportPolicy.includes('source proof only')) parts.push('证据不等于闭环');
+                        if (requiredMetricCount > 0) parts.push(`需闭环指标 ${requiredMetricCount} 项`);
+                        if (requiredStorageFieldCount > 0) parts.push(`入库字段 ${requiredStorageFieldCount} 项`);
+                        if (requiredFieldFactCount > 0) parts.push(`字段事实 ${requiredFieldFactCount} 项`);
+                        if (missingMetricCount > 0) parts.push(`缺指标 ${missingMetricCount} 项`);
+                        if (trafficFieldFactStatus === 'requires_p0_verifier') parts.push('需复验字段事实');
+                        if (modeLabel) parts.push(`建议${modeLabel}`);
+                        if (stepCount > 0) parts.push(`酒店级步骤 ${stepCount} 项`);
+                        if (controlledEntry && noSensitiveCommand) parts.push('不展示敏感命令');
+                        return parts.length ? `，${parts.join('，')}` : '';
+                    };
                     const trafficSourceText = evidence.traffic_source_readiness
                         .map(row => {
                             const platform = phase1EmployeePlatformText(row?.platform || '');
@@ -31499,15 +31949,16 @@
                             const readyCount = Number(row?.traffic_ready_count || 0);
                             const waitingCount = Number(row?.traffic_waiting_config_count || 0);
                             const trafficRows = Number(row?.target_date_traffic_rows || 0);
+                            const p0NextText = trafficP0NextText(row);
                             const requiredInputs = Array.isArray(row?.required_next_inputs)
                                 ? row.required_next_inputs.map(trafficInputLabel).filter(Boolean).slice(0, 3).join('/')
                                 : '';
                             const suffix = requiredInputs ? `（需${requiredInputs}）` : '';
-                            if (trafficRows > 0) return `${platform}流量已入库`;
-                            if (sourceCount <= 0) return `${platform}流量采集源未登记${suffix}`;
-                            if (waitingCount > 0) return `${platform}流量采集源待授权${suffix}`;
-                            if (readyCount > 0) return `${platform}流量采集源已就绪${suffix}`;
-                            return `${platform}流量采集源未就绪${suffix}`;
+                            if (trafficRows > 0) return `${platform}流量已入库${p0NextText}`;
+                            if (sourceCount <= 0) return `${platform}流量采集源未登记${suffix}${p0NextText}`;
+                            if (waitingCount > 0) return `${platform}流量采集源待授权${suffix}${p0NextText}`;
+                            if (readyCount > 0) return `${platform}流量采集源已就绪${suffix}${p0NextText}`;
+                            return `${platform}流量采集源未就绪${suffix}${p0NextText}`;
                         })
                         .filter(Boolean)
                         .slice(0, 3)
@@ -31890,6 +32341,9 @@
                 const metricKeys = Array.isArray(contract.required_metric_keys)
                     ? contract.required_metric_keys.map(value => String(value || '').trim()).filter(Boolean)
                     : [];
+                const storageFields = Array.isArray(contract.required_storage_fields)
+                    ? contract.required_storage_fields.map(value => String(value || '').trim()).filter(Boolean)
+                    : [];
                 const inputs = Array.isArray(contract.required_inputs)
                     ? contract.required_inputs.map(phase1EmployeeActionEntryOptionInputText).filter(Boolean)
                     : [];
@@ -31897,10 +32351,11 @@
                     ? contract.required_field_fact_keys.map(value => String(value || '').trim()).filter(Boolean)
                     : [];
                 const metricText = metricKeys.length ? `需闭环指标 ${metricKeys.join('、')}` : '';
+                const storageText = storageFields.length ? `需入库字段 ${storageFields.join('、')}` : '';
                 const inputText = inputs.length ? `需补输入 ${inputs.join('、')}` : '';
                 const factText = fieldFactKeys.length ? '需证明采集证据、source path、metric key、入库字段和已入库值' : '';
                 const sensitiveText = contract.sensitive_values_allowed === false ? '不展示 Cookie、token 或 Profile 原值' : '';
-                return [metricText, inputText, factText, sensitiveText].filter(Boolean).join('；');
+                return [metricText, storageText, inputText, factText, sensitiveText].filter(Boolean).join('；');
             };
             const phase1EmployeeActionEntryOptionGuidanceText = (option) => {
                 if (!option || typeof option !== 'object') {
@@ -34005,6 +34460,24 @@
                 done: 'bg-green-100 text-green-700',
                 pending_data: 'bg-amber-100 text-amber-700',
             }[status] || 'bg-gray-100 text-gray-600');
+            const revenueResearchReadinessClass = (stage) => {
+                if (stage === 'research_ready_for_execution') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (['research_data_gaps_pending', 'research_actions_missing', 'research_module_bridge_missing'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (stage === 'research_forecast_missing') return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+            const revenueResearchMissingText = (readiness = {}) => {
+                const missing = Array.isArray(readiness.missing_evidence) ? readiness.missing_evidence : [];
+                if (!missing.length) return '暂无显式缺口；仍需保留执行记录和结果复盘。';
+                return `缺口：${missing.slice(0, 3).map(item => item.label || item.code).join('、')}`;
+            };
+            const revenueForecastReadinessClass = (stage) => {
+                if (stage === 'forecast_pricing_closed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (['forecast_pricing_applied', 'forecast_pricing_approved', 'forecast_pricing_linked'].includes(stage)) return 'bg-blue-50 text-blue-700 border-blue-200';
+                if (['forecast_low_confidence', 'forecast_backtest_missing', 'forecast_not_priced'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (stage === 'forecast_metric_missing') return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
             const revenueResearchForecastCards = (result = {}) => {
                 const forecast = result.business_forecast || {};
                 const forecast7 = forecast.forecast_7d || {};
@@ -34524,6 +34997,20 @@
                 }
             };
 
+            const createPriceSuggestionExecutionIntent = async (id) => {
+                try {
+                    const res = await request(`/agent/price-suggestions/${id}/execution-intent`, { method: 'POST' });
+                    if (res.code === 200) {
+                        showToast('执行意图已创建');
+                        await loadPriceSuggestions();
+                    } else {
+                        showToast(res.message || '转单失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('转单失败: ' + e.message, 'error');
+                }
+            };
+
             const reviewPriceSuggestion = async (id) => {
                 try {
                     const res = await request(`/agent/price-suggestions/${id}/review`);
@@ -34657,6 +35144,63 @@
                     }
                 } catch (e) {
                     showToast('创建失败: ' + e.message, 'error');
+                }
+            };
+
+            const conversationWorkOrderType = (conversation) => {
+                const intent = Number(conversation?.intent_type || 0);
+                if (intent === 3) return 1;
+                if (intent === 5) return 3;
+                return 5;
+            };
+
+            const conversationWorkOrderPriority = (conversation) => {
+                const emotion = Number(conversation?.emotion_score || 0);
+                const intent = Number(conversation?.intent_type || 0);
+                if (emotion >= 0.6 || intent === 3) return 4;
+                if (emotion >= 0.4 || intent === 5) return 3;
+                return 2;
+            };
+
+            const createWorkOrderFromConversation = async (conversation) => {
+                if (!conversation?.id) return;
+                try {
+                    const payload = {
+                        hotel_id: filterReportHotel.value || conversation.hotel_id || 0,
+                        source_type: 1,
+                        order_type: conversationWorkOrderType(conversation),
+                        priority: conversationWorkOrderPriority(conversation),
+                        title: `对话跟进：${conversation.intent_type_name || '服务请求'}`,
+                        content: [
+                            `来源对话ID：${conversation.id}`,
+                            `渠道：${conversation.channel_name || '-'}`,
+                            `意图：${conversation.intent_type_name || '-'}`,
+                            `用户消息：${conversation.user_message || '-'}`,
+                            `AI回复：${conversation.ai_response || '-'}`,
+                            conversation.service_readiness?.notice ? `闭环缺口：${conversation.service_readiness.notice}` : '',
+                        ].filter(Boolean).join('\n'),
+                        guest_name: conversation.guest_name || '',
+                        room_id: conversation.room_id || 0,
+                        room_number: conversation.room_number || '',
+                        emotion_score: Number(conversation.emotion_score || 0),
+                        tags: ['conversation', `conversation:${conversation.id}`, conversation.intent_type_name || ''],
+                    };
+                    const res = await request('/agent/work-orders', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+                    if (res.code === 200) {
+                        showToast('已转成工单');
+                        await Promise.allSettled([
+                            loadConversations(),
+                            loadWorkOrderStats(),
+                            loadStaffDashboard(),
+                        ]);
+                    } else {
+                        showToast(res.message || '转工单失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('转工单失败: ' + e.message, 'error');
                 }
             };
 
@@ -37288,6 +37832,10 @@
             };
 
             const canFetchCtripManualData = () => {
+                const activeCookies = onlineDataTab.value === 'ctrip-traffic'
+                    ? ctripTrafficForm.value.cookies
+                    : ctripForm.value.cookies;
+                if (String(activeCookies || '').trim()) return true;
                 return !!selectedCtripHotelId.value && (selectedCtripHotelConfig.value || ctripManualFetchConfigProofPending());
             };
 
@@ -37617,15 +38165,18 @@
             };
 
             const meituanManualFetchConfigProofPending = () => {
-                return false;
+                return !!meituanForm.value.hotelId && !!selectedMeituanHotelConfig.value;
             };
 
             const canFetchMeituanRankingData = () => {
-                return !!meituanForm.value.hotelId && !!selectedMeituanHotelConfig.value;
+                const form = meituanForm.value || {};
+                if (String(form.cookies || '').trim()) return true;
+                return !!form.hotelId && !!selectedMeituanHotelConfig.value;
             };
 
             const resolveMeituanManualFetchConfig = async (config) => {
                 if (config) return config;
+                if (!meituanForm.value.hotelId) return null;
                 return selectedMeituanHotelConfig.value;
             };
 
@@ -38324,6 +38875,10 @@
 
             // 酒店操作
             const openHotelModal = async (hotel = null, options = {}) => {
+                if (!canManageOwnHotels()) {
+                    showToast('当前账号没有门店管理权限', 'error');
+                    return;
+                }
                 const operatorName = getCurrentOperatorName();
                 if (hotel) {
                     // 编辑模式：复制门店数据到表单
@@ -38369,6 +38924,10 @@
             };
 
             const saveHotel = async () => {
+                if (!canManageOwnHotels()) {
+                    showToast('当前账号没有门店管理权限', 'error');
+                    return;
+                }
                 // 表单验证
                 if (!hotelForm.value.name || hotelForm.value.name.trim() === '') {
                     showToast('门店名称不能为空', 'error');
@@ -38426,6 +38985,10 @@
             };
 
             const toggleHotelStatus = async (hotel) => {
+                if (!canManageOwnHotels()) {
+                    showToast('当前账号没有门店管理权限', 'error');
+                    return;
+                }
                 const currentStatus = String(hotel.status);
                 const newStatus = currentStatus === '1' ? 0 : 1;
                 const statusText = newStatus === 1 ? '启用' : '停用';
@@ -38483,6 +39046,10 @@
             };
 
             const openHotelDeleteModal = (hotel) => {
+                if (!canManageOwnHotels()) {
+                    showToast('当前账号没有门店管理权限', 'error');
+                    return;
+                }
                 hotelDeleteTarget.value = hotel || null;
                 hotelDeleteError.value = '';
                 hotelDeleteReferences.value = [];
@@ -39110,6 +39677,7 @@
             const aiStrategyRecordId = ref(null);
             const aiStrategyLoading = ref(false);
             const aiStrategyRecordsLoading = ref(false);
+            const strategyCurrentReadiness = computed(() => aiStrategyResult.value?.execution_readiness || null);
 
             const simulationStaticScript = 'simulation-static.js';
             const simulationStatic = ref(window.SUXI_SIMULATION_STATIC && typeof window.SUXI_SIMULATION_STATIC === 'object' ? window.SUXI_SIMULATION_STATIC : null);
@@ -39185,13 +39753,15 @@
             const aiSimulationRecords = ref([]);
             const aiSimulationRecordId = ref(null);
             const aiSimulationLoading = ref(false);
+            const simulationCurrentReadiness = computed(() => aiSimulationResult.value?.execution_readiness || null);
             let suppressSimulationAutoRefresh = false;
-            const aiFeasibilityResult = ref(null);
-            const aiFeasibilityRecords = ref([]);
-            const aiFeasibilityRecordId = ref(null);
-            const aiFeasibilityLoading = ref(false);
-            const aiFeasibilityRecordsLoading = ref(false);
-            const aiFeasibilityError = ref('');
+                const aiFeasibilityResult = ref(null);
+                const aiFeasibilityRecords = ref([]);
+                const aiFeasibilityReadiness = ref(null);
+                const aiFeasibilityRecordId = ref(null);
+                const aiFeasibilityLoading = ref(false);
+                const aiFeasibilityRecordsLoading = ref(false);
+                const aiFeasibilityError = ref('');
 
             const expansionDefaultOnlineDate = formatDate(new Date(Date.now() + 45 * 24 * 60 * 60 * 1000));
             const expansionStaticOptionsScript = 'expansion-static-options.js';
@@ -39536,6 +40106,24 @@
             });
             const hasMarketEvaluationHistory = computed(() => expansionRecords.value.some(record => record.record_type === 'market'));
             const hasExpansionHistory = computed(() => expansionRecords.value.length > 0);
+            const expansionCurrentReadiness = computed(() => {
+                if (['market-evaluation', 'market-eval'].includes(currentPage.value)) {
+                    return marketEvaluationResult.value?.project_readiness || null;
+                }
+                if (currentPage.value === 'benchmark-model') {
+                    return benchmarkModelResult.value?.project_readiness || marketEvaluationResult.value?.project_readiness || null;
+                }
+                if (['collaboration-efficiency', 'sync-efficiency'].includes(currentPage.value)) {
+                    return collaborationEfficiencyResult.value?.project_readiness
+                        || benchmarkModelResult.value?.project_readiness
+                        || marketEvaluationResult.value?.project_readiness
+                        || null;
+                }
+                return collaborationEfficiencyResult.value?.project_readiness
+                    || benchmarkModelResult.value?.project_readiness
+                    || marketEvaluationResult.value?.project_readiness
+                    || null;
+            });
 
             const transferPricingForm = ref({});
             const transferPricingResult = ref(null);
@@ -39564,6 +40152,12 @@
                 pricingForm: transferPricingForm.value,
                 timingForm: transferTimingForm.value,
             }));
+            const transferCurrentReadiness = computed(() => (
+                transferDashboardResult.value?.decision_readiness
+                || transferPricingResult.value?.decision_readiness
+                || transferTimingResult.value?.decision_readiness
+                || null
+            ));
 
             const transferPricingFields = computed(() => simulationStaticOption('transferPricingFields', []));
             const transferTimingCompareFields = computed(() => simulationStaticOption('transferTimingCompareFields', []));
@@ -39658,6 +40252,63 @@
                 if (decision === '适合转让') return 'text-green-600';
                 if (decision === '谨慎转让') return 'text-amber-600';
                 return 'text-red-600';
+            };
+            const expansionReadinessBadgeClass = (stage) => {
+                if (stage === 'project_ready' || stage === 'review_ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (stage === 'approved_pending_tracking' || stage === 'diligence_required' || stage === 'partial_screening') return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (stage === 'risk_recheck_required') return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+            const expansionReadinessMissingText = (readiness) => {
+                const missing = Array.isArray(readiness?.missing_evidence) ? readiness.missing_evidence : [];
+                if (!missing.length) return '暂无显式缺口；立项后仍需关联执行和投后跟踪证据。';
+                return `缺口：${missing.slice(0, 3).map(item => item.label || item.code).join('、')}`;
+            };
+            const simulationReadinessBadgeClass = (stage) => {
+                if (stage === 'execution_ready' || stage === 'review_ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (stage === 'approved_pending_execution' || stage === 'manual_input_only' || stage === 'partial_model') return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (stage === 'data_recheck_required') return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+            const simulationReadinessMissingText = (readiness) => {
+                const missing = Array.isArray(readiness?.missing_evidence) ? readiness.missing_evidence : [];
+                if (!missing.length) return '暂无显式缺口；执行前仍需保留审批、任务和效果证据。';
+                return `缺口：${missing.slice(0, 3).map(item => item.label || item.code).join('、')}`;
+            };
+            const feasibilityReadinessBadgeClass = (stage) => {
+                if (stage === 'feasibility_ready' || stage === 'review_ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (stage === 'approved_pending_tracking' || stage === 'diligence_required' || stage === 'manual_input_only' || stage === 'partial_report') return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (stage === 'data_recheck_required') return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+            const feasibilityReadinessMissingText = (readiness) => {
+                const missing = Array.isArray(readiness?.missing_evidence) ? readiness.missing_evidence : [];
+                if (!missing.length) return '暂无显式缺口；可研后仍需保留审批、执行和投后跟踪证据。';
+                return `缺口：${missing.slice(0, 3).map(item => item.label || item.code).join('、')}`;
+            };
+            const pricingReadinessBadgeClass = (stage) => {
+                if (stage === 'pricing_ready' || stage === 'evidence_ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (['pending_approval', 'approved_pending_execution', 'execution_intent_pending_approval', 'local_applied_pending_evidence'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (['data_recheck_required', 'rejected', 'blocked'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+            const agentClosureReadinessBadgeClass = (stage) => {
+                if (['service_closed', 'conversation_service_closed', 'saving_verified', 'maintenance_completed', 'knowledge_active_used'].includes(stage)) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (['conversation_observed', 'resolved_pending_review', 'completed_pending_saving', 'executed_pending_review'].includes(stage)) return 'bg-blue-50 text-blue-700 border-blue-200';
+                if (['conversation_needs_work_order', 'low_confidence_review', 'pending_assignment', 'in_progress', 'pending_processing', 'pending_approval', 'approved_pending_start', 'implementing', 'maintenance_due', 'active_missing_schedule', 'active_pending_execution', 'knowledge_active_unused', 'knowledge_missing_content', 'knowledge_missing_keywords'].includes(stage) || String(stage || '').startsWith('work_order_linked_')) return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (['escalated_blocked', 'rejected', 'overdue', 'cancelled'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+            const transferReadinessBadgeClass = (stage) => {
+                if (stage === 'decision_ready' || stage === 'review_ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (stage === 'approved_pending_tracking' || stage === 'diligence_required' || stage === 'partial_calculation') return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (stage === 'data_recheck_required') return 'bg-rose-50 text-rose-700 border-rose-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+            const transferReadinessMissingText = (readiness) => {
+                const missing = Array.isArray(readiness?.missing_evidence) ? readiness.missing_evidence : [];
+                if (!missing.length) return '暂无显式缺口；进入投决前仍需保留审批和跟踪证据。';
+                return `缺口：${missing.slice(0, 3).map(item => item.label || item.code).join('、')}`;
             };
 
             const transferTimingDataCheck = computed(() => buildTransferTimingDataCheck(transferTimingForm.value || {}));
@@ -39971,7 +40622,11 @@
                         method: 'POST',
                         body: JSON.stringify({
                             ...collaborationProject.value,
-                            tasks: collaborationTasks.value
+                            tasks: collaborationTasks.value,
+                            market_input: normalizeMarketEvaluationForm(marketEvaluationForm.value || {}),
+                            market_result: marketEvaluationResult.value || {},
+                            benchmark_input: { ...(benchmarkModelForm.value || {}) },
+                            benchmark_result: benchmarkModelResult.value || {}
                         })
                     });
                     if (res.code !== 200) throw new Error(res.message || '协同提效看板生成失败');
@@ -40125,6 +40780,8 @@
                     if (reuseInput) {
                         if (record.input?.pricing) transferPricingResult.value = record.input.pricing;
                         if (record.input?.timing) transferTimingResult.value = record.input.timing;
+                        if (record.input?.pricing_input) applyDefinedFields(transferPricingForm.value, record.input.pricing_input);
+                        if (record.input?.timing_input) applyDefinedFields(transferTimingForm.value, record.input.timing_input);
                     }
                 }
             };
@@ -40237,6 +40894,8 @@
                             pricing: transferPricingResult.value,
                             timing: transferTimingResult.value,
                             metrics: {},
+                            pricing_input: transferPricingForm.value || {},
+                            timing_input: transferTimingForm.value || {},
                             hotel_id: hotelId,
                             snapshot: transferSourceSnapshot.value || {}
                         })
@@ -40507,6 +41166,12 @@
                     setTimeout(() => { suppressSimulationAutoRefresh = false; }, 0);
                 }
                 aiSimulationResult.value = record.result || record.summary || aiSimulationResult.value;
+                if (aiSimulationResult.value && record.execution_readiness) {
+                    aiSimulationResult.value = {
+                        ...aiSimulationResult.value,
+                        execution_readiness: record.execution_readiness
+                    };
+                }
                 aiSimulationScenarios.value = Array.isArray(record.scenarios) ? record.scenarios : aiSimulationScenarios.value;
                 simulationRiskHints.value = Array.isArray(record.risk_hints) ? record.risk_hints : generateRiskHints(aiSimulationResult.value, aiSimulationScenarios.value);
                 simulationModelAnalysis.value = normalizeSimulationModelAnalysis(record.model_analysis || record.modelAnalysis || record.result?.modelAnalysis || record.result?.model_analysis || record.summary?.modelAnalysis);
@@ -40684,6 +41349,7 @@
             const normalizeFeasibilityResponse = (data) => {
                 aiFeasibilityRecordId.value = data?.id || null;
                 aiFeasibilityResult.value = data?.report || null;
+                aiFeasibilityReadiness.value = data?.feasibility_readiness || data?.report?.feasibility_readiness || null;
             };
 
             const applyFeasibilityRecord = (record, reuseInput = false) => {
@@ -40834,34 +41500,37 @@
             });
 
             return {
-                aiProject, aiStrategyParams, aiStrategyResult, aiStrategyRecords, aiStrategyRecordId, aiStrategyLoading, aiStrategyRecordsLoading, strategyScoreCards, strategyFreshnessLabel, strategyAiSourceLabel, strategyDataNotice, strategyDataSourceRows, strategyAiEmpowermentCards, handleStrategy, loadStrategyRecords, loadStrategyDetail, reuseStrategyRecord, archiveStrategyRecord,
-                aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationCostSummary, simulationCostGroups, simulationOtaCommissionChannels, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord,
-                aiFeasibilityResult, aiFeasibilityRecords, aiFeasibilityRecordId, aiFeasibilityLoading, aiFeasibilityRecordsLoading, aiFeasibilityError, feasibilityInputCards, feasibilityReportCards, feasibilityAiEmpowerment, feasibilityDecisionClass, handleFeasibility, loadFeasibilityRecords, loadFeasibilityDetail, reuseFeasibilityRecord, archiveFeasibilityRecord, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
+                aiProject, aiStrategyParams, aiStrategyResult, aiStrategyRecords, aiStrategyRecordId, aiStrategyLoading, aiStrategyRecordsLoading, strategyCurrentReadiness, strategyScoreCards, strategyFreshnessLabel, strategyAiSourceLabel, strategyDataNotice, strategyDataSourceRows, strategyAiEmpowermentCards, handleStrategy, loadStrategyRecords, loadStrategyDetail, reuseStrategyRecord, archiveStrategyRecord,
+                aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationCurrentReadiness, simulationReadinessBadgeClass, simulationReadinessMissingText,
+                simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationCostSummary, simulationCostGroups, simulationOtaCommissionChannels, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord,
+                aiFeasibilityResult, aiFeasibilityRecords, aiFeasibilityReadiness, aiFeasibilityRecordId, aiFeasibilityLoading, aiFeasibilityRecordsLoading, aiFeasibilityError, feasibilityInputCards, feasibilityReportCards, feasibilityAiEmpowerment, feasibilityDecisionClass, feasibilityReadinessBadgeClass, feasibilityReadinessMissingText, handleFeasibility, loadFeasibilityRecords, loadFeasibilityDetail, reuseFeasibilityRecord, archiveFeasibilityRecord, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
                 marketEvaluationForm, marketEvaluationCityOptions, marketEvaluationCityTierOptions, filteredMarketEvaluationCityOptions, filteredStrategyCityOptions, filteredStrategyDistrictOptions, filteredStrategyAddressKeywordOptions, marketEvaluationConditionFields, marketEvaluationCustomerOptions, secondaryMarketEvaluationCustomerOptions, marketEvaluationDecorationOptions, marketEvaluationResult, marketEvaluationAiJudgementRows, marketEvaluationAiRecommendations, marketEvaluationAiRiskSuggestions, marketEvaluationRiskSeverityClass, marketEvaluationAiAssumptions, marketEvaluationScoreFormula, marketEvaluationScoreBreakdown, marketEvaluationScorePercent, formatMarketEvaluationScoreChange, marketEvaluationScoreChangeClass, marketEvaluationAiRiskNote, marketEvaluationLoading, handleMarketEvaluation,
                 benchmarkModelForm, benchmarkModelResult, benchmarkModelLoading, benchmarkModelDetailFields, benchmarkModelDetailCards, benchmarkModelDetailCompleteness, benchmarkModelEstimatedFields, benchmarkModelAiSourceLabel, benchmarkModelAiRecommendations, benchmarkModelAiWatchPoints, benchmarkModelAiAssumptionNote, benchmarkModelDataNotice, benchmarkModelAiOutcomeCards, benchmarkMetricValue, benchmarkSignedValue, benchmarkStrategyLabel, handleBenchmarkModel,
                 collaborationProject, collaborationTasks, collaborationStatusOptions, collaborationEfficiencyResult, collaborationEfficiencyLoading, handleCollaborationEfficiency,
-                expansionRecords, visibleExpansionRecords, expansionRecordsLoading, hasMarketEvaluationHistory, hasExpansionHistory, expansionRecordTypeLabel, loadExpansionRecords, loadExpansionDetail, reuseExpansionRecord, archiveExpansionRecord, clearMarketEvaluationHistory, clearExpansionHistory,
+                expansionRecords, visibleExpansionRecords, expansionRecordsLoading, hasMarketEvaluationHistory, hasExpansionHistory, expansionCurrentReadiness,
+                expansionRecordTypeLabel, expansionReadinessBadgeClass, expansionReadinessMissingText, loadExpansionRecords, loadExpansionDetail, reuseExpansionRecord, archiveExpansionRecord, clearMarketEvaluationHistory, clearExpansionHistory,
                 transferPricingForm, transferPricingFields, transferAiModelOptions, transferPricingResult, transferPricingLoading, transferPricingCards, transferPricingValuationRows, transferPricingAdvice, transferPricingAiEvaluation, transferPricingAiEvaluationVisible, transferPricingAiEvaluationSourceLabel, handleTransferPricing,
                 transferTimingForm, transferTimingCompareFields, transferTimingNumberFields, transferTimingDataFields, transferTimingDataCheck, transferTimingResult, transferTimingLoading, handleTransferTiming, transferDecisionClass,
                 transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
-                transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceLoading, transferRecords, transferRecordsLoading, transferHotelOptions, transferDecisionLayerRows,
-                transferRecordTypeLabel, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, archiveTransferRecord,
-                operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationExecutionFlow, operationEffectValidation,
+                transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceLoading, transferRecords, transferRecordsLoading, transferHotelOptions, transferDecisionLayerRows, transferCurrentReadiness,
+                transferRecordTypeLabel, transferReadinessBadgeClass, transferReadinessMissingText, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, archiveTransferRecord,
+                    operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationExecutionFlow, operationClosureOverview, operationEffectValidation,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
                 operationStrategyRequirementText, operationStrategyAmountRequired, operationStrategyDiscountRequired,
                 operationAlertFilter, operationAlertFilters, operationStrategyTypes, operationHotelOptions, operationSummaryCards, operationOtaCards, operationCompetitorCards,
                 operationSourceBrief, operationDecisionCards,
                 operationUnreadCount, filteredOperationAlerts, loadOperationFullData, analyzeOperationRootCause, loadOperationAlerts,
                 markOperationAlertsRead, simulateOperationStrategy, createOperationAction, loadOperationActions, finishOperationAction,
-                aiDailyReport, aiDailyReportForm, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportEvidenceRows,
+                aiDailyReport, aiDailyReportForm, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportReadiness, aiDailyReportReadinessCards, aiDailyReportEvidenceRows,
                 aiDailyReportModelText, aiDailyReportModelClass, aiDailyReportMetricValue, aiDailyReportActionSources, aiDailyReportActionStatusText, aiDailyReportActionStatusClass,
-                aiDailyReportGapActionText, goAiDailyReportDataGap,
+                aiDailyReportReadinessClass, aiDailyReportGapActionText, goAiDailyReportDataGap,
                 loadAiDailyReport, generateAiDailyReport, createAiDailyExecutionIntent,
                 operationValue, operationPercent, operationDataStatusText, operationProblemLevelLabel, operationAlertLevelLabel,
                 operationAlertStatusLabel, operationAlertLevelClass, operationAlertSuggestion, operationRiskLevelLabel, operationStrategyTypeLabel,
                 operationActionStatusLabel, operationMetricRows, operationActionDataText, operationActionTarget,
                 operationEffectMetricCards, operationEffectDataGapText, operationEffectStatusLabel, operationEffectStatusClass, operationEffectMetricStatusLabel, operationEffectMetricValue,
-                operationExecutionItems, operationExecutionStages, operationExecutionSummaryCards, operationExecutionSourceText, operationExecutionActionText,
+                    operationClosureModules, operationClosureSummaryCards, operationClosureStatusClass, operationClosureScoreClass, operationClosureGapText,
+                    operationExecutionItems, operationExecutionStages, operationExecutionSummaryCards, operationExecutionSourceText, operationExecutionActionText,
                 operationExecutionStatusLabel, operationExecutionStatusClass, operationExecutionReviewText, operationExecutionRoiText,
                 operationExecutionBottleneckText, operationExecutionMoneyStatusText, operationExecutionMoneyStatusClass, operationExecutionNextActionClass,
                 operationCanApproveExecution, operationCanExecuteWithEvidence, operationCanReviewExecution, operationExecutionActionAvailable, operationExecutionTraceRows,
@@ -40883,15 +41552,15 @@
                 homeQuickEntries, hiddenHomeQuickEntries, homeQuickLayoutEditing, homeQuickLayoutSaving, homeQuickLayoutSaveHint, homeQuickDragKey, homeQuickDragOverKey, startHomeQuickDrag, enterHomeQuickDrag, dropHomeQuickDrag, endHomeQuickDrag, toggleHomeQuickEntry, resetHomeQuickLayout, saveHomeQuickLayout, openHomeQuickEntry,
                 homeCompetitorReadiness, homeCompetitorPlatformTagText, homeCompetitorPlatformTagClass, competitorSummaryReadinessClass,
                 lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusClass, loadLifecycleOverview,
-                isLoggedIn, loading, loginError, registerMode, registerLoading, registerError, registerSuccess, registerForm, user, token, currentLocale, languageOptions, switchLocale, currentTime, currentPage, showPassword,
+                isLoggedIn, loading, loginError, registerMode, registerLoading, registerError, registerSuccess, registerForm, user, token, userHasPermission, canManageOwnHotels, currentLocale, languageOptions, switchLocale, currentTime, currentPage, showPassword,
                 directorEntryVisible, directorEntryAnswer, directorEntryError,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
                 globalNotificationOpen, globalNotificationLoading, globalNotificationVisibleItems, globalNotificationUnreadCount,
                 globalNotificationSummaryText, toggleGlobalNotifications, refreshGlobalNotifications, openGlobalNotification,
                 markAllGlobalNotificationsRead, clearGlobalNotifications, globalNotificationSeverityDotClass, globalNotificationBadgeClass,
                 revenueResearchProducts, revenueResearchStatusClass, revenueResearchRuns, revenueResearchHotelId, revenueResearchHotelOptions, revenueResearchSteps, revenueResearchRunFor,
-                revenueResearchStepClass, revenueResearchStepIcon, revenueResearchResultStatusLabel, revenueResearchResultStatusClass,
-                revenueResearchForecastCards, runRevenueResearchProduct, openRevenueResearchModule,
+                revenueResearchStepClass, revenueResearchStepIcon, revenueResearchResultStatusLabel, revenueResearchResultStatusClass, revenueResearchReadinessClass, revenueResearchMissingText,
+                revenueResearchForecastCards, revenueForecastReadinessClass, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
                 hotels, permittedHotels, hotelColumns, userColumns, users, roles, getHotelNameById, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatConfigDate, secretPreview,
@@ -40906,7 +41575,7 @@
                 selectedKnowledgeCenterUnitIds, knowledgeCenterBatchDeleting, isAllKnowledgeCenterPageSelected, toggleSelectAllKnowledgeCenterUnits, batchDeleteKnowledgeUnits,
                 loadKnowledgeCenter, reloadKnowledgeCenter, changeKnowledgeCenterPage, resetKnowledgeCenterFilter,
                 filterByKnowledgeStatus, updateKnowledgeUnitStatus,
-                knowledgeCenterStatusLabel, knowledgeCenterStatusClass, knowledgeCenterSourceLabel, formatKnowledgeJson, knowledgeChunkView,
+                knowledgeCenterStatusLabel, knowledgeCenterStatusClass, knowledgeCenterReadinessClass, knowledgeCenterSourceLabel, formatKnowledgeJson, knowledgeChunkView,
                 openKnowledgeUnitModal, saveKnowledgeUnit, deleteKnowledgeUnit, refreshKnowledgeUnit, runKnowledgeDistillation, openKnowledgeChunks, saveKnowledgeChunk, openKnowledgeImportModal, setKnowledgeImportMode, importKnowledgeUnits,
                 handleKnowledgeDocumentPaste, handleKnowledgeDocumentDrop, handleKnowledgeDocumentFileSelect, openKnowledgeDocumentFilePicker, focusKnowledgeDocumentTextarea,
                 systemConfig, systemConfigForm, showSystemConfigModal,
@@ -41007,6 +41676,7 @@
                 onlineAnalysisRows, onlineAnalysisRowsLoading, onlineAnalysisLoading, onlineAnalysisError, onlineAnalysisPagination, onlineAnalysisQualitySummary,
                 onlineAnalysisSourceRecord, onlineAnalysisSummaryCards, onlineAnalysisMetricDefinitionRows, onlineAnalysisSourceText, onlineAnalysisDataTypeText,
                 onlineAnalysisFieldFactStatus, onlineAnalysisFieldFactStatusText, onlineAnalysisFieldFactStatusClass, onlineAnalysisFieldFactDetailText,
+                onlineAnalysisP0CaptureEvidenceStatus, onlineAnalysisP0CaptureEvidenceStatusText, onlineAnalysisP0CaptureEvidenceStatusClass, onlineAnalysisP0CaptureEvidenceDetailText,
                 loadOnlineAnalysisRows, refreshOnlineAnalysis, openOnlineAnalysisTab,
                 // 操作日志
                 operationLogs, logModules, logActions, logUsers, logHotels, logFilter, logPagination, logSummary, selectedLog, showLogDetailModal,
@@ -41043,14 +41713,14 @@
                 agentLogs, agentLogFilter,
                 loadAgentOverview, saveAgentConfig,
                 loadKnowledgeBase, openKnowledgeModal, saveKnowledge, deleteKnowledge,
-                loadPriceSuggestions, approvePrice, generatePriceSuggestions, applyPriceSuggestion, reviewPriceSuggestion,
+                loadPriceSuggestions, approvePrice, generatePriceSuggestions, applyPriceSuggestion, createPriceSuggestionExecutionIntent, reviewPriceSuggestion, pricingReadinessBadgeClass, agentClosureReadinessBadgeClass,
                 loadDevices, openDeviceModal, saveDevice,
                 loadEnergyData, loadAgentLogs,
                 // Agent中心 - 智能员工增强
                 workOrderList, workOrderFilter, workOrderStats, showWorkOrderModal, workOrderForm, staffDashboard,
                 conversationList, conversationFilter, conversationStats,
                 loadWorkOrders, createWorkOrder, assignWorkOrder, resolveWorkOrder, loadWorkOrderStats,
-                loadConversations, loadConversationStats, loadStaffDashboard,
+                loadConversations, loadConversationStats, loadStaffDashboard, createWorkOrderFromConversation,
                 // Agent中心 - 收益管理增强
                 demandForecasts, forecastFilter, forecastAccuracy, highDemandDates, revenueDashboard,
                 revenueAnalysisData, revenueAnalysisDataNotice, revenueAccuracyText, revenueRevparRows,

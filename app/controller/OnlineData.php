@@ -14883,6 +14883,7 @@ JAVASCRIPT;
                 'captured_count' => 0,
                 'missing_count' => 0,
                 'capture_evidence_count' => 0,
+                'desensitized_capture_evidence_count' => 0,
                 'source_path_count' => 0,
                 'structured_source_path_count' => 0,
                 'metric_key_count' => 0,
@@ -14900,6 +14901,7 @@ JAVASCRIPT;
         $captured = [];
         $missing = [];
         $captureEvidenceCount = 0;
+        $desensitizedCaptureEvidenceCount = 0;
         $sourcePathCount = 0;
         $structuredSourcePathCount = 0;
         $metricKeyCount = 0;
@@ -14920,6 +14922,7 @@ JAVASCRIPT;
             $storageFieldSource = trim((string)($fact['storage_field_source'] ?? ''));
             $storageFieldInferred = false;
             $hasCaptureEvidence = $this->onlineDataFieldFactHasCaptureEvidence($fact, $row, $raw);
+            $hasDesensitizedCaptureEvidence = $this->onlineDataFieldFactHasDesensitizedCaptureEvidence($fact);
             if ($storageField === '') {
                 $storageField = $this->inferOnlineDataFieldFactStorageField($metricKey, $row, $raw, $fact);
                 $storageFieldInferred = $storageField !== '';
@@ -14942,6 +14945,9 @@ JAVASCRIPT;
             }
             if ($hasCaptureEvidence) {
                 $captureEvidenceCount++;
+            }
+            if ($hasDesensitizedCaptureEvidence) {
+                $desensitizedCaptureEvidenceCount++;
             }
             if ($sourcePath !== '') {
                 $sourcePathCount++;
@@ -14969,6 +14975,7 @@ JAVASCRIPT;
                     'storage_field_inferred' => $storageFieldInferred,
                     'storage_field_source' => $storageFieldSource,
                     'capture_evidence_present' => $hasCaptureEvidence,
+                    'desensitized_capture_evidence_present' => $hasDesensitizedCaptureEvidence,
                     'stored_value_present' => $storedValueState,
                     'status' => $isMissing ? 'missing' : ($status !== '' ? $status : 'captured'),
                     'missing_state' => trim((string)($fact['missing_state'] ?? '')),
@@ -14993,11 +15000,12 @@ JAVASCRIPT;
 
         $detailParts = [
             sprintf(
-                'metric_key %d/%d',
-                $metricKeyCount,
-                $total
+            'metric_key %d/%d',
+            $metricKeyCount,
+            $total
             ),
             '采集证据 ' . $captureEvidenceCount,
+            'desensitized_capture_evidence ' . $desensitizedCaptureEvidenceCount,
             'source_path ' . $sourcePathCount,
             'structured_source_path ' . $structuredSourcePathCount,
             '入库字段 ' . $storageFieldCount,
@@ -15014,6 +15022,7 @@ JAVASCRIPT;
             'captured_count' => $capturedCount,
             'missing_count' => $missingCount,
             'capture_evidence_count' => $captureEvidenceCount,
+            'desensitized_capture_evidence_count' => $desensitizedCaptureEvidenceCount,
             'source_path_count' => $sourcePathCount,
             'structured_source_path_count' => $structuredSourcePathCount,
             'metric_key_count' => $metricKeyCount,
@@ -15026,6 +15035,19 @@ JAVASCRIPT;
             'sample_facts' => $sampleFacts,
             'raw_data_exposed' => false,
         ];
+    }
+
+    private function onlineDataFieldFactHasDesensitizedCaptureEvidence(array $fact): bool
+    {
+        $evidence = $fact['capture_evidence'] ?? null;
+        if (!is_array($evidence)) {
+            return false;
+        }
+
+        $traceId = trim((string)($evidence['source_trace_id'] ?? $evidence['_source_trace_id'] ?? ''));
+        $sourceUrlHash = trim((string)($evidence['source_url_hash'] ?? $evidence['_source_url_hash'] ?? ''));
+
+        return $traceId !== '' && $sourceUrlHash !== '';
     }
 
     private function onlineDataFieldFactHasCaptureEvidence(array $fact, array $row, array $raw): bool

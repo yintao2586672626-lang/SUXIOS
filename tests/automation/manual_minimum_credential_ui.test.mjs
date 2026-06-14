@@ -22,6 +22,10 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   const fetchCtripData = sliceFrom('const fetchCtripData = async () => {', 'const fetchMeituanData = async () => {');
   const fetchCtripTrafficData = sliceFrom('const fetchCtripTrafficData = async () => {', 'const fetchCtripComments = async () => {');
   const ctripManualFetchConfigGuard = sliceFrom('const ctripManualFetchConfigProofPending = () => {', '\n\n            const saveCtripConfig');
+  const ctripFetchFlow = ctripStatic.slice(
+    ctripStatic.indexOf('const runCtripFetchDataFlow = async ({'),
+    ctripStatic.indexOf('const buildLatestCtripSnapshotModel')
+  );
 
   assert.doesNotMatch(fetchCtripData, /请输入节点ID/);
   assert.match(html, /requireCtripStatic\('runCtripFetchDataFlow'\)/);
@@ -32,9 +36,8 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(fetchCtripData, /finally \{\s*if \(preparingConfig\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
   assert.match(fetchCtripData, /body: JSON\.stringify\(requestBody\)/);
   assert.match(ctripStatic, /const isCtripRankingFormAlignedWithConfig = \(form = \{\}, config = \{\}, options = \{\}\) =>/);
-  assert.match(ctripStatic, /if \(!isCtripRankingFormAlignedWithConfig\(form, selectedConfig, \{ selectedHotelId: selectedCtripHotelId \}\)\) \{/);
-  assert.match(ctripStatic, /const requestBody = \{ \.\.\.requestContext\.requestBody, async: true \};/);
-  assert.doesNotMatch(ctripStatic, /const requestBody = \{ \.\.\.requestContext\.requestBody, async: false \};/);
+  assert.match(ctripStatic, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig\(form, selectedConfig, \{ selectedHotelId: selectedCtripHotelId \}\)\) \{/);
+  assert.match(ctripStatic, /const requestBody = \{ \.\.\.requestContext\.requestBody, async: false, background: false \};/);
   assert.match(ctripStatic, /const requestContext = buildCtripFetchRequestContext\(\{/);
   assert.match(ctripStatic, /const nodeId = String\(form\.nodeId \|\| ''\)\.trim\(\)/);
   assert.match(html, /requireCtripStatic\('runCtripTrafficFetchFlow'\)/);
@@ -45,19 +48,34 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(html, /:disabled="fetchingData \|\| !canFetchCtripManualData\(\)"/);
   assert.match(ctripManualFetchConfigGuard, /return !!ctripConfigListLoadingPromise\s*\|\| \(!ctripConfigListLoaded\.value && !ctripConfigListLoadFailed\.value\);/);
   assert.match(ctripManualFetchConfigGuard, /const canFetchCtripManualData = \(\) => \{/);
+  assert.match(ctripManualFetchConfigGuard, /if \(String\(activeCookies \|\| ''\)\.trim\(\)\) return true;/);
+  assert.match(ctripManualFetchConfigGuard, /return !!selectedCtripHotelId\.value && \(selectedCtripHotelConfig\.value \|\| ctripManualFetchConfigProofPending\(\)\);/);
   assert.match(ctripManualFetchConfigGuard, /await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
   assert.match(ctripManualFetchConfigGuard, /return getActiveCtripConfig\(\);/);
+  assert.doesNotMatch(ctripFetchFlow, /notify\('请选择目标酒店', 'error'\)/);
+  assert.match(ctripFetchFlow, /const selectedConfig = selectedCtripHotelId\s*\?\s*await ensureCtripConfigSecret\(getActiveCtripConfig\(\)\)\s*:\s*null;/);
+  assert.match(ctripFetchFlow, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig/);
   assert.match(html, /只需平台授权/);
 });
 
-test('Meituan ranking does not expose resource id inputs on the daily fetch panel', () => {
+test('Meituan ranking supports temporary resource ids on the daily fetch panel', () => {
   const rankingPanel = sliceFrom('<div v-if="onlineDataTab === \'meituan-ranking\'">', '<!-- 获取结果显示 -->');
-  const fetchMeituanData = functionSlice('fetchMeituanData');
+  const meituanFetchFlow = meituanStatic.slice(
+    meituanStatic.indexOf('const runMeituanBatchFetchFlow = async ({'),
+    meituanStatic.indexOf('const useMeituanDisplayModel')
+  );
 
-  assert.doesNotMatch(rankingPanel, /v-model="meituanForm\.partnerId"/);
-  assert.doesNotMatch(rankingPanel, /v-model="meituanForm\.poiId"/);
+  assert.match(rankingPanel, /v-model="meituanForm\.partnerId"/);
+  assert.match(rankingPanel, /v-model="meituanForm\.poiId"/);
+  assert.match(rankingPanel, /临时获取可不先保存配置/);
+  assert.match(rankingPanel, /临时获取必填，可不保存/);
   assert.match(rankingPanel, /需一次性门店标识/);
   assert.match(meituanStatic, /需补充一次性门店标识/);
+  assert.match(meituanStatic, /请在本页临时填写/);
+  assert.doesNotMatch(meituanFetchFlow, /notify\('请选择目标酒店', 'error'\)/);
+  assert.doesNotMatch(meituanFetchFlow, /return \{ status: 'missing_hotel' \}/);
+  assert.doesNotMatch(meituanFetchFlow, /return \{ status: 'missing_config' \}/);
+  assert.match(meituanFetchFlow, /const selectedMeituanConfig = form\.hotelId\s*\?\s*await ensureMeituanConfigSecret\(getSelectedConfig\(\)\)\s*:\s*null;/);
 });
 
 test('Meituan config saves cookie-only and no longer treats room counts as credentials', () => {
@@ -301,10 +319,12 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(fetchMeituanData, /const preparingConfig = meituanManualFetchConfigProofPending\(\);/);
   assert.match(fetchMeituanData, /ensureMeituanConfigSecret: async config => ensureMeituanConfigSecret\(await resolveMeituanManualFetchConfig\(config\)\)/);
   assert.match(fetchMeituanData, /finally \{\s*if \(preparingConfig\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
-  assert.match(meituanManualFetchConfigGuard, /return false;/);
-  assert.match(meituanManualFetchConfigGuard, /const canFetchMeituanRankingData = \(\) => \{/);
   assert.match(meituanManualFetchConfigGuard, /return !!meituanForm\.value\.hotelId && !!selectedMeituanHotelConfig\.value;/);
+  assert.match(meituanManualFetchConfigGuard, /const canFetchMeituanRankingData = \(\) => \{/);
+  assert.match(meituanManualFetchConfigGuard, /if \(String\(form\.cookies \|\| ''\)\.trim\(\)\) return true;/);
+  assert.match(meituanManualFetchConfigGuard, /return !!form\.hotelId && !!selectedMeituanHotelConfig\.value;/);
   assert.doesNotMatch(meituanManualFetchConfigGuard, /await loadMeituanConfigList\(/);
+  assert.match(meituanManualFetchConfigGuard, /if \(!meituanForm\.value\.hotelId\) return null;/);
   assert.match(meituanManualFetchConfigGuard, /return selectedMeituanHotelConfig\.value;/);
   assert.doesNotMatch(meituanHotelSelectPanel, /@change="applyMeituanHotelConfig/);
   assert.match(meituanHotelWatcher, /if \(onlineDataTab\.value === 'meituan-ranking'\) \{/);

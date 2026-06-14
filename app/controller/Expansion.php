@@ -26,6 +26,7 @@ class Expansion extends Base
             $input = $this->request->post();
             $result = $this->service->evaluateMarket($input);
             $result['record_id'] = $this->service->saveRecord('market', $input, $result, (int)($this->currentUser->id ?? 0));
+            $result['project_readiness'] = $this->service->buildProjectReadiness('market', $input, $result);
 
             return $this->success($result, '市场评估已生成');
         } catch (InvalidArgumentException $e) {
@@ -42,6 +43,7 @@ class Expansion extends Base
             $input = $this->request->post();
             $result = $this->service->buildBenchmarkModel($input);
             $result['record_id'] = $this->service->saveRecord('benchmark', $input, $result, (int)($this->currentUser->id ?? 0));
+            $result['project_readiness'] = $this->service->buildProjectReadiness('benchmark', $input, $result);
 
             return $this->success($result, '标杆选模已生成');
         } catch (InvalidArgumentException $e) {
@@ -58,6 +60,7 @@ class Expansion extends Base
             $input = $this->request->post();
             $result = $this->service->improveCollaboration($input);
             $result['record_id'] = $this->service->saveRecord('collaboration', $input, $result, (int)($this->currentUser->id ?? 0));
+            $result['project_readiness'] = $this->service->buildProjectReadiness('collaboration', $input, $result);
 
             return $this->success($result, '协同提效看板已生成');
         } catch (InvalidArgumentException $e) {

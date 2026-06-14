@@ -109,6 +109,121 @@ class FeasibilityReportService
         ]) > 0;
     }
 
+    public function buildFeasibilityReadiness(array $input, array $snapshot, array $report): array
+    {
+        $reportReady = trim((string)($report['conclusion_grade'] ?? '')) !== ''
+            && trim((string)($report['conclusion_text'] ?? '')) !== '';
+        $scenarioReady = is_array($report['financial_scenarios'] ?? null)
+            && count($report['financial_scenarios']) >= 3;
+        $financialReady = $this->feasibilityFinancialInputsReady($input, $snapshot, $report);
+        $sourceBacked = $this->feasibilitySourceEvidenceReady($input, $snapshot, $report);
+        $riskClear = $this->feasibilityRiskClear($report);
+        $diligenceReady = $this->hasNamedEvidence([$input, $snapshot, $report], [
+            'diligence_evidence',
+            'due_diligence',
+            'legal_review',
+            'lease_review',
+            'contract_review',
+            'license_evidence',
+            'site_visit_evidence',
+            'attachment_urls',
+            'evidence_documents',
+        ]);
+        $humanReviewReady = $this->hasHumanReviewApproval([$input, $snapshot, $report]);
+        $trackingReady = $this->hasPostDecisionTracking([$input, $snapshot, $report]);
+
+        $checks = [
+            $this->readinessCheck('report_result', '可研报告结果', $reportReady, '已形成结论等级、结论文本和核心理由', '先生成可行性报告，不能只保留项目输入。', 18),
+            $this->readinessCheck('scenario_model', '三情景测算', $scenarioReady, '已形成保守、基准、乐观三类现金流情景', '补齐三情景测算，避免单点结论直接进入投决。', 14),
+            $this->readinessCheck('financial_assumptions', '财务假设完整', $financialReady, '面积、房量、租金、租期、投资、ADR/OCC 等关键假设已填充或有来源快照', '补齐面积、房量、租金、租期、投资预算、ADR 和 OCC 来源。', 14),
+            $this->readinessCheck('source_evidence', '真实样本证据', $sourceBacked, $this->feasibilitySourceEvidenceText($snapshot, $report), '补齐经营日报、竞品、OTA、租约或外部调研证据；当前仅能视为模型初稿。', 18),
+            $this->readinessCheck('risk_recheck', '风险复核', $riskClear, '结论等级和现金流风险未触发显式阻断', '先复核 C/D 等级、高风险、不可回本或负现金流问题。', 12),
+            $this->readinessCheck('diligence_evidence', '尽调证据', $diligenceReady, '已记录租约、证照、现场、附件或法务尽调证据', '补齐租约、证照、现场踏勘、法务或附件证据。', 10),
+            $this->readinessCheck('manual_review', '人工投决复核', $humanReviewReady, '已记录人工复核或审批状态', '补一条人工复核结论，明确通过、暂缓、重谈或放弃。', 8),
+            $this->readinessCheck('post_decision_tracking', '投后跟踪', $trackingReady, '已关联执行、开业或投后跟踪记录', '关联运营执行、开业项目或投后跟踪记录，避免可研后断链。', 6),
+        ];
+
+        $missingEvidence = [];
+        $score = 0;
+        foreach ($checks as $check) {
+            if ($check['passed']) {
+                $score += (int)$check['weight'];
+                continue;
+            }
+            $missingEvidence[] = [
+                'code' => $check['key'],
+                'label' => $check['label'],
+                'next_action' => $check['next_action'],
+            ];
+        }
+
+        $stage = $this->feasibilityReadinessStage(
+            $reportReady,
+            $scenarioReady,
+            $financialReady,
+            $sourceBacked,
+            $riskClear,
+            $diligenceReady,
+            $humanReviewReady,
+            $trackingReady
+        );
+
+        return [
+            'stage' => $stage,
+            'status_label' => $this->feasibilityReadinessStageLabel($stage),
+            'score' => $score,
+            'ready_for_review' => in_array($stage, ['review_ready', 'approved_pending_tracking', 'feasibility_ready'], true),
+            'feasibility_ready' => $stage === 'feasibility_ready',
+            'source_scope' => $this->feasibilitySourceScope($snapshot),
+            'checks' => $checks,
+            'missing_evidence' => $missingEvidence,
+            'next_action' => $missingEvidence[0]['next_action'] ?? '进入人工投决复核，并保留审批、执行和投后跟踪证据。',
+            'notice' => $this->feasibilityReadinessNotice($stage),
+        ];
+    }
+
+    public function readinessSummaryFromRows(array $rows): array
+    {
+        $summary = [
+            'record_count' => 0,
+            'stage_counts' => [],
+            'review_ready_count' => 0,
+            'feasibility_ready_count' => 0,
+            'best_score' => 0,
+            'best_stage' => '',
+            'best_status_label' => '',
+            'missing_evidence' => [],
+        ];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $readiness = $this->buildFeasibilityReadiness(
+                $this->decodeJson($row['input_json'] ?? []),
+                $this->decodeJson($row['snapshot_json'] ?? []),
+                $this->decodeJson($row['report_json'] ?? [])
+            );
+            $summary['record_count']++;
+            $stage = (string)$readiness['stage'];
+            $summary['stage_counts'][$stage] = (int)($summary['stage_counts'][$stage] ?? 0) + 1;
+            if (($readiness['ready_for_review'] ?? false) === true) {
+                $summary['review_ready_count']++;
+            }
+            if (($readiness['feasibility_ready'] ?? false) === true) {
+                $summary['feasibility_ready_count']++;
+            }
+            if ((int)$readiness['score'] >= (int)$summary['best_score']) {
+                $summary['best_score'] = (int)$readiness['score'];
+                $summary['best_stage'] = $stage;
+                $summary['best_status_label'] = (string)$readiness['status_label'];
+                $summary['missing_evidence'] = array_slice((array)$readiness['missing_evidence'], 0, 4);
+            }
+        }
+
+        return $summary;
+    }
+
     public function ensureTable(): void
     {
         Db::execute("
@@ -525,19 +640,28 @@ class FeasibilityReportService
 
     private function formatArrayRecord(array $row, bool $full): array
     {
+        $input = $this->decodeJson($row['input_json'] ?? []);
+        $snapshot = $this->decodeJson($row['snapshot_json'] ?? []);
+        $report = $this->decodeJson($row['report_json'] ?? []);
+        $readiness = $this->buildFeasibilityReadiness($input, $snapshot, $report);
+
         $data = [
             'id' => (int) $row['id'],
             'project_name' => $row['project_name'],
+            'city' => (string)($input['city'] ?? ''),
+            'district' => (string)($input['district'] ?? ''),
             'conclusion_grade' => $row['conclusion_grade'] ?? '',
             'payback_months' => $row['payback_months'] ?? null,
             'total_investment' => $row['total_investment'] ?? 0,
+            'risk_level' => $this->feasibilityRiskLevel($report),
+            'feasibility_readiness' => $readiness,
             'created_at' => $row['created_at'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
         ];
         if ($full) {
-            $data['input'] = $row['input_json'] ?? [];
-            $data['snapshot'] = $row['snapshot_json'] ?? [];
-            $data['report'] = $row['report_json'] ?? [];
+            $data['input'] = $input;
+            $data['snapshot'] = $snapshot;
+            $data['report'] = $report;
         }
         return $data;
     }
@@ -546,6 +670,320 @@ class FeasibilityReportService
     {
         $values = array_values(array_filter($values, fn ($value) => is_numeric($value) && (float) $value > 0));
         return $values ? round(array_sum($values) / count($values), 2) : 0.0;
+    }
+
+    private function decodeJson(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if ($value === null || $value === '') {
+            return [];
+        }
+        $decoded = json_decode((string)$value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function readinessCheck(string $key, string $label, bool $passed, string $evidence, string $nextAction, int $weight): array
+    {
+        return [
+            'key' => $key,
+            'label' => $label,
+            'passed' => $passed,
+            'status' => $passed ? 'ok' : 'missing',
+            'evidence' => $evidence,
+            'next_action' => $nextAction,
+            'weight' => $weight,
+        ];
+    }
+
+    private function feasibilityReadinessStage(
+        bool $reportReady,
+        bool $scenarioReady,
+        bool $financialReady,
+        bool $sourceBacked,
+        bool $riskClear,
+        bool $diligenceReady,
+        bool $humanReviewReady,
+        bool $trackingReady
+    ): string {
+        if (!$reportReady) {
+            return 'report_missing';
+        }
+        if (!$scenarioReady || !$financialReady) {
+            return 'partial_report';
+        }
+        if (!$sourceBacked) {
+            return 'manual_input_only';
+        }
+        if (!$riskClear) {
+            return 'data_recheck_required';
+        }
+        if (!$diligenceReady) {
+            return 'diligence_required';
+        }
+        if (!$humanReviewReady) {
+            return 'review_ready';
+        }
+        if (!$trackingReady) {
+            return 'approved_pending_tracking';
+        }
+        return 'feasibility_ready';
+    }
+
+    private function feasibilityReadinessStageLabel(string $stage): string
+    {
+        return [
+            'report_missing' => '未形成报告',
+            'partial_report' => '报告未完整',
+            'manual_input_only' => '仅手工可研',
+            'data_recheck_required' => '需风险复核',
+            'diligence_required' => '需补尽调证据',
+            'review_ready' => '可进入人工复核',
+            'approved_pending_tracking' => '已复核待跟踪',
+            'feasibility_ready' => '可研闭环就绪',
+        ][$stage] ?? $stage;
+    }
+
+    private function feasibilityReadinessNotice(string $stage): string
+    {
+        return [
+            'report_missing' => '当前还没有可复核的可行性报告结果。',
+            'partial_report' => '报告或三情景测算尚未完整，不能进入投决复核。',
+            'manual_input_only' => '当前主要依赖手工输入或模型默认测算，缺少真实经营、竞品、OTA、租约或外部调研证据。',
+            'data_recheck_required' => '存在 C/D 结论、高风险、负现金流或不可回本信号，需先复核。',
+            'diligence_required' => '报告和来源已基本形成，但缺少租约、证照、现场或法务尽调证据。',
+            'review_ready' => '核心测算、来源和尽调证据已具备复核条件；尚不等于已审批或已投资。',
+            'approved_pending_tracking' => '已有人工复核痕迹，但还缺执行、开业或投后跟踪记录。',
+            'feasibility_ready' => '已有报告、来源、尽调、人工复核和跟踪证据，可视为可研闭环就绪。',
+        ][$stage] ?? '';
+    }
+
+    private function feasibilityFinancialInputsReady(array $input, array $snapshot, array $report): bool
+    {
+        foreach (['property_area', 'room_count', 'monthly_rent', 'lease_years'] as $key) {
+            if (!$this->hasPositiveReadinessValue($input[$key] ?? null)) {
+                return false;
+            }
+        }
+
+        $investmentReady = $this->hasPositiveReadinessValue($input['decoration_budget'] ?? null)
+            || $this->hasPositiveReadinessValue($report['summary']['total_investment'] ?? null);
+        $adrReady = $this->hasPositiveReadinessValue($input['adr'] ?? null)
+            || $this->hasPositiveReadinessValue($snapshot['daily_summary']['avg_adr'] ?? null)
+            || $this->hasPositiveReadinessValue($snapshot['competitor_summary']['avg_competitor_price'] ?? null);
+        $occReady = $this->hasPositiveReadinessValue($input['occ'] ?? null)
+            || $this->hasPositiveReadinessValue($snapshot['daily_summary']['avg_occ'] ?? null);
+
+        return $investmentReady && $adrReady && $occReady;
+    }
+
+    private function feasibilitySourceEvidenceReady(array $input, array $snapshot, array $report): bool
+    {
+        if ($this->sourceCountTotal($snapshot) > 0) {
+            return true;
+        }
+        if ($this->hasNamedEvidence([$input, $snapshot, $report], [
+            'source_evidence',
+            'external_evidence',
+            'market_evidence',
+            'competitor_evidence',
+            'research_evidence',
+            'survey_evidence',
+        ])) {
+            return true;
+        }
+
+        foreach ((array)($report['evidence'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $source = strtolower(trim((string)($item['source'] ?? '')));
+            $url = trim((string)($item['url'] ?? ''));
+            $title = trim((string)($item['title'] ?? ''));
+            if ($url !== '') {
+                return true;
+            }
+            if ($title !== '' && !in_array($source, ['', 'system', 'local', 'local_calculation', 'user_input'], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function feasibilitySourceEvidenceText(array $snapshot, array $report): string
+    {
+        $count = $this->sourceCountTotal($snapshot);
+        if ($count > 0) {
+            return '已读取系统快照样本 ' . $count . ' 条';
+        }
+        $evidenceCount = count((array)($report['evidence'] ?? []));
+        if ($evidenceCount > 0) {
+            return '报告保留证据条目 ' . $evidenceCount . ' 条，但未确认真实外部或系统样本';
+        }
+        return '暂无真实样本证据';
+    }
+
+    private function feasibilitySourceScope(array $snapshot): string
+    {
+        $counts = is_array($snapshot['source_counts'] ?? null) ? $snapshot['source_counts'] : [];
+        $parts = [];
+        foreach ($counts as $key => $value) {
+            $count = (int)$value;
+            if ($count > 0) {
+                $parts[] = $key . ':' . $count;
+            }
+        }
+        return $parts ? implode(', ', $parts) : 'manual_input_or_report_only';
+    }
+
+    private function feasibilityRiskClear(array $report): bool
+    {
+        $grade = strtoupper(trim((string)($report['conclusion_grade'] ?? '')));
+        if (!in_array($grade, ['A', 'B'], true)) {
+            return false;
+        }
+
+        $base = is_array($report['financial_scenarios'][1] ?? null) ? $report['financial_scenarios'][1] : [];
+        if ($base) {
+            if ((float)($base['monthly_net_cashflow'] ?? 0) <= 0) {
+                return false;
+            }
+            if (!$this->hasPositiveReadinessValue($base['payback_months'] ?? null)) {
+                return false;
+            }
+        }
+
+        foreach ((array)($report['risk_list'] ?? []) as $risk) {
+            if (!is_array($risk)) {
+                continue;
+            }
+            $level = strtolower((string)($risk['level'] ?? ''));
+            if (str_contains($level, '高') || str_contains($level, 'high')) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function feasibilityRiskLevel(array $report): string
+    {
+        foreach ((array)($report['risk_list'] ?? []) as $risk) {
+            if (!is_array($risk)) {
+                continue;
+            }
+            $level = (string)($risk['level'] ?? '');
+            if ($level !== '') {
+                if (str_contains($level, '高') || stripos($level, 'high') !== false) {
+                    return '高风险';
+                }
+                if (str_contains($level, '中') || stripos($level, 'medium') !== false) {
+                    return '中风险';
+                }
+                if (str_contains($level, '低') || str_contains($level, '浣') || stripos($level, 'low') !== false) {
+                    return '低风险';
+                }
+                return $level;
+            }
+        }
+
+        $grade = strtoupper(trim((string)($report['conclusion_grade'] ?? '')));
+        return match ($grade) {
+            'A' => '低风险',
+            'B' => '中风险',
+            'C' => '中高风险',
+            'D' => '高风险',
+            default => '',
+        };
+    }
+
+    private function sourceCountTotal(array $snapshot): int
+    {
+        $counts = is_array($snapshot['source_counts'] ?? null) ? $snapshot['source_counts'] : [];
+        return array_sum(array_map(static fn ($value): int => max(0, (int)$value), $counts));
+    }
+
+    private function hasPositiveReadinessValue(mixed $value): bool
+    {
+        return is_numeric($value) && (float)$value > 0;
+    }
+
+    private function hasNamedEvidence(array $payloads, array $keys): bool
+    {
+        foreach ($payloads as $payload) {
+            if (!is_array($payload)) {
+                continue;
+            }
+            foreach ($keys as $key) {
+                if ($this->hasNonEmptyEvidenceValue($payload[$key] ?? null)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function hasNonEmptyEvidenceValue(mixed $value): bool
+    {
+        if (is_array($value)) {
+            return !empty(array_filter($value, fn (mixed $item): bool => $this->hasNonEmptyEvidenceValue($item)));
+        }
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return (float)$value > 0;
+        }
+        return trim((string)$value) !== '';
+    }
+
+    private function hasHumanReviewApproval(array $payloads): bool
+    {
+        foreach ($payloads as $payload) {
+            if (!is_array($payload)) {
+                continue;
+            }
+            foreach (['manual_review', 'human_review', 'review_status', 'approval_status', 'review_result', 'decision_status'] as $key) {
+                if (!array_key_exists($key, $payload)) {
+                    continue;
+                }
+                $value = $payload[$key];
+                if (is_bool($value)) {
+                    return $value;
+                }
+                if (is_array($value)) {
+                    if ($this->hasHumanReviewApproval([$value])) {
+                        return true;
+                    }
+                    continue;
+                }
+                $text = strtolower(trim((string)$value));
+                if ($text !== '' && preg_match('/approved|pass|passed|confirmed|reviewed|yes|true|通过|已审|批准|同意/u', $text) === 1) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function hasPostDecisionTracking(array $payloads): bool
+    {
+        foreach ($payloads as $payload) {
+            if (!is_array($payload)) {
+                continue;
+            }
+            foreach (['post_decision_tracking', 'execution_tracking', 'tracking_records', 'operation_execution_intent_id', 'execution_intent_id', 'opening_project_id', 'investment_tracking_id'] as $key) {
+                if ($this->hasNonEmptyEvidenceValue($payload[$key] ?? null)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function schema(): array

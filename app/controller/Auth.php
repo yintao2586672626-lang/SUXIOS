@@ -101,13 +101,13 @@ class Auth extends Base
                 $permission = new UserHotelPermission();
                 $permission->user_id = (int)$user->id;
                 $permission->hotel_id = $resolvedHotelId;
-                $permission->can_view_report = 1;
-                $permission->can_fill_daily_report = 1;
-                $permission->can_fill_monthly_task = 1;
+                $permission->can_view_report = 0;
+                $permission->can_fill_daily_report = 0;
+                $permission->can_fill_monthly_task = 0;
                 $permission->can_edit_report = 0;
                 $permission->can_delete_report = 0;
                 $permission->can_view_online_data = 1;
-                $permission->can_fetch_online_data = 0;
+                $permission->can_fetch_online_data = 1;
                 $permission->can_delete_online_data = 0;
                 $permission->is_primary = 1;
                 $permission->save();
@@ -244,6 +244,8 @@ class Auth extends Base
             'can_view_online_data' => $user->hasPermission('can_view_online_data'),
             'can_fetch_online_data' => $user->hasPermission('can_fetch_online_data'),
             'can_delete_online_data' => $user->hasPermission('can_delete_online_data'),
+            'can_manage_own_hotels' => $user->canManageOwnHotels(),
+            'can_manage_users' => $user->canManageUser(),
             'can_use_ai_decision' => $this->roleAllows($user, 'can_use_ai_decision'),
             'can_use_investment' => $this->roleAllows($user, 'can_use_investment'),
             'can_export_data' => $this->roleAllows($user, 'can_export_data'),
@@ -260,7 +262,9 @@ class Auth extends Base
         }
 
         $role = $user->role;
-        return $role instanceof Role && $role->hasPermission($permission);
+        return $role instanceof Role
+            && (int)$role->status === Role::STATUS_ENABLED
+            && $role->hasPermission($permission);
     }
 
     private function isEnabledConfigValue($value): bool

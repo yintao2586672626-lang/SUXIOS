@@ -84,6 +84,7 @@ assert_field_fact_check(
     ($explicit['status'] ?? '') === 'ready'
         && ($explicit['captured_count'] ?? 0) === 2
         && ($explicit['capture_evidence_count'] ?? 0) === 2
+        && ($explicit['desensitized_capture_evidence_count'] ?? -1) === 0
         && ($explicit['storage_field_count'] ?? 0) === 2
         && ($explicit['inferred_storage_field_count'] ?? -1) === 0,
     'Explicit platform field_facts with source_path and storage_field are ready.',
@@ -229,7 +230,7 @@ assert_field_fact_check(
 $meituanTrafficSource = [
     '_source_path' => 'traffic.0',
     'source_trace_id' => 'meituan:traffic-demo',
-    'source_url_hash' => str_repeat('a', 64),
+    'url_hash' => str_repeat('a', 64),
     'listExposure' => 123,
     'detailExposure' => 45,
     'flowRate' => 36.5,
@@ -255,12 +256,15 @@ $meituanTrafficRow = OnlineDataFieldFactService::attachToOnlineDailyRow(
 $meituanTrafficRaw = json_decode((string)($meituanTrafficRow['raw_data'] ?? '{}'), true);
 $meituanTrafficStatus = field_fact_status($meituanTrafficRow, is_array($meituanTrafficRaw) ? $meituanTrafficRaw : []);
 $meituanTrafficFactEvidence = (array)($meituanTrafficRaw['field_facts'][0]['capture_evidence'] ?? []);
+$meituanTrafficSummary = (array)($meituanTrafficRaw['field_fact_summary'] ?? []);
 assert_field_fact_check(
     $checks,
     'meituan_persistence_field_facts_ready',
     ($meituanTrafficStatus['status'] ?? '') === 'ready'
         && ($meituanTrafficStatus['captured_count'] ?? 0) >= 5
         && ($meituanTrafficStatus['capture_evidence_count'] ?? 0) >= 5
+        && ($meituanTrafficStatus['desensitized_capture_evidence_count'] ?? 0) >= 5
+        && ($meituanTrafficSummary['desensitized_capture_evidence_count'] ?? 0) >= 5
         && ($meituanTrafficStatus['source_path_count'] ?? 0) >= 5
         && ($meituanTrafficStatus['storage_field_count'] ?? 0) >= 5
         && ($meituanTrafficStatus['stored_value_missing_count'] ?? -1) === 0
@@ -356,7 +360,7 @@ $genericTrafficRows = OnlineTrafficDataExtractionService::extractGenericTrafficR
                 'poiName' => 'demo hotel',
                 'capture_evidence' => [
                     'source_trace_id' => 'meituan:generic-traffic-demo',
-                    'source_url_hash' => str_repeat('b', 64),
+                    'url_hash' => str_repeat('b', 64),
                 ],
                 'listExposure' => 321,
                 'detailExposure' => 98,
@@ -406,6 +410,7 @@ assert_field_fact_check(
 $genericTrafficRaw = json_decode((string)($genericTrafficRow['raw_data'] ?? '{}'), true);
 $genericTrafficStatus = field_fact_status($genericTrafficRow, is_array($genericTrafficRaw) ? $genericTrafficRaw : []);
 $genericTrafficFactEvidence = (array)($genericTrafficRaw['field_facts'][0]['capture_evidence'] ?? []);
+$genericTrafficSummary = (array)($genericTrafficRaw['field_fact_summary'] ?? []);
 assert_field_fact_check(
     $checks,
     'generic_traffic_extraction_source_paths_ready',
@@ -413,6 +418,8 @@ assert_field_fact_check(
         && ($genericTrafficStatus['status'] ?? '') === 'ready'
         && ($genericTrafficStatus['captured_count'] ?? 0) >= 5
         && ($genericTrafficStatus['capture_evidence_count'] ?? 0) >= 5
+        && ($genericTrafficStatus['desensitized_capture_evidence_count'] ?? 0) >= 5
+        && ($genericTrafficSummary['desensitized_capture_evidence_count'] ?? 0) >= 5
         && ($genericTrafficStatus['stored_value_missing_count'] ?? -1) === 0
         && ($genericTrafficFactEvidence['source_trace_id'] ?? '') === 'meituan:generic-traffic-demo'
         && ($genericTrafficFactEvidence['source_url_hash'] ?? '') === str_repeat('b', 64)

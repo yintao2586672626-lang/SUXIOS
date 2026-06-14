@@ -295,6 +295,142 @@ class TransferDecisionService
         ];
     }
 
+    public function buildDecisionReadiness(string $recordType, array $input, array $result, array $snapshot, int $hotelId = 0): array
+    {
+        $pricingInput = is_array($input['pricing_input'] ?? null) ? $input['pricing_input'] : $input;
+        $timingInput = is_array($input['timing_input'] ?? null) ? $input['timing_input'] : $input;
+        $pricingResult = $this->readinessPricingResult($recordType, $input, $result);
+        $timingResult = $this->readinessTimingResult($recordType, $input, $result);
+        $dashboardResult = $recordType === 'dashboard' ? $result : [];
+
+        $hotelBound = $hotelId > 0 || (int)($input['hotel_id'] ?? $snapshot['hotel_id'] ?? 0) > 0;
+        $sourceCounts = is_array($snapshot['source_counts'] ?? null) ? $snapshot['source_counts'] : [];
+        $actualDays = (int)($snapshot['current']['actual_days'] ?? 0);
+        $sourceLoaded = $this->snapshotHasRealSource($snapshot);
+        $sourceScope = $this->sourceScopeFromSnapshot($sourceCounts);
+
+        $pricingReady = isset($pricingResult['valuation']['reasonable_valuation'])
+            && array_key_exists('monthly_net_profit', (array)($pricingResult['profit'] ?? []));
+        $timingReady = isset($timingResult['timing_score']) && trim((string)($timingResult['decision'] ?? '')) !== '';
+        $dashboardReady = trim((string)($dashboardResult['final_judgement'] ?? '')) !== ''
+            || trim((string)($dashboardResult['suggested_action'] ?? '')) !== '';
+        $dataQualityClear = !$this->hasReadinessDataIssue($pricingInput, $timingInput, $pricingResult, $timingResult, $snapshot);
+        $costInputsReady = $this->transferCostInputsReady($pricingInput, $pricingResult);
+        $leaseLicenseReady = $this->leaseLicenseInputsReady($pricingInput);
+        $diligenceEvidenceReady = $this->hasDiligenceEvidence($input, $result, $snapshot);
+        $humanReviewReady = $this->hasHumanReviewApproval($input, $result);
+        $postDecisionTrackingReady = $this->hasPostDecisionTracking($input, $result);
+
+        $checks = [
+            $this->readinessCheck('hotel_bound', '系统酒店绑定', $hotelBound, '已绑定到可访问酒店', '先选择系统酒店，避免脱离门店权限的孤立测算。', 10),
+            $this->readinessCheck('source_snapshot', '真实数据快照', $sourceLoaded, $this->readinessSourceEvidence($snapshot, $sourceCounts), '先从真实数据带入，并保留取数日期与来源计数。', 15),
+            $this->readinessCheck('operating_window', '经营样本窗口', $sourceLoaded && $actualDays >= 7, $actualDays > 0 ? '当前窗口样本 ' . $actualDays . ' 天' : '当前窗口无样本', '至少补齐 7 天以上经营样本；30 天窗口更适合投决复核。', 10),
+            $this->readinessCheck('cost_assumptions', '成本与报价输入', $costInputsReady, '租金、人力、转让价等关键输入已填写', '补齐租金、人力、预期转让价、房量和收入等关键假设。', 10),
+            $this->readinessCheck('pricing_result', '资产定价结果', $pricingReady, '已形成估值、利润和风险结果', '先生成资产定价，不能只保留原始表单。', 15),
+            $this->readinessCheck('timing_result', '转让时机结果', $timingReady, '已形成时机评分和动作建议', '先生成时机推演，补齐趋势与数据质量判断。', 15),
+            $this->readinessCheck('dashboard_summary', '决策看板汇总', $dashboardReady, '已汇总定价、时机、风险和下一步动作', '在决策看板汇总，不用单一测算替代投决结论。', 10),
+            $this->readinessCheck('data_quality_clear', '数据质量复核', $dataQualityClear, '未发现显式异常标记', '先复核数据异常、断档或 OTA 采集口径冲突。', 5),
+            $this->readinessCheck('lease_license_inputs', '租约与证照输入', $leaseLicenseReady, '租期和证照输入已填写', '补齐剩余租期和证照状态；表单勾选不等同于原件证据。', 5),
+            $this->readinessCheck('manual_review', '人工复核审批', $humanReviewReady, '已记录人工复核/审批状态', '补一条人工复核结论，明确通过、暂缓或重谈。', 3),
+            $this->readinessCheck('post_decision_tracking', '投后跟踪', $postDecisionTrackingReady, '已关联执行/跟踪记录', '关联运营执行、成交跟踪或复盘记录，避免投决后失联。', 2),
+        ];
+
+        $missingEvidence = [];
+        foreach ($checks as $check) {
+            if (!$check['passed']) {
+                $missingEvidence[] = [
+                    'code' => $check['key'],
+                    'label' => $check['label'],
+                    'next_action' => $check['next_action'],
+                ];
+            }
+        }
+        if (($pricingReady || $timingReady || $dashboardReady) && !$diligenceEvidenceReady) {
+            $missingEvidence[] = [
+                'code' => 'diligence_document_evidence',
+                'label' => '尽调原件证据',
+                'next_action' => '补充租约、证照、流水、平台截图或附件证据；当前仅能视为测算记录。',
+            ];
+        }
+
+        $stage = $this->decisionReadinessStage(
+            $pricingReady,
+            $timingReady,
+            $dashboardReady,
+            $sourceLoaded,
+            $dataQualityClear,
+            $leaseLicenseReady,
+            $diligenceEvidenceReady,
+            $humanReviewReady,
+            $postDecisionTrackingReady
+        );
+        $score = 0;
+        foreach ($checks as $check) {
+            if ($check['passed']) {
+                $score += (int)$check['weight'];
+            }
+        }
+
+        return [
+            'stage' => $stage,
+            'status_label' => $this->decisionReadinessStageLabel($stage),
+            'score' => $score,
+            'ready_for_review' => in_array($stage, ['review_ready', 'approved_pending_tracking', 'decision_ready'], true),
+            'decision_ready' => $stage === 'decision_ready',
+            'source_scope' => $sourceScope,
+            'record_type' => $recordType,
+            'actual_days' => $actualDays,
+            'checks' => $checks,
+            'missing_evidence' => $missingEvidence,
+            'next_action' => $missingEvidence[0]['next_action'] ?? '进入人工投决复核并保留审批和跟踪证据。',
+            'notice' => $this->decisionReadinessNotice($stage),
+        ];
+    }
+
+    public function readinessSummaryFromRows(array $rows): array
+    {
+        $summary = [
+            'record_count' => 0,
+            'stage_counts' => [],
+            'review_ready_count' => 0,
+            'decision_ready_count' => 0,
+            'best_score' => 0,
+            'best_stage' => '',
+            'best_status_label' => '',
+            'missing_evidence' => [],
+        ];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $readiness = $this->buildDecisionReadiness(
+                (string)($row['record_type'] ?? ''),
+                $this->decodeJson($row['input_json'] ?? ''),
+                $this->decodeJson($row['result_json'] ?? ''),
+                $this->decodeJson($row['snapshot_json'] ?? ''),
+                (int)($row['hotel_id'] ?? 0)
+            );
+            $summary['record_count']++;
+            $stage = (string)$readiness['stage'];
+            $summary['stage_counts'][$stage] = (int)($summary['stage_counts'][$stage] ?? 0) + 1;
+            if (($readiness['ready_for_review'] ?? false) === true) {
+                $summary['review_ready_count']++;
+            }
+            if (($readiness['decision_ready'] ?? false) === true) {
+                $summary['decision_ready_count']++;
+            }
+            if ((int)$readiness['score'] >= (int)$summary['best_score']) {
+                $summary['best_score'] = (int)$readiness['score'];
+                $summary['best_stage'] = $stage;
+                $summary['best_status_label'] = (string)$readiness['status_label'];
+                $summary['missing_evidence'] = array_slice((array)$readiness['missing_evidence'], 0, 4);
+            }
+        }
+
+        return $summary;
+    }
+
     public function buildSourcePayload(array $hotelIds, ?int $hotelId, string $date): array
     {
         $this->ensureTable();
@@ -471,6 +607,285 @@ class TransferDecisionService
                 INDEX idx_transfer_records_created_by (created_by, id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
+    }
+
+    private function readinessPricingResult(string $recordType, array $input, array $result): array
+    {
+        if ($recordType === 'pricing') {
+            return $result;
+        }
+        if (is_array($input['pricing'] ?? null)) {
+            return $input['pricing'];
+        }
+        if (is_array($result['pricing'] ?? null)) {
+            return $result['pricing'];
+        }
+        return [];
+    }
+
+    private function readinessTimingResult(string $recordType, array $input, array $result): array
+    {
+        if ($recordType === 'timing') {
+            return $result;
+        }
+        if (is_array($input['timing'] ?? null)) {
+            return $input['timing'];
+        }
+        if (is_array($result['timing'] ?? null)) {
+            return $result['timing'];
+        }
+        return [];
+    }
+
+    private function snapshotHasRealSource(array $snapshot): bool
+    {
+        $counts = is_array($snapshot['source_counts'] ?? null) ? $snapshot['source_counts'] : [];
+        foreach (['daily_reports', 'online_daily_data', 'annual_daily_reports', 'annual_online_daily_data'] as $key) {
+            if ((int)($counts[$key] ?? 0) > 0) {
+                return true;
+            }
+        }
+        return (int)($snapshot['current']['actual_days'] ?? 0) > 0
+            || trim((string)($snapshot['data_status'] ?? '')) === '已接入真实数据';
+    }
+
+    private function sourceScopeFromSnapshot(array $sourceCounts): string
+    {
+        $hasDaily = (int)($sourceCounts['daily_reports'] ?? 0) > 0 || (int)($sourceCounts['annual_daily_reports'] ?? 0) > 0;
+        $hasOta = (int)($sourceCounts['online_daily_data'] ?? 0) > 0 || (int)($sourceCounts['annual_online_daily_data'] ?? 0) > 0;
+        if ($hasDaily && $hasOta) {
+            return 'daily_reports_and_ota_snapshot';
+        }
+        if ($hasDaily) {
+            return 'daily_reports_snapshot';
+        }
+        if ($hasOta) {
+            return 'ota_channel_snapshot';
+        }
+        return 'manual_input_only';
+    }
+
+    private function readinessSourceEvidence(array $snapshot, array $sourceCounts): string
+    {
+        if (!$this->snapshotHasRealSource($snapshot)) {
+            return '暂无真实数据快照';
+        }
+
+        $parts = [];
+        foreach (['daily_reports', 'online_daily_data', 'annual_daily_reports', 'annual_online_daily_data'] as $key) {
+            $count = (int)($sourceCounts[$key] ?? 0);
+            if ($count > 0) {
+                $parts[] = $key . '=' . $count;
+            }
+        }
+        $date = trim((string)($snapshot['source_date'] ?? ''));
+        return ($date !== '' ? '取数日 ' . $date . '；' : '') . ($parts ? implode('；', $parts) : '已接入真实数据');
+    }
+
+    private function transferCostInputsReady(array $input, array $pricingResult): bool
+    {
+        $required = [
+            ['room_count', 'basic_info.room_count'],
+            ['monthly_revenue', 'profit.monthly_revenue'],
+            ['monthly_rent', 'costs.monthly_rent'],
+            ['labor_cost', 'costs.labor_cost'],
+            ['expected_transfer_price', 'valuation.expected_transfer_price'],
+        ];
+        foreach ($required as [$inputKey, $resultPath]) {
+            if (!$this->hasPositiveReadinessValue($input[$inputKey] ?? null)
+                && !$this->hasPositiveReadinessValue($this->readPath($pricingResult, $resultPath))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function leaseLicenseInputsReady(array $input): bool
+    {
+        $leaseReady = $this->hasPositiveReadinessValue($input['remaining_lease_months'] ?? null);
+        $licenseValue = $input['licenses_complete'] ?? null;
+        return $leaseReady && $this->nullableBool($licenseValue) === true;
+    }
+
+    private function hasReadinessDataIssue(array $pricingInput, array $timingInput, array $pricingResult, array $timingResult, array $snapshot): bool
+    {
+        if ($this->nullableBool($pricingInput['has_data_anomaly'] ?? null) === true
+            || $this->nullableBool($timingInput['has_data_anomaly'] ?? null) === true
+            || $this->nullableBool($timingInput['has_data_gap'] ?? null) === true) {
+            return true;
+        }
+        if ($this->nullableBool($snapshot['current']['has_data_anomaly'] ?? null) === true) {
+            return true;
+        }
+        if (trim((string)($pricingResult['data_notice'] ?? '')) !== '') {
+            return true;
+        }
+        $quality = is_array($timingResult['data_quality'] ?? null) ? $timingResult['data_quality'] : [];
+        return $this->nullableBool($quality['has_data_anomaly'] ?? null) === true
+            || $this->nullableBool($quality['has_data_gap'] ?? null) === true
+            || $this->nullableBool($quality['suspected_collection_anomaly'] ?? null) === true;
+    }
+
+    private function hasDiligenceEvidence(array $input, array $result, array $snapshot): bool
+    {
+        foreach ([$input, $result, $snapshot] as $payload) {
+            foreach (['diligence_evidence', 'evidence_files', 'attachments', 'lease_contract_evidence', 'license_evidence', 'bank_flow_evidence'] as $key) {
+                if (!array_key_exists($key, $payload)) {
+                    continue;
+                }
+                $value = $payload[$key];
+                if (is_array($value) && !empty($value)) {
+                    return true;
+                }
+                if (trim((string)$value) !== '') {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function hasHumanReviewApproval(array $input, array $result): bool
+    {
+        foreach ([$input, $result] as $payload) {
+            foreach (['review_status', 'approval_status', 'decision_status', 'manual_review_status'] as $key) {
+                $value = strtolower(trim((string)($payload[$key] ?? '')));
+                if (in_array($value, ['approved', 'reviewed', 'passed', '通过', '已复核', '已审批'], true)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function hasPostDecisionTracking(array $input, array $result): bool
+    {
+        foreach ([$input, $result] as $payload) {
+            foreach (['operation_execution_intent_id', 'execution_intent_id', 'tracking_record_id', 'post_decision_tracking_id'] as $key) {
+                if ((int)($payload[$key] ?? 0) > 0) {
+                    return true;
+                }
+            }
+            if ($this->nullableBool($payload['post_decision_tracking'] ?? null) === true) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function decisionReadinessStage(
+        bool $pricingReady,
+        bool $timingReady,
+        bool $dashboardReady,
+        bool $sourceLoaded,
+        bool $dataQualityClear,
+        bool $leaseLicenseReady,
+        bool $diligenceEvidenceReady,
+        bool $humanReviewReady,
+        bool $postDecisionTrackingReady
+    ): string {
+        if (!$pricingReady && !$timingReady && !$dashboardReady) {
+            return 'calculation_missing';
+        }
+        if (!$sourceLoaded) {
+            return 'manual_input_only';
+        }
+        if (!$pricingReady || !$timingReady || !$dashboardReady) {
+            return 'partial_calculation';
+        }
+        if (!$dataQualityClear) {
+            return 'data_recheck_required';
+        }
+        if (!$leaseLicenseReady || !$diligenceEvidenceReady) {
+            return 'diligence_required';
+        }
+        if (!$humanReviewReady) {
+            return 'review_ready';
+        }
+        if (!$postDecisionTrackingReady) {
+            return 'approved_pending_tracking';
+        }
+        return 'decision_ready';
+    }
+
+    private function decisionReadinessStageLabel(string $stage): string
+    {
+        return [
+            'calculation_missing' => '未形成测算',
+            'manual_input_only' => '仅手工测算',
+            'partial_calculation' => '测算未完整',
+            'data_recheck_required' => '需复核数据',
+            'diligence_required' => '需补尽调证据',
+            'review_ready' => '可进入人工复核',
+            'approved_pending_tracking' => '已审批待跟踪',
+            'decision_ready' => '投决闭环就绪',
+        ][$stage] ?? $stage;
+    }
+
+    private function decisionReadinessNotice(string $stage): string
+    {
+        return [
+            'calculation_missing' => '当前还没有可复核的资产定价、时机或决策看板结果。',
+            'manual_input_only' => '当前只有手工输入或测算结果，不能作为来源背书的投决依据。',
+            'partial_calculation' => '已接入真实快照，但定价、时机或决策看板尚未完整汇总。',
+            'data_recheck_required' => '存在数据异常、断档或口径冲突，需先复核再进入投决。',
+            'diligence_required' => '测算链路已基本形成，但缺少租约、证照、流水等尽调证据。',
+            'review_ready' => '核心测算和来源已具备，可进入人工复核；尚不能视为已审批。',
+            'approved_pending_tracking' => '已有人审痕迹，但还缺投后执行或跟踪记录。',
+            'decision_ready' => '已有来源、测算、人审和跟踪证据，可视为投决闭环就绪。',
+        ][$stage] ?? '';
+    }
+
+    private function readinessCheck(string $key, string $label, bool $passed, string $evidence, string $nextAction, int $weight): array
+    {
+        return [
+            'key' => $key,
+            'label' => $label,
+            'passed' => $passed,
+            'status' => $passed ? 'ok' : 'missing',
+            'evidence' => $evidence,
+            'next_action' => $nextAction,
+            'weight' => $weight,
+        ];
+    }
+
+    private function readPath(array $payload, string $path): mixed
+    {
+        $value = $payload;
+        foreach (explode('.', $path) as $part) {
+            if (!is_array($value) || !array_key_exists($part, $value)) {
+                return null;
+            }
+            $value = $value[$part];
+        }
+        return $value;
+    }
+
+    private function hasPositiveReadinessValue(mixed $value): bool
+    {
+        return is_numeric($value) && (float)$value > 0;
+    }
+
+    private function nullableBool(mixed $value): ?bool
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return (int)$value === 1;
+        }
+        $text = strtolower(trim((string)$value));
+        if (in_array($text, ['1', 'true', 'yes', 'on', '是', '有', '齐全', '完整'], true)) {
+            return true;
+        }
+        if (in_array($text, ['0', 'false', 'no', 'off', '否', '无', '不齐全', '缺失'], true)) {
+            return false;
+        }
+        return null;
     }
 
     private function buildValuationMultiple(int $remainingLeaseMonths, float $rating, float $occupancyRate, bool $hasDataAnomaly, bool $licensesComplete): float
@@ -925,7 +1340,9 @@ class TransferDecisionService
 
     private function formatRecord(array $row, bool $withDetail): array
     {
+        $input = $this->decodeJson($row['input_json'] ?? '');
         $result = $this->decodeJson($row['result_json'] ?? '');
+        $snapshot = $this->decodeJson($row['snapshot_json'] ?? '');
         $record = [
             'id' => (int)$row['id'],
             'record_type' => (string)($row['record_type'] ?? ''),
@@ -942,12 +1359,19 @@ class TransferDecisionService
                 'timing_score' => $result['timing_score'] ?? null,
                 'suggested_action' => $result['suggested_action'] ?? null,
             ],
+            'decision_readiness' => $this->buildDecisionReadiness(
+                (string)($row['record_type'] ?? ''),
+                $input,
+                $result,
+                $snapshot,
+                (int)($row['hotel_id'] ?? 0)
+            ),
         ];
 
         if ($withDetail) {
-            $record['input'] = $this->decodeJson($row['input_json'] ?? '');
+            $record['input'] = $input;
             $record['result'] = $result;
-            $record['snapshot'] = $this->decodeJson($row['snapshot_json'] ?? '');
+            $record['snapshot'] = $snapshot;
         }
 
         return $record;

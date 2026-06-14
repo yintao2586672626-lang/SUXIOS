@@ -172,6 +172,103 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertSame('system', $report['evidence'][0]['source']);
     }
 
+    public function testReadinessKeepsManualOnlyReportOutOfInvestmentClosure(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $input = $this->validInput();
+        $snapshot = ['source_counts' => [], 'daily_summary' => [], 'competitor_summary' => []];
+        $calculation = $this->invokeNonPublic($service, 'calculate', [$input, $snapshot]);
+        $report = $this->invokeNonPublic($service, 'buildAiReport', [$input, $snapshot, $calculation]);
+        $report = $this->invokeNonPublic($service, 'mergeFinancials', [$report, $input, $calculation]);
+
+        $readiness = $service->buildFeasibilityReadiness($input, $snapshot, $report);
+
+        self::assertSame('manual_input_only', $readiness['stage']);
+        self::assertFalse($readiness['feasibility_ready']);
+        self::assertContains('source_evidence', array_column($readiness['missing_evidence'], 'code'));
+    }
+
+    public function testReadinessRequiresEvidenceReviewAndTrackingForFeasibilityClosure(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $input = $this->validInput([
+            'manual_review' => 'approved',
+            'execution_tracking' => ['opening_project_id' => 8],
+        ]);
+        $snapshot = [
+            'source_counts' => ['daily_reports' => 12, 'competitor_price_logs' => 5],
+            'daily_summary' => ['avg_adr' => 310, 'avg_occ' => 0.76],
+            'competitor_summary' => ['avg_competitor_price' => 300],
+        ];
+        $calculation = $this->invokeNonPublic($service, 'calculate', [$input, $snapshot]);
+        $report = [
+            'conclusion_grade' => 'B',
+            'conclusion_text' => 'Proceed after review',
+            'core_reason' => 'Cashflow acceptable with source evidence',
+            'summary' => [
+                'project_name' => $input['project_name'],
+                'location' => 'Shanghai Pudong No.1',
+                'room_count' => 20,
+                'total_investment' => $calculation['total_investment'],
+                'payback_months' => 18,
+            ],
+            'financial_scenarios' => $calculation['scenarios'],
+            'risk_list' => [
+                ['risk' => 'cashflow', 'level' => '低', 'reason' => 'positive cashflow', 'action' => 'review monthly'],
+            ],
+            'evidence' => [
+                ['source' => 'market_survey', 'title' => 'site survey', 'url' => 'https://example.test/evidence', 'summary' => 'verified'],
+            ],
+            'diligence_evidence' => ['lease_review' => 'passed'],
+        ];
+
+        $readiness = $service->buildFeasibilityReadiness($input, $snapshot, $report);
+
+        self::assertSame('feasibility_ready', $readiness['stage']);
+        self::assertTrue($readiness['feasibility_ready']);
+        self::assertSame(100, $readiness['score']);
+    }
+
+    public function testFormattedRecordReturnsFeasibilityReadinessForListAndDetail(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $input = $this->validInput();
+        $snapshot = ['source_counts' => [], 'daily_summary' => [], 'competitor_summary' => []];
+        $calculation = $this->invokeNonPublic($service, 'calculate', [$input, $snapshot]);
+        $report = $this->invokeNonPublic($service, 'mergeFinancials', [
+            [
+                'conclusion_grade' => 'C',
+                'conclusion_text' => 'Needs review',
+                'core_reason' => 'Manual assumptions only',
+                'summary' => [],
+                'assumptions' => [],
+                'financial_scenarios' => [],
+                'risk_list' => [],
+                'evidence' => [],
+            ],
+            $input,
+            $calculation,
+        ]);
+
+        $record = $this->invokeNonPublic($service, 'formatArrayRecord', [[
+            'id' => 7,
+            'project_name' => 'Valid Project',
+            'input_json' => json_encode($input, JSON_UNESCAPED_UNICODE),
+            'snapshot_json' => json_encode($snapshot, JSON_UNESCAPED_UNICODE),
+            'report_json' => json_encode($report, JSON_UNESCAPED_UNICODE),
+            'conclusion_grade' => 'C',
+            'payback_months' => 22,
+            'total_investment' => 450000,
+            'created_at' => '2026-06-14 10:00:00',
+            'updated_at' => '2026-06-14 10:00:00',
+        ], true]);
+
+        self::assertSame('Shanghai', $record['city']);
+        self::assertArrayHasKey('feasibility_readiness', $record);
+        self::assertSame('manual_input_only', $record['feasibility_readiness']['stage']);
+        self::assertArrayHasKey('report', $record);
+    }
+
     private function validInput(array $overrides = []): array
     {
         return array_merge([

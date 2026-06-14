@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\controller;
 
+use app\service\BusinessClosureOverviewService;
 use app\service\OperationManagementService;
 use think\Response;
 use Throwable;
@@ -177,6 +178,23 @@ class OperationManagement extends Base
             return $this->success($this->service->executionFlow($hotelIds, $hotelId, $this->request->get()));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'execution flow query failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function closureOverview(): Response
+    {
+        try {
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
+            $service = new BusinessClosureOverviewService();
+
+            return $this->success($service->overview(
+                $hotelIds,
+                $hotelId,
+                (int)($this->currentUser->id ?? 0),
+                $this->currentUser ? $this->currentUser->isSuperAdmin() : false
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'business closure overview query failed'), $this->operationThrowableStatus($e));
         }
     }
 

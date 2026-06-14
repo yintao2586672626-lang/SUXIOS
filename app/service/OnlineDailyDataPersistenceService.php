@@ -28,6 +28,40 @@ final class OnlineDailyDataPersistenceService
         return array_intersect_key($data, $columns);
     }
 
+    public static function desensitizedSourceTraceId(array $source): string
+    {
+        foreach (['source_trace_id', '_source_trace_id', 'trace_id', '_trace_id'] as $key) {
+            $value = self::safeSourceTraceValue($source[$key] ?? null);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        $nested = $source['capture_evidence'] ?? null;
+        if (is_array($nested)) {
+            return self::desensitizedSourceTraceId($nested);
+        }
+
+        return '';
+    }
+
+    private static function safeSourceTraceValue(mixed $value): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        $text = trim((string)$value);
+        if ($text === ''
+            || preg_match('/\b(cookie|authorization|bearer|token|password|secret)\b/i', $text)
+            || preg_match('#https?://#i', $text)
+        ) {
+            return '';
+        }
+
+        return mb_substr($text, 0, 80);
+    }
+
     public static function buildValidationFields(array $data): array
     {
         $flags = [];
@@ -262,7 +296,8 @@ final class OnlineDailyDataPersistenceService
             }
 
             $exists = $query->find();
-            $data = self::applyValidationFields([
+            $sourceTraceId = self::desensitizedSourceTraceId($item);
+            $payload = [
                 'hotel_id' => (string)$hotelId,
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId,
@@ -284,7 +319,11 @@ final class OnlineDailyDataPersistenceService
                 'order_filling_num' => $orderFillingNum,
                 'order_submit_num' => $orderSubmitNum,
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
-            ]);
+            ];
+            if ($sourceTraceId !== '') {
+                $payload['source_trace_id'] = $sourceTraceId;
+            }
+            $data = self::applyValidationFields($payload);
             $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
             $data = self::filterFields($data);
 
@@ -351,7 +390,8 @@ final class OnlineDailyDataPersistenceService
 
             $exists = $query->find();
 
-            $data = self::applyValidationFields([
+            $sourceTraceId = self::desensitizedSourceTraceId($item);
+            $payload = [
                 'hotel_id' => $hotelId ? (string)$hotelId : '',
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId,
@@ -371,7 +411,11 @@ final class OnlineDailyDataPersistenceService
                 'order_filling_num' => $trafficMetrics['order_filling_num'],
                 'order_submit_num' => $trafficMetrics['order_submit_num'],
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
-            ]);
+            ];
+            if ($sourceTraceId !== '') {
+                $payload['source_trace_id'] = $sourceTraceId;
+            }
+            $data = self::applyValidationFields($payload);
             $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
             $data = self::filterFields($data);
 

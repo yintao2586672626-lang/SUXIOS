@@ -157,6 +157,7 @@ function trafficSourceReadinessDigest(questionOrEvidence) {
       platform: String(row?.platform ?? '').toLowerCase(),
       target_date_rows: Number(row?.target_date_rows ?? 0),
       target_date_traffic_rows: Number(row?.target_date_traffic_rows ?? 0),
+      target_date_data_types: sortedStrings(row?.target_date_data_types),
       traffic_source_count: Number(row?.traffic_source_count ?? 0),
       traffic_enabled_count: Number(row?.traffic_enabled_count ?? 0),
       traffic_ready_count: Number(row?.traffic_ready_count ?? 0),
@@ -166,6 +167,23 @@ function trafficSourceReadinessDigest(questionOrEvidence) {
       required_next_inputs: asArray(row?.required_next_inputs).map((item) => String(item)),
       recommended_collection_mode: String(row?.recommended_collection_mode ?? ''),
       action_entry: String(row?.action_entry ?? ''),
+      p0_traffic_gate_status: String(row?.p0_traffic_gate_status ?? ''),
+      p0_next_action_mode: String(row?.p0_next_action_mode ?? ''),
+      p0_next_action_entry: String(row?.p0_next_action_entry ?? ''),
+      p0_next_step_count: Number(row?.p0_next_step_count ?? 0),
+      next_command_policy: String(row?.next_command_policy ?? ''),
+      p0_external_evidence_status: String(row?.p0_external_evidence_status ?? ''),
+      p0_pre_import_evidence_status: String(row?.p0_pre_import_evidence_status ?? ''),
+      p0_pre_import_evidence_policy: String(row?.p0_pre_import_evidence_policy ?? ''),
+      p0_traffic_field_fact_status: String(row?.p0_traffic_field_fact_status ?? ''),
+      p0_required_metric_keys: sortedStrings(row?.p0_required_metric_keys),
+      p0_required_storage_fields: sortedStrings(row?.p0_required_storage_fields),
+      p0_required_field_fact_keys: sortedStrings(row?.p0_required_field_fact_keys),
+      p0_missing_metric_keys: sortedStrings(row?.p0_missing_metric_keys),
+      p0_target_traffic_data_types: sortedStrings(row?.p0_target_traffic_data_types),
+      p0_source_chain_reference_only: Boolean(row?.p0_source_chain_reference_only),
+      p0_source_chain_scope: String(row?.p0_source_chain_scope ?? ''),
+      p0_source_chain_policy: String(row?.p0_source_chain_policy ?? ''),
       status: String(row?.status ?? ''),
       source_policy: String(row?.source_policy ?? ''),
       sensitive_values_exposed: Boolean(row?.sensitive_values_exposed),
@@ -188,29 +206,72 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
       check(`${prefix} ${field} is numeric`, Number.isFinite(Number(sourceRow?.[field])), JSON.stringify(sourceRow ?? {}));
     }
     check(`${prefix} required next inputs are explicit array`, Array.isArray(sourceRow?.required_next_inputs), JSON.stringify(sourceRow ?? {}));
-    check(`${prefix} recommended collection mode is explicit`, ['manual_cookie_api', 'status_check'].includes(String(sourceRow?.recommended_collection_mode ?? '')), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} recommended collection mode is explicit`, ['manual_cookie_api', 'browser_profile', 'status_check'].includes(String(sourceRow?.recommended_collection_mode ?? '')), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} action entry is explicit`, String(sourceRow?.action_entry ?? '').startsWith('/api/online-data/'), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 traffic gate status is explicit`, ['ready', 'requires_p0_verifier', 'missing_target_date_traffic_rows'].includes(String(sourceRow?.p0_traffic_gate_status ?? '')), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 next action mode is explicit`, ['manual_cookie_api', 'browser_profile', 'status_check'].includes(String(sourceRow?.p0_next_action_mode ?? '')), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 next action entry is explicit`, String(sourceRow?.p0_next_action_entry ?? '').startsWith('/api/online-data/'), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 next step count is numeric`, Number.isFinite(Number(sourceRow?.p0_next_step_count)), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} next command policy forbids sensitive command exposure`, String(sourceRow?.next_command_policy ?? '') === 'metadata_only_no_sensitive_commands', JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 external evidence status is explicit`, ['not_provided', 'valid', 'invalid'].includes(String(sourceRow?.p0_external_evidence_status ?? '')), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 pre-import evidence status is explicit`, ['not_provided', 'valid_external_evidence_not_ingested', 'valid_external_evidence_with_ingested_rows', 'external_evidence_not_valid'].includes(String(sourceRow?.p0_pre_import_evidence_status ?? '')), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 pre-import evidence policy stays separate from completion`, String(sourceRow?.p0_pre_import_evidence_policy ?? '').includes('source proof only') && String(sourceRow?.p0_pre_import_evidence_policy ?? '').includes('target-date traffic rows'), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 traffic field fact status is explicit`, ['missing_target_date_traffic_rows', 'requires_p0_verifier'].includes(String(sourceRow?.p0_traffic_field_fact_status ?? '')), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 required metric keys are explicit`, sameStringList(sourceRow?.p0_required_metric_keys, ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num']), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 required storage fields are explicit`, sameStringList(sourceRow?.p0_required_storage_fields, ['online_daily_data.list_exposure', 'online_daily_data.detail_exposure', 'online_daily_data.flow_rate', 'online_daily_data.order_filling_num', 'online_daily_data.order_submit_num']), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 required field fact keys are explicit`, sameStringList(sourceRow?.p0_required_field_fact_keys, ['capture_evidence', 'source_path', 'metric_key', 'storage_field', 'stored_value_present']), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} target-date data types are explicit`, Array.isArray(sourceRow?.target_date_data_types), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 target traffic data types are explicit`, Array.isArray(sourceRow?.p0_target_traffic_data_types), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 source-chain reference flag is explicit boolean`, sourceRow?.p0_source_chain_reference_only === true || sourceRow?.p0_source_chain_reference_only === false, JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 source-chain scope is explicit`, ['traffic_source_rows', 'reference_only_non_traffic_source_rows'].includes(String(sourceRow?.p0_source_chain_scope ?? '')), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 source-chain policy keeps source rows separate from P0 closure`, String(sourceRow?.p0_source_chain_policy ?? '').includes('reference only') && String(sourceRow?.p0_source_chain_policy ?? '').includes('target-date traffic rows'), JSON.stringify(sourceRow ?? {}));
     const targetTrafficRows = Number(sourceRow?.target_date_traffic_rows ?? 0);
+    const targetRows = Number(sourceRow?.target_date_rows ?? 0);
+    const targetDataTypes = sortedStrings(sourceRow?.target_date_data_types);
+    const expectedTrafficDataTypes = [...new Set(targetDataTypes.filter((type) => ['traffic', 'flow', 'flow_data', 'conversion'].includes(type)))].sort();
+    const expectedReferenceOnly = targetRows > 0 && targetTrafficRows <= 0 && targetDataTypes.length > 0 && expectedTrafficDataTypes.length === 0;
+    check(`${prefix} P0 traffic data type subset matches target-date types`, sameStringList(sourceRow?.p0_target_traffic_data_types, expectedTrafficDataTypes), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} non-traffic target-date source rows are reference only`, Boolean(sourceRow?.p0_source_chain_reference_only) === expectedReferenceOnly, JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} non-traffic target-date source scope is not promoted to P0 traffic`, String(sourceRow?.p0_source_chain_scope ?? '') === (expectedReferenceOnly ? 'reference_only_non_traffic_source_rows' : 'traffic_source_rows'), JSON.stringify(sourceRow ?? {}));
     const sourceCount = Number(sourceRow?.traffic_source_count ?? 0);
     const waitingCount = Number(sourceRow?.traffic_waiting_config_count ?? 0);
     const readyCount = Number(sourceRow?.traffic_ready_count ?? 0);
     const status = String(sourceRow?.status ?? '');
     if (targetTrafficRows > 0) {
-      check(`${prefix} marks real target-date traffic rows ready`, status === 'target_date_traffic_ready', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} marks real target-date traffic rows present`, status === 'target_date_traffic_ready', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} does not mark P0 traffic gate ready from rows alone`, String(sourceRow?.p0_traffic_gate_status ?? '') === 'requires_p0_verifier', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} target-date traffic rows still require verifier for field facts`, String(sourceRow?.p0_traffic_field_fact_status ?? '') === 'requires_p0_verifier', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} ready P0 rows use status-check mode`, String(sourceRow?.p0_next_action_mode ?? '') === 'status_check', JSON.stringify(sourceRow ?? {}));
       check(`${prefix} ready traffic rows require no next inputs`, asArray(sourceRow?.required_next_inputs).length === 0, JSON.stringify(sourceRow ?? {}));
       check(`${prefix} ready traffic rows use status-check action`, String(sourceRow?.action_entry ?? '') === '/api/online-data/collection-reliability', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} ready P0 rows use status-check action`, String(sourceRow?.p0_next_action_entry ?? '') === '/api/online-data/collection-reliability', JSON.stringify(sourceRow ?? {}));
     } else if (sourceCount <= 0) {
+      check(`${prefix} marks P0 traffic gate missing without rows`, String(sourceRow?.p0_traffic_gate_status ?? '') === 'missing_target_date_traffic_rows', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} missing registration keeps pre-import evidence absence explicit`, String(sourceRow?.p0_pre_import_evidence_status ?? '') === 'not_provided', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} missing registration keeps all P0 metric keys missing`, sameStringList(sourceRow?.p0_missing_metric_keys, sourceRow?.p0_required_metric_keys), JSON.stringify(sourceRow ?? {}));
       check(`${prefix} missing registration stays explicit`, status === 'not_registered', JSON.stringify(sourceRow ?? {}));
       check(`${prefix} missing registration asks for traffic source registration`, asArray(sourceRow?.required_next_inputs).includes('registered_traffic_data_source'), JSON.stringify(sourceRow ?? {}));
     } else if (waitingCount > 0) {
+      check(`${prefix} marks P0 traffic gate missing without rows`, String(sourceRow?.p0_traffic_gate_status ?? '') === 'missing_target_date_traffic_rows', JSON.stringify(sourceRow ?? {}));
       check(`${prefix} waiting_config cannot be rendered as ready`, status === 'registered_waiting_config', JSON.stringify(sourceRow ?? {}));
       check(`${prefix} waiting_config exposes authorization inputs`, asArray(sourceRow?.required_next_inputs).some((item) => String(item).startsWith('authorized_')) && asArray(sourceRow?.required_next_inputs).includes('traffic_payload_or_query_params'), JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} waiting_config requires manual login state evidence`, asArray(sourceRow?.required_next_inputs).includes('manual_login_state_verified'), JSON.stringify(sourceRow ?? {}));
     } else if (readyCount > 0) {
+      check(`${prefix} marks P0 traffic gate missing without rows`, String(sourceRow?.p0_traffic_gate_status ?? '') === 'missing_target_date_traffic_rows', JSON.stringify(sourceRow ?? {}));
       check(`${prefix} ready source still does not imply target-date traffic rows`, status === 'registered_ready_without_target_date_traffic', JSON.stringify(sourceRow ?? {}));
       check(`${prefix} ready source asks for target-date traffic rows`, asArray(sourceRow?.required_next_inputs).includes('traffic_collection_run_and_target_date_rows'), JSON.stringify(sourceRow ?? {}));
     } else {
+      check(`${prefix} marks P0 traffic gate missing without rows`, String(sourceRow?.p0_traffic_gate_status ?? '') === 'missing_target_date_traffic_rows', JSON.stringify(sourceRow ?? {}));
       check(`${prefix} non-ready source stays explicit`, status === 'registered_not_ready', JSON.stringify(sourceRow ?? {}));
       check(`${prefix} non-ready source exposes readiness input`, asArray(sourceRow?.required_next_inputs).includes('traffic_data_source_ready_state'), JSON.stringify(sourceRow ?? {}));
+    }
+    if (targetTrafficRows <= 0 && sourceCount > 0 && platform === 'meituan') {
+      check(`${prefix} Meituan missing target-date traffic recommends browser profile`, String(sourceRow?.recommended_collection_mode ?? '') === 'browser_profile' && String(sourceRow?.p0_next_action_mode ?? '') === 'browser_profile', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} Meituan missing target-date traffic uses browser capture entry`, String(sourceRow?.action_entry ?? '') === '/api/online-data/capture-meituan-browser' && String(sourceRow?.p0_next_action_entry ?? '') === '/api/online-data/capture-meituan-browser', JSON.stringify(sourceRow ?? {}));
+    }
+    if (targetTrafficRows <= 0 && sourceCount > 0 && platform === 'ctrip') {
+      check(`${prefix} Ctrip missing target-date traffic recommends manual Cookie/API`, String(sourceRow?.recommended_collection_mode ?? '') === 'manual_cookie_api' && String(sourceRow?.p0_next_action_mode ?? '') === 'manual_cookie_api', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} Ctrip missing target-date traffic uses manual traffic entry`, String(sourceRow?.action_entry ?? '') === '/api/online-data/fetch-ctrip-traffic' && String(sourceRow?.p0_next_action_entry ?? '') === '/api/online-data/fetch-ctrip-traffic', JSON.stringify(sourceRow ?? {}));
     }
   }
 }
@@ -546,12 +607,14 @@ function validateTrafficInputContract(prefix, options) {
     const contract = option?.input_contract;
     const acceptance = option?.acceptance_contract;
     const requiredMetricKeys = asArray(contract?.required_metric_keys).map(String);
+    const requiredStorageFields = asArray(contract?.required_storage_fields).map(String);
     const requiredFieldFactKeys = asArray(contract?.required_field_fact_keys).map(String);
     const requiredInputs = asArray(contract?.required_inputs).map(String);
     check(`${prefix} ${mode} option exposes input contract`, isObject(contract), JSON.stringify(option ?? {}));
     check(`${prefix} ${mode} contract stays OTA channel scope`, contract?.scope_policy === 'ota_channel_only', JSON.stringify(contract ?? {}));
     check(`${prefix} ${mode} contract targets online_daily_data traffic`, contract?.target_storage_table === 'online_daily_data' && contract?.target_data_type === 'traffic', JSON.stringify(contract ?? {}));
     check(`${prefix} ${mode} contract requires traffic metric keys`, ['list_exposure', 'detail_exposure', 'flow_rate'].every((key) => requiredMetricKeys.includes(key)), JSON.stringify(contract ?? {}));
+    check(`${prefix} ${mode} contract requires explicit storage fields`, ['online_daily_data.list_exposure', 'online_daily_data.detail_exposure', 'online_daily_data.flow_rate', 'online_daily_data.order_filling_num', 'online_daily_data.order_submit_num'].every((field) => requiredStorageFields.includes(field)), JSON.stringify(contract ?? {}));
     check(`${prefix} ${mode} contract requires field fact chain keys`, ['capture_evidence', 'source_path', 'metric_key', 'storage_field', 'stored_value_present'].every((key) => requiredFieldFactKeys.includes(key)), JSON.stringify(contract ?? {}));
     check(`${prefix} ${mode} contract names required inputs`, requiredInputs.includes('target_date') && requiredInputs.includes('system_hotel_id'), JSON.stringify(contract ?? {}));
     check(`${prefix} ${mode} contract forbids sensitive values`, contract?.sensitive_values_allowed === false, JSON.stringify(contract ?? {}));

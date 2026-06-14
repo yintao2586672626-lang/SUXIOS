@@ -157,7 +157,11 @@ class Opening extends Base
 
     private function hotelScope(): array
     {
-        return [];
+        if (!$this->currentUser) {
+            return [];
+        }
+
+        return array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
     }
 
     private function currentUserId(): int

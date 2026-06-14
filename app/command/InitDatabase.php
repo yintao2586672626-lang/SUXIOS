@@ -64,6 +64,7 @@ class InitDatabase extends Command
                 contact_phone VARCHAR(20),
                 status TINYINT DEFAULT 1,
                 description TEXT,
+                created_by INT UNSIGNED NOT NULL DEFAULT 0,
                 create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                 update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -283,6 +284,7 @@ class InitDatabase extends Command
                 contact_phone VARCHAR(20),
                 status TINYINT DEFAULT 1,
                 description TEXT,
+                created_by INTEGER DEFAULT 0,
                 create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                 update_time DATETIME DEFAULT CURRENT_TIMESTAMP
             )
@@ -488,14 +490,19 @@ class InitDatabase extends Command
     {
         // 插入默认角色（三级权限体系）
         $roles = [
-            ['name' => 'super_admin', 'display_name' => '超级管理员', 'description' => '拥有系统所有权限，可管理所有酒店', 'level' => 1, 'permissions' => json_encode(['all'])],
-            ['name' => 'hotel_manager', 'display_name' => '门店管理员', 'description' => '管理指定酒店，可查看、填写、编辑报表', 'level' => 2, 'permissions' => json_encode(['hotel_view', 'report_view', 'report_fill', 'report_edit', 'report_delete'])],
-            ['name' => 'hotel_staff', 'display_name' => '店员', 'description' => '只能填写指定酒店的报表', 'level' => 3, 'permissions' => json_encode(['report_view', 'report_fill'])],
+            ['id' => 1, 'name' => 'admin', 'display_name' => '管理员', 'description' => '全部权限，能看所有数据', 'level' => 1, 'permissions' => json_encode(['all'])],
+            ['id' => 2, 'name' => 'beta_user', 'display_name' => '内测用户', 'description' => '只能看授权且自己添加的酒店，可管理自己添加的酒店，不能管理用户/角色/系统配置', 'level' => 2, 'permissions' => json_encode(['can_view_online_data', 'can_fetch_online_data', 'can_manage_own_hotels'])],
+            ['id' => 3, 'name' => 'normal_user', 'display_name' => '普通用户', 'description' => '只有 OTA 获取，只能看授权酒店，无法添加酒店', 'level' => 3, 'permissions' => json_encode(['can_view_online_data', 'can_fetch_online_data'])],
         ];
         
         foreach ($roles as $role) {
-            $roleExists = Db::table('roles')->where('name', $role['name'])->find();
-            if (!$roleExists) {
+            $roleExists = Db::table('roles')->where('id', $role['id'])->find();
+            if ($roleExists) {
+                Db::table('roles')->where('id', $role['id'])->update(array_merge($role, [
+                    'status' => 1,
+                    'update_time' => date('Y-m-d H:i:s'),
+                ]));
+            } else {
                 Db::table('roles')->insert(array_merge($role, [
                     'status' => 1,
                     'create_time' => date('Y-m-d H:i:s'),
@@ -520,7 +527,7 @@ class InitDatabase extends Command
 
         // 插入示例酒店
         $hotels = [
-            ['name' => '东方大酒店', 'code' => 'DF001', 'address' => '北京市朝阳区', 'contact_person' => '张经理', 'contact_phone' => '010-12345678'],
+            ['name' => '东方大酒店', 'code' => 'DF001', 'address' => '北京市朝阳区', 'contact_person' => '张经理', 'contact_phone' => '010-12345678', 'created_by' => 2],
             ['name' => '西湖度假村', 'code' => 'XH002', 'address' => '杭州市西湖区', 'contact_person' => '李经理', 'contact_phone' => '0571-87654321'],
             ['name' => '海滨国际酒店', 'code' => 'HB003', 'address' => '上海市浦东新区', 'contact_person' => '王经理', 'contact_phone' => '021-11112222'],
         ];
@@ -536,13 +543,13 @@ class InitDatabase extends Command
         }
         $output->writeln('✓ 示例酒店数据创建成功');
 
-        // 创建示例门店管理员
+        // 创建示例内测用户
         $managerExists = Db::table('users')->where('username', 'manager1')->find();
         if (!$managerExists) {
             Db::table('users')->insert([
                 'username' => 'manager1',
                 'password' => password_hash('manager123', PASSWORD_DEFAULT),
-                'realname' => '东方酒店经理',
+                'realname' => '内测用户',
                 'role_id' => 2,
                 'hotel_id' => 1,
                 'status' => 1,
@@ -552,42 +559,48 @@ class InitDatabase extends Command
             Db::table('user_hotel_permissions')->insert([
                 'user_id' => 2,
                 'hotel_id' => 1,
-                'can_view_report' => 1,
-                'can_fill_daily_report' => 1,
-                'can_fill_monthly_task' => 1,
-                'can_edit_report' => 1,
-                'can_delete_report' => 1,
+                'can_view_report' => 0,
+                'can_fill_daily_report' => 0,
+                'can_fill_monthly_task' => 0,
+                'can_edit_report' => 0,
+                'can_delete_report' => 0,
+                'can_view_online_data' => 1,
+                'can_fetch_online_data' => 1,
+                'can_delete_online_data' => 0,
                 'is_primary' => 1,
                 'create_time' => date('Y-m-d H:i:s'),
             ]);
-            $output->writeln('✓ 示例门店管理员创建成功 (用户名: manager1, 密码: manager123)');
+            $output->writeln('✓ 示例内测用户创建成功 (用户名: manager1, 密码: manager123)');
         }
 
-        // 创建示例店员
+        // 创建示例普通用户
         $staffExists = Db::table('users')->where('username', 'staff1')->find();
         if (!$staffExists) {
             Db::table('users')->insert([
                 'username' => 'staff1',
                 'password' => password_hash('staff123', PASSWORD_DEFAULT),
-                'realname' => '前台员工',
+                'realname' => '普通用户',
                 'role_id' => 3,
                 'hotel_id' => 1,
                 'status' => 1,
                 'create_time' => date('Y-m-d H:i:s'),
             ]);
-            // 绑定酒店权限（只能填写报表）
+            // 绑定酒店权限（只有 OTA 获取）
             Db::table('user_hotel_permissions')->insert([
                 'user_id' => 3,
                 'hotel_id' => 1,
-                'can_view_report' => 1,
-                'can_fill_daily_report' => 1,
-                'can_fill_monthly_task' => 1,
+                'can_view_report' => 0,
+                'can_fill_daily_report' => 0,
+                'can_fill_monthly_task' => 0,
                 'can_edit_report' => 0,
                 'can_delete_report' => 0,
+                'can_view_online_data' => 1,
+                'can_fetch_online_data' => 1,
+                'can_delete_online_data' => 0,
                 'is_primary' => 0,
                 'create_time' => date('Y-m-d H:i:s'),
             ]);
-            $output->writeln('✓ 示例店员创建成功 (用户名: staff1, 密码: staff123)');
+            $output->writeln('✓ 示例普通用户创建成功 (用户名: staff1, 密码: staff123)');
         }
 
         // 插入默认报表配置

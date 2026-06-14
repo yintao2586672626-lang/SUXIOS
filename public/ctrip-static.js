@@ -1014,17 +1014,11 @@ window.SUXI_CTRIP_STATIC = (() => {
         }
 
         const selectedCtripHotelId = getSelectedCtripHotelId();
-        if (!selectedCtripHotelId) {
-            notify('请选择目标酒店', 'error');
-            return { status: 'missing_hotel' };
-        }
-        const selectedConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
-        if (!selectedConfig) {
-            notify('当前酒店未配置携程数据源', 'warning');
-            return { status: 'missing_config' };
-        }
+        const selectedConfig = selectedCtripHotelId
+            ? await ensureCtripConfigSecret(getActiveCtripConfig())
+            : null;
         let form = getForm() || {};
-        if (!isCtripRankingFormAlignedWithConfig(form, selectedConfig, { selectedHotelId: selectedCtripHotelId })) {
+        if (selectedConfig && !isCtripRankingFormAlignedWithConfig(form, selectedConfig, { selectedHotelId: selectedCtripHotelId })) {
             applyCtripConfigObject(selectedConfig);
             form = getForm() || form;
         }

@@ -17,6 +17,10 @@ class User extends Base
      */
     public function index(): Response
     {
+        if (!$this->currentUser->canManageUser()) {
+            return $this->error('权限不足', 403);
+        }
+
         $pagination = $this->getPagination();
         $username = $this->request->param('username', '');
         $roleId = $this->request->param('role_id', '');
@@ -58,6 +62,10 @@ class User extends Base
      */
     public function read(int $id): Response
     {
+        if (!$this->currentUser->canManageUser()) {
+            return $this->error('权限不足', 403);
+        }
+
         $user = UserModel::with(['role', 'hotel'])->find($id);
         if (!$user) {
             return $this->error('用户不存在');
@@ -163,16 +171,6 @@ class User extends Base
         // 权限检查
         if ($this->currentUser->isSuperAdmin()) {
             // 超级管理员可以修改任意用户
-        } elseif ($this->currentUser->isHotelManager()) {
-            // 店长只能修改自己酒店的店员
-            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
-            if (!in_array((int)$user->hotel_id, $permittedHotelIds, true)) {
-                return $this->error('只能修改自己酒店的用户');
-            }
-            $targetRole = Role::find((int)$user->role_id);
-            if (!$targetRole || (int)$targetRole->level < 3) {
-                return $this->error('只能修改店员账号');
-            }
         } elseif ($this->currentUser->id == $id) {
             // 用户修改自己
         } else {
@@ -242,16 +240,6 @@ class User extends Base
         // 权限检查
         if ($this->currentUser->isSuperAdmin()) {
             // 超级管理员可以删除任意用户
-        } elseif ($this->currentUser->isHotelManager()) {
-            // 店长只能删除自己酒店的店员
-            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
-            if (!in_array((int)$user->hotel_id, $permittedHotelIds, true)) {
-                return $this->error('只能删除自己酒店的用户');
-            }
-            $targetRole = Role::find((int)$user->role_id);
-            if (!$targetRole || (int)$targetRole->level < 3) {
-                return $this->error('只能删除店员账号');
-            }
         } else {
             return $this->error('权限不足');
         }

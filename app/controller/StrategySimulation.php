@@ -6,6 +6,7 @@ namespace app\controller;
 use app\model\StrategyDataSnapshot;
 use app\model\StrategySimulationRecord;
 use app\service\LlmClient;
+use app\service\SimulationExecutionReadinessService;
 use think\exception\ValidateException;
 use think\facade\Db;
 use think\Response;
@@ -43,6 +44,7 @@ class StrategySimulation extends Base
             $dataSnapshot = $this->buildDataSnapshot($localData, $externalData);
             $risk = $this->buildRisk($scores, $recommendation);
             $recordId = $this->saveRecord($input, $dataSnapshot, $scores, $recommendation, $risk);
+            $executionReadiness = (new SimulationExecutionReadinessService())->buildStrategyReadiness($input, $scores, $recommendation, $risk, $dataSnapshot);
 
             return $this->success([
                 'total_score' => $scores['total_score'],
@@ -53,6 +55,7 @@ class StrategySimulation extends Base
                 'risk' => $risk,
                 'data_snapshot' => $dataSnapshot,
                 'record_id' => $recordId,
+                'execution_readiness' => $executionReadiness,
             ], '战略推演成功');
         } catch (ValidateException $e) {
             return $this->error($e->getMessage(), 422);
@@ -750,6 +753,7 @@ class StrategySimulation extends Base
             'decision' => (string)($recommendation['decision'] ?? ''),
             'created_at' => (string)($row['created_at'] ?? ''),
             'updated_at' => (string)($row['updated_at'] ?? ''),
+            'execution_readiness' => (new SimulationExecutionReadinessService())->buildStrategyReadiness($input, $scoreJson, $recommendation, $risk, $dataSnapshot),
         ];
 
         if (!$withDetail) {

@@ -426,6 +426,7 @@ Route::group('api/operation', function () {
     Route::post('/execution-tasks/:id/execute', 'OperationManagement/executeExecutionTask');
     Route::post('/execution-tasks/:id/evidence', 'OperationManagement/executionTaskEvidence');
     Route::post('/execution-tasks/:id/review', 'OperationManagement/reviewExecutionTask');
+    Route::get('/closure-overview', 'OperationManagement/closureOverview');
     Route::get('/execution-flow', 'OperationManagement/executionFlow');
     Route::get('/execution-intents', 'OperationManagement/executionIntents');
     Route::post('/execution-intents', 'OperationManagement/createExecutionIntent');

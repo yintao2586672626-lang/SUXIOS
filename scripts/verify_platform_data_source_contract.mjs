@@ -163,8 +163,10 @@ for (const [needle, label] of [
   ["'storage_field' => 'online_daily_data.'", 'field fact service emits online_daily_data storage targets'],
   ["'source_path' => self::sourcePath", 'field fact service emits source paths'],
   ['source_trace_id', 'field fact service preserves desensitized source trace ids'],
-  ['source_url_hash', 'field fact service preserves desensitized source URL hashes'],
+  ["'source_url_hash' => ['source_url_hash', '_source_url_hash', 'url_hash', '_url_hash']", 'field fact service preserves desensitized source URL hash aliases'],
   ['payload_hash', 'field fact service preserves desensitized payload hashes'],
+  ['desensitized_capture_evidence_count', 'field fact service summarizes P0-grade desensitized evidence'],
+  ['hasDesensitizedCaptureEvidence', 'field fact service requires trace and source hash for strict evidence'],
 ]) {
   check('app/service/OnlineDataFieldFactService.php', label, (source) => source.includes(needle), needle);
 }
@@ -285,11 +287,13 @@ for (const [needle, label] of [
   ["'missing_state' => (string)$definition['missing_state']", 'platform sync field facts keep explicit missing states'],
   ['appendSafeFieldFactCaptureEvidence', 'platform sync preserves desensitized field fact capture evidence'],
   ['safeFieldFactCaptureEvidenceValue', 'platform sync filters sensitive evidence strings'],
-  ["'source_url_hash' => ['source_url_hash', '_source_url_hash']", 'platform sync accepts source URL hashes from capture rows'],
+  ["'source_url_hash' => ['source_url_hash', '_source_url_hash', 'url_hash', '_url_hash']", 'platform sync accepts source URL hash aliases from capture rows'],
   ["'payload_hash' => ['payload_hash', '_payload_hash']", 'platform sync accepts payload hashes from capture rows'],
   ["'profile_id'", 'platform sync accepts Ctrip browser Profile config fields'],
   ["'store_id'", 'platform sync accepts Meituan browser Profile config fields'],
   ["'source_trace_id' => $traceId", 'platform sync preserves browser Profile trace ids'],
+  ['desensitized_capture_evidence_count', 'platform sync summarizes P0-grade desensitized evidence'],
+  ['fieldFactHasDesensitizedCaptureEvidence', 'platform sync requires trace and source hash for strict evidence'],
 ]) {
   check('app/service/PlatformDataSyncService.php', label, (source) => source.includes(needle), needle);
 }
@@ -299,7 +303,10 @@ for (const [needle, label] of [
   ['export function attachOtaCaptureEvidence', 'OTA capture helper attaches evidence to rows'],
   ['source_url_hash', 'OTA capture helper emits URL hashes instead of raw URL evidence'],
   ['source_trace_id', 'OTA capture helper emits trace ids'],
+  ['delete evidence.source_url;', 'OTA capture helper removes raw source URLs from nested evidence'],
+  ['delete evidence.url;', 'OTA capture helper removes raw URL aliases from nested evidence'],
   ['delete next._source_url;', 'OTA capture helper removes raw source URLs from row output'],
+  ['delete next.url;', 'OTA capture helper removes raw URL aliases from row output'],
 ]) {
   check('scripts/lib/ota_capture_standard.mjs', label, (source) => source.includes(needle), needle);
 }
@@ -521,11 +528,14 @@ check(
   (source) => source.includes('function decorateCapturedRow')
     && source.includes('function joinSourcePath')
     && source.includes('_source_path')
-    && source.includes('normalizeCapturedList(nested, section, joinSourcePath(sourcePath, path))')
+    && source.includes('normalizeCapturedList(nested, section, joinSourcePath(sourcePath, path), requestDateEvidence)')
     && source.includes('row._capture_source || `dom:${sectionName}`')
     && source.includes('attachOtaCaptureEvidence(row, \'meituan\'')
     && source.includes('buildOtaCaptureEvidence(\'meituan\'')
     && source.includes('source_trace_id')
+    && source.includes('date_source: \'row\'')
+    && source.includes('capture_context.default_data_date')
+    && source.includes('request_date_source')
     && source.includes('url_hash'),
   'decorateCapturedRow/_source_path/joinSourcePath/attachOtaCaptureEvidence'
 );
@@ -538,6 +548,8 @@ check(
     && source.includes('buildOtaCaptureEvidence(\'ctrip\'')
     && source.includes('source_trace_id')
     && source.includes('url_hash')
+    && source.includes('annotateCtripStandardRowDateSource')
+    && source.includes('capture_context.default_data_date')
     && source.includes('row.source_trace_id || row.source_url_hash'),
   'attachCtripCaptureEvidence/buildOtaCaptureEvidence/source_trace_id/url_hash'
 );
@@ -566,7 +578,11 @@ check(
   (source) => source.includes('onlineAnalysisFieldFactStatusText(item)')
     && source.includes('onlineAnalysisFieldFactStatusClass(item)')
     && source.includes('onlineAnalysisFieldFactDetailText(item)')
+    && source.includes('onlineAnalysisP0CaptureEvidenceStatusText(item)')
+    && source.includes('onlineAnalysisP0CaptureEvidenceStatusClass(item)')
+    && source.includes('onlineAnalysisP0CaptureEvidenceDetailText(item)')
     && source.includes('field_fact_status')
+    && source.includes('desensitized_capture_evidence_count')
     && source.includes('stored_value_present_count')
     && source.includes('stored_value_missing_count')
     && source.includes('字段事实未写入'),

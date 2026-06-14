@@ -17,6 +17,7 @@ class Hotel extends Model
     protected $type = [
         'id' => 'integer',
         'status' => 'integer',
+        'created_by' => 'integer',
     ];
 
     // 状态常量

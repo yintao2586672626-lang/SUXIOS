@@ -101,6 +101,95 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         self::assertContains('Do not approve until blocking data gaps are resolved.', $result['review_checklist']);
     }
 
+    public function testSuggestionReadinessKeepsPendingSuggestionOutOfExecutionClosure(): void
+    {
+        $service = new RevenuePricingRecommendationService();
+        $recommendation = $service->recommendFromSignals([
+            'base_price' => 200,
+            'min_price' => 160,
+            'max_price' => 260,
+            'room_count' => 20,
+        ], [
+            'demand_forecast' => ['data_status' => 'ok', 'predicted_occupancy' => 92, 'confidence_score' => 0.86],
+            'pickup' => ['data_status' => 'ok', 'pace_index' => 140],
+            'elasticity' => ['data_status' => 'ok', 'elasticity' => -0.4],
+            'competitor' => ['data_status' => 'ok', 'gap_percent' => 12, 'avg_price' => 226],
+            'holiday' => ['data_status' => 'ok', 'is_holiday_window' => true, 'is_in_holiday' => false],
+            'inventory' => ['data_status' => 'ok', 'utilization_percent' => 94],
+            'backtest' => ['data_status' => 'ok', 'hit_rate' => 76, 'sample_count' => 20],
+            'data_gaps' => [],
+        ]);
+
+        $readiness = $service->buildSuggestionReadiness([
+            'id' => 10,
+            'status' => 1,
+            'confidence_score' => $recommendation['confidence_score'],
+            'risk_level' => $recommendation['risk_level'],
+            'factors' => $recommendation['factors'],
+        ]);
+
+        self::assertSame('pending_approval', $readiness['stage']);
+        self::assertFalse($readiness['pricing_ready']);
+        self::assertContains('manual_approval', array_column($readiness['missing_evidence'], 'code'));
+        self::assertContains('execution_intent', array_column($readiness['missing_evidence'], 'code'));
+        self::assertContains('execution_evidence', array_column($readiness['missing_evidence'], 'code'));
+    }
+
+    public function testSuggestionReadinessRequiresEvidenceAndRoiForPricingClosure(): void
+    {
+        $service = new RevenuePricingRecommendationService();
+        $recommendation = $service->recommendFromSignals([
+            'base_price' => 200,
+            'min_price' => 160,
+            'max_price' => 260,
+            'room_count' => 20,
+        ], [
+            'demand_forecast' => ['data_status' => 'ok', 'predicted_occupancy' => 92, 'confidence_score' => 0.86],
+            'pickup' => ['data_status' => 'ok', 'pace_index' => 140],
+            'elasticity' => ['data_status' => 'ok', 'elasticity' => -0.4],
+            'competitor' => ['data_status' => 'ok', 'gap_percent' => 12, 'avg_price' => 226],
+            'holiday' => ['data_status' => 'ok', 'is_holiday_window' => true, 'is_in_holiday' => false],
+            'inventory' => ['data_status' => 'ok', 'utilization_percent' => 94],
+            'backtest' => ['data_status' => 'ok', 'hit_rate' => 76, 'sample_count' => 20],
+            'data_gaps' => [],
+        ]);
+
+        $readiness = $service->buildSuggestionReadiness([
+            'id' => 10,
+            'status' => 4,
+            'current_price' => 200,
+            'suggested_price' => 230,
+            'confidence_score' => $recommendation['confidence_score'],
+            'risk_level' => $recommendation['risk_level'],
+            'factors' => $recommendation['factors'],
+        ], [
+            'id' => 99,
+            'stage' => 'reviewed',
+            'approval' => ['status' => 'approved'],
+            'execution' => ['status' => 'executed'],
+            'evidence' => ['count' => 2],
+            'roi' => ['status' => 'ready', 'value' => 2.1],
+        ]);
+
+        self::assertSame('pricing_ready', $readiness['stage']);
+        self::assertTrue($readiness['pricing_ready']);
+        self::assertSame(100, $readiness['score']);
+        self::assertSame([], $readiness['missing_evidence']);
+
+        $enriched = $service->enrichSuggestionRows([[
+            'id' => 10,
+            'status' => 4,
+            'suggestion_type' => 1,
+            'current_price' => 200,
+            'suggested_price' => 230,
+            'factors' => $recommendation['factors'],
+        ]], [
+            10 => ['stage' => 'reviewed', 'evidence' => ['count' => 2], 'roi' => ['status' => 'ready']],
+        ]);
+        self::assertSame(15.0, $enriched[0]['price_change_percent']);
+        self::assertSame('pricing_ready', $enriched[0]['pricing_readiness']['stage']);
+    }
+
     public function testElasticityEstimateReturnsBacktestHitRate(): void
     {
         $service = new RevenuePricingRecommendationService();

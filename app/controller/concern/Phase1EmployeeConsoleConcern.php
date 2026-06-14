@@ -1571,6 +1571,13 @@ trait Phase1EmployeeConsoleConcern
                 'order_filling_num',
                 'order_submit_num',
             ],
+            'required_storage_fields' => [
+                'online_daily_data.list_exposure',
+                'online_daily_data.detail_exposure',
+                'online_daily_data.flow_rate',
+                'online_daily_data.order_filling_num',
+                'online_daily_data.order_submit_num',
+            ],
             'required_field_fact_keys' => [
                 'capture_evidence',
                 'source_path',
@@ -2353,6 +2360,39 @@ trait Phase1EmployeeConsoleConcern
         ));
     }
 
+    private function phase1P0TrafficRequiredMetricKeys(): array
+    {
+        return [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ];
+    }
+
+    private function phase1P0TrafficRequiredStorageFields(): array
+    {
+        return [
+            'online_daily_data.list_exposure',
+            'online_daily_data.detail_exposure',
+            'online_daily_data.flow_rate',
+            'online_daily_data.order_filling_num',
+            'online_daily_data.order_submit_num',
+        ];
+    }
+
+    private function phase1P0TrafficRequiredFieldFactKeys(): array
+    {
+        return [
+            'capture_evidence',
+            'source_path',
+            'metric_key',
+            'storage_field',
+            'stored_value_present',
+        ];
+    }
+
     private function phase1TrafficSourceReadiness(array $metricDomainReadiness): array
     {
         $platforms = [];
@@ -2362,9 +2402,14 @@ trait Phase1EmployeeConsoleConcern
             }
             $platform = strtolower(trim((string)($row['platform'] ?? '')));
             if (in_array($platform, ['ctrip', 'meituan'], true)) {
+                $targetDateDataTypes = array_values(array_filter(array_map(
+                    static fn($value): string => strtolower(trim((string)$value)),
+                    (array)($row['target_date_data_types'] ?? [])
+                ), static fn(string $value): bool => $value !== ''));
                 $platforms[$platform] = [
                     'target_date_rows' => max(0, (int)($row['target_date_rows'] ?? $row['source_rows'] ?? 0)),
                     'target_date_traffic_rows' => max(0, (int)($row['traffic_rows'] ?? 0)),
+                    'target_date_data_types' => array_values(array_unique($targetDateDataTypes)),
                 ];
             }
         }
@@ -2381,10 +2426,26 @@ trait Phase1EmployeeConsoleConcern
 
     private function phase1TrafficSourceReadinessForPlatform(string $platform, array $context): array
     {
+        $requiredMetricKeys = $this->phase1P0TrafficRequiredMetricKeys();
+        $requiredStorageFields = $this->phase1P0TrafficRequiredStorageFields();
+        $requiredFieldFactKeys = $this->phase1P0TrafficRequiredFieldFactKeys();
+        $targetDateRows = max(0, (int)($context['target_date_rows'] ?? 0));
+        $targetDateTrafficRows = max(0, (int)($context['target_date_traffic_rows'] ?? 0));
+        $targetDateDataTypes = array_values(array_filter(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            (array)($context['target_date_data_types'] ?? [])
+        ), static fn(string $value): bool => $value !== ''));
+        $targetDateDataTypes = array_values(array_unique($targetDateDataTypes));
+        $targetDateTrafficDataTypes = $this->phase1TrafficDataTypes($targetDateDataTypes);
+        $sourceChainReferenceOnly = $targetDateRows > 0
+            && $targetDateTrafficRows <= 0
+            && $targetDateDataTypes !== []
+            && $targetDateTrafficDataTypes === [];
         $base = [
             'platform' => $platform,
-            'target_date_rows' => max(0, (int)($context['target_date_rows'] ?? 0)),
-            'target_date_traffic_rows' => max(0, (int)($context['target_date_traffic_rows'] ?? 0)),
+            'target_date_rows' => $targetDateRows,
+            'target_date_traffic_rows' => $targetDateTrafficRows,
+            'target_date_data_types' => $targetDateDataTypes,
             'traffic_source_count' => 0,
             'traffic_enabled_count' => 0,
             'traffic_ready_count' => 0,
@@ -2398,6 +2459,23 @@ trait Phase1EmployeeConsoleConcern
             'status' => 'not_registered',
             'source_policy' => 'read_platform_data_sources_metadata_only',
             'sensitive_values_exposed' => false,
+            'p0_traffic_gate_status' => 'missing_target_date_traffic_rows',
+            'p0_next_action_mode' => 'status_check',
+            'p0_next_action_entry' => '/api/online-data/collection-reliability',
+            'p0_next_step_count' => 0,
+            'next_command_policy' => 'metadata_only_no_sensitive_commands',
+            'p0_external_evidence_status' => 'not_provided',
+            'p0_pre_import_evidence_status' => 'not_provided',
+            'p0_pre_import_evidence_policy' => 'External traffic evidence is source proof only; P0 closure still requires target-date traffic rows and ready verifier status.',
+            'p0_traffic_field_fact_status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'missing_target_date_traffic_rows',
+            'p0_required_metric_keys' => $requiredMetricKeys,
+            'p0_required_storage_fields' => $requiredStorageFields,
+            'p0_required_field_fact_keys' => $requiredFieldFactKeys,
+            'p0_missing_metric_keys' => $targetDateTrafficRows > 0 ? [] : $requiredMetricKeys,
+            'p0_target_traffic_data_types' => $targetDateTrafficDataTypes,
+            'p0_source_chain_reference_only' => $sourceChainReferenceOnly,
+            'p0_source_chain_scope' => $sourceChainReferenceOnly ? 'reference_only_non_traffic_source_rows' : 'traffic_source_rows',
+            'p0_source_chain_policy' => 'Target-date source rows without traffic/flow/conversion data types are reference only; P0 closure still requires target-date traffic rows and ready verifier status.',
         ];
 
         if (!$this->phase1TableExists('platform_data_sources')) {
@@ -2483,13 +2561,43 @@ trait Phase1EmployeeConsoleConcern
         } else {
             $base['status'] = 'registered_not_ready';
         }
-        $base['recommended_collection_mode'] = $trafficRows > 0 ? 'status_check' : 'manual_cookie_api';
-        $base['action_entry'] = $trafficRows > 0
-            ? '/api/online-data/collection-reliability'
-            : $this->phase1TrafficConversionFactsActionEntry($platform);
+        $recommendedMode = $this->phase1TrafficSourceRecommendedMode($platform, $base);
+        $base['recommended_collection_mode'] = $recommendedMode;
+        $base['action_entry'] = $this->phase1TrafficSourceActionEntryForMode($platform, $recommendedMode);
+        $base['p0_traffic_gate_status'] = $trafficRows > 0 ? 'requires_p0_verifier' : 'missing_target_date_traffic_rows';
+        $base['p0_next_action_mode'] = $recommendedMode;
+        $base['p0_next_action_entry'] = $base['action_entry'];
+        $base['p0_next_step_count'] = max(0, (int)$base['traffic_managed_count']);
         $base['required_next_inputs'] = $this->phase1TrafficSourceRequiredNextInputs($platform, $base);
 
         return $base;
+    }
+
+    private function phase1TrafficSourceRecommendedMode(string $platform, array $source): string
+    {
+        $platform = strtolower(trim($platform));
+        if ((int)($source['target_date_traffic_rows'] ?? 0) > 0) {
+            return 'status_check';
+        }
+        if ($platform === 'meituan' && (int)($source['traffic_source_count'] ?? 0) > 0) {
+            return 'browser_profile';
+        }
+        return 'manual_cookie_api';
+    }
+
+    private function phase1TrafficSourceActionEntryForMode(string $platform, string $mode): string
+    {
+        $platform = strtolower(trim($platform));
+        $mode = strtolower(trim($mode));
+        if ($mode === 'status_check') {
+            return '/api/online-data/collection-reliability';
+        }
+        if ($mode === 'browser_profile') {
+            return $platform === 'meituan'
+                ? '/api/online-data/capture-meituan-browser'
+                : '/api/online-data/capture-ctrip-browser';
+        }
+        return $this->phase1TrafficConversionFactsActionEntry($platform);
     }
 
     private function phase1TrafficSourceRequiredNextInputs(string $platform, array $source): array
@@ -2511,8 +2619,8 @@ trait Phase1EmployeeConsoleConcern
         }
 
         $inputs = $platform === 'meituan'
-            ? ['traffic_request_url_or_cdp_endpoint_evidence', 'traffic_payload_or_query_params', 'authorized_meituan_profile_dir']
-            : ['traffic_payload_or_query_params', 'authorized_ctrip_profile_dir'];
+            ? ['traffic_request_url_or_cdp_endpoint_evidence', 'traffic_payload_or_query_params', 'authorized_meituan_profile_dir', 'manual_login_state_verified']
+            : ['traffic_payload_or_query_params', 'authorized_ctrip_profile_dir', 'manual_login_state_verified'];
 
         if ((int)($source['traffic_source_count'] ?? 0) <= 0) {
             array_unshift($inputs, 'registered_traffic_data_source');
@@ -2587,6 +2695,14 @@ trait Phase1EmployeeConsoleConcern
             static fn($value): string => strtolower(trim((string)$value)),
             (array)($latest['data_types'] ?? [])
         ), static fn(string $value): bool => $value !== '')));
+    }
+
+    private function phase1TrafficDataTypes(array $types): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            $types
+        ), static fn(string $value): bool => in_array($value, ['traffic', 'flow', 'flow_data', 'conversion'], true))));
     }
 
     private function phase1HasAnyDataType(array $types, array $needles): bool

@@ -244,6 +244,72 @@ final class TransferDecisionServiceTest extends TestCase
         self::assertNotEmpty($result['final_judgement']);
     }
 
+    public function testDecisionReadinessKeepsManualPricingAsInputOnly(): void
+    {
+        $service = $this->fallbackService();
+        $pricing = $service->calculateAssetPricing($this->pricingInput());
+
+        $readiness = $service->buildDecisionReadiness('pricing', $this->pricingInput(), $pricing, [], 7);
+
+        self::assertSame('manual_input_only', $readiness['stage']);
+        self::assertFalse($readiness['decision_ready']);
+        self::assertSame('manual_input_only', $readiness['source_scope']);
+        self::assertContains('source_snapshot', array_column($readiness['missing_evidence'], 'code'));
+    }
+
+    public function testDecisionReadinessRequiresDiligenceEvidenceBeforeDecisionReady(): void
+    {
+        $service = $this->fallbackService();
+        $pricingInput = $this->pricingInput();
+        $timingInput = [
+            'current_revenue' => 120,
+            'previous_revenue' => 100,
+            'current_orders' => 620,
+            'previous_orders' => 520,
+            'current_adr' => 320,
+            'previous_adr' => 300,
+            'current_occupancy_rate' => 82,
+            'previous_occupancy_rate' => 76,
+            'rating' => 4.8,
+            'exposure' => 12000,
+            'visitors' => 1800,
+            'conversion_rate' => 6.5,
+            'order_count' => 620,
+            'room_nights' => 980,
+        ];
+        $pricing = $service->calculateAssetPricing($pricingInput);
+        $timing = $service->calculateTransferTiming($timingInput);
+        $dashboard = $service->buildTransferDashboard($pricing, $timing, []);
+        $snapshot = [
+            'hotel_id' => 7,
+            'source_date' => '2026-06-14',
+            'current' => ['actual_days' => 30, 'has_data_anomaly' => false],
+            'source_counts' => ['daily_reports' => 30, 'online_daily_data' => 30],
+            'data_status' => '已接入真实数据',
+        ];
+        $dashboardInput = [
+            'pricing' => $pricing,
+            'timing' => $timing,
+            'pricing_input' => $pricingInput,
+            'timing_input' => $timingInput,
+        ];
+
+        $readiness = $service->buildDecisionReadiness('dashboard', $dashboardInput, $dashboard, $snapshot, 7);
+
+        self::assertSame('diligence_required', $readiness['stage']);
+        self::assertFalse($readiness['decision_ready']);
+        self::assertContains('diligence_document_evidence', array_column($readiness['missing_evidence'], 'code'));
+
+        $approved = $service->buildDecisionReadiness('dashboard', array_merge($dashboardInput, [
+            'diligence_evidence' => ['lease_contract' => 'checked'],
+            'review_status' => 'approved',
+            'operation_execution_intent_id' => 88,
+        ]), $dashboard, $snapshot, 7);
+
+        self::assertSame('decision_ready', $approved['stage']);
+        self::assertTrue($approved['decision_ready']);
+    }
+
     private function pricingInput(): array
     {
         return [

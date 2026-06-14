@@ -681,7 +681,10 @@ class QuantSimulationService
 
     private function formatRecord(array $row, bool $withDetail): array
     {
+        $input = $this->decodeJson($row['input_json'] ?? '');
         $result = $this->decodeJson($row['result_json'] ?? '');
+        $scenarios = $this->decodeJson($row['scenarios_json'] ?? '');
+        $riskHints = $this->decodeJson($row['risk_hints_json'] ?? '');
         $modelAnalysis = $this->normalizeModelAnalysis($result['modelAnalysis'] ?? $result['model_analysis'] ?? []);
         $record = [
             'id' => (int)$row['id'],
@@ -697,13 +700,14 @@ class QuantSimulationService
                 'paybackMonths' => $result['paybackMonths'] ?? null,
                 'riskLevel' => (string)($result['riskLevel'] ?? ($row['risk_level'] ?? '')),
             ],
+            'execution_readiness' => (new SimulationExecutionReadinessService())->buildQuantReadiness($input, $result, $scenarios, $riskHints),
         ];
 
         if ($withDetail) {
-            $record['input'] = $this->decodeJson($row['input_json'] ?? '');
+            $record['input'] = $input;
             $record['result'] = $result;
-            $record['scenarios'] = $this->decodeJson($row['scenarios_json'] ?? '');
-            $record['risk_hints'] = $this->decodeJson($row['risk_hints_json'] ?? '');
+            $record['scenarios'] = $scenarios;
+            $record['risk_hints'] = $riskHints;
             $record['model_analysis'] = $modelAnalysis;
         }
 

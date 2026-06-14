@@ -30,8 +30,8 @@ CREATE TABLE `users` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
 INSERT INTO `users` VALUES (1, 'admin', '$2y$10$BODZAPJzu.NDfYj2RYrmIeum7acfghE54HOtasVv2dohuUYcL6INS', '超级管理员', NULL, NULL, 1, 1, NULL, '2026-02-27 12:54:52', '127.0.0.1', '2026-02-24 09:15:46', '2026-02-27 12:54:52.645979');
-INSERT INTO `users` VALUES (2, 'manager1', '$2y$10$Ooi6fGyBi07EgMfCRSp7veZ8uaaProuB5Hlu6foCz2bIZXbvy6tHC', '门店经理张三', NULL, NULL, 2, 1, 1, '2026-02-26 18:06:34', '127.0.0.1', '2026-02-24 09:15:46', '2026-02-26 18:06:34.975211');
-INSERT INTO `users` VALUES (3, 'staff1', '$2y$10$Zj7ZXEeL.lsS4vKpQPlaNeoWf1TcY2Ni0tZitmsZgb3hV1oYGKYHu', '店员李四', NULL, NULL, 3, 1, 1, '2026-02-26 17:01:47', '127.0.0.1', '2026-02-24 09:15:46', '2026-02-26 17:01:47.709756');
+INSERT INTO `users` VALUES (2, 'manager1', '$2y$10$Ooi6fGyBi07EgMfCRSp7veZ8uaaProuB5Hlu6foCz2bIZXbvy6tHC', '内测用户', NULL, NULL, 2, 1, 1, '2026-02-26 18:06:34', '127.0.0.1', '2026-02-24 09:15:46', '2026-02-26 18:06:34.975211');
+INSERT INTO `users` VALUES (3, 'staff1', '$2y$10$Zj7ZXEeL.lsS4vKpQPlaNeoWf1TcY2Ni0tZitmsZgb3hV1oYGKYHu', '普通用户', NULL, NULL, 3, 1, 1, '2026-02-26 17:01:47', '127.0.0.1', '2026-02-24 09:15:46', '2026-02-26 17:01:47.709756');
 INSERT INTO `users` VALUES (4, 'mcc2', '$2y$10$o42FT0RyxJiqb/LzuvsBme9veeU.NILv36.BD5Hna1GNVorE9zP7y', '栖悦里', '', '', 2, 1, NULL, '2026-02-26 17:01:27', '127.0.0.1', '2026-02-26 16:18:24.711014', '2026-02-26 17:01:27.527995');
 
 
@@ -52,12 +52,9 @@ CREATE TABLE `roles` (
   UNIQUE KEY `uk_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色表';
 
-INSERT INTO `roles` VALUES (1, '超级管理员', '超级管理员', '拥有系统所有权限', 1, '{\"all\":true}', 1, '2026-02-24 09:15:46', '2026-02-24 09:15:46');
-INSERT INTO `roles` VALUES (2, '门店管理员', '门店管理员', '管理单个酒店', 2, '[\"can_view_report\",\"can_fill_daily_report\",\"can_fill_monthly_task\",\"can_edit_report\",\"can_view_online_data\",\"can_fetch_online_data\"]', 1, '2026-02-24 09:15:46', '2026-02-26 17:28:07.894610');
-INSERT INTO `roles` VALUES (3, '店员', '店员', '普通员工', 3, '[\"can_fill_daily_report\",\"can_view_report\",\"can_edit_report\",\"can_fetch_online_data\",\"can_view_online_data\"]', 1, '2026-02-24 09:15:46', '2026-02-26 17:28:27.386559');
-INSERT INTO `roles` VALUES (4, 'super_admin', '超级管理员', '拥有系统所有权限，可管理所有酒店', 1, '[\"all\"]', 1, '2026-02-26 17:45:27', NULL);
-INSERT INTO `roles` VALUES (5, 'hotel_manager', '门店管理员', '管理指定酒店，可查看、填写、编辑报表', 2, '[\"hotel_view\",\"report_view\",\"report_fill\",\"report_edit\",\"report_delete\"]', 1, '2026-02-26 17:45:27', NULL);
-INSERT INTO `roles` VALUES (6, 'hotel_staff', '店员', '只能填写指定酒店的报表', 3, '[\"report_view\",\"report_fill\"]', 1, '2026-02-26 17:45:27', NULL);
+INSERT INTO `roles` VALUES (1, 'admin', '管理员', '全部权限，能看所有数据', 1, '[\"all\"]', 1, '2026-02-24 09:15:46', '2026-02-24 09:15:46');
+INSERT INTO `roles` VALUES (2, 'beta_user', '内测用户', '只能看授权且自己添加的酒店，可管理自己添加的酒店，不能管理用户/角色/系统配置', 2, '[\"can_view_online_data\",\"can_fetch_online_data\",\"can_manage_own_hotels\"]', 1, '2026-02-24 09:15:46', '2026-02-26 17:28:07.894610');
+INSERT INTO `roles` VALUES (3, 'normal_user', '普通用户', '只有 OTA 获取，只能看授权酒店，无法添加酒店', 3, '[\"can_view_online_data\",\"can_fetch_online_data\"]', 1, '2026-02-24 09:15:46', '2026-02-26 17:28:27.386559');
 
 
 -- ----------------------------
@@ -73,15 +70,16 @@ CREATE TABLE `hotels` (
   `contact_phone` VARCHAR(20) COMMENT '联系电话',
   `status` TINYINT DEFAULT 1 COMMENT '状态: 1启用 0禁用',
   `description` TEXT COMMENT '描述',
+  `created_by` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '创建人用户ID',
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `uk_code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='酒店表';
 
-INSERT INTO `hotels` VALUES (1, '南宁市银田酒店', 'YINTIAN', '', '', '', 1, '', '2026-02-24 09:15:46', '2026-02-26 18:06:49.965114');
-INSERT INTO `hotels` VALUES (2, '西湖度假村', 'XH002', '杭州市西湖区', '李经理', '0571-87654321', 1, NULL, '2026-02-24 09:15:46', '2026-02-24 09:15:46');
-INSERT INTO `hotels` VALUES (3, '海滨国际酒店', 'HB003', '上海市浦东新区', '王经理', '021-11112222', 1, NULL, '2026-02-24 09:15:46', '2026-02-24 09:15:46');
-INSERT INTO `hotels` VALUES (4, '东方大酒店', 'DF001', '北京市朝阳区', '张经理', '010-12345678', 1, NULL, '2026-02-27 08:59:40', NULL);
+INSERT INTO `hotels` VALUES (1, '南宁市银田酒店', 'YINTIAN', '', '', '', 1, '', 2, '2026-02-24 09:15:46', '2026-02-26 18:06:49.965114');
+INSERT INTO `hotels` VALUES (2, '西湖度假村', 'XH002', '杭州市西湖区', '李经理', '0571-87654321', 1, NULL, 4, '2026-02-24 09:15:46', '2026-02-24 09:15:46');
+INSERT INTO `hotels` VALUES (3, '海滨国际酒店', 'HB003', '上海市浦东新区', '王经理', '021-11112222', 1, NULL, 0, '2026-02-24 09:15:46', '2026-02-24 09:15:46');
+INSERT INTO `hotels` VALUES (4, '东方大酒店', 'DF001', '北京市朝阳区', '张经理', '010-12345678', 1, NULL, 0, '2026-02-27 08:59:40', NULL);
 
 
 -- ----------------------------
@@ -92,14 +90,14 @@ CREATE TABLE `user_hotel_permissions` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `user_id` INT UNSIGNED NOT NULL COMMENT '用户ID',
   `hotel_id` INT UNSIGNED NOT NULL COMMENT '酒店ID',
-  `can_view_report` TINYINT DEFAULT 1 COMMENT '可查看报表',
-  `can_fill_daily_report` TINYINT DEFAULT 1 COMMENT '可填写日报表',
-  `can_fill_monthly_task` TINYINT DEFAULT 1 COMMENT '可填写月任务',
+  `can_view_report` TINYINT DEFAULT 0 COMMENT '可查看报表',
+  `can_fill_daily_report` TINYINT DEFAULT 0 COMMENT '可填写日报表',
+  `can_fill_monthly_task` TINYINT DEFAULT 0 COMMENT '可填写月任务',
   `can_edit_report` TINYINT DEFAULT 0 COMMENT '可编辑报表',
   `can_delete_report` TINYINT DEFAULT 0 COMMENT '可删除报表',
   `is_primary` TINYINT DEFAULT 0 COMMENT '是否主要酒店',
   `can_view_online_data` TINYINT DEFAULT 1 COMMENT '可查看线上数据',
-  `can_fetch_online_data` TINYINT DEFAULT 0 COMMENT '可获取线上数据',
+  `can_fetch_online_data` TINYINT DEFAULT 1 COMMENT '可获取线上数据',
   `can_delete_online_data` TINYINT DEFAULT 0 COMMENT '可删除线上数据',
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -107,9 +105,9 @@ CREATE TABLE `user_hotel_permissions` (
   KEY `idx_hotel` (`hotel_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户酒店权限表';
 
-INSERT INTO `user_hotel_permissions` VALUES (1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, '2026-02-24 09:15:47', '2026-02-26 16:14:57.529893');
-INSERT INTO `user_hotel_permissions` VALUES (2, 3, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, '2026-02-24 09:15:47', '2026-02-26 16:15:12.040001');
-INSERT INTO `user_hotel_permissions` VALUES (3, 4, 2, 1, 1, 1, 0, 0, 0, 1, 0, 0, '2026-02-26 16:18:39.633201', '2026-02-26 16:18:39.633213');
+INSERT INTO `user_hotel_permissions` VALUES (1, 2, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, '2026-02-24 09:15:47', '2026-02-26 16:14:57.529893');
+INSERT INTO `user_hotel_permissions` VALUES (2, 3, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, '2026-02-24 09:15:47', '2026-02-26 16:15:12.040001');
+INSERT INTO `user_hotel_permissions` VALUES (3, 4, 2, 0, 0, 0, 0, 0, 0, 1, 1, 0, '2026-02-26 16:18:39.633201', '2026-02-26 16:18:39.633213');
 
 
 -- ----------------------------

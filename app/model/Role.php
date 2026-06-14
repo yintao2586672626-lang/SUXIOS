@@ -25,9 +25,14 @@ class Role extends Model
     const STATUS_DISABLED = 0;
 
     // 角色ID常量
-    const SUPER_ADMIN = 1;
-    const HOTEL_MANAGER = 2;
-    const HOTEL_STAFF = 3;
+    const ADMIN = 1;
+    const BETA_USER = 2;
+    const NORMAL_USER = 3;
+
+    // Legacy aliases kept for older code paths.
+    const SUPER_ADMIN = self::ADMIN;
+    const HOTEL_MANAGER = self::BETA_USER;
+    const HOTEL_STAFF = self::NORMAL_USER;
 
     /**
      * 关联用户

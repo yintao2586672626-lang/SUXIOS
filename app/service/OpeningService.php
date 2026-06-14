@@ -63,7 +63,7 @@ class OpeningService
         $hotelName = trim((string)$input['hotel_name']);
 
         $data = [
-            'hotel_id' => 0,
+            'hotel_id' => $this->resolveProjectHotelId($input, $hotelIds),
             'project_name' => trim((string)$input['project_name']),
             'hotel_name' => $hotelName,
             'city' => trim((string)($input['city'] ?? '')),
@@ -108,6 +108,9 @@ class OpeningService
         }
         if (array_key_exists('room_count', $input)) {
             $data['room_count'] = max(0, (int)$input['room_count']);
+        }
+        if (array_key_exists('hotel_id', $input)) {
+            $data['hotel_id'] = $this->resolveProjectHotelId($input, $hotelIds, (int)($project['hotel_id'] ?? 0), false);
         }
         if (array_key_exists('opening_date', $input)) {
             $data['opening_date'] = $this->normalizeDate((string)$input['opening_date']);
@@ -782,6 +785,28 @@ class OpeningService
     {
         $ids = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
         return count($ids) === 1 ? $ids[0] : 0;
+    }
+
+    private function resolveProjectHotelId(array $input, array $hotelIds, int $currentHotelId = 0, bool $autoBindSingle = true): int
+    {
+        $ids = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
+        $raw = trim((string)($input['hotel_id'] ?? ''));
+        if ($raw === '') {
+            if ($currentHotelId > 0) {
+                return $currentHotelId;
+            }
+            return $autoBindSingle && count($ids) === 1 ? $ids[0] : 0;
+        }
+
+        $hotelId = (int)$raw;
+        if ($hotelId <= 0) {
+            return 0;
+        }
+        if (!in_array($hotelId, $ids, true)) {
+            throw new \RuntimeException('开业项目门店不在当前权限范围');
+        }
+
+        return $hotelId;
     }
 
     private function withTenantId(array $data, string $table, int $tenantId): array

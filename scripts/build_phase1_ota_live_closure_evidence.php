@@ -299,6 +299,7 @@ function field_fact_closure_summary(array $rows): array
         'incomplete_captured_fact_count' => 0,
         'metric_key_count' => 0,
         'capture_evidence_count' => 0,
+        'desensitized_capture_evidence_count' => 0,
         'source_path_count' => 0,
         'structured_source_path_count' => 0,
         'storage_field_count' => 0,
@@ -340,6 +341,7 @@ function field_fact_closure_summary(array $rows): array
             $missingState = field_fact_text($fact, ['missing_state', 'missing_reason']);
             [$storageField, $storageFieldSource, $storageFieldInferred] = field_fact_storage_field($fact, $row, $raw, $metricKey);
             $hasCaptureEvidence = field_fact_has_capture_evidence($fact, $row, $raw);
+            $hasDesensitizedCaptureEvidence = field_fact_has_desensitized_capture_evidence($fact);
             $storedValueState = field_fact_stored_value_state($fact, $row, $raw, $storageField, $metricKey);
             $storedValueMissing = $storedValueState === false;
             $storedValuePresent = $storedValueState === true;
@@ -349,6 +351,9 @@ function field_fact_closure_summary(array $rows): array
             }
             if ($hasCaptureEvidence) {
                 $summary['capture_evidence_count']++;
+            }
+            if ($hasDesensitizedCaptureEvidence) {
+                $summary['desensitized_capture_evidence_count']++;
             }
             if ($sourcePath !== '') {
                 $summary['source_path_count']++;
@@ -397,6 +402,7 @@ function field_fact_closure_summary(array $rows): array
                     'storage_field_source' => $storageFieldSource,
                     'storage_field_inferred' => $storageFieldInferred,
                     'capture_evidence_present' => $hasCaptureEvidence,
+                    'desensitized_capture_evidence_present' => $hasDesensitizedCaptureEvidence,
                     'stored_value_present' => $storedValueState,
                     'status' => $status !== '' ? $status : ($complete ? 'captured' : 'incomplete'),
                     'missing_state' => $missingState,
@@ -594,6 +600,19 @@ function field_fact_has_capture_evidence(array $fact, array $row, array $raw): b
         }
     }
     return false;
+}
+
+function field_fact_has_desensitized_capture_evidence(array $fact): bool
+{
+    $evidence = $fact['capture_evidence'] ?? null;
+    if (!is_array($evidence)) {
+        return false;
+    }
+
+    $traceId = trim((string)($evidence['source_trace_id'] ?? $evidence['_source_trace_id'] ?? ''));
+    $sourceUrlHash = trim((string)($evidence['source_url_hash'] ?? $evidence['_source_url_hash'] ?? $evidence['url_hash'] ?? $evidence['_url_hash'] ?? ''));
+
+    return $traceId !== '' && $sourceUrlHash !== '';
 }
 
 function field_fact_storage_field(array $fact, array $row, array $raw, string $metricKey): array
@@ -1509,9 +1528,14 @@ function traffic_source_readiness(array $domainReadiness): array
         if (!in_array($platform, ['ctrip', 'meituan'], true)) {
             continue;
         }
+        $targetDateDataTypes = array_values(array_filter(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            (array)($row['target_date_data_types'] ?? [])
+        ), static fn(string $value): bool => $value !== ''));
         $platforms[$platform] = [
             'target_date_rows' => max(0, (int)($row['target_date_rows'] ?? $row['source_rows'] ?? 0)),
             'target_date_traffic_rows' => max(0, (int)($row['traffic_rows'] ?? 0)),
+            'target_date_data_types' => array_values(array_unique($targetDateDataTypes)),
         ];
     }
 
@@ -1522,12 +1546,69 @@ function traffic_source_readiness(array $domainReadiness): array
     return $result;
 }
 
+function traffic_source_target_traffic_data_types(array $types): array
+{
+    return array_values(array_unique(array_filter(array_map(
+        static fn($value): string => strtolower(trim((string)$value)),
+        $types
+    ), static fn(string $value): bool => in_array($value, ['traffic', 'flow', 'flow_data', 'conversion'], true))));
+}
+
+function traffic_source_p0_required_metric_keys(): array
+{
+    return [
+        'list_exposure',
+        'detail_exposure',
+        'flow_rate',
+        'order_filling_num',
+        'order_submit_num',
+    ];
+}
+
+function traffic_source_p0_required_storage_fields(): array
+{
+    return [
+        'online_daily_data.list_exposure',
+        'online_daily_data.detail_exposure',
+        'online_daily_data.flow_rate',
+        'online_daily_data.order_filling_num',
+        'online_daily_data.order_submit_num',
+    ];
+}
+
+function traffic_source_p0_required_field_fact_keys(): array
+{
+    return [
+        'capture_evidence',
+        'source_path',
+        'metric_key',
+        'storage_field',
+        'stored_value_present',
+    ];
+}
+
 function traffic_source_readiness_for_platform(string $platform, array $context): array
 {
+    $requiredMetricKeys = traffic_source_p0_required_metric_keys();
+    $requiredStorageFields = traffic_source_p0_required_storage_fields();
+    $requiredFieldFactKeys = traffic_source_p0_required_field_fact_keys();
+    $targetDateRows = max(0, (int)($context['target_date_rows'] ?? 0));
+    $targetDateTrafficRows = max(0, (int)($context['target_date_traffic_rows'] ?? 0));
+    $targetDateDataTypes = array_values(array_filter(array_map(
+        static fn($value): string => strtolower(trim((string)$value)),
+        (array)($context['target_date_data_types'] ?? [])
+    ), static fn(string $value): bool => $value !== ''));
+    $targetDateDataTypes = array_values(array_unique($targetDateDataTypes));
+    $targetDateTrafficDataTypes = traffic_source_target_traffic_data_types($targetDateDataTypes);
+    $sourceChainReferenceOnly = $targetDateRows > 0
+        && $targetDateTrafficRows <= 0
+        && $targetDateDataTypes !== []
+        && $targetDateTrafficDataTypes === [];
     $base = [
         'platform' => $platform,
-        'target_date_rows' => max(0, (int)($context['target_date_rows'] ?? 0)),
-        'target_date_traffic_rows' => max(0, (int)($context['target_date_traffic_rows'] ?? 0)),
+        'target_date_rows' => $targetDateRows,
+        'target_date_traffic_rows' => $targetDateTrafficRows,
+        'target_date_data_types' => $targetDateDataTypes,
         'traffic_source_count' => 0,
         'traffic_enabled_count' => 0,
         'traffic_ready_count' => 0,
@@ -1541,6 +1622,23 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
         'status' => 'not_registered',
         'source_policy' => 'read_platform_data_sources_metadata_only',
         'sensitive_values_exposed' => false,
+        'p0_traffic_gate_status' => 'missing_target_date_traffic_rows',
+        'p0_next_action_mode' => 'status_check',
+        'p0_next_action_entry' => '/api/online-data/collection-reliability',
+        'p0_next_step_count' => 0,
+        'next_command_policy' => 'metadata_only_no_sensitive_commands',
+        'p0_external_evidence_status' => 'not_provided',
+        'p0_pre_import_evidence_status' => 'not_provided',
+        'p0_pre_import_evidence_policy' => 'External traffic evidence is source proof only; P0 closure still requires target-date traffic rows and ready verifier status.',
+        'p0_traffic_field_fact_status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'missing_target_date_traffic_rows',
+        'p0_required_metric_keys' => $requiredMetricKeys,
+        'p0_required_storage_fields' => $requiredStorageFields,
+        'p0_required_field_fact_keys' => $requiredFieldFactKeys,
+        'p0_missing_metric_keys' => $targetDateTrafficRows > 0 ? [] : $requiredMetricKeys,
+        'p0_target_traffic_data_types' => $targetDateTrafficDataTypes,
+        'p0_source_chain_reference_only' => $sourceChainReferenceOnly,
+        'p0_source_chain_scope' => $sourceChainReferenceOnly ? 'reference_only_non_traffic_source_rows' : 'traffic_source_rows',
+        'p0_source_chain_policy' => 'Target-date source rows without traffic/flow/conversion data types are reference only; P0 closure still requires target-date traffic rows and ready verifier status.',
     ];
 
     try {
@@ -1634,13 +1732,43 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
     } else {
         $base['status'] = 'registered_not_ready';
     }
-    $base['recommended_collection_mode'] = (int)$base['target_date_traffic_rows'] > 0 ? 'status_check' : 'manual_cookie_api';
-    $base['action_entry'] = (int)$base['target_date_traffic_rows'] > 0
-        ? '/api/online-data/collection-reliability'
-        : ($platform === 'ctrip' ? '/api/online-data/fetch-ctrip-traffic' : '/api/online-data/fetch-meituan-traffic');
+    $recommendedMode = traffic_source_recommended_mode($platform, $base);
+    $base['recommended_collection_mode'] = $recommendedMode;
+    $base['action_entry'] = traffic_source_action_entry_for_mode($platform, $recommendedMode);
+    $base['p0_traffic_gate_status'] = (int)$base['target_date_traffic_rows'] > 0 ? 'requires_p0_verifier' : 'missing_target_date_traffic_rows';
+    $base['p0_next_action_mode'] = $recommendedMode;
+    $base['p0_next_action_entry'] = $base['action_entry'];
+    $base['p0_next_step_count'] = max(0, (int)$base['traffic_managed_count']);
     $base['required_next_inputs'] = traffic_source_required_next_inputs($platform, $base);
 
     return $base;
+}
+
+function traffic_source_recommended_mode(string $platform, array $source): string
+{
+    $platform = strtolower(trim($platform));
+    if ((int)($source['target_date_traffic_rows'] ?? 0) > 0) {
+        return 'status_check';
+    }
+    if ($platform === 'meituan' && (int)($source['traffic_source_count'] ?? 0) > 0) {
+        return 'browser_profile';
+    }
+    return 'manual_cookie_api';
+}
+
+function traffic_source_action_entry_for_mode(string $platform, string $mode): string
+{
+    $platform = strtolower(trim($platform));
+    $mode = strtolower(trim($mode));
+    if ($mode === 'status_check') {
+        return '/api/online-data/collection-reliability';
+    }
+    if ($mode === 'browser_profile') {
+        return $platform === 'meituan'
+            ? '/api/online-data/capture-meituan-browser'
+            : '/api/online-data/capture-ctrip-browser';
+    }
+    return $platform === 'ctrip' ? '/api/online-data/fetch-ctrip-traffic' : '/api/online-data/fetch-meituan-traffic';
 }
 
 function traffic_source_required_next_inputs(string $platform, array $source): array
@@ -1662,8 +1790,8 @@ function traffic_source_required_next_inputs(string $platform, array $source): a
     }
 
     $inputs = $platform === 'meituan'
-        ? ['traffic_request_url_or_cdp_endpoint_evidence', 'traffic_payload_or_query_params', 'authorized_meituan_profile_dir']
-        : ['traffic_payload_or_query_params', 'authorized_ctrip_profile_dir'];
+        ? ['traffic_request_url_or_cdp_endpoint_evidence', 'traffic_payload_or_query_params', 'authorized_meituan_profile_dir', 'manual_login_state_verified']
+        : ['traffic_payload_or_query_params', 'authorized_ctrip_profile_dir', 'manual_login_state_verified'];
 
     if ((int)($source['traffic_source_count'] ?? 0) <= 0) {
         array_unshift($inputs, 'registered_traffic_data_source');
@@ -1682,19 +1810,20 @@ function traffic_source_readiness_text(array $source): string
     $readyCount = max(0, (int)($source['traffic_ready_count'] ?? 0));
     $waitingCount = max(0, (int)($source['traffic_waiting_config_count'] ?? 0));
     $trafficRows = max(0, (int)($source['target_date_traffic_rows'] ?? 0));
+    $referenceSuffix = (bool)($source['p0_source_chain_reference_only'] ?? false) ? '，源证据仅参考' : '';
     if ($trafficRows > 0) {
         return '目标日流量事实已入库';
     }
     if ($sourceCount <= 0) {
-        return '流量采集源未登记';
+        return '流量采集源未登记' . $referenceSuffix;
     }
     if ($waitingCount > 0) {
-        return '流量采集源已登记，仍待授权或配置';
+        return '流量采集源已登记，仍待授权或配置' . $referenceSuffix;
     }
     if ($readyCount > 0) {
-        return '流量采集源已就绪，但目标日流量事实未入库';
+        return '流量采集源已就绪，但目标日流量事实未入库' . $referenceSuffix;
     }
-    return '流量采集源已登记，但状态未就绪';
+    return '流量采集源已登记，但状态未就绪' . $referenceSuffix;
 }
 
 function traffic_source_next_action_text(array $source): string
@@ -2019,6 +2148,13 @@ function traffic_input_contract(string $platform, string $mode): array
             'flow_rate',
             'order_filling_num',
             'order_submit_num',
+        ],
+        'required_storage_fields' => [
+            'online_daily_data.list_exposure',
+            'online_daily_data.detail_exposure',
+            'online_daily_data.flow_rate',
+            'online_daily_data.order_filling_num',
+            'online_daily_data.order_submit_num',
         ],
         'required_field_fact_keys' => [
             'capture_evidence',

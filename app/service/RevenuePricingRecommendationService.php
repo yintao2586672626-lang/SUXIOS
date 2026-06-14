@@ -272,6 +272,97 @@ class RevenuePricingRecommendationService
     }
 
     /**
+     * @param array<string, mixed> $suggestion
+     * @param array<string, mixed>|null $executionItem
+     * @return array<string, mixed>
+     */
+    public function buildSuggestionReadiness(array $suggestion, ?array $executionItem = null): array
+    {
+        $factors = is_array($suggestion['factors'] ?? null) ? $suggestion['factors'] : [];
+        $signals = is_array($factors['signals'] ?? null) ? $factors['signals'] : [];
+        $dataGaps = array_values(array_filter(array_map('strval', (array)($signals['data_gaps'] ?? []))));
+        $status = (int)($suggestion['status'] ?? 0);
+        $riskLevel = strtolower((string)($factors['risk_level'] ?? $suggestion['risk_level'] ?? ''));
+        $confidence = $this->toNullableFloat($factors['confidence_score'] ?? $suggestion['confidence_score'] ?? null);
+        $primarySignalCount = (int)($factors['primary_signal_count'] ?? $suggestion['primary_signal_count'] ?? 0);
+        $advisoryBoundary = (string)($factors['decision_boundary'] ?? '') === 'manual_review_required_no_auto_rate_write';
+        $sourceReady = $primarySignalCount >= self::MIN_PRIMARY_SIGNAL_COUNT && empty($dataGaps);
+        $riskClear = !in_array($riskLevel, ['high', 'medium_high'], true)
+            && ($confidence === null || $confidence >= 0.6);
+        $approved = in_array($status, [2, 4], true);
+        $appliedLocal = $status === 4;
+        $executionLinked = is_array($executionItem) && !empty($executionItem);
+        $executionStage = $executionLinked ? (string)($executionItem['stage'] ?? '') : '';
+        $evidenceReady = (int)($executionItem['evidence']['count'] ?? 0) > 0;
+        $roiReady = (string)($executionItem['roi']['status'] ?? '') === 'ready';
+
+        $checks = [
+            $this->readinessCheck('pricing_signal', '调价信号', $sourceReady, '已满足主信号数量且无阻断性数据缺口', '先补齐需求预测、拾取、竞价、库存或弹性样本。', 20),
+            $this->readinessCheck('advisory_boundary', '人工边界', $advisoryBoundary, '已标记为仅建议、禁止自动写 OTA 房价', '保留 manual_review_required_no_auto_rate_write 边界。', 10),
+            $this->readinessCheck('risk_recheck', '风险复核', $riskClear, '置信度和风险等级未触发阻断', '先复核高风险、低置信度或数据缺口后再审批。', 15),
+            $this->readinessCheck('manual_approval', '人工审批', $approved, '建议已通过人工审批或进入应用状态', '先完成批准/拒绝，不把待审建议当作执行动作。', 15),
+            $this->readinessCheck('execution_intent', '执行意图', $executionLinked, '已关联运营执行意图', '创建执行意图，进入审批、执行、证据、复盘链路。', 15),
+            $this->readinessCheck('local_price_applied', '本地价格应用', $appliedLocal, '已更新本地房型基础价', '如确认执行，先应用到本地房型价；OTA 仍需人工执行证据。', 10),
+            $this->readinessCheck('execution_evidence', '执行证据', $evidenceReady, '已记录执行证据', '补充 OTA 后台、房价日历或执行截图等证据。', 10),
+            $this->readinessCheck('roi_review', '效果复盘', $roiReady, '已形成 ROI/效果复盘', '完成调价后效果复盘，确认收入、间夜、ADR 或转化变化。', 5),
+        ];
+
+        $missingEvidence = [];
+        $score = 0;
+        foreach ($checks as $check) {
+            if ($check['passed']) {
+                $score += (int)$check['weight'];
+                continue;
+            }
+            $missingEvidence[] = [
+                'code' => $check['key'],
+                'label' => $check['label'],
+                'next_action' => $check['next_action'],
+            ];
+        }
+
+        $stage = $this->pricingReadinessStage(
+            (int)($suggestion['id'] ?? 0),
+            $status,
+            $sourceReady,
+            $riskClear,
+            $approved,
+            $executionLinked,
+            $executionStage,
+            $appliedLocal,
+            $evidenceReady,
+            $roiReady
+        );
+
+        return [
+            'stage' => $stage,
+            'status_label' => $this->pricingReadinessStageLabel($stage),
+            'score' => $score,
+            'ready_for_review' => in_array($stage, ['evidence_ready', 'pricing_ready'], true),
+            'pricing_ready' => $stage === 'pricing_ready',
+            'checks' => $checks,
+            'missing_evidence' => $missingEvidence,
+            'next_action' => $missingEvidence[0]['next_action'] ?? '持续复盘调价效果，并保留执行证据。',
+            'notice' => $this->pricingReadinessNotice($stage),
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<int, array<string, mixed>> $executionItemsByRecordId
+     * @return array<int, array<string, mixed>>
+     */
+    public function enrichSuggestionRows(array $rows, array $executionItemsByRecordId = []): array
+    {
+        return array_map(function (array $row) use ($executionItemsByRecordId): array {
+            $row = $this->normalizeSuggestionDisplayFields($row);
+            $id = (int)($row['id'] ?? 0);
+            $row['pricing_readiness'] = $this->buildSuggestionReadiness($row, $executionItemsByRecordId[$id] ?? null);
+            return $row;
+        }, $rows);
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $rows
      * @return array<string, mixed>
      */
@@ -365,6 +456,137 @@ class RevenuePricingRecommendationService
                 'decision_boundary' => 'manual_review_required_no_auto_rate_write',
             ],
         ];
+    }
+
+    private function readinessCheck(string $key, string $label, bool $passed, string $evidence, string $nextAction, int $weight): array
+    {
+        return [
+            'key' => $key,
+            'label' => $label,
+            'passed' => $passed,
+            'status' => $passed ? 'ok' : 'missing',
+            'evidence' => $evidence,
+            'next_action' => $nextAction,
+            'weight' => $weight,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function normalizeSuggestionDisplayFields(array $row): array
+    {
+        if (!isset($row['status_name']) || $row['status_name'] === '') {
+            $row['status_name'] = $this->pricingSuggestionStatusName((int)($row['status'] ?? 0));
+        }
+        if (!isset($row['suggestion_type_name']) || $row['suggestion_type_name'] === '') {
+            $row['suggestion_type_name'] = $this->pricingSuggestionTypeName((int)($row['suggestion_type'] ?? 0));
+        }
+        if (!array_key_exists('price_change_percent', $row)) {
+            $currentPrice = $this->toFloat($row['current_price'] ?? 0);
+            $suggestedPrice = $this->toFloat($row['suggested_price'] ?? 0);
+            $row['price_change_percent'] = $currentPrice > 0
+                ? round(($suggestedPrice - $currentPrice) / $currentPrice * 100, 2)
+                : 0.0;
+        }
+
+        return $row;
+    }
+
+    private function pricingSuggestionStatusName(int $status): string
+    {
+        return [
+            1 => '待审批',
+            2 => '已批准',
+            3 => '已拒绝',
+            4 => '已应用',
+            5 => '已过期',
+        ][$status] ?? '未知';
+    }
+
+    private function pricingSuggestionTypeName(int $type): string
+    {
+        return [
+            1 => '动态定价',
+            2 => '竞对跟价',
+            3 => '事件驱动',
+            4 => '预测驱动',
+        ][$type] ?? '未知';
+    }
+
+    private function pricingReadinessStage(
+        int $id,
+        int $status,
+        bool $sourceReady,
+        bool $riskClear,
+        bool $approved,
+        bool $executionLinked,
+        string $executionStage,
+        bool $appliedLocal,
+        bool $evidenceReady,
+        bool $roiReady
+    ): string {
+        if ($id <= 0) {
+            return 'suggestion_missing';
+        }
+        if ($status === 3 || $executionStage === 'rejected') {
+            return 'rejected';
+        }
+        if ($executionStage === 'blocked') {
+            return 'blocked';
+        }
+        if (!$sourceReady || !$riskClear) {
+            return 'data_recheck_required';
+        }
+        if (!$approved) {
+            return 'pending_approval';
+        }
+        if (!$executionLinked) {
+            return 'approved_pending_execution';
+        }
+        if ($executionStage === 'approval') {
+            return 'execution_intent_pending_approval';
+        }
+        if (!$appliedLocal || !$evidenceReady) {
+            return 'local_applied_pending_evidence';
+        }
+        if (!$roiReady) {
+            return 'evidence_ready';
+        }
+        return 'pricing_ready';
+    }
+
+    private function pricingReadinessStageLabel(string $stage): string
+    {
+        return [
+            'suggestion_missing' => '未形成建议',
+            'data_recheck_required' => '需数据复核',
+            'pending_approval' => '待人工审批',
+            'approved_pending_execution' => '已批待转执行',
+            'execution_intent_pending_approval' => '执行意图待审',
+            'local_applied_pending_evidence' => '待执行证据',
+            'evidence_ready' => '待效果复盘',
+            'pricing_ready' => '调价闭环就绪',
+            'rejected' => '已拒绝',
+            'blocked' => '执行阻断',
+        ][$stage] ?? $stage;
+    }
+
+    private function pricingReadinessNotice(string $stage): string
+    {
+        return [
+            'suggestion_missing' => '当前没有可复核的调价建议。',
+            'data_recheck_required' => '建议仍有数据缺口、低置信度或高风险信号，不能直接执行。',
+            'pending_approval' => '建议只代表模型输出，需人工审批后才能进入执行。',
+            'approved_pending_execution' => '建议已审批，但还没有进入运营执行意图。',
+            'execution_intent_pending_approval' => '已转入执行意图，仍需执行流审批。',
+            'local_applied_pending_evidence' => '本地价格应用或执行意图已形成，但缺 OTA/人工执行证据。',
+            'evidence_ready' => '已有执行证据，下一步需要做效果复盘和 ROI 判断。',
+            'pricing_ready' => '建议、审批、执行证据和效果复盘均已形成，可视为调价闭环就绪。',
+            'rejected' => '建议已被拒绝，不进入执行闭环。',
+            'blocked' => '执行链路被阻断，需先处理阻断原因。',
+        ][$stage] ?? '';
     }
 
     /**

@@ -33,6 +33,7 @@ class RevenueResearchService
             : $this->callConfiguredModel($modelKey, $product, $localSources, $gaps, $businessForecast);
         $status = empty($gaps) && (bool)($businessForecast['available'] ?? false) ? 'done' : 'pending_data';
         $result = $this->normalizeAiResult($webResult['result'], $product, $gaps, $businessForecast);
+        $readiness = $this->buildResearchReadiness($product, $status, $gaps, $businessForecast, $result);
 
         return [
             'status' => $status,
@@ -41,6 +42,7 @@ class RevenueResearchService
             'web_sources' => $webResult['web_sources'],
             'business_forecast' => $businessForecast,
             'result' => $result,
+            'readiness' => $readiness,
             'gaps' => $gaps,
             'hotel_scope' => [
                 'mode' => $hotelId !== null && $hotelId > 0 ? 'single_hotel' : 'all_permitted_hotels',
@@ -50,6 +52,155 @@ class RevenueResearchService
             'model_key' => $modelKey,
             'generation_mode' => $webResult['generation_mode'] ?? 'configured_model',
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $product
+     * @param array<int, array<string, mixed>> $gaps
+     * @param array<string, mixed> $businessForecast
+     * @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    public function buildResearchReadiness(array $product, string $status, array $gaps, array $businessForecast, array $result): array
+    {
+        $module = trim((string)($product['module'] ?? ($result['module'] ?? '')));
+        $moduleConnected = $module !== '' && !str_starts_with($module, '待新增');
+        $hasActions = !empty($result['recommended_actions']) && is_array($result['recommended_actions']);
+
+        if (($businessForecast['available'] ?? false) !== true) {
+            return $this->withReadinessNotice($this->readiness(
+                'research_forecast_missing',
+                '缺经营基线',
+                20,
+                false,
+                false,
+                '补齐可用于预测的日级经营数据后再生成研究结论',
+                [
+                    $this->readinessMissing('business_forecast', '经营预测基线', (string)($businessForecast['message'] ?? '补齐日级收入、间夜和订单样本')),
+                ],
+                $module,
+                $moduleConnected
+            ));
+        }
+
+        if (!empty($gaps)) {
+            $missing = array_map(function (array $gap): array {
+                return $this->readinessMissing(
+                    'data_gap_' . (string)($gap['table'] ?? 'source'),
+                    (string)($gap['label'] ?? $gap['table'] ?? '数据缺口'),
+                    trim((string)($gap['collect_from'] ?? '补齐该方向要求的数据')) !== ''
+                        ? (string)$gap['collect_from']
+                        : (string)($gap['reason'] ?? '补齐该方向要求的数据')
+                );
+            }, array_slice($gaps, 0, 4));
+
+            return $this->withReadinessNotice($this->readiness(
+                'research_data_gaps_pending',
+                '需补关键数据',
+                40,
+                false,
+                false,
+                '先补齐关键样本、字段或表，再把研究结论用于运营动作',
+                $missing,
+                $module,
+                $moduleConnected
+            ));
+        }
+
+        if (!$hasActions) {
+            return $this->withReadinessNotice($this->readiness(
+                'research_actions_missing',
+                '缺执行动作',
+                55,
+                false,
+                false,
+                '让模型输出可执行运营动作，或人工补充动作后再进入模块',
+                [
+                    $this->readinessMissing('recommended_actions', '建议动作', '补充可执行动作、负责人或复核口径'),
+                ],
+                $module,
+                $moduleConnected
+            ));
+        }
+
+        if (!$moduleConnected) {
+            return $this->withReadinessNotice($this->readiness(
+                'research_module_bridge_missing',
+                '模块未接入',
+                60,
+                false,
+                false,
+                '先新增对应数据表、列表或执行接口，再形成系统内闭环',
+                [
+                    $this->readinessMissing('module_bridge', '系统落点', $module !== '' ? $module : '补充目标模块和执行接口'),
+                ],
+                $module,
+                $moduleConnected
+            ));
+        }
+
+        return $this->withReadinessNotice($this->readiness(
+            'research_ready_for_execution',
+            '可转执行',
+            $status === 'done' ? 80 : 65,
+            false,
+            true,
+            '进入对应模块创建定价、预警或运营执行记录，并保留复盘证据',
+            [
+                $this->readinessMissing('execution_record', '执行记录', '进入对应模块创建执行记录并跟踪结果'),
+            ],
+            $module,
+            $moduleConnected
+        ));
+    }
+
+    /**
+     * @param array<int, array<string, string>> $missingEvidence
+     * @return array<string, mixed>
+     */
+    private function readiness(string $stage, string $label, int $score, bool $closedLoop, bool $executionReady, string $nextAction, array $missingEvidence, string $module, bool $moduleConnected): array
+    {
+        return [
+            'stage' => $stage,
+            'status_label' => $label,
+            'score' => $score,
+            'closed_loop' => $closedLoop,
+            'execution_ready' => $executionReady,
+            'next_action' => $nextAction,
+            'missing_evidence' => $missingEvidence,
+            'target_module' => $module,
+            'module_connected' => $moduleConnected,
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function readinessMissing(string $code, string $label, string $nextAction): array
+    {
+        return [
+            'code' => $code,
+            'label' => $label,
+            'next_action' => $nextAction,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $readiness
+     * @return array<string, mixed>
+     */
+    private function withReadinessNotice(array $readiness): array
+    {
+        $missing = array_values(array_filter((array)($readiness['missing_evidence'] ?? []), 'is_array'));
+        if (!$missing) {
+            $readiness['notice'] = '研究结论具备进入下一步的基础证据';
+            return $readiness;
+        }
+
+        $labels = array_map(static fn(array $item): string => (string)($item['label'] ?? $item['code'] ?? '未命名缺口'), $missing);
+        $readiness['notice'] = '仍缺：' . implode('、', array_slice($labels, 0, 4));
+
+        return $readiness;
     }
 
     /**

@@ -254,7 +254,7 @@ final class OnlineDataFieldFactService
     {
         $aliases = [
             'source_trace_id' => ['source_trace_id', '_source_trace_id', 'trace_id', '_trace_id'],
-            'source_url_hash' => ['source_url_hash', '_source_url_hash'],
+            'source_url_hash' => ['source_url_hash', '_source_url_hash', 'url_hash', '_url_hash'],
             'request_hash' => ['request_hash', '_request_hash'],
             'payload_hash' => ['payload_hash', '_payload_hash'],
             'method' => ['method', 'http_method', '_method'],
@@ -343,6 +343,7 @@ final class OnlineDataFieldFactService
     {
         $metricKeys = [];
         $captureEvidenceCount = 0;
+        $desensitizedCaptureEvidenceCount = 0;
         foreach ($facts as $fact) {
             $metricKey = trim((string)($fact['metric_key'] ?? ''));
             if ($metricKey !== '') {
@@ -354,15 +355,30 @@ final class OnlineDataFieldFactService
             ) {
                 $captureEvidenceCount++;
             }
+            if (is_array($captureEvidence) && self::hasDesensitizedCaptureEvidence($captureEvidence)) {
+                $desensitizedCaptureEvidenceCount++;
+            }
         }
 
         return [
             'captured_count' => count($metricKeys),
             'missing_count' => 0,
             'capture_evidence_count' => $captureEvidenceCount,
+            'desensitized_capture_evidence_count' => $desensitizedCaptureEvidenceCount,
             'captured_metric_keys' => array_values(array_unique($metricKeys)),
             'missing_metric_keys' => [],
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $captureEvidence
+     */
+    private static function hasDesensitizedCaptureEvidence(array $captureEvidence): bool
+    {
+        $traceId = trim((string)($captureEvidence['source_trace_id'] ?? $captureEvidence['_source_trace_id'] ?? ''));
+        $sourceUrlHash = trim((string)($captureEvidence['source_url_hash'] ?? $captureEvidence['_source_url_hash'] ?? $captureEvidence['url_hash'] ?? $captureEvidence['_url_hash'] ?? ''));
+
+        return $traceId !== '' && $sourceUrlHash !== '';
     }
 
     /**

@@ -90,14 +90,19 @@ function p0_import_read_payload(string $path): array
     return $decoded;
 }
 
+function p0_import_normalize_sensitive_key_segment(string $segment): string
+{
+    $normalized = strtolower((string)preg_replace('/(?<!^)[A-Z]/', '_$0', $segment));
+    $normalized = (string)preg_replace('/[^a-z0-9]+/', '_', $normalized);
+    return trim($normalized, '_');
+}
+
 /**
  * @param string $segment
  */
 function p0_import_is_raw_url_key(string $segment): bool
 {
-    $normalized = strtolower((string)preg_replace('/(?<!^)[A-Z]/', '_$0', $segment));
-    $normalized = (string)preg_replace('/[^a-z0-9]+/', '_', $normalized);
-    $normalized = ltrim($normalized, '_');
+    $normalized = p0_import_normalize_sensitive_key_segment($segment);
     return $normalized === 'url'
         || $normalized === 'endpoint'
         || $normalized === 'request_uri'
@@ -107,6 +112,15 @@ function p0_import_is_raw_url_key(string $segment): bool
 function p0_import_is_raw_url_value(string $value): bool
 {
     return preg_match('#https?://#i', $value) === 1;
+}
+
+function p0_import_is_sensitive_browser_metadata_key(string $segment): bool
+{
+    $normalized = p0_import_normalize_sensitive_key_segment($segment);
+    return preg_match('/(^|_)(cookie|token|spider_token|authorization|password|secret)($|_)/i', $normalized) === 1
+        || preg_match('/(^|_)profile_(path|dir|directory)($|_)/i', $normalized) === 1
+        || preg_match('/(^|_)raw_(cookie|token|profile)($|_)/i', $normalized) === 1
+        || p0_import_is_raw_url_key($segment);
 }
 
 /**
@@ -123,11 +137,7 @@ function p0_import_sensitive_hits(mixed $value, string $path = ''): array
     foreach ($value as $key => $item) {
         $segment = is_string($key) ? $key : (string)$key;
         $nextPath = $path === '' ? $segment : $path . '.' . $segment;
-        if (preg_match('/(^|_)(cookie|token|spidertoken|authorization|password|secret)($|_)/i', $segment)
-            || preg_match('/profile_(path|dir)/i', $segment)
-            || preg_match('/raw_(cookie|token|profile)/i', $segment)
-            || p0_import_is_raw_url_key($segment)
-        ) {
+        if (p0_import_is_sensitive_browser_metadata_key($segment)) {
             $hits[] = ['path' => $nextPath, 'reason' => 'sensitive_key_present'];
         }
         if (is_string($item)) {
@@ -154,6 +164,197 @@ function p0_import_sensitive_hits(mixed $value, string $path = ''): array
     return $hits;
 }
 
+/**
+ * @return array{payload:array<string, mixed>, metadata:array<string, mixed>}
+ */
+function p0_import_project_payload_for_import(array $payload): array
+{
+    if (!p0_import_payload_is_browser_capture($payload)) {
+        return [
+            'payload' => $payload,
+            'metadata' => [
+                'applied' => false,
+                'reason' => 'not_browser_capture_payload',
+                'removed_sensitive_metadata_count' => 0,
+                'removed_sensitive_metadata_paths' => [],
+            ],
+        ];
+    }
+
+    $allowedTopLevelKeys = [
+        'source',
+        'mode',
+        'system_hotel_id',
+        'default_data_date',
+        'auth_status',
+        'capture_gate',
+        'capture_sections',
+        'requested_sections',
+        'traffic',
+        'standard_rows',
+        'responses',
+    ];
+    $removedPaths = [];
+    $projected = [];
+    $payloadTopLevelKeys = array_keys($payload);
+    $retainedTopLevelKeys = array_values(array_intersect($allowedTopLevelKeys, $payloadTopLevelKeys));
+    $droppedTopLevelKeys = array_values(array_diff($payloadTopLevelKeys, $allowedTopLevelKeys));
+    foreach ($allowedTopLevelKeys as $key) {
+        if (!array_key_exists($key, $payload)) {
+            continue;
+        }
+        $projected[$key] = p0_import_sanitize_browser_import_value($payload[$key], $key, $removedPaths);
+    }
+
+    return [
+        'payload' => $projected,
+        'metadata' => [
+            'applied' => true,
+            'reason' => 'browser_capture_import_projection',
+            'retained_top_level_keys' => $retainedTopLevelKeys,
+            'dropped_top_level_key_count' => count($droppedTopLevelKeys),
+            'dropped_top_level_keys' => array_slice($droppedTopLevelKeys, 0, 20),
+            'removed_sensitive_metadata_count' => count($removedPaths),
+            'removed_sensitive_metadata_paths' => array_slice($removedPaths, 0, 20),
+        ],
+    ];
+}
+
+function p0_import_sanitize_browser_import_value(mixed $value, string $path, array &$removedPaths): mixed
+{
+    if (is_array($value)) {
+        $result = [];
+        foreach ($value as $key => $item) {
+            $segment = is_string($key) ? $key : (string)$key;
+            $nextPath = $path === '' ? $segment : $path . '.' . $segment;
+            if (p0_import_is_sensitive_browser_metadata_key($segment)) {
+                $removedPaths[] = $nextPath;
+                continue;
+            }
+            $sanitized = p0_import_sanitize_browser_import_value($item, $nextPath, $removedPaths);
+            if ($sanitized === null) {
+                continue;
+            }
+            $result[$key] = $sanitized;
+        }
+        return $result;
+    }
+
+    if (is_string($value)) {
+        $trimmed = trim($value);
+        if (preg_match('/\b(Bearer|Cookie|Authorization)\s*[:=]/i', $trimmed)
+            || preg_match('/spidertoken|access[_-]?token|refresh[_-]?token/i', $trimmed)
+            || p0_import_is_raw_url_value($trimmed)
+        ) {
+            $removedPaths[] = $path;
+            return null;
+        }
+    }
+
+    return $value;
+}
+
+/**
+ * @return array<int, array<string, mixed>>
+ */
+function p0_import_payload_is_browser_capture(array $payload): bool
+{
+    $source = strtolower(trim((string)($payload['source'] ?? '')));
+    return str_contains($source, 'browser_profile')
+        || isset($payload['auth_status'])
+        || isset($payload['capture_gate']);
+}
+
+/**
+ * @return array<int, array<string, mixed>>
+ */
+function p0_import_payload_scope_issues(array $payload, string $platform, int $systemHotelId): array
+{
+    $issues = [];
+    $payloadSystemHotelId = (int)($payload['system_hotel_id'] ?? 0);
+    if ($payloadSystemHotelId > 0 && $payloadSystemHotelId !== $systemHotelId) {
+        $issues[] = [
+            'code' => 'system_hotel_id_mismatch',
+            'message' => 'Payload system_hotel_id does not match the import command hotel scope.',
+            'payload_system_hotel_id' => $payloadSystemHotelId,
+            'command_system_hotel_id' => $systemHotelId,
+        ];
+    }
+
+    $source = strtolower(trim((string)($payload['source'] ?? '')));
+    if (!p0_import_payload_is_browser_capture($payload)) {
+        return $issues;
+    }
+
+    if ($source === '') {
+        $issues[] = [
+            'code' => 'browser_capture_source_missing',
+            'message' => 'Browser capture output must include a source such as ctrip_browser_profile or meituan_browser_profile.',
+        ];
+    }
+
+    if ($payloadSystemHotelId <= 0) {
+        $issues[] = [
+            'code' => 'browser_capture_system_hotel_id_missing',
+            'message' => 'Browser capture output must include system_hotel_id to prove the selected hotel scope.',
+            'command_system_hotel_id' => $systemHotelId,
+        ];
+    }
+
+    if ($source !== '' && !str_contains($source, $platform)) {
+        $issues[] = [
+            'code' => 'browser_capture_platform_mismatch',
+            'message' => 'Browser capture source does not match the import command platform.',
+            'payload_source' => $source,
+            'command_platform' => $platform,
+        ];
+    }
+
+    $payloadMode = strtolower(trim((string)($payload['mode'] ?? '')));
+    $authStatus = is_array($payload['auth_status'] ?? null) ? (array)$payload['auth_status'] : [];
+    $captureGate = is_array($payload['capture_gate'] ?? null) ? (array)$payload['capture_gate'] : [];
+    $gateMode = strtolower(trim((string)($captureGate['mode'] ?? '')));
+    if ($payloadMode === 'login_only' || $gateMode === 'login_only') {
+        $issues[] = [
+            'code' => 'browser_capture_login_only_not_importable',
+            'message' => 'Login-only browser capture output is not importable as target-date traffic evidence.',
+        ];
+    }
+
+    if ($authStatus === []) {
+        $issues[] = [
+            'code' => 'browser_capture_auth_status_missing',
+            'message' => 'Browser capture output must include auth_status before traffic import.',
+        ];
+    } else {
+        $authOk = ($authStatus['ok'] ?? null) === true
+            || strtolower(trim((string)($authStatus['status'] ?? ''))) === 'logged_in';
+        if (!$authOk) {
+            $issues[] = [
+                'code' => 'browser_capture_auth_not_verified',
+                'message' => 'Browser capture auth_status is not verified as logged in.',
+                'auth_status' => (string)($authStatus['status'] ?? 'unknown'),
+            ];
+        }
+    }
+
+    if ($captureGate === []) {
+        $issues[] = [
+            'code' => 'browser_capture_gate_missing',
+            'message' => 'Browser capture output must include capture_gate before traffic import.',
+        ];
+    } elseif (strtolower(trim((string)($captureGate['status'] ?? ''))) !== 'pass') {
+        $issues[] = [
+            'code' => 'browser_capture_gate_not_pass',
+            'message' => 'Browser capture gate did not pass; failed capture output cannot be imported.',
+            'capture_gate_status' => (string)($captureGate['status'] ?? 'unknown'),
+            'failed_check_ids' => array_values(array_filter((array)($captureGate['failed_check_ids'] ?? []), 'is_scalar')),
+        ];
+    }
+
+    return $issues;
+}
+
 function p0_import_safe_capture_evidence_value(mixed $value): string
 {
     if (!is_scalar($value)) {
@@ -177,7 +378,7 @@ function p0_import_desensitized_capture_evidence(array $source): array
     $evidence = [];
     $aliases = [
         'source_trace_id' => ['source_trace_id', '_source_trace_id', 'trace_id', '_trace_id'],
-        'source_url_hash' => ['source_url_hash', '_source_url_hash'],
+        'source_url_hash' => ['source_url_hash', '_source_url_hash', 'url_hash', '_url_hash'],
         'request_hash' => ['request_hash', '_request_hash'],
         'payload_hash' => ['payload_hash', '_payload_hash'],
     ];
@@ -201,6 +402,122 @@ function p0_import_desensitized_capture_evidence(array $source): array
     }
 
     return $evidence;
+}
+
+/**
+ * @return array{responses:array<int, array{source_trace_id:string, source_url_hash:string, row_count:int, remaining_row_count:int}>, source_trace_ids:array<string, bool>, source_url_hashes:array<string, bool>}
+ */
+function p0_import_browser_response_evidence(array $payload): array
+{
+    $result = [
+        'responses' => [],
+        'source_trace_ids' => [],
+        'source_url_hashes' => [],
+    ];
+    $responses = is_array($payload['responses'] ?? null) ? (array)$payload['responses'] : [];
+    foreach ($responses as $response) {
+        if (!is_array($response)) {
+            continue;
+        }
+        if (!p0_import_browser_response_is_traffic_evidence($response)) {
+            continue;
+        }
+        $evidence = p0_import_desensitized_capture_evidence($response);
+        $traceId = (string)($evidence['source_trace_id'] ?? '');
+        $urlHash = (string)($evidence['source_url_hash'] ?? '');
+        $rowCount = p0_import_browser_response_row_count($response);
+        $result['responses'][] = [
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $urlHash,
+            'row_count' => $rowCount,
+            'remaining_row_count' => $rowCount,
+        ];
+        if ($traceId !== '') {
+            $result['source_trace_ids'][$traceId] = true;
+        }
+        if ($urlHash !== '') {
+            $result['source_url_hashes'][$urlHash] = true;
+        }
+    }
+    return $result;
+}
+
+/**
+ * @param array<string, mixed> $response
+ */
+function p0_import_browser_response_is_traffic_evidence(array $response): bool
+{
+    $status = $response['status'] ?? null;
+    if ($status !== null && ((int)$status < 200 || (int)$status >= 300)) {
+        return false;
+    }
+
+    if (p0_import_browser_response_row_count($response) <= 0) {
+        return false;
+    }
+
+    $labels = [
+        $response['section'] ?? '',
+        $response['capture_section'] ?? '',
+        $response['data_type'] ?? '',
+        $response['dataType'] ?? '',
+        $response['endpoint_id'] ?? '',
+        $response['endpoint_label'] ?? '',
+    ];
+    foreach ($labels as $label) {
+        $text = strtolower(trim((string)$label));
+        if ($text === '') {
+            continue;
+        }
+        foreach (['traffic', 'flow', 'conversion'] as $needle) {
+            if (str_contains($text, $needle)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * @param array<string, mixed> $response
+ */
+function p0_import_browser_response_row_count(array $response): int
+{
+    $rowCount = (int)($response['row_count'] ?? $response['rowCount'] ?? 0);
+    $standardRowCount = (int)($response['standard_row_count'] ?? $response['standardRowCount'] ?? 0);
+    return max(0, $rowCount) + max(0, $standardRowCount);
+}
+
+/**
+ * @param array<string, string> $captureEvidence
+ * @param array{responses?:array<int, array<string, mixed>>, source_trace_ids?:array<string, bool>, source_url_hashes?:array<string, bool>} $responseEvidence
+ */
+function p0_import_capture_evidence_matches_response(array $captureEvidence, array &$responseEvidence): bool
+{
+    $traceId = (string)($captureEvidence['source_trace_id'] ?? '');
+    $urlHash = (string)($captureEvidence['source_url_hash'] ?? '');
+    $responses = is_array($responseEvidence['responses'] ?? null) ? (array)$responseEvidence['responses'] : [];
+    foreach ($responses as $index => $response) {
+        if (!is_array($response)) {
+            continue;
+        }
+        $remaining = (int)($response['remaining_row_count'] ?? 0);
+        if ($remaining <= 0) {
+            continue;
+        }
+        $responseTraceId = (string)($response['source_trace_id'] ?? '');
+        $responseUrlHash = (string)($response['source_url_hash'] ?? '');
+        $matches = ($traceId !== '' && $responseTraceId !== '' && $traceId === $responseTraceId)
+            || ($urlHash !== '' && $responseUrlHash !== '' && $urlHash === $responseUrlHash);
+        if (!$matches) {
+            continue;
+        }
+        $responseEvidence['responses'][$index]['remaining_row_count'] = $remaining - 1;
+        return true;
+    }
+
+    return false;
 }
 
 /**
@@ -233,8 +550,42 @@ function p0_import_with_payload_capture_evidence(array $row, array $payloadEvide
 function p0_import_fact_has_desensitized_capture_evidence(array $fact): bool
 {
     $captureEvidence = $fact['capture_evidence'] ?? null;
-    return is_array($captureEvidence)
-        && p0_import_desensitized_capture_evidence($captureEvidence) !== [];
+    if (!is_array($captureEvidence)) {
+        return false;
+    }
+    $desensitized = p0_import_desensitized_capture_evidence($captureEvidence);
+    return trim((string)($desensitized['source_trace_id'] ?? '')) !== ''
+        && trim((string)($desensitized['source_url_hash'] ?? '')) !== '';
+}
+
+function p0_import_has_complete_desensitized_capture_evidence(array $source): bool
+{
+    $evidence = p0_import_desensitized_capture_evidence($source);
+    return trim((string)($evidence['source_trace_id'] ?? '')) !== ''
+        && trim((string)($evidence['source_url_hash'] ?? '')) !== '';
+}
+
+function p0_import_fact_capture_evidence_matches_row(array $fact, string $rowSourceTraceId = '', string $rowSourceUrlHash = ''): bool
+{
+    $captureEvidence = $fact['capture_evidence'] ?? null;
+    if (!is_array($captureEvidence)) {
+        return false;
+    }
+
+    $desensitized = p0_import_desensitized_capture_evidence($captureEvidence);
+    $factSourceTraceId = trim((string)($desensitized['source_trace_id'] ?? ''));
+    $factSourceUrlHash = trim((string)($desensitized['source_url_hash'] ?? ''));
+    if ($factSourceTraceId === '' || $factSourceUrlHash === '') {
+        return false;
+    }
+    if ($rowSourceTraceId !== '' && $factSourceTraceId !== $rowSourceTraceId) {
+        return false;
+    }
+    if ($rowSourceUrlHash !== '' && $factSourceUrlHash !== $rowSourceUrlHash) {
+        return false;
+    }
+
+    return true;
 }
 
 /**
@@ -257,8 +608,39 @@ function p0_import_extract_rows(array $payload, string $platform): array
 /**
  * @param array<string, mixed> $row
  */
+function p0_import_row_date_source_is_context_default(array $row): bool
+{
+    $source = p0_import_row_date_source($row);
+    return $source !== ''
+        && (str_contains($source, 'default_data_date')
+            || str_contains($source, 'command_date')
+            || str_contains($source, 'command --date')
+            || $source === 'capture_argument');
+}
+
+/**
+ * @param array<string, mixed> $row
+ */
+function p0_import_row_date_source(array $row): string
+{
+    foreach (['date_source', 'dateSource', 'data_date_source', 'dataDateSource', '_date_source', '_data_date_source'] as $key) {
+        $source = strtolower(trim((string)($row[$key] ?? '')));
+        if ($source !== '') {
+            return $source;
+        }
+    }
+
+    return '';
+}
+
+/**
+ * @param array<string, mixed> $row
+ */
 function p0_import_explicit_row_date(array $row): string
 {
+    if (p0_import_row_date_source_is_context_default($row)) {
+        return '';
+    }
     $value = $row['date'] ?? $row['dataDate'] ?? $row['statDate'] ?? $row['stat_date'] ?? $row['data_date'] ?? $row['reportDate'] ?? $row['day'] ?? '';
     if (trim((string)$value) === '') {
         return '';
@@ -366,6 +748,9 @@ function p0_import_preview_field_facts(array $row, array $metrics, string $platf
     $required = array_keys($requiredStorageFields);
     $complete = [];
     $missing = [];
+    $rowEvidence = p0_import_desensitized_capture_evidence($row);
+    $rowSourceTraceId = trim((string)($row['source_trace_id'] ?? $row['_source_trace_id'] ?? $rowEvidence['source_trace_id'] ?? ''));
+    $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? ''));
     foreach ($required as $metricKey) {
         $matched = false;
         foreach ($facts as $fact) {
@@ -375,7 +760,7 @@ function p0_import_preview_field_facts(array $row, array $metrics, string $platf
             $matched = p0_import_source_path_is_structured((string)($fact['source_path'] ?? ''))
                 && trim((string)($fact['storage_field'] ?? '')) === $requiredStorageFields[$metricKey]
                 && ($fact['stored_value_present'] ?? null) === true
-                && p0_import_fact_has_desensitized_capture_evidence($fact);
+                && p0_import_fact_capture_evidence_matches_row($fact, $rowSourceTraceId, $rowSourceUrlHash);
             break;
         }
         if ($matched) {
@@ -461,6 +846,7 @@ function p0_import_external_ui_status(array $status): array
         'captured_count' => (int)($status['captured_count'] ?? 0),
         'missing_count' => (int)($status['missing_count'] ?? 0),
         'capture_evidence_count' => (int)($status['capture_evidence_count'] ?? 0),
+        'desensitized_capture_evidence_count' => (int)($status['desensitized_capture_evidence_count'] ?? 0),
         'source_path_count' => (int)($status['source_path_count'] ?? 0),
         'structured_source_path_count' => (int)($status['structured_source_path_count'] ?? 0),
         'metric_key_count' => (int)($status['metric_key_count'] ?? 0),
@@ -478,12 +864,19 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
     $defaultedDateRows = 0;
     $completeRows = 0;
     $rowsWithDesensitizedCaptureEvidence = 0;
+    $rowsWithCompleteDesensitizedCaptureEvidence = 0;
+    $rowsWithRowLevelDesensitizedCaptureEvidence = 0;
+    $rowsWithRowLevelCompleteDesensitizedCaptureEvidence = 0;
+    $rowsWithBrowserResponseEvidence = 0;
+    $rowsWithBrowserDateSourceEvidence = 0;
     $rowsWithExplicitSourcePath = 0;
     $metricKeys = [];
     $sample = [];
     $payloadEvidence = p0_import_desensitized_capture_evidence($payload);
+    $responseEvidence = p0_import_browser_response_evidence($payload);
 
     foreach ($rows as $row) {
+        $rowLevelCaptureEvidence = p0_import_desensitized_capture_evidence($row);
         $row = p0_import_with_payload_capture_evidence($row, $payloadEvidence);
         $explicitDate = p0_import_explicit_row_date($row);
         $rowDate = p0_import_row_date($row, $date);
@@ -494,6 +887,11 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
         if ($explicitDate === '') {
             $defaultedDateRows++;
         }
+        $dateSource = p0_import_row_date_source($row);
+        $dateSourceProven = $dateSource !== '' && !p0_import_row_date_source_is_context_default($row);
+        if ($dateSourceProven) {
+            $rowsWithBrowserDateSourceEvidence++;
+        }
         $explicitSourcePath = p0_import_explicit_source_path($row);
         $sourcePathStructured = p0_import_source_path_is_structured($explicitSourcePath);
         if ($sourcePathStructured) {
@@ -501,6 +899,21 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
         }
         if (p0_import_desensitized_capture_evidence($row) !== []) {
             $rowsWithDesensitizedCaptureEvidence++;
+        }
+        if (p0_import_has_complete_desensitized_capture_evidence($row)) {
+            $rowsWithCompleteDesensitizedCaptureEvidence++;
+        }
+        if ($rowLevelCaptureEvidence !== []) {
+            $rowsWithRowLevelDesensitizedCaptureEvidence++;
+        }
+        if (trim((string)($rowLevelCaptureEvidence['source_trace_id'] ?? '')) !== ''
+            && trim((string)($rowLevelCaptureEvidence['source_url_hash'] ?? '')) !== ''
+        ) {
+            $rowsWithRowLevelCompleteDesensitizedCaptureEvidence++;
+        }
+        $browserResponseEvidencePresent = p0_import_capture_evidence_matches_response($rowLevelCaptureEvidence, $responseEvidence);
+        if ($browserResponseEvidencePresent) {
+            $rowsWithBrowserResponseEvidence++;
         }
         $metrics = p0_import_traffic_metrics($row, $platform);
         $preview = p0_import_preview_field_facts($row, $metrics, $platform, $systemHotelId, $date);
@@ -516,6 +929,13 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
                 'source_path' => $explicitSourcePath,
                 'source_path_structured' => $sourcePathStructured,
                 'desensitized_capture_evidence_present' => p0_import_desensitized_capture_evidence($row) !== [],
+                'complete_desensitized_capture_evidence_present' => p0_import_has_complete_desensitized_capture_evidence($row),
+                'row_level_desensitized_capture_evidence_present' => $rowLevelCaptureEvidence !== [],
+                'row_level_complete_desensitized_capture_evidence_present' => trim((string)($rowLevelCaptureEvidence['source_trace_id'] ?? '')) !== ''
+                    && trim((string)($rowLevelCaptureEvidence['source_url_hash'] ?? '')) !== '',
+                'browser_response_evidence_present' => $browserResponseEvidencePresent,
+                'date_source' => $dateSource,
+                'browser_date_source_evidence_present' => $dateSourceProven,
                 'metrics' => $metrics,
                 'field_fact_preview' => $preview,
             ];
@@ -531,6 +951,16 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
         'incomplete_field_fact_preview_rows' => max(0, $targetRows - $completeRows),
         'rows_with_desensitized_capture_evidence' => $rowsWithDesensitizedCaptureEvidence,
         'missing_capture_evidence_rows' => max(0, $targetRows - $rowsWithDesensitizedCaptureEvidence),
+        'rows_with_complete_desensitized_capture_evidence' => $rowsWithCompleteDesensitizedCaptureEvidence,
+        'missing_complete_capture_evidence_rows' => max(0, $targetRows - $rowsWithCompleteDesensitizedCaptureEvidence),
+        'row_level_desensitized_capture_evidence_rows' => $rowsWithRowLevelDesensitizedCaptureEvidence,
+        'missing_row_level_capture_evidence_rows' => max(0, $targetRows - $rowsWithRowLevelDesensitizedCaptureEvidence),
+        'row_level_complete_desensitized_capture_evidence_rows' => $rowsWithRowLevelCompleteDesensitizedCaptureEvidence,
+        'missing_row_level_complete_capture_evidence_rows' => max(0, $targetRows - $rowsWithRowLevelCompleteDesensitizedCaptureEvidence),
+        'browser_response_evidence_rows' => $rowsWithBrowserResponseEvidence,
+        'missing_browser_response_evidence_rows' => max(0, $targetRows - $rowsWithBrowserResponseEvidence),
+        'browser_date_source_evidence_rows' => $rowsWithBrowserDateSourceEvidence,
+        'missing_browser_date_source_evidence_rows' => max(0, $targetRows - $rowsWithBrowserDateSourceEvidence),
         'explicit_source_path_rows' => $rowsWithExplicitSourcePath,
         'missing_source_path_rows' => max(0, $targetRows - $rowsWithExplicitSourcePath),
         'complete_metric_keys' => $completeMetricKeys,
@@ -596,6 +1026,7 @@ function p0_import_prepare_execute_payload(array $rows, string $platform, int $s
     $payloadEvidence = p0_import_desensitized_capture_evidence($payload);
     $preparedRows = [];
     $evidenceRows = 0;
+    $completeEvidenceRows = 0;
 
     foreach ($rows as $row) {
         if (!is_array($row)) {
@@ -633,6 +1064,9 @@ function p0_import_prepare_execute_payload(array $rows, string $platform, int $s
         if (p0_import_desensitized_capture_evidence($row) !== []) {
             $evidenceRows++;
         }
+        if (p0_import_has_complete_desensitized_capture_evidence($row)) {
+            $completeEvidenceRows++;
+        }
 
         $preparedRows[] = $row;
     }
@@ -647,11 +1081,12 @@ function p0_import_prepare_execute_payload(array $rows, string $platform, int $s
         ],
         'row_count' => count($preparedRows),
         'rows_with_desensitized_capture_evidence' => $evidenceRows,
+        'rows_with_complete_desensitized_capture_evidence' => $completeEvidenceRows,
     ];
 }
 
 /**
- * @param array{payload:array<string, mixed>, row_count:int, rows_with_desensitized_capture_evidence:int} $prepared
+ * @param array{payload:array<string, mixed>, row_count:int, rows_with_desensitized_capture_evidence:int, rows_with_complete_desensitized_capture_evidence?:int} $prepared
  * @return array<string, mixed>
  */
 function p0_import_execute_plan(array $prepared): array
@@ -661,6 +1096,7 @@ function p0_import_execute_plan(array $prepared): array
         'payload_shape' => 'data.flowData',
         'target_date_row_count' => $prepared['row_count'],
         'rows_with_desensitized_capture_evidence' => $prepared['rows_with_desensitized_capture_evidence'],
+        'rows_with_complete_desensitized_capture_evidence' => (int)($prepared['rows_with_complete_desensitized_capture_evidence'] ?? 0),
     ];
 }
 
@@ -802,6 +1238,7 @@ function p0_import_post_execute_verification(array $options): array
             && (int)($uiStatus['stored_value_missing_count'] ?? -1) === 0
             && (int)($uiStatus['captured_count'] ?? 0) >= count($requiredMetricKeys)
             && (int)($uiStatus['capture_evidence_count'] ?? 0) >= count($requiredMetricKeys)
+            && (int)($uiStatus['desensitized_capture_evidence_count'] ?? 0) >= count($requiredMetricKeys)
             && (int)($uiStatus['source_path_count'] ?? 0) >= count($requiredMetricKeys)
             && (int)($uiStatus['structured_source_path_count'] ?? 0) >= count($requiredMetricKeys)
             && (int)($uiStatus['storage_field_count'] ?? 0) >= count($requiredMetricKeys);
@@ -817,6 +1254,7 @@ function p0_import_post_execute_verification(array $options): array
                 'field_fact_status' => $uiFieldFactStatus,
                 'raw_data_exposed' => (bool)($uiStatus['raw_data_exposed'] ?? true),
                 'captured_count' => (int)($uiStatus['captured_count'] ?? 0),
+                'desensitized_capture_evidence_count' => (int)($uiStatus['desensitized_capture_evidence_count'] ?? 0),
                 'structured_source_path_count' => (int)($uiStatus['structured_source_path_count'] ?? 0),
                 'missing_count' => (int)($uiStatus['missing_count'] ?? 0),
                 'stored_value_missing_count' => (int)($uiStatus['stored_value_missing_count'] ?? 0),
@@ -828,6 +1266,9 @@ function p0_import_post_execute_verification(array $options): array
         if ($facts !== []) {
             $base['rows_with_field_facts']++;
         }
+        $rowEvidence = p0_import_desensitized_capture_evidence($raw);
+        $rowSourceTraceId = trim((string)($row['source_trace_id'] ?? $raw['source_trace_id'] ?? $rowEvidence['source_trace_id'] ?? ''));
+        $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? ''));
         foreach ($facts as $fact) {
             if (!is_array($fact)) {
                 continue;
@@ -839,7 +1280,7 @@ function p0_import_post_execute_verification(array $options): array
             $captureEvidence = is_array($fact['capture_evidence'] ?? null) ? (array)$fact['capture_evidence'] : [];
             $factReady = p0_import_source_path_is_structured((string)($fact['source_path'] ?? ''))
                 && trim((string)($fact['storage_field'] ?? '')) === $requiredStorageFields[$metricKey]
-                && p0_import_desensitized_capture_evidence($captureEvidence) !== []
+                && p0_import_fact_capture_evidence_matches_row($fact, $rowSourceTraceId, $rowSourceUrlHash)
                 && ($fact['stored_value_present'] ?? null) === true;
             if ($factReady) {
                 $completeMetricKeys[$metricKey] = true;
@@ -922,10 +1363,21 @@ function p0_import_render_markdown(array $result): string
     $summary = is_array($result['summary'] ?? null) ? $result['summary'] : [];
     $lines[] = '- extracted rows: `' . (int)($summary['extracted_rows'] ?? 0) . '`';
     $lines[] = '- target-date rows: `' . (int)($summary['target_date_rows'] ?? 0) . '`';
+    $projection = is_array($result['payload_import_projection'] ?? null) ? $result['payload_import_projection'] : [];
+    if ($projection !== []) {
+        $lines[] = '- payload import projection: `' . (!empty($projection['applied']) ? 'applied' : 'not_applied') . '` / `' . (string)($projection['reason'] ?? '') . '`';
+        $lines[] = '- projection removed sensitive metadata: `' . (int)($projection['removed_sensitive_metadata_count'] ?? 0) . '`';
+        $lines[] = '- projection dropped top-level metadata: `' . (int)($projection['dropped_top_level_key_count'] ?? 0) . '`';
+    }
+    $lines[] = '- sensitive values exposed: `' . (!empty($result['sensitive_values_exposed']) ? 'true' : 'false') . '`';
     $lines[] = '- defaulted date rows: `' . (int)($summary['defaulted_date_rows'] ?? 0) . '`';
     $lines[] = '- missing source path rows: `' . (int)($summary['missing_source_path_rows'] ?? 0) . '`';
     $lines[] = '- incomplete field-fact preview rows: `' . (int)($summary['incomplete_field_fact_preview_rows'] ?? 0) . '`';
     $lines[] = '- rows with desensitized capture evidence: `' . (int)($summary['rows_with_desensitized_capture_evidence'] ?? 0) . '`';
+    $lines[] = '- rows with complete desensitized capture evidence: `' . (int)($summary['rows_with_complete_desensitized_capture_evidence'] ?? 0) . '`';
+    $lines[] = '- row-level desensitized capture evidence rows: `' . (int)($summary['row_level_desensitized_capture_evidence_rows'] ?? 0) . '`';
+    $lines[] = '- row-level complete desensitized capture evidence rows: `' . (int)($summary['row_level_complete_desensitized_capture_evidence_rows'] ?? 0) . '`';
+    $lines[] = '- browser response evidence rows: `' . (int)($summary['browser_response_evidence_rows'] ?? 0) . '`';
     $lines[] = '- missing metric keys: ' . implode(', ', array_map(static fn($item): string => '`' . (string)$item . '`', (array)($summary['missing_metric_keys'] ?? [])));
     $trafficEvidence = is_array($result['traffic_evidence'] ?? null) ? $result['traffic_evidence'] : [];
     $lines[] = '- traffic evidence rows: `' . count($trafficEvidence) . '`';
@@ -937,6 +1389,14 @@ function p0_import_render_markdown(array $result): string
     if (isset($result['saved_count'])) {
         $lines[] = '- saved count: `' . (int)$result['saved_count'] . '`';
     }
+    $trafficEvidenceContract = is_array($result['traffic_evidence_contract'] ?? null) ? $result['traffic_evidence_contract'] : [];
+    if ($trafficEvidenceContract !== []) {
+        $lines[] = '- traffic evidence contract: `' . (string)($trafficEvidenceContract['status'] ?? 'unknown') . '`';
+        $lines[] = '- traffic evidence verifier command: `' . (string)($trafficEvidenceContract['verifier_command'] ?? '') . '`';
+        $lines[] = '- traffic evidence completion policy: `' . (string)($trafficEvidenceContract['completion_policy'] ?? '') . '`';
+    }
+    $lines[] = '- completion policy: `' . (string)($result['completion_policy'] ?? '') . '`';
+    $lines[] = '- next verifier command: `' . (string)($result['next_verifier_command'] ?? '') . '`';
     $postExecute = is_array($result['post_execute_verification'] ?? null) ? $result['post_execute_verification'] : [];
     if ($postExecute !== []) {
         $lines[] = '- post-execute verification: `' . (string)($postExecute['status'] ?? 'unknown') . '`';
@@ -956,14 +1416,17 @@ function p0_import_render_markdown(array $result): string
 
 try {
     $options = p0_import_parse_args($argv);
-    $payload = p0_import_read_payload((string)$options['payload']);
+    $rawPayload = p0_import_read_payload((string)$options['payload']);
+    $payloadProjection = p0_import_project_payload_for_import($rawPayload);
+    $payload = (array)$payloadProjection['payload'];
+    $payloadProjectionMetadata = (array)$payloadProjection['metadata'];
     $sensitiveHits = p0_import_sensitive_hits($payload);
     $rows = p0_import_extract_rows($payload, (string)$options['platform']);
     $summary = p0_import_summarize_rows($rows, (string)$options['platform'], (int)$options['system-hotel-id'], (string)$options['date'], $payload);
     $preparedExecute = p0_import_prepare_execute_payload($rows, (string)$options['platform'], (int)$options['system-hotel-id'], (string)$options['date'], $payload);
     $executePlan = p0_import_execute_plan($preparedExecute);
 
-    $issues = [];
+    $issues = p0_import_payload_scope_issues($payload, (string)$options['platform'], (int)$options['system-hotel-id']);
     if ($sensitiveHits !== []) {
         $issues[] = [
             'code' => 'sensitive_payload_keys_detected',
@@ -1005,11 +1468,45 @@ try {
             'incomplete_field_fact_preview_rows' => (int)$summary['incomplete_field_fact_preview_rows'],
         ];
     }
-    if ((int)$summary['target_date_rows'] > 0 && (int)$summary['missing_capture_evidence_rows'] > 0) {
+    if ((int)$summary['target_date_rows'] > 0 && (int)($summary['missing_complete_capture_evidence_rows'] ?? 0) > 0) {
         $issues[] = [
             'code' => 'desensitized_capture_evidence_missing',
-            'message' => 'Target-date traffic rows must include desensitized capture evidence such as source_trace_id, source_url_hash, request_hash, or payload_hash.',
-            'missing_capture_evidence_rows' => $summary['missing_capture_evidence_rows'],
+            'message' => 'Target-date traffic rows must include complete desensitized capture evidence: source_trace_id plus source_url_hash/url_hash.',
+            'missing_capture_evidence_rows' => (int)($summary['missing_complete_capture_evidence_rows'] ?? 0),
+            'rows_with_desensitized_capture_evidence' => (int)($summary['rows_with_desensitized_capture_evidence'] ?? 0),
+            'rows_with_complete_desensitized_capture_evidence' => (int)($summary['rows_with_complete_desensitized_capture_evidence'] ?? 0),
+        ];
+    }
+    if (p0_import_payload_is_browser_capture($payload)
+        && (int)$summary['target_date_rows'] > 0
+        && (int)($summary['missing_row_level_complete_capture_evidence_rows'] ?? 0) > 0
+    ) {
+        $issues[] = [
+            'code' => 'browser_capture_row_capture_evidence_missing',
+            'message' => 'Browser capture traffic rows must carry row-level source_trace_id plus source_url_hash/url_hash evidence; payload-level evidence is not sufficient for Profile capture imports.',
+            'missing_row_level_capture_evidence_rows' => (int)($summary['missing_row_level_complete_capture_evidence_rows'] ?? 0),
+            'row_level_desensitized_capture_evidence_rows' => (int)($summary['row_level_desensitized_capture_evidence_rows'] ?? 0),
+            'row_level_complete_desensitized_capture_evidence_rows' => (int)($summary['row_level_complete_desensitized_capture_evidence_rows'] ?? 0),
+        ];
+    }
+    if (p0_import_payload_is_browser_capture($payload)
+        && (int)$summary['target_date_rows'] > 0
+        && (int)($summary['missing_browser_date_source_evidence_rows'] ?? 0) > 0
+    ) {
+        $issues[] = [
+            'code' => 'browser_capture_row_date_source_missing',
+            'message' => 'Browser capture traffic rows must carry row-level date_source evidence from the response row or request URL/payload; capture_context.default_data_date is not accepted.',
+            'missing_browser_date_source_evidence_rows' => (int)$summary['missing_browser_date_source_evidence_rows'],
+        ];
+    }
+    if (p0_import_payload_is_browser_capture($payload)
+        && (int)$summary['target_date_rows'] > 0
+        && (int)($summary['missing_browser_response_evidence_rows'] ?? 0) > 0
+    ) {
+        $issues[] = [
+            'code' => 'browser_capture_response_evidence_missing',
+            'message' => 'Browser capture traffic rows must match desensitized response evidence in responses[] by source_trace_id or source_url_hash/url_hash.',
+            'missing_browser_response_evidence_rows' => (int)$summary['missing_browser_response_evidence_rows'],
         ];
     }
 
@@ -1054,10 +1551,18 @@ try {
             ];
         }
     }
+    $p0CompletionStatus = 'blocked_not_p0_complete';
+    if ($status === 'ready_to_import') {
+        $p0CompletionStatus = 'pre_import_ready_not_p0_complete';
+    } elseif ($status === 'imported') {
+        $p0CompletionStatus = 'imported_and_post_execute_verifier_ready';
+    }
 
     $result = array_merge([
         'script' => 'scripts/import_p0_ota_traffic_payload.php',
         'status' => $status,
+        'p0_completion_status' => $p0CompletionStatus,
+        'p0_completion_gate' => 'P0 complete only when --execute saves target-date traffic rows and post-execute verify:p0-ota-field-loop returns ready.',
         'mode' => (bool)$options['execute'] ? 'execute' : 'dry_run',
         'platform' => $options['platform'],
         'date' => $options['date'],
@@ -1066,6 +1571,7 @@ try {
         'scope_policy' => 'ota_channel_only',
         'target_storage_table' => 'online_daily_data',
         'target_data_type' => 'traffic',
+        'payload_import_projection' => $payloadProjectionMetadata,
         'sensitive_values_exposed' => $sensitiveHits !== [],
         'summary' => $summary,
         'execute_plan' => $executePlan,

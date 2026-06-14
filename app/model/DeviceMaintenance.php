@@ -33,6 +33,7 @@ class DeviceMaintenance extends Model
     protected $jsonAssoc = true;
 
     // 维护类型常量
+    const TYPE_PLANNED = 1;        // 计划维护（兼容维护计划调用）
     const TYPE_PREVENTIVE = 1;     // 预防性维护
     const TYPE_CORRECTIVE = 2;     // 纠正性维护
     const TYPE_PREDICTIVE = 3;     // 预测性维护
@@ -126,6 +127,38 @@ class DeviceMaintenance extends Model
             self::STATUS_CANCELLED => '已取消',
         ];
         return $names[$data['status']] ?? '未知';
+    }
+
+    /**
+     * 创建维护记录。
+     *
+     * @param array<string, mixed> $data
+     */
+    public static function createRecord(array $data): self
+    {
+        $status = (int)($data['status'] ?? self::STATUS_COMPLETED);
+        $maintenanceDate = (string)($data['maintenance_date'] ?? $data['scheduled_date'] ?? date('Y-m-d'));
+        $now = date('Y-m-d H:i:s');
+
+        $record = new self();
+        $record->device_id = (int)($data['device_id'] ?? 0);
+        $record->maintenance_type = (int)($data['maintenance_type'] ?? self::TYPE_PREVENTIVE);
+        $record->status = $status;
+        $record->priority = (int)($data['priority'] ?? self::PRIORITY_NORMAL);
+        $record->description = (string)($data['description'] ?? '');
+        $record->scheduled_date = (string)($data['scheduled_date'] ?? $maintenanceDate);
+        if ($status === self::STATUS_COMPLETED) {
+            $record->completed_date = (string)($data['completed_date'] ?? $maintenanceDate);
+            $record->actual_start = (string)($data['actual_start'] ?? $now);
+            $record->actual_end = (string)($data['actual_end'] ?? $now);
+        }
+        $record->cost = (float)($data['cost'] ?? 0);
+        $record->parts_replaced = is_array($data['parts_replaced'] ?? null) ? $data['parts_replaced'] : [];
+        $record->operator_id = (int)($data['operator_id'] ?? $data['executor_id'] ?? 0);
+        $record->remark = (string)($data['remark'] ?? $data['result'] ?? '');
+        $record->save();
+
+        return $record;
     }
 
     /**

@@ -803,12 +803,17 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!content.includes(':disabled="fetchingData || !canFetchMeituanRankingData()"')
     || !content.includes('const meituanManualFetchConfigProofPending = () => {')
-    || !content.includes('return !!meituanForm.value.hotelId && !!selectedMeituanHotelConfig.value;')
     || !content.includes('const canFetchMeituanRankingData = () => {')
+    || !content.includes("if (String(form.cookies || '').trim()) return true;")
+    || !content.includes('return !!form.hotelId && !!selectedMeituanHotelConfig.value;')
     || !content.includes('const resolveMeituanManualFetchConfig = async (config) => {')
+    || !content.includes('if (!meituanForm.value.hotelId) return null;')
     || !content.includes('ensureMeituanConfigSecret: async config => ensureMeituanConfigSecret(await resolveMeituanManualFetchConfig(config))')
+    || !meituanStaticContent.includes('const selectedMeituanConfig = form.hotelId')
+    || meituanStaticContent.includes("return { status: 'missing_hotel' };")
+    || meituanStaticContent.includes("return { status: 'missing_config' };")
     || !content.includes('if (preparingConfig) {\n                        fetchingData.value = false;')) {
-    failures.push('public/index.html Meituan ranking manual fetch must require an already matched config and must not wait for config-list loading before backend submission.');
+    failures.push('public/index.html Meituan ranking manual fetch must allow temporary Cookie validation without a saved config, while keeping saved config application optional.');
   }
   const applyMeituanHotelConfigSource = content.slice(
     content.indexOf('const applyMeituanHotelConfig = async'),

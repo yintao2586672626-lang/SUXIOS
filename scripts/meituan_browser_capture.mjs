@@ -6,6 +6,7 @@ import {
   attachOtaCaptureEvidence,
   buildOtaCaptureEvidence,
   classifyOtaResponse as classifyStandardOtaResponse,
+  extractOtaRequestDateEvidence,
   injectBrowserCookies as injectStandardBrowserCookies,
   normalizeCaptureSections as normalizeStandardCaptureSections,
   sanitizeOtaPayloadForStorage,
@@ -32,6 +33,7 @@ const storageDir = resolve(args.profileDir || join('storage', `meituan_profile_$
 const reportDir = resolve(args.reportDir || 'reports');
 const assetDir = join(reportDir, 'meituan_capture_assets');
 const capturedAt = new Date().toISOString();
+const defaultDataDate = String(args.dataDate || '').trim();
 const outputPath = resolve(args.output || join(reportDir, `meituan_capture_${safeName(storeId)}_${timestamp()}.json`));
 const captureSections = normalizeCaptureSections(args.sections || args.captureSections || args.only || 'traffic,orders');
 const loginOnly = booleanArg(args.loginOnly) || booleanArg(args.authOnly) || booleanArg(args.prepareProfile);
@@ -45,6 +47,7 @@ const payload = {
   poi_id: String(args.poiId || ''),
   poi_name: String(args.poiName || ''),
   system_hotel_id: args.systemHotelId ? Number(args.systemHotelId) : null,
+  default_data_date: defaultDataDate,
   captured_at: capturedAt,
   source: 'meituan_browser_profile',
   mode: loginOnly ? 'login_only' : 'capture',
@@ -255,6 +258,9 @@ async function capturePage(page, name, url) {
 function registerResponseCapture(page, target) {
   page.on('response', async response => {
     const url = response.url();
+    const request = response.request();
+    const requestPayload = request?.postData?.() || '';
+    const requestDateEvidence = extractOtaRequestDateEvidence({ url, payload: requestPayload });
     const contentType = response.headers()['content-type'] || '';
     const classified = classifyStandardOtaResponse('meituan', url, {
       status: response.status(),
@@ -278,9 +284,9 @@ function registerResponseCapture(page, target) {
     }
 
     const safeBody = sanitizeOtaPayloadForStorage(body, section);
-    const rows = normalizeCapturedList(safeBody, section);
+    const rows = normalizeCapturedList(safeBody, section, '', requestDateEvidence);
     const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource: `xhr:${section}` });
-    target.responses.push({ url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section, status, row_count: rows.length, data: safeBody });
+    target.responses.push({ url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section, status, row_count: rows.length, request_date_source: requestDateEvidence.date_source || '', data: safeBody });
     target[section].push(...rows.map(row => attachOtaCaptureEvidence(row, 'meituan', {
       url,
       section,
@@ -309,14 +315,14 @@ function parseResponseBody(text, contentType) {
   return { _raw_text: trimmed.slice(0, 2000) };
 }
 
-function normalizeCapturedList(value, section, sourcePath = '') {
+function normalizeCapturedList(value, section, sourcePath = '', requestDateEvidence = {}) {
   if (!value || typeof value !== 'object') {
     return [];
   }
   if (Array.isArray(value)) {
     return value
       .filter(item => item && typeof item === 'object')
-      .map((item, index) => decorateCapturedRow(item, sourcePath ? `${sourcePath}.${index}` : String(index)));
+      .map((item, index) => decorateCapturedRow(item, sourcePath ? `${sourcePath}.${index}` : String(index), section, requestDateEvidence));
   }
 
   const paths = {
@@ -339,12 +345,12 @@ function normalizeCapturedList(value, section, sourcePath = '') {
 
   for (const path of paths) {
     const nested = readPath(value, path);
-    const rows = normalizeCapturedList(nested, section, joinSourcePath(sourcePath, path));
+    const rows = normalizeCapturedList(nested, section, joinSourcePath(sourcePath, path), requestDateEvidence);
     if (rows.length) {
       return rows;
     }
   }
-  return [decorateCapturedRow(value, sourcePath || '$')];
+  return [decorateCapturedRow(value, sourcePath || '$', section, requestDateEvidence)];
 }
 
 function joinSourcePath(prefix, parts) {
@@ -352,14 +358,26 @@ function joinSourcePath(prefix, parts) {
   return prefix ? `${prefix}.${suffix}` : suffix;
 }
 
-function decorateCapturedRow(row, sourcePath) {
+function decorateCapturedRow(row, sourcePath, section = '', requestDateEvidence = {}) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) {
     return row;
   }
-  if (row._source_path) {
-    return row;
+  const rowHasDate = [row.date, row.dataDate, row.statDate, row.stat_date, row.data_date, row.reportDate, row.day]
+    .some(value => String(value ?? '').trim() !== '');
+  let datePatch = {};
+  if (section === 'traffic') {
+    if (rowHasDate) {
+      datePatch = row.date_source || row.dateSource ? {} : { date_source: 'row' };
+    } else if (requestDateEvidence.date) {
+      datePatch = { dataDate: requestDateEvidence.date, date_source: requestDateEvidence.date_source || 'request' };
+    } else if (defaultDataDate) {
+      datePatch = { dataDate: defaultDataDate, date_source: 'capture_context.default_data_date' };
+    }
   }
-  return { ...row, _source_path: sourcePath || '$' };
+  if (row._source_path) {
+    return { ...row, ...datePatch };
+  }
+  return { ...row, ...datePatch, _source_path: sourcePath || '$' };
 }
 
 async function collectDomFallback(page, target, section) {

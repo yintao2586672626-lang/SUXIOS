@@ -35,6 +35,7 @@ const checks = [
       'public function records(array $hotelIds, int $userId, bool $isSuperAdmin): array',
       'public function detail(int $id, array $hotelIds, int $userId, bool $isSuperAdmin): array',
       'public function archive(int $id, array $hotelIds, int $userId, bool $isSuperAdmin): bool',
+      'public function buildDecisionReadiness(string $recordType, array $input, array $result, array $snapshot, int $hotelId = 0): array',
       'CREATE TABLE IF NOT EXISTS transfer_records',
       'daily_reports',
       'online_daily_data',
@@ -62,6 +63,8 @@ const checks = [
       'archiveTransferRecord',
       'ensureTransferHotelSelected',
       'transferRecords',
+      'transferCurrentReadiness',
+      'decision_readiness',
     ],
   },
 ];

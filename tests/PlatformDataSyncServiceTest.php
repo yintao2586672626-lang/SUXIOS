@@ -1186,6 +1186,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                         'detail_exposure' => '250',
                         'flow_rate' => '25%',
                         'source_trace_id' => 'trace-traffic-row',
+                        'url_hash' => str_repeat('c', 64),
                     ],
                 ],
             ]));
@@ -1214,6 +1215,16 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame(250, $trafficRow['detail_exposure']);
             self::assertSame(25.0, $trafficRow['flow_rate']);
             self::assertSame('trace-traffic-row', $trafficRow['source_trace_id']);
+            $trafficRaw = json_decode((string)$trafficRow['raw_data'], true);
+            self::assertIsArray($trafficRaw);
+            self::assertSame(
+                str_repeat('c', 64),
+                $trafficRaw['field_facts'][0]['capture_evidence']['source_url_hash'] ?? ''
+            );
+            self::assertGreaterThanOrEqual(
+                3,
+                (int)($trafficRaw['field_fact_summary']['desensitized_capture_evidence_count'] ?? 0)
+            );
         } finally {
             $this->removeDirectory($root);
         }
@@ -1320,6 +1331,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                         'detail_exposure' => '180',
                         'flow_rate' => '20%',
                         'source_trace_id' => 'mt-traffic-row',
+                        'url_hash' => str_repeat('d', 64),
                     ],
                 ],
                 'orders' => [
@@ -1353,6 +1365,16 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame(180, $trafficRow['detail_exposure']);
             self::assertSame(20.0, $trafficRow['flow_rate']);
             self::assertSame('mt-traffic-row', $trafficRow['source_trace_id']);
+            $trafficRaw = json_decode((string)$trafficRow['raw_data'], true);
+            self::assertIsArray($trafficRaw);
+            self::assertSame(
+                str_repeat('d', 64),
+                $trafficRaw['field_facts'][0]['capture_evidence']['source_url_hash'] ?? ''
+            );
+            self::assertGreaterThanOrEqual(
+                3,
+                (int)($trafficRaw['field_fact_summary']['desensitized_capture_evidence_count'] ?? 0)
+            );
 
             self::assertSame('order', $orderRow['data_type']);
             self::assertSame(988.0, $orderRow['amount']);
