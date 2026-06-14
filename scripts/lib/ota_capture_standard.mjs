@@ -350,6 +350,87 @@ export function sanitizeOtaPayloadForStorage(value, section = '') {
   return sanitizePayloadNode(value, orderContext);
 }
 
+export function buildOtaCaptureEvidence(platform, options = {}) {
+  const platformKey = String(platform || '').trim().toLowerCase() || 'ota';
+  const section = safeEvidenceText(options.section || '');
+  const sourcePath = safeEvidenceText(options.sourcePath || '');
+  const captureSource = safeEvidenceText(options.captureSource || '');
+  const url = String(options.url || '').trim();
+  const evidence = {};
+
+  if (sourcePath) {
+    evidence.source_path = sourcePath;
+  }
+  if (captureSource) {
+    evidence.capture_source = captureSource;
+  }
+  if (section) {
+    evidence.section = section;
+  }
+  if (url) {
+    evidence.source_url_hash = sha256Hex(url);
+  }
+
+  const traceBasis = {
+    platform: platformKey,
+    section,
+    source_path: sourcePath,
+    capture_source: captureSource,
+    source_url_hash: evidence.source_url_hash || '',
+  };
+  if (Object.values(traceBasis).some(Boolean)) {
+    evidence.source_trace_id = `${platformKey}:${sha256Hex(JSON.stringify(traceBasis))}`;
+  }
+
+  return evidence;
+}
+
+export function attachOtaCaptureEvidence(row, platform, options = {}) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) {
+    return row;
+  }
+  const existingEvidence = row.capture_evidence && typeof row.capture_evidence === 'object' && !Array.isArray(row.capture_evidence)
+    ? row.capture_evidence
+    : {};
+  const sourcePath = options.sourcePath || row._source_path || row.source_path || existingEvidence.source_path || '';
+  const captureSource = options.captureSource || row._capture_source || existingEvidence.capture_source || '';
+  const sourceUrl = options.url || row._source_url || row.source_url || existingEvidence.source_url || '';
+  const evidence = {
+    ...existingEvidence,
+    ...buildOtaCaptureEvidence(platform, {
+      ...options,
+      url: sourceUrl,
+      sourcePath,
+      captureSource,
+    }),
+  };
+  const next = {
+    ...row,
+    capture_evidence: evidence,
+  };
+  if (!next.source_trace_id && evidence.source_trace_id) {
+    next.source_trace_id = evidence.source_trace_id;
+  }
+  if (!next.source_url_hash && evidence.source_url_hash) {
+    next.source_url_hash = evidence.source_url_hash;
+  }
+  delete next._source_url;
+  delete next.source_url;
+  return next;
+}
+
+function sha256Hex(value) {
+  return createHash('sha256').update(String(value)).digest('hex');
+}
+
+function safeEvidenceText(value) {
+  const text = String(value || '').trim();
+  if (!text || /\b(cookie|authorization|bearer|token|password|secret)\b/i.test(text)) {
+    return '';
+  }
+  return text.slice(0, 300);
+}
+
 function sanitizePayloadNode(value, orderContext) {
   if (Array.isArray(value)) {
     return value.map((item) => sanitizePayloadNode(item, orderContext));

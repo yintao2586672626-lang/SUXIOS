@@ -142,16 +142,72 @@ function metricDomainSummaryDigest(question) {
     conversion_text: String(row?.conversion_text ?? ''),
     missing_text: String(row?.missing_text ?? ''),
     source_text: String(row?.source_text ?? ''),
+    traffic_source_text: String(row?.traffic_source_text ?? ''),
+    traffic_source_next_action: String(row?.traffic_source_next_action ?? ''),
     problem: String(row?.problem ?? ''),
     next_action: String(row?.next_action ?? ''),
     policy: String(row?.policy ?? ''),
   }));
 }
 
+function trafficSourceReadinessDigest(questionOrEvidence) {
+  const evidence = questionOrEvidence?.evidence ?? questionOrEvidence ?? {};
+  return asArray(evidence?.traffic_source_readiness)
+    .map((row) => ({
+      platform: String(row?.platform ?? '').toLowerCase(),
+      target_date_rows: Number(row?.target_date_rows ?? 0),
+      target_date_traffic_rows: Number(row?.target_date_traffic_rows ?? 0),
+      traffic_source_count: Number(row?.traffic_source_count ?? 0),
+      traffic_enabled_count: Number(row?.traffic_enabled_count ?? 0),
+      traffic_ready_count: Number(row?.traffic_ready_count ?? 0),
+      traffic_waiting_config_count: Number(row?.traffic_waiting_config_count ?? 0),
+      traffic_managed_count: Number(row?.traffic_managed_count ?? 0),
+      traffic_secret_configured_count: Number(row?.traffic_secret_configured_count ?? 0),
+      status: String(row?.status ?? ''),
+      source_policy: String(row?.source_policy ?? ''),
+      sensitive_values_exposed: Boolean(row?.sensitive_values_exposed),
+    }))
+    .sort((left, right) => left.platform.localeCompare(right.platform));
+}
+
+function validateTrafficSourceReadiness(label, questionOrEvidence) {
+  const evidence = questionOrEvidence?.evidence ?? questionOrEvidence ?? {};
+  const rows = asArray(evidence?.traffic_source_readiness);
+  check(`${label} traffic source readiness is explicit array`, Array.isArray(evidence?.traffic_source_readiness), JSON.stringify(evidence ?? {}));
+  check(`${label} traffic source policy is metadata-only`, String(evidence?.traffic_source_policy ?? '') === 'read_platform_data_sources_metadata_only', JSON.stringify(evidence ?? {}));
+  for (const sourceRow of rows) {
+    const platform = String(sourceRow?.platform ?? '');
+    const prefix = `${label} ${platform || 'platform_missing'} traffic source readiness`;
+    check(`${prefix} platform is supported`, ['ctrip', 'meituan'].includes(platform), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} source policy is row-level metadata-only`, String(sourceRow?.source_policy ?? '') === 'read_platform_data_sources_metadata_only', JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} stays non-sensitive`, sourceRow?.sensitive_values_exposed === false, JSON.stringify(sourceRow ?? {}));
+    for (const field of ['target_date_rows', 'target_date_traffic_rows', 'traffic_source_count', 'traffic_enabled_count', 'traffic_ready_count', 'traffic_waiting_config_count', 'traffic_managed_count', 'traffic_secret_configured_count']) {
+      check(`${prefix} ${field} is numeric`, Number.isFinite(Number(sourceRow?.[field])), JSON.stringify(sourceRow ?? {}));
+    }
+    const targetTrafficRows = Number(sourceRow?.target_date_traffic_rows ?? 0);
+    const sourceCount = Number(sourceRow?.traffic_source_count ?? 0);
+    const waitingCount = Number(sourceRow?.traffic_waiting_config_count ?? 0);
+    const readyCount = Number(sourceRow?.traffic_ready_count ?? 0);
+    const status = String(sourceRow?.status ?? '');
+    if (targetTrafficRows > 0) {
+      check(`${prefix} marks real target-date traffic rows ready`, status === 'target_date_traffic_ready', JSON.stringify(sourceRow ?? {}));
+    } else if (sourceCount <= 0) {
+      check(`${prefix} missing registration stays explicit`, status === 'not_registered', JSON.stringify(sourceRow ?? {}));
+    } else if (waitingCount > 0) {
+      check(`${prefix} waiting_config cannot be rendered as ready`, status === 'registered_waiting_config', JSON.stringify(sourceRow ?? {}));
+    } else if (readyCount > 0) {
+      check(`${prefix} ready source still does not imply target-date traffic rows`, status === 'registered_ready_without_target_date_traffic', JSON.stringify(sourceRow ?? {}));
+    } else {
+      check(`${prefix} non-ready source stays explicit`, status === 'registered_not_ready', JSON.stringify(sourceRow ?? {}));
+    }
+  }
+}
+
 function validateMetricDomainSummary(label, question) {
   const evidence = question?.evidence ?? {};
   const readiness = asArray(evidence?.metric_domain_readiness);
   const summary = asArray(evidence?.metric_domain_summary);
+  const trafficSourceReadiness = asArray(evidence?.traffic_source_readiness);
   if (readiness.length > 0) {
     check(`${label} exposes metric domain readable summary`, summary.length === readiness.length, JSON.stringify(evidence));
   }
@@ -162,6 +218,13 @@ function validateMetricDomainSummary(label, question) {
       const value = String(row?.[field] ?? '');
       check(`${prefix} ${field} exists`, value.trim() !== '', JSON.stringify(row));
       check(`${prefix} ${field} avoids technical names`, !hasTechnicalEmployeeCopy(value), value);
+    }
+    if (trafficSourceReadiness.length > 0) {
+      for (const field of ['traffic_source_text', 'traffic_source_next_action']) {
+        const value = String(row?.[field] ?? '');
+        check(`${prefix} ${field} exists`, value.trim() !== '', JSON.stringify(row));
+        check(`${prefix} ${field} avoids technical names`, !hasTechnicalEmployeeCopy(value), value);
+      }
     }
   }
 }
@@ -222,6 +285,7 @@ function collectionSourceSummaryDigest(rows) {
   return asArray(rows)
     .map((row) => {
       const latestAvailable = row?.latest_available ?? {};
+      const fieldFacts = row?.field_fact_closure_summary ?? {};
       return {
         platform: String(row?.platform ?? '').toLowerCase(),
         storage_table: String(row?.storage_table ?? ''),
@@ -235,6 +299,12 @@ function collectionSourceSummaryDigest(rows) {
         latest_available_rows: Number(latestAvailable?.rows ?? 0),
         latest_available_data_types: sortedStrings(latestAvailable?.data_types),
         latest_available_reference_only: Boolean(row?.latest_available_reference_only),
+        field_fact_status: String(row?.field_fact_status ?? ''),
+        field_fact_count: Number(fieldFacts?.fact_count ?? 0),
+        field_fact_complete_count: Number(fieldFacts?.complete_fact_count ?? 0),
+        field_fact_incomplete_captured_count: Number(fieldFacts?.incomplete_captured_fact_count ?? 0),
+        field_fact_capture_evidence_count: Number(fieldFacts?.capture_evidence_count ?? 0),
+        field_fact_raw_data_exposed: Boolean(fieldFacts?.raw_data_exposed),
         etl_status: String(row?.etl_status ?? ''),
         metric_status: String(row?.metric_status ?? ''),
         traffic_rows: Number(row?.traffic_rows ?? 0),
@@ -265,6 +335,13 @@ function validateCollectionSourceSummary(label, rows, expectedPlatforms) {
     check(`${label} ${platform} source summary target data types array`, Array.isArray(row?.target_date_data_types), JSON.stringify(row));
     check(`${label} ${platform} source summary latest_available object or null`, isObject(latestAvailable) || latestAvailable === null, JSON.stringify(row));
     check(`${label} ${platform} source summary latest reference flag boolean`, typeof row?.latest_available_reference_only === 'boolean', JSON.stringify(row));
+    check(`${label} ${platform} source summary field fact status visible`, typeof row?.field_fact_status === 'string' && row.field_fact_status.length > 0, JSON.stringify(row));
+    check(`${label} ${platform} source summary field fact closure summary visible`, isObject(row?.field_fact_closure_summary), JSON.stringify(row));
+    if (isObject(row?.field_fact_closure_summary)) {
+      check(`${label} ${platform} source summary field fact count numeric`, Number.isFinite(Number(row.field_fact_closure_summary.fact_count)), JSON.stringify(row.field_fact_closure_summary));
+      check(`${label} ${platform} source summary field fact capture evidence count numeric`, Number.isFinite(Number(row.field_fact_closure_summary.capture_evidence_count)), JSON.stringify(row.field_fact_closure_summary));
+      check(`${label} ${platform} source summary field fact raw_data not exposed`, row.field_fact_closure_summary.raw_data_exposed === false, JSON.stringify(row.field_fact_closure_summary));
+    }
     check(`${label} ${platform} source summary etl status visible`, typeof row?.etl_status === 'string' && row.etl_status.length > 0, JSON.stringify(row));
     check(`${label} ${platform} source summary metric status visible`, typeof row?.metric_status === 'string' && row.metric_status.length > 0, JSON.stringify(row));
     check(`${label} ${platform} source summary traffic rows numeric`, Number.isFinite(Number(row?.traffic_rows)), JSON.stringify(row));
@@ -363,9 +440,30 @@ function trustedMetricTrustKeys(metricTrust) {
 
 function expectedTrafficActionEntry(action) {
   const actionCode = String(action?.action_code ?? '');
-  if (actionCode.includes('meituan')) return '/api/online-data/fetch-meituan-traffic';
+  if (actionCode.includes('meituan')) return '/api/online-data/capture-meituan-browser';
   if (actionCode.includes('ctrip')) return '/api/online-data/fetch-ctrip-traffic';
   return '';
+}
+
+function expectedTrafficActionEntries(action) {
+  const actionCode = String(action?.action_code ?? '');
+  if (actionCode.includes('meituan')) {
+    return {
+      primary: '/api/online-data/capture-meituan-browser',
+      manual: '/api/online-data/fetch-meituan-traffic',
+      profile: '/api/online-data/capture-meituan-browser',
+      status: '/api/online-data/collection-reliability',
+    };
+  }
+  if (actionCode.includes('ctrip')) {
+    return {
+      primary: '/api/online-data/fetch-ctrip-traffic',
+      manual: '/api/online-data/fetch-ctrip-traffic',
+      profile: '/api/online-data/capture-ctrip-browser',
+      status: '/api/online-data/collection-reliability',
+    };
+  }
+  return null;
 }
 
 function expectedSourceRowsActionEntries(action) {
@@ -426,6 +524,28 @@ function validateSourceRowsEntryOptionReadiness(prefix, options) {
   check(`${prefix} profile entry does not claim login is verified`, ['profile_missing', 'profile_found_login_unverified'].includes(String(profile?.readiness?.status ?? '')) && profile?.readiness?.can_run_now === false, JSON.stringify(profile ?? {}));
   check(`${prefix} profile entry exposes local profile directory count`, Number.isFinite(Number(profile?.readiness?.profile_count)) && profile?.readiness?.source_policy === 'read_local_profile_directory_names_only', JSON.stringify(profile ?? {}));
   check(`${prefix} status check entry is read-only and runnable`, status?.readiness?.status === 'ready' && status?.readiness?.can_run_now === true && status?.readiness?.evidence === 'read_existing_collection_reliability_only', JSON.stringify(status ?? {}));
+}
+
+function validateTrafficInputContract(prefix, options) {
+  const optionObjects = asArray(options).filter(isObject);
+  for (const mode of ['manual_cookie_api', 'browser_profile']) {
+    const option = entryOptionByMode(optionObjects, mode);
+    const contract = option?.input_contract;
+    const acceptance = option?.acceptance_contract;
+    const requiredMetricKeys = asArray(contract?.required_metric_keys).map(String);
+    const requiredFieldFactKeys = asArray(contract?.required_field_fact_keys).map(String);
+    const requiredInputs = asArray(contract?.required_inputs).map(String);
+    check(`${prefix} ${mode} option exposes input contract`, isObject(contract), JSON.stringify(option ?? {}));
+    check(`${prefix} ${mode} contract stays OTA channel scope`, contract?.scope_policy === 'ota_channel_only', JSON.stringify(contract ?? {}));
+    check(`${prefix} ${mode} contract targets online_daily_data traffic`, contract?.target_storage_table === 'online_daily_data' && contract?.target_data_type === 'traffic', JSON.stringify(contract ?? {}));
+    check(`${prefix} ${mode} contract requires traffic metric keys`, ['list_exposure', 'detail_exposure', 'flow_rate'].every((key) => requiredMetricKeys.includes(key)), JSON.stringify(contract ?? {}));
+    check(`${prefix} ${mode} contract requires field fact chain keys`, ['capture_evidence', 'source_path', 'metric_key', 'storage_field', 'stored_value_present'].every((key) => requiredFieldFactKeys.includes(key)), JSON.stringify(contract ?? {}));
+    check(`${prefix} ${mode} contract names required inputs`, requiredInputs.includes('target_date') && requiredInputs.includes('system_hotel_id'), JSON.stringify(contract ?? {}));
+    check(`${prefix} ${mode} contract forbids sensitive values`, contract?.sensitive_values_allowed === false, JSON.stringify(contract ?? {}));
+    check(`${prefix} ${mode} option exposes acceptance contract`, isObject(acceptance) && acceptance.target_date_traffic_rows === '>0', JSON.stringify(option ?? {}));
+  }
+  const status = entryOptionByMode(optionObjects, 'status_check');
+  check(`${prefix} status check option does not pretend to be a collection contract`, !isObject(status?.input_contract), JSON.stringify(status ?? {}));
 }
 
 function validateQuestionBlockerActionLinks(label, questions, actions) {
@@ -1064,6 +1184,8 @@ if (payload) {
     const latestRelation = String(latestAvailable?.date_relation ?? '');
     const sourceRowsCheck = asArray(platform?.checks).find((row) => row?.code === 'source_rows_present');
     const trustedFieldsVisibleCheck = asArray(platform?.checks).find((row) => row?.code === 'trusted_fields_visible');
+    const fieldFactsVisibleCheck = asArray(platform?.checks).find((row) => row?.code === 'field_facts_visible');
+    const fieldFacts = isObject(platform?.field_facts) ? platform.field_facts : {};
     const metricStatus = String(platform?.metrics?.status ?? '');
     const metricTrustKeys = asArray(platform?.metrics?.metric_trust_keys);
     const employeePlatform = todayEvidencePlatforms.find((row) => String(row?.platform ?? '').toLowerCase() === platformName.toLowerCase());
@@ -1072,6 +1194,9 @@ if (payload) {
       const employeeRows = Number(employeePlatform?.source_rows ?? employeePlatform?.target_date_rows ?? -1);
       const employeeLatest = employeePlatform?.latest_available ?? {};
       check(`${platformName} employee coverage row count matches target-date source rows`, employeeRows === sourceRows, JSON.stringify(employeePlatform));
+      check(`${platformName} employee coverage carries field fact status`, typeof employeePlatform?.field_fact_status === 'string' && employeePlatform.field_fact_status.length > 0, JSON.stringify(employeePlatform));
+      check(`${platformName} employee coverage carries field fact capture evidence count`, Number.isFinite(Number(employeePlatform?.field_fact_capture_evidence_count)), JSON.stringify(employeePlatform));
+      check(`${platformName} employee coverage field facts do not expose raw_data`, employeePlatform?.field_fact_raw_data_exposed === false, JSON.stringify(employeePlatform));
       check(`${platformName} employee coverage latest_available relation matches`, String(employeeLatest?.date_relation ?? '') === latestRelation, JSON.stringify(employeePlatform));
       if (latestAvailable?.date) {
         check(`${platformName} employee coverage latest_available date matches`, String(employeeLatest?.date ?? '') === String(latestAvailable.date), JSON.stringify(employeePlatform));
@@ -1080,6 +1205,7 @@ if (payload) {
 
     if (sourceRows === 0) {
       check(`${platformName} target-date source rows are explicitly missing`, sourceRowsCheck?.status === 'missing', JSON.stringify(sourceRowsCheck ?? {}));
+      check(`${platformName} field facts check does not prove missing target-date source`, fieldFactsVisibleCheck?.status !== 'proved', JSON.stringify(fieldFactsVisibleCheck ?? {}));
       check(`${platformName} trusted fields check does not prove missing target-date source`, trustedFieldsVisibleCheck?.status !== 'proved', JSON.stringify(trustedFieldsVisibleCheck ?? {}));
       check(`${platformName} missing source rows requirement exists`, missingCodes.has(`${platformName}_source_rows_missing`), [...missingCodes].join(','));
       check(`${platformName} missing platform is visible in employee coverage`, asArray(todayQuestion?.evidence?.missing_platforms).includes(platformName));
@@ -1089,6 +1215,18 @@ if (payload) {
     } else {
       check(`${platformName} target-date rows are proved independently of latest_available`, sourceRowsCheck?.status === 'proved', JSON.stringify(sourceRowsCheck ?? {}));
       check(`${platformName} target-date rows clear source missing requirement`, !missingCodes.has(`${platformName}_source_rows_missing`), [...missingCodes].join(','));
+    }
+    check(`${platformName} platform exposes field_facts summary`, isObject(fieldFacts), JSON.stringify(platform));
+    check(`${platformName} platform field_facts capture evidence count numeric`, Number.isFinite(Number(fieldFacts.capture_evidence_count)), JSON.stringify(fieldFacts));
+    check(`${platformName} platform field_facts raw_data not exposed`, fieldFacts.raw_data_exposed === false, JSON.stringify(fieldFacts));
+    if (Number(fieldFacts.complete_fact_count ?? 0) > 0 && Number(fieldFacts.incomplete_captured_fact_count ?? 0) === 0) {
+      check(`${platformName} platform field_facts prove stored values`, Number(fieldFacts.stored_value_present_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0) && Number(fieldFacts.stored_value_missing_count ?? -1) === 0, JSON.stringify(fieldFacts));
+    }
+    check(`${platformName} platform field facts check exists`, Boolean(fieldFactsVisibleCheck), JSON.stringify(platform?.checks ?? []));
+    if (sourceRows > 0 && Number(fieldFacts.fact_count ?? 0) > 0 && Number(fieldFacts.incomplete_captured_fact_count ?? 0) === 0 && Number(fieldFacts.complete_fact_count ?? 0) > 0) {
+      check(`${platformName} field facts check proves closed field evidence`, fieldFactsVisibleCheck?.status === 'proved', JSON.stringify(fieldFactsVisibleCheck ?? {}));
+    } else {
+      check(`${platformName} field facts check keeps incomplete evidence explicit`, fieldFactsVisibleCheck?.status !== 'proved', JSON.stringify(fieldFactsVisibleCheck ?? {}));
     }
     if (sourceRows > 0 && metricStatus === 'ready' && metricTrustKeys.length > 0) {
       check(`${platformName} trusted fields check is proved only with target-date rows and ready metric trust`, trustedFieldsVisibleCheck?.status === 'proved', JSON.stringify(trustedFieldsVisibleCheck ?? {}));
@@ -1108,6 +1246,7 @@ if (payload) {
   if (metricQuestion) {
     check('metric domain readiness is present', asArray(metricQuestion.evidence?.metric_domain_readiness).length > 0);
     validateMetricDomainSummary('metric question', metricQuestion);
+    validateTrafficSourceReadiness('metric question', metricQuestion);
     check('revenue ready platforms are explicit', Array.isArray(metricQuestion.evidence?.revenue_ready_platforms));
     check('traffic ready platforms are explicit', Array.isArray(metricQuestion.evidence?.traffic_ready_platforms));
     check('conversion ready platforms are explicit', Array.isArray(metricQuestion.evidence?.conversion_ready_platforms));
@@ -1222,9 +1361,16 @@ if (payload) {
       }
     }
     if (action.action_family === 'traffic_conversion_facts') {
-      const expectedEntry = expectedTrafficActionEntry(action);
-      check(`${prefix} traffic action has platform-specific entry`, expectedEntry !== '', JSON.stringify(action));
-      check(`${prefix} traffic action uses existing traffic fetch entry`, action.entry === expectedEntry, JSON.stringify(action));
+      const expectedEntries = expectedTrafficActionEntries(action);
+      const optionEntries = actionEntryOptionEntries(action);
+      check(`${prefix} traffic action has platform-specific entry`, expectedEntries !== null, JSON.stringify(action));
+      check(`${prefix} traffic action uses preferred traffic collection entry`, action.entry === expectedEntries?.primary, JSON.stringify(action));
+      check(`${prefix} traffic action exposes preferred entry first`, optionEntries[0] === expectedEntries?.primary, JSON.stringify(action));
+      check(`${prefix} traffic action exposes manual traffic entry option`, optionEntries.includes(expectedEntries?.manual), JSON.stringify(action));
+      check(`${prefix} traffic action exposes browser profile traffic entry option`, optionEntries.includes(expectedEntries?.profile), JSON.stringify(action));
+      check(`${prefix} traffic action keeps status check entry option`, optionEntries.includes(expectedEntries?.status), JSON.stringify(action));
+      validateSourceRowsEntryOptionReadiness(prefix, action.entry_options);
+      validateTrafficInputContract(prefix, action.entry_options);
       check(`${prefix} traffic action does not point to read-only revenue metrics`, action.entry !== '/api/ota-standard/revenue-metrics', JSON.stringify(action));
     }
     if (action.status === 'blocked') {
@@ -1261,6 +1407,14 @@ if (payload) {
     if (String(summary.top_action_code ?? '').includes('target_date_source_rows')) {
       validateSourceRowsEntryOptionReadiness('closure summary top action', summary.top_action_entry_options);
     }
+    if (String(summary.top_action_code ?? '').includes('traffic_facts_missing')) {
+      const expectedEntries = expectedTrafficActionEntries({ action_code: summary.top_action_code });
+      const optionEntries = actionEntryOptionEntries({ entry_options: summary.top_action_entry_options });
+      check('closure summary top traffic action uses preferred entry', expectedEntries !== null && String(summary.top_action_entry ?? '') === expectedEntries.primary, JSON.stringify(summary));
+      check('closure summary top traffic action exposes preferred entry first', optionEntries[0] === expectedEntries?.primary, JSON.stringify(summary.top_action_entry_options ?? []));
+      validateSourceRowsEntryOptionReadiness('closure summary top traffic action', summary.top_action_entry_options);
+      validateTrafficInputContract('closure summary top traffic action', summary.top_action_entry_options);
+    }
     check('closure summary top action source snapshot names platform', ['ctrip', 'meituan'].includes(String(summary.top_action_source_snapshot?.platform ?? '').toLowerCase()), JSON.stringify(summary.top_action_source_snapshot ?? {}));
     check('closure summary top action source snapshot exposes target rows', Number.isFinite(Number(summary.top_action_source_snapshot?.target_date_rows)), JSON.stringify(summary.top_action_source_snapshot ?? {}));
     check('closure summary top action source snapshot keeps reference-only proof boundary', String(summary.top_action_source_snapshot?.reference_policy ?? '').includes('latest_available'), JSON.stringify(summary.top_action_source_snapshot ?? {}));
@@ -1282,7 +1436,10 @@ if (evidencePayload) {
   for (const platformRow of reliabilityPlatforms) {
     const rowPlatform = String(platformRow?.platform ?? '');
     const latestAvailable = platformRow?.latest_available ?? {};
+    const reliabilityFieldFacts = isObject(platformRow?.field_facts) ? platformRow.field_facts : {};
     check(`${rowPlatform} evidence package reliability exposes source rows`, Number.isFinite(Number(platformRow?.source_rows)), JSON.stringify(platformRow ?? {}));
+    check(`${rowPlatform} evidence package reliability exposes field facts summary`, isObject(reliabilityFieldFacts), JSON.stringify(platformRow ?? {}));
+    check(`${rowPlatform} evidence package reliability field facts do not expose raw_data`, reliabilityFieldFacts.raw_data_exposed === false, JSON.stringify(reliabilityFieldFacts));
     check(`${rowPlatform} evidence package reliability exposes latest_available object`, isObject(latestAvailable) || latestAvailable === null, JSON.stringify(platformRow ?? {}));
     if (isObject(latestAvailable) && latestAvailable.date) {
       check(`${rowPlatform} evidence package reliability exposes latest_available date_relation`, typeof latestAvailable.date_relation === 'string' && latestAvailable.date_relation.length > 0, JSON.stringify(latestAvailable));
@@ -1340,11 +1497,18 @@ if (evidencePayload) {
     for (const platform of asArray(evidencePayload.platform_evidence)) {
       const platformName = String(platform?.platform ?? '');
       if (!platformName) continue;
+      const fieldFacts = isObject(platform?.field_facts) ? platform.field_facts : {};
       const row = evidencePlatformFieldTrust.find((item) => String(item?.platform ?? '').toLowerCase() === platformName.toLowerCase());
       const sourceRows = Number(platform?.source_rows?.count ?? 0);
       const metricStatus = String(platform?.revenue_metrics?.status ?? '');
       const rawMetricTrust = isObject(platform?.revenue_metrics?.metric_trust) ? platform.revenue_metrics.metric_trust : {};
       const metricTrustKeys = sourceRows > 0 && metricStatus === 'ready' ? trustedMetricTrustKeys(rawMetricTrust) : [];
+      check(`${platformName} evidence package platform exposes field_facts summary`, isObject(fieldFacts), JSON.stringify(platform));
+      check(`${platformName} evidence package platform field_facts capture evidence count numeric`, Number.isFinite(Number(fieldFacts.capture_evidence_count)), JSON.stringify(fieldFacts));
+      check(`${platformName} evidence package platform field_facts raw_data not exposed`, fieldFacts.raw_data_exposed === false, JSON.stringify(fieldFacts));
+      if (Number(fieldFacts.complete_fact_count ?? 0) > 0 && Number(fieldFacts.incomplete_captured_fact_count ?? 0) === 0) {
+        check(`${platformName} evidence package platform field_facts prove stored values`, Number(fieldFacts.stored_value_present_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0) && Number(fieldFacts.stored_value_missing_count ?? -1) === 0, JSON.stringify(fieldFacts));
+      }
       check(`${platformName} evidence package trusted fields carries platform trust detail`, Boolean(row), JSON.stringify(evidencePlatformFieldTrust));
       if (row) {
         check(`${platformName} evidence package platform trust row count matches source rows`, Number(row?.target_date_rows ?? -1) === sourceRows, JSON.stringify(row));
@@ -1367,12 +1531,14 @@ if (evidencePayload) {
   const evidenceMetricQuestionForSummary = evidenceQuestions.find((row) => row?.key === 'revenue_traffic_conversion' || row?.question === '收入/流量/转化出了什么问题');
   if (evidenceMetricQuestionForSummary) {
     validateMetricDomainSummary('evidence package metric question', evidenceMetricQuestionForSummary);
+    validateTrafficSourceReadiness('evidence package metric question', evidenceMetricQuestionForSummary);
   }
   check('evidence package revenue metric status is platform-aware', ['ready', 'partial', 'empty'].includes(evidenceMetrics.status), JSON.stringify(evidenceMetrics));
   if (asArray(evidenceMetrics.revenue_ready_platforms).length > 0) {
     check('evidence package exposes revenue-ready platforms', evidenceMetrics.status !== 'empty', JSON.stringify(evidenceMetrics));
   }
   check('evidence package metric domain readiness is present', asArray(evidenceMetrics.metric_domain_readiness).length > 0, JSON.stringify(evidenceMetrics));
+  validateTrafficSourceReadiness('evidence package revenue metrics', evidenceMetrics);
   check('evidence package exposes conversion-ready platforms', Array.isArray(evidenceMetrics.conversion_ready_platforms), JSON.stringify(evidenceMetrics));
   check('evidence package exposes revenue-missing platforms', Array.isArray(evidenceMetrics.revenue_missing_platforms), JSON.stringify(evidenceMetrics));
   check('evidence package exposes traffic-missing platforms', Array.isArray(evidenceMetrics.traffic_missing_platforms), JSON.stringify(evidenceMetrics));
@@ -1415,9 +1581,16 @@ if (evidencePayload) {
       }
     }
     if (action.action_family === 'traffic_conversion_facts') {
-      const expectedEntry = expectedTrafficActionEntry(action);
-      check(`${prefix} traffic action has platform-specific entry`, expectedEntry !== '', JSON.stringify(action));
-      check(`${prefix} traffic action uses existing traffic fetch entry`, action.entry === expectedEntry, JSON.stringify(action));
+      const expectedEntries = expectedTrafficActionEntries(action);
+      const optionEntries = actionEntryOptionEntries(action);
+      check(`${prefix} traffic action has platform-specific entry`, expectedEntries !== null, JSON.stringify(action));
+      check(`${prefix} traffic action uses preferred traffic collection entry`, action.entry === expectedEntries?.primary, JSON.stringify(action));
+      check(`${prefix} traffic action exposes preferred entry first`, optionEntries[0] === expectedEntries?.primary, JSON.stringify(action));
+      check(`${prefix} traffic action exposes manual traffic entry option`, optionEntries.includes(expectedEntries?.manual), JSON.stringify(action));
+      check(`${prefix} traffic action exposes browser profile traffic entry option`, optionEntries.includes(expectedEntries?.profile), JSON.stringify(action));
+      check(`${prefix} traffic action keeps status check entry option`, optionEntries.includes(expectedEntries?.status), JSON.stringify(action));
+      validateSourceRowsEntryOptionReadiness(prefix, action.entry_options);
+      validateTrafficInputContract(prefix, action.entry_options);
       check(`${prefix} traffic action does not point to read-only revenue metrics`, action.entry !== '/api/ota-standard/revenue-metrics', JSON.stringify(action));
     }
   }
@@ -1438,6 +1611,14 @@ if (evidencePayload) {
     check('evidence package closure summary top action source snapshot names platform', ['ctrip', 'meituan'].includes(String(evidenceSummary.top_action_source_snapshot?.platform ?? '').toLowerCase()), JSON.stringify(evidenceSummary.top_action_source_snapshot ?? {}));
     if (String(evidenceSummary.top_action_code ?? '').includes('target_date_source_rows')) {
       validateSourceRowsEntryOptionReadiness('evidence package closure summary top action', evidenceSummary.top_action_entry_options);
+    }
+    if (String(evidenceSummary.top_action_code ?? '').includes('traffic_facts_missing')) {
+      const expectedEntries = expectedTrafficActionEntries({ action_code: evidenceSummary.top_action_code });
+      const optionEntries = actionEntryOptionEntries({ entry_options: evidenceSummary.top_action_entry_options });
+      check('evidence package closure summary top traffic action uses preferred entry', expectedEntries !== null && String(evidenceSummary.top_action_entry ?? '') === expectedEntries.primary, JSON.stringify(evidenceSummary));
+      check('evidence package closure summary top traffic action exposes preferred entry first', optionEntries[0] === expectedEntries?.primary, JSON.stringify(evidenceSummary.top_action_entry_options ?? []));
+      validateSourceRowsEntryOptionReadiness('evidence package closure summary top traffic action', evidenceSummary.top_action_entry_options);
+      validateTrafficInputContract('evidence package closure summary top traffic action', evidenceSummary.top_action_entry_options);
     }
     check('evidence package closure summary top action source snapshot exposes target rows', Number.isFinite(Number(evidenceSummary.top_action_source_snapshot?.target_date_rows)), JSON.stringify(evidenceSummary.top_action_source_snapshot ?? {}));
     check('evidence package closure summary top action source snapshot keeps reference-only proof boundary', String(evidenceSummary.top_action_source_snapshot?.reference_policy ?? '').includes('latest_available'), JSON.stringify(evidenceSummary.top_action_source_snapshot ?? {}));
@@ -1626,6 +1807,12 @@ if (payload && evidencePayload) {
       return {
         platform: String(row?.platform ?? '').toLowerCase(),
         rows: Number(row?.source_rows ?? row?.target_date_rows ?? 0),
+        field_fact_status: String(row?.field_fact_status ?? ''),
+        field_fact_count: Number(row?.field_fact_count ?? 0),
+        field_fact_complete_count: Number(row?.field_fact_complete_count ?? 0),
+        field_fact_incomplete_captured_count: Number(row?.field_fact_incomplete_captured_count ?? 0),
+        field_fact_capture_evidence_count: Number(row?.field_fact_capture_evidence_count ?? 0),
+        field_fact_raw_data_exposed: Boolean(row?.field_fact_raw_data_exposed),
         latest_date: String(latestAvailable?.date ?? row?.latest_available_date ?? ''),
         latest_relation: String(latestAvailable?.date_relation ?? row?.latest_available_date_relation ?? ''),
       };
@@ -1657,6 +1844,7 @@ if (payload && evidencePayload) {
   check('cross-output data_gap_codes match', sameStringList(inspectorMissingFields?.evidence?.data_gap_codes, evidenceMissingFields?.evidence?.data_gap_codes), `${JSON.stringify(inspectorMissingFields?.evidence?.data_gap_codes)} vs ${JSON.stringify(evidenceMissingFields?.evidence?.data_gap_codes)}`);
   check('cross-output missing field summaries match', JSON.stringify(missingFieldSummaryDigest(inspectorMissingFields)) === JSON.stringify(missingFieldSummaryDigest(evidenceMissingFields)), `${JSON.stringify(missingFieldSummaryDigest(inspectorMissingFields))} vs ${JSON.stringify(missingFieldSummaryDigest(evidenceMissingFields))}`);
   check('cross-output metric domain summaries match', JSON.stringify(metricDomainSummaryDigest(inspectorMetricQuestion)) === JSON.stringify(metricDomainSummaryDigest(evidenceMetricQuestion)), `${JSON.stringify(metricDomainSummaryDigest(inspectorMetricQuestion))} vs ${JSON.stringify(metricDomainSummaryDigest(evidenceMetricQuestion))}`);
+  check('cross-output traffic source readiness matches', JSON.stringify(trafficSourceReadinessDigest(inspectorMetricQuestion)) === JSON.stringify(trafficSourceReadinessDigest(evidenceMetricQuestion)), `${JSON.stringify(trafficSourceReadinessDigest(inspectorMetricQuestion))} vs ${JSON.stringify(trafficSourceReadinessDigest(evidenceMetricQuestion))}`);
   check('cross-output metric domain gap codes match', sameStringList(inspectorMetricQuestion?.evidence?.metric_domain_gap_codes, evidenceMetricQuestion?.evidence?.metric_domain_gap_codes), `${JSON.stringify(inspectorMetricQuestion?.evidence?.metric_domain_gap_codes)} vs ${JSON.stringify(evidenceMetricQuestion?.evidence?.metric_domain_gap_codes)}`);
   check('cross-output traffic missing platforms match', sameStringList(inspectorMetricQuestion?.evidence?.traffic_missing_platforms, evidenceMetricQuestion?.evidence?.traffic_missing_platforms), `${JSON.stringify(inspectorMetricQuestion?.evidence?.traffic_missing_platforms)} vs ${JSON.stringify(evidenceMetricQuestion?.evidence?.traffic_missing_platforms)}`);
   check('cross-output next action code order matches', JSON.stringify(actionCodeList(payload.next_actions)) === JSON.stringify(actionCodeList(evidencePayload.next_actions)), `${JSON.stringify(actionCodeList(payload.next_actions))} vs ${JSON.stringify(actionCodeList(evidencePayload.next_actions))}`);

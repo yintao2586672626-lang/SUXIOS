@@ -53,6 +53,33 @@ check(
 );
 
 check(
+  'package.json',
+  'platform data source contract runs runtime field fact verifier',
+  (source) => source.includes('"verify:platform-data-source-contract": "node scripts/verify_platform_data_source_contract.mjs && C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_online_data_field_fact_status.php"')
+    && source.includes('"verify:online-data-field-fact-status": "C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_online_data_field_fact_status.php"'),
+  'verify:platform-data-source-contract + verify:online-data-field-fact-status'
+);
+
+check(
+  'scripts/verify_online_data_field_fact_status.php',
+  'runtime verifier covers field fact status behavior',
+  (source) => source.includes('legacy_facts_infer_storage_without_hiding_missing')
+    && source.includes('source_path_required_for_closure')
+    && source.includes('meituan_persistence_field_facts_ready')
+    && source.includes('meituan_rank_source_path_field_facts_ready')
+    && source.includes('capture_evidence_required_for_closure')
+    && source.includes('capture_evidence_count')
+    && source.includes('generic_traffic_extraction_source_paths_ready')
+    && source.includes('stored_value_required_for_ready_status')
+    && source.includes('generic_traffic_persistence_structured_fields_ready')
+    && source.includes('raw_data.facts.metric_key=custom_fact')
+    && source.includes('source_url_hash')
+    && source.includes('meituan:generic-traffic-demo')
+    && source.includes('raw_data_exposed'),
+  'legacy_facts_infer_storage_without_hiding_missing/source_path_required_for_closure/capture_evidence_required_for_closure/meituan_persistence_field_facts_ready/meituan_rank_source_path_field_facts_ready/generic_traffic_extraction_source_paths_ready/stored_value_required_for_ready_status/generic_traffic_persistence_structured_fields_ready/source_url_hash'
+);
+
+check(
   'route/app.php',
   'data-source sync route is ordered before generic create route',
   (source) => {
@@ -104,8 +131,75 @@ for (const [needle, label] of [
   ['function sanitizeOnlineOrderRawData', 'controller sanitizes browser-captured order raw data before storage'],
   ['function hashOnlineOrderIdentifier', 'controller hashes browser-captured order identifiers'],
   ['order_id_hash', 'controller keeps only hashed order identifiers in captured raw data'],
+  ["$item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus", 'controller daily data list exposes field fact status'],
+  ['function buildOnlineDataFieldFactStatus', 'controller builds field fact UI status'],
+  ['function extractOnlineDataFieldFacts', 'controller extracts field facts from raw_data wrappers'],
+  ['function inferOnlineDataFieldFactStorageField', 'controller infers storage field for legacy raw_data facts'],
+  ['function onlineDataFieldFactStorageFieldSource', 'controller marks inferred storage field source explicitly'],
+  ['function onlineDataFieldFactStructuredStorageField', 'controller limits inferred storage fields to explicit metric map'],
+  ['OnlineDataFieldFactService::attachToOnlineDailyRow($row, $item)', 'Meituan browser-captured rows attach field facts before storage'],
+  ['OnlineDataFieldFactService::attachToOnlineDailyRow($row)', 'Meituan save path repairs rows that arrive without field facts'],
+  ["'storage_field_inferred' => $storageFieldInferred", 'controller marks inferred storage fields explicitly'],
+  ["'inferred_storage_field_count' => $inferredStorageFieldCount", 'controller exposes inferred storage field count'],
+  ["'stored_value_present_count' => $storedValuePresentCount", 'controller exposes stored value evidence count'],
+  ['function onlineDataFieldFactStoredValueState', 'controller resolves stored values from declared storage fields'],
+  ["return 'raw_data_facts';", 'controller distinguishes raw_data facts storage from structured field mapping'],
+  ["'online_daily_data.raw_data.facts.metric_key=' . $metricKey", 'controller can point legacy Ctrip facts to raw_data fact storage'],
+  ["'raw_data_exposed' => false", 'controller field fact status does not expose raw data'],
 ]) {
   check('app/controller/OnlineData.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ['final class OnlineDataFieldFactService', 'shared online data field fact service exists'],
+  ["'metric_key' => 'list_exposure'", 'field fact service maps Meituan list exposure'],
+  ['orderVisitors', 'field fact service covers order filling traffic aliases used by Ctrip extraction'],
+  ['clickNum', 'field fact service covers click traffic aliases used by Ctrip and Meituan extraction'],
+  ['submitNum', 'field fact service covers order submission traffic aliases used by Ctrip extraction'],
+  ['bookOrderNum', 'field fact service covers booking-order traffic aliases used by Ctrip extraction'],
+  ['listTransforDetailRate', 'field fact service covers traffic conversion rate aliases used by Meituan extraction'],
+  ["'storage_field' => 'online_daily_data.'", 'field fact service emits online_daily_data storage targets'],
+  ["'source_path' => self::sourcePath", 'field fact service emits source paths'],
+  ['source_trace_id', 'field fact service preserves desensitized source trace ids'],
+  ['source_url_hash', 'field fact service preserves desensitized source URL hashes'],
+  ['payload_hash', 'field fact service preserves desensitized payload hashes'],
+]) {
+  check('app/service/OnlineDataFieldFactService.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ["$item['_source_path'] = 'data.peerRankData.'", 'Meituan peer-rank extraction keeps row source paths'],
+  ['private static function withSourcePaths', 'Meituan generic rank lists keep row source paths'],
+]) {
+  check('app/service/MeituanRankDataExtractionService.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ["$rawData['_source_path'] = $sourcePath;", 'Meituan rank persistence writes source path into raw_data'],
+  ['OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item)', 'Meituan rank persistence attaches field facts before storage'],
+]) {
+  check('app/service/MeituanOnlineDataPersistenceService.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ['OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item)', 'traffic persistence attaches field facts before storage'],
+  ['traffic_data_persistence_failed', 'traffic persistence exposes storage failures instead of returning zero rows'],
+  ['extractGenericTrafficMetrics', 'traffic persistence writes normalized traffic fields'],
+  ["'list_exposure' => $trafficMetrics['list_exposure']", 'traffic persistence stores normalized list exposure'],
+  ["'flow_rate' => $trafficMetrics['flow_rate']", 'traffic persistence stores normalized conversion rate'],
+  ['attachListSourcePaths', 'traffic persistence preserves source paths for direct list responses'],
+  ["['data', 'flowData']", 'traffic persistence handles Meituan flowData source path'],
+]) {
+  check('app/service/OnlineDailyDataPersistenceService.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ['extractGenericTrafficRows($data, array $path = [])', 'generic traffic extraction tracks source path state'],
+  ['self::withSourcePath($value, $itemPath)', 'generic traffic extraction writes row source paths'],
+  ['self::withSourcePath($item, $itemPath)', 'Ctrip traffic extraction writes row source paths'],
+  ['private static function sourcePathString', 'traffic extraction formats source paths'],
+]) {
+  check('app/service/OnlineTrafficDataExtractionService.php', label, (source) => source.includes(needle), needle);
 }
 
 for (const [needle, label] of [
@@ -176,11 +270,34 @@ for (const [needle, label] of [
   ['daily_rows_save_elapsed_ms', 'platform sync records daily-row save elapsed time'],
   ['finish_task_elapsed_ms', 'platform sync records task-result write elapsed time'],
   ['total_elapsed_ms', 'platform sync records total elapsed time'],
+  ['NORMALIZED_FIELD_FACT_DEFINITIONS', 'platform sync defines normalized field fact contracts'],
+  ['function buildNormalizedFieldFacts', 'platform sync builds field facts for normalized rows'],
+  ["$raw['field_facts'] = $fieldFacts;", 'platform sync stores field facts in raw_data'],
+  ["$raw['field_fact_summary'] = $this->summarizeNormalizedFieldFacts($fieldFacts);", 'platform sync stores field fact summary in raw_data'],
+  ["'metric_key' => (string)$definition['metric_key']", 'platform sync field facts keep metric keys'],
+  ["'source_path' => $sourceKey !== '' ? $this->fieldFactSourcePath($row, $sourceKey) : ''", 'platform sync field facts keep source paths'],
+  ["'storage_field' => (string)$definition['storage_field']", 'platform sync field facts keep storage fields'],
+  ["'status' => $status", 'platform sync field facts keep captured or missing status'],
+  ["'missing_state' => (string)$definition['missing_state']", 'platform sync field facts keep explicit missing states'],
+  ['appendSafeFieldFactCaptureEvidence', 'platform sync preserves desensitized field fact capture evidence'],
+  ['safeFieldFactCaptureEvidenceValue', 'platform sync filters sensitive evidence strings'],
+  ["'source_url_hash' => ['source_url_hash', '_source_url_hash']", 'platform sync accepts source URL hashes from capture rows'],
+  ["'payload_hash' => ['payload_hash', '_payload_hash']", 'platform sync accepts payload hashes from capture rows'],
   ["'profile_id'", 'platform sync accepts Ctrip browser Profile config fields'],
   ["'store_id'", 'platform sync accepts Meituan browser Profile config fields'],
   ["'source_trace_id' => $traceId", 'platform sync preserves browser Profile trace ids'],
 ]) {
   check('app/service/PlatformDataSyncService.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ['export function buildOtaCaptureEvidence', 'OTA capture helper builds desensitized evidence'],
+  ['export function attachOtaCaptureEvidence', 'OTA capture helper attaches evidence to rows'],
+  ['source_url_hash', 'OTA capture helper emits URL hashes instead of raw URL evidence'],
+  ['source_trace_id', 'OTA capture helper emits trace ids'],
+  ['delete next._source_url;', 'OTA capture helper removes raw source URLs from row output'],
+]) {
+  check('scripts/lib/ota_capture_standard.mjs', label, (source) => source.includes(needle), needle);
 }
 
 for (const [needle, label] of [
@@ -392,6 +509,64 @@ check(
     && source.includes('sanitizeOtaPayloadForStorage(body, section)')
     && source.includes("if (section === 'orders')"),
   'auth_status/capture_gate/evaluateCaptureGate'
+);
+
+check(
+  'scripts/meituan_browser_capture.mjs',
+  'Meituan browser capture preserves row source paths for field facts',
+  (source) => source.includes('function decorateCapturedRow')
+    && source.includes('function joinSourcePath')
+    && source.includes('_source_path')
+    && source.includes('normalizeCapturedList(nested, section, joinSourcePath(sourcePath, path))')
+    && source.includes('row._capture_source || `dom:${sectionName}`')
+    && source.includes('attachOtaCaptureEvidence(row, \'meituan\'')
+    && source.includes('buildOtaCaptureEvidence(\'meituan\'')
+    && source.includes('source_trace_id')
+    && source.includes('url_hash'),
+  'decorateCapturedRow/_source_path/joinSourcePath/attachOtaCaptureEvidence'
+);
+
+check(
+  'scripts/ctrip_browser_capture.mjs',
+  'Ctrip browser capture attaches desensitized evidence to captured rows',
+  (source) => source.includes('attachCtripCaptureEvidence')
+    && source.includes('attachOtaCaptureEvidence(row, \'ctrip\'')
+    && source.includes('buildOtaCaptureEvidence(\'ctrip\'')
+    && source.includes('source_trace_id')
+    && source.includes('url_hash')
+    && source.includes('row.source_trace_id || row.source_url_hash'),
+  'attachCtripCaptureEvidence/buildOtaCaptureEvidence/source_trace_id/url_hash'
+);
+
+check(
+  'scripts/lib/ctrip_capture_catalog.mjs',
+  'Ctrip catalog standard rows preserve storage fields in raw facts',
+  (source) => source.includes('function ctripStandardFactStorage')
+    && source.includes('function ctripStandardStructuredStorageField')
+    && source.includes('storage_field_source')
+    && source.includes('online_daily_data.raw_data.facts.metric_key='),
+  'ctripStandardFactStorage/storage_field_source'
+);
+
+check(
+  'public/index.html',
+  'frontend field-quality evidence points to raw_data field facts and storage mapping',
+  (source) => source.includes('raw_data.field_facts')
+    && source.includes('source_path、metric_key、storage_field'),
+  'raw_data.field_facts/source_path/metric_key/storage_field'
+);
+
+check(
+  'public/index.html',
+  'frontend analysis rows render field fact status without raw payload',
+  (source) => source.includes('onlineAnalysisFieldFactStatusText(item)')
+    && source.includes('onlineAnalysisFieldFactStatusClass(item)')
+    && source.includes('onlineAnalysisFieldFactDetailText(item)')
+    && source.includes('field_fact_status')
+    && source.includes('stored_value_present_count')
+    && source.includes('stored_value_missing_count')
+    && source.includes('字段事实未写入'),
+  'onlineAnalysisFieldFactStatusText/Class/Detail'
 );
 
 for (const [needle, label] of [

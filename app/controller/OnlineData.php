@@ -22,6 +22,7 @@ use app\service\MeituanManualFetchRequestService;
 use app\service\MeituanOnlineDataPersistenceService;
 use app\service\MeituanRankDataExtractionService;
 use app\service\OnlineDailyDataPersistenceService;
+use app\service\OnlineDataFieldFactService;
 use app\service\OnlineDataAnalysisReportService;
 use app\service\OnlineTrafficDataExtractionService;
 use app\service\OperationManagementService;
@@ -5953,7 +5954,7 @@ class OnlineData extends Base
             'captured_at' => $context['captured_at'] ?? '',
         ], static fn($value): bool => $value !== null && $value !== '');
 
-        return array_merge([
+        $row = array_merge([
             'hotel_id' => $hotelId,
             'hotel_name' => $hotelName,
             'system_hotel_id' => $context['system_hotel_id'] ?? null,
@@ -5964,6 +5965,8 @@ class OnlineData extends Base
             'data_period' => $context['data_period'] ?? '',
             'snapshot_time' => $context['snapshot_time'] ?? '',
         ], static fn($value): bool => $value !== null && $value !== ''), $fields);
+
+        return OnlineDataFieldFactService::attachToOnlineDailyRow($row, $item);
     }
 
     /**
@@ -6119,6 +6122,7 @@ class OnlineData extends Base
             if (!is_array($row) || empty($row['data_date']) || empty($row['data_type'])) {
                 continue;
             }
+            $row = OnlineDataFieldFactService::attachToOnlineDailyRow($row);
             $row = $this->applyOnlineDailyDataPeriodFields($row, $columns, $row);
 
             if (isset($columns['update_time'])) {
@@ -14652,6 +14656,7 @@ JAVASCRIPT;
                     }
                 }
                 $item['total_order_num'] = $rawTotalOrderNum > 0 ? $rawTotalOrderNum : $bookOrderNum;
+                $item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus($item, is_array($rawData ?? null) ? $rawData : []);
                 $item['data_quality'] = $this->buildOnlineDataQuality($item);
             }
 
@@ -14865,6 +14870,410 @@ JAVASCRIPT;
     {
         return !empty($raw['fact_only'])
             || in_array((string)($raw['metric_status'] ?? ''), ['non_numeric_fact', 'fact_only'], true);
+    }
+
+    private function buildOnlineDataFieldFactStatus(array $row, array $raw): array
+    {
+        $facts = $this->extractOnlineDataFieldFacts($raw);
+        if ($facts === []) {
+            return [
+                'status' => 'not_loaded',
+                'label' => '字段事实未写入',
+                'detail' => '该行未返回 raw_data.field_facts，需从采集证据、source_path、metric_key、入库字段复核。',
+                'captured_count' => 0,
+                'missing_count' => 0,
+                'capture_evidence_count' => 0,
+                'source_path_count' => 0,
+                'metric_key_count' => 0,
+                'storage_field_count' => 0,
+                'inferred_storage_field_count' => 0,
+                'stored_value_present_count' => 0,
+                'stored_value_missing_count' => 0,
+                'captured_metric_keys' => [],
+                'missing_metric_keys' => [],
+                'sample_facts' => [],
+                'raw_data_exposed' => false,
+            ];
+        }
+
+        $captured = [];
+        $missing = [];
+        $captureEvidenceCount = 0;
+        $sourcePathCount = 0;
+        $metricKeyCount = 0;
+        $storageFieldCount = 0;
+        $inferredStorageFieldCount = 0;
+        $storedValuePresentCount = 0;
+        $storedValueMissingCount = 0;
+        $sampleFacts = [];
+
+        foreach ($facts as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            $metricKey = trim((string)($fact['metric_key'] ?? $fact['field_key'] ?? $fact['field'] ?? ''));
+            $sourcePath = trim((string)($fact['source_path'] ?? ''));
+            $storageField = trim((string)($fact['storage_field'] ?? $fact['storage_target'] ?? ''));
+            $storageFieldSource = trim((string)($fact['storage_field_source'] ?? ''));
+            $storageFieldInferred = false;
+            $hasCaptureEvidence = $this->onlineDataFieldFactHasCaptureEvidence($fact, $row, $raw);
+            if ($storageField === '') {
+                $storageField = $this->inferOnlineDataFieldFactStorageField($metricKey, $row, $raw, $fact);
+                $storageFieldInferred = $storageField !== '';
+                $storageFieldSource = $storageFieldInferred ? $this->onlineDataFieldFactStorageFieldSource($storageField) : $storageFieldSource;
+            }
+            $status = trim((string)($fact['status'] ?? ''));
+            $storedValueState = $this->onlineDataFieldFactStoredValueState($fact, $row, $raw, $storageField, $metricKey);
+            $storedValueMissing = $storedValueState === false;
+            if ($storedValueState === true) {
+                $storedValuePresentCount++;
+            } elseif ($storedValueMissing) {
+                $storedValueMissingCount++;
+            }
+            $isMissing = $status === 'missing'
+                || ($metricKey !== '' && (!$hasCaptureEvidence || $sourcePath === '' || $storageField === ''))
+                || $storedValueMissing;
+
+            if ($metricKey !== '') {
+                $metricKeyCount++;
+            }
+            if ($hasCaptureEvidence) {
+                $captureEvidenceCount++;
+            }
+            if ($sourcePath !== '') {
+                $sourcePathCount++;
+            }
+            if ($storageField !== '') {
+                $storageFieldCount++;
+            }
+            if ($storageFieldInferred) {
+                $inferredStorageFieldCount++;
+            }
+            if ($isMissing) {
+                $missing[] = $metricKey !== '' ? $metricKey : 'unknown_metric';
+            } else {
+                $captured[] = $metricKey !== '' ? $metricKey : 'unknown_metric';
+            }
+            if (count($sampleFacts) < 4) {
+                $sampleFacts[] = [
+                    'metric_key' => $metricKey,
+                    'source_path' => $sourcePath,
+                    'storage_field' => $storageField,
+                    'storage_field_inferred' => $storageFieldInferred,
+                    'storage_field_source' => $storageFieldSource,
+                    'capture_evidence_present' => $hasCaptureEvidence,
+                    'stored_value_present' => $storedValueState,
+                    'status' => $isMissing ? 'missing' : ($status !== '' ? $status : 'captured'),
+                    'missing_state' => trim((string)($fact['missing_state'] ?? '')),
+                ];
+            }
+        }
+
+        $captured = array_values(array_unique(array_filter($captured, static fn(string $value): bool => $value !== '')));
+        $missing = array_values(array_unique(array_filter($missing, static fn(string $value): bool => $value !== '')));
+        $total = count($facts);
+        $capturedCount = count($captured);
+        $missingCount = count($missing);
+        $status = 'ready';
+        $label = '字段闭环';
+        if ($capturedCount === 0) {
+            $status = 'missing';
+            $label = '字段缺失';
+        } elseif ($missingCount > 0 || $captureEvidenceCount < $capturedCount || $sourcePathCount < $capturedCount || $storageFieldCount < $capturedCount || $storedValueMissingCount > 0) {
+            $status = 'partial';
+            $label = '字段待复核';
+        }
+
+        $detailParts = [
+            sprintf(
+                'metric_key %d/%d',
+                $metricKeyCount,
+                $total
+            ),
+            '采集证据 ' . $captureEvidenceCount,
+            'source_path ' . $sourcePathCount,
+            '入库字段 ' . $storageFieldCount,
+        ];
+        if ($storedValuePresentCount > 0 || $storedValueMissingCount > 0) {
+            $detailParts[] = '入库值 ' . $storedValuePresentCount;
+        }
+        $detailParts[] = '缺失 ' . $missingCount;
+
+        return [
+            'status' => $status,
+            'label' => $label,
+            'detail' => implode('，', $detailParts),
+            'captured_count' => $capturedCount,
+            'missing_count' => $missingCount,
+            'capture_evidence_count' => $captureEvidenceCount,
+            'source_path_count' => $sourcePathCount,
+            'metric_key_count' => $metricKeyCount,
+            'storage_field_count' => $storageFieldCount,
+            'inferred_storage_field_count' => $inferredStorageFieldCount,
+            'stored_value_present_count' => $storedValuePresentCount,
+            'stored_value_missing_count' => $storedValueMissingCount,
+            'captured_metric_keys' => array_slice($captured, 0, 12),
+            'missing_metric_keys' => array_slice($missing, 0, 12),
+            'sample_facts' => $sampleFacts,
+            'raw_data_exposed' => false,
+        ];
+    }
+
+    private function onlineDataFieldFactHasCaptureEvidence(array $fact, array $row, array $raw): bool
+    {
+        $evidence = $fact['capture_evidence'] ?? null;
+        if (is_array($evidence) && $evidence !== []) {
+            return true;
+        }
+        if (is_scalar($evidence) && trim((string)$evidence) !== '') {
+            return true;
+        }
+        foreach (['source_trace_id', 'data_source_id', 'sync_task_id'] as $key) {
+            $value = $row[$key] ?? $raw[$key] ?? null;
+            if (is_scalar($value) && trim((string)$value) !== '') {
+                return true;
+            }
+        }
+        foreach (['_source_path', 'source_path', 'json_path', '_capture_source'] as $key) {
+            $value = $raw[$key] ?? null;
+            if (is_scalar($value) && trim((string)$value) !== '') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function extractOnlineDataFieldFacts(array $raw): array
+    {
+        foreach ([
+            $raw['field_facts'] ?? null,
+            $raw['row']['field_facts'] ?? null,
+            $raw['raw_data']['field_facts'] ?? null,
+            $raw['row']['raw_data']['field_facts'] ?? null,
+            $raw['facts'] ?? null,
+            $raw['row']['facts'] ?? null,
+            $raw['raw_data']['facts'] ?? null,
+            $raw['row']['raw_data']['facts'] ?? null,
+        ] as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+            $facts = array_values(array_filter($candidate, static fn($item): bool => is_array($item)));
+            if ($facts !== []) {
+                return $facts;
+            }
+        }
+        return [];
+    }
+
+    private function inferOnlineDataFieldFactStorageField(string $metricKey, array $row, array $raw, array $fact): string
+    {
+        $metricKey = strtolower(trim($metricKey));
+        if ($metricKey === '') {
+            return '';
+        }
+
+        $structuredField = $this->onlineDataFieldFactStructuredStorageField($metricKey);
+        if ($structuredField !== '') {
+            return 'online_daily_data.' . $structuredField;
+        }
+
+        foreach ([
+            'metrics' => 'online_daily_data.raw_data.metrics.',
+            'rank_metrics' => 'online_daily_data.raw_data.rank_metrics.',
+        ] as $rawKey => $prefix) {
+            if (is_array($raw[$rawKey] ?? null) && array_key_exists($metricKey, $raw[$rawKey])) {
+                return $prefix . $metricKey;
+            }
+        }
+
+        if (array_key_exists('value', $fact) || trim((string)($fact['source_path'] ?? '')) !== '') {
+            return 'online_daily_data.raw_data.facts.metric_key=' . $metricKey;
+        }
+
+        return '';
+    }
+
+    private function onlineDataFieldFactStorageFieldSource(string $storageField): string
+    {
+        if (str_starts_with($storageField, 'online_daily_data.raw_data.metrics.')) {
+            return 'raw_data_metrics';
+        }
+        if (str_starts_with($storageField, 'online_daily_data.raw_data.rank_metrics.')) {
+            return 'raw_data_rank_metrics';
+        }
+        if (str_starts_with($storageField, 'online_daily_data.raw_data.facts.metric_key=')) {
+            return 'raw_data_facts';
+        }
+        if (str_starts_with($storageField, 'online_daily_data.')) {
+            return 'metric_key_map';
+        }
+        return 'inferred';
+    }
+
+    private function onlineDataFieldFactStoredValueState(array $fact, array $row, array $raw, string $storageField, string $metricKey): ?bool
+    {
+        $explicit = $this->onlineDataFieldFactBoolState($fact['stored_value_present'] ?? null);
+        if ($explicit !== null) {
+            return $explicit;
+        }
+
+        $storageField = trim($storageField);
+        if ($storageField === '') {
+            return null;
+        }
+
+        $factsPrefix = 'online_daily_data.raw_data.facts.metric_key=';
+        if (str_starts_with($storageField, $factsPrefix)) {
+            $targetMetric = strtolower(trim(substr($storageField, strlen($factsPrefix))));
+            if ($this->onlineDataFieldFactValuePresent($fact['value'] ?? null)) {
+                return true;
+            }
+            foreach ($this->extractOnlineDataFieldFacts($raw) as $candidate) {
+                if (!is_array($candidate)) {
+                    continue;
+                }
+                $candidateMetric = strtolower(trim((string)($candidate['metric_key'] ?? $candidate['field_key'] ?? $candidate['field'] ?? '')));
+                if ($candidateMetric === $targetMetric && $this->onlineDataFieldFactValuePresent($candidate['value'] ?? null)) {
+                    return true;
+                }
+            }
+            return null;
+        }
+
+        $rawPrefix = 'online_daily_data.raw_data.';
+        if (str_starts_with($storageField, $rawPrefix)) {
+            return $this->onlineDataFieldFactValuePresent(
+                $this->readOnlineDataFieldFactPath($raw, substr($storageField, strlen($rawPrefix)))
+            );
+        }
+
+        $rowPrefix = 'online_daily_data.';
+        if (str_starts_with($storageField, $rowPrefix)) {
+            $field = substr($storageField, strlen($rowPrefix));
+            return array_key_exists($field, $row) ? $this->onlineDataFieldFactValuePresent($row[$field]) : null;
+        }
+
+        return null;
+    }
+
+    private function onlineDataFieldFactBoolState(mixed $value): ?bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_string($value)) {
+            $normalized = strtolower(trim($value));
+            if (in_array($normalized, ['1', 'true', 'yes'], true)) {
+                return true;
+            }
+            if (in_array($normalized, ['0', 'false', 'no'], true)) {
+                return false;
+            }
+        }
+        return null;
+    }
+
+    private function onlineDataFieldFactValuePresent(mixed $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+        if (is_string($value) && trim($value) === '') {
+            return false;
+        }
+        if (is_array($value) && $value === []) {
+            return false;
+        }
+        return true;
+    }
+
+    private function readOnlineDataFieldFactPath(array $value, string $path): mixed
+    {
+        $current = $value;
+        foreach (explode('.', $path) as $part) {
+            if (!is_array($current) || !array_key_exists($part, $current)) {
+                return null;
+            }
+            $current = $current[$part];
+        }
+        return $current;
+    }
+
+    private function onlineDataFieldFactStructuredStorageField(string $metricKey): string
+    {
+        $map = [
+            'order_amount' => 'amount',
+            'business_amount' => 'amount',
+            'loss_order_amount' => 'amount',
+            'ad_cost' => 'amount',
+            'room_nights' => 'quantity',
+            'business_room_nights' => 'quantity',
+            'loss_room_nights' => 'quantity',
+            'ad_room_nights' => 'quantity',
+            'occupied_rooms' => 'quantity',
+            'order_count' => 'book_order_num',
+            'loss_order_count' => 'book_order_num',
+            'ad_orders' => 'book_order_num',
+            'visitor_count' => 'detail_exposure',
+            'detail_visitor' => 'detail_exposure',
+            'competitor_detail_visitor' => 'detail_exposure',
+            'qunar_detail_visitor' => 'detail_exposure',
+            'qunar_competitor_detail_visitor' => 'detail_exposure',
+            'list_exposure' => 'list_exposure',
+            'competitor_list_exposure' => 'list_exposure',
+            'qunar_list_exposure' => 'list_exposure',
+            'qunar_competitor_list_exposure' => 'list_exposure',
+            'ad_impressions' => 'list_exposure',
+            'order_page_visitor' => 'order_filling_num',
+            'competitor_order_page_visitor' => 'order_filling_num',
+            'qunar_order_page_visitor' => 'order_filling_num',
+            'qunar_competitor_order_page_visitor' => 'order_filling_num',
+            'order_submit_user' => 'order_submit_num',
+            'competitor_order_submit_user' => 'order_submit_num',
+            'qunar_order_submit_user' => 'order_submit_num',
+            'qunar_competitor_order_submit_user' => 'order_submit_num',
+            'flow_rate' => 'flow_rate',
+            'competitor_flow_rate' => 'flow_rate',
+            'qunar_flow_rate' => 'flow_rate',
+            'qunar_competitor_flow_rate' => 'flow_rate',
+            'conversion_rate' => 'flow_rate',
+            'order_conversion_rate' => 'flow_rate',
+            'common_view_rate' => 'flow_rate',
+            'ctr' => 'flow_rate',
+            'cvr' => 'flow_rate',
+            'reply_rate' => 'flow_rate',
+            'five_min_reply_rate' => 'flow_rate',
+            'manual_reply_rate' => 'flow_rate',
+            'im_order_conversion_rate' => 'flow_rate',
+            'agreement_accept_rate' => 'flow_rate',
+            'business_commission_rate' => 'flow_rate',
+            'comment_response_rate' => 'flow_rate',
+            'comment_score_summary' => 'comment_score',
+            'comment_score' => 'comment_score',
+            'ctrip_rating' => 'comment_score',
+            'qunar_rating' => 'qunar_comment_score',
+            'avg_price' => 'data_value',
+            'close_rate' => 'data_value',
+            'occupancy_rate' => 'data_value',
+            'tensity' => 'data_value',
+            'comment_count' => 'data_value',
+            'bad_review_count' => 'data_value',
+            'comment_unreply_count' => 'data_value',
+            'ctrip_comment_count' => 'data_value',
+            'qunar_comment_count' => 'data_value',
+            'elong_comment_count' => 'data_value',
+            'zx_comment_count' => 'data_value',
+            'avg_user_age' => 'data_value',
+            'avg_booking_days' => 'data_value',
+            'avg_stay_days' => 'data_value',
+            'ad_order_amount' => 'data_value',
+        ];
+
+        return $map[$metricKey] ?? '';
     }
 
     private function decodeOnlineDataQualityRaw($rawData): array

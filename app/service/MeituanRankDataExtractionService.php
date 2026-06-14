@@ -25,19 +25,19 @@ final class MeituanRankDataExtractionService
             'data.list' => $responseData['data']['list'] ?? null,
         ] as $source => $rows) {
             if (self::isRowList($rows)) {
-                return ['rows' => $rows, 'source' => $source];
+                return ['rows' => self::withSourcePaths($rows, $source), 'source' => $source];
             }
         }
 
         if (isset($responseData['data']) && is_array($responseData['data'])) {
             if (self::isRowList($responseData['data'])) {
-                return ['rows' => $responseData['data'], 'source' => 'data'];
+                return ['rows' => self::withSourcePaths($responseData['data'], 'data'), 'source' => 'data'];
             }
 
             $expandedRows = [];
-            foreach ($responseData['data'] as $value) {
+            foreach ($responseData['data'] as $key => $value) {
                 if (is_array($value)) {
-                    $expandedRows = array_merge($expandedRows, $value);
+                    $expandedRows = array_merge($expandedRows, self::withSourcePaths($value, 'data.' . (string)$key));
                 }
             }
             if ($expandedRows !== []) {
@@ -50,7 +50,7 @@ final class MeituanRankDataExtractionService
             'roundrank' => $responseData['roundrank'] ?? null,
         ] as $source => $rows) {
             if (self::isRowList($rows)) {
-                return ['rows' => $rows, 'source' => $source];
+                return ['rows' => self::withSourcePaths($rows, $source), 'source' => $source];
             }
         }
 
@@ -111,22 +111,42 @@ final class MeituanRankDataExtractionService
         }
 
         $rows = [];
-        foreach ($peerRankData as $rankData) {
+        foreach ($peerRankData as $rankIndex => $rankData) {
             if (!is_array($rankData) || !isset($rankData['roundRanks']) || !is_array($rankData['roundRanks'])) {
                 continue;
             }
 
-            foreach ($rankData['roundRanks'] as $item) {
+            foreach ($rankData['roundRanks'] as $itemIndex => $item) {
                 if (!is_array($item)) {
                     continue;
                 }
                 $item['_dimName'] = $rankData['dimName'] ?? '';
                 $item['_aiMetricName'] = $rankData['aiMetricName'] ?? '';
+                $item['_source_path'] = 'data.peerRankData.' . (string)$rankIndex . '.roundRanks.' . (string)$itemIndex;
                 $rows[] = $item;
             }
         }
 
         return $rows;
+    }
+
+    /**
+     * @param array<int, mixed> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private static function withSourcePaths(array $rows, string $basePath): array
+    {
+        $result = [];
+        foreach (array_values($rows) as $index => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            if (!isset($row['_source_path']) || trim((string)$row['_source_path']) === '') {
+                $row['_source_path'] = trim($basePath) !== '' ? rtrim($basePath, '.') . '.' . (string)$index : (string)$index;
+            }
+            $result[] = $row;
+        }
+        return $result;
     }
 
     private static function isRowList($rows): bool

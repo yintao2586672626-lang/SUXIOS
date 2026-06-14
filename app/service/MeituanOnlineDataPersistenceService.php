@@ -139,6 +139,32 @@ final class MeituanOnlineDataPersistenceService
 
                 $exists = $query->find();
 
+                $rawData = [
+                    'poiName' => $hotelName,
+                    'dataValue' => $sourceDataValue,
+                    'percent' => $rankPercent,
+                    'metricStatus' => $metricStatus,
+                    'rankType' => $rankType,
+                    'rank' => $item['rank'] ?? $item['ranking'] ?? null,
+                    'dateRange' => $context['date_range'] ?? $item['dateRange'] ?? $item['date_range'] ?? '',
+                    'startDate' => $context['start_date'] ?? $startDate,
+                    'endDate' => $context['end_date'] ?? $endDate,
+                    'dimension' => $dimName,
+                    'aiMetricName' => $aiMetricName,
+                    'platformTags' => $platformTagInfo['tags'],
+                    'platformTagStatus' => $platformTagInfo['status'],
+                    'platformTagText' => $platformTagText,
+                    'hasVipTag' => $hasVipTag,
+                    'sourceLabel' => $sourceDataValue !== null ? '美团榜单返回' : ($rankPercent !== null ? '美团仅返回百分比' : '美团榜单未返回数值'),
+                ];
+                $sourcePath = trim((string)($item['_source_path'] ?? ''));
+                if ($sourcePath !== '') {
+                    $rawData['_source_path'] = $sourcePath;
+                }
+                if (trim((string)($extraction['source'] ?? '')) !== '') {
+                    $rawData['_capture_source'] = (string)$extraction['source'];
+                }
+
                 // 保存数据：根据榜单类型设置 amount 或 quantity
                 $data = [
                     'hotel_id' => (string)$hotelId,
@@ -154,25 +180,9 @@ final class MeituanOnlineDataPersistenceService
                     'source' => 'meituan',
                     'dimension' => $dimName,
                     'data_type' => 'business',
-                    'raw_data' => json_encode([
-                        'poiName' => $hotelName,
-                        'dataValue' => $sourceDataValue,
-                        'percent' => $rankPercent,
-                        'metricStatus' => $metricStatus,
-                        'rankType' => $rankType,
-                        'rank' => $item['rank'] ?? $item['ranking'] ?? null,
-                        'dateRange' => $context['date_range'] ?? $item['dateRange'] ?? $item['date_range'] ?? '',
-                        'startDate' => $context['start_date'] ?? $startDate,
-                        'endDate' => $context['end_date'] ?? $endDate,
-                        'dimension' => $dimName,
-                        'aiMetricName' => $aiMetricName,
-                        'platformTags' => $platformTagInfo['tags'],
-                        'platformTagStatus' => $platformTagInfo['status'],
-                        'platformTagText' => $platformTagText,
-                        'hasVipTag' => $hasVipTag,
-                        'sourceLabel' => $sourceDataValue !== null ? '美团榜单返回' : ($rankPercent !== null ? '美团仅返回百分比' : '美团榜单未返回数值'),
-                    ], JSON_UNESCAPED_UNICODE),
+                    'raw_data' => json_encode($rawData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 ];
+                $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
                 $data = OnlineDailyDataPersistenceService::applyValidationFields($data);
 
                 if ($exists) {

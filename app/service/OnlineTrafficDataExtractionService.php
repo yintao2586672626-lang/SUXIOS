@@ -33,21 +33,24 @@ final class OnlineTrafficDataExtractionService
         return null;
     }
 
-    public static function extractGenericTrafficRows($data): array
+    public static function extractGenericTrafficRows($data, array $path = []): array
     {
         $result = [];
         if (!is_array($data)) {
             return $result;
         }
 
-        foreach ($data as $value) {
+        foreach ($data as $key => $value) {
             if (!is_array($value)) {
                 continue;
             }
+            $itemPath = array_merge($path, [(string)$key]);
             if (isset($value['hotelId']) || isset($value['hotel_id']) || isset($value['hotelName']) || isset($value['hotel_name']) || isset($value['poiId']) || isset($value['poiName'])) {
-                $result[] = $value;
+                $result[] = self::withSourcePath($value, $itemPath);
             } elseif (isset($value[0]) && is_array($value[0])) {
-                $result = array_merge($result, self::extractGenericTrafficRows($value));
+                $result = array_merge($result, self::extractGenericTrafficRows($value, $itemPath));
+            } else {
+                $result = array_merge($result, self::extractGenericTrafficRows($value, $itemPath));
             }
         }
 
@@ -72,7 +75,7 @@ final class OnlineTrafficDataExtractionService
         ];
     }
 
-    private static function extractCtripTrafficRowsRecursive(array $value, int $depth = 0): array
+    private static function extractCtripTrafficRowsRecursive(array $value, int $depth = 0, array $path = []): array
     {
         if ($depth > 8) {
             return [];
@@ -80,32 +83,33 @@ final class OnlineTrafficDataExtractionService
 
         if (self::isSequentialArray($value)) {
             $rows = [];
-            foreach ($value as $item) {
+            foreach ($value as $index => $item) {
                 if (!is_array($item)) {
                     continue;
                 }
+                $itemPath = array_merge($path, [(string)$index]);
                 if (self::looksLikeCtripTrafficDataRow($item)) {
-                    $rows[] = $item;
+                    $rows[] = self::withSourcePath($item, $itemPath);
                 } else {
-                    $rows = array_merge($rows, self::extractCtripTrafficRowsRecursive($item, $depth + 1));
+                    $rows = array_merge($rows, self::extractCtripTrafficRowsRecursive($item, $depth + 1, $itemPath));
                 }
             }
             return $rows;
         }
 
-        $expandedRows = self::expandCtripTrafficDailySeries($value);
+        $expandedRows = self::expandCtripTrafficDailySeries($value, $path);
         if (!empty($expandedRows)) {
             return $expandedRows;
         }
 
         if (self::looksLikeCtripTrafficDataRow($value)) {
-            return [$value];
+            return [self::withSourcePath($value, $path)];
         }
 
-        foreach (self::trafficListPaths() as $path) {
-            $nested = self::readNestedValue($value, $path);
+        foreach (self::trafficListPaths() as $candidatePath) {
+            $nested = self::readNestedValue($value, $candidatePath);
             if (is_array($nested)) {
-                $rows = self::extractCtripTrafficRowsRecursive($nested, $depth + 1);
+                $rows = self::extractCtripTrafficRowsRecursive($nested, $depth + 1, array_merge($path, $candidatePath));
                 if (!empty($rows)) {
                     return $rows;
                 }
@@ -113,16 +117,16 @@ final class OnlineTrafficDataExtractionService
         }
 
         $rows = [];
-        foreach ($value as $nested) {
+        foreach ($value as $key => $nested) {
             if (is_array($nested)) {
-                $rows = array_merge($rows, self::extractCtripTrafficRowsRecursive($nested, $depth + 1));
+                $rows = array_merge($rows, self::extractCtripTrafficRowsRecursive($nested, $depth + 1, array_merge($path, [(string)$key])));
             }
         }
 
         return $rows;
     }
 
-    private static function expandCtripTrafficDailySeries(array $value): array
+    private static function expandCtripTrafficDailySeries(array $value, array $path = []): array
     {
         $dates = self::readCtripTrafficDateSeries($value);
         if (empty($dates)) {
@@ -178,6 +182,7 @@ final class OnlineTrafficDataExtractionService
                     continue;
                 }
 
+                $row['_source_path'] = self::sourcePathString($path);
                 $rows[] = $row;
             }
         }
@@ -343,5 +348,18 @@ final class OnlineTrafficDataExtractionService
         }
 
         return array_keys($value) === range(0, count($value) - 1);
+    }
+
+    private static function withSourcePath(array $row, array $path): array
+    {
+        if (!isset($row['_source_path']) || trim((string)$row['_source_path']) === '') {
+            $row['_source_path'] = self::sourcePathString($path);
+        }
+        return $row;
+    }
+
+    private static function sourcePathString(array $path): string
+    {
+        return implode('.', array_map(static fn($part): string => (string)$part, $path));
     }
 }

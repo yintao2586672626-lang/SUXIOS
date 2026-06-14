@@ -123,6 +123,111 @@ final class PlatformDataSyncService
         ],
     ];
 
+    private const NORMALIZED_FIELD_FACT_DEFINITIONS = [
+        'business' => [
+            [
+                'metric_key' => 'order_amount',
+                'normalized_field' => 'amount',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'amount',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['amount', 'checkoutRevenue', 'checkout_revenue', 'revenue', 'order_amount', 'orderAmount', 'room_revenue', 'bookAmount', 'saleAmount', 'totalAmount'],
+            ],
+            [
+                'metric_key' => 'room_nights',
+                'normalized_field' => 'quantity',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'quantity',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['quantity', 'room_nights', 'roomNights', 'nights', 'night_count', 'checkoutRoomNights', 'checkout_room_nights', 'checkOutQuantity', 'bookQuantity'],
+            ],
+            [
+                'metric_key' => 'order_count',
+                'normalized_field' => 'book_order_num',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'book_order_num',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['book_order_num', 'orders', 'order_count', 'orderCount', 'bookOrderNum', 'orderNum', 'orderQuantity', 'bookings', 'bookingCount'],
+            ],
+            [
+                'metric_key' => 'data_value',
+                'normalized_field' => 'data_value',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'data_value',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['data_value', 'dataValue', 'value', 'metric_value', 'averagePrice', 'avgPrice', 'avg_price'],
+            ],
+        ],
+        'order' => [
+            [
+                'metric_key' => 'order_amount',
+                'normalized_field' => 'amount',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'amount',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['totalAmount', 'orderAmount', 'payAmount', 'roomAmount', 'amount', 'order_amount', 'room_revenue', 'revenue'],
+            ],
+            [
+                'metric_key' => 'room_nights',
+                'normalized_field' => 'quantity',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'quantity',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['quantity', 'room_nights', 'roomNights', 'nights', 'night_count', 'nightCount'],
+            ],
+            [
+                'metric_key' => 'order_count',
+                'normalized_field' => 'book_order_num',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'book_order_num',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['order_id', 'orderId', 'bookingId', 'book_order_num', 'order_count', 'orderCount', 'orders'],
+            ],
+        ],
+        'traffic' => [
+            [
+                'metric_key' => 'list_exposure',
+                'normalized_field' => 'list_exposure',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'list_exposure',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount'],
+            ],
+            [
+                'metric_key' => 'detail_exposure',
+                'normalized_field' => 'detail_exposure',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'detail_exposure',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount', 'visitors', 'visitorTotal', 'pv', 'uv'],
+            ],
+            [
+                'metric_key' => 'flow_rate',
+                'normalized_field' => 'flow_rate',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'flow_rate',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['flow_rate', 'flowRate', 'cvr', 'ctr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'],
+            ],
+            [
+                'metric_key' => 'order_filling_num',
+                'normalized_field' => 'order_filling_num',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'order_filling_num',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['order_filling_num', 'orderFillingNum', 'orderVisitors', 'clickCount', 'clicks'],
+            ],
+            [
+                'metric_key' => 'order_submit_num',
+                'normalized_field' => 'order_submit_num',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'order_submit_num',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['order_submit_num', 'orderSubmitNum', 'bookings', 'bookingCount', 'orderCount', 'orderQuantity'],
+            ],
+        ],
+    ];
+
     /** @var array<int, DataSourceAdapter> */
     private array $adapters;
 
@@ -284,7 +389,7 @@ final class PlatformDataSyncService
                 'snapshot_bucket' => $periodMeta['snapshot_bucket'],
             ];
 
-            $normalized[] = [
+            $normalizedRow = [
                 'hotel_id' => $this->stringValue($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'external_hotel_id']) ?: (string)($source['external_hotel_id'] ?? ''),
                 'hotel_name' => $this->stringValue($row, ['hotel_name', 'hotelName', 'poi_name', 'poiName', 'name']) ?: (string)($source['hotel_name'] ?? $source['name'] ?? ''),
                 'data_date' => $date,
@@ -293,7 +398,6 @@ final class PlatformDataSyncService
                 'book_order_num' => $this->orderCountValue($row, $dataType),
                 'comment_score' => $this->numericValue($row, ['comment_score', 'rating', 'score']),
                 'qunar_comment_score' => $this->numericValue($row, ['qunar_comment_score', 'qunar_score']),
-                'raw_data' => json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 'system_hotel_id' => (int)($source['system_hotel_id'] ?? $row['system_hotel_id'] ?? 0) ?: null,
                 'tenant_id' => (int)($source['system_hotel_id'] ?? $row['system_hotel_id'] ?? 0) ?: null,
                 'data_value' => $this->dataValue($row, $dataType),
@@ -318,9 +422,220 @@ final class PlatformDataSyncService
                 'snapshot_bucket' => $periodMeta['snapshot_bucket'],
                 'is_final' => $periodMeta['is_final'],
             ];
+
+            $fieldFacts = $this->buildNormalizedFieldFacts($row, $dataType, $normalizedRow);
+            if ($fieldFacts !== []) {
+                $raw['field_facts'] = $fieldFacts;
+                $raw['field_fact_summary'] = $this->summarizeNormalizedFieldFacts($fieldFacts);
+            }
+            $normalizedRow['raw_data'] = json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $normalized[] = $normalizedRow;
         }
 
         return $normalized;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $normalizedRow
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildNormalizedFieldFacts(array $row, string $dataType, array $normalizedRow): array
+    {
+        $dataType = $this->normalizeDataType($dataType);
+        $definitions = self::NORMALIZED_FIELD_FACT_DEFINITIONS[$dataType] ?? [];
+        if ($definitions === []) {
+            return [];
+        }
+
+        $facts = [];
+        foreach ($definitions as $definition) {
+            $sourceKeys = is_array($definition['source_keys'] ?? null) ? $definition['source_keys'] : [];
+            $sourceKey = $this->firstPresentSourceKey($row, $sourceKeys);
+            $normalizedField = (string)($definition['normalized_field'] ?? '');
+            $status = $sourceKey !== '' ? 'captured' : 'missing';
+            $fact = [
+                'metric_key' => (string)$definition['metric_key'],
+                'data_type' => $dataType,
+                'source_key' => $sourceKey,
+                'source_path' => $sourceKey !== '' ? $this->fieldFactSourcePath($row, $sourceKey) : '',
+                'storage_table' => (string)$definition['storage_table'],
+                'storage_field' => (string)$definition['storage_field'],
+                'normalized_field' => $normalizedField,
+                'status' => $status,
+                'missing_state' => (string)$definition['missing_state'],
+                'stored_value_present' => $sourceKey !== '' && $this->normalizedFieldHasStoredValue($normalizedRow, $normalizedField),
+            ];
+            if ($sourceKey !== '') {
+                $fact['capture_evidence'] = $this->fieldFactCaptureEvidence($row);
+            }
+            $facts[] = $fact;
+        }
+
+        return $facts;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $facts
+     * @return array<string, mixed>
+     */
+    private function summarizeNormalizedFieldFacts(array $facts): array
+    {
+        $captured = [];
+        $missing = [];
+        $captureEvidenceCount = 0;
+        foreach ($facts as $fact) {
+            $metricKey = trim((string)($fact['metric_key'] ?? ''));
+            if ($metricKey === '') {
+                continue;
+            }
+            $captureEvidence = $fact['capture_evidence'] ?? null;
+            if ((is_array($captureEvidence) && $captureEvidence !== [])
+                || (is_scalar($captureEvidence) && trim((string)$captureEvidence) !== '')
+            ) {
+                $captureEvidenceCount++;
+            }
+            if (($fact['status'] ?? '') === 'captured') {
+                $captured[] = $metricKey;
+            } else {
+                $missing[] = $metricKey;
+            }
+        }
+
+        return [
+            'captured_count' => count($captured),
+            'missing_count' => count($missing),
+            'capture_evidence_count' => $captureEvidenceCount,
+            'captured_metric_keys' => array_values(array_unique($captured)),
+            'missing_metric_keys' => array_values(array_unique($missing)),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, mixed> $sourceKeys
+     */
+    private function firstPresentSourceKey(array $row, array $sourceKeys): string
+    {
+        foreach ($sourceKeys as $key) {
+            $key = (string)$key;
+            if ($key === '' || !array_key_exists($key, $row)) {
+                continue;
+            }
+            $value = $row[$key];
+            if ($value === null) {
+                continue;
+            }
+            if (is_string($value) && trim($value) === '') {
+                continue;
+            }
+            if (is_array($value) && $value === []) {
+                continue;
+            }
+            return $key;
+        }
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function fieldFactSourcePath(array $row, string $sourceKey): string
+    {
+        $basePath = trim((string)($row['_source_path'] ?? $row['source_path'] ?? $row['sourcePath'] ?? $row['json_path'] ?? $row['jsonPath'] ?? ''));
+        if ($basePath === '') {
+            $basePath = trim((string)($row['_capture_source'] ?? ''));
+        }
+        $sourceKey = trim($sourceKey);
+        if ($basePath === '') {
+            return $sourceKey;
+        }
+        if ($sourceKey === '') {
+            return $basePath;
+        }
+        return rtrim($basePath, '.') . '.' . $sourceKey;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function fieldFactCaptureEvidence(array $row): array
+    {
+        $evidence = [];
+        foreach (['_source_path', '_capture_source'] as $key) {
+            if (isset($row[$key]) && is_scalar($row[$key]) && trim((string)$row[$key]) !== '') {
+                $evidence[ltrim($key, '_')] = mb_substr((string)$row[$key], 0, 300);
+            }
+        }
+        if (is_array($row['capture_evidence'] ?? null)) {
+            $this->appendSafeFieldFactCaptureEvidence($evidence, (array)$row['capture_evidence']);
+        }
+        $this->appendSafeFieldFactCaptureEvidence($evidence, $row);
+        if (isset($row['_source_url']) && is_scalar($row['_source_url']) && trim((string)$row['_source_url']) !== '') {
+            $evidence['source_url_hash'] = hash('sha256', (string)$row['_source_url']);
+        }
+        return $evidence;
+    }
+
+    /**
+     * @param array<string, mixed> $evidence
+     * @param array<string, mixed> $row
+     */
+    private function appendSafeFieldFactCaptureEvidence(array &$evidence, array $row): void
+    {
+        $aliases = [
+            'source_trace_id' => ['source_trace_id', '_source_trace_id', 'trace_id', '_trace_id'],
+            'source_url_hash' => ['source_url_hash', '_source_url_hash'],
+            'request_hash' => ['request_hash', '_request_hash'],
+            'payload_hash' => ['payload_hash', '_payload_hash'],
+            'method' => ['method', 'http_method', '_method'],
+            'source_path' => ['source_path', '_source_path', 'json_path'],
+        ];
+        foreach ($aliases as $target => $keys) {
+            if (isset($evidence[$target]) && $this->safeFieldFactCaptureEvidenceValue($evidence[$target]) !== '') {
+                continue;
+            }
+            foreach ($keys as $key) {
+                $value = $this->safeFieldFactCaptureEvidenceValue($row[$key] ?? null);
+                if ($value !== '') {
+                    $evidence[$target] = $value;
+                    break;
+                }
+            }
+        }
+    }
+
+    private function safeFieldFactCaptureEvidenceValue(mixed $value): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+        $text = trim((string)$value);
+        if ($text === ''
+            || preg_match('/\b(cookie|authorization|bearer|token|password|secret)\b/i', $text)
+        ) {
+            return '';
+        }
+        return mb_substr($text, 0, 300);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function normalizedFieldHasStoredValue(array $row, string $field): bool
+    {
+        if ($field === '' || !array_key_exists($field, $row)) {
+            return false;
+        }
+        $value = $row[$field];
+        if ($value === null) {
+            return false;
+        }
+        if (is_numeric($value)) {
+            return true;
+        }
+        return trim((string)$value) !== '';
     }
 
     public function listDataSources($user, array $filters = []): array

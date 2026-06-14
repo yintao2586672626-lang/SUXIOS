@@ -12617,6 +12617,7 @@
                                                         <span :class="['rounded-md border px-2 py-1 text-center text-[11px]', row.conversionClass]">转化 {{ row.conversionText }}</span>
                                                     </div>
                                                     <div v-if="row.missingText" class="mt-1 text-xs text-amber-700 truncate" :title="row.missingText">缺口：{{ row.missingText }}</div>
+                                                    <div v-if="row.trafficSourceText" class="mt-1 text-xs text-amber-700 truncate" :title="row.trafficSourceRawText || row.trafficSourceText">采集源：{{ row.trafficSourceText }}</div>
                                                     <div v-if="row.problemText" class="mt-1 text-xs text-slate-700 truncate" :title="row.problemRawText || row.problemText">判断：{{ row.problemText }}</div>
                                                     <div v-if="row.nextActionText" class="mt-1 text-[11px] text-blue-700 truncate" :title="row.nextActionRawText || row.nextActionText">处理：{{ row.nextActionText }}</div>
                                                     <div class="mt-1 text-[11px] text-slate-400 truncate" :title="row.policyRawText || row.policyText">{{ row.policyText }}</div>
@@ -13490,7 +13491,14 @@
                                                         <td class="px-4 py-3 text-center">
                                                             <span :class="['px-2 py-1 rounded text-xs font-medium', item.source === 'meituan' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700']">{{ onlineAnalysisSourceText(item.source) }}</span>
                                                         </td>
-                                                        <td class="px-4 py-3 text-center text-gray-600">{{ onlineAnalysisDataTypeText(item.data_type) }}</td>
+                                                        <td class="px-4 py-3 text-center text-gray-600">
+                                                            <div>{{ onlineAnalysisDataTypeText(item.data_type) }}</div>
+                                                            <div class="mt-1 flex justify-center">
+                                                                <span :class="onlineAnalysisFieldFactStatusClass(item)" :title="onlineAnalysisFieldFactDetailText(item)">
+                                                                    {{ onlineAnalysisFieldFactStatusText(item) }}
+                                                                </span>
+                                                            </div>
+                                                        </td>
                                                         <td class="px-4 py-3 text-right">¥{{ formatNumber(item.amount) }}</td>
                                                         <td class="px-4 py-3 text-right">{{ formatNumber(item.quantity) }}</td>
                                                         <td class="px-4 py-3 text-right">{{ formatNumber(item.book_order_num) }}</td>
@@ -17929,7 +17937,7 @@
                 if (code.startsWith('ota_authorization_')) return '授权状态、账号/Profile 绑定、重跑同步日志';
                 if (code.startsWith('ota_collection_')) return '采集日志、平台响应状态、validation_flags、source_trace_id 或 raw_data';
                 if (code === 'ota_same_period_source_rows_missing') return 'online_daily_data 同日期源数据行、data_source_id/sync_task_id、source_trace_id 或 raw_data';
-                if (code.startsWith('ota_field_quality_')) return '缺失字段列表、raw_data、source_trace_id、validation_flags';
+                if (code.startsWith('ota_field_quality_')) return '缺失字段列表、raw_data.field_facts、source_path、metric_key、storage_field、source_trace_id、validation_flags';
                 const evidence = Array.isArray(item?.evidence_needed) ? item.evidence_needed : [];
                 return evidence.map(value => String(value || '').trim()).filter(Boolean).slice(0, 4).join('、');
             };
@@ -18319,7 +18327,8 @@
                     sales_report: '销售报表',
                     traffic_report: '流量漏斗',
                     competitor_overview: '竞争表现',
-                    competitor_rank: '竞争排名',
+                    competitor_rank: '竞争圈动态-竞争圈榜单',
+                    im_board: '用户行为-IM看板',
                     quality_psi: '服务质量 PSI',
                     ads: '广告投放',
                     advertising: '广告投放',
@@ -20739,6 +20748,41 @@
                 service_quality: '服务质量',
                 psi: 'PSI',
             }[type] || type || '-');
+            const onlineAnalysisFieldFactStatus = (item) => (
+                item?.field_fact_status && typeof item.field_fact_status === 'object'
+                    ? item.field_fact_status
+                    : { status: 'not_loaded', label: '字段事实未写入', detail: '未返回 field_fact_status' }
+            );
+            const onlineAnalysisFieldFactStatusText = (item) => {
+                const status = onlineAnalysisFieldFactStatus(item);
+                const label = String(status.label || '').trim() || '字段事实';
+                const captured = Number(status.captured_count || 0);
+                const missing = Number(status.missing_count || 0);
+                if (status.status === 'not_loaded') return label;
+                return missing > 0 ? `${label} ${captured}/${captured + missing}` : `${label} ${captured}`;
+            };
+            const onlineAnalysisFieldFactStatusClass = (item) => {
+                const status = String(onlineAnalysisFieldFactStatus(item).status || 'not_loaded');
+                const base = 'inline-flex max-w-[9rem] items-center justify-center rounded-full border px-2 py-0.5 text-[11px] leading-4';
+                if (status === 'ready') return `${base} border-emerald-100 bg-emerald-50 text-emerald-700`;
+                if (status === 'partial') return `${base} border-amber-100 bg-amber-50 text-amber-700`;
+                if (status === 'missing') return `${base} border-red-100 bg-red-50 text-red-700`;
+                return `${base} border-slate-200 bg-slate-50 text-slate-500`;
+            };
+            const onlineAnalysisFieldFactDetailText = (item) => {
+                const status = onlineAnalysisFieldFactStatus(item);
+                const detail = String(status.detail || '').trim();
+                const capturedKeys = Array.isArray(status.captured_metric_keys) ? status.captured_metric_keys : [];
+                const missingKeys = Array.isArray(status.missing_metric_keys) ? status.missing_metric_keys : [];
+                const storedPresent = Number(status.stored_value_present_count || 0);
+                const storedMissing = Number(status.stored_value_missing_count || 0);
+                const parts = [];
+                if (detail) parts.push(detail);
+                if (storedPresent > 0 || storedMissing > 0) parts.push(`入库值 ${storedPresent}/${storedPresent + storedMissing}`);
+                if (capturedKeys.length) parts.push(`已闭环 ${capturedKeys.slice(0, 6).join('、')}`);
+                if (missingKeys.length) parts.push(`缺失 ${missingKeys.slice(0, 6).join('、')}`);
+                return parts.join('；') || '字段事实未写入';
+            };
             const onlineAnalysisSummaryCards = computed(() => {
                 const summary = analysisData.value?.summary || {};
                 return [
@@ -31383,6 +31427,7 @@
                 target_date_rows_field_definitions_metric_trust_required: '目标日源数据 + 字段定义 + 指标可信证据',
                 target_date_rows_plus_metric_trust_required: '目标日源数据 + 指标可信证据',
                 read_target_date_online_daily_data_types_only: '只读目标日 OTA 指标域',
+                read_platform_data_sources_metadata_only: '只读平台采集源元数据',
                 requires_target_date_rows_field_definitions_metric_trust_and_data_quality: '需要目标日源数据、字段定义、指标可信和数据质量证据',
                 generated_blocked_from_verified_missing_requirements: '由已验证缺口生成的阻断状态',
                 user_supplied_cookie_or_payload_required: '需要用户提供授权上下文',
@@ -31463,7 +31508,27 @@
                         .join('、');
                     if (missingDomainText) parts.push(`指标域缺失 ${missingDomainText}`);
                 }
+                if (Array.isArray(evidence.traffic_source_readiness) && evidence.traffic_source_readiness.length) {
+                    const trafficSourceText = evidence.traffic_source_readiness
+                        .map(row => {
+                            const platform = phase1EmployeePlatformText(row?.platform || '');
+                            const sourceCount = Number(row?.traffic_source_count || 0);
+                            const readyCount = Number(row?.traffic_ready_count || 0);
+                            const waitingCount = Number(row?.traffic_waiting_config_count || 0);
+                            const trafficRows = Number(row?.target_date_traffic_rows || 0);
+                            if (trafficRows > 0) return `${platform}流量已入库`;
+                            if (sourceCount <= 0) return `${platform}流量采集源未登记`;
+                            if (waitingCount > 0) return `${platform}流量采集源待授权`;
+                            if (readyCount > 0) return `${platform}流量采集源已就绪`;
+                            return `${platform}流量采集源未就绪`;
+                        })
+                        .filter(Boolean)
+                        .slice(0, 3)
+                        .join('、');
+                    if (trafficSourceText) parts.push(`采集源 ${trafficSourceText}`);
+                }
                 if (evidence.metric_domain_policy) parts.push(`指标域口径 ${phase1EmployeeEvidencePolicyText(evidence.metric_domain_policy)}`);
+                if (evidence.traffic_source_policy) parts.push(`采集源口径 ${phase1EmployeeEvidencePolicyText(evidence.traffic_source_policy)}`);
                 if (Number(evidence.field_definition_count || 0) > 0) parts.push(`字段定义 ${evidence.field_definition_count} 项`);
                 const evidenceKeyText = (items, limit = 4, mapper = (item) => String(item || '').trim()) => Array.isArray(items)
                     ? items.filter(Boolean).map(item => mapper(item)).filter(Boolean).slice(0, limit).join('、')
@@ -31814,6 +31879,42 @@
                 }
                 return 'OTA';
             };
+            const phase1EmployeeActionEntryOptionInputText = (value) => ({
+                target_date: '目标日期',
+                system_hotel_id: '系统酒店 ID',
+                ctrip_hotel_id_or_node_id: '携程酒店/节点 ID',
+                meituan_poi_id_or_partner_id: '美团 POI/合作方 ID',
+                authorized_cookie_or_headers: '授权 Cookie/请求头',
+                traffic_request_url_or_cdp_endpoint_evidence: '流量接口或 CDP 端点证据',
+                traffic_payload_or_query_params: '流量 Payload/查询参数',
+                desensitized_traffic_response_sample_or_source_trace_id: '脱敏响应样例或 source_trace_id',
+                authorized_ctrip_profile_dir: '授权携程 Profile',
+                authorized_meituan_profile_dir: '授权美团 Profile',
+                manual_login_state_verified: '人工确认登录态',
+                traffic_response_listener: '流量响应监听',
+            }[String(value || '').trim()] || String(value || '').trim());
+            const phase1EmployeeActionEntryOptionContractText = (option) => {
+                const contract = option && typeof option === 'object' && option.input_contract && typeof option.input_contract === 'object'
+                    ? option.input_contract
+                    : null;
+                if (!contract || String(contract.target_data_type || '').trim() !== 'traffic') {
+                    return '';
+                }
+                const metricKeys = Array.isArray(contract.required_metric_keys)
+                    ? contract.required_metric_keys.map(value => String(value || '').trim()).filter(Boolean)
+                    : [];
+                const inputs = Array.isArray(contract.required_inputs)
+                    ? contract.required_inputs.map(phase1EmployeeActionEntryOptionInputText).filter(Boolean)
+                    : [];
+                const fieldFactKeys = Array.isArray(contract.required_field_fact_keys)
+                    ? contract.required_field_fact_keys.map(value => String(value || '').trim()).filter(Boolean)
+                    : [];
+                const metricText = metricKeys.length ? `需闭环指标 ${metricKeys.join('、')}` : '';
+                const inputText = inputs.length ? `需补输入 ${inputs.join('、')}` : '';
+                const factText = fieldFactKeys.length ? '需证明采集证据、source path、metric key、入库字段和已入库值' : '';
+                const sensitiveText = contract.sensitive_values_allowed === false ? '不展示 Cookie、token 或 Profile 原值' : '';
+                return [metricText, inputText, factText, sensitiveText].filter(Boolean).join('；');
+            };
             const phase1EmployeeActionEntryOptionGuidanceText = (option) => {
                 if (!option || typeof option !== 'object') {
                     return '';
@@ -31844,7 +31945,8 @@
                     '按现有入口要求补齐上下文',
                     '不改变采集逻辑和字段',
                 ]);
-                const details = stableDetails.filter(Boolean).join('；');
+                const contractText = phase1EmployeeActionEntryOptionContractText(option);
+                const details = [...stableDetails, contractText].filter(Boolean).join('；');
                 return [modeText, details].filter(Boolean).join('：');
             };
             const phase1EmployeeActionEntryOptionGuidanceRawText = (option) => {
@@ -32785,6 +32887,8 @@
                     missingText: missingDomains.join('、'),
                     sourceText: `目标日源数据 ${sourceRows} 行 / 流量事实 ${trafficRows} 行`,
                     sourceRawText: `platform=${platform || 'platform_missing'} / source_rows=${sourceRows} / traffic_rows=${trafficRows}`,
+                    trafficSourceText: '',
+                    trafficSourceRawText: '',
                     problemText,
                     problemRawText: `revenue_status=${row?.revenue_status || 'missing'} / traffic_status=${row?.traffic_status || 'missing'} / conversion_status=${row?.conversion_status || 'missing'} / missing_domains=${Array.isArray(row?.missing_domains) ? row.missing_domains.join(',') : 'empty'}`,
                     nextActionText,
@@ -32811,6 +32915,8 @@
                     missingText: String(source.missing_text || source.missingText || '').trim(),
                     sourceText: String(source.source_text || source.sourceText || '').trim(),
                     sourceRawText: `platform=${platform || 'platform_missing'}`,
+                    trafficSourceText: String(source.traffic_source_text || source.trafficSourceText || '').trim(),
+                    trafficSourceRawText: String(source.traffic_source_status || source.trafficSourceStatus || source.traffic_source_next_action || source.trafficSourceNextAction || '').trim(),
                     problemText: String(source.problem || source.problemText || '').trim(),
                     problemRawText: `platform=${platform || 'platform_missing'}`,
                     nextActionText: String(source.next_action || source.nextAction || '').trim(),
@@ -40912,7 +41018,9 @@
                 // 数据分析
                 analysisDimension, analysisData, loadAnalysisData,
                 onlineAnalysisRows, onlineAnalysisRowsLoading, onlineAnalysisLoading, onlineAnalysisError, onlineAnalysisPagination, onlineAnalysisQualitySummary,
-                onlineAnalysisSourceRecord, onlineAnalysisSummaryCards, onlineAnalysisMetricDefinitionRows, onlineAnalysisSourceText, onlineAnalysisDataTypeText, loadOnlineAnalysisRows, refreshOnlineAnalysis, openOnlineAnalysisTab,
+                onlineAnalysisSourceRecord, onlineAnalysisSummaryCards, onlineAnalysisMetricDefinitionRows, onlineAnalysisSourceText, onlineAnalysisDataTypeText,
+                onlineAnalysisFieldFactStatus, onlineAnalysisFieldFactStatusText, onlineAnalysisFieldFactStatusClass, onlineAnalysisFieldFactDetailText,
+                loadOnlineAnalysisRows, refreshOnlineAnalysis, openOnlineAnalysisTab,
                 // 操作日志
                 operationLogs, logModules, logActions, logUsers, logHotels, logFilter, logPagination, logSummary, selectedLog, showLogDetailModal,
                 reloadOperationLogs, loadOperationLogs, viewLogDetail, logTypeLabel, logTypeClass, logActionClass,

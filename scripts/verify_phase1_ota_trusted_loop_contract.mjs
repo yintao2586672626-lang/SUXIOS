@@ -90,6 +90,144 @@ requirePackageScript('verify:phase1-live-closure-contract', 'node scripts/verify
 requirePackageScript('verify:phase1-live-action-queue', 'node scripts/verify_phase1_live_action_queue_runtime.mjs');
 requirePackageScript('inspect:phase1-live-closure', 'C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php');
 requirePackageScript('verify:phase1-live-closure', 'C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php --strict');
+requirePackageScript('verify:online-data-field-fact-status', 'C:\\xampp\\php\\php.exe scripts\\verify_online_data_field_fact_status.php');
+requirePackageScript('verify:p0-ota-field-loop', 'C:\\xampp\\php\\php.exe scripts\\verify_p0_ota_field_loop_closure.php');
+requirePackageScript('verify:p0-ota-traffic-importer', 'node scripts/verify_p0_ota_traffic_payload_importer.mjs');
+requirePackageScript('import:p0-ota-traffic-payload', 'C:\\xampp\\php\\php.exe scripts\\import_p0_ota_traffic_payload.php');
+requirePackageScript('import:p0-ota-traffic-payload:execute', 'C:\\xampp\\php\\php.exe scripts\\import_p0_ota_traffic_payload.php --execute=1');
+requirePackageScript('register:p0-ota-traffic-sources', 'C:\\xampp\\php\\php.exe scripts\\register_p0_ota_traffic_data_sources.php');
+requirePackageScript('register:p0-ota-traffic-sources:execute', 'C:\\xampp\\php\\php.exe scripts\\register_p0_ota_traffic_data_sources.php --execute');
+
+requireFile('scripts/import_p0_ota_traffic_payload.php');
+requireIncludes('scripts/import_p0_ota_traffic_payload.php', 'P0 payload importer stays explicit, dry-run first, and non-sensitive', [
+  'p0_import_sensitive_hits',
+  'ready_to_import',
+  'explicit_execute_only',
+  'sensitive_payload_keys_detected',
+  'target_date_traffic_rows_missing',
+  'required_traffic_metric_keys_missing',
+  'desensitized_capture_evidence_missing',
+  'rows_with_desensitized_capture_evidence',
+  'source_trace_id',
+  'source_url_hash',
+  'Import is only accepted as P0 closure after verify:p0-ota-field-loop',
+  'OnlineDailyDataPersistenceService',
+  'OnlineDataFieldFactService',
+  'OnlineTrafficDataExtractionService',
+  'scope_policy',
+  'ota_channel_only',
+  'target_storage_table',
+  'online_daily_data',
+  'target_data_type',
+  'traffic',
+  'next_verifier_command',
+]);
+
+requireFile('scripts/verify_p0_ota_traffic_payload_importer.mjs');
+requireIncludes('scripts/verify_p0_ota_traffic_payload_importer.mjs', 'P0 traffic importer verifier covers capture-output contracts', [
+  'meituan_top_level_traffic_ready',
+  'ctrip_top_level_traffic_ready',
+  'ctrip_standard_rows_ready',
+  'meituan_browser_capture_envelope_ready',
+  'payload_level_evidence_propagates_to_rows',
+  'missing_desensitized_evidence_blocked',
+  'raw_source_url_blocked',
+  'verify:p0-ota-traffic-importer',
+  'desensitized_capture_evidence_missing',
+  'sensitive_payload_keys_detected',
+  'ready_to_import',
+  'blocked',
+]);
+
+requireIncludes('scripts/lib/ota_capture_standard.mjs', 'P0 browser capture rows carry desensitized evidence', [
+  'buildOtaCaptureEvidence',
+  'attachOtaCaptureEvidence',
+  'source_trace_id',
+  'source_url_hash',
+  'delete next._source_url;',
+]);
+
+requireIncludes('scripts/meituan_browser_capture.mjs', 'Meituan browser capture uses desensitized evidence for importable rows', [
+  'attachOtaCaptureEvidence(row, \'meituan\'',
+  'buildOtaCaptureEvidence(\'meituan\'',
+  'url_hash',
+  'source_trace_id',
+]);
+
+requireIncludes('scripts/ctrip_browser_capture.mjs', 'Ctrip browser capture uses desensitized evidence for importable rows', [
+  'attachCtripCaptureEvidence',
+  'attachOtaCaptureEvidence(row, \'ctrip\'',
+  'buildOtaCaptureEvidence(\'ctrip\'',
+  'url_hash',
+  'source_trace_id',
+]);
+
+requireIncludes('scripts/verify_p0_ota_field_loop_closure.php', 'P0 verifier exposes traffic evidence availability without sensitive values', [
+  'traffic_evidence_availability',
+  'p0_traffic_evidence_availability',
+  'p0_traffic_field_fact_closure',
+  'traffic_field_fact_closure',
+  'traffic-evidence',
+  'p0_external_traffic_evidence',
+  'External Traffic Evidence',
+  'validated_desensitized_evidence_present',
+  'source_url_hash',
+  'missing_metric_keys',
+  'required_storage_fields',
+  'capture_evidence_count',
+  'with_traffic_url_count',
+  'default_traffic_url_available',
+  'traffic_payload_or_query_params',
+  'registered_traffic_data_source',
+  'traffic_template_count',
+  'traffic_catalog_endpoint_count',
+  'ctrip_browser_capture_method.md',
+  'profile_capture_doc_present',
+  'profile_capture_sections_include_traffic',
+  'closure_path_options',
+  'Traffic Closure Path Options',
+  'payload_import_command',
+  'import:p0-ota-traffic-payload',
+  'recommended',
+  'can run now',
+  'selection policy',
+  'input_contract',
+  'acceptance_contract',
+  'required_metric_keys',
+  'required_storage_fields',
+  'required_field_fact_keys',
+  'target_data_type',
+  'sensitive_values_allowed',
+  'completion_policy',
+  'p0_recommended_traffic_action',
+  'p0_traffic_input_contract',
+  'p0_traffic_acceptance_contract',
+  'recommended_action',
+  'prefer_ready_then_fewest_missing_inputs_then_platform_default',
+  'manual_cookie_api',
+  'browser_profile',
+  'sensitive_values_exposed',
+  'traffic_enabled_count',
+  'traffic_ready_count',
+  'traffic_waiting_config_count',
+  'traffic_managed_count',
+  'traffic_last_sync_status_counts',
+  'traffic_source_samples',
+  'managed_by_p0',
+  'capture_sections_has_traffic',
+  'traffic_data_source_registered_waiting_config_without_target_date_rows',
+]);
+
+requireFile('scripts/register_p0_ota_traffic_data_sources.php');
+requireIncludes('scripts/register_p0_ota_traffic_data_sources.php', 'P0 traffic source registration stays explicit and non-sensitive', [
+  'P0_TRAFFIC_SOURCE_MARKER',
+  '--execute',
+  "'status' => 'waiting_config'",
+  "'secret_json' => '{}'",
+  "'source_scope' => 'ota_channel_only'",
+  'filter_platform_data_source_columns',
+  'registered sources stay waiting_config until authorized profile and target-date traffic rows exist',
+]);
 
 requireIncludes('docs/release_functional_acceptance_matrix.md', 'functional acceptance includes phase-one gate', [
   'verify:phase1-ota-loop',

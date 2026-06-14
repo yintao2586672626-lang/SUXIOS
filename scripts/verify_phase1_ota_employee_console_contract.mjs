@@ -112,6 +112,13 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   'phase1EmployeeMissingFieldRows',
   'phase1EmployeeMissingFieldOverflowText',
   'phase1EmployeeMetricDomainRows',
+  'traffic_source_readiness',
+  'traffic_source_text',
+  'traffic_source_next_action',
+  'traffic_source_policy',
+  'trafficSourceText',
+  '采集源：',
+  'read_platform_data_sources_metadata_only',
   'phase1EmployeeAiEvidenceSummary',
   'phase1EmployeeOperationSummary',
   'phase1EmployeeBackendQuestionRow',
@@ -131,6 +138,7 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   'phase1MetricDomainStatusText',
   'phase1MetricDomainStatusClass',
   'phase1MetricDomainMissingLabel',
+  'trafficSourceRawText',
   'next_required_actions',
   'dashboardDataSources.value?.phase1_employee_questions',
   'normalizePhase1EmployeeQuestionRow',
@@ -184,6 +192,17 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   'phase1EmployeeActionEntryOptionGuidanceText',
   'phase1EmployeeActionEntryOptionGuidanceRawText',
   'phase1EmployeeActionEntryOptionReadinessText',
+  'phase1EmployeeActionEntryOptionInputText',
+  'phase1EmployeeActionEntryOptionContractText',
+  'input_contract',
+  'required_metric_keys',
+  'required_inputs',
+  'required_field_fact_keys',
+  'sensitive_values_allowed',
+  '需闭环指标',
+  '需补输入',
+  '需证明采集证据、source path、metric key、入库字段和已入库值',
+  '不展示 Cookie、token 或 Profile 原值',
   'phase1EmployeeReadinessStatusText',
   'phase1EmployeeReadinessEvidenceText',
   'entryOptionGuidanceText',
@@ -458,6 +477,27 @@ includesAll('public/index.html', 'data health UI exposes collection state, field
   '负责人：',
   '所需证据：',
   '边界：',
+]);
+
+includesAll('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'employee console backend exposes traffic source readiness without sensitive values', [
+  'phase1TrafficSourceReadiness',
+  'phase1TrafficSourceReadinessForPlatform',
+  'phase1TrafficConversionFactsActionEntryOptions',
+  'phase1TrafficInputContract',
+  'phase1TrafficAcceptanceContract',
+  "'target_data_type' => 'traffic'",
+  "'required_metric_keys'",
+  "'required_field_fact_keys'",
+  "'sensitive_values_allowed' => false",
+  "'entry_options' => $this->phase1TrafficConversionFactsActionEntryOptions($platform)",
+  'traffic_source_readiness',
+  'traffic_source_text',
+  'traffic_source_next_action',
+  'traffic_source_policy',
+  'read_platform_data_sources_metadata_only',
+  'sensitive_values_exposed',
+  'registered_waiting_config',
+  'registered_ready_without_target_date_traffic',
 ]);
 
 includesAll('public/index.html', 'AI diagnosis and operation UI bindings exist', [
@@ -1433,6 +1473,8 @@ check(
   'public/index.html',
   'employee entry option guidance uses stable mode text with raw title trace',
   publicEntry.includes('phase1EmployeeActionEntryOptionPlatformText') &&
+    publicEntry.includes('phase1EmployeeActionEntryOptionInputText') &&
+    publicEntry.includes('phase1EmployeeActionEntryOptionContractText') &&
     entryOptionGuidanceSource.includes('manual_cookie_api') &&
     entryOptionGuidanceSource.includes('用于已取得${platformText} Cookie/Payload/导出上下文时补齐目标日数据') &&
     entryOptionGuidanceSource.includes('browser_profile') &&
@@ -1440,6 +1482,16 @@ check(
     entryOptionGuidanceSource.includes('status_check') &&
     entryOptionGuidanceSource.includes('用于只读核对目标日入库、最近可用日期和失败原因') &&
     entryOptionGuidanceSource.includes('不改变采集逻辑和字段') &&
+    entryOptionGuidanceSource.includes('phase1EmployeeActionEntryOptionContractText(option)') &&
+    publicEntry.includes("String(contract.target_data_type || '').trim() !== 'traffic'") &&
+    publicEntry.includes('contract.required_metric_keys') &&
+    publicEntry.includes('contract.required_inputs') &&
+    publicEntry.includes('contract.required_field_fact_keys') &&
+    publicEntry.includes('contract.sensitive_values_allowed === false') &&
+    publicEntry.includes('需闭环指标') &&
+    publicEntry.includes('需补输入') &&
+    publicEntry.includes('需证明采集证据、source path、metric key、入库字段和已入库值') &&
+    publicEntry.includes('不展示 Cookie、token 或 Profile 原值') &&
     entryOptionGuidanceSource.includes('phase1EmployeeActionEntryOptionGuidanceRawText') &&
     entryOptionGuidanceSource.includes("String(option.use_when || '').trim()") &&
     publicEntry.includes('entryOptionGuidanceRawText: entryOptionGuidanceRaw.join') &&
@@ -1544,6 +1596,24 @@ check(
     acceptanceDoc.includes('原始 `use_when/requires/boundary` 只能保留在结构化数据或标题追溯中') &&
     acceptanceDoc.includes('不能因为 label 编码异常'),
   'entry_options mode stable labels / raw label entry and guidance title trace'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
+  'traffic entry input contract is documented as requirement not completion proof',
+  acceptanceDoc.includes('entry_options[].input_contract') &&
+    acceptanceDoc.includes('entry_options[].acceptance_contract') &&
+    acceptanceDoc.includes('target_data_type=traffic') &&
+    acceptanceDoc.includes('required_metric_keys') &&
+    acceptanceDoc.includes('required_inputs') &&
+    acceptanceDoc.includes('required_field_fact_keys') &&
+    acceptanceDoc.includes('sensitive_values_allowed=false') &&
+    acceptanceDoc.includes('需闭环指标') &&
+    acceptanceDoc.includes('需补输入') &&
+    acceptanceDoc.includes('需证明采集证据、source path、metric key、入库字段和已入库值') &&
+    acceptanceDoc.includes('不展示 Cookie、token 或 Profile 原值') &&
+    acceptanceDoc.includes('不能作为采集成功、目标日入库完成或 P0 闭环完成证据') &&
+    acceptanceDoc.includes('状态核对入口不能挂采集型 input contract'),
+  'input_contract / acceptance_contract / not completion proof'
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',

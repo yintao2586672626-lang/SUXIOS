@@ -27,7 +27,11 @@ import {
   buildCtripCaptureAudit,
   evaluateCtripCaptureAuditGate,
 } from './lib/ctrip_capture_audit.mjs';
-import { sanitizeOtaPayloadForStorage } from './lib/ota_capture_standard.mjs';
+import {
+  attachOtaCaptureEvidence,
+  buildOtaCaptureEvidence,
+  sanitizeOtaPayloadForStorage,
+} from './lib/ota_capture_standard.mjs';
 import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const PAGE_URLS = buildCtripPageUrls();
@@ -252,7 +256,7 @@ async function finalizePayload() {
   dedupeRows(payload.business, row => row._fingerprint || JSON.stringify([row.hotelId, row.dataDate, row.amount, row.quantity, row.bookOrderNum]));
   dedupeRows(payload.traffic, row => row._fingerprint || JSON.stringify([row.hotelId, row.date, row.listExposure, row.detailExposure, row.orderFillingNum, row.orderSubmitNum]));
   dedupeRows(payload.reviews, row => row.review_id || JSON.stringify([row.content || '', row.user_name || '', row.comment_time || '']));
-  dedupeRows(payload.rows, row => row._fingerprint || JSON.stringify([row._source_url, row.hotelId, row.dataDate || row.date, row.data_type, row.metric_key || '', row.value || row.amount || row.quantity || '']));
+  dedupeRows(payload.rows, row => row._fingerprint || JSON.stringify([row.source_trace_id || row.source_url_hash || row.capture_evidence?.source_trace_id || row.capture_evidence?.source_url_hash || '', row.hotelId, row.dataDate || row.date, row.data_type, row.metric_key || '', row.value || row.amount || row.quantity || '']));
   dedupeRows(payload.standard_rows, row => JSON.stringify([row.source, row.data_type, row.hotel_id, row.system_hotel_id || '', row.data_date, row.dimension]));
   payload.endpoint_candidates = buildCtripEndpointCandidates(payload.unmatched_xhr_urls);
   payload.p3_evidence_matrix = buildCtripEndpointEvidenceMatrix(payload.p3_evidence_drafts, { generatedAt: capturedAt });
@@ -703,7 +707,8 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       const text = await response.text();
       body = parseResponseBody(text, contentType);
     } catch (error) {
-      target.responses.push({ url, section: urlSection || 'unknown', endpoint_id: endpoint?.id || '', status: response.status(), request_type: requestType, error: error.message });
+      const responseEvidence = buildOtaCaptureEvidence('ctrip', { url, section: urlSection || 'unknown', captureSource: `xhr:${requestType || 'unknown'}` });
+      target.responses.push({ url, url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section: urlSection || 'unknown', endpoint_id: endpoint?.id || '', status: response.status(), request_type: requestType, error: error.message });
       return;
     }
 
@@ -745,13 +750,13 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     const platform = inferCtripResponsePlatform(section, endpoint, url, requestPayload, state);
     const sanitizerSection = endpoint?.section === 'comment_review' ? 'reviews' : dataType;
     const safeBody = sanitizeOtaPayloadForStorage(body, sanitizerSection);
-    const rows = normalizeRows(safeBody, dataType, url).map(row => ({
+    const rows = normalizeRows(safeBody, dataType, url).map(row => attachCtripCaptureEvidence({
       ...row,
       section,
       data_type: dataType,
       endpoint_id: endpoint?.id || '',
       endpoint_label: endpoint?.label || '',
-    }));
+    }, { url, section, dataType }));
     const factContext = {
       endpoint,
       section,
@@ -769,7 +774,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       hotelName: payload.hotel_name,
       profileId,
       defaultDataDate,
-    });
+    }).map(row => attachCtripCaptureEvidence(row, factContext));
     const approvedRows = filterStandardRowsByProfileFieldConfig(extractCtripApprovedMappingRows(body, {
       ...factContext,
       mappings: approvedMappings,
@@ -777,12 +782,15 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       hotelName: payload.hotel_name,
       profileId,
       defaultDataDate,
-    }));
+    })).map(row => attachCtripCaptureEvidence(row, factContext));
+    const responseEvidence = buildOtaCaptureEvidence('ctrip', { url, section, captureSource: `xhr:${dataType}` });
     target.catalog_facts.push(...catalogFacts);
     target.standard_rows.push(...standardRows);
     target.standard_rows.push(...approvedRows);
     target.responses.push({
       url,
+      url_hash: responseEvidence.source_url_hash || '',
+      source_trace_id: responseEvidence.source_trace_id || '',
       section,
       section_label: sectionLabel(section),
       endpoint_id: endpoint?.id || '',
@@ -881,6 +889,15 @@ function normalizeRows(value, section, sourceUrl) {
   return normalizeGenericList(value, 'business')
     .map(row => normalizeBusinessRow(row, sourceUrl))
     .filter(Boolean);
+}
+
+function attachCtripCaptureEvidence(row, context = {}) {
+  return attachOtaCaptureEvidence(row, 'ctrip', {
+    url: context.url || row._source_url || row.source_url || '',
+    section: context.section || row.section || row.data_type || '',
+    sourcePath: row._source_path || row.source_path || '',
+    captureSource: row._capture_source || `xhr:${context.dataType || row.data_type || context.section || 'unknown'}`,
+  });
 }
 
 function normalizeGenericList(value, section, depth = 0) {

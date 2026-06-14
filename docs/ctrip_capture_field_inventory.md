@@ -203,6 +203,7 @@
 
 | 候选方向 | 优先级 | 数据类型 | 触发关键词 | 入目录条件 |
 |---|---|---|---|---|
+| 经营报告-流量数据 | P0 | traffic | queryflowtransfornewv1, queryflowtransformnewv1, queryflowtransfernewv1, fetchcurrenthotelseqinfov1, queryscanflowdetailsv2, queryflowsource, flowdata, traffic | 必须补齐 Request URL、Payload、Preview / Response 后才能转为正式字段 |
 | 订单明细 | P3 | order | orderdetail, orderdetails, orderdetailsearch, orderlist, ordersearch, searchorder, queryorder, orderquery | 必须补齐 Request URL、Payload、Preview / Response 后才能转为正式字段 |
 | 价格房态 | P3 | business | ratecalendar, ratecalendarprice, pricequery, pricecalendar, roomstatus, inventory, stock, available | 必须补齐 Request URL、Payload、Preview / Response 后才能转为正式字段 |
 | 促销活动 | P3 | advertising | promotion, campaign, coupon, benefit, discount, activity, marketing | 必须补齐 Request URL、Payload、Preview / Response 后才能转为正式字段 |

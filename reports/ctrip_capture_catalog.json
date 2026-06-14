@@ -37875,6 +37875,24 @@
   ],
   "p3_candidate_rules": [
     {
+      "id": "traffic_report",
+      "label": "经营报告-流量数据",
+      "priority": "P0",
+      "dataType": "traffic",
+      "keywords": [
+        "queryflowtransfornewv1",
+        "queryflowtransformnewv1",
+        "queryflowtransfernewv1",
+        "fetchcurrenthotelseqinfov1",
+        "queryscanflowdetailsv2",
+        "queryflowsource",
+        "flowdata",
+        "traffic",
+        "listexposure",
+        "detailexposure"
+      ]
+    },
+    {
       "id": "orders_detail",
       "label": "订单明细",
       "priority": "P3",

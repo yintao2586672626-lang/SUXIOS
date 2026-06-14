@@ -218,6 +218,54 @@ function missing_requirement_employee_explanation(string $code, array $details =
         ];
     }
 
+    if (str_ends_with($code, '_field_facts_missing')) {
+        return [
+            'action_code' => $code . '_verify_capture_evidence',
+            'owner' => 'Product/Engineering',
+            'action' => 'Verify existing ' . $platformLabel . ' target-date rows and write field_facts metadata without changing acquisition logic.',
+            'evidence_needed' => [
+                'raw_data.field_facts or raw_data.facts',
+                'capture_evidence',
+                'metric_key',
+                'source_path',
+                'storage_field',
+            ],
+            'protected_boundary' => 'Read existing online_daily_data only; do not expose raw_data values or invent fallback mappings.',
+        ];
+    }
+
+    if (str_ends_with($code, '_field_fact_closure_incomplete')) {
+        return [
+            'action_code' => $code . '_complete_mapping',
+            'owner' => 'Product/Engineering',
+            'action' => 'Complete ' . $platformLabel . ' field fact closure across capture_evidence, metric_key, source_path, and storage_field.',
+            'evidence_needed' => [
+                'field_fact_closure_summary',
+                'capture_evidence_count',
+                'source_path_count',
+                'storage_field_count',
+                'incomplete_metric_keys',
+            ],
+            'protected_boundary' => 'Keep missing fields explicit; do not use empty values, zero, or success status to hide gaps.',
+        ];
+    }
+
+    if (str_ends_with($code, '_field_facts_missing') || str_ends_with($code, '_field_fact_closure_incomplete')) {
+        return [
+            'employee_explanation' => $platformLabel . ' field facts do not yet prove metric_key -> source_path -> storage_field closure.',
+            'limited_conclusions' => [
+                $platformLabel . ' field trust',
+                $platformLabel . ' AI diagnosis input',
+                $platformLabel . ' revenue decision evidence',
+            ],
+            'still_usable_metrics' => [
+                'Target-date source rows and ETL status remain visible for separate review.',
+                'Explicit missing field facts can be used as the evidence backlog.',
+            ],
+            'explanation_next_action' => 'Verify existing target-date rows and complete field_facts metadata without changing OTA acquisition logic.',
+        ];
+    }
+
     if ($code === 'ai_diagnosis_evidence_sample_missing') {
         return [
             'employee_explanation' => '缺少可追溯的 AI 诊断证据，不能说明 AI 建议依据来自哪些 OTA 数据和缺口。',
@@ -599,6 +647,8 @@ function inspection_ai_blocking_missing_codes(array $missingCodes): array
             || str_contains($code, 'etl_not_ready')
             || str_contains($code, 'revenue_metrics_not_ready')
             || str_contains($code, 'traffic_facts_missing')
+            || str_contains($code, 'field_facts_missing')
+            || str_contains($code, 'field_fact_closure_incomplete')
             || str_contains($code, 'data_gaps_missing')
             || $code === 'evidence_scope_date_mismatch'
             || $code === 'ai_diagnosis_evidence_sample_missing'
@@ -851,6 +901,11 @@ function inspection_next_action_employee_verification_steps(array $action): arra
             '确认' . $platformLabel . '流量/转化事实变为可复核。',
             '确认漏斗判断不再显示该平台流量/转化缺口。',
         ],
+        'field_fact_closure' => [
+            'Refresh the field trust question.',
+            'Confirm the platform field evidence chain is complete.',
+            'Confirm AI evidence is not blocked by field evidence gaps.',
+        ],
         'ai_diagnosis_evidence' => [
             '重新运行现有 OTA 诊断。',
             '确认 AI 动作项不再被上游缺口阻断。',
@@ -887,6 +942,9 @@ function inspection_next_action_family(string $code): string
     if (str_contains($code, 'traffic_facts_missing')) {
         return 'traffic_conversion_facts';
     }
+    if (str_contains($code, 'field_facts_missing') || str_contains($code, 'field_fact_closure_incomplete')) {
+        return 'field_fact_closure';
+    }
     if ($code === 'collect_ai_diagnosis_evidence' || $code === 'resolve_ai_diagnosis_blocked_action_items') {
         return 'ai_diagnosis_evidence';
     }
@@ -910,6 +968,9 @@ function inspection_next_action_question_key(string $code): string
     ) {
         return 'revenue_traffic_conversion';
     }
+    if (str_contains($code, 'field_facts_missing') || str_contains($code, 'field_fact_closure_incomplete')) {
+        return 'trusted_fields';
+    }
     if ($code === 'collect_ai_diagnosis_evidence' || $code === 'resolve_ai_diagnosis_blocked_action_items') {
         return 'ai_evidence';
     }
@@ -930,6 +991,7 @@ function inspection_next_action_related_question_keys(string $code): array
         'standard_facts' => ['trusted_fields', 'revenue_traffic_conversion', 'ai_evidence', 'next_operation_action'],
         'revenue_metric_inputs' => ['trusted_fields', 'revenue_traffic_conversion', 'ai_evidence', 'next_operation_action'],
         'traffic_conversion_facts' => ['revenue_traffic_conversion', 'ai_evidence', 'next_operation_action'],
+        'field_fact_closure' => ['trusted_fields', 'revenue_traffic_conversion', 'ai_evidence', 'next_operation_action'],
         'ai_diagnosis_evidence' => ['ai_evidence', 'next_operation_action'],
         'operation_execution_evidence' => ['next_operation_action'],
         'evidence_scope' => ['ai_evidence', 'next_operation_action'],
@@ -1098,6 +1160,12 @@ function inspection_next_action_employee_explanation(array $action): array
             'still_usable_metrics' => [$platformLabel . '已采到且 metric_trust 明确可信的收益事实（如存在）。', '其它平台已就绪的同日指标。'],
             'explanation_next_action' => '使用现有' . $platformLabel . '流量获取入口补齐目标日流量事实，复跑巡检。',
         ],
+        'field_fact_closure' => [
+            'employee_explanation' => $platformLabel . ' field evidence is not closed enough for trusted decisions.',
+            'limited_conclusions' => [$platformLabel . ' field trust', $platformLabel . ' AI input', $platformLabel . ' revenue decision evidence'],
+            'still_usable_metrics' => ['Target-date rows can still be reviewed separately.', 'Explicit field gaps remain useful as the evidence backlog.'],
+            'explanation_next_action' => 'Complete the platform field evidence chain without changing acquisition logic.',
+        ],
         'ai_diagnosis_evidence' => [
             'employee_explanation' => 'AI 诊断证据未闭合，不能把当前 action_items 当作可执行经营建议。',
             'limited_conclusions' => ['AI 自动建议', '执行意图创建', '运营闭环完成判断'],
@@ -1135,7 +1203,7 @@ function inspection_next_action_entry(string $code): string
         return '/api/online-data/fetch-ctrip-traffic';
     }
     if ($code === 'meituan_traffic_facts_missing_confirm_traffic_collection') {
-        return '/api/online-data/fetch-meituan-traffic';
+        return '/api/online-data/capture-meituan-browser';
     }
     if (str_contains($code, 'etl_not_ready')
         || str_contains($code, 'revenue_metrics_not_ready')
@@ -1209,11 +1277,120 @@ function inspection_entry_options_with_readiness(string $platform, array $option
     }, $options));
 }
 
+function inspection_traffic_input_contract(string $platform, string $mode): array
+{
+    $platform = strtolower(trim($platform));
+    $mode = strtolower(trim($mode));
+    if (!in_array($mode, ['manual_cookie_api', 'browser_profile'], true)) {
+        return [];
+    }
+
+    $contract = [
+        'scope_policy' => 'ota_channel_only',
+        'target_storage_table' => 'online_daily_data',
+        'target_data_type' => 'traffic',
+        'required_metric_keys' => [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ],
+        'required_field_fact_keys' => [
+            'capture_evidence',
+            'source_path',
+            'metric_key',
+            'storage_field',
+            'stored_value_present',
+        ],
+        'sensitive_values_allowed' => false,
+    ];
+
+    if ($mode === 'manual_cookie_api') {
+        $contract['required_inputs'] = [
+            'target_date',
+            'system_hotel_id',
+            $platform === 'ctrip' ? 'ctrip_hotel_id_or_node_id' : 'meituan_poi_id_or_partner_id',
+            'authorized_cookie_or_headers',
+            'traffic_request_url_or_cdp_endpoint_evidence',
+            'traffic_payload_or_query_params',
+            'desensitized_traffic_response_sample_or_source_trace_id',
+        ];
+        return $contract;
+    }
+
+    $contract['required_inputs'] = [
+        'target_date',
+        'system_hotel_id',
+        'authorized_' . $platform . '_profile_dir',
+        'manual_login_state_verified',
+        'traffic_response_listener',
+        'desensitized_traffic_response_sample_or_source_trace_id',
+    ];
+    return $contract;
+}
+
+function inspection_traffic_acceptance_contract(): array
+{
+    return [
+        'target_date_traffic_rows' => '>0',
+        'field_facts_status' => 'ready',
+        'required_chain' => [
+            'capture_evidence',
+            'source_path',
+            'metric_key',
+            'storage_field',
+            'stored_value',
+            'ui_status',
+            'verifier',
+        ],
+    ];
+}
+
+function inspection_traffic_entry_options_with_readiness(string $platform, array $options): array
+{
+    $platform = strtolower(trim($platform));
+    $preferredMode = $platform === 'meituan' ? 'browser_profile' : 'manual_cookie_api';
+    $indexed = [];
+    foreach ($options as $index => $option) {
+        if (!is_array($option)) {
+            continue;
+        }
+        $option['_sort_index'] = $index;
+        $indexed[] = $option;
+    }
+    usort($indexed, static function (array $left, array $right) use ($preferredMode): int {
+        $leftMode = (string)($left['mode'] ?? '');
+        $rightMode = (string)($right['mode'] ?? '');
+        $leftCollectionRank = $leftMode === 'status_check' ? 1 : 0;
+        $rightCollectionRank = $rightMode === 'status_check' ? 1 : 0;
+        if ($leftCollectionRank !== $rightCollectionRank) {
+            return $leftCollectionRank <=> $rightCollectionRank;
+        }
+        $leftPreferredRank = $leftMode === $preferredMode ? 0 : 1;
+        $rightPreferredRank = $rightMode === $preferredMode ? 0 : 1;
+        if ($leftPreferredRank !== $rightPreferredRank) {
+            return $leftPreferredRank <=> $rightPreferredRank;
+        }
+        return ((int)($left['_sort_index'] ?? 0)) <=> ((int)($right['_sort_index'] ?? 0));
+    });
+    foreach ($indexed as &$option) {
+        unset($option['_sort_index']);
+        $contract = inspection_traffic_input_contract($platform, (string)($option['mode'] ?? ''));
+        if ($contract !== []) {
+            $option['input_contract'] = $contract;
+            $option['acceptance_contract'] = inspection_traffic_acceptance_contract();
+        }
+    }
+    unset($option);
+    return inspection_entry_options_with_readiness($platform, $indexed);
+}
+
 function inspection_next_action_entry_options(string $code): array
 {
     if (str_contains($code, 'traffic_facts_missing')) {
         if (str_starts_with($code, 'ctrip_')) {
-            return inspection_entry_options_with_readiness('ctrip', [
+            return inspection_traffic_entry_options_with_readiness('ctrip', [
                 [
                     'mode' => 'manual_cookie_api',
                     'label' => '手动流量 Cookie/API',
@@ -1241,7 +1418,7 @@ function inspection_next_action_entry_options(string $code): array
             ]);
         }
         if (str_starts_with($code, 'meituan_')) {
-            return inspection_entry_options_with_readiness('meituan', [
+            return inspection_traffic_entry_options_with_readiness('meituan', [
                 [
                     'mode' => 'manual_cookie_api',
                     'label' => '手动流量 Cookie/API',
@@ -1376,6 +1553,12 @@ function inspection_next_action_resolves_missing_codes(string $code): array
     if (preg_match('/^(ctrip|meituan)_traffic_facts_missing_confirm_traffic_collection$/', $code, $matches)) {
         return [$matches[1] . '_traffic_facts_missing'];
     }
+    if (preg_match('/^(ctrip|meituan)_field_facts_missing_verify_capture_evidence$/', $code, $matches)) {
+        return [$matches[1] . '_field_facts_missing'];
+    }
+    if (preg_match('/^(ctrip|meituan)_field_fact_closure_incomplete_complete_mapping$/', $code, $matches)) {
+        return [$matches[1] . '_field_fact_closure_incomplete'];
+    }
     if ($code === 'collect_ai_diagnosis_evidence') {
         return ['ai_diagnosis_evidence_sample_missing'];
     }
@@ -1404,6 +1587,12 @@ function inspection_next_action_for_blocker_code(string $code): string
     }
     if (preg_match('/^(ctrip|meituan)_traffic_facts_missing$/', $code, $matches)) {
         return $matches[1] . '_traffic_facts_missing_confirm_traffic_collection';
+    }
+    if (preg_match('/^(ctrip|meituan)_field_facts_missing$/', $code, $matches)) {
+        return $matches[1] . '_field_facts_missing_verify_capture_evidence';
+    }
+    if (preg_match('/^(ctrip|meituan)_field_fact_closure_incomplete$/', $code, $matches)) {
+        return $matches[1] . '_field_fact_closure_incomplete_complete_mapping';
     }
     if ($code === 'ai_diagnosis_evidence_sample_missing'
         || $code === 'ai_evidence_sources_missing'
@@ -1453,6 +1642,9 @@ function inspection_next_action_success_criteria(string $code): string
     if (str_contains($code, 'traffic_facts_missing')) {
         return '对应平台 traffic_status=ready；未采到时必须保留 data_gaps，不用收益行推断流量或转化。';
     }
+    if (str_contains($code, 'field_facts_missing') || str_contains($code, 'field_fact_closure_incomplete')) {
+        return 'field_facts include capture_evidence, metric_key, source_path, and storage_field; raw_data_exposed remains false.';
+    }
     if ($code === 'collect_ai_diagnosis_evidence') {
         return 'OTA 诊断响应包含 evidence_sources、data_gaps 和至少一个非 blocked action_items。';
     }
@@ -1482,6 +1674,9 @@ function inspection_next_action_type(string $code): string
     if (str_contains($code, 'traffic_facts_missing')) {
         return 'traffic_conversion_evidence';
     }
+    if (str_contains($code, 'field_facts_missing') || str_contains($code, 'field_fact_closure_incomplete')) {
+        return 'field_fact_evidence';
+    }
     if ($code === 'collect_ai_diagnosis_evidence') {
         return 'ai_diagnosis_evidence';
     }
@@ -1498,6 +1693,8 @@ function inspection_next_action_priority(string $code): string
 {
     if (str_contains($code, 'source_rows_missing')
         || str_contains($code, 'traffic_facts_missing')
+        || str_contains($code, 'field_facts_missing')
+        || str_contains($code, 'field_fact_closure_incomplete')
         || $code === 'collect_ai_diagnosis_evidence'
         || $code === 'resolve_ai_diagnosis_blocked_action_items'
         || $code === 'align_evidence_scope_date'
@@ -1528,9 +1725,10 @@ function inspection_next_action_family_rank(array $action): int
         'target_date_source_rows' => 1,
         'standard_facts' => 2,
         'revenue_metric_inputs' => 3,
-        'traffic_conversion_facts' => 4,
-        'ai_diagnosis_evidence' => 5,
-        'operation_execution_evidence' => 6,
+        'field_fact_closure' => 4,
+        'traffic_conversion_facts' => 5,
+        'ai_diagnosis_evidence' => 6,
+        'operation_execution_evidence' => 7,
         default => 9,
     };
 }
@@ -1601,6 +1799,24 @@ function table_columns(string $table): array
 }
 
 /**
+ * @param array<int, string> $fields
+ * @return array<int, string>
+ */
+function existing_columns(string $table, array $fields): array
+{
+    try {
+        $columns = table_columns($table);
+    } catch (Throwable $e) {
+        return [];
+    }
+
+    return array_values(array_filter(
+        $fields,
+        static fn(string $field): bool => isset($columns[$field])
+    ));
+}
+
+/**
  * @param array<string, bool> $columns
  * @param array<string, mixed> $options
  * @return array<int, array<string, mixed>>
@@ -1629,6 +1845,7 @@ function query_source_rows(array $columns, string $platform, array $options): ar
         'error_info',
         'failure_reason',
         'failed_reason',
+        'raw_data',
         'update_time',
         'updated_at',
         'create_time',
@@ -1782,6 +1999,477 @@ function sample_traces(array $rows): array
 }
 
 /**
+ * @param array<int, array<string, mixed>> $rows
+ * @return array<string, mixed>
+ */
+function field_fact_closure_summary(array $rows): array
+{
+    $summary = [
+        'status' => $rows === [] ? 'not_loaded' : 'missing',
+        'summary_key' => 'field_fact_closure_summary',
+        'source_policy' => 'read_existing_online_daily_data_raw_data_metadata_only',
+        'storage_table' => 'online_daily_data',
+        'row_count' => count($rows),
+        'rows_with_field_facts' => 0,
+        'fact_count' => 0,
+        'captured_fact_count' => 0,
+        'complete_fact_count' => 0,
+        'explicit_missing_fact_count' => 0,
+        'incomplete_captured_fact_count' => 0,
+        'metric_key_count' => 0,
+        'capture_evidence_count' => 0,
+        'source_path_count' => 0,
+        'storage_field_count' => 0,
+        'inferred_storage_field_count' => 0,
+        'stored_value_present_count' => 0,
+        'stored_value_missing_count' => 0,
+        'complete_metric_keys' => [],
+        'missing_metric_keys' => [],
+        'incomplete_metric_keys' => [],
+        'sample_facts' => [],
+        'raw_data_exposed' => false,
+    ];
+
+    $completeMetricKeys = [];
+    $missingMetricKeys = [];
+    $incompleteMetricKeys = [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $raw = decode_field_fact_raw_data($row['raw_data'] ?? null);
+        $facts = extract_online_data_field_facts($row, $raw);
+        if ($facts === []) {
+            continue;
+        }
+        $summary['rows_with_field_facts']++;
+
+        foreach ($facts as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            $summary['fact_count']++;
+            $metricKey = field_fact_text($fact, ['metric_key', 'field_key', 'field']);
+            $sourceKey = field_fact_text($fact, ['source_key', 'source_field', 'field_key', 'field']);
+            $sourcePath = field_fact_text($fact, ['source_path']);
+            $status = strtolower(field_fact_text($fact, ['status']));
+            $missingState = field_fact_text($fact, ['missing_state', 'missing_reason']);
+            [$storageField, $storageFieldSource, $storageFieldInferred] = field_fact_storage_field($fact, $row, $raw, $metricKey);
+            $hasCaptureEvidence = field_fact_has_capture_evidence($fact, $row, $raw);
+            $storedValueState = field_fact_stored_value_state($fact, $row, $raw, $storageField, $metricKey);
+            $storedValueMissing = $storedValueState === false;
+            $storedValuePresent = $storedValueState === true;
+
+            if ($metricKey !== '') {
+                $summary['metric_key_count']++;
+            }
+            if ($hasCaptureEvidence) {
+                $summary['capture_evidence_count']++;
+            }
+            if ($sourcePath !== '') {
+                $summary['source_path_count']++;
+            }
+            if ($storageField !== '') {
+                $summary['storage_field_count']++;
+            }
+            if ($storageFieldInferred) {
+                $summary['inferred_storage_field_count']++;
+            }
+            if ($storedValuePresent) {
+                $summary['stored_value_present_count']++;
+            } elseif ($storedValueMissing) {
+                $summary['stored_value_missing_count']++;
+            }
+
+            $explicitMissing = in_array($status, ['missing', 'not_loaded', 'failed', 'error'], true) || $missingState !== '';
+            $complete = !$explicitMissing && !$storedValueMissing && $hasCaptureEvidence && $metricKey !== '' && $sourcePath !== '' && $storageField !== '';
+            if ($complete) {
+                $summary['captured_fact_count']++;
+                $summary['complete_fact_count']++;
+                $completeMetricKeys[$metricKey] = true;
+            } elseif ($explicitMissing) {
+                $summary['explicit_missing_fact_count']++;
+                if ($metricKey !== '') {
+                    $missingMetricKeys[$metricKey] = true;
+                }
+            } else {
+                $summary['captured_fact_count']++;
+                $summary['incomplete_captured_fact_count']++;
+                $incompleteMetricKeys[$metricKey !== '' ? $metricKey : 'unknown_metric'] = true;
+            }
+
+            if (count($summary['sample_facts']) < 6) {
+                $summary['sample_facts'][] = array_filter([
+                    'row_id' => $row['id'] ?? null,
+                    'data_type' => $row['data_type'] ?? null,
+                    'metric_key' => $metricKey,
+                    'source_key' => $sourceKey,
+                    'source_path' => $sourcePath,
+                    'storage_field' => $storageField,
+                    'storage_field_source' => $storageFieldSource,
+                    'storage_field_inferred' => $storageFieldInferred,
+                    'capture_evidence_present' => $hasCaptureEvidence,
+                    'stored_value_present' => $storedValueState,
+                    'status' => $status !== '' ? $status : ($complete ? 'captured' : 'incomplete'),
+                    'missing_state' => $missingState,
+                ], static fn($value): bool => $value !== null && $value !== '');
+            }
+        }
+    }
+
+    if ((int)$summary['fact_count'] === 0) {
+        $summary['status'] = 'not_loaded';
+    } elseif ((int)$summary['incomplete_captured_fact_count'] > 0) {
+        $summary['status'] = 'partial';
+    } elseif ((int)$summary['complete_fact_count'] > 0) {
+        $summary['status'] = 'ready';
+    } else {
+        $summary['status'] = 'missing';
+    }
+
+    $summary['complete_metric_keys'] = array_slice(array_keys($completeMetricKeys), 0, 20);
+    $summary['missing_metric_keys'] = array_slice(array_keys($missingMetricKeys), 0, 20);
+    $summary['incomplete_metric_keys'] = array_slice(array_keys($incompleteMetricKeys), 0, 20);
+
+    return $summary;
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function decode_field_fact_raw_data(mixed $rawData): array
+{
+    if (is_array($rawData)) {
+        return $rawData;
+    }
+    if (!is_string($rawData) || trim($rawData) === '') {
+        return [];
+    }
+    $decoded = json_decode($rawData, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+/**
+ * @param array<string, mixed> $row
+ * @param array<string, mixed> $raw
+ * @return array<int, array<string, mixed>>
+ */
+function extract_online_data_field_facts(array $row, array $raw): array
+{
+    foreach ([
+        $row['field_facts'] ?? null,
+        $row['row']['field_facts'] ?? null,
+        $row['raw_data']['field_facts'] ?? null,
+        $row['row']['raw_data']['field_facts'] ?? null,
+        $raw['field_facts'] ?? null,
+        $raw['row']['field_facts'] ?? null,
+        $raw['raw_data']['field_facts'] ?? null,
+        $raw['row']['raw_data']['field_facts'] ?? null,
+        $row['facts'] ?? null,
+        $row['row']['facts'] ?? null,
+        $row['raw_data']['facts'] ?? null,
+        $row['row']['raw_data']['facts'] ?? null,
+        $raw['facts'] ?? null,
+        $raw['row']['facts'] ?? null,
+        $raw['raw_data']['facts'] ?? null,
+        $raw['row']['raw_data']['facts'] ?? null,
+    ] as $candidate) {
+        if (!is_array($candidate)) {
+            continue;
+        }
+        $facts = array_values(array_filter($candidate, static fn($item): bool => is_array($item)));
+        if ($facts !== []) {
+            return $facts;
+        }
+    }
+    return [];
+}
+
+/**
+ * @param array<string, mixed> $fact
+ * @param array<int, string> $keys
+ */
+function field_fact_text(array $fact, array $keys): string
+{
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $fact)) {
+            continue;
+        }
+        $value = trim((string)$fact[$key]);
+        if ($value !== '') {
+            return $value;
+        }
+    }
+    return '';
+}
+
+/**
+ * @param array<string, mixed> $fact
+ * @param array<string, mixed> $row
+ * @param array<string, mixed> $raw
+ */
+function field_fact_stored_value_state(array $fact, array $row, array $raw, string $storageField, string $metricKey): ?bool
+{
+    $explicit = field_fact_bool_state($fact['stored_value_present'] ?? null);
+    if ($explicit !== null) {
+        return $explicit;
+    }
+
+    $storageField = trim($storageField);
+    if ($storageField === '') {
+        return null;
+    }
+
+    $factsPrefix = 'online_daily_data.raw_data.facts.metric_key=';
+    if (str_starts_with($storageField, $factsPrefix)) {
+        $targetMetric = strtolower(trim(substr($storageField, strlen($factsPrefix))));
+        if (field_fact_value_present($fact['value'] ?? null)) {
+            return true;
+        }
+        foreach (extract_online_data_field_facts($row, $raw) as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+            $candidateMetric = strtolower(field_fact_text($candidate, ['metric_key', 'field_key', 'field']));
+            if ($candidateMetric === $targetMetric && field_fact_value_present($candidate['value'] ?? null)) {
+                return true;
+            }
+        }
+        return null;
+    }
+
+    $rawPrefix = 'online_daily_data.raw_data.';
+    if (str_starts_with($storageField, $rawPrefix)) {
+        return field_fact_value_present(field_fact_read_path($raw, substr($storageField, strlen($rawPrefix))));
+    }
+
+    $rowPrefix = 'online_daily_data.';
+    if (str_starts_with($storageField, $rowPrefix)) {
+        $field = substr($storageField, strlen($rowPrefix));
+        return array_key_exists($field, $row) ? field_fact_value_present($row[$field]) : null;
+    }
+
+    return null;
+}
+
+function field_fact_bool_state(mixed $value): ?bool
+{
+    if (is_bool($value)) {
+        return $value;
+    }
+    if (is_string($value)) {
+        $normalized = strtolower(trim($value));
+        if (in_array($normalized, ['1', 'true', 'yes'], true)) {
+            return true;
+        }
+        if (in_array($normalized, ['0', 'false', 'no'], true)) {
+            return false;
+        }
+    }
+    return null;
+}
+
+function field_fact_value_present(mixed $value): bool
+{
+    if ($value === null) {
+        return false;
+    }
+    if (is_string($value) && trim($value) === '') {
+        return false;
+    }
+    if (is_array($value) && $value === []) {
+        return false;
+    }
+    return true;
+}
+
+function field_fact_read_path(array $value, string $path): mixed
+{
+    $current = $value;
+    foreach (explode('.', $path) as $part) {
+        if (!is_array($current) || !array_key_exists($part, $current)) {
+            return null;
+        }
+        $current = $current[$part];
+    }
+    return $current;
+}
+
+/**
+ * @param array<string, mixed> $fact
+ * @param array<string, mixed> $row
+ * @param array<string, mixed> $raw
+ */
+function field_fact_has_capture_evidence(array $fact, array $row, array $raw): bool
+{
+    $evidence = $fact['capture_evidence'] ?? null;
+    if ((is_array($evidence) && $evidence !== [])
+        || (is_scalar($evidence) && trim((string)$evidence) !== '')
+    ) {
+        return true;
+    }
+    foreach (['source_trace_id', 'data_source_id', 'sync_task_id'] as $key) {
+        $value = $row[$key] ?? $raw[$key] ?? null;
+        if (is_scalar($value) && trim((string)$value) !== '') {
+            return true;
+        }
+    }
+    foreach (['_source_path', 'source_path', 'json_path', '_capture_source'] as $key) {
+        $value = $raw[$key] ?? null;
+        if (is_scalar($value) && trim((string)$value) !== '') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @param array<string, mixed> $fact
+ * @param array<string, mixed> $row
+ * @param array<string, mixed> $raw
+ * @return array{0:string,1:string,2:bool}
+ */
+function field_fact_storage_field(array $fact, array $row, array $raw, string $metricKey): array
+{
+    $storageField = field_fact_text($fact, ['storage_field', 'storage_target']);
+    $storageSource = field_fact_text($fact, ['storage_field_source']);
+    if ($storageField !== '') {
+        return [$storageField, $storageSource !== '' ? $storageSource : 'explicit', false];
+    }
+
+    $storageField = infer_field_fact_storage_field($metricKey, $row, $raw, $fact);
+    if ($storageField === '') {
+        return ['', $storageSource, false];
+    }
+
+    return [$storageField, field_fact_storage_field_source($storageField), true];
+}
+
+/**
+ * @param array<string, mixed> $row
+ * @param array<string, mixed> $raw
+ * @param array<string, mixed> $fact
+ */
+function infer_field_fact_storage_field(string $metricKey, array $row, array $raw, array $fact): string
+{
+    $metricKey = strtolower(trim($metricKey));
+    if ($metricKey === '') {
+        return '';
+    }
+
+    $structuredField = field_fact_structured_storage_field($metricKey);
+    if ($structuredField !== '') {
+        return 'online_daily_data.' . $structuredField;
+    }
+
+    foreach ([
+        'metrics' => 'online_daily_data.raw_data.metrics.',
+        'rank_metrics' => 'online_daily_data.raw_data.rank_metrics.',
+    ] as $rawKey => $prefix) {
+        if (is_array($raw[$rawKey] ?? null) && array_key_exists($metricKey, $raw[$rawKey])) {
+            return $prefix . $metricKey;
+        }
+    }
+
+    if (array_key_exists('value', $fact) || field_fact_text($fact, ['source_path']) !== '') {
+        return 'online_daily_data.raw_data.facts.metric_key=' . $metricKey;
+    }
+
+    return '';
+}
+
+function field_fact_storage_field_source(string $storageField): string
+{
+    if (str_starts_with($storageField, 'online_daily_data.raw_data.metrics.')) {
+        return 'raw_data_metrics';
+    }
+    if (str_starts_with($storageField, 'online_daily_data.raw_data.rank_metrics.')) {
+        return 'raw_data_rank_metrics';
+    }
+    if (str_starts_with($storageField, 'online_daily_data.raw_data.facts.metric_key=')) {
+        return 'raw_data_facts';
+    }
+    if (str_starts_with($storageField, 'online_daily_data.')) {
+        return 'metric_key_map';
+    }
+    return 'inferred';
+}
+
+function field_fact_structured_storage_field(string $metricKey): string
+{
+    $map = [
+        'order_amount' => 'amount',
+        'business_amount' => 'amount',
+        'loss_order_amount' => 'amount',
+        'ad_cost' => 'amount',
+        'room_nights' => 'quantity',
+        'business_room_nights' => 'quantity',
+        'loss_room_nights' => 'quantity',
+        'ad_room_nights' => 'quantity',
+        'occupied_rooms' => 'quantity',
+        'order_count' => 'book_order_num',
+        'loss_order_count' => 'book_order_num',
+        'ad_orders' => 'book_order_num',
+        'visitor_count' => 'detail_exposure',
+        'detail_visitor' => 'detail_exposure',
+        'competitor_detail_visitor' => 'detail_exposure',
+        'qunar_detail_visitor' => 'detail_exposure',
+        'qunar_competitor_detail_visitor' => 'detail_exposure',
+        'list_exposure' => 'list_exposure',
+        'competitor_list_exposure' => 'list_exposure',
+        'qunar_list_exposure' => 'list_exposure',
+        'qunar_competitor_list_exposure' => 'list_exposure',
+        'ad_impressions' => 'list_exposure',
+        'order_page_visitor' => 'order_filling_num',
+        'competitor_order_page_visitor' => 'order_filling_num',
+        'qunar_order_page_visitor' => 'order_filling_num',
+        'qunar_competitor_order_page_visitor' => 'order_filling_num',
+        'order_submit_user' => 'order_submit_num',
+        'competitor_order_submit_user' => 'order_submit_num',
+        'qunar_order_submit_user' => 'order_submit_num',
+        'qunar_competitor_order_submit_user' => 'order_submit_num',
+        'flow_rate' => 'flow_rate',
+        'competitor_flow_rate' => 'flow_rate',
+        'qunar_flow_rate' => 'flow_rate',
+        'qunar_competitor_flow_rate' => 'flow_rate',
+        'conversion_rate' => 'flow_rate',
+        'order_conversion_rate' => 'flow_rate',
+        'common_view_rate' => 'flow_rate',
+        'ctr' => 'flow_rate',
+        'cvr' => 'flow_rate',
+        'reply_rate' => 'flow_rate',
+        'five_min_reply_rate' => 'flow_rate',
+        'manual_reply_rate' => 'flow_rate',
+        'im_order_conversion_rate' => 'flow_rate',
+        'agreement_accept_rate' => 'flow_rate',
+        'business_commission_rate' => 'flow_rate',
+        'comment_response_rate' => 'flow_rate',
+        'comment_score_summary' => 'comment_score',
+        'comment_score' => 'comment_score',
+        'ctrip_rating' => 'comment_score',
+        'qunar_rating' => 'qunar_comment_score',
+        'avg_price' => 'data_value',
+        'close_rate' => 'data_value',
+        'occupancy_rate' => 'data_value',
+        'tensity' => 'data_value',
+        'comment_count' => 'data_value',
+        'bad_review_count' => 'data_value',
+        'comment_unreply_count' => 'data_value',
+        'ctrip_comment_count' => 'data_value',
+        'qunar_comment_count' => 'data_value',
+        'elong_comment_count' => 'data_value',
+        'zx_comment_count' => 'data_value',
+        'avg_user_age' => 'data_value',
+        'avg_booking_days' => 'data_value',
+        'avg_stay_days' => 'data_value',
+        'ad_order_amount' => 'data_value',
+    ];
+
+    return $map[$metricKey] ?? '';
+}
+
+/**
  * @return array<int, mixed>
  */
 function rows_list(mixed $value): array
@@ -1799,6 +2487,7 @@ function inspect_platform(string $platform, array $columns, array $options, arra
 {
     $checks = [];
     $rows = query_source_rows($columns, $platform, $options);
+    $fieldFacts = field_fact_closure_summary($rows);
     $latestAvailable = query_latest_available_source_rows($columns, $platform, $options);
     $filters = array_filter([
         'source' => $platform,
@@ -1823,6 +2512,32 @@ function inspect_platform(string $platform, array $columns, array $options, arra
         add_check($checks, 'source_rows_present', 'proved', 'Same-day OTA source rows exist.', [
             'rows' => count($rows),
             'data_types' => data_types($rows),
+        ]);
+    }
+
+    if ($rows === []) {
+        add_check($checks, 'field_facts_visible', 'missing', 'Target-date source rows are missing; field facts cannot be proved for this platform.', [
+            'field_fact_closure_summary' => $fieldFacts,
+        ]);
+    } elseif ((int)($fieldFacts['fact_count'] ?? 0) === 0) {
+        add_check($checks, 'field_facts_visible', 'missing', 'No field_facts or facts metadata found in target-date raw_data.', [
+            'field_fact_closure_summary' => $fieldFacts,
+        ]);
+        add_missing($result, $platform . '_field_facts_missing', 'Target-date field facts metadata is missing.', [
+            'platform' => $platform,
+            'field_fact_closure_summary' => $fieldFacts,
+        ]);
+    } elseif ((int)($fieldFacts['incomplete_captured_fact_count'] ?? 0) > 0 || (int)($fieldFacts['complete_fact_count'] ?? 0) === 0) {
+        add_check($checks, 'field_facts_visible', 'missing', 'Field facts exist but capture_evidence, source_path, metric_key, or storage_field closure is incomplete.', [
+            'field_fact_closure_summary' => $fieldFacts,
+        ]);
+        add_missing($result, $platform . '_field_fact_closure_incomplete', 'Field facts are missing capture_evidence, source_path, metric_key, or storage_field closure.', [
+            'platform' => $platform,
+            'field_fact_closure_summary' => $fieldFacts,
+        ]);
+    } else {
+        add_check($checks, 'field_facts_visible', 'proved', 'Field facts include capture_evidence, metric_key, source_path, and storage_field evidence.', [
+            'field_fact_closure_summary' => $fieldFacts,
         ]);
     }
 
@@ -1910,6 +2625,7 @@ function inspect_platform(string $platform, array $columns, array $options, arra
             'sample_traces' => sample_traces($rows),
             'latest_available' => $latestAvailable,
         ],
+        'field_facts' => $fieldFacts,
         'etl' => [
             'status' => $dataset['status'] ?? null,
             'daily_facts' => count($daily),
@@ -1969,6 +2685,7 @@ function build_collection_source_summary(array $platforms, string $targetDate = 
         $etl = is_array($platform['etl'] ?? null) ? $platform['etl'] : [];
         $metrics = is_array($platform['metrics'] ?? null) ? $platform['metrics'] : [];
         $traffic = is_array($metrics['traffic'] ?? null) ? $metrics['traffic'] : [];
+        $fieldFacts = is_array($platform['field_facts'] ?? null) ? $platform['field_facts'] : [];
         $latestRelation = trim((string)($latestAvailable['date_relation'] ?? 'none'));
         if ($latestRelation === '') {
             $latestRelation = 'none';
@@ -1991,6 +2708,21 @@ function build_collection_source_summary(array $platforms, string $targetDate = 
                 'latest_trace_time' => $latestAvailable['latest_trace_time'] ?? null,
             ],
             'latest_available_reference_only' => $latestRelation !== 'target_date',
+            'field_fact_status' => (string)($fieldFacts['status'] ?? 'not_loaded'),
+            'field_fact_closure_summary' => [
+                'status' => (string)($fieldFacts['status'] ?? 'not_loaded'),
+                'fact_count' => (int)($fieldFacts['fact_count'] ?? 0),
+                'complete_fact_count' => (int)($fieldFacts['complete_fact_count'] ?? 0),
+                'explicit_missing_fact_count' => (int)($fieldFacts['explicit_missing_fact_count'] ?? 0),
+                'incomplete_captured_fact_count' => (int)($fieldFacts['incomplete_captured_fact_count'] ?? 0),
+                'metric_key_count' => (int)($fieldFacts['metric_key_count'] ?? 0),
+                'capture_evidence_count' => (int)($fieldFacts['capture_evidence_count'] ?? 0),
+                'source_path_count' => (int)($fieldFacts['source_path_count'] ?? 0),
+                'storage_field_count' => (int)($fieldFacts['storage_field_count'] ?? 0),
+                'stored_value_present_count' => (int)($fieldFacts['stored_value_present_count'] ?? 0),
+                'stored_value_missing_count' => (int)($fieldFacts['stored_value_missing_count'] ?? 0),
+                'raw_data_exposed' => (bool)($fieldFacts['raw_data_exposed'] ?? false),
+            ],
             'etl_status' => (string)($etl['status'] ?? 'unknown'),
             'daily_facts' => (int)($etl['daily_facts'] ?? 0),
             'traffic_rows' => (int)($traffic['rows'] ?? $etl['traffic_facts'] ?? 0),
@@ -2089,6 +2821,8 @@ function build_inspection_blocked_diagnosis_evidence(array $result, array $optio
             || str_contains($code, 'etl_not_ready')
             || str_contains($code, 'revenue_metrics_not_ready')
             || str_contains($code, 'traffic_facts_missing')
+            || str_contains($code, 'field_facts_missing')
+            || str_contains($code, 'field_fact_closure_incomplete')
             || str_contains($code, 'data_gaps_missing');
     }));
     $missingCodes = array_values(array_unique($missingCodes));
@@ -2417,6 +3151,10 @@ function inspection_employee_readable_copy(string $text): string
         'meituan_revenue_metrics_not_ready' => '美团收益指标未就绪',
         'ctrip_traffic_facts_missing' => '携程流量/转化事实缺失',
         'meituan_traffic_facts_missing' => '美团流量/转化事实缺失',
+        'ctrip_field_facts_missing' => 'Ctrip field facts missing',
+        'meituan_field_facts_missing' => 'Meituan field facts missing',
+        'ctrip_field_fact_closure_incomplete' => 'Ctrip field fact closure incomplete',
+        'meituan_field_fact_closure_incomplete' => 'Meituan field fact closure incomplete',
         'ai_diagnosis_evidence_sample_missing' => 'AI 诊断证据样例缺失',
         'ai_diagnosis_action_items_blocked' => 'AI 动作项被上游缺口阻断',
         'ai_action_items_blocked' => 'AI 动作项被上游缺口阻断',
@@ -2468,6 +3206,12 @@ function inspection_employee_readable_copy(string $text): string
         'execution_intents' => '执行意图',
         'execution_flow' => '执行流程',
         'metric_trust' => '指标可信证据',
+        'raw_data.field_facts or raw_data.facts' => '字段证据链记录',
+        'field_fact_closure_summary' => '字段证据链摘要',
+        'capture_evidence_count' => '采集证据数量',
+        'source_path_count' => '来源路径数量',
+        'storage_field_count' => '入库字段数量',
+        'incomplete_metric_keys' => '待补齐字段清单',
         'raw_data' => '脱敏原始响应追踪',
         'data_type' => '数据类型',
         'accepted_rows' => '已接收行数',
@@ -2620,8 +3364,194 @@ function inspection_missing_field_source_text(array $sourceKeys): string
     return $hasFieldGap ? '字段缺口' : '数据缺口';
 }
 
-function inspection_metric_domain_summary(array $metricDomainReadiness): array
+function inspection_traffic_source_readiness(array $domainReadiness): array
 {
+    $platforms = [];
+    foreach ($domainReadiness as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $platform = strtolower(trim((string)($row['platform'] ?? '')));
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            continue;
+        }
+        $platforms[$platform] = [
+            'target_date_rows' => max(0, (int)($row['target_date_rows'] ?? $row['source_rows'] ?? 0)),
+            'target_date_traffic_rows' => max(0, (int)($row['traffic_rows'] ?? 0)),
+        ];
+    }
+
+    $result = [];
+    foreach ($platforms as $platform => $context) {
+        $result[] = inspection_traffic_source_readiness_for_platform($platform, $context);
+    }
+    return $result;
+}
+
+function inspection_traffic_source_readiness_for_platform(string $platform, array $context): array
+{
+    $base = [
+        'platform' => $platform,
+        'target_date_rows' => max(0, (int)($context['target_date_rows'] ?? 0)),
+        'target_date_traffic_rows' => max(0, (int)($context['target_date_traffic_rows'] ?? 0)),
+        'traffic_source_count' => 0,
+        'traffic_enabled_count' => 0,
+        'traffic_ready_count' => 0,
+        'traffic_waiting_config_count' => 0,
+        'traffic_managed_count' => 0,
+        'traffic_secret_configured_count' => 0,
+        'traffic_last_sync_status_counts' => [],
+        'status' => 'not_registered',
+        'source_policy' => 'read_platform_data_sources_metadata_only',
+        'sensitive_values_exposed' => false,
+    ];
+
+    try {
+        if (!table_exists('platform_data_sources')) {
+            $base['status'] = 'source_table_missing';
+            return $base;
+        }
+    } catch (Throwable $e) {
+        $base['status'] = 'source_read_failed';
+        return $base;
+    }
+
+    $fields = existing_columns('platform_data_sources', [
+        'id',
+        'platform',
+        'data_type',
+        'ingestion_method',
+        'status',
+        'enabled',
+        'system_hotel_id',
+        'last_sync_status',
+        'last_sync_time',
+        'last_error',
+        'config_json',
+        'secret_json',
+    ]);
+    if ($fields === []) {
+        $base['status'] = 'source_schema_missing';
+        return $base;
+    }
+
+    try {
+        $rows = Db::name('platform_data_sources')
+            ->field(implode(',', $fields))
+            ->where('platform', $platform)
+            ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
+            ->select()
+            ->toArray();
+    } catch (Throwable $e) {
+        $base['status'] = 'source_read_failed';
+        return $base;
+    }
+
+    $lastSyncCounts = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $base['traffic_source_count']++;
+        $enabled = (int)($row['enabled'] ?? 0) === 1;
+        $status = strtolower(trim((string)($row['status'] ?? 'unknown')));
+        $lastSyncStatus = strtolower(trim((string)($row['last_sync_status'] ?? '')));
+        if ($enabled) {
+            $base['traffic_enabled_count']++;
+        }
+        if ($status === 'ready') {
+            $base['traffic_ready_count']++;
+        }
+        if ($status === 'waiting_config') {
+            $base['traffic_waiting_config_count']++;
+        }
+        if ($lastSyncStatus !== '') {
+            $lastSyncCounts[$lastSyncStatus] = ($lastSyncCounts[$lastSyncStatus] ?? 0) + 1;
+        }
+
+        $config = json_decode((string)($row['config_json'] ?? ''), true);
+        $config = is_array($config) ? $config : [];
+        if (($config['registered_by'] ?? '') === 'p0_ota_field_loop') {
+            $base['traffic_managed_count']++;
+        }
+        $secret = json_decode((string)($row['secret_json'] ?? ''), true);
+        if (is_array($secret) ? $secret !== [] : trim((string)($row['secret_json'] ?? '')) !== '') {
+            $base['traffic_secret_configured_count']++;
+        }
+    }
+
+    ksort($lastSyncCounts);
+    $base['traffic_last_sync_status_counts'] = $lastSyncCounts;
+    if ((int)$base['target_date_traffic_rows'] > 0) {
+        $base['status'] = 'target_date_traffic_ready';
+    } elseif ((int)$base['traffic_source_count'] <= 0) {
+        $base['status'] = 'not_registered';
+    } elseif ((int)$base['traffic_waiting_config_count'] > 0) {
+        $base['status'] = 'registered_waiting_config';
+    } elseif ((int)$base['traffic_ready_count'] > 0) {
+        $base['status'] = 'registered_ready_without_target_date_traffic';
+    } else {
+        $base['status'] = 'registered_not_ready';
+    }
+
+    return $base;
+}
+
+function inspection_traffic_source_readiness_text(array $source): string
+{
+    $sourceCount = max(0, (int)($source['traffic_source_count'] ?? 0));
+    $readyCount = max(0, (int)($source['traffic_ready_count'] ?? 0));
+    $waitingCount = max(0, (int)($source['traffic_waiting_config_count'] ?? 0));
+    $trafficRows = max(0, (int)($source['target_date_traffic_rows'] ?? 0));
+    if ($trafficRows > 0) {
+        return '目标日流量事实已入库';
+    }
+    if ($sourceCount <= 0) {
+        return '流量采集源未登记';
+    }
+    if ($waitingCount > 0) {
+        return '流量采集源已登记，仍待授权或配置';
+    }
+    if ($readyCount > 0) {
+        return '流量采集源已就绪，但目标日流量事实未入库';
+    }
+    return '流量采集源已登记，但状态未就绪';
+}
+
+function inspection_traffic_source_next_action_text(array $source): string
+{
+    $sourceCount = max(0, (int)($source['traffic_source_count'] ?? 0));
+    $readyCount = max(0, (int)($source['traffic_ready_count'] ?? 0));
+    $waitingCount = max(0, (int)($source['traffic_waiting_config_count'] ?? 0));
+    $trafficRows = max(0, (int)($source['target_date_traffic_rows'] ?? 0));
+    if ($trafficRows > 0) {
+        return '继续复核流量字段、来源路径和入库字段。';
+    }
+    if ($sourceCount <= 0) {
+        return '先登记对应平台流量采集源，再补授权上下文。';
+    }
+    if ($waitingCount > 0) {
+        return '补齐授权 Profile 或真实 Payload 后重新采集流量。';
+    }
+    if ($readyCount > 0) {
+        return '运行对应平台流量采集并确认目标日入库行。';
+    }
+    return '检查采集源状态，修复后再执行流量采集。';
+}
+
+function inspection_metric_domain_summary(array $metricDomainReadiness, array $trafficSourceReadiness = []): array
+{
+    $trafficSourceByPlatform = [];
+    foreach ($trafficSourceReadiness as $source) {
+        if (!is_array($source)) {
+            continue;
+        }
+        $platformKey = strtolower(trim((string)($source['platform'] ?? '')));
+        if ($platformKey !== '') {
+            $trafficSourceByPlatform[$platformKey] = $source;
+        }
+    }
+
     $summary = [];
     foreach ($metricDomainReadiness as $row) {
         if (!is_array($row)) {
@@ -2645,6 +3575,7 @@ function inspection_metric_domain_summary(array $metricDomainReadiness): array
             (array)($row['missing_domains'] ?? [])
         ), static fn(string $value): bool => $value !== '')));
         $dataTypeText = inspection_metric_domain_data_type_list_text($targetTypes);
+        $trafficSource = $trafficSourceByPlatform[$platform] ?? [];
 
         $summary[] = [
             'platform' => $platform,
@@ -2654,6 +3585,8 @@ function inspection_metric_domain_summary(array $metricDomainReadiness): array
             'conversion_text' => inspection_metric_domain_status_text((string)($row['conversion_status'] ?? 'missing')),
             'missing_text' => inspection_metric_domain_missing_list_text($missingDomains),
             'source_text' => '目标日源数据 ' . $sourceRows . ' 行 / 流量事实 ' . $trafficRows . ' 行',
+            'traffic_source_text' => $trafficSource !== [] ? inspection_traffic_source_readiness_text($trafficSource) : '',
+            'traffic_source_next_action' => $trafficSource !== [] ? inspection_traffic_source_next_action_text($trafficSource) : '',
             'problem' => inspection_metric_domain_problem_text($revenueReady, $trafficReady, $conversionReady, $sourceRows, $trafficRows),
             'next_action' => inspection_metric_domain_next_action_text($revenueReady, $trafficReady, $conversionReady, $sourceRows, $trafficRows),
             'policy' => '只读目标日 OTA 指标域' . ($dataTypeText !== '' ? ' / ' . $dataTypeText : '') . '；缺失时不输出确定结论。',
@@ -2816,10 +3749,17 @@ function build_inspection_employee_questions(array $result): array
         $latestAvailable = is_array($platform['source_rows']['latest_available'] ?? null)
             ? $platform['source_rows']['latest_available']
             : [];
+        $fieldFacts = is_array($platform['field_facts'] ?? null) ? $platform['field_facts'] : [];
         $platformCounts[] = [
             'platform' => (string)($platform['platform'] ?? ''),
             'source_rows' => $rowCount,
             'target_date_rows' => $rowCount,
+            'field_fact_status' => (string)($fieldFacts['status'] ?? 'not_loaded'),
+            'field_fact_count' => (int)($fieldFacts['fact_count'] ?? 0),
+            'field_fact_complete_count' => (int)($fieldFacts['complete_fact_count'] ?? 0),
+            'field_fact_incomplete_captured_count' => (int)($fieldFacts['incomplete_captured_fact_count'] ?? 0),
+            'field_fact_capture_evidence_count' => (int)($fieldFacts['capture_evidence_count'] ?? 0),
+            'field_fact_raw_data_exposed' => (bool)($fieldFacts['raw_data_exposed'] ?? false),
             'etl_status' => (string)($platform['etl']['status'] ?? 'unknown'),
             'metric_status' => $metricStatus,
             'traffic_rows' => $platformTrafficRows,
@@ -2892,6 +3832,8 @@ function build_inspection_employee_questions(array $result): array
             || str_contains($code, 'etl_not_ready')
             || str_contains($code, 'revenue_metrics_not_ready')
             || str_contains($code, 'traffic_facts_missing')
+            || str_contains($code, 'field_facts_missing')
+            || str_contains($code, 'field_fact_closure_incomplete')
             || str_contains($code, 'data_gaps_missing')
             || $code === 'evidence_scope_date_mismatch'
             || $code === 'ai_diagnosis_evidence_sample_missing'
@@ -2974,6 +3916,7 @@ function build_inspection_employee_questions(array $result): array
         }
     }
     $metricDomainGapCodes = array_values(array_keys($metricDomainGapCodes));
+    $trafficSourceReadiness = inspection_traffic_source_readiness($metricDomainReadiness);
     $revenueReadyText = implode('、', array_map('strtoupper', $revenueReadyPlatforms));
     $metricDomainComplete = $metricDomainGapCodes === [];
     $metricProblemStatus = $hasReadyMetrics && $trafficRows > 0 && $metricDomainComplete ? 'proved' : ($hasReadyMetrics ? 'warning' : 'not_proved');
@@ -3033,7 +3976,9 @@ function build_inspection_employee_questions(array $result): array
                 'has_ready_metrics' => $hasReadyMetrics,
                 'traffic_rows' => $trafficRows,
                 'metric_domain_readiness' => $metricDomainReadiness,
-                'metric_domain_summary' => inspection_metric_domain_summary($metricDomainReadiness),
+                'metric_domain_summary' => inspection_metric_domain_summary($metricDomainReadiness, $trafficSourceReadiness),
+                'traffic_source_readiness' => $trafficSourceReadiness,
+                'traffic_source_policy' => 'read_platform_data_sources_metadata_only',
                 'revenue_ready_platforms' => $revenueReadyPlatforms,
                 'traffic_ready_platforms' => $trafficReadyPlatforms,
                 'conversion_ready_platforms' => $conversionReadyPlatforms,
@@ -3401,6 +4346,21 @@ function inspection_employee_question_evidence(array $item): string
         $domainGaps = array_values(array_filter(array_map('strval', (array)($evidence['metric_domain_gap_codes'] ?? []))));
         if ($domainGaps !== []) {
             $parts[] = '指标域缺口: ' . implode('、', array_slice($domainGaps, 0, 6));
+        }
+        $trafficSourceSummary = [];
+        foreach ((array)($evidence['traffic_source_readiness'] ?? []) as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $platform = strtoupper(trim((string)($source['platform'] ?? 'OTA')));
+            $sourceCount = max(0, (int)($source['traffic_source_count'] ?? 0));
+            $readyCount = max(0, (int)($source['traffic_ready_count'] ?? 0));
+            $waitingCount = max(0, (int)($source['traffic_waiting_config_count'] ?? 0));
+            $trafficRows = max(0, (int)($source['target_date_traffic_rows'] ?? 0));
+            $trafficSourceSummary[] = $platform . ':' . inspection_traffic_source_readiness_text($source) . '（源' . $sourceCount . '，就绪' . $readyCount . '，待配置' . $waitingCount . '，目标日流量' . $trafficRows . '行）';
+        }
+        if ($trafficSourceSummary !== []) {
+            $parts[] = '采集源: ' . implode('、', array_slice($trafficSourceSummary, 0, 4));
         }
     }
 

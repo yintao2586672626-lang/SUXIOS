@@ -6,6 +6,7 @@ namespace app\controller\concern;
 use app\service\OperationManagementService;
 use app\service\OtaRevenueMetricService;
 use app\service\OtaStandardEtlService;
+use think\facade\Db;
 
 trait Phase1EmployeeConsoleConcern
 {
@@ -824,8 +825,19 @@ trait Phase1EmployeeConsoleConcern
         return '数据缺口';
     }
 
-    private function phase1MetricDomainSummary(array $metricDomainReadiness): array
+    private function phase1MetricDomainSummary(array $metricDomainReadiness, array $trafficSourceReadiness = []): array
     {
+        $trafficSourceByPlatform = [];
+        foreach ($trafficSourceReadiness as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $platformKey = strtolower(trim((string)($source['platform'] ?? '')));
+            if ($platformKey !== '') {
+                $trafficSourceByPlatform[$platformKey] = $source;
+            }
+        }
+
         $summary = [];
         foreach ($metricDomainReadiness as $row) {
             if (!is_array($row)) {
@@ -850,6 +862,7 @@ trait Phase1EmployeeConsoleConcern
                 (array)($row['missing_domains'] ?? [])
             ), static fn(string $value): bool => $value !== '')));
             $missingText = $this->phase1MetricDomainMissingListText($missingDomains);
+            $trafficSource = $trafficSourceByPlatform[$platform] ?? [];
 
             $summary[] = [
                 'platform' => $platform,
@@ -859,6 +872,8 @@ trait Phase1EmployeeConsoleConcern
                 'conversion_text' => $this->phase1MetricDomainStatusText((string)($row['conversion_status'] ?? 'missing')),
                 'missing_text' => $missingText,
                 'source_text' => '目标日源数据 ' . $sourceRows . ' 行 / 流量事实 ' . $trafficRows . ' 行',
+                'traffic_source_text' => $trafficSource !== [] ? $this->phase1TrafficSourceReadinessText($trafficSource) : '',
+                'traffic_source_next_action' => $trafficSource !== [] ? $this->phase1TrafficSourceNextActionText($trafficSource) : '',
                 'problem' => $this->phase1MetricDomainProblemText($revenueReady, $trafficReady, $conversionReady, $sourceRows, $trafficRows),
                 'next_action' => $this->phase1MetricDomainNextActionText($revenueReady, $trafficReady, $conversionReady, $sourceRows, $trafficRows),
                 'policy' => '只读目标日 OTA 指标域' . ($dataTypeText !== '' ? ' / ' . $dataTypeText : '') . '；缺失时不输出确定结论。',
@@ -950,6 +965,48 @@ trait Phase1EmployeeConsoleConcern
         return '按缺口补齐目标日证据后复跑诊断。';
     }
 
+    private function phase1TrafficSourceReadinessText(array $source): string
+    {
+        $sourceCount = max(0, (int)($source['traffic_source_count'] ?? 0));
+        $readyCount = max(0, (int)($source['traffic_ready_count'] ?? 0));
+        $waitingCount = max(0, (int)($source['traffic_waiting_config_count'] ?? 0));
+        $trafficRows = max(0, (int)($source['target_date_traffic_rows'] ?? 0));
+        if ($trafficRows > 0) {
+            return '目标日流量事实已入库';
+        }
+        if ($sourceCount <= 0) {
+            return '流量采集源未登记';
+        }
+        if ($waitingCount > 0) {
+            return '流量采集源已登记，仍待授权或配置';
+        }
+        if ($readyCount > 0) {
+            return '流量采集源已就绪，但目标日流量事实未入库';
+        }
+        return '流量采集源已登记，但状态未就绪';
+    }
+
+    private function phase1TrafficSourceNextActionText(array $source): string
+    {
+        $sourceCount = max(0, (int)($source['traffic_source_count'] ?? 0));
+        $readyCount = max(0, (int)($source['traffic_ready_count'] ?? 0));
+        $waitingCount = max(0, (int)($source['traffic_waiting_config_count'] ?? 0));
+        $trafficRows = max(0, (int)($source['target_date_traffic_rows'] ?? 0));
+        if ($trafficRows > 0) {
+            return '继续复核流量字段、来源路径和入库字段。';
+        }
+        if ($sourceCount <= 0) {
+            return '先登记对应平台流量采集源，再补授权上下文。';
+        }
+        if ($waitingCount > 0) {
+            return '补齐授权 Profile 或真实 Payload 后重新采集流量。';
+        }
+        if ($readyCount > 0) {
+            return '运行对应平台流量采集并确认目标日入库行。';
+        }
+        return '检查采集源状态，修复后再执行流量采集。';
+    }
+
     private function buildPhase1EmployeeQuestionRows(array $reliability): array
     {
         $sourceRowCount = $this->phase1CollectionEvidenceRowCount($reliability);
@@ -1004,6 +1061,7 @@ trait Phase1EmployeeConsoleConcern
             default => '使用现有携程/美团手动或自动获取入口补齐同日数据后重新检查。',
         };
         $metricDomainReadiness = $this->phase1MetricDomainReadiness($sourceDateEvidence, $targetDatePlatformCoverage);
+        $trafficSourceReadiness = $this->phase1TrafficSourceReadiness($metricDomainReadiness);
         $platformFieldTrust = $this->phase1PlatformFieldTrust($metricDomainReadiness);
         $revenueReadyPlatforms = $this->phase1ReadyMetricPlatforms($metricDomainReadiness, 'revenue_status');
         $trafficReadyPlatforms = $this->phase1ReadyMetricPlatforms($metricDomainReadiness, 'traffic_status');
@@ -1012,7 +1070,7 @@ trait Phase1EmployeeConsoleConcern
         $trafficMissingPlatforms = $this->phase1MissingMetricPlatforms($metricDomainReadiness, 'traffic_status');
         $conversionMissingPlatforms = $this->phase1MissingMetricPlatforms($metricDomainReadiness, 'conversion_status');
         $metricDomainGapCodes = $this->phase1MetricDomainGapCodes($metricDomainReadiness);
-        $metricDomainSummary = $this->phase1MetricDomainSummary($metricDomainReadiness);
+        $metricDomainSummary = $this->phase1MetricDomainSummary($metricDomainReadiness, $trafficSourceReadiness);
         $revenueReadyText = implode('、', array_map('strtoupper', $revenueReadyPlatforms));
         $metricTrustReady = $metricTrustKeys !== [];
         $allMetricDomainsReady = $targetDateCoverageStatus === 'complete'
@@ -1166,6 +1224,7 @@ trait Phase1EmployeeConsoleConcern
                     'target_date_platform_coverage' => $targetDatePlatformCoverage,
                     'metric_domain_readiness' => $metricDomainReadiness,
                     'metric_domain_summary' => $metricDomainSummary,
+                    'traffic_source_readiness' => $trafficSourceReadiness,
                     'revenue_ready_platforms' => $revenueReadyPlatforms,
                     'traffic_ready_platforms' => $trafficReadyPlatforms,
                     'conversion_ready_platforms' => $conversionReadyPlatforms,
@@ -1180,8 +1239,9 @@ trait Phase1EmployeeConsoleConcern
                     'revenue_metric_status' => (string)($revenueMetricEvidence['status'] ?? 'unknown'),
                     'metric_trust_required' => true,
                     'metric_domain_policy' => 'read_target_date_online_daily_data_types_only',
+                    'traffic_source_policy' => 'read_platform_data_sources_metadata_only',
                     'analysis_rows_reference_only' => 0,
-                    'evidence_refs' => ['/api/ota-standard/revenue-metrics'],
+                    'evidence_refs' => ['/api/ota-standard/revenue-metrics', 'platform_data_sources.metadata'],
                 ],
                 'next_action' => $metricProblemNextAction,
             ],
@@ -1317,9 +1377,8 @@ trait Phase1EmployeeConsoleConcern
                     'question_key' => 'revenue_traffic_conversion',
                     'reason' => strtoupper($platform) . ' 目标日流量/转化事实不足。',
                     'action' => '确认目标日流量数据是否已通过现有入口采到；未采到时，流量/转化诊断保持不可用。',
-                    'entry' => $platform === 'ctrip'
-                        ? '/api/online-data/fetch-ctrip-traffic'
-                        : '/api/online-data/fetch-meituan-traffic',
+                    'entry' => $this->phase1TrafficConversionFactsActionEntry($platform),
+                    'entry_options' => $this->phase1TrafficConversionFactsActionEntryOptions($platform),
                     'owner' => 'OTA 运营人员',
                     'evidence_needed' => ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num 或 order_submit_num'],
                     'blocked_by' => $blockedBy,
@@ -1411,6 +1470,156 @@ trait Phase1EmployeeConsoleConcern
             'meituan' => '/api/online-data/fetch-meituan',
             default => '/api/online-data/collection-reliability',
         };
+    }
+
+    private function phase1TrafficConversionFactsActionEntry(string $platform): string
+    {
+        return match (strtolower(trim($platform))) {
+            'ctrip' => '/api/online-data/fetch-ctrip-traffic',
+            'meituan' => '/api/online-data/capture-meituan-browser',
+            default => '/api/online-data/collection-reliability',
+        };
+    }
+
+    private function phase1TrafficConversionFactsActionEntryOptions(string $platform): array
+    {
+        $platform = strtolower(trim($platform));
+        $options = match ($platform) {
+            'ctrip' => [
+                [
+                    'mode' => 'manual_cookie_api',
+                    'label' => 'Ctrip traffic manual Cookie/API',
+                    'entry' => '/api/online-data/fetch-ctrip-traffic',
+                    'use_when' => 'Use when authorized traffic URL, payload/query params, auth context, and platform hotel id are available.',
+                    'requires' => 'target_date, system_hotel_id, ctrip hotel/node id, authorized Cookie/headers, traffic payload/query params.',
+                    'boundary' => 'Does not auto-login to Ctrip, does not infer missing traffic fields, and does not expose raw Cookie/token values.',
+                ],
+                [
+                    'mode' => 'browser_profile',
+                    'label' => 'Ctrip browser Profile',
+                    'entry' => '/api/online-data/capture-ctrip-browser',
+                    'use_when' => 'Use when an authorized local Ctrip browser Profile exists and the page must trigger traffic JSON responses.',
+                    'requires' => 'target_date, system_hotel_id, authorized Ctrip Profile, manually verified login state, traffic response listener.',
+                    'boundary' => 'Does not bypass captcha, SMS, human verification, or platform permissions.',
+                ],
+                [
+                    'mode' => 'status_check',
+                    'label' => 'Status check',
+                    'entry' => '/api/online-data/collection-reliability',
+                    'use_when' => 'Verify target-date rows, latest available date, and missing reasons only.',
+                    'requires' => 'Existing collection reliability and online_daily_data state.',
+                    'boundary' => 'Read-only; does not write OTA data or alter field mappings.',
+                ],
+            ],
+            'meituan' => [
+                [
+                    'mode' => 'browser_profile',
+                    'label' => 'Meituan browser Profile',
+                    'entry' => '/api/online-data/capture-meituan-browser',
+                    'use_when' => 'Use when an authorized local Meituan browser Profile exists and the page must trigger traffic JSON responses.',
+                    'requires' => 'target_date, system_hotel_id, authorized Meituan Profile, manually verified login state, traffic response listener.',
+                    'boundary' => 'Does not bypass captcha, SMS, human verification, or platform permissions.',
+                ],
+                [
+                    'mode' => 'manual_cookie_api',
+                    'label' => 'Meituan traffic manual Cookie/API',
+                    'entry' => '/api/online-data/fetch-meituan-traffic',
+                    'use_when' => 'Use when authorized traffic URL/CDP endpoint evidence, payload/query params, auth context, and POI id are available.',
+                    'requires' => 'target_date, system_hotel_id, Meituan POI/partner id, authorized Cookie/headers, traffic payload/query params.',
+                    'boundary' => 'Does not auto-login to Meituan, does not infer missing traffic fields, and does not expose raw Cookie/token values.',
+                ],
+                [
+                    'mode' => 'status_check',
+                    'label' => 'Status check',
+                    'entry' => '/api/online-data/collection-reliability',
+                    'use_when' => 'Verify target-date rows, latest available date, and missing reasons only.',
+                    'requires' => 'Existing collection reliability and online_daily_data state.',
+                    'boundary' => 'Read-only; does not write OTA data or alter field mappings.',
+                ],
+            ],
+            default => [],
+        };
+
+        return array_values(array_map(function (array $option) use ($platform): array {
+            $mode = (string)($option['mode'] ?? '');
+            $contract = $this->phase1TrafficInputContract($platform, $mode);
+            if ($contract !== []) {
+                $option['input_contract'] = $contract;
+                $option['acceptance_contract'] = $this->phase1TrafficAcceptanceContract();
+            }
+            $option['readiness'] = $this->phase1TargetDateEntryOptionReadiness($platform, $mode);
+            return $option;
+        }, $options));
+    }
+
+    private function phase1TrafficInputContract(string $platform, string $mode): array
+    {
+        $platform = strtolower(trim($platform));
+        $mode = strtolower(trim($mode));
+        if (!in_array($mode, ['manual_cookie_api', 'browser_profile'], true)) {
+            return [];
+        }
+
+        $contract = [
+            'scope_policy' => 'ota_channel_only',
+            'target_storage_table' => 'online_daily_data',
+            'target_data_type' => 'traffic',
+            'required_metric_keys' => [
+                'list_exposure',
+                'detail_exposure',
+                'flow_rate',
+                'order_filling_num',
+                'order_submit_num',
+            ],
+            'required_field_fact_keys' => [
+                'capture_evidence',
+                'source_path',
+                'metric_key',
+                'storage_field',
+                'stored_value_present',
+            ],
+            'sensitive_values_allowed' => false,
+        ];
+
+        if ($mode === 'manual_cookie_api') {
+            $contract['required_inputs'] = [
+                'target_date',
+                'system_hotel_id',
+                $platform === 'ctrip' ? 'ctrip_hotel_id_or_node_id' : 'meituan_poi_id_or_partner_id',
+                'authorized_cookie_or_headers',
+                'traffic_request_url_or_cdp_endpoint_evidence',
+                'traffic_payload_or_query_params',
+                'desensitized_traffic_response_sample_or_source_trace_id',
+            ];
+            return $contract;
+        }
+
+        $contract['required_inputs'] = [
+            'target_date',
+            'system_hotel_id',
+            'authorized_' . $platform . '_profile_dir',
+            'manual_login_state_verified',
+            'traffic_response_listener',
+            'desensitized_traffic_response_sample_or_source_trace_id',
+        ];
+        return $contract;
+    }
+
+    private function phase1TrafficAcceptanceContract(): array
+    {
+        return [
+            'target_date_traffic_rows' => '>0',
+            'field_facts_status' => 'ready',
+            'required_chain' => [
+                'capture_evidence',
+                'source_path',
+                'metric_key',
+                'storage_field',
+                'stored_value',
+                'ui_status',
+                'verifier',
+            ],
+        ];
     }
 
     private function phase1TargetDateSourceRowsActionEntryOptions(string $platform): array
@@ -2095,6 +2304,181 @@ trait Phase1EmployeeConsoleConcern
         }
 
         return $readiness;
+    }
+
+    private function phase1TableExists(string $table): bool
+    {
+        if (!preg_match('/^[A-Za-z0-9_]+$/', $table)) {
+            return false;
+        }
+        try {
+            return Db::query("SHOW TABLES LIKE '" . addslashes($table) . "'") !== [];
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function phase1TableColumns(string $table): array
+    {
+        static $cache = [];
+        if (isset($cache[$table])) {
+            return $cache[$table];
+        }
+        if (!preg_match('/^[A-Za-z0-9_]+$/', $table) || !$this->phase1TableExists($table)) {
+            $cache[$table] = [];
+            return [];
+        }
+
+        $columns = [];
+        try {
+            foreach (Db::query('SHOW COLUMNS FROM `' . $table . '`') as $row) {
+                $field = (string)($row['Field'] ?? '');
+                if ($field !== '') {
+                    $columns[$field] = true;
+                }
+            }
+        } catch (\Throwable $e) {
+            $columns = [];
+        }
+        $cache[$table] = $columns;
+        return $columns;
+    }
+
+    private function phase1ExistingColumns(string $table, array $fields): array
+    {
+        $columns = $this->phase1TableColumns($table);
+        return array_values(array_filter(
+            $fields,
+            static fn(string $field): bool => isset($columns[$field])
+        ));
+    }
+
+    private function phase1TrafficSourceReadiness(array $metricDomainReadiness): array
+    {
+        $platforms = [];
+        foreach ($metricDomainReadiness as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $platform = strtolower(trim((string)($row['platform'] ?? '')));
+            if (in_array($platform, ['ctrip', 'meituan'], true)) {
+                $platforms[$platform] = [
+                    'target_date_rows' => max(0, (int)($row['target_date_rows'] ?? $row['source_rows'] ?? 0)),
+                    'target_date_traffic_rows' => max(0, (int)($row['traffic_rows'] ?? 0)),
+                ];
+            }
+        }
+        if ($platforms === []) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($platforms as $platform => $context) {
+            $result[] = $this->phase1TrafficSourceReadinessForPlatform($platform, $context);
+        }
+        return $result;
+    }
+
+    private function phase1TrafficSourceReadinessForPlatform(string $platform, array $context): array
+    {
+        $base = [
+            'platform' => $platform,
+            'target_date_rows' => max(0, (int)($context['target_date_rows'] ?? 0)),
+            'target_date_traffic_rows' => max(0, (int)($context['target_date_traffic_rows'] ?? 0)),
+            'traffic_source_count' => 0,
+            'traffic_enabled_count' => 0,
+            'traffic_ready_count' => 0,
+            'traffic_waiting_config_count' => 0,
+            'traffic_managed_count' => 0,
+            'traffic_secret_configured_count' => 0,
+            'traffic_last_sync_status_counts' => [],
+            'status' => 'not_registered',
+            'source_policy' => 'read_platform_data_sources_metadata_only',
+            'sensitive_values_exposed' => false,
+        ];
+
+        if (!$this->phase1TableExists('platform_data_sources')) {
+            $base['status'] = 'source_table_missing';
+            return $base;
+        }
+
+        $fields = $this->phase1ExistingColumns('platform_data_sources', [
+            'id',
+            'platform',
+            'data_type',
+            'ingestion_method',
+            'status',
+            'enabled',
+            'system_hotel_id',
+            'last_sync_status',
+            'last_sync_time',
+            'last_error',
+            'config_json',
+            'secret_json',
+        ]);
+        if ($fields === []) {
+            $base['status'] = 'source_schema_missing';
+            return $base;
+        }
+
+        try {
+            $rows = Db::name('platform_data_sources')
+                ->field(implode(',', $fields))
+                ->where('platform', $platform)
+                ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
+                ->select()
+                ->toArray();
+        } catch (\Throwable $e) {
+            $base['status'] = 'source_read_failed';
+            return $base;
+        }
+
+        $lastSyncCounts = [];
+        foreach ($rows as $row) {
+            $base['traffic_source_count']++;
+            $enabled = (int)($row['enabled'] ?? 0) === 1;
+            $status = strtolower(trim((string)($row['status'] ?? 'unknown')));
+            $lastSyncStatus = strtolower(trim((string)($row['last_sync_status'] ?? '')));
+            if ($enabled) {
+                $base['traffic_enabled_count']++;
+            }
+            if ($status === 'ready') {
+                $base['traffic_ready_count']++;
+            }
+            if ($status === 'waiting_config') {
+                $base['traffic_waiting_config_count']++;
+            }
+            if ($lastSyncStatus !== '') {
+                $lastSyncCounts[$lastSyncStatus] = ($lastSyncCounts[$lastSyncStatus] ?? 0) + 1;
+            }
+
+            $config = json_decode((string)($row['config_json'] ?? ''), true);
+            $config = is_array($config) ? $config : [];
+            if (($config['registered_by'] ?? '') === 'p0_ota_field_loop') {
+                $base['traffic_managed_count']++;
+            }
+            $secret = json_decode((string)($row['secret_json'] ?? ''), true);
+            if (is_array($secret) ? $secret !== [] : trim((string)($row['secret_json'] ?? '')) !== '') {
+                $base['traffic_secret_configured_count']++;
+            }
+        }
+
+        ksort($lastSyncCounts);
+        $base['traffic_last_sync_status_counts'] = $lastSyncCounts;
+        $trafficRows = (int)$base['target_date_traffic_rows'];
+        if ($trafficRows > 0) {
+            $base['status'] = 'target_date_traffic_ready';
+        } elseif ((int)$base['traffic_source_count'] <= 0) {
+            $base['status'] = 'not_registered';
+        } elseif ((int)$base['traffic_waiting_config_count'] > 0) {
+            $base['status'] = 'registered_waiting_config';
+        } elseif ((int)$base['traffic_ready_count'] > 0) {
+            $base['status'] = 'registered_ready_without_target_date_traffic';
+        } else {
+            $base['status'] = 'registered_not_ready';
+        }
+
+        return $base;
     }
 
     private function phase1PlatformFieldTrust(array $metricDomainReadiness): array

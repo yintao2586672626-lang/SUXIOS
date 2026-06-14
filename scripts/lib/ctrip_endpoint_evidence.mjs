@@ -15,7 +15,7 @@ export function buildCtripEndpointEvidenceTemplates(options = {}) {
   return {
     platform: 'ctrip',
     generated_at: generatedAt,
-    status: 'missing_evidence_templates',
+    status: 'templates_ready_pending_redacted_evidence',
     summary: {
       candidate_section_count: templates.length,
       required_evidence: [...CTRIP_ENDPOINT_EVIDENCE_REQUIRED],

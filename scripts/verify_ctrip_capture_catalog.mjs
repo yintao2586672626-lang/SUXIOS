@@ -335,6 +335,9 @@ function verifyCatalog() {
   assertContract(normalizeCtripCaptureSections('marketanalysis')[0] === 'market_calendar', 'marketanalysis alias must route to market_calendar');
   assertContract(normalizeCtripCaptureSections('all').length === Object.keys(CTRIP_CAPTURE_SECTIONS).length, 'all sections must expand');
   assertContract(CTRIP_ENDPOINT_CANDIDATE_RULES.length >= 5, 'P3 candidate rules must cover remaining capture directions');
+  const trafficCandidateRule = CTRIP_ENDPOINT_CANDIDATE_RULES.find((rule) => rule.id === 'traffic_report');
+  assertContract(trafficCandidateRule?.dataType === 'traffic', 'traffic_report must have a desensitized endpoint evidence template candidate');
+  assertContract(trafficCandidateRule?.keywords.includes('queryflowtransfornewv1'), 'traffic_report candidate must include queryFlowTransforNewV1 keyword');
   assertContract(buildCtripEndpointCandidates([{ url: 'https://bbk.ctripbiz.cn/api/contractPre' }]).some((item) => item.candidate_section === 'contract_mice_rfp'), 'contractPre must remain a P3 candidate until payload is verified');
 
   const visitorTitleEndpoint = CTRIP_CAPTURE_ENDPOINTS.find((endpoint) => endpoint.id === 'business_visitor_title');
@@ -486,6 +489,10 @@ function verifyCatalog() {
     assertContract(selfRow?.order_filling_num === 9, `${platform} self APP funnel row must store orderFillingNum`);
     assertContract(selfRow?.order_submit_num === 7, `${platform} self APP funnel row must store orderSubmitNum`);
     assertContract(Math.abs(Number(selfRow?.flow_rate) - 17.81) < 0.001, `${platform} self APP funnel row must store exposure conversion rate`);
+    const listExposureFact = selfRow?.raw_data?.facts?.find((fact) => fact.metric_key === 'list_exposure');
+    assertContract(listExposureFact?.source_path === '0.listExposure', `${platform} self APP funnel raw fact must keep listExposure source_path`);
+    assertContract(listExposureFact?.storage_field === 'online_daily_data.list_exposure', `${platform} self APP funnel raw fact must keep listExposure storage field`);
+    assertContract(listExposureFact?.storage_field_source === 'standard_row_column', `${platform} self APP funnel raw fact must mark structured storage source`);
     assertContract(competitorRow?.list_exposure === 799, `${platform} competitor APP funnel row must store listExposure`);
     assertContract(competitorRow?.detail_exposure === 172, `${platform} competitor APP funnel row must store detailExposure`);
     assertContract(competitorRow?.order_filling_num === 10, `${platform} competitor APP funnel row must store orderFillingNum`);
@@ -493,6 +500,8 @@ function verifyCatalog() {
     assertContract(Math.abs(Number(competitorRow?.flow_rate) - 21.53) < 0.001, `${platform} competitor APP funnel row must store computed exposure conversion rate`);
   }
   const onlineDataSource = readFileSync('app/controller/OnlineData.php', 'utf8');
+  const ctripFieldMetaSource = readFileSync('app/service/CtripProfileFieldMetaService.php', 'utf8');
+  const ctripProfileFieldSource = `${onlineDataSource}\n${ctripFieldMetaSource}`;
   for (const fieldKey of [
     'competition_rank_order_count',
     'competition_rank_order_amount',
@@ -506,31 +515,31 @@ function verifyCatalog() {
     'competition_rank_tongcheng_rating',
     'competition_rank_zhixing_rating',
   ]) {
-    assertContract(onlineDataSource.includes(`'${fieldKey}'`), `OnlineData default Profile fields must include ${fieldKey}`);
+    assertContract(ctripProfileFieldSource.includes(`'${fieldKey}'`), `Ctrip Profile field metadata must include ${fieldKey}`);
     assertContract(
-      onlineDataSource.includes(`raw_data.rank_metrics.${fieldKey}`),
-      `OnlineData field meta must store ${fieldKey} in raw_data.rank_metrics`,
+      ctripProfileFieldSource.includes(`raw_data.rank_metrics.${fieldKey}`),
+      `Ctrip Profile field metadata must store ${fieldKey} in raw_data.rank_metrics`,
     );
   }
   assertContract(
-    onlineDataSource.includes('榜单名次口径：字段值均为第几名') && onlineDataSource.includes('不是携程点评分'),
-    'OnlineData competitor_rank fields must be documented as rank positions, not business metric values',
+    ctripProfileFieldSource.includes('榜单名次口径：字段值均为第几名') && ctripProfileFieldSource.includes('不是携程点评分'),
+    'Ctrip competitor_rank fields must be documented as rank positions, not business metric values',
   );
   assertContract(
-    onlineDataSource.includes("'competitor_rank', '竞争圈动态-竞争圈榜单'"),
-    'OnlineData competitor_rank module label must match the Ctrip competition list page',
+    ctripProfileFieldSource.includes("'competitor_rank', '竞争圈动态-竞争圈榜单'"),
+    'Ctrip competitor_rank module label must match the Ctrip competition list page',
   );
   assertContract(
-    onlineDataSource.includes("'im_board', '用户行为-IM看板'"),
-    'OnlineData default Profile modules must expose user behavior IM board',
+    ctripProfileFieldSource.includes("'im_board', '用户行为-IM看板'"),
+    'Ctrip default Profile modules must expose user behavior IM board',
   );
   const publicIndexSource = readFileSync('public/index.html', 'utf8');
   assertContract(
-    publicIndexSource.includes("label: '竞争圈动态-竞争圈榜单'"),
+    publicIndexSource.includes("competitor_rank: '竞争圈动态-竞争圈榜单'"),
     'Profile field-management UI must expose competitor_rank as 竞争圈动态-竞争圈榜单',
   );
   assertContract(
-    publicIndexSource.includes("value: 'im_board', label: '用户行为-IM看板'"),
+    publicIndexSource.includes("im_board: '用户行为-IM看板'"),
     'Profile field-management UI must expose user behavior IM board',
   );
   const saveStandardRowsMatch = onlineDataSource.match(/private function saveCtripStandardRows[\s\S]*?private function extractCtripCapturedResponseData/);
@@ -661,7 +670,7 @@ function verifyCatalog() {
     'robot_session_count',
     'im_order_conversion_rate',
   ]) {
-    assertContract(onlineDataSource.includes(`'${fieldKey}'`), `OnlineData default Profile fields must include ${fieldKey}`);
+    assertContract(ctripProfileFieldSource.includes(`'${fieldKey}'`), `Ctrip Profile field metadata must include ${fieldKey}`);
   }
 }
 

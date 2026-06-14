@@ -871,6 +871,13 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
 
 export const CTRIP_ENDPOINT_CANDIDATE_RULES = [
   {
+    id: 'traffic_report',
+    label: '经营报告-流量数据',
+    priority: 'P0',
+    dataType: 'traffic',
+    keywords: ['queryflowtransfornewv1', 'queryflowtransformnewv1', 'queryflowtransfernewv1', 'fetchcurrenthotelseqinfov1', 'queryscanflowdetailsv2', 'queryflowsource', 'flowdata', 'traffic', 'listexposure', 'detailexposure'],
+  },
+  {
     id: 'orders_detail',
     label: '订单明细',
     priority: 'P3',
@@ -3178,6 +3185,7 @@ function buildStandardRow(facts, context) {
         value: fact.value,
         source_key: fact.source_key,
         source_path: fact.source_path,
+        ...ctripStandardFactStorage(fact),
       })),
     },
   };
@@ -3208,6 +3216,112 @@ function buildStandardRow(facts, context) {
     return row;
   }
   return null;
+}
+
+function ctripStandardFactStorage(fact) {
+  const id = String(fact?.metric_key || '').trim();
+  if (!id) {
+    return {
+      storage_field: '',
+      storage_field_source: '',
+    };
+  }
+
+  const structuredField = ctripStandardStructuredStorageField(id);
+  if (structuredField) {
+    return {
+      storage_field: `online_daily_data.${structuredField}`,
+      storage_field_source: 'standard_row_column',
+    };
+  }
+
+  if (isCtripRankingFact(fact)) {
+    return {
+      storage_field: `online_daily_data.raw_data.rank_metrics.${id}`,
+      storage_field_source: 'raw_data_rank_metrics',
+    };
+  }
+
+  return {
+    storage_field: `online_daily_data.raw_data.facts.metric_key=${id}`,
+    storage_field_source: 'raw_data_facts',
+  };
+}
+
+function ctripStandardStructuredStorageField(id) {
+  return {
+    hotel_id: 'hotel_id',
+    hotel_name: 'hotel_name',
+    comment_store_name: 'hotel_name',
+    date: 'data_date',
+    start_date: 'data_date',
+    comment_date: 'data_date',
+    order_amount: 'amount',
+    business_amount: 'amount',
+    loss_order_amount: 'amount',
+    ad_cost: 'amount',
+    room_nights: 'quantity',
+    business_room_nights: 'quantity',
+    loss_room_nights: 'quantity',
+    ad_room_nights: 'quantity',
+    occupied_rooms: 'quantity',
+    order_count: 'book_order_num',
+    loss_order_count: 'book_order_num',
+    ad_orders: 'book_order_num',
+    visitor_count: 'detail_exposure',
+    detail_visitor: 'detail_exposure',
+    competitor_detail_visitor: 'detail_exposure',
+    qunar_detail_visitor: 'detail_exposure',
+    qunar_competitor_detail_visitor: 'detail_exposure',
+    list_exposure: 'list_exposure',
+    competitor_list_exposure: 'list_exposure',
+    qunar_list_exposure: 'list_exposure',
+    qunar_competitor_list_exposure: 'list_exposure',
+    ad_impressions: 'list_exposure',
+    order_page_visitor: 'order_filling_num',
+    competitor_order_page_visitor: 'order_filling_num',
+    qunar_order_page_visitor: 'order_filling_num',
+    qunar_competitor_order_page_visitor: 'order_filling_num',
+    order_submit_user: 'order_submit_num',
+    competitor_order_submit_user: 'order_submit_num',
+    qunar_order_submit_user: 'order_submit_num',
+    qunar_competitor_order_submit_user: 'order_submit_num',
+    flow_rate: 'flow_rate',
+    competitor_flow_rate: 'flow_rate',
+    qunar_flow_rate: 'flow_rate',
+    qunar_competitor_flow_rate: 'flow_rate',
+    conversion_rate: 'flow_rate',
+    order_conversion_rate: 'flow_rate',
+    common_view_rate: 'flow_rate',
+    ctr: 'flow_rate',
+    cvr: 'flow_rate',
+    reply_rate: 'flow_rate',
+    five_min_reply_rate: 'flow_rate',
+    manual_reply_rate: 'flow_rate',
+    im_order_conversion_rate: 'flow_rate',
+    agreement_accept_rate: 'flow_rate',
+    business_commission_rate: 'flow_rate',
+    comment_response_rate: 'flow_rate',
+    comment_score_summary: 'comment_score',
+    comment_score: 'comment_score',
+    ctrip_rating: 'comment_score',
+    qunar_rating: 'qunar_comment_score',
+    avg_price: 'data_value',
+    close_rate: 'data_value',
+    occupancy_rate: 'data_value',
+    tensity: 'data_value',
+    comment_count: 'data_value',
+    bad_review_count: 'data_value',
+    comment_unreply_count: 'data_value',
+    ctrip_comment_count: 'data_value',
+    qunar_comment_count: 'data_value',
+    elong_comment_count: 'data_value',
+    zx_comment_count: 'data_value',
+    avg_user_age: 'data_value',
+    avg_booking_days: 'data_value',
+    avg_stay_days: 'data_value',
+    ad_order_amount: 'data_value',
+  }[id] || '';
 }
 
 function standardDataTypeForFacts(facts) {

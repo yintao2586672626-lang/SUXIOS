@@ -183,7 +183,7 @@ final class OnlineDailyDataPersistenceService
 
             return $this->parseAndSaveGenericTrafficData($responseData, (string)$startDate, $source, $systemHotelId);
         } catch (\Throwable $e) {
-            return 0;
+            throw new \RuntimeException('traffic_data_persistence_failed: ' . $e->getMessage(), 0, $e);
         }
     }
 
@@ -262,7 +262,7 @@ final class OnlineDailyDataPersistenceService
             }
 
             $exists = $query->find();
-            $data = self::filterFields(self::applyValidationFields([
+            $data = self::applyValidationFields([
                 'hotel_id' => (string)$hotelId,
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId,
@@ -284,7 +284,9 @@ final class OnlineDailyDataPersistenceService
                 'order_filling_num' => $orderFillingNum,
                 'order_submit_num' => $orderSubmitNum,
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
-            ]));
+            ]);
+            $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
+            $data = self::filterFields($data);
 
             if ($exists) {
                 Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
@@ -319,6 +321,7 @@ final class OnlineDailyDataPersistenceService
                 continue;
             }
 
+            $trafficMetrics = $this->extractGenericTrafficMetrics($item);
             $trafficValue = OnlineTrafficDataExtractionService::extractTrafficValue($item);
             $itemDate = $item['dataDate'] ?? $item['date'] ?? $item['statDate'] ?? $item['stat_date'] ?? $item['data_date'] ?? $dataDate;
             $dimension = $item['metric'] ?? $item['metricName'] ?? $item['dimension'] ?? $item['_metric'] ?? 'traffic';
@@ -348,7 +351,7 @@ final class OnlineDailyDataPersistenceService
 
             $exists = $query->find();
 
-            $data = self::filterFields(self::applyValidationFields([
+            $data = self::applyValidationFields([
                 'hotel_id' => $hotelId ? (string)$hotelId : '',
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId,
@@ -358,12 +361,19 @@ final class OnlineDailyDataPersistenceService
                 'book_order_num' => 0,
                 'comment_score' => 0,
                 'qunar_comment_score' => 0,
-                'data_value' => $trafficValue ?? 0,
+                'data_value' => $trafficValue ?? $trafficMetrics['list_exposure'],
                 'source' => $source,
                 'data_type' => 'traffic',
                 'dimension' => $dimension ?: 'traffic',
+                'list_exposure' => $trafficMetrics['list_exposure'],
+                'detail_exposure' => $trafficMetrics['detail_exposure'],
+                'flow_rate' => $trafficMetrics['flow_rate'],
+                'order_filling_num' => $trafficMetrics['order_filling_num'],
+                'order_submit_num' => $trafficMetrics['order_submit_num'],
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
-            ]));
+            ]);
+            $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
+            $data = self::filterFields($data);
 
             if ($exists) {
                 Db::name('online_daily_data')
@@ -378,28 +388,97 @@ final class OnlineDailyDataPersistenceService
         return $savedCount;
     }
 
+    /**
+     * @param array<string, mixed> $item
+     * @return array{list_exposure:int,detail_exposure:int,flow_rate:float,order_filling_num:int,order_submit_num:int}
+     */
+    private function extractGenericTrafficMetrics(array $item): array
+    {
+        $listExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
+            'list_exposure', 'listExposure', 'exposure_count', 'exposureCount',
+            'exposureNum', 'impression', 'impressions', 'exposure',
+        ], 0.0);
+        $detailExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
+            'detail_exposure', 'detailExposure', 'page_views', 'pageViews',
+            'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount',
+            'click_count', 'clickCount', 'clicks', 'click', 'uv', 'UV', 'pv', 'views',
+        ], 0.0);
+        $flowRate = round(CtripTrafficDisplayService::normalizeTrafficPercent(CtripTrafficDisplayService::readTrafficNumber($item, [
+            'flow_rate', 'flowRate', 'conversion_rate', 'conversionRate', 'orderRate',
+        ], $listExposure > 0 ? $detailExposure / $listExposure * 100 : 0.0)), 2);
+        $orderFillingNum = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
+            'order_filling_num', 'orderFillingNum', 'orderVisitors',
+            'click_count', 'clickCount', 'clicks', 'click',
+        ], 0.0);
+        $orderSubmitNum = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
+            'order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers',
+            'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'orders',
+        ], 0.0);
+
+        return [
+            'list_exposure' => $listExposure,
+            'detail_exposure' => $detailExposure,
+            'flow_rate' => $flowRate,
+            'order_filling_num' => $orderFillingNum,
+            'order_submit_num' => $orderSubmitNum,
+        ];
+    }
+
     private function resolveGenericTrafficDataList($responseData): array
     {
-        if (isset($responseData['data']['list']) && is_array($responseData['data']['list'])) {
-            return $responseData['data']['list'];
-        }
-        if (isset($responseData['data']['hotelList']) && is_array($responseData['data']['hotelList'])) {
-            return $responseData['data']['hotelList'];
-        }
-        if (isset($responseData['data']['records']) && is_array($responseData['data']['records'])) {
-            return $responseData['data']['records'];
-        }
-        if (isset($responseData['data']['rows']) && is_array($responseData['data']['rows'])) {
-            return $responseData['data']['rows'];
+        foreach ([
+            ['data', 'list'],
+            ['data', 'hotelList'],
+            ['data', 'records'],
+            ['data', 'rows'],
+            ['data', 'flowData'],
+            ['data', 'trafficData'],
+            ['list'],
+        ] as $path) {
+            $list = $this->readNestedArray($responseData, $path);
+            if (is_array($list)) {
+                return $this->attachListSourcePaths($list, $path);
+            }
         }
         if (isset($responseData['data']) && is_array($responseData['data']) && isset($responseData['data'][0])) {
-            return $responseData['data'];
-        }
-        if (isset($responseData['list']) && is_array($responseData['list'])) {
-            return $responseData['list'];
+            return $this->attachListSourcePaths($responseData['data'], ['data']);
         }
 
         return OnlineTrafficDataExtractionService::extractGenericTrafficRows($responseData);
+    }
+
+    private function readNestedArray($value, array $path): ?array
+    {
+        $current = $value;
+        foreach ($path as $part) {
+            if (!is_array($current) || !array_key_exists($part, $current)) {
+                return null;
+            }
+            $current = $current[$part];
+        }
+
+        return is_array($current) ? $current : null;
+    }
+
+    private function attachListSourcePaths(array $rows, array $basePath): array
+    {
+        $result = [];
+        foreach ($rows as $index => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            if (!isset($row['_source_path']) || trim((string)$row['_source_path']) === '') {
+                $row['_source_path'] = $this->sourcePathString(array_merge($basePath, [(string)$index]));
+            }
+            $result[] = $row;
+        }
+
+        return $result;
+    }
+
+    private function sourcePathString(array $path): string
+    {
+        return implode('.', array_map(static fn($part): string => (string)$part, $path));
     }
 
     private static function looksLikeRealtimeRow(array $row): bool

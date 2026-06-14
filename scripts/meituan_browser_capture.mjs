@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import {
+  attachOtaCaptureEvidence,
+  buildOtaCaptureEvidence,
   classifyOtaResponse as classifyStandardOtaResponse,
   injectBrowserCookies as injectStandardBrowserCookies,
   normalizeCaptureSections as normalizeStandardCaptureSections,
@@ -270,14 +272,20 @@ function registerResponseCapture(page, target) {
       const text = await response.text();
       body = parseResponseBody(text, contentType);
     } catch (error) {
-      target.responses.push({ url, section, status, error: error.message });
+      const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource: `xhr:${section}` });
+      target.responses.push({ url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section, status, error: error.message });
       return;
     }
 
     const safeBody = sanitizeOtaPayloadForStorage(body, section);
     const rows = normalizeCapturedList(safeBody, section);
-    target.responses.push({ url, section, status, row_count: rows.length, data: safeBody });
-    target[section].push(...rows.map(row => ({ ...row, _source_url: url })));
+    const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource: `xhr:${section}` });
+    target.responses.push({ url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section, status, row_count: rows.length, data: safeBody });
+    target[section].push(...rows.map(row => attachOtaCaptureEvidence(row, 'meituan', {
+      url,
+      section,
+      captureSource: row._capture_source || `xhr:${section}`,
+    })));
   });
 }
 
@@ -301,12 +309,14 @@ function parseResponseBody(text, contentType) {
   return { _raw_text: trimmed.slice(0, 2000) };
 }
 
-function normalizeCapturedList(value, section) {
+function normalizeCapturedList(value, section, sourcePath = '') {
   if (!value || typeof value !== 'object') {
     return [];
   }
   if (Array.isArray(value)) {
-    return value.filter(item => item && typeof item === 'object');
+    return value
+      .filter(item => item && typeof item === 'object')
+      .map((item, index) => decorateCapturedRow(item, sourcePath ? `${sourcePath}.${index}` : String(index)));
   }
 
   const paths = {
@@ -329,12 +339,27 @@ function normalizeCapturedList(value, section) {
 
   for (const path of paths) {
     const nested = readPath(value, path);
-    const rows = normalizeCapturedList(nested, section);
+    const rows = normalizeCapturedList(nested, section, joinSourcePath(sourcePath, path));
     if (rows.length) {
       return rows;
     }
   }
-  return [value];
+  return [decorateCapturedRow(value, sourcePath || '$')];
+}
+
+function joinSourcePath(prefix, parts) {
+  const suffix = parts.map(part => String(part)).join('.');
+  return prefix ? `${prefix}.${suffix}` : suffix;
+}
+
+function decorateCapturedRow(row, sourcePath) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) {
+    return row;
+  }
+  if (row._source_path) {
+    return row;
+  }
+  return { ...row, _source_path: sourcePath || '$' };
 }
 
 async function collectDomFallback(page, target, section) {
@@ -379,13 +404,22 @@ async function collectDomFallback(page, target, section) {
       _dom_index: index,
       _dom_text: text(node),
     })).filter(row => row._dom_text && row._dom_text.length > 10);
-    return [...structuredRows, ...tableRows, ...cards].map(row => ({ ...row, _capture_source: row._capture_source || `dom:${sectionName}` }));
+    return [...structuredRows, ...tableRows, ...cards].map(row => ({
+      ...row,
+      _capture_source: row._capture_source || `dom:${sectionName}`,
+      _source_path: row._source_path || row._capture_source || `dom:${sectionName}`,
+    }));
   }, section);
 
   if (!rows.length) {
     return;
   }
-  target[section].push(...rows);
+  const url = page.url();
+  target[section].push(...rows.map(row => attachOtaCaptureEvidence(row, 'meituan', {
+    url,
+    section,
+    captureSource: row._capture_source || `dom:${section}`,
+  })));
 }
 
 function dedupePayloadRows(target) {
@@ -397,7 +431,7 @@ function dedupePayloadRows(target) {
         row.order_id ?? row.orderId ?? '',
         row.date ?? row.dataDate ?? row.statDate ?? '',
         row.poi_id ?? row.poiId ?? row.hotel_id ?? row.hotelId ?? '',
-        row._source_url ?? '',
+        row.source_trace_id ?? row.capture_evidence?.source_trace_id ?? row.source_url_hash ?? row.capture_evidence?.source_url_hash ?? '',
         row._dom_text ?? '',
       ]);
       if (seen.has(key)) {
