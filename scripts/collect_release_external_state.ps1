@@ -9,7 +9,7 @@ if ([string]::IsNullOrWhiteSpace($Reviewer)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($PrNumber)) {
-  $PrNumber = "1"
+  $PrNumber = "2"
 }
 
 function Invoke-ExternalCommand {

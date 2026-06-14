@@ -88,10 +88,20 @@ function checkGitIndexLockObject(gitIndexLock) {
   addFailure('external evidence .git/index.lock state must be a boolean.');
 }
 
-function checkPrObject(pr) {
+function expectedPrNumber() {
+  return String(process.env.RELEASE_PR_NUMBER || '2').trim();
+}
+
+function checkPrObject(pr, expectedNumber = expectedPrNumber()) {
   if (!pr || typeof pr !== 'object') {
     addFailure('PR evidence is missing or invalid.');
     return;
+  }
+
+  if (String(pr.number ?? '') === expectedNumber) {
+    addPass(`PR #${expectedNumber} is the configured release PR.`);
+  } else {
+    addFailure(`PR evidence is for #${pr.number ?? 'unknown'}, expected release PR #${expectedNumber}.`);
   }
 
   if (/^[a-f0-9]{40}$/i.test(String(pr.headRefOid || ''))) {
@@ -219,7 +229,7 @@ function checkGitWorktree() {
 }
 
 function checkGitHubPr() {
-  const prNumber = process.env.RELEASE_PR_NUMBER || '1';
+  const prNumber = expectedPrNumber();
   const result = run('gh', [
     'pr',
     'view',
@@ -247,7 +257,7 @@ function checkGitHubPr() {
     return;
   }
 
-  checkPrObject(pr);
+  checkPrObject(pr, prNumber);
 }
 
 if (process.env.RELEASE_EXTERNAL_STATE_FILE) {

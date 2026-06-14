@@ -361,12 +361,22 @@ try {
   assertTextContainsPatterns(
     readText('scripts/collect_release_external_state.ps1'),
     [
+      /\$PrNumber\s*=\s*"2"/,
       /git.*ls-files.*database\/backups|database\/backups.*ls-files/s,
       /git.*status.*--short.*--branch|--short.*--branch/s,
       /gh.*pr.*view|pr.*view/s,
       /ConvertTo-Json/i,
     ],
     'scripts/collect_release_external_state.ps1',
+  );
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_external_state.mjs'),
+    [
+      /process\.env\.RELEASE_PR_NUMBER\s*\|\|\s*'2'/,
+      /expected release PR/,
+      /configured release PR/,
+    ],
+    'scripts/verify_release_external_state.mjs release PR guard',
   );
 } catch (error) {
   fail(`could not read external-state collector script: ${error.message}`);
