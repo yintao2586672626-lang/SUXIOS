@@ -31479,6 +31479,19 @@
                     if (missingDomainText) parts.push(`指标域缺失 ${missingDomainText}`);
                 }
                 if (Array.isArray(evidence.traffic_source_readiness) && evidence.traffic_source_readiness.length) {
+                    const trafficInputLabel = (key) => ({
+                        registered_traffic_data_source: '登记采集源',
+                        traffic_request_url_or_cdp_endpoint_evidence: '请求证据',
+                        traffic_payload_or_query_params: 'Payload/参数',
+                        manual_login_state_verified: '人工确认登录态',
+                        authorized_ctrip_profile_dir: '携程Profile',
+                        authorized_meituan_profile_dir: '美团Profile',
+                        traffic_collection_run_and_target_date_rows: '目标日入库',
+                        traffic_data_source_ready_state: '采集源就绪',
+                        platform_data_sources_table: '采集源表',
+                        platform_data_sources_schema: '采集源字段',
+                        platform_data_sources_readable: '采集源可读',
+                    }[String(key || '')] || String(key || ''));
                     const trafficSourceText = evidence.traffic_source_readiness
                         .map(row => {
                             const platform = phase1EmployeePlatformText(row?.platform || '');
@@ -31486,11 +31499,15 @@
                             const readyCount = Number(row?.traffic_ready_count || 0);
                             const waitingCount = Number(row?.traffic_waiting_config_count || 0);
                             const trafficRows = Number(row?.target_date_traffic_rows || 0);
+                            const requiredInputs = Array.isArray(row?.required_next_inputs)
+                                ? row.required_next_inputs.map(trafficInputLabel).filter(Boolean).slice(0, 3).join('/')
+                                : '';
+                            const suffix = requiredInputs ? `（需${requiredInputs}）` : '';
                             if (trafficRows > 0) return `${platform}流量已入库`;
-                            if (sourceCount <= 0) return `${platform}流量采集源未登记`;
-                            if (waitingCount > 0) return `${platform}流量采集源待授权`;
-                            if (readyCount > 0) return `${platform}流量采集源已就绪`;
-                            return `${platform}流量采集源未就绪`;
+                            if (sourceCount <= 0) return `${platform}流量采集源未登记${suffix}`;
+                            if (waitingCount > 0) return `${platform}流量采集源待授权${suffix}`;
+                            if (readyCount > 0) return `${platform}流量采集源已就绪${suffix}`;
+                            return `${platform}流量采集源未就绪${suffix}`;
                         })
                         .filter(Boolean)
                         .slice(0, 3)

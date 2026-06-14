@@ -200,6 +200,32 @@ assert_field_fact_check(
     ['result' => $sourcePathMissing]
 );
 
+$weakSourcePath = field_fact_status(
+    ['source' => 'meituan', 'data_type' => 'traffic', 'list_exposure' => 10],
+    [
+        'field_facts' => [
+            [
+                'metric_key' => 'list_exposure',
+                'source_path' => 'listExposure',
+                'storage_field' => 'online_daily_data.list_exposure',
+                'capture_evidence' => ['source_trace_id' => 'meituan:weak-source-path'],
+                'stored_value_present' => true,
+            ],
+        ],
+    ]
+);
+assert_field_fact_check(
+    $checks,
+    'structured_source_path_required_for_ready_status',
+    ($weakSourcePath['status'] ?? '') === 'missing'
+        && ($weakSourcePath['source_path_count'] ?? -1) === 1
+        && ($weakSourcePath['structured_source_path_count'] ?? -1) === 0
+        && (($weakSourcePath['sample_facts'][0]['source_path_structured'] ?? null) === false)
+        && in_array('list_exposure', $weakSourcePath['missing_metric_keys'] ?? [], true),
+    'A field-name-only source_path is not treated as a ready UI field fact.',
+    ['result' => $weakSourcePath]
+);
+
 $meituanTrafficSource = [
     '_source_path' => 'traffic.0',
     'source_trace_id' => 'meituan:traffic-demo',

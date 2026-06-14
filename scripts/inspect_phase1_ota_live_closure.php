@@ -243,6 +243,7 @@ function missing_requirement_employee_explanation(string $code, array $details =
                 'field_fact_closure_summary',
                 'capture_evidence_count',
                 'source_path_count',
+                'structured_source_path_count',
                 'storage_field_count',
                 'incomplete_metric_keys',
             ],
@@ -2019,6 +2020,7 @@ function field_fact_closure_summary(array $rows): array
         'metric_key_count' => 0,
         'capture_evidence_count' => 0,
         'source_path_count' => 0,
+        'structured_source_path_count' => 0,
         'storage_field_count' => 0,
         'inferred_storage_field_count' => 0,
         'stored_value_present_count' => 0,
@@ -2053,6 +2055,7 @@ function field_fact_closure_summary(array $rows): array
             $metricKey = field_fact_text($fact, ['metric_key', 'field_key', 'field']);
             $sourceKey = field_fact_text($fact, ['source_key', 'source_field', 'field_key', 'field']);
             $sourcePath = field_fact_text($fact, ['source_path']);
+            $sourcePathStructured = field_fact_source_path_structured($sourcePath);
             $status = strtolower(field_fact_text($fact, ['status']));
             $missingState = field_fact_text($fact, ['missing_state', 'missing_reason']);
             [$storageField, $storageFieldSource, $storageFieldInferred] = field_fact_storage_field($fact, $row, $raw, $metricKey);
@@ -2070,6 +2073,9 @@ function field_fact_closure_summary(array $rows): array
             if ($sourcePath !== '') {
                 $summary['source_path_count']++;
             }
+            if ($sourcePathStructured) {
+                $summary['structured_source_path_count']++;
+            }
             if ($storageField !== '') {
                 $summary['storage_field_count']++;
             }
@@ -2083,7 +2089,7 @@ function field_fact_closure_summary(array $rows): array
             }
 
             $explicitMissing = in_array($status, ['missing', 'not_loaded', 'failed', 'error'], true) || $missingState !== '';
-            $complete = !$explicitMissing && !$storedValueMissing && $hasCaptureEvidence && $metricKey !== '' && $sourcePath !== '' && $storageField !== '';
+            $complete = !$explicitMissing && !$storedValueMissing && $hasCaptureEvidence && $metricKey !== '' && $sourcePathStructured && $storageField !== '';
             if ($complete) {
                 $summary['captured_fact_count']++;
                 $summary['complete_fact_count']++;
@@ -2106,6 +2112,7 @@ function field_fact_closure_summary(array $rows): array
                     'metric_key' => $metricKey,
                     'source_key' => $sourceKey,
                     'source_path' => $sourcePath,
+                    'source_path_structured' => $sourcePathStructured,
                     'storage_field' => $storageField,
                     'storage_field_source' => $storageFieldSource,
                     'storage_field_inferred' => $storageFieldInferred,
@@ -2133,6 +2140,13 @@ function field_fact_closure_summary(array $rows): array
     $summary['incomplete_metric_keys'] = array_slice(array_keys($incompleteMetricKeys), 0, 20);
 
     return $summary;
+}
+
+function field_fact_source_path_structured(string $sourcePath): bool
+{
+    $sourcePath = trim($sourcePath);
+    return $sourcePath !== ''
+        && (str_contains($sourcePath, '.') || str_contains($sourcePath, '[') || str_contains($sourcePath, '/'));
 }
 
 /**
@@ -2718,6 +2732,7 @@ function build_collection_source_summary(array $platforms, string $targetDate = 
                 'metric_key_count' => (int)($fieldFacts['metric_key_count'] ?? 0),
                 'capture_evidence_count' => (int)($fieldFacts['capture_evidence_count'] ?? 0),
                 'source_path_count' => (int)($fieldFacts['source_path_count'] ?? 0),
+                'structured_source_path_count' => (int)($fieldFacts['structured_source_path_count'] ?? 0),
                 'storage_field_count' => (int)($fieldFacts['storage_field_count'] ?? 0),
                 'stored_value_present_count' => (int)($fieldFacts['stored_value_present_count'] ?? 0),
                 'stored_value_missing_count' => (int)($fieldFacts['stored_value_missing_count'] ?? 0),
@@ -3401,6 +3416,9 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
         'traffic_managed_count' => 0,
         'traffic_secret_configured_count' => 0,
         'traffic_last_sync_status_counts' => [],
+        'required_next_inputs' => [],
+        'recommended_collection_mode' => 'status_check',
+        'action_entry' => '/api/online-data/collection-reliability',
         'status' => 'not_registered',
         'source_policy' => 'read_platform_data_sources_metadata_only',
         'sensitive_values_exposed' => false,
@@ -3409,10 +3427,12 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
     try {
         if (!table_exists('platform_data_sources')) {
             $base['status'] = 'source_table_missing';
+            $base['required_next_inputs'] = inspection_traffic_source_required_next_inputs($platform, $base);
             return $base;
         }
     } catch (Throwable $e) {
         $base['status'] = 'source_read_failed';
+        $base['required_next_inputs'] = inspection_traffic_source_required_next_inputs($platform, $base);
         return $base;
     }
 
@@ -3432,6 +3452,7 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
     ]);
     if ($fields === []) {
         $base['status'] = 'source_schema_missing';
+        $base['required_next_inputs'] = inspection_traffic_source_required_next_inputs($platform, $base);
         return $base;
     }
 
@@ -3444,6 +3465,7 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
             ->toArray();
     } catch (Throwable $e) {
         $base['status'] = 'source_read_failed';
+        $base['required_next_inputs'] = inspection_traffic_source_required_next_inputs($platform, $base);
         return $base;
     }
 
@@ -3493,8 +3515,46 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
     } else {
         $base['status'] = 'registered_not_ready';
     }
+    $base['recommended_collection_mode'] = (int)$base['target_date_traffic_rows'] > 0 ? 'status_check' : 'manual_cookie_api';
+    $base['action_entry'] = (int)$base['target_date_traffic_rows'] > 0
+        ? '/api/online-data/collection-reliability'
+        : ($platform === 'ctrip' ? '/api/online-data/fetch-ctrip-traffic' : '/api/online-data/fetch-meituan-traffic');
+    $base['required_next_inputs'] = inspection_traffic_source_required_next_inputs($platform, $base);
 
     return $base;
+}
+
+function inspection_traffic_source_required_next_inputs(string $platform, array $source): array
+{
+    $platform = strtolower(trim($platform));
+    if ((int)($source['target_date_traffic_rows'] ?? 0) > 0) {
+        return [];
+    }
+
+    $status = (string)($source['status'] ?? '');
+    if ($status === 'source_table_missing') {
+        return ['platform_data_sources_table'];
+    }
+    if ($status === 'source_schema_missing') {
+        return ['platform_data_sources_schema'];
+    }
+    if ($status === 'source_read_failed') {
+        return ['platform_data_sources_readable'];
+    }
+
+    $inputs = $platform === 'meituan'
+        ? ['traffic_request_url_or_cdp_endpoint_evidence', 'traffic_payload_or_query_params', 'authorized_meituan_profile_dir']
+        : ['traffic_payload_or_query_params', 'authorized_ctrip_profile_dir'];
+
+    if ((int)($source['traffic_source_count'] ?? 0) <= 0) {
+        array_unshift($inputs, 'registered_traffic_data_source');
+    } elseif ((int)($source['traffic_ready_count'] ?? 0) > 0 && (int)($source['traffic_waiting_config_count'] ?? 0) === 0) {
+        $inputs = ['traffic_collection_run_and_target_date_rows'];
+    } elseif ((int)($source['traffic_waiting_config_count'] ?? 0) === 0) {
+        array_unshift($inputs, 'traffic_data_source_ready_state');
+    }
+
+    return array_values(array_unique($inputs));
 }
 
 function inspection_traffic_source_readiness_text(array $source): string

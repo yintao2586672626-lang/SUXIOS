@@ -241,6 +241,9 @@ function build_source_spec(string $platform, array $selected, string $targetDate
         'source_config_updated_at' => $sortTime,
         'target_date' => $targetDate,
         'source_scope' => 'ota_channel_only',
+        'manual_login_state_verified' => false,
+        'login_verification_status' => 'not_verified',
+        'profile_auth_evidence_policy' => 'Profile directory presence is not login-state evidence.',
     ];
 
     if ($platform === 'ctrip') {
@@ -333,7 +336,7 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
         'config_json' => json_encode($spec['config'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         'secret_json' => '{}',
         'last_sync_status' => 'waiting_config',
-        'last_error' => 'Waiting for authorized browser Profile; target-date traffic rows are not yet stored.',
+        'last_error' => 'Waiting for manual_login_state_verified and target-date traffic rows; Profile directory presence is not treated as login evidence.',
         'updated_by' => 1,
         'update_time' => $now,
     ];
@@ -410,7 +413,7 @@ $summary = [
     'date' => (string)$options['date'],
     'execute' => $execute,
     'scope' => 'ota_channel_only',
-    'status_policy' => 'registered sources stay waiting_config until authorized profile and target-date traffic rows exist',
+    'status_policy' => 'registered sources stay waiting_config until manual_login_state_verified and target-date traffic rows exist',
     'platforms' => [],
 ];
 

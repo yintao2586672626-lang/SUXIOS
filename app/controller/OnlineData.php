@@ -14884,6 +14884,7 @@ JAVASCRIPT;
                 'missing_count' => 0,
                 'capture_evidence_count' => 0,
                 'source_path_count' => 0,
+                'structured_source_path_count' => 0,
                 'metric_key_count' => 0,
                 'storage_field_count' => 0,
                 'inferred_storage_field_count' => 0,
@@ -14900,6 +14901,7 @@ JAVASCRIPT;
         $missing = [];
         $captureEvidenceCount = 0;
         $sourcePathCount = 0;
+        $structuredSourcePathCount = 0;
         $metricKeyCount = 0;
         $storageFieldCount = 0;
         $inferredStorageFieldCount = 0;
@@ -14913,6 +14915,7 @@ JAVASCRIPT;
             }
             $metricKey = trim((string)($fact['metric_key'] ?? $fact['field_key'] ?? $fact['field'] ?? ''));
             $sourcePath = trim((string)($fact['source_path'] ?? ''));
+            $sourcePathStructured = $this->onlineDataFieldFactSourcePathStructured($sourcePath);
             $storageField = trim((string)($fact['storage_field'] ?? $fact['storage_target'] ?? ''));
             $storageFieldSource = trim((string)($fact['storage_field_source'] ?? ''));
             $storageFieldInferred = false;
@@ -14931,7 +14934,7 @@ JAVASCRIPT;
                 $storedValueMissingCount++;
             }
             $isMissing = $status === 'missing'
-                || ($metricKey !== '' && (!$hasCaptureEvidence || $sourcePath === '' || $storageField === ''))
+                || ($metricKey !== '' && (!$hasCaptureEvidence || !$sourcePathStructured || $storageField === ''))
                 || $storedValueMissing;
 
             if ($metricKey !== '') {
@@ -14942,6 +14945,9 @@ JAVASCRIPT;
             }
             if ($sourcePath !== '') {
                 $sourcePathCount++;
+            }
+            if ($sourcePathStructured) {
+                $structuredSourcePathCount++;
             }
             if ($storageField !== '') {
                 $storageFieldCount++;
@@ -14958,6 +14964,7 @@ JAVASCRIPT;
                 $sampleFacts[] = [
                     'metric_key' => $metricKey,
                     'source_path' => $sourcePath,
+                    'source_path_structured' => $sourcePathStructured,
                     'storage_field' => $storageField,
                     'storage_field_inferred' => $storageFieldInferred,
                     'storage_field_source' => $storageFieldSource,
@@ -14979,7 +14986,7 @@ JAVASCRIPT;
         if ($capturedCount === 0) {
             $status = 'missing';
             $label = '字段缺失';
-        } elseif ($missingCount > 0 || $captureEvidenceCount < $capturedCount || $sourcePathCount < $capturedCount || $storageFieldCount < $capturedCount || $storedValueMissingCount > 0) {
+        } elseif ($missingCount > 0 || $captureEvidenceCount < $capturedCount || $structuredSourcePathCount < $capturedCount || $storageFieldCount < $capturedCount || $storedValueMissingCount > 0) {
             $status = 'partial';
             $label = '字段待复核';
         }
@@ -14992,6 +14999,7 @@ JAVASCRIPT;
             ),
             '采集证据 ' . $captureEvidenceCount,
             'source_path ' . $sourcePathCount,
+            'structured_source_path ' . $structuredSourcePathCount,
             '入库字段 ' . $storageFieldCount,
         ];
         if ($storedValuePresentCount > 0 || $storedValueMissingCount > 0) {
@@ -15007,6 +15015,7 @@ JAVASCRIPT;
             'missing_count' => $missingCount,
             'capture_evidence_count' => $captureEvidenceCount,
             'source_path_count' => $sourcePathCount,
+            'structured_source_path_count' => $structuredSourcePathCount,
             'metric_key_count' => $metricKeyCount,
             'storage_field_count' => $storageFieldCount,
             'inferred_storage_field_count' => $inferredStorageFieldCount,
@@ -15175,6 +15184,13 @@ JAVASCRIPT;
             }
         }
         return null;
+    }
+
+    private function onlineDataFieldFactSourcePathStructured(string $sourcePath): bool
+    {
+        $sourcePath = trim($sourcePath);
+        return $sourcePath !== ''
+            && (str_contains($sourcePath, '.') || str_contains($sourcePath, '[') || str_contains($sourcePath, '/'));
     }
 
     private function onlineDataFieldFactValuePresent(mixed $value): bool

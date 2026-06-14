@@ -65,6 +65,8 @@ check(
   'runtime verifier covers field fact status behavior',
   (source) => source.includes('legacy_facts_infer_storage_without_hiding_missing')
     && source.includes('source_path_required_for_closure')
+    && source.includes('structured_source_path_required_for_ready_status')
+    && source.includes('structured_source_path_count')
     && source.includes('meituan_persistence_field_facts_ready')
     && source.includes('meituan_rank_source_path_field_facts_ready')
     && source.includes('capture_evidence_required_for_closure')
@@ -76,7 +78,7 @@ check(
     && source.includes('source_url_hash')
     && source.includes('meituan:generic-traffic-demo')
     && source.includes('raw_data_exposed'),
-  'legacy_facts_infer_storage_without_hiding_missing/source_path_required_for_closure/capture_evidence_required_for_closure/meituan_persistence_field_facts_ready/meituan_rank_source_path_field_facts_ready/generic_traffic_extraction_source_paths_ready/stored_value_required_for_ready_status/generic_traffic_persistence_structured_fields_ready/source_url_hash'
+  'legacy_facts_infer_storage_without_hiding_missing/source_path_required_for_closure/structured_source_path_required_for_ready_status/capture_evidence_required_for_closure/meituan_persistence_field_facts_ready/meituan_rank_source_path_field_facts_ready/generic_traffic_extraction_source_paths_ready/stored_value_required_for_ready_status/generic_traffic_persistence_structured_fields_ready/source_url_hash'
 );
 
 check(
@@ -217,6 +219,8 @@ for (const [needle, label] of [
   ['platformSyncLogs', 'frontend renders sync logs'],
   ["requireAutoFetchStatic('normalizeDataConfigForForm')", 'frontend reads data-config normalizer from auto-fetch static module'],
   ["requireAutoFetchStatic('buildDataConfigRequestBody')", 'frontend reads data-config request builder from auto-fetch static module'],
+  ['manual_login_state_verified', 'frontend traffic readiness keeps manual login verification visible'],
+  ['人工确认登录态', 'frontend traffic readiness labels manual login verification for operators'],
 ]) {
   check('public/index.html', label, (source) => source.includes(needle), needle);
 }

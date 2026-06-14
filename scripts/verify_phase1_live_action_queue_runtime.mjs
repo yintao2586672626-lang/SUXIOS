@@ -163,6 +163,9 @@ function trafficSourceReadinessDigest(questionOrEvidence) {
       traffic_waiting_config_count: Number(row?.traffic_waiting_config_count ?? 0),
       traffic_managed_count: Number(row?.traffic_managed_count ?? 0),
       traffic_secret_configured_count: Number(row?.traffic_secret_configured_count ?? 0),
+      required_next_inputs: asArray(row?.required_next_inputs).map((item) => String(item)),
+      recommended_collection_mode: String(row?.recommended_collection_mode ?? ''),
+      action_entry: String(row?.action_entry ?? ''),
       status: String(row?.status ?? ''),
       source_policy: String(row?.source_policy ?? ''),
       sensitive_values_exposed: Boolean(row?.sensitive_values_exposed),
@@ -184,6 +187,9 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
     for (const field of ['target_date_rows', 'target_date_traffic_rows', 'traffic_source_count', 'traffic_enabled_count', 'traffic_ready_count', 'traffic_waiting_config_count', 'traffic_managed_count', 'traffic_secret_configured_count']) {
       check(`${prefix} ${field} is numeric`, Number.isFinite(Number(sourceRow?.[field])), JSON.stringify(sourceRow ?? {}));
     }
+    check(`${prefix} required next inputs are explicit array`, Array.isArray(sourceRow?.required_next_inputs), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} recommended collection mode is explicit`, ['manual_cookie_api', 'status_check'].includes(String(sourceRow?.recommended_collection_mode ?? '')), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} action entry is explicit`, String(sourceRow?.action_entry ?? '').startsWith('/api/online-data/'), JSON.stringify(sourceRow ?? {}));
     const targetTrafficRows = Number(sourceRow?.target_date_traffic_rows ?? 0);
     const sourceCount = Number(sourceRow?.traffic_source_count ?? 0);
     const waitingCount = Number(sourceRow?.traffic_waiting_config_count ?? 0);
@@ -191,14 +197,20 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
     const status = String(sourceRow?.status ?? '');
     if (targetTrafficRows > 0) {
       check(`${prefix} marks real target-date traffic rows ready`, status === 'target_date_traffic_ready', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} ready traffic rows require no next inputs`, asArray(sourceRow?.required_next_inputs).length === 0, JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} ready traffic rows use status-check action`, String(sourceRow?.action_entry ?? '') === '/api/online-data/collection-reliability', JSON.stringify(sourceRow ?? {}));
     } else if (sourceCount <= 0) {
       check(`${prefix} missing registration stays explicit`, status === 'not_registered', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} missing registration asks for traffic source registration`, asArray(sourceRow?.required_next_inputs).includes('registered_traffic_data_source'), JSON.stringify(sourceRow ?? {}));
     } else if (waitingCount > 0) {
       check(`${prefix} waiting_config cannot be rendered as ready`, status === 'registered_waiting_config', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} waiting_config exposes authorization inputs`, asArray(sourceRow?.required_next_inputs).some((item) => String(item).startsWith('authorized_')) && asArray(sourceRow?.required_next_inputs).includes('traffic_payload_or_query_params'), JSON.stringify(sourceRow ?? {}));
     } else if (readyCount > 0) {
       check(`${prefix} ready source still does not imply target-date traffic rows`, status === 'registered_ready_without_target_date_traffic', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} ready source asks for target-date traffic rows`, asArray(sourceRow?.required_next_inputs).includes('traffic_collection_run_and_target_date_rows'), JSON.stringify(sourceRow ?? {}));
     } else {
       check(`${prefix} non-ready source stays explicit`, status === 'registered_not_ready', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} non-ready source exposes readiness input`, asArray(sourceRow?.required_next_inputs).includes('traffic_data_source_ready_state'), JSON.stringify(sourceRow ?? {}));
     }
   }
 }
@@ -340,6 +352,7 @@ function validateCollectionSourceSummary(label, rows, expectedPlatforms) {
     if (isObject(row?.field_fact_closure_summary)) {
       check(`${label} ${platform} source summary field fact count numeric`, Number.isFinite(Number(row.field_fact_closure_summary.fact_count)), JSON.stringify(row.field_fact_closure_summary));
       check(`${label} ${platform} source summary field fact capture evidence count numeric`, Number.isFinite(Number(row.field_fact_closure_summary.capture_evidence_count)), JSON.stringify(row.field_fact_closure_summary));
+      check(`${label} ${platform} source summary field fact structured source path count numeric`, Number.isFinite(Number(row.field_fact_closure_summary.structured_source_path_count)), JSON.stringify(row.field_fact_closure_summary));
       check(`${label} ${platform} source summary field fact raw_data not exposed`, row.field_fact_closure_summary.raw_data_exposed === false, JSON.stringify(row.field_fact_closure_summary));
     }
     check(`${label} ${platform} source summary etl status visible`, typeof row?.etl_status === 'string' && row.etl_status.length > 0, JSON.stringify(row));
@@ -1220,6 +1233,7 @@ if (payload) {
     check(`${platformName} platform field_facts capture evidence count numeric`, Number.isFinite(Number(fieldFacts.capture_evidence_count)), JSON.stringify(fieldFacts));
     check(`${platformName} platform field_facts raw_data not exposed`, fieldFacts.raw_data_exposed === false, JSON.stringify(fieldFacts));
     if (Number(fieldFacts.complete_fact_count ?? 0) > 0 && Number(fieldFacts.incomplete_captured_fact_count ?? 0) === 0) {
+      check(`${platformName} platform field_facts prove structured source paths`, Number(fieldFacts.structured_source_path_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0), JSON.stringify(fieldFacts));
       check(`${platformName} platform field_facts prove stored values`, Number(fieldFacts.stored_value_present_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0) && Number(fieldFacts.stored_value_missing_count ?? -1) === 0, JSON.stringify(fieldFacts));
     }
     check(`${platformName} platform field facts check exists`, Boolean(fieldFactsVisibleCheck), JSON.stringify(platform?.checks ?? []));
@@ -1507,6 +1521,7 @@ if (evidencePayload) {
       check(`${platformName} evidence package platform field_facts capture evidence count numeric`, Number.isFinite(Number(fieldFacts.capture_evidence_count)), JSON.stringify(fieldFacts));
       check(`${platformName} evidence package platform field_facts raw_data not exposed`, fieldFacts.raw_data_exposed === false, JSON.stringify(fieldFacts));
       if (Number(fieldFacts.complete_fact_count ?? 0) > 0 && Number(fieldFacts.incomplete_captured_fact_count ?? 0) === 0) {
+        check(`${platformName} evidence package platform field_facts prove structured source paths`, Number(fieldFacts.structured_source_path_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0), JSON.stringify(fieldFacts));
         check(`${platformName} evidence package platform field_facts prove stored values`, Number(fieldFacts.stored_value_present_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0) && Number(fieldFacts.stored_value_missing_count ?? -1) === 0, JSON.stringify(fieldFacts));
       }
       check(`${platformName} evidence package trusted fields carries platform trust detail`, Boolean(row), JSON.stringify(evidencePlatformFieldTrust));

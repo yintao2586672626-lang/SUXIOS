@@ -2392,6 +2392,9 @@ trait Phase1EmployeeConsoleConcern
             'traffic_managed_count' => 0,
             'traffic_secret_configured_count' => 0,
             'traffic_last_sync_status_counts' => [],
+            'required_next_inputs' => [],
+            'recommended_collection_mode' => 'status_check',
+            'action_entry' => '/api/online-data/collection-reliability',
             'status' => 'not_registered',
             'source_policy' => 'read_platform_data_sources_metadata_only',
             'sensitive_values_exposed' => false,
@@ -2399,6 +2402,7 @@ trait Phase1EmployeeConsoleConcern
 
         if (!$this->phase1TableExists('platform_data_sources')) {
             $base['status'] = 'source_table_missing';
+            $base['required_next_inputs'] = $this->phase1TrafficSourceRequiredNextInputs($platform, $base);
             return $base;
         }
 
@@ -2418,6 +2422,7 @@ trait Phase1EmployeeConsoleConcern
         ]);
         if ($fields === []) {
             $base['status'] = 'source_schema_missing';
+            $base['required_next_inputs'] = $this->phase1TrafficSourceRequiredNextInputs($platform, $base);
             return $base;
         }
 
@@ -2430,6 +2435,7 @@ trait Phase1EmployeeConsoleConcern
                 ->toArray();
         } catch (\Throwable $e) {
             $base['status'] = 'source_read_failed';
+            $base['required_next_inputs'] = $this->phase1TrafficSourceRequiredNextInputs($platform, $base);
             return $base;
         }
 
@@ -2477,8 +2483,46 @@ trait Phase1EmployeeConsoleConcern
         } else {
             $base['status'] = 'registered_not_ready';
         }
+        $base['recommended_collection_mode'] = $trafficRows > 0 ? 'status_check' : 'manual_cookie_api';
+        $base['action_entry'] = $trafficRows > 0
+            ? '/api/online-data/collection-reliability'
+            : $this->phase1TrafficConversionFactsActionEntry($platform);
+        $base['required_next_inputs'] = $this->phase1TrafficSourceRequiredNextInputs($platform, $base);
 
         return $base;
+    }
+
+    private function phase1TrafficSourceRequiredNextInputs(string $platform, array $source): array
+    {
+        $platform = strtolower(trim($platform));
+        if ((int)($source['target_date_traffic_rows'] ?? 0) > 0) {
+            return [];
+        }
+
+        $status = (string)($source['status'] ?? '');
+        if ($status === 'source_table_missing') {
+            return ['platform_data_sources_table'];
+        }
+        if ($status === 'source_schema_missing') {
+            return ['platform_data_sources_schema'];
+        }
+        if ($status === 'source_read_failed') {
+            return ['platform_data_sources_readable'];
+        }
+
+        $inputs = $platform === 'meituan'
+            ? ['traffic_request_url_or_cdp_endpoint_evidence', 'traffic_payload_or_query_params', 'authorized_meituan_profile_dir']
+            : ['traffic_payload_or_query_params', 'authorized_ctrip_profile_dir'];
+
+        if ((int)($source['traffic_source_count'] ?? 0) <= 0) {
+            array_unshift($inputs, 'registered_traffic_data_source');
+        } elseif ((int)($source['traffic_ready_count'] ?? 0) > 0 && (int)($source['traffic_waiting_config_count'] ?? 0) === 0) {
+            $inputs = ['traffic_collection_run_and_target_date_rows'];
+        } elseif ((int)($source['traffic_waiting_config_count'] ?? 0) === 0) {
+            array_unshift($inputs, 'traffic_data_source_ready_state');
+        }
+
+        return array_values(array_unique($inputs));
     }
 
     private function phase1PlatformFieldTrust(array $metricDomainReadiness): array
