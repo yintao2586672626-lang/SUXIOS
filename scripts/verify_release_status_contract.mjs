@@ -34,6 +34,7 @@ const requiredDocs = [
   'docs/llm_connectivity_attestation.example.json',
   'docs/release_readiness_result.example.json',
   'scripts/collect_release_external_state.ps1',
+  'scripts/refresh_release_current_evidence.ps1',
   'scripts/review_release_final_handoff.ps1',
   'scripts/mark_release_pr_ready.ps1',
   'scripts/verify_release_functional_readiness.mjs',
@@ -61,6 +62,7 @@ const requiredPackageScripts = [
   'review:release-security-scan',
   'review:release-external-state',
   'review:release-final-handoff',
+  'refresh:release-current-evidence',
   'release:mark-pr-ready',
   'collect:release-external-state',
   'review:release-external-state:local',
@@ -76,6 +78,7 @@ const requiredVerificationMatrixCommands = [
   'npm run review:release-external-state',
   'npm run review:release-external-state:local',
   'npm run review:release-final-handoff',
+  'npm run refresh:release-current-evidence',
   'npm run release:mark-pr-ready',
   'npm run review:release-readiness',
   'npm run review:functional-readiness',
@@ -377,6 +380,17 @@ try {
       /configured release PR/,
     ],
     'scripts/verify_release_external_state.mjs release PR guard',
+  );
+  assertTextContainsPatterns(
+    readText('scripts/refresh_release_current_evidence.ps1'),
+    [
+      /release-evidence-current-result\.json/,
+      /release-readiness-current-result\.json/,
+      /release-external-state-current-evidence\.json/,
+      /release-external-state-current-result\.json/,
+      /\[int\]\$PrNumber\s*=\s*2/,
+    ],
+    'scripts/refresh_release_current_evidence.ps1',
   );
 } catch (error) {
   fail(`could not read external-state collector script: ${error.message}`);
