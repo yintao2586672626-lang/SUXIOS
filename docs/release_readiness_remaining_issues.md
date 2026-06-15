@@ -28,7 +28,7 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 
 | # | Scope | Blocker | Current evidence | Close condition |
 |---:|---|---|---|---|
-| 1 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real `docs/design_handoff_manifest.json` is present with Figma source, Canva source, Brand Kit, design token, flow coverage, review date, and zero open design issues. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, required flow coverage, `last_reviewed_at` in `YYYY-MM-DD`, empty `open_issues`, and pass `npm run review:release-design`. |
+| 1 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real controlled manifest is present via `DESIGN_HANDOFF_MANIFEST_FILE` or `docs/design_handoff_manifest.json` with Figma source, Canva source, Brand Kit, design token, flow coverage, review date, and zero open design issues. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, required flow coverage, `last_reviewed_at` in `YYYY-MM-DD`, empty `open_issues`, and pass `npm run review:release-design`. |
 | 2 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. Current backup text scan reports no credential-shaped matches, but that does not prove real platform credential rotation or invalidation. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, readiness rerun, and pass `npm run review:release-ota-credentials`. |
 | 3 | `@github` | GitHub / local handoff state is not closed | PR #2 is open, mergeable, green on the current head, local worktree is clean, `.git/index.lock` is absent, and `database/backups` has no tracked files; PR #2 is still draft. | Mark PR #2 ready for review only after release-readiness passes, then pass `review:release-external-state` on the final head. |
 
@@ -131,7 +131,7 @@ The repository has code-side UI review documentation, but no real design source 
 
 Required close evidence:
 
-- `docs/design_handoff_manifest.json` is created from `docs/design_handoff_manifest.example.json`; standalone design-token files or screenshots are not sufficient.
+- `DESIGN_HANDOFF_MANIFEST_FILE` points to a controlled manifest outside the repo, or `docs/design_handoff_manifest.json` is created from `docs/design_handoff_manifest.example.json` for local default review; standalone design-token files or screenshots are not sufficient.
 - It includes accessible Figma URL, Canva URL, Brand Kit URL, `design_tokens_path`, owner, review date, covered flows, and open issues.
 - Covered flows include login, OTA data, revenue analysis, AI decision, operations management, and investment decision.
 - `last_reviewed_at` uses `YYYY-MM-DD`.

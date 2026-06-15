@@ -1,0 +1,1316 @@
+{
+  "store_id": "739212829",
+  "poi_id": "",
+  "poi_name": "",
+  "system_hotel_id": 7,
+  "default_data_date": "2026-06-15",
+  "captured_at": "2026-06-14T22:39:46.470Z",
+  "source": "meituan_browser_profile",
+  "mode": "capture",
+  "capture_sections": [
+    "traffic"
+  ],
+  "pages": [
+    {
+      "name": "traffic",
+      "url": "https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Fdata-center%2Findex.html",
+      "ok": true,
+      "interactions": [
+        {
+          "action": "click_text",
+          "text": "流量分析",
+          "reason": "open traffic analysis tab",
+          "clicked": false,
+          "skipped": "not_visible"
+        },
+        {
+          "action": "click_text",
+          "text": "昨日",
+          "reason": "select yesterday traffic period",
+          "clicked": false,
+          "skipped": "not_visible"
+        }
+      ]
+    },
+    {
+      "name": "newTraffic",
+      "url": "https://eb.meituan.com/newhb-sub-app/data-center-pc/home/index.html#/flow",
+      "ok": true,
+      "interactions": [
+        {
+          "action": "click_text",
+          "text": "流量分析",
+          "reason": "open traffic analysis tab",
+          "clicked": true,
+          "skipped": ""
+        },
+        {
+          "action": "click_text",
+          "text": "昨日",
+          "reason": "select yesterday traffic period",
+          "clicked": true,
+          "skipped": ""
+        }
+      ]
+    }
+  ],
+  "responses": [
+    {
+      "url_hash": "6c449bb9bb6753589aca4d0cf13ae7c93ef4bc7939d9b3d1662c00c00c6c80d2",
+      "source_trace_id": "meituan:e2296f72f2b3aa071f2b555c4dc1589aefa70019c7a45eda9b630ccd2016dd89",
+      "section": "traffic",
+      "status": 200,
+      "row_count": 0,
+      "request_date_source": "",
+      "data": {
+        "data": {
+          "suggest": [
+            "深度参与平台合作，获得流量加权等丰厚奖励"
+          ],
+          "titleRemark": [
+            {
+              "title": "合作方式",
+              "text": "门店与平台签约的流量加权合作方式"
+            },
+            {
+              "title": "基础曝光量",
+              "text": "等于总曝光量减去奖励曝光量和广告曝光量，包含自然曝光与合作提权曝光次数"
+            }
+          ],
+          "registration": {
+            "isShow": true,
+            "isReg": true,
+            "description": "立即签约并达成目标，享额外扶持流量"
+          },
+          "cards": [
+            {
+              "title": "合作方式",
+              "value": "价格保障·套餐组合",
+              "label": {
+                "id": "weighted"
+              },
+              "extAttrs": [
+                {
+                  "key": "MAP",
+                  "values": {
+                    "text": "",
+                    "status": ""
+                  }
+                }
+              ]
+            },
+            {
+              "title": "基础曝光量",
+              "id": "exposure",
+              "value": "562",
+              "suffix": "次",
+              "extAttrs": [
+                {
+                  "key": "MAP",
+                  "values": {
+                    "text": "加权曝光 +93",
+                    "status": "NONE"
+                  }
+                }
+              ]
+            }
+          ],
+          "labelUrlMap": {
+            "weighted": "https://p0.meituan.net/travelcube/4396a6b6d34d0a994789e8290d8ccf458694.png",
+            "downRanking": "https://p0.meituan.net/travelcube/c9d6bc1d795ca9056d75a2746fa0212c6959.png"
+          }
+        },
+        "message": "success",
+        "status": 0
+      }
+    },
+    {
+      "url_hash": "b55c8762ccf6b42bda2b213a9029f29709bfbaee1afc718de5acd90c1d167711",
+      "source_trace_id": "meituan:49664991b2f84a1d6a33de1b4038a49a1e0a5c7962ec1945868f9ea2199f8708",
+      "section": "traffic",
+      "status": 200,
+      "row_count": 0,
+      "request_date_source": "",
+      "data": {
+        "data": {
+          "peerCount": 10,
+          "titleRemark": [
+            {
+              "title": "",
+              "text": "根据昨日的数据，计算您在同行中的排名情况，如需了解更多请到同行动态中查看"
+            }
+          ],
+          "detail": [
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "曝光量",
+              "rank": "8"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "浏览人数",
+              "rank": "8"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "浏览支付转化率",
+              "rank": "1"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "支付订单数",
+              "rank": "1"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "销售间夜",
+              "rank": "1"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "销售额",
+              "rank": "1"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "入住间夜",
+              "rank": "7"
+            },
+            {
+              "bestPeerName": "凯曼未来酒店（巢湖万达广场店）",
+              "name": "评价分",
+              "rank": "6"
+            }
+          ]
+        },
+        "message": "success",
+        "status": 0
+      }
+    },
+    {
+      "url_hash": "88ab8d8a31466d244beaacde03b3e2c5b9389123f8207e12da2f4c97f00c7e35",
+      "source_trace_id": "meituan:e73dfc8709b4261ed4ac840ae4f07d1be04f1e698eb27cb59982ba1abb2223da",
+      "section": "traffic",
+      "status": 200,
+      "row_count": 1,
+      "request_date_source": "",
+      "data": {
+        "status": 0,
+        "message": "success",
+        "data": {
+          "titleRemark": [
+            {
+              "title": "引流价",
+              "text": "当日可售商品的最低价，在酒店列表页会以此展示**元起"
+            },
+            {
+              "title": "曝光量",
+              "text": "门店在列表页被用户看到的累积次数，统计美团和点评双平台在搜索及猜你喜欢等模块的数据"
+            },
+            {
+              "title": "浏览人数",
+              "text": "进入酒店详情页的用户数"
+            },
+            {
+              "title": "支付转化率",
+              "text": "支付订单数/浏览人数，用户支付的订单量在进入详情页的用户之中的占比"
+            },
+            {
+              "title": "支付订单数",
+              "text": "统计周期内，支付订单的总和。用户在9月1日下1笔订单，则9月1日计入1个支付订单。若用户在9月3日退款，9月1日的支付订单仍计为1个"
+            },
+            {
+              "title": "销售间夜",
+              "text": "统计周期内，销售间夜的总和。用户在9月1日下单，预订入住日期为10月1日-10月7日的房间。则9月1日计入7个销售间夜"
+            },
+            {
+              "title": "销售均价",
+              "text": "统计周期内，销售额/销售间夜。用户在9月1日下2笔订单金额200元，则9月1日计入200元销售额。销售均价为200/2=100元。"
+            },
+            {
+              "title": "销售额",
+              "text": "统计周期内，销售额的总和。用户在9月1日下1笔订单金额100元，则9月1日计入100元销售额"
+            },
+            {
+              "title": "入住间夜",
+              "text": "统计周期内，入住间夜的总和。用户在9月1日下单，预订1个房间共700元（一晚100元），预订入住日期为10月1日-10月7日。则10月1日-10月7日每天各计入1个入住间夜"
+            },
+            {
+              "title": "满房率",
+              "text": "（酒店在线产品数 - 酒店可订产品数）/ 酒店在线产品数"
+            }
+          ],
+          "rtDataUpdateTime": "数据更新时间：2026/06/15 06:41",
+          "cards": [
+            {
+              "id": "DAY_ROOM_LOWEST_PRICE_AVG",
+              "title": "引流价",
+              "value": "93.60",
+              "unit": null,
+              "suffix": "元",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "4.99%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "8/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "142.61",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "EXPOSE_PV_CNT",
+              "title": "曝光量",
+              "value": "562",
+              "unit": null,
+              "suffix": "次",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "+",
+                    "35.75%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "8/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "821.45",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "INTENTION_UV",
+              "title": "浏览人数",
+              "value": "41",
+              "unit": null,
+              "suffix": "人",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "+",
+                    "41.38%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "8/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "82.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "PAY_ORDER_CNT_UV",
+              "title": "支付转化率",
+              "value": "0.00",
+              "suffix": "%",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "6.90%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "1/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "0.00"
+                }
+              ]
+            },
+            {
+              "id": "PAY_ORDER_CNT",
+              "title": "支付订单数",
+              "value": "0",
+              "unit": null,
+              "suffix": "单",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "100.00%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "1/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "0.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "PAY_ROOMNIGHT",
+              "title": "销售间夜",
+              "value": "0",
+              "unit": null,
+              "suffix": "间夜",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "100.00%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "1/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "0.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "PAY_ADR",
+              "title": "销售均价",
+              "value": "0.00",
+              "unit": null,
+              "suffix": "元",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "100.00%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "1/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "0.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "PAY_AMT",
+              "title": "销售额",
+              "value": "0.00",
+              "unit": null,
+              "suffix": "元",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "100.00%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "1/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "0.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "CONSUME_ROOMNIGHT_SPLIT_EX_7DAYS_REFUND",
+              "title": "入住间夜",
+              "value": "7",
+              "unit": null,
+              "suffix": "间夜",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "+",
+                    "250.00%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "7/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "13.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "NOT_AVAILABLE_REAL_ROOM_RATE",
+              "title": "满房率",
+              "value": "0.00",
+              "suffix": "%",
+              "extAttrs": [
+                {
+                  "key": "TEXT",
+                  "name": "较上周",
+                  "values": [
+                    "-"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "10/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "16.00"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "url_hash": "6c449bb9bb6753589aca4d0cf13ae7c93ef4bc7939d9b3d1662c00c00c6c80d2",
+      "source_trace_id": "meituan:e2296f72f2b3aa071f2b555c4dc1589aefa70019c7a45eda9b630ccd2016dd89",
+      "section": "traffic",
+      "status": 200,
+      "row_count": 0,
+      "request_date_source": "",
+      "data": {
+        "data": {
+          "suggest": [
+            "深度参与平台合作，获得流量加权等丰厚奖励"
+          ],
+          "titleRemark": [
+            {
+              "title": "合作方式",
+              "text": "门店与平台签约的流量加权合作方式"
+            },
+            {
+              "title": "基础曝光量",
+              "text": "等于总曝光量减去奖励曝光量和广告曝光量，包含自然曝光与合作提权曝光次数"
+            }
+          ],
+          "registration": {
+            "isShow": true,
+            "isReg": true,
+            "description": "立即签约并达成目标，享额外扶持流量"
+          },
+          "cards": [
+            {
+              "title": "合作方式",
+              "value": "价格保障·套餐组合",
+              "label": {
+                "id": "weighted"
+              },
+              "extAttrs": [
+                {
+                  "key": "MAP",
+                  "values": {
+                    "text": "",
+                    "status": ""
+                  }
+                }
+              ]
+            },
+            {
+              "title": "基础曝光量",
+              "id": "exposure",
+              "value": "562",
+              "suffix": "次",
+              "extAttrs": [
+                {
+                  "key": "MAP",
+                  "values": {
+                    "text": "加权曝光 +93",
+                    "status": "NONE"
+                  }
+                }
+              ]
+            }
+          ],
+          "labelUrlMap": {
+            "weighted": "https://p0.meituan.net/travelcube/4396a6b6d34d0a994789e8290d8ccf458694.png",
+            "downRanking": "https://p0.meituan.net/travelcube/c9d6bc1d795ca9056d75a2746fa0212c6959.png"
+          }
+        },
+        "message": "success",
+        "status": 0
+      }
+    },
+    {
+      "url_hash": "b55c8762ccf6b42bda2b213a9029f29709bfbaee1afc718de5acd90c1d167711",
+      "source_trace_id": "meituan:49664991b2f84a1d6a33de1b4038a49a1e0a5c7962ec1945868f9ea2199f8708",
+      "section": "traffic",
+      "status": 200,
+      "row_count": 0,
+      "request_date_source": "",
+      "data": {
+        "data": {
+          "peerCount": 10,
+          "titleRemark": [
+            {
+              "title": "",
+              "text": "根据昨日的数据，计算您在同行中的排名情况，如需了解更多请到同行动态中查看"
+            }
+          ],
+          "detail": [
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "曝光量",
+              "rank": "8"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "浏览人数",
+              "rank": "8"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "浏览支付转化率",
+              "rank": "1"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "支付订单数",
+              "rank": "1"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "销售间夜",
+              "rank": "1"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "销售额",
+              "rank": "1"
+            },
+            {
+              "bestPeerName": "桔汀S未来酒店JuTing Future Hotel（巢湖万达广场店）",
+              "name": "入住间夜",
+              "rank": "7"
+            },
+            {
+              "bestPeerName": "凯曼未来酒店（巢湖万达广场店）",
+              "name": "评价分",
+              "rank": "6"
+            }
+          ]
+        },
+        "message": "success",
+        "status": 0
+      }
+    },
+    {
+      "url_hash": "88ab8d8a31466d244beaacde03b3e2c5b9389123f8207e12da2f4c97f00c7e35",
+      "source_trace_id": "meituan:e73dfc8709b4261ed4ac840ae4f07d1be04f1e698eb27cb59982ba1abb2223da",
+      "section": "traffic",
+      "status": 200,
+      "row_count": 1,
+      "request_date_source": "",
+      "data": {
+        "status": 0,
+        "message": "success",
+        "data": {
+          "titleRemark": [
+            {
+              "title": "引流价",
+              "text": "当日可售商品的最低价，在酒店列表页会以此展示**元起"
+            },
+            {
+              "title": "曝光量",
+              "text": "门店在列表页被用户看到的累积次数，统计美团和点评双平台在搜索及猜你喜欢等模块的数据"
+            },
+            {
+              "title": "浏览人数",
+              "text": "进入酒店详情页的用户数"
+            },
+            {
+              "title": "支付转化率",
+              "text": "支付订单数/浏览人数，用户支付的订单量在进入详情页的用户之中的占比"
+            },
+            {
+              "title": "支付订单数",
+              "text": "统计周期内，支付订单的总和。用户在9月1日下1笔订单，则9月1日计入1个支付订单。若用户在9月3日退款，9月1日的支付订单仍计为1个"
+            },
+            {
+              "title": "销售间夜",
+              "text": "统计周期内，销售间夜的总和。用户在9月1日下单，预订入住日期为10月1日-10月7日的房间。则9月1日计入7个销售间夜"
+            },
+            {
+              "title": "销售均价",
+              "text": "统计周期内，销售额/销售间夜。用户在9月1日下2笔订单金额200元，则9月1日计入200元销售额。销售均价为200/2=100元。"
+            },
+            {
+              "title": "销售额",
+              "text": "统计周期内，销售额的总和。用户在9月1日下1笔订单金额100元，则9月1日计入100元销售额"
+            },
+            {
+              "title": "入住间夜",
+              "text": "统计周期内，入住间夜的总和。用户在9月1日下单，预订1个房间共700元（一晚100元），预订入住日期为10月1日-10月7日。则10月1日-10月7日每天各计入1个入住间夜"
+            },
+            {
+              "title": "满房率",
+              "text": "（酒店在线产品数 - 酒店可订产品数）/ 酒店在线产品数"
+            }
+          ],
+          "rtDataUpdateTime": "数据更新时间：2026/06/15 06:41",
+          "cards": [
+            {
+              "id": "DAY_ROOM_LOWEST_PRICE_AVG",
+              "title": "引流价",
+              "value": "93.60",
+              "unit": null,
+              "suffix": "元",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "4.99%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "8/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "142.61",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "EXPOSE_PV_CNT",
+              "title": "曝光量",
+              "value": "562",
+              "unit": null,
+              "suffix": "次",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "+",
+                    "35.75%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "8/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "821.45",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "INTENTION_UV",
+              "title": "浏览人数",
+              "value": "41",
+              "unit": null,
+              "suffix": "人",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "+",
+                    "41.38%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "8/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "82.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "PAY_ORDER_CNT_UV",
+              "title": "支付转化率",
+              "value": "0.00",
+              "suffix": "%",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "6.90%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "1/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "0.00"
+                }
+              ]
+            },
+            {
+              "id": "PAY_ORDER_CNT",
+              "title": "支付订单数",
+              "value": "0",
+              "unit": null,
+              "suffix": "单",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "100.00%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "1/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "0.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "PAY_ROOMNIGHT",
+              "title": "销售间夜",
+              "value": "0",
+              "unit": null,
+              "suffix": "间夜",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "100.00%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "1/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "0.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "PAY_ADR",
+              "title": "销售均价",
+              "value": "0.00",
+              "unit": null,
+              "suffix": "元",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "100.00%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "1/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "0.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "PAY_AMT",
+              "title": "销售额",
+              "value": "0.00",
+              "unit": null,
+              "suffix": "元",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "-",
+                    "100.00%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "1/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "0.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "CONSUME_ROOMNIGHT_SPLIT_EX_7DAYS_REFUND",
+              "title": "入住间夜",
+              "value": "7",
+              "unit": null,
+              "suffix": "间夜",
+              "extAttrs": [
+                {
+                  "key": "COMPARE",
+                  "name": "较上周",
+                  "values": [
+                    "+",
+                    "250.00%"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "7/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "13.0",
+                  "unit": null
+                }
+              ]
+            },
+            {
+              "id": "NOT_AVAILABLE_REAL_ROOM_RATE",
+              "title": "满房率",
+              "value": "0.00",
+              "suffix": "%",
+              "extAttrs": [
+                {
+                  "key": "TEXT",
+                  "name": "较上周",
+                  "values": [
+                    "-"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行排名",
+                  "values": [
+                    "10/11"
+                  ]
+                },
+                {
+                  "key": "TEXT",
+                  "name": "同行均值",
+                  "values": "16.00"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "url_hash": "c22b12d8959d19f7793b6cc085a7dec90478e109b4270cd5952d57969065c6da",
+      "source_trace_id": "meituan:36a771c81956ff81895f99007397f90c1b603ab8d4538c05b4585f1f62817679",
+      "section": "traffic",
+      "status": 200,
+      "row_count": 0,
+      "request_date_source": "",
+      "data": {
+        "data": {
+          "suggest": [
+            "参考搜索热词调整推广通关键词，投放更精准"
+          ],
+          "cards": [
+            {
+              "title": "我的酒店搜索关键词",
+              "itemList": [
+                {
+                  "name": "巢湖万达广场",
+                  "value": "11"
+                },
+                {
+                  "name": "酒店",
+                  "value": "7"
+                },
+                {
+                  "name": "电竞酒店",
+                  "value": "5"
+                },
+                {
+                  "name": "巢湖",
+                  "value": "4"
+                },
+                {
+                  "name": "骏怡连锁酒店（合肥巢湖万达广场太湖山路店）",
+                  "value": "4"
+                },
+                {
+                  "name": "巢湖东站",
+                  "value": "3"
+                },
+                {
+                  "name": "巢湖火车站",
+                  "value": "3"
+                },
+                {
+                  "name": "骏怡连锁酒店",
+                  "value": "3"
+                },
+                {
+                  "name": "宾馆",
+                  "value": "3"
+                },
+                {
+                  "name": "巢湖学院",
+                  "value": "2"
+                }
+              ]
+            },
+            {
+              "title": "同城热门搜索词",
+              "itemList": [
+                {
+                  "name": "电竞酒店",
+                  "value": "2557"
+                },
+                {
+                  "name": "酒店",
+                  "value": "2391"
+                },
+                {
+                  "name": "合肥南站",
+                  "value": "1192"
+                },
+                {
+                  "name": "电竞胶囊房",
+                  "value": "961"
+                },
+                {
+                  "name": "淮河路步行街",
+                  "value": "614"
+                },
+                {
+                  "name": "合肥融创乐园",
+                  "value": "584"
+                },
+                {
+                  "name": "钟点房",
+                  "value": "557"
+                },
+                {
+                  "name": "合肥站",
+                  "value": "554"
+                },
+                {
+                  "name": "汉庭",
+                  "value": "443"
+                },
+                {
+                  "name": "青旅",
+                  "value": "442"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "success",
+        "status": 0
+      }
+    },
+    {
+      "url_hash": "6ee9ac9e7bbf9d7d2fbbc07a3d842fb997fb235db3c2a6b3f6d9bf8c825037ea",
+      "source_trace_id": "meituan:2e639675dfdd364698a593db41971cf25033acdb71cde7b278ccdadcf6c7b360",
+      "section": "traffic",
+      "capture_section": "traffic",
+      "endpoint_id": "dom.traffic.home_summary",
+      "endpoint_label": "dom_visible_metric_evidence",
+      "status": 200,
+      "row_count": 1,
+      "request_date_source": "response.rtDataUpdateTime"
+    }
+  ],
+  "reviews": [],
+  "traffic": [
+    {
+      "_capture_source": "xhr:traffic:metric_cards",
+      "_source_path": "data.cards",
+      "_meituan_card_metric_sources": {
+        "list_exposure": {
+          "card_id": "EXPOSE_PV_CNT",
+          "source_path": "data.cards.1.value"
+        },
+        "detail_exposure": {
+          "card_id": "INTENTION_UV",
+          "source_path": "data.cards.2.value"
+        },
+        "flow_rate": {
+          "card_id": "PAY_ORDER_CNT_UV",
+          "source_path": "data.cards.3.value"
+        },
+        "order_submit_num": {
+          "card_id": "PAY_ORDER_CNT",
+          "source_path": "data.cards.4.value"
+        }
+      },
+      "_meituan_card_metric_missing": [],
+      "_meituan_cards": [
+        {
+          "id": "DAY_ROOM_LOWEST_PRICE_AVG",
+          "title": "引流价",
+          "value_state": "present"
+        },
+        {
+          "id": "EXPOSE_PV_CNT",
+          "title": "曝光量",
+          "value_state": "present"
+        },
+        {
+          "id": "INTENTION_UV",
+          "title": "浏览人数",
+          "value_state": "present"
+        },
+        {
+          "id": "PAY_ORDER_CNT_UV",
+          "title": "支付转化率",
+          "value_state": "present"
+        },
+        {
+          "id": "PAY_ORDER_CNT",
+          "title": "支付订单数",
+          "value_state": "present"
+        },
+        {
+          "id": "PAY_ROOMNIGHT",
+          "title": "销售间夜",
+          "value_state": "present"
+        },
+        {
+          "id": "PAY_ADR",
+          "title": "销售均价",
+          "value_state": "present"
+        },
+        {
+          "id": "PAY_AMT",
+          "title": "销售额",
+          "value_state": "present"
+        },
+        {
+          "id": "CONSUME_ROOMNIGHT_SPLIT_EX_7DAYS_REFUND",
+          "title": "入住间夜",
+          "value_state": "present"
+        },
+        {
+          "id": "NOT_AVAILABLE_REAL_ROOM_RATE",
+          "title": "满房率",
+          "value_state": "present"
+        }
+      ],
+      "listExposure": 562,
+      "list_exposure": 562,
+      "detailExposure": 41,
+      "detail_exposure": 41,
+      "flowRate": 0,
+      "flow_rate": 0,
+      "orderSubmitNum": 0,
+      "order_submit_num": 0,
+      "dataDate": "2026-06-15",
+      "date_source": "data.cards.rtDataUpdateTime",
+      "orderFillingNum": 0,
+      "order_filling_num": 0,
+      "_order_filling_source_policy": "meituan_metric_cards_no_separate_order_filling_step_pay_order_count_used",
+      "storeId": "739212829",
+      "store_id": "739212829",
+      "capture_evidence": {
+        "source_path": "data.cards",
+        "capture_source": "xhr:traffic:metric_cards",
+        "section": "traffic",
+        "source_url_hash": "88ab8d8a31466d244beaacde03b3e2c5b9389123f8207e12da2f4c97f00c7e35",
+        "source_trace_id": "meituan:479c11e522ccdc0df7041d154dd1cea395e83efb4c4f946d72019d901c7351f5"
+      },
+      "source_trace_id": "meituan:479c11e522ccdc0df7041d154dd1cea395e83efb4c4f946d72019d901c7351f5",
+      "source_url_hash": "88ab8d8a31466d244beaacde03b3e2c5b9389123f8207e12da2f4c97f00c7e35"
+    },
+    {
+      "_capture_source": "dom:traffic:home_summary",
+      "_source_path": "dom.traffic.home_summary",
+      "_dom_text": "门店 骏怡连锁酒店（合肥巢湖万达广 ... 骏怡连锁酒店（合肥巢湖万达广 ... *每日9点更新前日数据。数据仅作经营参考，不作结算依据 同行管理 进阶经营数据 综合数据分析 同行榜单排名 首页 同行分析 交易分析 流量分析 营销热点 人群分析 服务分析 流量转化漏斗 今日实时 昨日 近7天 近30天 自定义 ~ 设置足够低的引流房，可以吸引更多价格敏感用户 我的酒店 同行均值 曝光人数 浏览人数 支付订单数 449 888 41 86 - - 曝光-浏览 转化率 9.13%9.68% 浏览-支付 转化率 0.00%0.00% 流量来源 整体曝光 = 非广告曝光 + 广告曝光 昨日 近7天 近30天 自定义 ~ 历史订单越多，越容易获得流量 流量类型 曝光量 占比 操作 整体曝光 562 非广告曝光 562 100% 查看提升方案 广告曝光 0 0% 去推广 非广告曝光广告曝光 流量趋势数据 今日实时 昨日 近7天 近30天 自定义 ~ 支付转化率下降，报名首住专享，吸引新用户下单 曝光人数 449人 较上周 22.01% 同行排名 8/11 浏览人数 41人 较上周 41.38% 同行排名 8/11 支付订单数 0单 较上周 100.00% 同行排名 11/11 曝光-浏览转化率 9.13% 较上周 1.25% 同行排名 7/11 浏览-支付转化率 0.00% 较上周 6.90% 同行排名 11/11 流失分析 昨日酒店流失情况 看看同行合作的项目，了解并报名获更多订单 排名 酒店 距离 合作项目 抢单总数 抢单最多房型 1 城小***店 3-5公里 获客宝 推广通 2 智能影音***房(抢2单) 2 艾美***店 5公里以上 获客宝 推广通 2 轻奢助眠***房(抢1单) 3 如家***店 1公里以内 获客宝 推广通 2 榻榻米房***房(抢2单) 未来30天流量 查看近期热点事件 了解未来30天流量，抓住未来流量高峰 详情页浏览量（PV）详情页浏览人数（UV）提前订订单量 搜索关键词 昨日搜索热词 去推广通设置关键词 参考搜索热词调整推广通关键词，投放更精准",
+      "listExposure": 9.13,
+      "detailExposure": 41,
+      "flowRate": 449.07,
+      "orderFillingNum": 0,
+      "orderSubmitNum": 0,
+      "_order_filling_source_policy": "meituan_home_summary_no_separate_order_filling_step_pay_order_count_used",
+      "_order_submit_source_label": "pay_order_count",
+      "dataDate": "2026-06-15",
+      "date_source": "response.rtDataUpdateTime",
+      "storeId": "739212829",
+      "store_id": "739212829",
+      "capture_evidence": {
+        "source_path": "dom.traffic.home_summary",
+        "capture_source": "dom:traffic:home_summary",
+        "section": "traffic",
+        "source_url_hash": "6ee9ac9e7bbf9d7d2fbbc07a3d842fb997fb235db3c2a6b3f6d9bf8c825037ea",
+        "source_trace_id": "meituan:2e639675dfdd364698a593db41971cf25033acdb71cde7b278ccdadcf6c7b360"
+      },
+      "source_trace_id": "meituan:2e639675dfdd364698a593db41971cf25033acdb71cde7b278ccdadcf6c7b360",
+      "source_url_hash": "6ee9ac9e7bbf9d7d2fbbc07a3d842fb997fb235db3c2a6b3f6d9bf8c825037ea"
+    }
+  ],
+  "ads": [],
+  "orders": [],
+  "screenshots": [
+    {
+      "name": "traffic",
+      "path": "D:\\桌面\\SUXIOS\\宿析OS初始版\\HOTEL\\reports\\meituan_capture_assets\\739212829_traffic_20260614223959.png"
+    },
+    {
+      "name": "newTraffic",
+      "path": "D:\\桌面\\SUXIOS\\宿析OS初始版\\HOTEL\\reports\\meituan_capture_assets\\739212829_newTraffic_20260614224007.png"
+    }
+  ],
+  "cookie_injection": {
+    "attempted": false,
+    "injected_count": 0,
+    "domains": []
+  },
+  "auth_status": {
+    "ok": true,
+    "status": "logged_in",
+    "url": "https://me.meituan.com/ebooking/merchant/comment-manage-react#/home",
+    "message": "Meituan profile is logged in."
+  },
+  "capture_gate": {
+    "status": "pass",
+    "failed_check_ids": [],
+    "section_counts": {
+      "traffic": 2,
+      "orders": 0,
+      "ads": 0,
+      "reviews": 0
+    },
+    "response_count": 8,
+    "captured_response_count": 3,
+    "requested_sections": [
+      "traffic"
+    ]
+  }
+}

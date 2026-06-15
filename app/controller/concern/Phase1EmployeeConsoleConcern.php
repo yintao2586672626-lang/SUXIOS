@@ -99,6 +99,273 @@ trait Phase1EmployeeConsoleConcern
         return $rows;
     }
 
+    private function phase1SourceDateEvidenceStatus(array $platforms): string
+    {
+        $platformCount = 0;
+        $coveredCount = 0;
+        foreach ($platforms as $platform) {
+            if (!is_array($platform) || trim((string)($platform['platform'] ?? '')) === '') {
+                continue;
+            }
+            $platformCount++;
+            if ((int)($platform['target_date_rows'] ?? 0) > 0) {
+                $coveredCount++;
+            }
+        }
+        if ($platformCount === 0 || $coveredCount === 0) {
+            return 'target_date_missing';
+        }
+        return $coveredCount === $platformCount ? 'target_date_complete' : 'target_date_partial';
+    }
+
+    private function buildCollectionSourceDateEvidence(?int $hotelId, string $targetDate): array
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        $required = ['source', 'data_date'];
+        foreach ($required as $field) {
+            if (!isset($columns[$field])) {
+                return [
+                    'status' => 'unavailable',
+                    'target_date' => $targetDate,
+                    'source_policy' => 'read_online_daily_data_aggregate_only',
+                    'reason' => 'online_daily_data_column_missing:' . $field,
+                    'platforms' => [],
+                ];
+            }
+        }
+
+        $platforms = [];
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $platforms[] = $this->buildCollectionSourceDateEvidenceForPlatform($platform, $hotelId, $targetDate, $columns);
+        }
+
+        $targetRows = array_sum(array_map(static fn(array $row): int => (int)($row['target_date_rows'] ?? 0), $platforms));
+        $status = $this->phase1SourceDateEvidenceStatus($platforms);
+        return [
+            'status' => $status,
+            'legacy_status' => $targetRows > 0 ? 'target_date_present' : 'target_date_missing',
+            'target_date' => $targetDate,
+            'source_policy' => 'read_online_daily_data_aggregate_only',
+            'protected_boundary' => '不改变携程/美团手动或自动获取逻辑，不改变获取字段和字段映射；历史或未来日期数据不能替代目标日证据。',
+            'summary' => [
+                'target_date_rows' => $targetRows,
+                'coverage_status' => $status,
+                'platform_count' => count($platforms),
+                'missing_platforms' => array_values(array_map(
+                    static fn(array $row): string => (string)$row['platform'],
+                    array_filter($platforms, static fn(array $row): bool => (int)($row['target_date_rows'] ?? 0) === 0)
+                )),
+            ],
+            'platforms' => $platforms,
+        ];
+    }
+
+    private function buildCollectionSourceDateEvidenceForPlatform(string $platform, ?int $hotelId, string $targetDate, array $columns): array
+    {
+        $targetQuery = Db::name('online_daily_data')->whereIn('source', $this->collectionSourceAliases($platform))->where('data_date', $targetDate);
+        if (!$this->applyCollectionHotelScope($targetQuery, $hotelId, $columns)) {
+            return [
+                'platform' => $platform,
+                'target_date' => $targetDate,
+                'target_date_rows' => 0,
+                'target_date_data_types' => [],
+                'latest_available' => null,
+                'date_relation' => 'scope_denied',
+            ];
+        }
+        $targetRows = (int)$targetQuery->count();
+        $targetTypes = [];
+        if (isset($columns['data_type'])) {
+            $targetTypeQuery = Db::name('online_daily_data')
+                ->field('data_type')
+                ->whereIn('source', $this->collectionSourceAliases($platform))
+                ->where('data_date', $targetDate)
+                ->group('data_type')
+                ->order('data_type', 'asc');
+            if ($this->applyCollectionHotelScope($targetTypeQuery, $hotelId, $columns)) {
+                $targetTypes = array_values(array_filter(array_map(
+                    static fn(array $row): string => (string)($row['data_type'] ?? ''),
+                    $targetTypeQuery->select()->toArray()
+                ), static fn(string $value): bool => $value !== ''));
+            }
+        }
+
+        $latestQuery = Db::name('online_daily_data')
+            ->field('MAX(data_date) AS latest_data_date')
+            ->whereIn('source', $this->collectionSourceAliases($platform));
+        if (!$this->applyCollectionHotelScope($latestQuery, $hotelId, $columns)) {
+            return [
+                'platform' => $platform,
+                'target_date' => $targetDate,
+                'target_date_rows' => $targetRows,
+                'target_date_data_types' => $targetTypes,
+                'latest_available' => null,
+                'date_relation' => 'scope_denied',
+            ];
+        }
+        $latestRow = $latestQuery->find();
+        $latestDate = (string)($latestRow['latest_data_date'] ?? '');
+        $latestCount = 0;
+        $latestTypes = [];
+        if ($latestDate !== '') {
+            $latestCountQuery = Db::name('online_daily_data')->whereIn('source', $this->collectionSourceAliases($platform))->where('data_date', $latestDate);
+            if ($this->applyCollectionHotelScope($latestCountQuery, $hotelId, $columns)) {
+                $latestCount = (int)$latestCountQuery->count();
+            }
+            if (isset($columns['data_type'])) {
+                $typeQuery = Db::name('online_daily_data')
+                    ->field('data_type')
+                    ->whereIn('source', $this->collectionSourceAliases($platform))
+                    ->where('data_date', $latestDate)
+                    ->group('data_type')
+                    ->order('data_type', 'asc');
+                if ($this->applyCollectionHotelScope($typeQuery, $hotelId, $columns)) {
+                    $latestTypes = array_values(array_filter(array_map(
+                        static fn(array $row): string => (string)($row['data_type'] ?? ''),
+                        $typeQuery->select()->toArray()
+                    ), static fn(string $value): bool => $value !== ''));
+                }
+            }
+        }
+
+        return [
+            'platform' => $platform,
+            'target_date' => $targetDate,
+            'target_date_rows' => $targetRows,
+            'target_date_data_types' => $targetTypes,
+            'latest_available' => $latestDate !== '' ? [
+                'date' => $latestDate,
+                'rows' => $latestCount,
+                'data_types' => $latestTypes,
+            ] : null,
+            'date_relation' => $this->collectionDateRelation($targetDate, $latestDate),
+        ];
+    }
+
+    private function collectionSourceAliases(string $platform): array
+    {
+        return match (strtolower($platform)) {
+            'ctrip' => ['ctrip', 'ctrip_business', 'ctrip_manual_overview', 'ctrip_browser_profile'],
+            'meituan' => ['meituan', 'meituan_rank', 'meituan_business', 'meituan_browser_profile'],
+            default => [$platform],
+        };
+    }
+
+    private function collectionDateRelation(string $targetDate, string $latestDate): string
+    {
+        if ($latestDate === '') {
+            return 'none';
+        }
+        if ($latestDate === $targetDate) {
+            return 'target_date';
+        }
+        return strcmp($latestDate, $targetDate) > 0 ? 'future_dated_for_target' : 'stale_before_target';
+    }
+
+    private function withPhase1EmployeeQuestions(array $reliability): array
+    {
+        $reliability['phase1_revenue_metric_evidence'] = $this->phase1RevenueMetricEvidence($reliability);
+        $reliability['phase1_operation_execution_evidence'] = $this->phase1OperationExecutionEvidence($reliability);
+        $rows = $this->buildPhase1EmployeeQuestionRows($reliability);
+        $nextRequiredActions = $this->buildPhase1NextRequiredActions($rows);
+        $rows = $this->withPhase1EmployeeQuestionActionCodes($rows, $nextRequiredActions);
+        $collectionSourceSummary = $this->phase1CollectionSourceSummary($reliability);
+        $closureSummary = $this->phase1EmployeeClosureSummary($rows, $nextRequiredActions, $collectionSourceSummary, $reliability);
+        $reliability['collection_source_summary'] = $collectionSourceSummary;
+
+        $reliability['phase1_employee_questions'] = [
+            'scope' => [
+                'metric_scope' => 'ota_channel',
+                'hotel_id' => $reliability['hotel_id'] ?? null,
+                'period' => $reliability['period'] ?? [],
+                'mode' => $reliability['mode'] ?? 'full',
+            ],
+            'source_policy' => 'read_existing_collection_reliability_only',
+            'protected_boundary' => 'Do not change Ctrip/Meituan manual or automatic acquisition logic, fields, mappings, or storage; do not generate conclusive operating conclusions when evidence is insufficient.',
+            'collection_source_summary' => $collectionSourceSummary,
+            'revenue_metric_evidence' => $reliability['phase1_revenue_metric_evidence'] ?? [],
+            'operation_execution_evidence' => $reliability['phase1_operation_execution_evidence'] ?? [],
+            'rows' => $rows,
+            'next_required_actions' => $nextRequiredActions,
+            'summary' => $closureSummary,
+            'closure_summary' => $closureSummary,
+        ];
+
+        return $reliability;
+    }
+
+    private function phase1EmployeeClosureSummary(array $rows, array $nextRequiredActions, array $collectionSourceSummary, array $reliability): array
+    {
+        $provedRows = array_values(array_filter($rows, static fn(array $row): bool => ($row['status'] ?? '') === 'proved'));
+        $missingRows = array_values(array_filter($rows, static fn(array $row): bool => ($row['status'] ?? '') !== 'proved'));
+        $topAction = null;
+        foreach ($nextRequiredActions as $action) {
+            if (!is_array($action)) {
+                continue;
+            }
+            if ((string)($action['status'] ?? '') !== 'blocked') {
+                $topAction = $action;
+                break;
+            }
+            $topAction ??= $action;
+        }
+        $topActionEntryOptions = array_values(array_filter(array_map(
+            static function ($option): ?array {
+                if (!is_array($option)) {
+                    return null;
+                }
+                $entry = (string)($option['entry'] ?? '');
+                if ($entry === '') {
+                    return null;
+                }
+                $entryOption = [
+                    'mode' => (string)($option['mode'] ?? $option['type'] ?? ''),
+                    'label' => (string)($option['label'] ?? ''),
+                    'entry' => $entry,
+                    'use_when' => (string)($option['use_when'] ?? ''),
+                    'requires' => (string)($option['requires'] ?? ''),
+                    'boundary' => (string)($option['boundary'] ?? ''),
+                ];
+                if (is_array($option['readiness'] ?? null)) {
+                    $entryOption['readiness'] = $option['readiness'];
+                }
+                return $entryOption;
+            },
+            (array)($topAction['entry_options'] ?? [])
+        )));
+        $topActionSourceSnapshot = $this->phase1TopActionSourceSnapshot($topAction, $collectionSourceSummary);
+
+        return [
+            'status' => $missingRows === [] ? 'complete' : 'incomplete',
+            'metric_scope' => 'ota_channel',
+            'employee_question_count' => count($rows),
+            'proved_count' => count($provedRows),
+            'missing_count' => count($missingRows),
+            'missing_questions' => array_values(array_map(static fn(array $row): string => (string)$row['question'], $missingRows)),
+            'missing_question_keys' => array_values(array_map(static fn(array $row): string => (string)$row['key'], $missingRows)),
+            'collection_source_platform_count' => count($collectionSourceSummary),
+            'operation_evidence_status' => (string)($reliability['phase1_operation_execution_evidence']['operation_evidence_status'] ?? 'missing'),
+            'next_action_count' => count($nextRequiredActions),
+            'high_priority_action_count' => count(array_filter($nextRequiredActions, static fn(array $row): bool => ($row['priority'] ?? '') === 'high')),
+            'top_action_code' => (string)($topAction['action_code'] ?? ''),
+            'top_action' => (string)($topAction['action'] ?? ''),
+            'top_action_entry' => (string)($topAction['entry'] ?? ''),
+            'top_action_entry_options' => $topActionEntryOptions,
+            'top_action_success_criteria' => (string)($topAction['success_criteria'] ?? ''),
+            'top_action_status' => (string)($topAction['status'] ?? ''),
+            'top_action_priority' => (string)($topAction['priority'] ?? ''),
+            'top_action_owner' => (string)($topAction['owner'] ?? ''),
+            'top_action_related_question_keys' => array_values(array_filter(array_map('strval', (array)($topAction['related_question_keys'] ?? [])))),
+            'top_action_resolves_missing_codes' => array_values(array_filter(array_map('strval', (array)($topAction['resolves_missing_codes'] ?? [])))),
+            'top_action_live_closure_gap_codes' => array_values(array_filter(array_map('strval', (array)($topAction['live_closure_gap_codes'] ?? [])))),
+            'top_action_blocked_by_action_codes' => array_values(array_filter(array_map('strval', (array)($topAction['blocked_by_action_codes'] ?? [])))),
+            'top_action_source_snapshot' => $topActionSourceSnapshot,
+            'source_policy' => 'read_existing_phase1_employee_question_rows_only',
+            'reference_policy' => 'latest_available_and_history_rows_are_reference_only_not_target_date_proof',
+            'protected_boundary' => 'Do not change Ctrip/Meituan manual or automatic acquisition logic, fields, mappings, or storage; do not generate conclusive operating conclusions when evidence is insufficient.',
+        ];
+    }
+
     private function phase1RevenueMetricEvidence(array $reliability): array
     {
         foreach (['revenue_metric_evidence', 'phase1_revenue_metric_evidence'] as $key) {
@@ -1737,7 +2004,7 @@ trait Phase1EmployeeConsoleConcern
         if (!in_array($platform, ['ctrip', 'meituan'], true)) {
             return 0;
         }
-        $pattern = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . $platform . '_profile_*';
+        $pattern = dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . $platform . '_profile_*';
         $dirs = glob($pattern, GLOB_ONLYDIR);
         return is_array($dirs) ? count($dirs) : 0;
     }
@@ -2395,6 +2662,44 @@ trait Phase1EmployeeConsoleConcern
         ];
     }
 
+    private function phase1P0TrafficPayloadCandidatePath(string $platform, string $targetDate, int $systemHotelId): string
+    {
+        $platform = strtolower(trim($platform));
+        $targetDate = trim($targetDate);
+        if (!in_array($platform, ['ctrip', 'meituan'], true) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) || $systemHotelId <= 0) {
+            return '';
+        }
+
+        return 'reports/p0_traffic_' . $platform . '_' . $systemHotelId . '_' . str_replace('-', '', $targetDate) . '.json';
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function phase1P0TrafficPayloadCandidate(string $platform, string $targetDate, int $systemHotelId): array
+    {
+        $payloadPath = $this->phase1P0TrafficPayloadCandidatePath($platform, $targetDate, $systemHotelId);
+        if ($payloadPath === '') {
+            return [
+                'status' => 'system_hotel_id_missing',
+                'ready_to_execute' => false,
+                'payload_path' => '',
+                'issue_codes' => ['system_hotel_id_missing'],
+            ];
+        }
+
+        $root = dirname(__DIR__, 3);
+        $absolutePayloadPath = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $payloadPath);
+        $present = is_file($absolutePayloadPath);
+
+        return [
+            'status' => $present ? 'expected_payload_present_unverified' : 'missing_expected_payload',
+            'ready_to_execute' => false,
+            'payload_path' => $payloadPath,
+            'issue_codes' => $present ? ['payload_file_present_requires_importer_dry_run'] : ['expected_payload_file_missing'],
+        ];
+    }
+
     private function phase1TrafficSourceReadiness(array $metricDomainReadiness): array
     {
         $platforms = [];
@@ -2486,6 +2791,15 @@ trait Phase1EmployeeConsoleConcern
             'p0_pre_import_evidence_status' => 'not_provided',
             'p0_pre_import_evidence_policy' => 'External traffic evidence is source proof only; P0 closure still requires target-date traffic rows and ready verifier status.',
             'p0_traffic_field_fact_status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'no_target_date_traffic_rows',
+            'p0_payload_candidate_policy' => 'ui_metadata_only_no_import',
+            'p0_payload_candidate_payload_policy' => 'path_metadata_only_no_payload_content',
+            'p0_payload_candidate_storage_policy' => 'does_not_write_online_daily_data',
+            'p0_payload_candidate_status_counts' => [],
+            'p0_payload_candidate_ready_count' => 0,
+            'p0_payload_candidate_missing_count' => 0,
+            'p0_payload_candidate_unverified_count' => 0,
+            'p0_payload_candidate_paths' => [],
+            'p0_payload_candidate_issue_codes' => [],
             'p0_required_metric_keys' => $requiredMetricKeys,
             'p0_required_storage_fields' => $requiredStorageFields,
             'p0_required_field_fact_keys' => $requiredFieldFactKeys,
@@ -2564,6 +2878,29 @@ trait Phase1EmployeeConsoleConcern
             $config = is_array($config) ? $config : [];
             if (($config['registered_by'] ?? '') === 'p0_ota_field_loop') {
                 $base['traffic_managed_count']++;
+                $candidate = $this->phase1P0TrafficPayloadCandidate($platform, $targetDate, (int)($row['system_hotel_id'] ?? 0));
+                $candidateStatus = (string)($candidate['status'] ?? '');
+                if ($candidateStatus !== '') {
+                    $base['p0_payload_candidate_status_counts'][$candidateStatus] = ((int)($base['p0_payload_candidate_status_counts'][$candidateStatus] ?? 0)) + 1;
+                }
+                if (!empty($candidate['ready_to_execute'])) {
+                    $base['p0_payload_candidate_ready_count']++;
+                }
+                if ($candidateStatus === 'missing_expected_payload') {
+                    $base['p0_payload_candidate_missing_count']++;
+                }
+                if ($candidateStatus === 'expected_payload_present_unverified') {
+                    $base['p0_payload_candidate_unverified_count']++;
+                }
+                if (($candidate['payload_path'] ?? '') !== '') {
+                    $base['p0_payload_candidate_paths'][] = (string)$candidate['payload_path'];
+                }
+                foreach ((array)($candidate['issue_codes'] ?? []) as $issueCode) {
+                    $issueCode = trim((string)$issueCode);
+                    if ($issueCode !== '') {
+                        $base['p0_payload_candidate_issue_codes'][] = $issueCode;
+                    }
+                }
             }
             $secret = json_decode((string)($row['secret_json'] ?? ''), true);
             if (is_array($secret) ? $secret !== [] : trim((string)($row['secret_json'] ?? '')) !== '') {
@@ -2573,6 +2910,9 @@ trait Phase1EmployeeConsoleConcern
 
         ksort($lastSyncCounts);
         $base['traffic_last_sync_status_counts'] = $lastSyncCounts;
+        ksort($base['p0_payload_candidate_status_counts']);
+        $base['p0_payload_candidate_paths'] = array_values(array_unique($base['p0_payload_candidate_paths']));
+        $base['p0_payload_candidate_issue_codes'] = array_values(array_unique($base['p0_payload_candidate_issue_codes']));
         $trafficRows = (int)$base['target_date_traffic_rows'];
         if ($trafficRows > 0) {
             $base['status'] = 'target_date_traffic_ready';

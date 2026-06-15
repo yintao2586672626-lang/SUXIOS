@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-06-15T00:55:23.567Z",
+  "command": "npm run review:release-readiness",
+  "status": "failed",
+  "summary": {
+    "passed": 13,
+    "warnings": 3,
+    "failures": 2
+  },
+  "passes": [
+    "APP_DEBUG is false.",
+    "APP_TRACE is false.",
+    "AI_CONFIG_SECRET is present with sufficient length.",
+    "DB_PASS is non-empty.",
+    "Production AI client path is LlmClient with encrypted database model configs.",
+    "Production LLM connectivity attestation is present and passed.",
+    "database/backups is listed in .gitignore.",
+    "database/backups is excluded from git archive exports.",
+    "No OTA credential-shaped fields were found in database/backups text files.",
+    "Release package sensitive-path ignore rules are present.",
+    "Formal Codex Security scan reports and core coverage artifacts are present.",
+    "GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, non-security review, and release-status contracts.",
+    ".git/index.lock is absent."
+  ],
+  "warnings": [
+    "Run `git ls-files database/backups` outside this script to confirm no backup file is tracked.",
+    "Confirm GitHub Actions ran `composer audit --no-interaction` and `npm audit --audit-level=moderate` on the current PR head.",
+    "Run `git status --short --branch` before release; local cleanliness is intentionally verified outside this script."
+  ],
+  "failures": [
+    "Design handoff manifest was not found: docs/design_handoff_manifest.json. Set DESIGN_HANDOFF_MANIFEST_FILE to a controlled manifest JSON before release. Standalone design-token files or screenshots do not prove Figma/Canva source handoff.",
+    "OTA credential rotation attestation was not found: docs/ota_credential_rotation_attestation.json. Set OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE to a controlled attestation JSON before release."
+  ]
+}

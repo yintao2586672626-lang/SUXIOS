@@ -331,6 +331,7 @@ function p0_import_payload_scope_issues(array $payload, string $platform, int $s
     $authStatus = is_array($payload['auth_status'] ?? null) ? (array)$payload['auth_status'] : [];
     $captureGate = is_array($payload['capture_gate'] ?? null) ? (array)$payload['capture_gate'] : [];
     $gateMode = strtolower(trim((string)($captureGate['mode'] ?? '')));
+    $authOk = false;
     if ($payloadMode === 'login_only' || $gateMode === 'login_only') {
         $issues[] = [
             'code' => 'browser_capture_login_only_not_importable',
@@ -361,15 +362,75 @@ function p0_import_payload_scope_issues(array $payload, string $platform, int $s
             'message' => 'Browser capture output must include capture_gate before traffic import.',
         ];
     } elseif (strtolower(trim((string)($captureGate['status'] ?? ''))) !== 'pass') {
+        $failedCheckIds = p0_import_capture_gate_failed_check_ids($captureGate);
+        $blockingFailedCheckIds = p0_import_capture_gate_blocking_failed_check_ids($failedCheckIds);
+        if ($authOk && $failedCheckIds !== [] && $blockingFailedCheckIds === []) {
+            return $issues;
+        }
         $issues[] = [
             'code' => 'browser_capture_gate_not_pass',
             'message' => 'Browser capture gate did not pass; failed capture output cannot be imported.',
             'capture_gate_status' => (string)($captureGate['status'] ?? 'unknown'),
-            'failed_check_ids' => array_values(array_filter((array)($captureGate['failed_check_ids'] ?? []), 'is_scalar')),
+            'failed_check_ids' => $failedCheckIds,
+            'blocking_failed_check_ids' => $blockingFailedCheckIds,
         ];
     }
 
     return $issues;
+}
+
+/**
+ * @return array<int, string>
+ */
+function p0_import_capture_gate_failed_check_ids(array $captureGate): array
+{
+    return array_values(array_filter(array_map(
+        static fn($item): string => trim((string)$item),
+        array_filter((array)($captureGate['failed_check_ids'] ?? []), 'is_scalar')
+    ), static fn(string $item): bool => $item !== ''));
+}
+
+/**
+ * @param array<int, string> $failedCheckIds
+ * @return array<int, string>
+ */
+function p0_import_capture_gate_blocking_failed_check_ids(array $failedCheckIds): array
+{
+    $softCheckIds = ['field_coverage', 'endpoint_coverage'];
+    return array_values(array_filter(
+        $failedCheckIds,
+        static fn(string $checkId): bool => !in_array($checkId, $softCheckIds, true)
+    ));
+}
+
+/**
+ * @return array<int, array<string, mixed>>
+ */
+function p0_import_payload_warnings(array $payload): array
+{
+    if (!p0_import_payload_is_browser_capture($payload)) {
+        return [];
+    }
+    $captureGate = is_array($payload['capture_gate'] ?? null) ? (array)$payload['capture_gate'] : [];
+    if ($captureGate === [] || strtolower(trim((string)($captureGate['status'] ?? ''))) === 'pass') {
+        return [];
+    }
+    $authStatus = is_array($payload['auth_status'] ?? null) ? (array)$payload['auth_status'] : [];
+    $authOk = ($authStatus['ok'] ?? null) === true
+        || strtolower(trim((string)($authStatus['status'] ?? ''))) === 'logged_in';
+    $failedCheckIds = p0_import_capture_gate_failed_check_ids($captureGate);
+    $blockingFailedCheckIds = p0_import_capture_gate_blocking_failed_check_ids($failedCheckIds);
+    if (!$authOk || $failedCheckIds === [] || $blockingFailedCheckIds !== []) {
+        return [];
+    }
+
+    return [[
+        'code' => 'browser_capture_gate_soft_warning',
+        'message' => 'Browser capture gate has non-blocking endpoint/field coverage gaps; row-level date, source path, metric, capture evidence, and response evidence checks remain required before import.',
+        'capture_gate_status' => (string)($captureGate['status'] ?? 'unknown'),
+        'failed_check_ids' => $failedCheckIds,
+        'blocking_failed_check_ids' => $blockingFailedCheckIds,
+    ]];
 }
 
 function p0_import_safe_capture_evidence_value(mixed $value): string
@@ -610,6 +671,10 @@ function p0_import_fact_capture_evidence_matches_row(array $fact, string $rowSou
  */
 function p0_import_extract_rows(array $payload, string $platform): array
 {
+    if (isset($payload['traffic']) && is_array($payload['traffic'])) {
+        return array_values(array_filter($payload['traffic'], 'is_array'));
+    }
+
     if ($platform === 'ctrip') {
         return OnlineTrafficDataExtractionService::extractCtripTrafficRows($payload);
     }
@@ -1655,6 +1720,7 @@ try {
     $executePlan = p0_import_execute_plan($preparedExecute);
 
     $issues = p0_import_payload_scope_issues($payload, (string)$options['platform'], (int)$options['system-hotel-id']);
+    $warnings = p0_import_payload_warnings($payload);
     if ($sensitiveHits !== []) {
         $issues[] = [
             'code' => 'sensitive_payload_keys_detected',
@@ -1817,9 +1883,10 @@ try {
             'verifier_command' => 'npm.cmd run verify:p0-ota-field-loop -- --date=' . (string)$options['date'] . ' --platform=' . (string)$options['platform'] . ' --system-hotel-id=' . (int)$options['system-hotel-id'] . ' --traffic-evidence=<this-json-output>',
             'completion_policy' => 'External traffic_evidence validates desensitized source proof only; P0 closure still requires --execute import plus verify:p0-ota-field-loop target-date traffic rows.',
         ],
+        'warnings' => $warnings,
         'issues' => $issues,
         'completion_policy' => 'Import is only accepted as P0 closure after verify:p0-ota-field-loop proves target-date traffic rows and traffic field facts.',
-        'next_verifier_command' => 'npm.cmd run verify:p0-ota-field-loop -- --date=' . (string)$options['date'],
+        'next_verifier_command' => 'npm.cmd run verify:p0-ota-field-loop -- --date=' . (string)$options['date'] . ' --platform=' . (string)$options['platform'] . ' --system-hotel-id=' . (int)$options['system-hotel-id'],
     ], $executeResult);
 } catch (Throwable $e) {
     $result = [

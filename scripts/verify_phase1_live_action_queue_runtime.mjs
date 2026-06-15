@@ -177,6 +177,17 @@ function trafficSourceReadinessDigest(questionOrEvidence) {
       p0_pre_import_evidence_status: String(row?.p0_pre_import_evidence_status ?? ''),
       p0_pre_import_evidence_policy: String(row?.p0_pre_import_evidence_policy ?? ''),
       p0_traffic_field_fact_status: String(row?.p0_traffic_field_fact_status ?? ''),
+      p0_payload_candidate_policy: String(row?.p0_payload_candidate_policy ?? ''),
+      p0_payload_candidate_payload_policy: String(row?.p0_payload_candidate_payload_policy ?? ''),
+      p0_payload_candidate_storage_policy: String(row?.p0_payload_candidate_storage_policy ?? ''),
+      p0_payload_candidate_status_counts: Object.fromEntries(Object.entries(row?.p0_payload_candidate_status_counts ?? {})
+        .map(([key, value]) => [String(key), Number(value ?? 0)])
+        .sort(([left], [right]) => left.localeCompare(right))),
+      p0_payload_candidate_ready_count: Number(row?.p0_payload_candidate_ready_count ?? 0),
+      p0_payload_candidate_missing_count: Number(row?.p0_payload_candidate_missing_count ?? 0),
+      p0_payload_candidate_unverified_count: Number(row?.p0_payload_candidate_unverified_count ?? 0),
+      p0_payload_candidate_paths: sortedStrings(row?.p0_payload_candidate_paths),
+      p0_payload_candidate_issue_codes: sortedStrings(row?.p0_payload_candidate_issue_codes),
       p0_required_metric_keys: sortedStrings(row?.p0_required_metric_keys),
       p0_required_storage_fields: sortedStrings(row?.p0_required_storage_fields),
       p0_required_field_fact_keys: sortedStrings(row?.p0_required_field_fact_keys),
@@ -243,6 +254,62 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
     check(`${prefix} P0 pre-import evidence status is explicit`, ['not_provided', 'valid_external_evidence_not_ingested', 'valid_external_evidence_with_ingested_rows', 'external_evidence_not_valid'].includes(String(sourceRow?.p0_pre_import_evidence_status ?? '')), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 pre-import evidence policy stays separate from completion`, String(sourceRow?.p0_pre_import_evidence_policy ?? '').includes('source proof only') && String(sourceRow?.p0_pre_import_evidence_policy ?? '').includes('target-date traffic rows'), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 traffic field fact status is explicit`, ['no_target_date_traffic_rows', 'requires_p0_verifier'].includes(String(sourceRow?.p0_traffic_field_fact_status ?? '')), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload candidate policy is UI metadata only`, String(sourceRow?.p0_payload_candidate_policy ?? '') === 'ui_metadata_only_no_import', JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload candidate payload policy hides content`, String(sourceRow?.p0_payload_candidate_payload_policy ?? '') === 'path_metadata_only_no_payload_content', JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload candidate storage policy is read-only`, String(sourceRow?.p0_payload_candidate_storage_policy ?? '') === 'does_not_write_online_daily_data', JSON.stringify(sourceRow ?? {}));
+    const payloadCandidateCounts = sourceRow?.p0_payload_candidate_status_counts && typeof sourceRow.p0_payload_candidate_status_counts === 'object' && !Array.isArray(sourceRow.p0_payload_candidate_status_counts)
+      ? sourceRow.p0_payload_candidate_status_counts
+      : {};
+    const payloadCandidateAllowedStatuses = ['missing_expected_payload', 'expected_payload_present_unverified', 'system_hotel_id_missing'];
+    const payloadCandidateStatusKeys = Object.keys(payloadCandidateCounts);
+    check(`${prefix} P0 payload candidate status counts are explicit object`, sourceRow?.p0_payload_candidate_status_counts && typeof sourceRow.p0_payload_candidate_status_counts === 'object' && !Array.isArray(sourceRow.p0_payload_candidate_status_counts), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload candidate statuses stay known`, payloadCandidateStatusKeys.every((status) => payloadCandidateAllowedStatuses.includes(status)), JSON.stringify(payloadCandidateCounts));
+    check(`${prefix} P0 payload candidate counts are numeric`, ['p0_payload_candidate_ready_count', 'p0_payload_candidate_missing_count', 'p0_payload_candidate_unverified_count'].every((field) => Number.isFinite(Number(sourceRow?.[field] ?? 0))), JSON.stringify(sourceRow ?? {}));
+    const payloadCandidateStatusTotal = Object.values(payloadCandidateCounts).reduce((sum, value) => sum + Number(value || 0), 0);
+    const payloadCandidateMissingCount = Number(sourceRow?.p0_payload_candidate_missing_count ?? 0);
+    const payloadCandidateUnverifiedCount = Number(sourceRow?.p0_payload_candidate_unverified_count ?? 0);
+    const payloadCandidateReadyCount = Number(sourceRow?.p0_payload_candidate_ready_count ?? 0);
+    const payloadCandidatePaths = asArray(sourceRow?.p0_payload_candidate_paths).map((item) => String(item));
+    const payloadCandidateIssueCodes = asArray(sourceRow?.p0_payload_candidate_issue_codes).map((item) => String(item));
+    check(`${prefix} P0 payload candidate missing count matches status counts`, payloadCandidateMissingCount === Number(payloadCandidateCounts.missing_expected_payload || 0), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload candidate unverified count matches status counts`, payloadCandidateUnverifiedCount === Number(payloadCandidateCounts.expected_payload_present_unverified || 0), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload candidate path list is explicit array`, Array.isArray(sourceRow?.p0_payload_candidate_paths), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload candidate issue code list is explicit array`, Array.isArray(sourceRow?.p0_payload_candidate_issue_codes), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload candidate paths stay metadata-only`, payloadCandidatePaths.every((path) => /^reports\/p0_traffic_(ctrip|meituan)_\d+_\d{8}\.json$/.test(path)), JSON.stringify(payloadCandidatePaths));
+    check(`${prefix} P0 payload candidate paths expose no sensitive values`, payloadCandidatePaths.every((path) => !path.includes('://') && !path.toLowerCase().includes('cookie') && !path.toLowerCase().includes('token') && !path.toLowerCase().includes('profile')), JSON.stringify(payloadCandidatePaths));
+    check(`${prefix} P0 payload candidate issue codes are known`, payloadCandidateIssueCodes.every((code) => ['expected_payload_file_missing', 'payload_file_present_requires_importer_dry_run', 'system_hotel_id_missing'].includes(code)), JSON.stringify(payloadCandidateIssueCodes));
+    const payloadGateCounts = sourceRow?.p0_payload_candidate_gate_status_counts && typeof sourceRow.p0_payload_candidate_gate_status_counts === 'object' && !Array.isArray(sourceRow.p0_payload_candidate_gate_status_counts)
+      ? sourceRow.p0_payload_candidate_gate_status_counts
+      : {};
+    const payloadGateAuthCounts = sourceRow?.p0_payload_candidate_auth_status_counts && typeof sourceRow.p0_payload_candidate_auth_status_counts === 'object' && !Array.isArray(sourceRow.p0_payload_candidate_auth_status_counts)
+      ? sourceRow.p0_payload_candidate_auth_status_counts
+      : {};
+    const payloadGateFailedCheckIds = asArray(sourceRow?.p0_payload_candidate_gate_failed_check_ids).map((item) => String(item));
+    const payloadGateAllowedStatuses = ['not_loaded', 'invalid_json', 'capture_gate_missing', 'fail', 'pass', 'skipped'];
+    const payloadGateStatusTotal = Object.values(payloadGateCounts).reduce((sum, value) => sum + Number(value || 0), 0);
+    check(`${prefix} P0 payload gate policy hides response payload`, String(sourceRow?.p0_payload_candidate_gate_policy ?? '') === 'metadata_only_no_response_payload_content', JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload gate status counts are explicit object`, sourceRow?.p0_payload_candidate_gate_status_counts && typeof sourceRow.p0_payload_candidate_gate_status_counts === 'object' && !Array.isArray(sourceRow.p0_payload_candidate_gate_status_counts), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload gate statuses stay known`, Object.keys(payloadGateCounts).every((status) => payloadGateAllowedStatuses.includes(status)), JSON.stringify(payloadGateCounts));
+    check(`${prefix} P0 payload gate status count matches present payload candidates`, payloadGateStatusTotal === payloadCandidateUnverifiedCount, JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload gate failed check ids are explicit array`, Array.isArray(sourceRow?.p0_payload_candidate_gate_failed_check_ids), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload gate failed check ids stay non-sensitive`, payloadGateFailedCheckIds.every((id) => /^[a-z0-9_:-]+$/.test(id) && !id.includes('://') && !id.toLowerCase().includes('cookie') && !id.toLowerCase().includes('token') && !id.toLowerCase().includes('profile')), JSON.stringify(payloadGateFailedCheckIds));
+    check(`${prefix} P0 payload gate auth status counts are explicit object`, sourceRow?.p0_payload_candidate_auth_status_counts && typeof sourceRow.p0_payload_candidate_auth_status_counts === 'object' && !Array.isArray(sourceRow.p0_payload_candidate_auth_status_counts), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload gate auth statuses stay non-sensitive`, Object.keys(payloadGateAuthCounts).every((status) => /^[a-z0-9_:-]+$/.test(status) && !status.includes('://') && !status.toLowerCase().includes('cookie') && !status.toLowerCase().includes('token') && !status.toLowerCase().includes('profile')), JSON.stringify(payloadGateAuthCounts));
+    check(`${prefix} P0 payload gate counters are numeric`, ['p0_payload_candidate_response_count', 'p0_payload_candidate_captured_response_count', 'p0_payload_candidate_business_row_count'].every((field) => Number.isFinite(Number(sourceRow?.[field] ?? 0))), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 payload latest capture time is metadata-only`, !String(sourceRow?.p0_payload_candidate_latest_captured_at ?? '').includes('://') && !String(sourceRow?.p0_payload_candidate_latest_captured_at ?? '').toLowerCase().includes('cookie') && !String(sourceRow?.p0_payload_candidate_latest_captured_at ?? '').toLowerCase().includes('token'), JSON.stringify(sourceRow ?? {}));
+    if (Number(payloadGateCounts.fail || 0) > 0) {
+      check(`${prefix} failed P0 payload gate exposes failed check ids`, payloadGateFailedCheckIds.length > 0, JSON.stringify(sourceRow ?? {}));
+    }
+    if (Number(sourceRow?.traffic_managed_count ?? 0) > 0) {
+      check(`${prefix} P0 payload candidate status count matches managed P0 traffic sources`, payloadCandidateStatusTotal === Number(sourceRow?.traffic_managed_count ?? 0), JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} P0 payload candidate exposes issue code for managed sources`, payloadCandidateIssueCodes.length > 0, JSON.stringify(sourceRow ?? {}));
+    }
+    if (payloadCandidateMissingCount > 0) {
+      check(`${prefix} P0 payload candidate missing state exposes missing file issue`, payloadCandidateIssueCodes.includes('expected_payload_file_missing'), JSON.stringify(sourceRow ?? {}));
+    }
+    if (payloadCandidateUnverifiedCount > 0) {
+      check(`${prefix} P0 payload candidate present state still requires importer dry-run`, payloadCandidateReadyCount === 0 && payloadCandidateIssueCodes.includes('payload_file_present_requires_importer_dry_run'), JSON.stringify(sourceRow ?? {}));
+    }
     check(`${prefix} P0 required metric keys are explicit`, sameStringList(sourceRow?.p0_required_metric_keys, ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num']), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 required storage fields are explicit`, sameStringList(sourceRow?.p0_required_storage_fields, ['online_daily_data.list_exposure', 'online_daily_data.detail_exposure', 'online_daily_data.flow_rate', 'online_daily_data.order_filling_num', 'online_daily_data.order_submit_num']), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 required field fact keys are explicit`, sameStringList(sourceRow?.p0_required_field_fact_keys, ['capture_evidence', 'source_path', 'metric_key', 'storage_field', 'stored_value_present']), JSON.stringify(sourceRow ?? {}));

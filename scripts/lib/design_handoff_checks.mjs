@@ -29,7 +29,17 @@ function walkFiles(repoRoot, dir, warnings, output = []) {
   return output;
 }
 
-export function checkDesignHandoff({ repoRoot }) {
+function resolveInputPath(repoRoot, filePath) {
+  return path.isAbsolute(filePath) ? filePath : path.join(repoRoot, filePath);
+}
+
+function isPathInsideRepo(repoRoot, filePath) {
+  const resolved = resolveInputPath(repoRoot, filePath);
+  const relative = path.relative(repoRoot, resolved);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+export function checkDesignHandoff({ repoRoot, manifestPath = 'docs/design_handoff_manifest.json', requireOutsideRepo = false } = {}) {
   const failures = [];
   const warnings = [];
   const passes = [];
@@ -48,15 +58,17 @@ export function checkDesignHandoff({ repoRoot }) {
     'investment-decision',
   ];
   const matches = walkFiles(repoRoot, '.', warnings).filter((file) => designPatterns.some((pattern) => pattern.test(file)));
-  const manifestPath = 'docs/design_handoff_manifest.json';
-  const resolvedManifestPath = path.join(repoRoot, manifestPath);
+  const resolvedManifestPath = resolveInputPath(repoRoot, manifestPath);
 
   if (!fs.existsSync(resolvedManifestPath)) {
-    failures.push('Design handoff manifest was not found: docs/design_handoff_manifest.json. Standalone design-token files or screenshots do not prove Figma/Canva source handoff.');
+    failures.push(`Design handoff manifest was not found: ${manifestPath}. Set DESIGN_HANDOFF_MANIFEST_FILE to a controlled manifest JSON before release. Standalone design-token files or screenshots do not prove Figma/Canva source handoff.`);
     if (matches.length > 0) {
-      warnings.push(`Design source/token artifacts were found (${matches.length}), but docs/design_handoff_manifest.json is still required.`);
+      warnings.push(`Design source/token artifacts were found (${matches.length}), but a valid design handoff manifest is still required.`);
     }
     return { passes, warnings, failures };
+  }
+  if (requireOutsideRepo && isPathInsideRepo(repoRoot, manifestPath)) {
+    failures.push(`DESIGN_HANDOFF_MANIFEST_FILE must point to a controlled location outside the repository, not ${manifestPath}.`);
   }
 
   let manifest = null;

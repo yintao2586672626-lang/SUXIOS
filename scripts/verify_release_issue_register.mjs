@@ -153,6 +153,7 @@ if (evidenceChecklist) {
   for (const phrase of [
     'RELEASE_ENV_FILE',
     'LLM_CONNECTIVITY_ATTESTATION_FILE',
+    'DESIGN_HANDOFF_MANIFEST_FILE',
     'docs/design_handoff_manifest.json',
     'OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE',
     'CODEX_SECURITY_SCAN_DIR',

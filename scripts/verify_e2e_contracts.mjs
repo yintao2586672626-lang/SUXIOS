@@ -5,6 +5,15 @@ import vm from 'node:vm';
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const checks = [];
+const onlineDataConcernDir = path.join(root, 'app/controller/concern');
+const onlineDataConcernFiles = fs.existsSync(onlineDataConcernDir)
+  ? fs.readdirSync(onlineDataConcernDir)
+    .filter(file => file.endsWith('.php'))
+    .sort()
+    .map(file => `app/controller/concern/${file}`)
+  : [];
+const onlineDataControllerFiles = ['app/controller/OnlineData.php', ...onlineDataConcernFiles];
+const readOnlineDataControllerSource = () => onlineDataControllerFiles.map(read).join('\n');
 
 function requireText(file, needle, label) {
   const source = read(file);
@@ -583,13 +592,14 @@ requireText('app/controller/OnlineData.php', "'detail_loaded' => false", 'backen
       && source.includes("writeAutoFetchLightReadCache($cacheKey, array_values(array_filter($rows, 'is_array')))"),
     detail: 'light status reads should reuse recent config-list and browser-profile source reads without caching success/failure results',
   });
+  const onlineDataControllerSource = readOnlineDataControllerSource();
   checks.push({
-    file: 'app/controller/OnlineData.php',
+    file: onlineDataControllerFiles.join(' + '),
     label: 'backend light auto-fetch read caches are cleared after config and source mutations',
-    ok: source.includes("clearAutoFetchLightConfigListCache('ctrip')")
-      && source.includes("clearAutoFetchLightConfigListCache('meituan')")
-      && source.includes("clearAutoFetchLightProfileSourcesCache((int)($data['system_hotel_id'] ?? 0)")
-      && source.includes('clearAutoFetchLightProfileSourcesCache($hotelId, $platform)'),
+    ok: onlineDataControllerSource.includes("clearAutoFetchLightConfigListCache('ctrip')")
+      && onlineDataControllerSource.includes("clearAutoFetchLightConfigListCache('meituan')")
+      && onlineDataControllerSource.includes("clearAutoFetchLightProfileSourcesCache((int)($data['system_hotel_id'] ?? 0)")
+      && onlineDataControllerSource.includes('clearAutoFetchLightProfileSourcesCache($hotelId, $platform)'),
     detail: 'config and browser-profile source writes must invalidate the short light-status read caches',
   });
 }
@@ -956,12 +966,29 @@ requireText('public/data-health-static.js', 'const buildOnlineAnalysisChartConfi
 requireText('public/index.html', 'new ChartLib(ctx, buildOnlineAnalysisChartConfig(analysisData.value.chart_data))', 'analysis chart rendering keeps only lifecycle wiring in the SPA entry');
 requireText('public/index.html', "requireDataHealthStatic('buildOnlineHistoryQueryParams')", 'entry uses extracted online history query parameter builder');
 requireText('public/index.html', "requireDataHealthStatic('buildHotelDataDashboardRequests')", 'entry uses extracted hotel data dashboard request builder');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1MetricDomainReadiness')", 'entry uses extracted Phase1 metric domain readiness builder');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1TrafficP0NextText')", 'entry uses extracted Phase1 traffic P0 next text builder');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeEvidenceStatusText')", 'entry uses extracted Phase1 employee evidence status text mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeGapCodeText')", 'entry uses extracted Phase1 employee gap code text mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionCodeText')", 'entry uses extracted Phase1 employee action code text mapper');
 requireText('public/index.html', 'data-health-static.js?v=20260612-dashboard-requests', 'entry bumps data-health static helper version for dashboard request exports');
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
 requireText('public/data-health-static.js', 'const buildHotelDataDashboardRequests', 'data-health static builds hotel data dashboard request URLs');
+requireText('public/data-health-static.js', 'const buildPhase1MetricDomainReadiness', 'data-health static builds Phase1 metric domain readiness');
+requireText('public/data-health-static.js', 'const buildPhase1TrafficP0NextText', 'data-health static builds Phase1 traffic P0 next text');
+requireText('public/data-health-static.js', 'const phase1EmployeeEvidenceStatusText', 'data-health static maps Phase1 employee evidence status text');
+requireText('public/data-health-static.js', 'const phase1EmployeeGapCodeText', 'data-health static maps Phase1 employee gap code text');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionCodeText', 'data-health static maps Phase1 employee action code text');
 requireText('public/index.html', 'const params = buildOnlineHistoryQueryParams({', 'online history loader delegates query parameter construction');
 requireText('public/index.html', 'const requests = buildHotelDataDashboardRequests({ selectedHotelId });', 'hotel data dashboard loader delegates request URL construction');
+requireText('public/index.html', '} = buildPhase1MetricDomainReadiness({', 'Phase1 employee questions delegate metric domain readiness construction');
+requireText('public/index.html', 'const p0NextText = buildPhase1TrafficP0NextText(row);', 'Phase1 employee questions delegate traffic P0 next text construction');
 requireNoText('public/index.html', "const accountParams = new URLSearchParams();\n                    accountParams.append('days', '30');", 'hotel data dashboard request parameters are not re-inlined');
+requireNoText('public/index.html', 'const phase1HasAnyDataType = (types, needles)', 'Phase1 metric domain type matching is not re-inlined');
+requireNoText('public/index.html', 'const trafficP0NextText = (row) => {', 'Phase1 traffic P0 next text builder is not re-inlined');
+requireNoText('public/index.html', 'const evidenceStatusText = (value) => ({', 'Phase1 employee evidence status mapping is not re-inlined');
+requireNoText('public/index.html', "source_date_evidence_missing: '目标日来源证据缺失'", 'Phase1 employee gap code mapping is not re-inlined');
+requireNoText('public/index.html', "if (raw === 'phase1_confirm_source_date_evidence')", 'Phase1 employee action code mapping is not re-inlined');
 requireText('public/index.html', 'let onlineHistoryHotelListLoadingPromise = null;', 'online history hotel filter options deduplicate in-flight hotel list loads');
 requireText('public/index.html', 'const onlineHistoryHotelListLoaded = ref(false);', 'online history hotel filter options track loaded state');
 requireText('public/index.html', 'const refreshOnlineHistory = async (options = {}) => {', 'online history refresh supports skipping hotel filter reloads');
@@ -995,6 +1022,32 @@ requireNoText('public/index.html', "text: '销售额(¥)'", 'analysis chart axis
   const dashboardRequests = context.window.SUXI_DATA_HEALTH_STATIC.buildHotelDataDashboardRequests({
     selectedHotelId: '58',
   });
+  const phase1MetricReadiness = context.window.SUXI_DATA_HEALTH_STATIC.buildPhase1MetricDomainReadiness({
+    sourceDatePlatformRows: [
+      { platform: 'ctrip', target_date_rows: 2, target_date_data_types: ['business', 'traffic'] },
+      { platform: 'meituan', target_date_rows: 0, target_date_data_types: [] },
+    ],
+    metricTrustKeys: ['metric.fact'],
+    hasCompleteTargetDateCoverage: false,
+  });
+  const trafficP0NextText = context.window.SUXI_DATA_HEALTH_STATIC.buildPhase1TrafficP0NextText({
+    p0_traffic_gate_status: 'missing_target_date_traffic_rows',
+    p0_next_action_mode: 'browser_profile',
+    p0_pre_import_evidence_status: 'valid_external_evidence_not_ingested',
+    p0_payload_candidate_missing_count: 2,
+    p0_required_metric_keys: ['曝光', '访客'],
+    p0_field_loop_matrix: [{ status: 'no_target_date_traffic_rows' }, { status: 'requires_p0_verifier' }],
+    p0_traffic_closure_chain: {
+      source: { status: 'no_target_date_traffic_rows' },
+      verifier: { status: 'requires_p0_verifier' },
+    },
+    p0_traffic_field_fact_status: 'no_target_date_traffic_rows',
+    p0_next_action_entry: '/api/online-data/ctrip/traffic',
+    next_command_policy: 'metadata_only_no_sensitive_commands',
+  });
+  const phase1EvidenceStatusText = context.window.SUXI_DATA_HEALTH_STATIC.phase1EmployeeEvidenceStatusText;
+  const phase1GapCodeText = context.window.SUXI_DATA_HEALTH_STATIC.phase1EmployeeGapCodeText;
+  const phase1ActionCodeText = context.window.SUXI_DATA_HEALTH_STATIC.phase1EmployeeActionCodeText;
   checks.push({
     file: 'public/data-health-static.js',
     label: 'online analysis chart config preserves chart data and axis semantics',
@@ -1030,6 +1083,57 @@ requireNoText('public/index.html', "text: '销售额(¥)'", 'analysis chart axis
       && dashboardRequests.hotelPortraitUrl === '/dashboard/hotel-portrait?days=30&hotel_id=58'
       && dashboardRequests.dataSourcesUrl === '/dashboard/data-sources?days=30',
     detail: 'buildHotelDataDashboardRequests sample',
+  });
+  checks.push({
+    file: 'public/data-health-static.js',
+    label: 'Phase1 metric domain readiness preserves OTA evidence boundaries',
+    ok: phase1MetricReadiness.allMetricDomainsReady === false
+      && phase1MetricReadiness.revenueReadyPlatforms.includes('ctrip')
+      && phase1MetricReadiness.trafficReadyPlatforms.includes('ctrip')
+      && phase1MetricReadiness.revenueMissingPlatforms.includes('meituan')
+      && phase1MetricReadiness.trafficMissingPlatforms.includes('meituan')
+      && phase1MetricReadiness.metricDomainGapCodes.includes('meituan_revenue_metric_inputs_missing')
+      && phase1MetricReadiness.metricDomainGapCodes.includes('meituan_traffic_conversion_facts_missing')
+      && phase1MetricReadiness.platformFieldTrust.some(row => row.platform === 'ctrip' && row.field_trust_status === 'target_date_revenue_sample_present')
+      && phase1MetricReadiness.platformFieldTrust.some(row => row.platform === 'meituan' && row.field_trust_status === 'target_date_source_missing'),
+    detail: 'buildPhase1MetricDomainReadiness sample',
+  });
+  checks.push({
+    file: 'public/data-health-static.js',
+    label: 'Phase1 traffic P0 next text preserves missing-data evidence wording',
+    ok: trafficP0NextText.includes('P0缺目标日流量')
+      && trafficP0NextText.includes('外部证据未入库')
+      && trafficP0NextText.includes('预期Payload缺失 2 项')
+      && trafficP0NextText.includes('需闭环指标 2 项')
+      && trafficP0NextText.includes('字段矩阵 2 项')
+      && trafficP0NextText.includes('链路未加载 1 项')
+      && trafficP0NextText.includes('目标日流量字段未加载')
+      && trafficP0NextText.includes('建议浏览器 Profile')
+      && trafficP0NextText.includes('不展示敏感命令'),
+    detail: 'buildPhase1TrafficP0NextText sample',
+  });
+  checks.push({
+    file: 'public/data-health-static.js',
+    label: 'Phase1 employee evidence status mapper preserves explicit blocked wording',
+    ok: phase1EvidenceStatusText('blocked_by_verified_ota_gaps') === '已验证 OTA 缺口阻断'
+      && phase1EvidenceStatusText('operation_execution_evidence_incomplete') === '运营执行证据不完整'
+      && phase1EvidenceStatusText('unknown_new_status') === 'unknown_new_status',
+    detail: 'phase1EmployeeEvidenceStatusText sample',
+  });
+  checks.push({
+    file: 'public/data-health-static.js',
+    label: 'Phase1 employee gap and action code mappers preserve dynamic labels',
+    ok: phase1GapCodeText('today_ota_collected', key => (key === 'today_ota_collected' ? '今天 OTA 数据有没有采到' : '')) === '今天 OTA 数据有没有采到'
+      && phase1GapCodeText('meituan_traffic_facts_missing') === '美团流量事实缺失'
+      && phase1GapCodeText('unrecognized_gap_code') === '未识别证据缺口'
+      && phase1ActionCodeText('local_ai_evidence_required_action', {
+        knownQuestionText: key => (key === 'ai_evidence' ? 'AI 建议依据' : ''),
+        platformText: value => String(value || '').toUpperCase(),
+      }) === '补齐AI 建议依据证据'
+      && phase1ActionCodeText('meituan_source_rows_missing_collect_existing_path', {
+        platformText: value => (value === 'meituan' ? '美团' : value),
+      }) === '使用现有美团入口补齐目标日源数据',
+    detail: 'phase1EmployeeGapCodeText/phase1EmployeeActionCodeText samples',
   });
 }
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');

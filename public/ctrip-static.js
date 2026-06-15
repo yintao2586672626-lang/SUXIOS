@@ -22,6 +22,39 @@ window.SUXI_CTRIP_STATIC = (() => {
         { key: 'room_status', label: '房态明细' },
         { key: 'room_source_mapping', label: '房源映射' },
     ];
+    const createCtripProfileModuleForm = () => ({
+        id: '',
+        label: '',
+        page_url: '',
+        primary_category: '',
+        enabled: true,
+        sort_order: 0,
+        description: '',
+    });
+    const normalizeCtripProfileModuleRow = (module = {}) => ({
+        id: String(module.id || module.value || '').trim(),
+        label: String(module.label || module.name || module.id || '').trim(),
+        enabled: module.enabled !== false && module.enabled !== 0,
+        system: module.system === true || module.system === 1,
+        sort_order: Number(module.sort_order || module.sortOrder || 0),
+        page_url: String(module.page_url || module.pageUrl || module.url || '').trim(),
+        primary_category: String(module.primary_category || module.primaryCategory || module.category || '').trim(),
+        description: String(module.description || module.notes || '').trim(),
+        field_count: Number(module.field_count || 0),
+        enabled_field_count: Number(module.enabled_field_count || 0),
+        deleted_at: String(module.deleted_at || '').trim(),
+    });
+    const ctripProfileModulePageUrl = (module) => String(module?.page_url || module?.pageUrl || module?.url || '').trim();
+    const ctripProfileModulePageDisplay = (module) => {
+        const pageUrl = ctripProfileModulePageUrl(module);
+        if (!pageUrl) return '';
+        try {
+            const parsed = new URL(pageUrl);
+            return `${parsed.pathname}${parsed.search}`;
+        } catch (error) {
+            return pageUrl;
+        }
+    };
     const ctripOverviewApiKeywords = [
         'getDayReportRealTimeDate',
         'fetchMarketOverViewV2',
@@ -583,6 +616,42 @@ window.SUXI_CTRIP_STATIC = (() => {
             .map(sample => `${sampleValueText(sample)} ${sampleMetaText(sample)}`.trim())
             .filter(Boolean)
             .join(' / ');
+        const latestBatchSampleItems = (field, currentBatchKey = '') => {
+            const items = sampleItems(field);
+            const batchKey = String(currentBatchKey || '').trim();
+            if (batchKey) {
+                return items.filter(sample => sampleBatchKey(sample) === batchKey);
+            }
+            const latestBatchKey = items
+                .map(sampleBatchKey)
+                .filter(Boolean)[0] || '';
+            if (latestBatchKey) return items.filter(sample => sampleBatchKey(sample) === latestBatchKey);
+            return items.slice(0, 3);
+        };
+        const displaySampleItems = (field, currentBatchKey = '') => {
+            const latestBatchItems = latestBatchSampleItems(field, currentBatchKey);
+            if (latestBatchItems.length > 0) return latestBatchItems;
+            return sampleItems(field).slice(0, 3);
+        };
+        const hasOnlyHistoricalSamples = (field, currentBatchKey = '') => (
+            sampleItems(field).length > 0
+            && latestBatchSampleItems(field, currentBatchKey).length === 0
+        );
+        const previewSampleItems = (field, currentBatchKey = '') => displaySampleItems(field, currentBatchKey).slice(0, 1);
+        const latestBatchSampleCount = (field, currentBatchKey = '') => latestBatchSampleItems(field, currentBatchKey).length;
+        const displaySampleCount = (field, currentBatchKey = '') => displaySampleItems(field, currentBatchKey).length;
+        const latestSampleTime = (field, currentBatchKey = '') => {
+            const times = displaySampleItems(field, currentBatchKey)
+                .map(sampleCapturedAt)
+                .filter(Boolean)
+                .sort()
+                .reverse();
+            return times[0] || '';
+        };
+        const fieldSampleSourceText = (field, currentBatchKey = '') => {
+            const sample = displaySampleItems(field, currentBatchKey)[0] || sampleItems(field)[0];
+            return sampleSourceText(sample);
+        };
         const sampleSelectionKey = (sample) => {
             if (!sample || typeof sample !== 'object') {
                 return String(sample || '').trim();
@@ -624,6 +693,14 @@ window.SUXI_CTRIP_STATIC = (() => {
             sampleBriefMetaText,
             sampleSourceText,
             sampleText,
+            latestBatchSampleItems,
+            displaySampleItems,
+            hasOnlyHistoricalSamples,
+            previewSampleItems,
+            latestBatchSampleCount,
+            displaySampleCount,
+            latestSampleTime,
+            fieldSampleSourceText,
             sampleSelectionKey,
             verifiedSampleKey,
             sampleSourcePathCanSeedJson,
@@ -2319,6 +2396,10 @@ window.SUXI_CTRIP_STATIC = (() => {
         ctripProfileDefaultModuleOptions,
         ctripProfileForbiddenFieldKeys,
         ctripProfileForbiddenFieldAssets,
+        createCtripProfileModuleForm,
+        normalizeCtripProfileModuleRow,
+        ctripProfileModulePageUrl,
+        ctripProfileModulePageDisplay,
         ctripOverviewApiKeywords,
         ctripFlowOverviewApiGroups,
         ctripFlowOverviewDefaultRequestUrls,

@@ -17,11 +17,11 @@ test('generates P3 evidence templates for every Ctrip candidate direction', () =
   });
 
   assert.equal(templates.platform, 'ctrip');
-  assert.equal(templates.status, 'missing_evidence_templates');
-  assert.equal(templates.summary.candidate_section_count, 5);
+  assert.equal(templates.status, 'templates_ready_pending_redacted_evidence');
+  assert.equal(templates.summary.candidate_section_count, 6);
 
   const bySection = new Map(templates.templates.map((item) => [item.candidate_section, item]));
-  for (const section of ['orders_detail', 'price_inventory', 'promotion', 'settlement_finance', 'contract_mice_rfp']) {
+  for (const section of ['traffic_report', 'orders_detail', 'price_inventory', 'promotion', 'settlement_finance', 'contract_mice_rfp']) {
     const template = bySection.get(section);
     assert.ok(template, section);
     assert.equal(template.evidence_status, 'missing_evidence');
@@ -257,10 +257,11 @@ test('builds a P3 evidence coverage matrix from multiple Ctrip endpoint bundles'
   assert.equal(matrix.sections.orders_detail.status, 'ready_for_review');
   assert.equal(matrix.sections.promotion.status, 'ready_for_review');
   assert.equal(matrix.sections.settlement_finance.status, 'incomplete_evidence');
+  assert.equal(matrix.sections.traffic_report.status, 'missing_evidence');
   assert.equal(matrix.sections.price_inventory.status, 'missing_evidence');
   assert.equal(matrix.sections.contract_mice_rfp.status, 'missing_evidence');
-  assert.deepEqual(matrix.missing_sections, ['price_inventory', 'contract_mice_rfp']);
-  assert.equal(matrix.next_actions[0].includes('price_inventory'), true);
+  assert.deepEqual(matrix.missing_sections, ['traffic_report', 'price_inventory', 'contract_mice_rfp']);
+  assert.equal(matrix.next_actions[0].includes('traffic_report'), true);
 
   const markdown = renderCtripEndpointEvidenceMatrixMarkdown(matrix);
   assert.equal(markdown.includes('## P3 证据覆盖矩阵'), true);

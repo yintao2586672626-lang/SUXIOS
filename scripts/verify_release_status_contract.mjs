@@ -99,7 +99,7 @@ const requiredWorkflowCommands = [
 ];
 
 const requiredOpenFailurePatterns = [
-  /figma|canva|design-token|design_handoff_manifest|design_handoff_manifest\.json/i,
+  /figma|canva|design-token|DESIGN_HANDOFF_MANIFEST_FILE|design_handoff_manifest|design_handoff_manifest\.json/i,
   /OTA credential rotation|OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/i,
 ];
 
@@ -126,7 +126,7 @@ const requiredDoNotClaimReadyPatterns = [
 const requiredReportBlockerPatterns = [
   /Production env/i,
   /LLM_CONNECTIVITY_ATTESTATION_FILE|LLM connectivity/i,
-  /Figma|Canva|design token/i,
+  /Figma|Canva|DESIGN_HANDOFF_MANIFEST_FILE|design token/i,
   /standalone design-token files or screenshots are not sufficient/i,
   /OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE|OTA credential rotation/i,
   /CODEX_SECURITY_SCAN_DIR|Codex Security/i,
@@ -445,6 +445,8 @@ try {
     readText('scripts/verify_release_design.mjs'),
     [
       /checkDesignHandoff/,
+      /DESIGN_HANDOFF_MANIFEST_FILE/,
+      /requireOutsideRepo/,
       /Release design handoff summary/,
     ],
     'scripts/verify_release_design.mjs',
@@ -453,6 +455,8 @@ try {
     readText('scripts/verify_release_readiness.mjs'),
     [
       /checkDesignHandoff/,
+      /DESIGN_HANDOFF_MANIFEST_FILE/,
+      /requireOutsideRepo/,
       /result\.warnings\.forEach\(addWarning\)/,
     ],
     'scripts/verify_release_readiness.mjs release design integration',
@@ -1028,6 +1032,7 @@ try {
     'npm run review:release-readiness',
     'npm run review:release-external-state',
     'LLM_CONNECTIVITY_ATTESTATION_FILE',
+    'DESIGN_HANDOFF_MANIFEST_FILE',
     'OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE',
     'CODEX_SECURITY_SCAN_DIR',
     'docs/design_handoff_manifest.json',
@@ -1056,6 +1061,7 @@ try {
   for (const evidenceRef of [
     'RELEASE_ENV_FILE',
     'LLM_CONNECTIVITY_ATTESTATION_FILE',
+    'DESIGN_HANDOFF_MANIFEST_FILE',
     'docs/design_handoff_manifest.json',
     'OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE',
     'CODEX_SECURITY_SCAN_DIR',

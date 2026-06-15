@@ -1,13 +1,26 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
+
+const readBackendSource = () => {
+  const paths = ['app/controller/OnlineData.php'];
+  const concernDir = 'app/controller/concern';
+  if (existsSync(concernDir)) {
+    for (const name of readdirSync(concernDir)) {
+      if (name.endsWith('.php')) paths.push(`${concernDir}/${name}`);
+    }
+  }
+  return paths.map(path => readFileSync(path, 'utf8')).join('\n');
+};
 
 const html = readFileSync('public/index.html', 'utf8');
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
+const ctripProfileFieldConfigPanel = readFileSync('public/components/online-data/ctrip-profile-field-config-panel.js', 'utf8')
+  .replace(/\\"/g, '"');
 const dataHealthOverviewSource = `${html}\n${dataHealthStatic}`;
-const backend = readFileSync('app/controller/OnlineData.php', 'utf8');
+const backend = readBackendSource();
 const ctripPageStart = html.indexOf("currentPage === 'ctrip-ebooking'");
 const ctripPageEnd = html.indexOf('<!-- 携程数据抓取设置 -->', ctripPageStart);
 const ctripPage = html.slice(ctripPageStart, ctripPageEnd);
@@ -34,11 +47,6 @@ const ctripCatalogPanel = sliceBetween(
   ctripDiagnosticsPanel,
   'data-testid="ctrip-capture-catalog-health"',
   'data-testid="ctrip-cookie-health-panel"'
-);
-const ctripProfileFieldConfigPanel = sliceBetween(
-  html,
-  'data-testid="ctrip-profile-field-config-panel"',
-  '<!-- 展开数据 -->'
 );
 const onlineDataRecordPanel = sliceBetween(
   html,
@@ -157,7 +165,7 @@ test('Ctrip profile field config manages modules from the same panel', () => {
   assert.match(html, /const ctripProfileFieldDisplaySampleItems = \(field\) =>/);
   assert.match(ctripStatic, /field\.latest_values/);
   assert.match(ctripStatic, /field\.latest_value/);
-  assert.match(html, /include_samples=1/);
+  assert.match(html, /include_samples=\$\{includeSamples \? 1 : 0\}/);
   assert.match(ctripProfileFieldConfigPanel, /data-testid="ctrip-profile-module-manager"/);
   assert.match(ctripProfileFieldConfigPanel, /对应网页URL/);
   assert.match(ctripProfileFieldConfigPanel, /打开对应网页/);
@@ -172,7 +180,8 @@ test('Ctrip profile field config manages modules from the same panel', () => {
   assert.match(ctripProfileFieldConfigPanel, /rel="noopener noreferrer"/);
   assert.match(html, /const ctripProfileFieldSectionOptions = computed/);
   assert.match(html, /const openCtripProfileModulePage = \(module\) =>/);
-  assert.match(html, /const ctripProfileModulePageDisplay = \(module\) =>/);
+  assert.match(html, /const ctripProfileModulePageDisplay = requireCtripStatic\('ctripProfileModulePageDisplay'\);/);
+  assert.match(ctripStatic, /const ctripProfileModulePageDisplay = \(module\) =>/);
   assert.match(ctripStatic, /const ctripProfilePrimaryCategoryOptions = \['流量转化数据', '经营收益数据', '服务质量数据', '竞争力数据'\]/);
   assert.match(ctripStatic, /primary_category: '流量转化数据'/);
   assert.match(ctripStatic, /primary_category: '经营收益数据'/);

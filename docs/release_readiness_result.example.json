@@ -29,7 +29,7 @@
     "Run `git status --short --branch` before release; local cleanliness is intentionally verified outside this script."
   ],
   "failures": [
-    "Design handoff manifest was not found: docs/design_handoff_manifest.json. Standalone design-token files or screenshots do not prove Figma/Canva source handoff.",
+    "Design handoff manifest was not found: docs/design_handoff_manifest.json. Set DESIGN_HANDOFF_MANIFEST_FILE to a controlled manifest JSON before release. Standalone design-token files or screenshots do not prove Figma/Canva source handoff.",
     "OTA credential rotation attestation was not found: docs/ota_credential_rotation_attestation.json. Set OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE to a controlled attestation JSON before release."
   ]
 }

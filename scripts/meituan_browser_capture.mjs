@@ -12,6 +12,10 @@ import {
   sanitizeOtaPayloadForStorage,
 } from './lib/ota_capture_standard.mjs';
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
+import {
+  isImportableMeituanTrafficRow,
+  normalizeMeituanTrafficCardRows,
+} from './lib/meituan_browser_capture_normalize.mjs';
 import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
 
 const URLS = {
@@ -247,12 +251,99 @@ async function capturePage(page, name, url) {
     payload.pages.push({ name, url: page.url(), ok: false, error: payload.auth_status.message });
     return;
   }
+  await dismissMeituanOverlays(page);
+  const interactions = name === 'traffic' || name === 'newTraffic'
+    ? await runMeituanTrafficInteractionPlan(page)
+    : [];
   const screenshot = join(assetDir, `${safeName(storeId)}_${name}_${timestamp()}.png`);
   await page.screenshot({ path: screenshot, fullPage: true }).catch(() => null);
   if (existsSync(screenshot)) {
     payload.screenshots.push({ name, path: screenshot });
   }
-  payload.pages.push({ name, url: page.url(), ok: true });
+  payload.pages.push({ name, url: page.url(), ok: true, interactions });
+}
+
+async function runMeituanTrafficInteractionPlan(page) {
+  const steps = [
+    ['\u6d41\u91cf\u5206\u6790', 'open traffic analysis tab'],
+    ['\u6628\u65e5', 'select yesterday traffic period'],
+  ];
+  const results = [];
+  for (const [text, reason] of steps) {
+    await dismissMeituanOverlays(page);
+    const result = await clickMeituanTextIfVisible(page, text);
+    results.push({
+      action: 'click_text',
+      text,
+      reason,
+      clicked: result.clicked,
+      skipped: result.skipped || '',
+      ...(result.error ? { error: result.error } : {}),
+    });
+    if (result.clicked) {
+      await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => null);
+      await page.waitForTimeout(1200);
+    }
+  }
+  return results;
+}
+
+async function clickMeituanTextIfVisible(page, text) {
+  const locators = [
+    page.getByText(text, { exact: true }).first(),
+    page.getByRole('tab', { name: text, exact: true }).first(),
+    page.getByRole('button', { name: text, exact: true }).first(),
+    page.getByRole('link', { name: text, exact: true }).first(),
+    page.locator('a,button,label,li,[role="tab"],[role="button"],[class*="tab"],[class*="Tab"],[class*="menu"],[class*="Menu"]').filter({ hasText: text }).first(),
+    page.locator('span').filter({ hasText: text }).first(),
+  ];
+  let lastError = '';
+  for (const locator of locators) {
+    const visible = await locator.isVisible({ timeout: 500 }).catch(() => false);
+    if (!visible) {
+      continue;
+    }
+    try {
+      await locator.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => null);
+      await locator.click({ timeout: 2000 });
+      return { clicked: true };
+    } catch (error) {
+      lastError = error.message;
+      try {
+        await locator.click({ timeout: 1500, force: true });
+        return { clicked: true, forced: true };
+      } catch (forceError) {
+        lastError = forceError.message;
+      }
+      try {
+        await locator.evaluate((element) => {
+          const target = element.closest('a,button,label,li,[role="tab"],[role="button"],[class*="tab"],[class*="Tab"],[class*="menu"],[class*="Menu"]') || element;
+          target.click();
+        });
+        return { clicked: true, evaluated: true };
+      } catch (evaluateError) {
+        lastError = evaluateError.message;
+      }
+    }
+  }
+  return lastError ? { clicked: false, error: lastError } : { clicked: false, skipped: 'not_visible' };
+}
+
+async function dismissMeituanOverlays(page) {
+  await page.keyboard.press('Escape').catch(() => null);
+  const targets = [
+    page.locator('.ant-modal-close, .ant-drawer-close, [class*="modal"] [class*="close"], [class*="Modal"] [class*="close"], [aria-label="Close"], [aria-label="close"]').first(),
+    page.getByRole('button', { name: '\u5173\u95ed', exact: true }).first(),
+    page.getByRole('button', { name: '\u77e5\u9053\u4e86', exact: true }).first(),
+  ];
+  for (const target of targets) {
+    const visible = await target.isVisible({ timeout: 350 }).catch(() => false);
+    if (!visible) {
+      continue;
+    }
+    await target.click({ timeout: 1200, force: true }).catch(() => null);
+    await page.waitForTimeout(350);
+  }
 }
 
 function registerResponseCapture(page, target) {
@@ -284,7 +375,10 @@ function registerResponseCapture(page, target) {
     }
 
     const safeBody = sanitizeOtaPayloadForStorage(body, section);
-    const rows = normalizeCapturedList(safeBody, section, '', requestDateEvidence);
+    const normalizedRows = normalizeCapturedList(safeBody, section, '', requestDateEvidence);
+    const rows = section === 'traffic'
+      ? normalizedRows.filter(row => isImportableMeituanTrafficRow(row))
+      : normalizedRows;
     const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource: `xhr:${section}` });
     target.responses.push({ url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section, status, row_count: rows.length, request_date_source: requestDateEvidence.date_source || '', data: safeBody });
     target[section].push(...rows.map(row => {
@@ -346,6 +440,16 @@ function normalizeCapturedList(value, section, sourcePath = '', requestDateEvide
       .filter(item => item && typeof item === 'object')
       .map((item, index) => decorateCapturedRow(item, sourcePath ? `${sourcePath}.${index}` : String(index), section, requestDateEvidence));
   }
+  if (section === 'traffic') {
+    const cardRows = normalizeMeituanTrafficCardRows(value, {
+      sourcePath,
+      requestDateEvidence,
+      defaultDataDate,
+    });
+    if (cardRows.length) {
+      return cardRows;
+    }
+  }
 
   const paths = {
     reviews: [
@@ -402,7 +506,100 @@ function decorateCapturedRow(row, sourcePath, section = '', requestDateEvidence 
   return { ...row, ...datePatch, _source_path: sourcePath || '$' };
 }
 
+async function collectMeituanTrafficDomRows(page) {
+  return page.evaluate(() => {
+    const text = (node) => (node?.innerText || node?.textContent || '').trim().replace(/\s+/g, ' ');
+    const fullText = text(document.body);
+    const numberFrom = (patterns) => {
+      for (const pattern of patterns) {
+        const match = fullText.match(pattern);
+        if (match && match[1]) {
+          const num = Number(String(match[1]).replace(/,/g, ''));
+          const multiplier = String(match[2] || '').includes('\u4e07') ? 10000 : 1;
+          if (Number.isFinite(num)) return num * multiplier;
+        }
+      }
+      return 0;
+    };
+    const normalizeNumber = (value, unit = '') => {
+      const num = Number(String(value || '').replace(/,/g, ''));
+      if (!Number.isFinite(num)) return 0;
+      return Math.round(num * (String(unit || '').includes('\u4e07') ? 10000 : 1));
+    };
+    const pageDateMatch = fullText.match(/(?:\u6570\u636e\u66f4\u65b0\u65f6\u95f4|\u66f4\u65b0\u65f6\u95f4|\u66f4\u65b0\u4e8e)[\uff1a:\s]*(\d{4})[\/\-\u5e74](\d{1,2})[\/\-\u6708](\d{1,2})/);
+    const pageDataDate = pageDateMatch
+      ? `${pageDateMatch[1]}-${String(pageDateMatch[2]).padStart(2, '0')}-${String(pageDateMatch[3]).padStart(2, '0')}`
+      : '';
+    const withDate = pageDataDate ? { dataDate: pageDataDate, date_source: 'page.visible_update_time' } : {};
+    const rows = [];
+    const flowFunnel = fullText.match(/\u6211\u7684\u9152\u5e97\s*\u540c\u884c\u5747\u503c\s*\u66dd\u5149\u4eba\u6570\s*\u6d4f\u89c8\u4eba\u6570\s*\u652f\u4ed8\u8ba2\u5355\u6570\s*([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s*\u66dd\u5149-\u6d4f\u89c8\s*\u8f6c\u5316\u7387\s*([\d.]+)%\s*([\d.]+)%\s*\u6d4f\u89c8-\u652f\u4ed8\s*\u8f6c\u5316\u7387\s*([\d.]+)%/);
+    if (flowFunnel) {
+      const orders = normalizeNumber(flowFunnel[5]);
+      rows.push({
+        _capture_source: 'dom:traffic:flow_funnel',
+        _source_path: 'dom.traffic.flow_funnel',
+        _dom_text: fullText.slice(0, 1600),
+        ...withDate,
+        listExposure: normalizeNumber(flowFunnel[1]),
+        detailExposure: normalizeNumber(flowFunnel[3]),
+        flowRate: Number(flowFunnel[7]),
+        orderFillingNum: orders,
+        orderSubmitNum: orders,
+        _order_filling_source_policy: 'meituan_flow_funnel_no_separate_order_filling_step_pay_order_count_used',
+        _order_submit_source_label: 'pay_order_count',
+      });
+    }
+    if (rows.length === 0) {
+      const exposure = numberFrom([/\u66dd\u5149\u91cf\s*([\d,.]+)\s*(\u4e07)?\s*\u6b21/, /\u66dd\u5149[^\d]{0,10}([\d,.]+)\s*(\u4e07)?/]);
+      const visitors = numberFrom([/\u6d4f\u89c8\u4eba\u6570\s*([\d,.]+)\s*(\u4e07)?\s*\u4eba/, /\u8bbf\u5ba2[^\d]{0,10}([\d,.]+)\s*(\u4e07)?/, /UV[^\d]{0,10}([\d,.]+)/i]);
+      const flowRate = numberFrom([/\u652f\u4ed8\u8f6c\u5316\u7387\s*([\d.]+)\s*%/, /\u6d4f\u89c8-\u652f\u4ed8\s*\u8f6c\u5316\u7387\s*([\d.]+)\s*%/]);
+      const orders = numberFrom([/\u652f\u4ed8\u8ba2\u5355\u6570\s*([\d,.]+)\s*(\u4e07)?\s*\u5355/, /\u8ba2\u5355[^\d]{0,10}([\d,.]+)\s*(\u4e07)?/]);
+      if (exposure > 0 || visitors > 0 || orders > 0) {
+        rows.push({
+          _capture_source: 'dom:traffic:home_summary',
+          _source_path: 'dom.traffic.home_summary',
+          _dom_text: fullText.slice(0, 1200),
+          ...withDate,
+          listExposure: exposure,
+          detailExposure: visitors,
+          flowRate: flowRate || (exposure > 0 ? Math.round((visitors / exposure) * 10000) / 100 : 0),
+          orderFillingNum: orders,
+          orderSubmitNum: orders,
+          _order_filling_source_policy: 'meituan_home_summary_no_separate_order_filling_step_pay_order_count_used',
+          _order_submit_source_label: 'pay_order_count',
+        });
+      }
+    }
+    return rows;
+  }).catch(() => []);
+}
+
 async function collectDomFallback(page, target, section) {
+  if (section === 'traffic') {
+    const rows = await collectMeituanTrafficDomRows(page);
+    if (rows.length > 0) {
+      const url = page.url();
+      const responseDateEvidence = extractMeituanTrafficDateEvidenceFromResponses(target);
+      const capturedRows = rows.map(row => {
+        if (responseDateEvidence.date && !hasTrafficRowDate(row)) {
+          row = {
+            ...row,
+            dataDate: responseDateEvidence.date,
+            date_source: responseDateEvidence.date_source,
+          };
+        }
+        row = withMeituanPlatformIdentifier(row);
+        return attachOtaCaptureEvidence(row, 'meituan', {
+          url,
+          section,
+          captureSource: row._capture_source || `dom:${section}`,
+        });
+      });
+      target[section].push(...capturedRows);
+      appendDomCaptureEvidenceResponses(target, capturedRows, section);
+    }
+    return;
+  }
   if (section === 'orders') {
     return;
   }
@@ -455,14 +652,93 @@ async function collectDomFallback(page, target, section) {
     return;
   }
   const url = page.url();
-  target[section].push(...rows.map(row => {
+  const capturedRows = rows.map(row => {
     row = withMeituanPlatformIdentifier(row);
     return attachOtaCaptureEvidence(row, 'meituan', {
       url,
       section,
       captureSource: row._capture_source || `dom:${section}`,
     });
-  }));
+  });
+  target[section].push(...capturedRows);
+  appendDomCaptureEvidenceResponses(target, capturedRows, section);
+}
+
+function hasTrafficRowDate(row) {
+  return [row?.date, row?.dataDate, row?.statDate, row?.stat_date, row?.data_date, row?.reportDate, row?.day]
+    .some(value => String(value ?? '').trim() !== '');
+}
+
+function extractMeituanTrafficDateEvidenceFromResponses(target) {
+  const responses = Array.isArray(target?.responses) ? [...target.responses].reverse() : [];
+  for (const response of responses) {
+    if (!response || String(response.section || response.capture_section || '').toLowerCase() !== 'traffic') {
+      continue;
+    }
+    const dateText = findMeituanTrafficDateText(response.data);
+    const date = normalizeMeituanTrafficDateText(dateText);
+    if (date) {
+      return {
+        date,
+        date_source: 'response.rtDataUpdateTime',
+      };
+    }
+  }
+  return { date: '', date_source: '' };
+}
+
+function findMeituanTrafficDateText(value) {
+  if (!value || typeof value !== 'object') {
+    return '';
+  }
+  const direct = [
+    value.rtDataUpdateTime,
+    value.updateTime,
+    value.updatedAt,
+    value?.data?.rtDataUpdateTime,
+    value?.data?.updateTime,
+    value?.data?.updatedAt,
+  ];
+  for (const item of direct) {
+    const text = String(item || '').trim();
+    if (text) {
+      return text;
+    }
+  }
+  const serialized = JSON.stringify(value);
+  const match = serialized.match(/(?:\u6570\u636e\u66f4\u65b0\u65f6\u95f4|\u66f4\u65b0\u65f6\u95f4|\u66f4\u65b0\u4e8e)[\uff1a:\s]*(\d{4}[\/\-\u5e74]\d{1,2}[\/\-\u6708]\d{1,2})/);
+  return match ? match[0] : '';
+}
+
+function normalizeMeituanTrafficDateText(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/(\d{4})[\/\-\u5e74](\d{1,2})[\/\-\u6708](\d{1,2})/);
+  if (!match) {
+    return '';
+  }
+  return `${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`;
+}
+
+function appendDomCaptureEvidenceResponses(target, rows, section) {
+  for (const row of rows) {
+    const evidence = row && typeof row.capture_evidence === 'object' ? row.capture_evidence : {};
+    const sourceTraceId = String(row?.source_trace_id || evidence.source_trace_id || '').trim();
+    const sourceUrlHash = String(row?.source_url_hash || evidence.source_url_hash || '').trim();
+    if (!sourceTraceId && !sourceUrlHash) {
+      continue;
+    }
+    target.responses.push({
+      url_hash: sourceUrlHash,
+      source_trace_id: sourceTraceId,
+      section,
+      capture_section: section,
+      endpoint_id: row?._source_path || row?._capture_source || `dom.${section}`,
+      endpoint_label: 'dom_visible_metric_evidence',
+      status: 200,
+      row_count: 1,
+      request_date_source: row?.date_source || row?.dateSource || '',
+    });
+  }
 }
 
 function dedupePayloadRows(target) {
@@ -501,8 +777,10 @@ function evaluateCaptureGate(data) {
   if (!data.auth_status?.ok) {
     failed.push('auth_login_required');
   }
-  if (capturedResponseCount === 0) {
+  if (capturedResponseCount === 0 && data.responses.length === 0) {
     failed.push('xhr_not_captured');
+  } else if (capturedResponseCount === 0) {
+    failed.push('xhr_without_importable_rows');
   }
   if (requestedCoreSections.length > 0 && requestedCoreRowCount === 0) {
     failed.push('no_business_rows');

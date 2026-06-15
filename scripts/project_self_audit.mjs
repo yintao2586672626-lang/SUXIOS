@@ -414,7 +414,7 @@ function measureCleanupTargets() {
   const storagePath = path.join(repoRoot, 'storage');
   if (safeStat(storagePath)?.isDirectory()) {
     for (const entry of fs.readdirSync(storagePath, { withFileTypes: true })) {
-      if (entry.isDirectory() && /^(ctrip_profile_|meituan_profile_)/.test(entry.name)) {
+      if (entry.isDirectory() && /^(ctrip_profile_phpunit|meituan_profile_phpunit)/.test(entry.name)) {
         candidates.push(path.join('storage', entry.name));
       }
       if (entry.isFile() && entry.name.endsWith('.log')) {

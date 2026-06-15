@@ -113,7 +113,7 @@ $candidatePaths = @(
 
 if (Test-Path -LiteralPath "storage") {
   $candidatePaths += Get-ChildItem -LiteralPath "storage" -Force -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like "ctrip_profile_*" -or $_.Name -like "meituan_profile_*" } |
+    Where-Object { $_.Name -like "ctrip_profile_phpunit*" -or $_.Name -like "meituan_profile_phpunit*" } |
     ForEach-Object { $_.FullName }
   $candidatePaths += Get-ChildItem -LiteralPath "storage" -Force -File -Filter "*.log" -ErrorAction SilentlyContinue |
     ForEach-Object { $_.FullName }

@@ -19,6 +19,16 @@ function count(source, needle) {
   return source.split(needle).length - 1;
 }
 
+function checkSources(files, label, predicate, detail) {
+  const source = files.map((file) => read(file)).join('\n');
+  checks.push({
+    file: files.join(' + '),
+    label,
+    ok: predicate(source),
+    detail,
+  });
+}
+
 check(
   'route/app.php',
   'public login route is declared once',
@@ -123,7 +133,11 @@ for (const [method, label] of [
   ['function findBrowserProfileDataSourceForUnbind', 'controller resolves browser Profile binding without frontend data-source id'],
   ['function clearBrowserProfileStatusCacheForSource', 'controller clears stale Profile status when data source is unbound'],
 ]) {
-  check('app/controller/OnlineData.php', label, (source) => source.includes(method), method);
+  checkSources([
+    'app/controller/OnlineData.php',
+    'app/controller/concern/PlatformDataSourceConcern.php',
+    'app/controller/concern/PlatformProfileCaptureConcern.php',
+  ], label, (source) => source.includes(method), method);
 }
 
 for (const [needle, label] of [
@@ -134,26 +148,28 @@ for (const [needle, label] of [
   ['function hashOnlineOrderIdentifier', 'controller hashes browser-captured order identifiers'],
   ['order_id_hash', 'controller keeps only hashed order identifiers in captured raw data'],
   ["$item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus", 'controller daily data list exposes field fact status'],
-  ['function buildOnlineDataFieldFactStatus', 'controller builds field fact UI status'],
-  ['function extractOnlineDataFieldFacts', 'controller extracts field facts from raw_data wrappers'],
-  ['function inferOnlineDataFieldFactStorageField', 'controller infers storage field for legacy raw_data facts'],
-  ['function onlineDataFieldFactStorageFieldSource', 'controller marks inferred storage field source explicitly'],
-  ['function onlineDataFieldFactStructuredStorageField', 'controller limits inferred storage fields to explicit metric map'],
+  ['function buildOnlineDataFieldFactStatus', 'controller keeps field fact UI status compatibility wrapper'],
+  ['return OnlineDataFieldFactService::buildStatus($row, $raw);', 'controller delegates field fact UI status to service'],
   ['OnlineDataFieldFactService::attachToOnlineDailyRow($row, $item)', 'Meituan browser-captured rows attach field facts before storage'],
   ['OnlineDataFieldFactService::attachToOnlineDailyRow($row)', 'Meituan save path repairs rows that arrive without field facts'],
-  ["'storage_field_inferred' => $storageFieldInferred", 'controller marks inferred storage fields explicitly'],
-  ["'inferred_storage_field_count' => $inferredStorageFieldCount", 'controller exposes inferred storage field count'],
-  ["'stored_value_present_count' => $storedValuePresentCount", 'controller exposes stored value evidence count'],
-  ['function onlineDataFieldFactStoredValueState', 'controller resolves stored values from declared storage fields'],
-  ["return 'raw_data_facts';", 'controller distinguishes raw_data facts storage from structured field mapping'],
-  ["'online_daily_data.raw_data.facts.metric_key=' . $metricKey", 'controller can point legacy Ctrip facts to raw_data fact storage'],
-  ["'raw_data_exposed' => false", 'controller field fact status does not expose raw data'],
 ]) {
   check('app/controller/OnlineData.php', label, (source) => source.includes(needle), needle);
 }
 
 for (const [needle, label] of [
   ['final class OnlineDataFieldFactService', 'shared online data field fact service exists'],
+  ['public static function buildStatus', 'field fact service builds UI field fact status'],
+  ['function extractFieldFacts', 'field fact service extracts field facts from raw_data wrappers'],
+  ['function inferFieldFactStorageField', 'field fact service infers storage field for legacy raw_data facts'],
+  ['function fieldFactStorageFieldSource', 'field fact service marks inferred storage field source explicitly'],
+  ['function fieldFactStructuredStorageField', 'field fact service limits inferred storage fields to explicit metric map'],
+  ["'storage_field_inferred' => $storageFieldInferred", 'field fact service marks inferred storage fields explicitly'],
+  ["'inferred_storage_field_count' => $inferredStorageFieldCount", 'field fact service exposes inferred storage field count'],
+  ["'stored_value_present_count' => $storedValuePresentCount", 'field fact service exposes stored value evidence count'],
+  ['function fieldFactStoredValueState', 'field fact service resolves stored values from declared storage fields'],
+  ["return 'raw_data_facts';", 'field fact service distinguishes raw_data facts storage from structured field mapping'],
+  ["'online_daily_data.raw_data.facts.metric_key=' . $metricKey", 'field fact service can point legacy Ctrip facts to raw_data fact storage'],
+  ["'raw_data_exposed' => false", 'field fact service status does not expose raw data'],
   ["'metric_key' => 'list_exposure'", 'field fact service maps Meituan list exposure'],
   ['orderVisitors', 'field fact service covers order filling traffic aliases used by Ctrip extraction'],
   ['clickNum', 'field fact service covers click traffic aliases used by Ctrip and Meituan extraction'],
@@ -357,6 +373,16 @@ check(
     && source.includes("$requestHotelId = $ctripHotelId !== '' ? $ctripHotelId : (string)($payload['hotel_id'] ?? '');")
     && !source.includes("(string)($payload['hotel_id'] ?? $profileId)"),
   'requestHotelId must come from platform hotel evidence, not Profile ID'
+);
+
+check(
+  'app/controller/OnlineData.php',
+  'Ctrip captured advertising rows keep Profile ID out of platform hotel ID and raw context',
+  (source) => source.includes("['hotel_id', 'hotelId', 'masterHotelId', 'master_hotel_id', 'hotelID', 'ctrip_hotel_id', 'ctripHotelId', 'ota_hotel_id', 'otaHotelId', 'node_id', 'nodeId']")
+    && source.includes("'hotel_id' => $context['hotel_id'] ?? ''")
+    && !source.includes("['hotel_id', 'hotelId', 'profile_id', 'profileId']")
+    && !source.includes("'profile_id' => $context['hotel_id'] ?? ''"),
+  'Ctrip advertising rows cannot use Profile ID as OTA hotel identity'
 );
 
 for (const [needle, label] of [
@@ -597,6 +623,31 @@ check(
     && !source.includes('hotel_id: hotelId || profileId')
     && !source.includes('ctripPlatformHotelId(row, hotelId || profileId'),
   'profile_id is not accepted as hotel_id/platform hotel identity'
+);
+
+check(
+  'scripts/ctrip_cookie_api_capture.mjs',
+  'Ctrip Cookie/API capture keeps Profile ID separate from OTA platform hotel ID',
+  (source) => source.includes('profile_id: profileId')
+    && source.includes('hotel_id: hotelId')
+    && source.includes('config.ctrip_hotel_id || config.ctripHotelId')
+    && source.includes('config.ota_hotel_id || config.otaHotelId')
+    && !source.includes('config.profile_id || options.hotelId')
+    && !source.includes('hotelId || profileId')
+    && !source.includes('hotel_id: hotelId || profileId'),
+  'Cookie/API capture cannot use profile_id as hotel_id/platform hotel identity'
+);
+
+check(
+  'scripts/ctrip_quick_endpoint_probe.mjs',
+  'Ctrip quick endpoint probe keeps Profile ID separate from OTA platform hotel ID',
+  (source) => source.includes('profile_id: profileId')
+    && source.includes('hotel_id: hotelId')
+    && source.includes('args.hotelId || args.ctripHotelId || args.otaHotelId || args.masterHotelId')
+    && !source.includes('args.hotelId || profileId')
+    && !source.includes('hotelId || profileId')
+    && !source.includes('hotel_id: hotelId || profileId'),
+  'Quick endpoint probe cannot use profile_id as hotel_id/platform hotel identity'
 );
 
 check(

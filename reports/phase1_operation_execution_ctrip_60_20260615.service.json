@@ -1,0 +1,269 @@
+{
+    "scope": {
+        "date": "2026-06-15",
+        "platform": "ctrip",
+        "system_hotel_id": 60,
+        "hotel_id": "60",
+        "metric_scope": "ota_channel"
+    },
+    "source": "OperationManagementService::executionFlow",
+    "status": "from_service_layer_same_business_tables",
+    "created_or_reused_intent_id": 3,
+    "created_or_reused_task_id": 3,
+    "execution_intents": [
+        {
+            "id": 3,
+            "tenant_id": 60,
+            "source_module": "ota_diagnosis",
+            "source_record_id": 3519392513,
+            "hotel_id": 60,
+            "platform": "ctrip",
+            "object_type": "data_collection",
+            "action_type": "diagnosis_action_review",
+            "date_start": "2026-06-15",
+            "date_end": "2026-06-15",
+            "expected_metric": "ota_operation_closure",
+            "expected_delta": 0,
+            "risk_level": "medium",
+            "status": "approved",
+            "blocked_reason": "",
+            "review_remark": "Phase1 OTA diagnosis action approved for evidence handoff verification.",
+            "created_by": 1,
+            "approved_by": 1,
+            "approved_at": "2026-06-15 04:40:43",
+            "created_at": "2026-06-15 04:40:43",
+            "updated_at": "2026-06-15 04:40:43",
+            "deleted_at": null,
+            "current_value": {
+                "action_item_status": "pending_manual_review",
+                "target_date_rows": 1,
+                "metric_scope": "ota_channel"
+            },
+            "target_value": {
+                "collection_scope": "ctrip_target_date_diagnosis_review",
+                "target_date": "2026-06-15",
+                "action_text": "【高优先级】检查携程EBK数据源配置，确认“流量分析”、“生意通”、“经营报告”等模块的Cookie或API授权是否过期或失效，并重新同步2026-06-15的数据。",
+                "action_item_id": "ota_action_1"
+            },
+            "evidence": {
+                "evidence_refs": [
+                    "source_summary",
+                    "online_daily_data#15676"
+                ],
+                "data_gaps": [],
+                "source_policy": "controller_diagnosis_to_operation_execution_loop_no_ota_acquisition_change",
+                "protected_boundary": "This execution record proves operation handoff only; it does not change OTA acquisition, field mapping, or whole-hotel operating truth.",
+                "action_item_id": "ota_action_1",
+                "action_item_status": "pending_manual_review",
+                "diagnosis_summary": "敦煌漠蓝在2026-06-15的携程平台数据已入库，但核心经营指标（曝光、访问、订单、收入、间夜）均为0，且缺少流量、竞对、广告、服务质量等辅助数据，无法进行有效的经营诊断。当前诊断结论为数据采集不完整，需优先排查数据源同步问题。",
+                "metric_scope": "ota_channel",
+                "scope": {
+                    "date": "2026-06-15",
+                    "platform": "ctrip",
+                    "system_hotel_id": 60
+                }
+            }
+        }
+    ],
+    "execution_flow": {
+        "summary": {
+            "total": 1,
+            "stage_counts": {
+                "recommendation": 0,
+                "approval": 0,
+                "execution": 0,
+                "evidence": 0,
+                "review": 0,
+                "reviewed": 1,
+                "blocked": 0,
+                "rejected": 0,
+                "failed": 0
+            },
+            "bottleneck": {
+                "stage": "",
+                "count": 0,
+                "label": ""
+            },
+            "approved": 1,
+            "executed": 1,
+            "evidence_ready": 1,
+            "roi_ready": 0,
+            "roi_percent_ready": 0,
+            "revenue_lift_ready": 0,
+            "avg_roi": null,
+            "avg_revenue_lift": null,
+            "approval_rate": 100,
+            "execution_rate": 100,
+            "evidence_rate": 100,
+            "roi_ready_rate": 0,
+            "profitable": 0,
+            "profitable_rate": null,
+            "total_incremental_revenue": 0,
+            "total_cost": 0,
+            "total_profit": 0,
+            "money_status": "no_roi"
+        },
+        "stages": [
+            {
+                "key": "recommendation",
+                "label": "建议动作",
+                "count": 0
+            },
+            {
+                "key": "approval",
+                "label": "审批",
+                "count": 0
+            },
+            {
+                "key": "execution",
+                "label": "执行",
+                "count": 0
+            },
+            {
+                "key": "evidence",
+                "label": "执行证据",
+                "count": 0
+            },
+            {
+                "key": "review",
+                "label": "效果复盘",
+                "count": 0
+            },
+            {
+                "key": "reviewed",
+                "label": "ROI确认",
+                "count": 1
+            }
+        ],
+        "list": [
+            {
+                "id": 3,
+                "hotel_id": 60,
+                "stage": "reviewed",
+                "recommendation": {
+                    "source": "ota_diagnosis#3519392513",
+                    "source_module": "ota_diagnosis",
+                    "source_record_id": 3519392513,
+                    "platform": "ctrip",
+                    "object_type": "data_collection",
+                    "action_type": "diagnosis_action_review",
+                    "date_start": "2026-06-15",
+                    "date_end": "2026-06-15",
+                    "expected_metric": "ota_operation_closure",
+                    "expected_delta": 0,
+                    "risk_level": "medium",
+                    "current_value": {
+                        "action_item_status": "pending_manual_review",
+                        "target_date_rows": 1,
+                        "metric_scope": "ota_channel"
+                    },
+                    "target_value": {
+                        "collection_scope": "ctrip_target_date_diagnosis_review",
+                        "target_date": "2026-06-15",
+                        "action_text": "【高优先级】检查携程EBK数据源配置，确认“流量分析”、“生意通”、“经营报告”等模块的Cookie或API授权是否过期或失效，并重新同步2026-06-15的数据。",
+                        "action_item_id": "ota_action_1"
+                    },
+                    "evidence": {
+                        "evidence_refs": [
+                            "source_summary",
+                            "online_daily_data#15676"
+                        ],
+                        "data_gaps": [],
+                        "source_policy": "controller_diagnosis_to_operation_execution_loop_no_ota_acquisition_change",
+                        "protected_boundary": "This execution record proves operation handoff only; it does not change OTA acquisition, field mapping, or whole-hotel operating truth.",
+                        "action_item_id": "ota_action_1",
+                        "action_item_status": "pending_manual_review",
+                        "diagnosis_summary": "敦煌漠蓝在2026-06-15的携程平台数据已入库，但核心经营指标（曝光、访问、订单、收入、间夜）均为0，且缺少流量、竞对、广告、服务质量等辅助数据，无法进行有效的经营诊断。当前诊断结论为数据采集不完整，需优先排查数据源同步问题。",
+                        "metric_scope": "ota_channel",
+                        "scope": {
+                            "date": "2026-06-15",
+                            "platform": "ctrip",
+                            "system_hotel_id": 60
+                        }
+                    },
+                    "created_at": "2026-06-15 04:40:43"
+                },
+                "approval": {
+                    "status": "approved",
+                    "approved_by": 1,
+                    "approved_at": "2026-06-15 04:40:43",
+                    "remark": "Phase1 OTA diagnosis action approved for evidence handoff verification.",
+                    "blocked_reason": ""
+                },
+                "execution": {
+                    "task_id": 3,
+                    "mode": "manual",
+                    "status": "executed",
+                    "operator_id": 1,
+                    "executed_at": "2026-06-15 04:40:43",
+                    "blocked_reason": "",
+                    "target_value": {
+                        "collection_scope": "ctrip_target_date_diagnosis_review",
+                        "target_date": "2026-06-15",
+                        "action_item_id": "ota_action_1"
+                    },
+                    "current_value": {
+                        "manual_review_status": "recorded",
+                        "target_date_rows": 1,
+                        "source": "ota_diagnosis_action_item",
+                        "metric_scope": "ota_channel"
+                    }
+                },
+                "evidence": {
+                    "count": 1,
+                    "latest": {
+                        "id": 3,
+                        "tenant_id": 60,
+                        "task_id": 3,
+                        "evidence_type": "manual_review",
+                        "attachment_path": "",
+                        "remark": "Phase1 evidence handoff recorded from OTA diagnosis action item; not a whole-hotel operating conclusion.",
+                        "created_by": 1,
+                        "created_at": "2026-06-15 04:40:43",
+                        "updated_at": "2026-06-15 04:40:43",
+                        "deleted_at": null,
+                        "before": {
+                            "action_item_status": "pending_manual_review",
+                            "operation_handoff": "not_recorded"
+                        },
+                        "after": {
+                            "operation_handoff": "recorded",
+                            "intent_id": 3,
+                            "task_id": 3,
+                            "approved": true,
+                            "executed": true
+                        },
+                        "platform_response": {
+                            "source": "online_daily_data",
+                            "platform": "ctrip",
+                            "system_hotel_id": 60,
+                            "target_date": "2026-06-15",
+                            "target_date_rows": 1,
+                            "evidence_refs": [
+                                "source_summary",
+                                "online_daily_data#15676"
+                            ]
+                        }
+                    }
+                },
+                "review": {
+                    "status": "near_success",
+                    "summary": "OTA diagnosis action entered execution loop with approval and evidence; Meituan target-date data remains a separate blocker.",
+                    "action_track_id": 442
+                },
+                "roi": {
+                    "status": "data_gap",
+                    "message": "revenue evidence missing"
+                },
+                "next_action": {
+                    "key": "none",
+                    "label": "无需操作",
+                    "priority": "low",
+                    "target_id": 0
+                }
+            }
+        ],
+        "data_status": "ok",
+        "data_gaps": []
+    }
+}

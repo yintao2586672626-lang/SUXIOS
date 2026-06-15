@@ -1365,6 +1365,41 @@ if (!fs.existsSync(indexPath)) {
     || onlineHistorySource.includes("params.append('hotel_id', filter.hotel_scope);")) {
     failures.push('public/index.html must delegate online history and hotel dashboard request construction and avoid reloading hotel filters on post-fetch history refresh.');
   }
+  if (!dataHealthStaticContent.includes('const buildPhase1MetricDomainReadiness = ({')
+    || !dataHealthStaticContent.includes('buildPhase1MetricDomainReadiness,')
+    || !content.includes("const buildPhase1MetricDomainReadiness = requireDataHealthStatic('buildPhase1MetricDomainReadiness');")
+    || !content.includes('} = buildPhase1MetricDomainReadiness({')
+    || content.includes('const phase1HasAnyDataType = (types, needles)')) {
+    failures.push('public/index.html must delegate Phase1 metric domain readiness to data-health-static.js and not re-inline OTA evidence domain matching.');
+  }
+  if (!dataHealthStaticContent.includes('const buildPhase1TrafficP0NextText = (row = {}) => {')
+    || !dataHealthStaticContent.includes('buildPhase1TrafficP0NextText,')
+    || !content.includes("const buildPhase1TrafficP0NextText = requireDataHealthStatic('buildPhase1TrafficP0NextText');")
+    || !content.includes('const p0NextText = buildPhase1TrafficP0NextText(row);')
+    || content.includes('const trafficP0NextText = (row) => {')) {
+    failures.push('public/index.html must delegate Phase1 traffic P0 next text to data-health-static.js and not re-inline traffic evidence wording.');
+  }
+  if (!dataHealthStaticContent.includes('const phase1EmployeeEvidenceStatusText = (value) => ({')
+    || !dataHealthStaticContent.includes('phase1EmployeeEvidenceStatusText,')
+    || !content.includes("const phase1EmployeeEvidenceStatusText = requireDataHealthStatic('phase1EmployeeEvidenceStatusText');")
+    || !content.includes('phase1EmployeeEvidenceStatusText(evidence.diagnosis_status)')
+    || content.includes('const evidenceStatusText = (value) => ({')) {
+    failures.push('public/index.html must delegate Phase1 employee evidence status labels to data-health-static.js and not re-inline status wording.');
+  }
+  if (!dataHealthStaticContent.includes('const phase1EmployeeGapCodeText = (code, knownQuestionText = () => \'\') => {')
+    || !dataHealthStaticContent.includes('phase1EmployeeGapCodeText,')
+    || !content.includes("const phase1EmployeeGapCodeTextFromStatic = requireDataHealthStatic('phase1EmployeeGapCodeText');")
+    || !content.includes('return phase1EmployeeGapCodeTextFromStatic(raw, phase1EmployeeKnownQuestionText);')
+    || content.includes("source_date_evidence_missing: '目标日来源证据缺失'")) {
+    failures.push('public/index.html must delegate Phase1 employee gap code labels to data-health-static.js and keep only local callback wiring.');
+  }
+  if (!dataHealthStaticContent.includes('const phase1EmployeeActionCodeText = (code, helpers = {}) => {')
+    || !dataHealthStaticContent.includes('phase1EmployeeActionCodeText,')
+    || !content.includes("const phase1EmployeeActionCodeTextFromStatic = requireDataHealthStatic('phase1EmployeeActionCodeText');")
+    || !content.includes('return phase1EmployeeActionCodeTextFromStatic(raw, {')
+    || content.includes("if (raw === 'phase1_confirm_source_date_evidence')")) {
+    failures.push('public/index.html must delegate Phase1 employee action code labels to data-health-static.js and keep only local callback wiring.');
+  }
   if (/ctrip_auto_fetch_mode:\s*['"]profile_browser['"]/.test(autoFetchModePayloadSource)) {
     failures.push('public/index.html must not force platform auto-fetch Ctrip runs through browser Profile by default.');
   }
@@ -1546,7 +1581,18 @@ if (!fs.existsSync(indexPath)) {
     }
   }
   const controllerPath = path.join(repoRoot, 'app/controller/OnlineData.php');
-  const controllerContent = fs.existsSync(controllerPath) ? fs.readFileSync(controllerPath, 'utf8') : '';
+  const controllerConcernDir = path.join(repoRoot, 'app/controller/concern');
+  const controllerConcernContents = fs.existsSync(controllerConcernDir)
+    ? fs.readdirSync(controllerConcernDir)
+      .filter(name => name.endsWith('.php'))
+      .sort()
+      .map(name => fs.readFileSync(path.join(controllerConcernDir, name), 'utf8'))
+      .join('\n')
+    : '';
+  const controllerContent = [
+    fs.existsSync(controllerPath) ? fs.readFileSync(controllerPath, 'utf8') : '',
+    controllerConcernContents,
+  ].join('\n');
   const manualTaskServicePath = path.join(repoRoot, 'app/service/ManualOnlineFetchTaskService.php');
   const manualTaskServiceContent = fs.existsSync(manualTaskServicePath) ? fs.readFileSync(manualTaskServicePath, 'utf8') : '';
   if (!controllerContent.includes("get('include_detail'") || !controllerContent.includes("'detail_loaded' => false")) {

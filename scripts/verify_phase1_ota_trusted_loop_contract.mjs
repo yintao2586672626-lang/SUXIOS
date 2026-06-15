@@ -92,7 +92,9 @@ requirePackageScript('inspect:phase1-live-closure', 'C:\\xampp\\php\\php.exe scr
 requirePackageScript('verify:phase1-live-closure', 'C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php --strict');
 requirePackageScript('verify:online-data-field-fact-status', 'C:\\xampp\\php\\php.exe scripts\\verify_online_data_field_fact_status.php');
 requirePackageScript('verify:p0-ota-field-loop', 'C:\\xampp\\php\\php.exe scripts\\verify_p0_ota_field_loop_closure.php');
-requirePackageScript('verify:p0-ota-traffic-importer', 'node scripts/verify_p0_ota_traffic_payload_importer.mjs');
+requirePackageScript('verify:p0-ota-traffic-importer', 'node scripts/verify_p0_ota_traffic_payload_importer.mjs && node --test tests/automation/p0_ota_traffic_payload_candidates.test.mjs');
+requirePackageScript('verify:p0-ota-ui-verifier-alignment', 'node scripts/verify_p0_ota_ui_verifier_alignment.mjs');
+requirePackageScript('inspect:p0-ota-traffic-payloads', 'node scripts/scan_p0_ota_traffic_payload_candidates.mjs');
 requirePackageScript('import:p0-ota-traffic-payload', 'C:\\xampp\\php\\php.exe scripts\\import_p0_ota_traffic_payload.php');
 requirePackageScript('import:p0-ota-traffic-payload:execute', 'C:\\xampp\\php\\php.exe scripts\\import_p0_ota_traffic_payload.php --execute=1');
 requirePackageScript('register:p0-ota-traffic-sources', 'C:\\xampp\\php\\php.exe scripts\\register_p0_ota_traffic_data_sources.php');
@@ -163,6 +165,7 @@ requireIncludes('scripts/import_p0_ota_traffic_payload.php', 'P0 payload importe
   "preg_match('#https?://#i'",
   'Import is only accepted as P0 closure after verify:p0-ota-field-loop',
   'next verifier command',
+  "'next_verifier_command' => 'npm.cmd run verify:p0-ota-field-loop -- --date=' . (string)$options['date'] . ' --platform=' . (string)$options['platform'] . ' --system-hotel-id=' . (int)$options['system-hotel-id']",
   'OnlineDailyDataPersistenceService',
   'OnlineDataFieldFactService',
   'OnlineTrafficDataExtractionService',
@@ -225,7 +228,73 @@ requireIncludes('scripts/verify_p0_ota_traffic_payload_importer.mjs', 'P0 traffi
   'importer blocks rows without explicit source dates',
   'importer blocks weak source paths',
   'execute performs DB readback verification',
+  'runtime_execute_cleanup_contract',
+  'cleanup removes synthetic target-date traffic rows',
   'post execute incomplete stays explicit',
+]);
+
+requireFile('scripts/scan_p0_ota_traffic_payload_candidates.mjs');
+requireIncludes('scripts/scan_p0_ota_traffic_payload_candidates.mjs', 'P0 traffic payload scanner is dry-run only and payload-safe', [
+  'execute_policy',
+  'dry_run_only',
+  'payload_policy',
+  'paths_and_importer_summaries_only_no_payload_content',
+  'storage_policy',
+  'does_not_write_online_daily_data',
+  'read_p0_verifier_hotel_scoped_next_steps',
+  'verify_p0_ota_field_loop_closure.php',
+  'hotel_scoped_next_steps',
+  'inferP0TrafficPayloadTarget',
+  'p0_traffic_(ctrip|meituan)',
+  'filename_inferred',
+  'expected_candidate_paths',
+  'missing_candidate_paths',
+  'missing_payloads',
+  'Missing Authorized Payloads',
+  'Required evidence per payload',
+  'requiredFixForIssue',
+  'required_fixes',
+  'blocked_issue_summary',
+  'summarizeBlockedIssues',
+  'affected_candidates',
+  'Blocked Issue Summary',
+  'Blocked Candidate Fixes',
+  'desensitized_capture_evidence_missing',
+  'target_date_explicit_row_date_missing',
+  'browser_capture_response_evidence_missing',
+  'import_p0_ota_traffic_payload.php',
+  '--format=json',
+  'ready_to_import',
+  'requires_authorized_traffic_payload',
+  'manual_login_state_verified',
+  'source_trace_id/source_url_hash',
+  'import:p0-ota-traffic-payload:execute',
+  'verify:p0-ota-field-loop',
+]);
+
+requireFile('scripts/verify_p0_ota_ui_verifier_alignment.mjs');
+requireIncludes('scripts/verify_p0_ota_ui_verifier_alignment.mjs', 'P0 UI and verifier payload candidate states stay aligned', [
+  'verify_p0_ota_field_loop_closure.php',
+  'inspect_phase1_ota_live_closure.php',
+  'hotel_scoped_next_steps',
+  'traffic_source_readiness',
+  'p0_payload_candidate_status_counts',
+  'p0_payload_candidate_paths',
+  'p0_payload_candidate_issue_codes',
+  'p0_payload_candidate_ready_count',
+  'p0_payload_candidate_missing_count',
+  'p0_payload_candidate_unverified_count',
+  'missing_expected_payload',
+  'expected_payload_present_unverified',
+  'expected_payload_file_missing',
+  'payload_file_present_requires_importer_dry_run',
+  'ui_metadata_only_no_import',
+  'path_metadata_only_no_payload_content',
+  'does_not_write_online_daily_data',
+  'p0_next_step_count',
+  'traffic_managed_count',
+  'target_date_traffic_rows',
+  'metadata_only_no_sensitive_commands',
 ]);
 
 requireIncludes('scripts/lib/ota_capture_standard.mjs', 'P0 browser capture rows carry desensitized evidence', [
@@ -356,6 +425,14 @@ requireIncludes('scripts/verify_p0_ota_field_loop_closure.php', 'P0 verifier exp
   'hotel_scoped_commands',
   'hotel_scoped_payload_contracts',
   'hotel_scoped_capture_bridges',
+  'p0_hotel_scoped_payload_candidate_scan',
+  'payload_candidate_scan',
+  'dry_run_only_no_import',
+  'path_and_importer_summary_only_no_payload_content',
+  'missing_expected_payload',
+  'expected_payload_file_missing',
+  'payload_candidate_status',
+  'payload_candidate_ready_to_execute',
   'p0_hotel_scoped_capture_bridge_contract',
   'p0_hotel_scoped_traffic_payload_contract',
   'Hotel Scoped Traffic Sources',

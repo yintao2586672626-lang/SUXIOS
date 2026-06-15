@@ -62,14 +62,16 @@ addSection(
   }),
 );
 
-const designResult = checkDesignHandoff({ repoRoot });
-const externalDesignManifest = evidencePath('design_handoff_manifest.json');
-if (fs.existsSync(externalDesignManifest) && !fs.existsSync(path.join(repoRoot, 'docs/design_handoff_manifest.json'))) {
-  designResult.warnings.push('External design_handoff_manifest.json was found in the evidence directory, but the release gate requires docs/design_handoff_manifest.json.');
-}
+const designManifestFile = process.env.DESIGN_HANDOFF_MANIFEST_FILE
+  || existingEvidenceOrRepo('design_handoff_manifest.json', 'docs/design_handoff_manifest.json');
+const designResult = checkDesignHandoff({
+  repoRoot,
+  manifestPath: designManifestFile,
+  requireOutsideRepo: Boolean(process.env.DESIGN_HANDOFF_MANIFEST_FILE),
+});
 addSection(
   'design-handoff',
-  'docs/design_handoff_manifest.json',
+  designManifestFile,
   designResult,
 );
 

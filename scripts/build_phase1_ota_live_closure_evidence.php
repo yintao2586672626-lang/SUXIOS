@@ -800,10 +800,12 @@ function normalize_diagnosis(array $payload, array $options): array
     $evidence = array_value($data, ['evidence_sources', 'diagnosis.evidence_sources'], []);
     $gaps = array_value($data, ['data_gaps', 'diagnosis.data_gaps', 'metrics.data_gaps'], []);
     $actions = array_value($data, ['action_items', 'recommended_actions', 'diagnosis.action_items'], []);
+    $status = trim((string)array_value($data, ['status', 'diagnosis.status'], ''));
 
     return array_merge([
         'source' => '/api/agent/ota-diagnosis',
-        'status' => 'from_api_response',
+        'status' => $status !== '' ? $status : 'from_api_response',
+        'source_policy' => array_value($data, ['source_policy', 'diagnosis.source_policy'], null),
         'summary' => array_value($data, ['summary', 'diagnosis.summary', 'core_conclusion'], null),
         'evidence_sources' => is_array($evidence) ? array_values($evidence) : [],
         'data_gaps' => is_array($gaps) ? array_values($gaps) : [],
@@ -816,10 +818,11 @@ function normalize_operation(array $payload, array $options): array
     $data = unwrap_api_data($payload);
     $intents = array_value($data, ['execution_intents', 'list', 'items'], []);
     $flow = array_value($data, ['execution_flow', 'flow'], []);
+    $status = trim((string)array_value($data, ['status', 'operation.status'], ''));
 
     return array_merge([
         'source' => '/api/operation/execution-intents',
-        'status' => 'from_api_response',
+        'status' => $status !== '' ? $status : 'from_api_response',
         'execution_intents' => is_array($intents) ? array_values($intents) : [],
         'execution_flow' => is_array($flow) ? $flow : [],
     ], evidence_scope_details($data, (string)$options['date']));
@@ -1596,6 +1599,87 @@ function traffic_source_p0_required_field_fact_keys(): array
     ];
 }
 
+function traffic_source_p0_payload_candidate_path(string $platform, string $targetDate, int $systemHotelId): string
+{
+    $platform = strtolower(trim($platform));
+    $targetDate = trim($targetDate);
+    if (!in_array($platform, ['ctrip', 'meituan'], true) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) || $systemHotelId <= 0) {
+        return '';
+    }
+
+    return 'reports/p0_traffic_' . $platform . '_' . $systemHotelId . '_' . str_replace('-', '', $targetDate) . '.json';
+}
+
+function traffic_source_p0_payload_gate_summary(string $payloadPath): array
+{
+    $summary = [
+        'status' => 'not_loaded',
+        'policy' => 'metadata_only_no_response_payload_content',
+        'auth_status' => 'unknown',
+        'failed_check_ids' => [],
+        'section_counts' => [],
+        'response_count' => 0,
+        'captured_response_count' => 0,
+        'business_row_count' => 0,
+        'captured_at' => '',
+    ];
+
+    try {
+        $payload = read_json_file($payloadPath);
+    } catch (Throwable $e) {
+        $summary['status'] = 'invalid_json';
+        return $summary;
+    }
+
+    $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
+    $auth = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+    $sectionCounts = is_array($gate['section_counts'] ?? null) ? $gate['section_counts'] : [];
+    $safeSectionCounts = [];
+    foreach (['traffic', 'orders', 'ads', 'reviews'] as $section) {
+        $count = max(0, (int)($sectionCounts[$section] ?? 0));
+        $safeSectionCounts[$section] = $count;
+        $summary['business_row_count'] += $count;
+    }
+
+    $status = strtolower(trim((string)($gate['status'] ?? '')));
+    $summary['status'] = $status !== '' ? $status : 'capture_gate_missing';
+    $summary['auth_status'] = strtolower(trim((string)($auth['status'] ?? ''))) ?: 'unknown';
+    $summary['failed_check_ids'] = array_values(array_unique(array_filter(array_map(
+        static fn($value): string => strtolower(trim((string)$value)),
+        (array)($gate['failed_check_ids'] ?? [])
+    ), static fn(string $value): bool => $value !== '')));
+    $summary['section_counts'] = $safeSectionCounts;
+    $summary['response_count'] = max(0, (int)($gate['response_count'] ?? 0));
+    $summary['captured_response_count'] = max(0, (int)($gate['captured_response_count'] ?? 0));
+    $summary['captured_at'] = trim((string)($payload['captured_at'] ?? ''));
+
+    return $summary;
+}
+
+function traffic_source_p0_payload_candidate(string $platform, string $targetDate, int $systemHotelId): array
+{
+    $payloadPath = traffic_source_p0_payload_candidate_path($platform, $targetDate, $systemHotelId);
+    if ($payloadPath === '') {
+        return [
+            'status' => 'system_hotel_id_missing',
+            'ready_to_execute' => false,
+            'payload_path' => '',
+            'issue_codes' => ['system_hotel_id_missing'],
+        ];
+    }
+
+    $present = is_file(resolve_path($payloadPath));
+    $gateSummary = $present ? traffic_source_p0_payload_gate_summary($payloadPath) : [];
+
+    return [
+        'status' => $present ? 'expected_payload_present_unverified' : 'missing_expected_payload',
+        'ready_to_execute' => false,
+        'payload_path' => $payloadPath,
+        'issue_codes' => $present ? ['payload_file_present_requires_importer_dry_run'] : ['expected_payload_file_missing'],
+        'capture_gate_summary' => $gateSummary,
+    ];
+}
+
 function traffic_source_readiness_for_platform(string $platform, array $context): array
 {
     $requiredMetricKeys = traffic_source_p0_required_metric_keys();
@@ -1655,6 +1739,23 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
         'p0_pre_import_evidence_status' => 'not_provided',
         'p0_pre_import_evidence_policy' => 'External traffic evidence is source proof only; P0 closure still requires target-date traffic rows and ready verifier status.',
         'p0_traffic_field_fact_status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'no_target_date_traffic_rows',
+        'p0_payload_candidate_policy' => 'ui_metadata_only_no_import',
+        'p0_payload_candidate_payload_policy' => 'path_metadata_only_no_payload_content',
+        'p0_payload_candidate_storage_policy' => 'does_not_write_online_daily_data',
+        'p0_payload_candidate_status_counts' => [],
+        'p0_payload_candidate_ready_count' => 0,
+        'p0_payload_candidate_missing_count' => 0,
+        'p0_payload_candidate_unverified_count' => 0,
+        'p0_payload_candidate_paths' => [],
+        'p0_payload_candidate_issue_codes' => [],
+        'p0_payload_candidate_gate_policy' => 'metadata_only_no_response_payload_content',
+        'p0_payload_candidate_gate_status_counts' => [],
+        'p0_payload_candidate_gate_failed_check_ids' => [],
+        'p0_payload_candidate_auth_status_counts' => [],
+        'p0_payload_candidate_response_count' => 0,
+        'p0_payload_candidate_captured_response_count' => 0,
+        'p0_payload_candidate_business_row_count' => 0,
+        'p0_payload_candidate_latest_captured_at' => '',
         'p0_required_metric_keys' => $requiredMetricKeys,
         'p0_required_storage_fields' => $requiredStorageFields,
         'p0_required_field_fact_keys' => $requiredFieldFactKeys,
@@ -1742,6 +1843,51 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
         $config = is_array($config) ? $config : [];
         if (($config['registered_by'] ?? '') === 'p0_ota_field_loop') {
             $base['traffic_managed_count']++;
+            $candidate = traffic_source_p0_payload_candidate($platform, $targetDate, (int)($row['system_hotel_id'] ?? 0));
+            $candidateStatus = (string)($candidate['status'] ?? '');
+            if ($candidateStatus !== '') {
+                $base['p0_payload_candidate_status_counts'][$candidateStatus] = ((int)($base['p0_payload_candidate_status_counts'][$candidateStatus] ?? 0)) + 1;
+            }
+            if (!empty($candidate['ready_to_execute'])) {
+                $base['p0_payload_candidate_ready_count']++;
+            }
+            if ($candidateStatus === 'missing_expected_payload') {
+                $base['p0_payload_candidate_missing_count']++;
+            }
+            if ($candidateStatus === 'expected_payload_present_unverified') {
+                $base['p0_payload_candidate_unverified_count']++;
+            }
+            if (($candidate['payload_path'] ?? '') !== '') {
+                $base['p0_payload_candidate_paths'][] = (string)$candidate['payload_path'];
+            }
+            foreach ((array)($candidate['issue_codes'] ?? []) as $issueCode) {
+                $issueCode = trim((string)$issueCode);
+                if ($issueCode !== '') {
+                    $base['p0_payload_candidate_issue_codes'][] = $issueCode;
+                }
+            }
+            $gateSummary = is_array($candidate['capture_gate_summary'] ?? null) ? $candidate['capture_gate_summary'] : [];
+            $gateStatus = strtolower(trim((string)($gateSummary['status'] ?? '')));
+            if ($gateStatus !== '') {
+                $base['p0_payload_candidate_gate_status_counts'][$gateStatus] = ((int)($base['p0_payload_candidate_gate_status_counts'][$gateStatus] ?? 0)) + 1;
+            }
+            $authStatus = strtolower(trim((string)($gateSummary['auth_status'] ?? '')));
+            if ($authStatus !== '') {
+                $base['p0_payload_candidate_auth_status_counts'][$authStatus] = ((int)($base['p0_payload_candidate_auth_status_counts'][$authStatus] ?? 0)) + 1;
+            }
+            foreach ((array)($gateSummary['failed_check_ids'] ?? []) as $failedCheckId) {
+                $failedCheckId = strtolower(trim((string)$failedCheckId));
+                if ($failedCheckId !== '') {
+                    $base['p0_payload_candidate_gate_failed_check_ids'][] = $failedCheckId;
+                }
+            }
+            $base['p0_payload_candidate_response_count'] += max(0, (int)($gateSummary['response_count'] ?? 0));
+            $base['p0_payload_candidate_captured_response_count'] += max(0, (int)($gateSummary['captured_response_count'] ?? 0));
+            $base['p0_payload_candidate_business_row_count'] += max(0, (int)($gateSummary['business_row_count'] ?? 0));
+            $capturedAt = trim((string)($gateSummary['captured_at'] ?? ''));
+            if ($capturedAt !== '' && strcmp($capturedAt, (string)$base['p0_payload_candidate_latest_captured_at']) > 0) {
+                $base['p0_payload_candidate_latest_captured_at'] = $capturedAt;
+            }
         }
         $secret = json_decode((string)($row['secret_json'] ?? ''), true);
         if (is_array($secret) ? $secret !== [] : trim((string)($row['secret_json'] ?? '')) !== '') {
@@ -1751,6 +1897,12 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
 
     ksort($lastSyncCounts);
     $base['traffic_last_sync_status_counts'] = $lastSyncCounts;
+    ksort($base['p0_payload_candidate_status_counts']);
+    ksort($base['p0_payload_candidate_gate_status_counts']);
+    ksort($base['p0_payload_candidate_auth_status_counts']);
+    $base['p0_payload_candidate_paths'] = array_values(array_unique($base['p0_payload_candidate_paths']));
+    $base['p0_payload_candidate_issue_codes'] = array_values(array_unique($base['p0_payload_candidate_issue_codes']));
+    $base['p0_payload_candidate_gate_failed_check_ids'] = array_values(array_unique($base['p0_payload_candidate_gate_failed_check_ids']));
     if ((int)$base['target_date_traffic_rows'] > 0) {
         $base['status'] = 'target_date_traffic_ready';
     } elseif ((int)$base['traffic_source_count'] <= 0) {
@@ -3768,7 +3920,11 @@ function build_employee_questions(array $platformEvidence, array $diagnosis, arr
                 'action_item_status' => $actionableDiagnosisCount > 0
                     ? 'actionable'
                     : ($aiHasExistingBlockerEvidence ? 'blocked_by_verified_ota_gaps' : 'missing'),
-                'source_policy' => $aiHasExistingBlockerEvidence ? 'read_existing_ota_gap_evidence_only' : 'missing_real_ota_diagnosis_response',
+                'source_policy' => $diagnosisStatus === 'proved'
+                    ? (trim((string)($diagnosis['source_policy'] ?? '')) !== ''
+                        ? trim((string)$diagnosis['source_policy'])
+                        : 'read_existing_ai_diagnosis_evidence_only')
+                    : ($aiHasExistingBlockerEvidence ? 'read_existing_ota_gap_evidence_only' : 'missing_real_ota_diagnosis_response'),
                 'evidence_source_count' => count((array)($diagnosis['evidence_sources'] ?? [])),
                 'data_gap_count' => count((array)($diagnosis['data_gaps'] ?? [])),
                 'action_item_count' => count((array)($diagnosis['action_items'] ?? [])),

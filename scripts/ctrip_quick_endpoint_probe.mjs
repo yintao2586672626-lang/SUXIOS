@@ -23,7 +23,7 @@ if (!profileId) {
 }
 
 const requestedSections = normalizeCtripCaptureSections(args.sections || args.only || 'default');
-const hotelId = stringValue(args.hotelId || profileId);
+const hotelId = stringValue(args.hotelId || args.ctripHotelId || args.otaHotelId || args.masterHotelId || '');
 const dataDate = stringValue(args.dataDate || '');
 const storageDir = resolve(args.profileDir || join('storage', `ctrip_profile_${safeName(profileId)}`));
 const waitMs = Math.max(3000, Number(args.waitMs || 18000));

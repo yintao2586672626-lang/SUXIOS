@@ -80,6 +80,8 @@ if ($ApplyEvidenceFiles) {
 
 $env:RELEASE_ENV_FILE = $productionEnv
 $env:LLM_CONNECTIVITY_ATTESTATION_FILE = $llmAttestation
+$env:DESIGN_HANDOFF_MANIFEST_FILE = $designManifestEvidence
+$env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE = $otaAttestationEvidence
 $env:RELEASE_PR_NUMBER = '2'
 
 Push-Location -LiteralPath $RepoRoot

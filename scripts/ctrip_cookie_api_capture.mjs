@@ -440,7 +440,7 @@ export async function runCtripCookieApiCapture(config, options = {}) {
   }
   const capturedAt = options.capturedAt || new Date().toISOString();
   const dataDate = stringValue(config.data_date || config.dataDate || options.dataDate);
-  const hotelId = stringValue(config.hotel_id || config.hotelId || config.ctrip_hotel_id || config.profile_id || options.hotelId);
+  const hotelId = stringValue(config.hotel_id || config.hotelId || config.ctrip_hotel_id || config.ctripHotelId || config.ota_hotel_id || config.otaHotelId || config.master_hotel_id || config.masterHotelId || options.hotelId);
   const endpoints = normalizeEndpoints(config, { hotelId, dataDate });
   if (endpoints.length === 0) {
     throw new Error('missing endpoint request list');

@@ -490,6 +490,9 @@ async function captureSection(page, section, url, confidence = '', target = payl
   await dismissBlockingOverlays(page);
   await clickLikelyRefreshButtons(page);
   const interactions = await runSectionInteractionPlan(page, section, state);
+  if (section === 'traffic_report') {
+    interactions.push(...await triggerTrafficSourcePopupEvidence(page));
+  }
   await page.evaluate(() => window.scrollTo(0, Math.max(document.body.scrollHeight, document.documentElement.scrollHeight))).catch(() => null);
   await page.waitForTimeout(1200);
   await page.evaluate(() => window.scrollTo(0, 0)).catch(() => null);
@@ -532,6 +535,123 @@ async function runSectionInteractionPlan(page, section, state = defaultCaptureSt
     if (result.clicked) {
       await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => null);
       await page.waitForTimeout(900);
+    }
+  }
+  return results;
+}
+
+async function triggerTrafficSourcePopupEvidence(page) {
+  const results = [];
+  const texts = await page.evaluate(() => {
+    const tokens = [
+      '\u6d41\u91cf\u6765\u6e90',
+      '\u5173\u952e\u8bcd',
+      '\u540c\u57ce\u70ed\u95e8',
+      '\u7b5b\u9009',
+      '\u57ce\u5e02\u641c\u7d22',
+      '\u4ef7\u683c\u533a\u95f4',
+      '\u5168\u7f51\u4f4e\u4ef7',
+      '\u5206\u4ee5\u4e0a',
+    ];
+    const visible = (node) => {
+      const rect = node.getBoundingClientRect();
+      const style = window.getComputedStyle(node);
+      return rect.width > 0
+        && rect.height > 0
+        && rect.bottom > 0
+        && rect.right > 180
+        && style.visibility !== 'hidden'
+        && style.display !== 'none'
+        && style.pointerEvents !== 'none';
+    };
+    const orangeLike = (node) => {
+      const style = window.getComputedStyle(node);
+      const text = `${style.backgroundColor || ''} ${style.color || ''} ${node.className || ''}`.toLowerCase();
+      return text.includes('orange')
+        || text.includes('warning')
+        || text.includes('tag')
+        || /rgb\(\s*2[0-5]\d\s*,\s*(1[0-8]\d|[6-9]\d)\s*,/.test(text);
+    };
+    const nodes = Array.from(document.querySelectorAll('button,a,[role="button"],[class*="tag"],[class*="Tag"],[class*="keyword"],[class*="Keyword"],[class*="source"],[class*="Source"],[class*="label"],[class*="Label"],span'));
+    const seen = new Set();
+    const values = [];
+    for (const node of nodes) {
+      if (!visible(node)) {
+        continue;
+      }
+      const text = String(node.innerText || node.textContent || '').trim().replace(/\s+/g, ' ');
+      if (!text || text.length > 30 || seen.has(text)) {
+        continue;
+      }
+      const matchesToken = tokens.some((token) => text.includes(token));
+      if (!matchesToken && !orangeLike(node)) {
+        continue;
+      }
+      seen.add(text);
+      values.push(text);
+      if (values.length >= 12) {
+        break;
+      }
+    }
+    return values;
+  }).catch(() => []);
+
+  for (const text of texts) {
+    await dismissBlockingOverlays(page);
+    const locator = page.getByText(text, { exact: true }).first();
+    const visible = await locator.isVisible({ timeout: 600 }).catch(() => false);
+    if (!visible) {
+      results.push({ action: 'traffic_source_popup_text_probe', text, clicked: false, skipped: 'not_visible' });
+      continue;
+    }
+    try {
+      await locator.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => null);
+      await locator.hover({ timeout: 1200 }).catch(() => null);
+      await page.waitForTimeout(450);
+      await locator.click({ timeout: 1600 }).catch(async () => {
+        await locator.click({ timeout: 1200, force: true });
+      });
+      results.push({ action: 'traffic_source_popup_text_probe', text, clicked: true });
+      await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => null);
+      await page.waitForTimeout(700);
+    } catch (error) {
+      results.push({ action: 'traffic_source_popup_text_probe', text, clicked: false, error: error.message });
+    }
+  }
+
+  results.push(...await clickTrafficChartProbePoints(page));
+  return results;
+}
+
+async function clickTrafficChartProbePoints(page) {
+  const results = [];
+  const handles = await page.locator('canvas, svg').elementHandles().catch(() => []);
+  let clicked = 0;
+  for (const handle of handles) {
+    if (clicked >= 4) {
+      break;
+    }
+    const box = await handle.boundingBox().catch(() => null);
+    if (!box || box.x < 180 || box.y < 250 || box.width < 180 || box.height < 80) {
+      continue;
+    }
+    for (const [xRatio, yRatio] of [[0.35, 0.55], [0.65, 0.55]]) {
+      if (clicked >= 4) {
+        break;
+      }
+      const x = box.x + box.width * xRatio;
+      const y = box.y + box.height * yRatio;
+      await page.mouse.move(x, y).catch(() => null);
+      await page.waitForTimeout(250);
+      await page.mouse.click(x, y).catch(() => null);
+      results.push({
+        action: 'traffic_source_popup_chart_probe',
+        text: `chart@${Math.round(box.x)},${Math.round(box.y)}:${xRatio},${yRatio}`,
+        clicked: true,
+      });
+      clicked += 1;
+      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => null);
+      await page.waitForTimeout(650);
     }
   }
   return results;
@@ -921,19 +1041,19 @@ function attachCtripCaptureEvidence(row, context = {}) {
   });
 }
 
-function normalizeGenericList(value, section, depth = 0) {
+function normalizeGenericList(value, section, depth = 0, sourcePath = '') {
   if (!value || typeof value !== 'object' || depth > 6) {
     return [];
   }
   if (Array.isArray(value)) {
-    return value.flatMap(item => normalizeGenericList(item, section, depth + 1));
+    return value.flatMap((item, index) => normalizeGenericList(item, section, depth + 1, appendJsonPathIndex(sourcePath, index)));
   }
 
   if (section === 'traffic' && looksLikeTrafficRow(value)) {
-    return [value];
+    return [withCtripSourcePath(value, sourcePath)];
   }
   if (section === 'business' && looksLikeBusinessRow(value)) {
-    return [value];
+    return [withCtripSourcePath(value, sourcePath)];
   }
 
   const paths = section === 'traffic'
@@ -984,20 +1104,36 @@ function normalizeGenericList(value, section, depth = 0) {
 
   for (const path of paths) {
     const nested = readPath(value, path);
-    const rows = normalizeGenericList(nested, section, depth + 1);
+    const rows = normalizeGenericList(nested, section, depth + 1, appendJsonPath(sourcePath, path));
     if (rows.length) {
       return rows;
     }
   }
 
   const rows = [];
-  for (const nested of Object.values(value)) {
-    rows.push(...normalizeGenericList(nested, section, depth + 1));
+  for (const [key, nested] of Object.entries(value)) {
+    rows.push(...normalizeGenericList(nested, section, depth + 1, appendJsonPath(sourcePath, [key])));
     if (rows.length > 100) {
       break;
     }
   }
   return rows;
+}
+
+function appendJsonPath(prefix, parts) {
+  const suffix = parts.map(part => String(part)).join('.');
+  return prefix ? `${prefix}.${suffix}` : `$.${suffix}`;
+}
+
+function appendJsonPathIndex(prefix, index) {
+  return prefix ? `${prefix}[${index}]` : `$[${index}]`;
+}
+
+function withCtripSourcePath(row, sourcePath) {
+  if (!row || typeof row !== 'object' || Array.isArray(row) || row._source_path || row.source_path) {
+    return row;
+  }
+  return { ...row, _source_path: sourcePath || '$' };
 }
 
 function looksLikeBusinessRow(row) {
@@ -1098,10 +1234,13 @@ function normalizeTrafficRow(row, sourceUrl, requestDateEvidence = {}) {
   }
   const explicitDataDate = normalizeDate(firstValue(row, ['date', 'dataDate', 'statDate', 'data_date', 'stat_date', 'reportDate', 'day']));
   const requestDataDate = normalizeDate(requestDateEvidence.date || '');
-  const dataDate = explicitDataDate || requestDataDate || defaultDataDate;
+  if (!explicitDataDate && !requestDataDate) {
+    return null;
+  }
+  const dataDate = explicitDataDate || requestDataDate;
   const dateSource = explicitDataDate
     ? 'row'
-    : (requestDataDate ? (requestDateEvidence.date_source || 'request') : (defaultDataDate ? 'capture_context.default_data_date' : ''));
+    : (requestDateEvidence.date_source || 'request');
 
   return {
     ...row,

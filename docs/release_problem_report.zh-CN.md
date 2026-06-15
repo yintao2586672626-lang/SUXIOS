@@ -30,7 +30,7 @@
 
 | 序号 | 问题 | 范围 | 风险 | 当前证据 | 验收命令 |
 |---:|---|---|---|---|---|
-| 1 | Figma / Canva 真实设计交付缺失 | `@figma` / `@canva` | 不能证明品牌、设计源、设计 token、关键流程已评审 | `docs/design_handoff_manifest.json` 不存在 | `npm run review:release-design` |
+| 1 | Figma / Canva 真实设计交付缺失 | `@figma` / `@canva` | 不能证明品牌、设计源、设计 token、关键流程已评审 | `DESIGN_HANDOFF_MANIFEST_FILE` 未设置，且 `docs/design_handoff_manifest.json` 不存在 | `npm run review:release-design` |
 | 2 | OTA 凭据轮换证明缺失 | `@codex-security` | 无法证明 Cookie、Token、签名、Authorization 等已轮换或失效 | `docs/ota_credential_rotation_attestation.json` 不存在，`OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 未设置；backup 文本扫描干净不等于平台凭据已轮换 | `npm run review:release-ota-credentials` |
 | 3 | GitHub / 本地交接状态未关闭 | `@github` | 无法完成可靠发布交接 | PR #2 仍为 draft；当前本地 worktree、index lock、mergeable、checks、backup tracking 均已通过外部状态检查 | `npm run review:release-external-state` |
 

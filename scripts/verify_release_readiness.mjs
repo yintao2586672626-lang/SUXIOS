@@ -77,7 +77,12 @@ function checkLlmConnectivityAttestation() {
 }
 
 function checkDesignArtifacts() {
-  const result = checkDesignHandoff({ repoRoot });
+  const manifestPath = process.env.DESIGN_HANDOFF_MANIFEST_FILE || 'docs/design_handoff_manifest.json';
+  const result = checkDesignHandoff({
+    repoRoot,
+    manifestPath,
+    requireOutsideRepo: Boolean(process.env.DESIGN_HANDOFF_MANIFEST_FILE),
+  });
   result.passes.forEach(addPass);
   result.warnings.forEach(addWarning);
   result.failures.forEach(addFailure);

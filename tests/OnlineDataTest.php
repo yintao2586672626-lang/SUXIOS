@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\OnlineData;
+use app\service\CtripTrafficDisplayService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -202,9 +203,7 @@ final class OnlineDataTest extends TestCase
      */
     public function testNormalizeAppTrafficRowCoversNormalBoundaryAndInvalidInput(): void
     {
-        $controller = $this->controller();
-
-        $normal = $this->invokeNonPublic($controller, 'normalizeAppTrafficRow', [[
+        $normal = CtripTrafficDisplayService::normalizeAppTrafficRow([
             'dataDate' => '2026-05-01 08:00:00',
             'hotelId' => 88,
             'listExposure' => '1000',
@@ -214,7 +213,7 @@ final class OnlineDataTest extends TestCase
             'flowRate' => '0.2',
             'orderFillRate' => '10',
             'submitRate' => '0.2',
-        ]]);
+        ]);
 
         self::assertSame('2026-05-01', $normal['date']);
         self::assertSame('self', $normal['compare_type']);
@@ -223,19 +222,19 @@ final class OnlineDataTest extends TestCase
         self::assertSame(10.0, $normal['metrics']['order_rate']);
         self::assertSame(20.0, $normal['metrics']['deal_rate']);
 
-        $boundary = $this->invokeNonPublic($controller, 'normalizeAppTrafficRow', [[
+        $boundary = CtripTrafficDisplayService::normalizeAppTrafficRow([
             'date' => '2026-05-02',
             'compare_type' => 'competitor',
             'exposure' => 0,
             'detail_visitors' => 0,
             'order_visitors' => 0,
             'submit_users' => 0,
-        ]]);
+        ]);
 
         self::assertSame('competitor', $boundary['compare_type']);
         self::assertSame(0.0, $boundary['metrics']['exposure_rate']);
-        self::assertSame(0.0, $this->invokeNonPublic($controller, 'trafficRate', [12.0, 0.0]));
-        self::assertNull($this->invokeNonPublic($controller, 'normalizeAppTrafficRow', [['date' => 'not-a-date']]));
+        self::assertSame(0.0, CtripTrafficDisplayService::trafficRate(12.0, 0.0));
+        self::assertNull(CtripTrafficDisplayService::normalizeAppTrafficRow(['date' => 'not-a-date']));
     }
 
     /**
@@ -244,31 +243,26 @@ final class OnlineDataTest extends TestCase
      */
     public function testBuildAppTrafficDerivedAnalysisCoversSummaryAndEmptyResponse(): void
     {
-        $controller = $this->controller();
-        $response = [
-            'data' => [
-                'list' => [
-                    [
-                        'date' => '2026-05-01',
-                        'hotelId' => 1001,
-                        'listExposure' => 1000,
-                        'detailExposure' => 200,
-                        'orderFillingNum' => 40,
-                        'orderSubmitNum' => 8,
-                    ],
-                    [
-                        'date' => '2026-05-01',
-                        'hotelId' => -1,
-                        'listExposure' => 2000,
-                        'detailExposure' => 600,
-                        'orderFillingNum' => 120,
-                        'orderSubmitNum' => 36,
-                    ],
-                ],
+        $rows = [
+            [
+                'date' => '2026-05-01',
+                'hotelId' => 1001,
+                'listExposure' => 1000,
+                'detailExposure' => 200,
+                'orderFillingNum' => 40,
+                'orderSubmitNum' => 8,
+            ],
+            [
+                'date' => '2026-05-01',
+                'hotelId' => -1,
+                'listExposure' => 2000,
+                'detailExposure' => 600,
+                'orderFillingNum' => 120,
+                'orderSubmitNum' => 36,
             ],
         ];
 
-        $analysis = $this->invokeNonPublic($controller, 'buildAppTrafficDerivedAnalysis', [$response]);
+        $analysis = CtripTrafficDisplayService::buildAppTrafficDerivedAnalysis($rows);
 
         self::assertCount(1, $analysis['rows']);
         self::assertSame(1000.0, $analysis['summary']['exposure_gap']);
@@ -277,7 +271,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame(30.0, $analysis['summary']['competitor']['deal_rate']);
         self::assertIsArray($analysis['recommendations']);
 
-        $empty = $this->invokeNonPublic($controller, 'buildAppTrafficDerivedAnalysis', [['data' => ['list' => []]]]);
+        $empty = CtripTrafficDisplayService::buildAppTrafficDerivedAnalysis([]);
         self::assertSame([], $empty['rows']);
         self::assertSame(0.0, $empty['summary']['self']['exposure']);
     }
@@ -1407,12 +1401,10 @@ final class OnlineDataTest extends TestCase
 
     public function testBackendBuildsCtripTrafficDisplayRowsAndSummaryForFrontend(): void
     {
-        $controller = $this->controller();
-
-        $rows = $this->invokeNonPublic($controller, 'buildCtripTrafficDisplayRows', [[
+        $rows = CtripTrafficDisplayService::buildCtripTrafficDisplayRows([
             ['dataDate' => '2026-05-18', 'hotelId' => 88, 'listExposure' => 1000, 'detailExposure' => 200, 'orderFillingNum' => 20, 'orderSubmitNum' => 5],
             ['dataDate' => '2026-05-18', 'hotelId' => -1, 'listExposure' => 800, 'detailExposure' => 160, 'orderFillingNum' => 16, 'orderSubmitNum' => 4],
-        ]]);
+        ]);
 
         self::assertCount(2, $rows);
         self::assertSame('self', $rows[0]['compareType']);
@@ -1420,7 +1412,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame(20.0, $rows[0]['flowRate']);
         self::assertSame(25.0, $rows[0]['submitRate']);
 
-        $summary = $this->invokeNonPublic($controller, 'buildCtripTrafficDisplaySummary', [$rows]);
+        $summary = CtripTrafficDisplayService::buildCtripTrafficDisplaySummary($rows);
         self::assertSame(1000.0, $summary['self']['listExposure']);
         self::assertSame(800.0, $summary['avg']['listExposure']);
         self::assertSame(20.0, $summary['self']['flowRate']);
@@ -1452,7 +1444,7 @@ final class OnlineDataTest extends TestCase
         self::assertCount(1, $rows);
         self::assertSame(5, $rows[0]['categoryRank']);
 
-        $normalized = $this->invokeNonPublic($controller, 'normalizeAppTrafficRow', [$rows[0]]);
+        $normalized = CtripTrafficDisplayService::normalizeAppTrafficRow($rows[0]);
         self::assertSame('2026-05-18', $normalized['date']);
         self::assertSame(1234.0, $normalized['metrics']['exposure']);
         self::assertSame(456.0, $normalized['metrics']['detail_visitors']);
@@ -3286,6 +3278,43 @@ final class OnlineDataTest extends TestCase
         self::assertSame(50, $rows[0]['detail_exposure']);
         self::assertSame(3, $rows[0]['book_order_num']);
         self::assertSame(188.5, $rows[0]['amount']);
+    }
+
+    public function testCtripAdsRowsDoNotUseProfileIdAsHotelId(): void
+    {
+        $controller = $this->controller();
+        $ad = [
+            'campaignId' => 'ad-identity',
+            'impressions' => 10,
+            'clicks' => 1,
+            'consume' => 2,
+            'statDate' => '2026-05-18',
+        ];
+
+        $rows = $this->invokeNonPublic($controller, 'buildCtripCapturedAdRows', [[$ad], [
+            'profile_id' => 'profile-58',
+            'ctrip_hotel_id' => 'ctrip-58',
+            'request_start_date' => '2026-05-18',
+            'request_end_date' => '2026-05-18',
+        ], 58]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('ctrip-58', $rows[0]['hotel_id']);
+        $raw = json_decode((string)$rows[0]['raw_data'], true);
+        self::assertSame('ctrip-58', $raw['_capture_context']['hotel_id']);
+        self::assertArrayNotHasKey('profile_id', $raw['_capture_context']);
+
+        $profileOnlyRows = $this->invokeNonPublic($controller, 'buildCtripCapturedAdRows', [[$ad], [
+            'profile_id' => 'profile-58',
+            'request_start_date' => '2026-05-18',
+            'request_end_date' => '2026-05-18',
+        ], 58]);
+
+        self::assertCount(1, $profileOnlyRows);
+        self::assertSame('', $profileOnlyRows[0]['hotel_id']);
+        $profileOnlyRaw = json_decode((string)$profileOnlyRows[0]['raw_data'], true);
+        self::assertArrayNotHasKey('hotel_id', $profileOnlyRaw['_capture_context']);
+        self::assertArrayNotHasKey('profile_id', $profileOnlyRaw['_capture_context']);
     }
 
     public function testCtripAdsApiUrlOnlyAllowsPyramidadOrPromotion(): void

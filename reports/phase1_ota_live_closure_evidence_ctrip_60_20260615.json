@@ -1,0 +1,3090 @@
+{
+    "scope": {
+        "date": "2026-06-15",
+        "platform": "ctrip",
+        "platforms": [
+            "ctrip"
+        ],
+        "system_hotel_id": 60,
+        "hotel_id": null,
+        "metric_scope": "ota_channel"
+    },
+    "generated_at": "2026-06-15 04:40:55",
+    "generator": {
+        "script": "scripts\/build_phase1_ota_live_closure_evidence.php",
+        "mode": "read_only",
+        "writes_ota_data": false,
+        "changes_acquisition_logic": false
+    },
+    "collection_reliability": {
+        "status": "source_rows_present",
+        "coverage_status": "complete",
+        "missing_platforms": [],
+        "source": "online_daily_data",
+        "platforms": [
+            {
+                "platform": "ctrip",
+                "source_rows": 1,
+                "data_types": [
+                    "traffic"
+                ],
+                "latest_trace_time": "2026-06-15 04:08:35",
+                "latest_available": {
+                    "date": "2026-06-15",
+                    "date_relation": "target_date",
+                    "count": 1,
+                    "data_types": [
+                        "traffic"
+                    ],
+                    "latest_trace_time": "2026-06-15 04:08:35",
+                    "sample_traces": [
+                        {
+                            "row_id": 15676,
+                            "source": "ctrip",
+                            "data_type": "traffic",
+                            "hotel_id": "60",
+                            "system_hotel_id": 60,
+                            "ingestion_method": "legacy",
+                            "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                            "validation_status": "normal"
+                        }
+                    ]
+                },
+                "sample_traces": [
+                    {
+                        "row_id": 15676,
+                        "source": "ctrip",
+                        "data_type": "traffic",
+                        "hotel_id": "60",
+                        "system_hotel_id": 60,
+                        "ingestion_method": "legacy",
+                        "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                        "validation_status": "normal"
+                    }
+                ],
+                "field_facts": {
+                    "status": "ready",
+                    "fact_count": 5,
+                    "complete_fact_count": 5,
+                    "incomplete_captured_fact_count": 0,
+                    "raw_data_exposed": false
+                }
+            }
+        ]
+    },
+    "collection_source_summary": [
+        {
+            "platform": "ctrip",
+            "target_date": "2026-06-15",
+            "storage_table": "online_daily_data",
+            "source_policy": "read_existing_online_daily_data_only",
+            "metric_scope": "ota_channel",
+            "target_date_rows": 1,
+            "target_date_data_types": [
+                "traffic"
+            ],
+            "target_date_latest_trace_time": "2026-06-15 04:08:35",
+            "latest_available": {
+                "date": "2026-06-15",
+                "date_relation": "target_date",
+                "rows": 1,
+                "data_types": [
+                    "traffic"
+                ],
+                "latest_trace_time": "2026-06-15 04:08:35"
+            },
+            "latest_available_reference_only": false,
+            "field_fact_status": "ready",
+            "field_fact_closure_summary": {
+                "status": "ready",
+                "fact_count": 5,
+                "complete_fact_count": 5,
+                "explicit_missing_fact_count": 0,
+                "incomplete_captured_fact_count": 0,
+                "metric_key_count": 5,
+                "capture_evidence_count": 5,
+                "source_path_count": 5,
+                "structured_source_path_count": 5,
+                "storage_field_count": 5,
+                "stored_value_present_count": 5,
+                "stored_value_missing_count": 0,
+                "raw_data_exposed": false
+            },
+            "etl_status": "ready",
+            "daily_facts": 0,
+            "traffic_rows": 1,
+            "metric_status": "ready",
+            "collection_logic_changed": false
+        }
+    ],
+    "platform_evidence": [
+        {
+            "platform": "ctrip",
+            "filters": {
+                "source": "ctrip",
+                "start_date": "2026-06-15",
+                "end_date": "2026-06-15",
+                "system_hotel_id": "60",
+                "limit": 5000
+            },
+            "source_rows": {
+                "count": 1,
+                "data_types": [
+                    "traffic"
+                ],
+                "latest_trace_time": "2026-06-15 04:08:35",
+                "sample_traces": [
+                    {
+                        "row_id": 15676,
+                        "source": "ctrip",
+                        "data_type": "traffic",
+                        "hotel_id": "60",
+                        "system_hotel_id": 60,
+                        "ingestion_method": "legacy",
+                        "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                        "validation_status": "normal"
+                    }
+                ],
+                "latest_available": {
+                    "date": "2026-06-15",
+                    "date_relation": "target_date",
+                    "count": 1,
+                    "data_types": [
+                        "traffic"
+                    ],
+                    "latest_trace_time": "2026-06-15 04:08:35",
+                    "sample_traces": [
+                        {
+                            "row_id": 15676,
+                            "source": "ctrip",
+                            "data_type": "traffic",
+                            "hotel_id": "60",
+                            "system_hotel_id": 60,
+                            "ingestion_method": "legacy",
+                            "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                            "validation_status": "normal"
+                        }
+                    ]
+                }
+            },
+            "field_facts": {
+                "status": "ready",
+                "summary_key": "field_fact_closure_summary",
+                "source_policy": "read_existing_online_daily_data_raw_data_metadata_only",
+                "storage_table": "online_daily_data",
+                "row_count": 1,
+                "rows_with_field_facts": 1,
+                "fact_count": 5,
+                "captured_fact_count": 5,
+                "complete_fact_count": 5,
+                "explicit_missing_fact_count": 0,
+                "incomplete_captured_fact_count": 0,
+                "metric_key_count": 5,
+                "capture_evidence_count": 5,
+                "desensitized_capture_evidence_count": 5,
+                "source_path_count": 5,
+                "structured_source_path_count": 5,
+                "storage_field_count": 5,
+                "inferred_storage_field_count": 0,
+                "stored_value_present_count": 5,
+                "stored_value_missing_count": 0,
+                "complete_metric_keys": [
+                    "list_exposure",
+                    "detail_exposure",
+                    "flow_rate",
+                    "order_filling_num",
+                    "order_submit_num"
+                ],
+                "missing_metric_keys": [],
+                "incomplete_metric_keys": [],
+                "sample_facts": [
+                    {
+                        "row_id": 15676,
+                        "data_type": "traffic",
+                        "metric_key": "list_exposure",
+                        "source_key": "list_exposure",
+                        "source_path": "$.data.list_exposure",
+                        "source_path_structured": true,
+                        "storage_field": "online_daily_data.list_exposure",
+                        "storage_field_source": "explicit",
+                        "storage_field_inferred": false,
+                        "capture_evidence_present": true,
+                        "desensitized_capture_evidence_present": true,
+                        "stored_value_present": true,
+                        "status": "captured"
+                    },
+                    {
+                        "row_id": 15676,
+                        "data_type": "traffic",
+                        "metric_key": "detail_exposure",
+                        "source_key": "detail_exposure",
+                        "source_path": "$.data.detail_exposure",
+                        "source_path_structured": true,
+                        "storage_field": "online_daily_data.detail_exposure",
+                        "storage_field_source": "explicit",
+                        "storage_field_inferred": false,
+                        "capture_evidence_present": true,
+                        "desensitized_capture_evidence_present": true,
+                        "stored_value_present": true,
+                        "status": "captured"
+                    },
+                    {
+                        "row_id": 15676,
+                        "data_type": "traffic",
+                        "metric_key": "flow_rate",
+                        "source_key": "flow_rate",
+                        "source_path": "$.data.flow_rate",
+                        "source_path_structured": true,
+                        "storage_field": "online_daily_data.flow_rate",
+                        "storage_field_source": "explicit",
+                        "storage_field_inferred": false,
+                        "capture_evidence_present": true,
+                        "desensitized_capture_evidence_present": true,
+                        "stored_value_present": true,
+                        "status": "captured"
+                    },
+                    {
+                        "row_id": 15676,
+                        "data_type": "traffic",
+                        "metric_key": "order_filling_num",
+                        "source_key": "order_filling_num",
+                        "source_path": "$.data.order_filling_num",
+                        "source_path_structured": true,
+                        "storage_field": "online_daily_data.order_filling_num",
+                        "storage_field_source": "explicit",
+                        "storage_field_inferred": false,
+                        "capture_evidence_present": true,
+                        "desensitized_capture_evidence_present": true,
+                        "stored_value_present": true,
+                        "status": "captured"
+                    },
+                    {
+                        "row_id": 15676,
+                        "data_type": "traffic",
+                        "metric_key": "order_submit_num",
+                        "source_key": "order_submit_num",
+                        "source_path": "$.data.order_submit_num",
+                        "source_path_structured": true,
+                        "storage_field": "online_daily_data.order_submit_num",
+                        "storage_field_source": "explicit",
+                        "storage_field_inferred": false,
+                        "capture_evidence_present": true,
+                        "desensitized_capture_evidence_present": true,
+                        "stored_value_present": true,
+                        "status": "captured"
+                    }
+                ],
+                "raw_data_exposed": false
+            },
+            "etl": {
+                "status": "ready",
+                "daily_facts": 0,
+                "traffic_facts": 1,
+                "advertising_facts": 0,
+                "quality_facts": 0,
+                "accepted_rows": 1,
+                "rejected_rows": 0
+            },
+            "revenue_metrics": {
+                "status": "ready",
+                "source": "OtaRevenueMetricService::summarizeDataset",
+                "totals": {
+                    "revenue": 0,
+                    "gross_revenue": 0,
+                    "room_revenue": 0,
+                    "net_revenue": null,
+                    "commission_amount": null,
+                    "commission_rate": null,
+                    "room_nights": 0,
+                    "available_room_nights": null,
+                    "occupied_room_nights": null,
+                    "order_count": 0,
+                    "adr": null,
+                    "occ": null,
+                    "revpar": null,
+                    "net_revpar": null,
+                    "avg_lead_time_days": null,
+                    "cancellation_rate": null,
+                    "room_night_cancellation_rate": null,
+                    "review_count": 0,
+                    "avg_comment_score": null
+                },
+                "traffic": {
+                    "rows": 1,
+                    "avg_flow_rate": 0,
+                    "avg_submit_rate": null,
+                    "list_exposure": 0,
+                    "detail_exposure": 0
+                },
+                "advertising": {
+                    "rows": 0,
+                    "spend": 0,
+                    "order_amount": 0,
+                    "bookings": 0,
+                    "room_nights": 0,
+                    "impressions": 0,
+                    "clicks": 0,
+                    "avg_ctr": null,
+                    "avg_cvr": null,
+                    "roas": null
+                },
+                "quality": {
+                    "rows": 0,
+                    "avg_psi_score": null,
+                    "avg_service_score": null,
+                    "avg_im_score": null,
+                    "avg_reply_rate": null,
+                    "hotel_collect": 0
+                },
+                "data_gaps": [
+                    {
+                        "code": "available_room_nights_missing",
+                        "message": "Available room night fields are missing, so OCC, RevPAR, and Net RevPAR are not calculable."
+                    },
+                    {
+                        "code": "commission_fields_missing",
+                        "message": "Commission amount or commission rate fields are missing, so commission-after revenue is not calculable."
+                    },
+                    {
+                        "code": "net_revenue_fields_missing",
+                        "message": "Net revenue fields are missing and cannot be derived without commission data."
+                    },
+                    {
+                        "code": "lead_time_fields_missing",
+                        "message": "Booking date and check-in date fields are missing, so lead time is not calculable."
+                    },
+                    {
+                        "code": "cancellation_fields_missing",
+                        "message": "Cancellation fields are not present in OTA daily facts."
+                    },
+                    {
+                        "code": "cancel_room_nights_missing",
+                        "message": "Cancel room night fields are missing, so room-night cancellation rate is not calculable."
+                    },
+                    {
+                        "code": "competitor_price_fields_missing",
+                        "message": "Competitor price fields are not present in OTA daily facts."
+                    }
+                ],
+                "metric_trust": {
+                    "totals.revenue": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.revenue)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.gross_revenue": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.gross_revenue)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.room_revenue": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.room_revenue)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.net_revenue": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.net_revenue)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "net_revenue_fields_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.commission_amount": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.commission_amount)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "commission_fields_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.commission_rate": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.commission_amount) \/ sum(fact_ota_daily.gross_revenue)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "commission_fields_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.room_nights": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.room_nights)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.available_room_nights": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.available_room_nights)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "available_room_nights_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.occupied_room_nights": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.occupied_room_nights)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "available_room_nights_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.order_count": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.order_count)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.adr": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.room_revenue) \/ sum(fact_ota_daily.room_nights)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "adr_denominator_zero",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.occ": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.occupied_room_nights) \/ sum(fact_ota_daily.available_room_nights)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "available_room_nights_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.revpar": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.room_revenue) \/ sum(fact_ota_daily.available_room_nights)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "available_room_nights_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.net_revpar": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.net_revenue) \/ sum(fact_ota_daily.available_room_nights)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "available_room_nights_missing",
+                            "net_revenue_fields_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.avg_lead_time_days": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "avg(fact_ota_daily.lead_time_days)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "lead_time_fields_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.cancellation_rate": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.cancel_order_num) \/ sum(fact_ota_daily.order_count), or avg(fact_ota_daily.cancel_rate) when platform rate is supplied",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "cancellation_fields_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.room_night_cancellation_rate": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_daily.cancel_room_nights) \/ sum(fact_ota_daily.room_nights)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "cancel_room_nights_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.review_count": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "count(fact_ota_comment)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "totals.avg_comment_score": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "avg(fact_ota_comment.score)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "traffic.rows": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [
+                                15676
+                            ],
+                            "platforms": [
+                                "ctrip"
+                            ],
+                            "data_types": [
+                                "traffic"
+                            ],
+                            "date_range": {
+                                "start": "2026-06-15",
+                                "end": "2026-06-15"
+                            },
+                            "row_count": 1
+                        },
+                        "caliber": "count(fact_ota_traffic)",
+                        "updated_at": "2026-06-15 04:08:35",
+                        "failure_reasons": [],
+                        "saved_success": true
+                    },
+                    "traffic.avg_flow_rate": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [
+                                15676
+                            ],
+                            "platforms": [
+                                "ctrip"
+                            ],
+                            "data_types": [
+                                "traffic"
+                            ],
+                            "date_range": {
+                                "start": "2026-06-15",
+                                "end": "2026-06-15"
+                            },
+                            "row_count": 1
+                        },
+                        "caliber": "avg(fact_ota_traffic.flow_rate)",
+                        "updated_at": "2026-06-15 04:08:35",
+                        "failure_reasons": [],
+                        "saved_success": true
+                    },
+                    "traffic.avg_submit_rate": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [
+                                15676
+                            ],
+                            "platforms": [
+                                "ctrip"
+                            ],
+                            "data_types": [
+                                "traffic"
+                            ],
+                            "date_range": {
+                                "start": "2026-06-15",
+                                "end": "2026-06-15"
+                            },
+                            "row_count": 1
+                        },
+                        "caliber": "avg(fact_ota_traffic.submit_rate)",
+                        "updated_at": "2026-06-15 04:08:35",
+                        "failure_reasons": [],
+                        "saved_success": true
+                    },
+                    "traffic.list_exposure": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [
+                                15676
+                            ],
+                            "platforms": [
+                                "ctrip"
+                            ],
+                            "data_types": [
+                                "traffic"
+                            ],
+                            "date_range": {
+                                "start": "2026-06-15",
+                                "end": "2026-06-15"
+                            },
+                            "row_count": 1
+                        },
+                        "caliber": "sum(fact_ota_traffic.list_exposure)",
+                        "updated_at": "2026-06-15 04:08:35",
+                        "failure_reasons": [],
+                        "saved_success": true
+                    },
+                    "traffic.detail_exposure": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [
+                                15676
+                            ],
+                            "platforms": [
+                                "ctrip"
+                            ],
+                            "data_types": [
+                                "traffic"
+                            ],
+                            "date_range": {
+                                "start": "2026-06-15",
+                                "end": "2026-06-15"
+                            },
+                            "row_count": 1
+                        },
+                        "caliber": "sum(fact_ota_traffic.detail_exposure)",
+                        "updated_at": "2026-06-15 04:08:35",
+                        "failure_reasons": [],
+                        "saved_success": true
+                    },
+                    "competitor_price.rows": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "count(fact_ota_daily rows with our_price and competitor_price)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "competitor_price_fields_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "competitor_price.avg_our_price": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "avg(fact_ota_daily.our_price)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "competitor_price_fields_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "competitor_price.avg_competitor_price": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "avg(fact_ota_daily.competitor_price)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "competitor_price_fields_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "competitor_price.avg_price_gap": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "avg(fact_ota_daily.price_gap)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "competitor_price_fields_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "competitor_price.avg_price_gap_rate": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "avg(fact_ota_daily.price_gap_rate)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "competitor_price_fields_missing",
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "advertising.spend": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_advertising.spend)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "advertising.order_amount": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_advertising.order_amount)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "advertising.roas": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "sum(fact_ota_advertising.order_amount) \/ sum(fact_ota_advertising.spend)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "quality.avg_psi_score": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "avg(fact_ota_quality.psi_score)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    },
+                    "quality.avg_service_score": {
+                        "source": {
+                            "table": "online_daily_data",
+                            "row_ids": [],
+                            "platforms": [],
+                            "data_types": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            },
+                            "row_count": 0
+                        },
+                        "caliber": "avg(fact_ota_quality.service_score)",
+                        "updated_at": null,
+                        "failure_reasons": [
+                            "source_rows_missing",
+                            "source_update_time_missing"
+                        ],
+                        "saved_success": false
+                    }
+                }
+            }
+        }
+    ],
+    "revenue_metrics": {
+        "status": "ready",
+        "source": "\/api\/ota-standard\/revenue-metrics",
+        "metric_domain_readiness": [
+            {
+                "platform": "ctrip",
+                "target_date": "2026-06-15",
+                "revenue_status": "ready",
+                "traffic_status": "ready",
+                "conversion_status": "ready",
+                "missing_domains": [],
+                "metric_status": "ready",
+                "traffic_rows": 1,
+                "source_rows": 1,
+                "target_date_rows": 1,
+                "target_date_data_types": [
+                    "traffic"
+                ]
+            }
+        ],
+        "traffic_source_readiness": [
+            {
+                "platform": "ctrip",
+                "target_date": "2026-06-15",
+                "target_date_rows": 1,
+                "target_date_traffic_rows": 1,
+                "target_date_data_types": [
+                    "traffic"
+                ],
+                "traffic_source_count": 2,
+                "traffic_enabled_count": 2,
+                "traffic_ready_count": 0,
+                "traffic_waiting_config_count": 2,
+                "traffic_managed_count": 2,
+                "traffic_secret_configured_count": 0,
+                "traffic_last_sync_status_counts": {
+                    "waiting_config": 2
+                },
+                "required_next_inputs": [],
+                "recommended_collection_mode": "status_check",
+                "action_entry": "\/api\/online-data\/collection-reliability",
+                "status": "target_date_traffic_ready",
+                "source_policy": "read_platform_data_sources_metadata_only",
+                "sensitive_values_exposed": false,
+                "p0_traffic_gate_status": "requires_p0_verifier",
+                "p0_next_action_mode": "status_check",
+                "p0_next_action_entry": "\/api\/online-data\/collection-reliability",
+                "p0_next_step_count": 2,
+                "next_command_policy": "metadata_only_no_sensitive_commands",
+                "p0_external_evidence_status": "not_provided",
+                "p0_pre_import_evidence_status": "not_provided",
+                "p0_pre_import_evidence_policy": "External traffic evidence is source proof only; P0 closure still requires target-date traffic rows and ready verifier status.",
+                "p0_traffic_field_fact_status": "requires_p0_verifier",
+                "p0_payload_candidate_policy": "ui_metadata_only_no_import",
+                "p0_payload_candidate_payload_policy": "path_metadata_only_no_payload_content",
+                "p0_payload_candidate_storage_policy": "does_not_write_online_daily_data",
+                "p0_payload_candidate_status_counts": {
+                    "expected_payload_present_unverified": 2
+                },
+                "p0_payload_candidate_ready_count": 0,
+                "p0_payload_candidate_missing_count": 0,
+                "p0_payload_candidate_unverified_count": 2,
+                "p0_payload_candidate_paths": [
+                    "reports\/p0_traffic_ctrip_60_20260615.json",
+                    "reports\/p0_traffic_ctrip_64_20260615.json"
+                ],
+                "p0_payload_candidate_issue_codes": [
+                    "payload_file_present_requires_importer_dry_run"
+                ],
+                "p0_required_metric_keys": [
+                    "list_exposure",
+                    "detail_exposure",
+                    "flow_rate",
+                    "order_filling_num",
+                    "order_submit_num"
+                ],
+                "p0_required_storage_fields": [
+                    "online_daily_data.list_exposure",
+                    "online_daily_data.detail_exposure",
+                    "online_daily_data.flow_rate",
+                    "online_daily_data.order_filling_num",
+                    "online_daily_data.order_submit_num"
+                ],
+                "p0_required_field_fact_keys": [
+                    "capture_evidence",
+                    "source_path",
+                    "metric_key",
+                    "storage_field",
+                    "stored_value_present"
+                ],
+                "p0_missing_metric_keys": [],
+                "p0_field_loop_matrix": [
+                    {
+                        "metric_key": "list_exposure",
+                        "expected_storage_field": "online_daily_data.list_exposure",
+                        "status": "complete",
+                        "target_date_traffic_rows": 1,
+                        "row_count": 2,
+                        "complete_row_count": 2,
+                        "sample_row_id": 15676,
+                        "capture_evidence_present": true,
+                        "desensitized_capture_evidence_present": true,
+                        "capture_evidence_matches_row": true,
+                        "source_path_structured": true,
+                        "storage_field_matches_expected": true,
+                        "stored_value_present": true,
+                        "ui_status_ready": true
+                    },
+                    {
+                        "metric_key": "detail_exposure",
+                        "expected_storage_field": "online_daily_data.detail_exposure",
+                        "status": "complete",
+                        "target_date_traffic_rows": 1,
+                        "row_count": 2,
+                        "complete_row_count": 2,
+                        "sample_row_id": 15676,
+                        "capture_evidence_present": true,
+                        "desensitized_capture_evidence_present": true,
+                        "capture_evidence_matches_row": true,
+                        "source_path_structured": true,
+                        "storage_field_matches_expected": true,
+                        "stored_value_present": true,
+                        "ui_status_ready": true
+                    },
+                    {
+                        "metric_key": "flow_rate",
+                        "expected_storage_field": "online_daily_data.flow_rate",
+                        "status": "complete",
+                        "target_date_traffic_rows": 1,
+                        "row_count": 2,
+                        "complete_row_count": 2,
+                        "sample_row_id": 15676,
+                        "capture_evidence_present": true,
+                        "desensitized_capture_evidence_present": true,
+                        "capture_evidence_matches_row": true,
+                        "source_path_structured": true,
+                        "storage_field_matches_expected": true,
+                        "stored_value_present": true,
+                        "ui_status_ready": true
+                    },
+                    {
+                        "metric_key": "order_filling_num",
+                        "expected_storage_field": "online_daily_data.order_filling_num",
+                        "status": "complete",
+                        "target_date_traffic_rows": 1,
+                        "row_count": 2,
+                        "complete_row_count": 2,
+                        "sample_row_id": 15676,
+                        "capture_evidence_present": true,
+                        "desensitized_capture_evidence_present": true,
+                        "capture_evidence_matches_row": true,
+                        "source_path_structured": true,
+                        "storage_field_matches_expected": true,
+                        "stored_value_present": true,
+                        "ui_status_ready": true
+                    },
+                    {
+                        "metric_key": "order_submit_num",
+                        "expected_storage_field": "online_daily_data.order_submit_num",
+                        "status": "complete",
+                        "target_date_traffic_rows": 1,
+                        "row_count": 2,
+                        "complete_row_count": 2,
+                        "sample_row_id": 15676,
+                        "capture_evidence_present": true,
+                        "desensitized_capture_evidence_present": true,
+                        "capture_evidence_matches_row": true,
+                        "source_path_structured": true,
+                        "storage_field_matches_expected": true,
+                        "stored_value_present": true,
+                        "ui_status_ready": true
+                    }
+                ],
+                "p0_traffic_closure_chain": {
+                    "capture_evidence": {
+                        "status": "ready",
+                        "required": "desensitized source_trace_id plus source_url_hash matched to each traffic row and field fact"
+                    },
+                    "source_path": {
+                        "status": "ready",
+                        "required": "structured source_path for every required traffic metric"
+                    },
+                    "metric_key": {
+                        "status": "ready",
+                        "required": "required traffic metric keys are present in field facts"
+                    },
+                    "storage_field": {
+                        "status": "ready",
+                        "required": "expected online_daily_data storage field for every required metric"
+                    },
+                    "stored_value": {
+                        "status": "ready",
+                        "required": "stored value present for every required traffic metric"
+                    },
+                    "ui_status": {
+                        "status": "ready",
+                        "required": "ready UI field_fact_status with no raw_data exposure"
+                    },
+                    "platform_hotel_identifier": {
+                        "status": "requires_p0_verifier",
+                        "required": "hotel_id_family"
+                    },
+                    "verifier": {
+                        "status": "requires_p0_verifier",
+                        "required": "P0 field-loop verifier returns ready"
+                    }
+                },
+                "p0_traffic_closure_chain_policy": "Every chain item is OTA-channel evidence only and remains incomplete until the P0 field-loop verifier returns ready.",
+                "p0_platform_hotel_identifier_source": "hotel_id_family",
+                "p0_platform_hotel_identifier_status": "requires_p0_verifier",
+                "p0_platform_hotel_identifier_policy": "P0 traffic rows must prove the OTA platform hotel identifier through importer\/verifier checks; UI exposes only status and source family, not raw IDs.",
+                "p0_target_traffic_data_types": [
+                    "traffic"
+                ],
+                "p0_source_chain_reference_only": false,
+                "p0_source_chain_scope": "traffic_source_rows",
+                "p0_source_chain_policy": "Target-date source rows include traffic\/flow\/conversion data types; P0 closure still requires ready verifier status."
+            }
+        ],
+        "traffic_source_policy": "read_platform_data_sources_metadata_only",
+        "revenue_ready_platforms": [
+            "ctrip"
+        ],
+        "traffic_ready_platforms": [
+            "ctrip"
+        ],
+        "conversion_ready_platforms": [
+            "ctrip"
+        ],
+        "revenue_missing_platforms": [],
+        "traffic_missing_platforms": [],
+        "conversion_missing_platforms": [],
+        "metric_domain_gap_codes": [],
+        "primary_platform": "ctrip",
+        "primary_platform_status": "ready",
+        "data_gaps": [
+            {
+                "code": "available_room_nights_missing",
+                "message": "Available room night fields are missing, so OCC, RevPAR, and Net RevPAR are not calculable."
+            },
+            {
+                "code": "commission_fields_missing",
+                "message": "Commission amount or commission rate fields are missing, so commission-after revenue is not calculable."
+            },
+            {
+                "code": "net_revenue_fields_missing",
+                "message": "Net revenue fields are missing and cannot be derived without commission data."
+            },
+            {
+                "code": "lead_time_fields_missing",
+                "message": "Booking date and check-in date fields are missing, so lead time is not calculable."
+            },
+            {
+                "code": "cancellation_fields_missing",
+                "message": "Cancellation fields are not present in OTA daily facts."
+            },
+            {
+                "code": "cancel_room_nights_missing",
+                "message": "Cancel room night fields are missing, so room-night cancellation rate is not calculable."
+            },
+            {
+                "code": "competitor_price_fields_missing",
+                "message": "Competitor price fields are not present in OTA daily facts."
+            }
+        ],
+        "metric_trust": {
+            "totals.revenue": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.revenue)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.gross_revenue": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.gross_revenue)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.room_revenue": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.room_revenue)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.net_revenue": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.net_revenue)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "net_revenue_fields_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.commission_amount": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.commission_amount)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "commission_fields_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.commission_rate": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.commission_amount) \/ sum(fact_ota_daily.gross_revenue)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "commission_fields_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.room_nights": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.room_nights)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.available_room_nights": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.available_room_nights)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "available_room_nights_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.occupied_room_nights": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.occupied_room_nights)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "available_room_nights_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.order_count": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.order_count)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.adr": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.room_revenue) \/ sum(fact_ota_daily.room_nights)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "adr_denominator_zero",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.occ": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.occupied_room_nights) \/ sum(fact_ota_daily.available_room_nights)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "available_room_nights_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.revpar": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.room_revenue) \/ sum(fact_ota_daily.available_room_nights)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "available_room_nights_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.net_revpar": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.net_revenue) \/ sum(fact_ota_daily.available_room_nights)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "available_room_nights_missing",
+                    "net_revenue_fields_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.avg_lead_time_days": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "avg(fact_ota_daily.lead_time_days)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "lead_time_fields_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.cancellation_rate": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.cancel_order_num) \/ sum(fact_ota_daily.order_count), or avg(fact_ota_daily.cancel_rate) when platform rate is supplied",
+                "updated_at": null,
+                "failure_reasons": [
+                    "cancellation_fields_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.room_night_cancellation_rate": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_daily.cancel_room_nights) \/ sum(fact_ota_daily.room_nights)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "cancel_room_nights_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.review_count": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "count(fact_ota_comment)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "totals.avg_comment_score": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "avg(fact_ota_comment.score)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "traffic.rows": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [
+                        15676
+                    ],
+                    "platforms": [
+                        "ctrip"
+                    ],
+                    "data_types": [
+                        "traffic"
+                    ],
+                    "date_range": {
+                        "start": "2026-06-15",
+                        "end": "2026-06-15"
+                    },
+                    "row_count": 1
+                },
+                "caliber": "count(fact_ota_traffic)",
+                "updated_at": "2026-06-15 04:08:35",
+                "failure_reasons": [],
+                "saved_success": true
+            },
+            "traffic.avg_flow_rate": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [
+                        15676
+                    ],
+                    "platforms": [
+                        "ctrip"
+                    ],
+                    "data_types": [
+                        "traffic"
+                    ],
+                    "date_range": {
+                        "start": "2026-06-15",
+                        "end": "2026-06-15"
+                    },
+                    "row_count": 1
+                },
+                "caliber": "avg(fact_ota_traffic.flow_rate)",
+                "updated_at": "2026-06-15 04:08:35",
+                "failure_reasons": [],
+                "saved_success": true
+            },
+            "traffic.avg_submit_rate": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [
+                        15676
+                    ],
+                    "platforms": [
+                        "ctrip"
+                    ],
+                    "data_types": [
+                        "traffic"
+                    ],
+                    "date_range": {
+                        "start": "2026-06-15",
+                        "end": "2026-06-15"
+                    },
+                    "row_count": 1
+                },
+                "caliber": "avg(fact_ota_traffic.submit_rate)",
+                "updated_at": "2026-06-15 04:08:35",
+                "failure_reasons": [],
+                "saved_success": true
+            },
+            "traffic.list_exposure": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [
+                        15676
+                    ],
+                    "platforms": [
+                        "ctrip"
+                    ],
+                    "data_types": [
+                        "traffic"
+                    ],
+                    "date_range": {
+                        "start": "2026-06-15",
+                        "end": "2026-06-15"
+                    },
+                    "row_count": 1
+                },
+                "caliber": "sum(fact_ota_traffic.list_exposure)",
+                "updated_at": "2026-06-15 04:08:35",
+                "failure_reasons": [],
+                "saved_success": true
+            },
+            "traffic.detail_exposure": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [
+                        15676
+                    ],
+                    "platforms": [
+                        "ctrip"
+                    ],
+                    "data_types": [
+                        "traffic"
+                    ],
+                    "date_range": {
+                        "start": "2026-06-15",
+                        "end": "2026-06-15"
+                    },
+                    "row_count": 1
+                },
+                "caliber": "sum(fact_ota_traffic.detail_exposure)",
+                "updated_at": "2026-06-15 04:08:35",
+                "failure_reasons": [],
+                "saved_success": true
+            },
+            "competitor_price.rows": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "count(fact_ota_daily rows with our_price and competitor_price)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "competitor_price_fields_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "competitor_price.avg_our_price": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "avg(fact_ota_daily.our_price)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "competitor_price_fields_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "competitor_price.avg_competitor_price": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "avg(fact_ota_daily.competitor_price)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "competitor_price_fields_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "competitor_price.avg_price_gap": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "avg(fact_ota_daily.price_gap)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "competitor_price_fields_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "competitor_price.avg_price_gap_rate": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "avg(fact_ota_daily.price_gap_rate)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "competitor_price_fields_missing",
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "advertising.spend": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_advertising.spend)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "advertising.order_amount": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_advertising.order_amount)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "advertising.roas": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "sum(fact_ota_advertising.order_amount) \/ sum(fact_ota_advertising.spend)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "quality.avg_psi_score": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "avg(fact_ota_quality.psi_score)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            },
+            "quality.avg_service_score": {
+                "source": {
+                    "table": "online_daily_data",
+                    "row_ids": [],
+                    "platforms": [],
+                    "data_types": [],
+                    "date_range": {
+                        "start": null,
+                        "end": null
+                    },
+                    "row_count": 0
+                },
+                "caliber": "avg(fact_ota_quality.service_score)",
+                "updated_at": null,
+                "failure_reasons": [
+                    "source_rows_missing",
+                    "source_update_time_missing"
+                ],
+                "saved_success": false
+            }
+        },
+        "totals": {
+            "revenue": 0,
+            "gross_revenue": 0,
+            "room_revenue": 0,
+            "net_revenue": null,
+            "commission_amount": null,
+            "commission_rate": null,
+            "room_nights": 0,
+            "available_room_nights": null,
+            "occupied_room_nights": null,
+            "order_count": 0,
+            "adr": null,
+            "occ": null,
+            "revpar": null,
+            "net_revpar": null,
+            "avg_lead_time_days": null,
+            "cancellation_rate": null,
+            "room_night_cancellation_rate": null,
+            "review_count": 0,
+            "avg_comment_score": null
+        },
+        "traffic": {
+            "rows": 1,
+            "avg_flow_rate": 0,
+            "avg_submit_rate": null,
+            "list_exposure": 0,
+            "detail_exposure": 0
+        },
+        "advertising": {
+            "rows": 0,
+            "spend": 0,
+            "order_amount": 0,
+            "bookings": 0,
+            "room_nights": 0,
+            "impressions": 0,
+            "clicks": 0,
+            "avg_ctr": null,
+            "avg_cvr": null,
+            "roas": null
+        },
+        "quality": {
+            "rows": 0,
+            "avg_psi_score": null,
+            "avg_service_score": null,
+            "avg_im_score": null,
+            "avg_reply_rate": null,
+            "hotel_collect": 0
+        }
+    },
+    "ota_diagnosis": {
+        "source": "\/api\/agent\/ota-diagnosis",
+        "status": "from_api_response",
+        "summary": "敦煌漠蓝在2026-06-15的携程平台数据已入库，但核心经营指标（曝光、访问、订单、收入、间夜）均为0，且缺少流量、竞对、广告、服务质量等辅助数据，无法进行有效的经营诊断。当前诊断结论为数据采集不完整，需优先排查数据源同步问题。",
+        "evidence_sources": [
+            {
+                "ref": "source_summary",
+                "table": "derived",
+                "record_id": null,
+                "date": "",
+                "tags": [
+                    "summary"
+                ],
+                "label": "本次诊断聚合指标",
+                "metrics": {
+                    "amount": 0,
+                    "quantity": 0,
+                    "book_order_num": 0,
+                    "adr": 0,
+                    "list_exposure": 0,
+                    "detail_visitors": 0,
+                    "order_visitors": 0,
+                    "submit_users": 0,
+                    "detail_rate": 0,
+                    "order_rate": 0,
+                    "submit_rate": 0,
+                    "advertising_spend": 0,
+                    "advertising_order_amount": 0,
+                    "advertising_roas": 0,
+                    "avg_psi_score": 0,
+                    "avg_service_score": 0
+                }
+            },
+            {
+                "ref": "online_daily_data#15676",
+                "table": "online_daily_data",
+                "record_id": 15676,
+                "date": "2026-06-15",
+                "tags": [
+                    "online_daily_data",
+                    "traffic"
+                ],
+                "label": "ctrip traffic self",
+                "metrics": {
+                    "amount": "0.00",
+                    "quantity": 0,
+                    "book_order_num": 0,
+                    "list_exposure": 0,
+                    "detail_exposure": 0,
+                    "order_filling_num": 0,
+                    "order_submit_num": 0
+                }
+            }
+        ],
+        "data_gaps": [],
+        "action_items": [
+            {
+                "id": "ota_action_1",
+                "action": "【高优先级】检查携程EBK数据源配置，确认“流量分析”、“生意通”、“经营报告”等模块的Cookie或API授权是否过期或失效，并重新同步2026-06-15的数据。",
+                "status": "pending_manual_review",
+                "evidence_refs": [
+                    "source_summary",
+                    "online_daily_data#15676"
+                ],
+                "source_policy": "must cite evidence_refs before execution"
+            },
+            {
+                "id": "ota_action_2",
+                "action": "【高优先级】检查竞对价格数据源配置，确认是否已授权并正常抓取。",
+                "status": "pending_manual_review",
+                "evidence_refs": [
+                    "source_summary"
+                ],
+                "source_policy": "must cite evidence_refs before execution"
+            },
+            {
+                "id": "ota_action_3",
+                "action": "【中优先级】确认酒店在2026-06-15是否处于营业状态或存在房态关闭（如满房、停售）导致无数据。",
+                "status": "pending_manual_review",
+                "evidence_refs": [
+                    "source_summary"
+                ],
+                "source_policy": "must cite evidence_refs before execution"
+            },
+            {
+                "id": "ota_action_4",
+                "action": "【中优先级】待数据补齐后，按“曝光-访问-订单-收入”的漏斗顺序进行复盘，定位转化瓶颈。",
+                "status": "pending_manual_review",
+                "evidence_refs": [
+                    "source_summary",
+                    "online_daily_data#15676"
+                ],
+                "source_policy": "must cite evidence_refs before execution"
+            }
+        ],
+        "scope": {
+            "date": "2026-06-15",
+            "platform": "ctrip",
+            "system_hotel_id": 60,
+            "hotel_id": "60",
+            "metric_scope": "ota_channel",
+            "source_policy": "controller_invocation_same_code_path_as_api_not_http_auth"
+        },
+        "scope_date": "2026-06-15",
+        "expected_scope_date": "2026-06-15",
+        "scope_date_status": "matched"
+    },
+    "operation_execution": {
+        "source": "\/api\/operation\/execution-intents",
+        "status": "from_api_response",
+        "execution_intents": [
+            {
+                "id": 3,
+                "tenant_id": 60,
+                "source_module": "ota_diagnosis",
+                "source_record_id": 3519392513,
+                "hotel_id": 60,
+                "platform": "ctrip",
+                "object_type": "data_collection",
+                "action_type": "diagnosis_action_review",
+                "date_start": "2026-06-15",
+                "date_end": "2026-06-15",
+                "expected_metric": "ota_operation_closure",
+                "expected_delta": 0,
+                "risk_level": "medium",
+                "status": "approved",
+                "blocked_reason": "",
+                "review_remark": "Phase1 OTA diagnosis action approved for evidence handoff verification.",
+                "created_by": 1,
+                "approved_by": 1,
+                "approved_at": "2026-06-15 04:40:43",
+                "created_at": "2026-06-15 04:40:43",
+                "updated_at": "2026-06-15 04:40:43",
+                "deleted_at": null,
+                "current_value": {
+                    "action_item_status": "pending_manual_review",
+                    "target_date_rows": 1,
+                    "metric_scope": "ota_channel"
+                },
+                "target_value": {
+                    "collection_scope": "ctrip_target_date_diagnosis_review",
+                    "target_date": "2026-06-15",
+                    "action_text": "【高优先级】检查携程EBK数据源配置，确认“流量分析”、“生意通”、“经营报告”等模块的Cookie或API授权是否过期或失效，并重新同步2026-06-15的数据。",
+                    "action_item_id": "ota_action_1"
+                },
+                "evidence": {
+                    "evidence_refs": [
+                        "source_summary",
+                        "online_daily_data#15676"
+                    ],
+                    "data_gaps": [],
+                    "source_policy": "controller_diagnosis_to_operation_execution_loop_no_ota_acquisition_change",
+                    "protected_boundary": "This execution record proves operation handoff only; it does not change OTA acquisition, field mapping, or whole-hotel operating truth.",
+                    "action_item_id": "ota_action_1",
+                    "action_item_status": "pending_manual_review",
+                    "diagnosis_summary": "敦煌漠蓝在2026-06-15的携程平台数据已入库，但核心经营指标（曝光、访问、订单、收入、间夜）均为0，且缺少流量、竞对、广告、服务质量等辅助数据，无法进行有效的经营诊断。当前诊断结论为数据采集不完整，需优先排查数据源同步问题。",
+                    "metric_scope": "ota_channel",
+                    "scope": {
+                        "date": "2026-06-15",
+                        "platform": "ctrip",
+                        "system_hotel_id": 60
+                    }
+                }
+            }
+        ],
+        "execution_flow": {
+            "summary": {
+                "total": 1,
+                "stage_counts": {
+                    "recommendation": 0,
+                    "approval": 0,
+                    "execution": 0,
+                    "evidence": 0,
+                    "review": 0,
+                    "reviewed": 1,
+                    "blocked": 0,
+                    "rejected": 0,
+                    "failed": 0
+                },
+                "bottleneck": {
+                    "stage": "",
+                    "count": 0,
+                    "label": ""
+                },
+                "approved": 1,
+                "executed": 1,
+                "evidence_ready": 1,
+                "roi_ready": 0,
+                "roi_percent_ready": 0,
+                "revenue_lift_ready": 0,
+                "avg_roi": null,
+                "avg_revenue_lift": null,
+                "approval_rate": 100,
+                "execution_rate": 100,
+                "evidence_rate": 100,
+                "roi_ready_rate": 0,
+                "profitable": 0,
+                "profitable_rate": null,
+                "total_incremental_revenue": 0,
+                "total_cost": 0,
+                "total_profit": 0,
+                "money_status": "no_roi"
+            },
+            "stages": [
+                {
+                    "key": "recommendation",
+                    "label": "建议动作",
+                    "count": 0
+                },
+                {
+                    "key": "approval",
+                    "label": "审批",
+                    "count": 0
+                },
+                {
+                    "key": "execution",
+                    "label": "执行",
+                    "count": 0
+                },
+                {
+                    "key": "evidence",
+                    "label": "执行证据",
+                    "count": 0
+                },
+                {
+                    "key": "review",
+                    "label": "效果复盘",
+                    "count": 0
+                },
+                {
+                    "key": "reviewed",
+                    "label": "ROI确认",
+                    "count": 1
+                }
+            ],
+            "list": [
+                {
+                    "id": 3,
+                    "hotel_id": 60,
+                    "stage": "reviewed",
+                    "recommendation": {
+                        "source": "ota_diagnosis#3519392513",
+                        "source_module": "ota_diagnosis",
+                        "source_record_id": 3519392513,
+                        "platform": "ctrip",
+                        "object_type": "data_collection",
+                        "action_type": "diagnosis_action_review",
+                        "date_start": "2026-06-15",
+                        "date_end": "2026-06-15",
+                        "expected_metric": "ota_operation_closure",
+                        "expected_delta": 0,
+                        "risk_level": "medium",
+                        "current_value": {
+                            "action_item_status": "pending_manual_review",
+                            "target_date_rows": 1,
+                            "metric_scope": "ota_channel"
+                        },
+                        "target_value": {
+                            "collection_scope": "ctrip_target_date_diagnosis_review",
+                            "target_date": "2026-06-15",
+                            "action_text": "【高优先级】检查携程EBK数据源配置，确认“流量分析”、“生意通”、“经营报告”等模块的Cookie或API授权是否过期或失效，并重新同步2026-06-15的数据。",
+                            "action_item_id": "ota_action_1"
+                        },
+                        "evidence": {
+                            "evidence_refs": [
+                                "source_summary",
+                                "online_daily_data#15676"
+                            ],
+                            "data_gaps": [],
+                            "source_policy": "controller_diagnosis_to_operation_execution_loop_no_ota_acquisition_change",
+                            "protected_boundary": "This execution record proves operation handoff only; it does not change OTA acquisition, field mapping, or whole-hotel operating truth.",
+                            "action_item_id": "ota_action_1",
+                            "action_item_status": "pending_manual_review",
+                            "diagnosis_summary": "敦煌漠蓝在2026-06-15的携程平台数据已入库，但核心经营指标（曝光、访问、订单、收入、间夜）均为0，且缺少流量、竞对、广告、服务质量等辅助数据，无法进行有效的经营诊断。当前诊断结论为数据采集不完整，需优先排查数据源同步问题。",
+                            "metric_scope": "ota_channel",
+                            "scope": {
+                                "date": "2026-06-15",
+                                "platform": "ctrip",
+                                "system_hotel_id": 60
+                            }
+                        },
+                        "created_at": "2026-06-15 04:40:43"
+                    },
+                    "approval": {
+                        "status": "approved",
+                        "approved_by": 1,
+                        "approved_at": "2026-06-15 04:40:43",
+                        "remark": "Phase1 OTA diagnosis action approved for evidence handoff verification.",
+                        "blocked_reason": ""
+                    },
+                    "execution": {
+                        "task_id": 3,
+                        "mode": "manual",
+                        "status": "executed",
+                        "operator_id": 1,
+                        "executed_at": "2026-06-15 04:40:43",
+                        "blocked_reason": "",
+                        "target_value": {
+                            "collection_scope": "ctrip_target_date_diagnosis_review",
+                            "target_date": "2026-06-15",
+                            "action_item_id": "ota_action_1"
+                        },
+                        "current_value": {
+                            "manual_review_status": "recorded",
+                            "target_date_rows": 1,
+                            "source": "ota_diagnosis_action_item",
+                            "metric_scope": "ota_channel"
+                        }
+                    },
+                    "evidence": {
+                        "count": 1,
+                        "latest": {
+                            "id": 3,
+                            "tenant_id": 60,
+                            "task_id": 3,
+                            "evidence_type": "manual_review",
+                            "attachment_path": "",
+                            "remark": "Phase1 evidence handoff recorded from OTA diagnosis action item; not a whole-hotel operating conclusion.",
+                            "created_by": 1,
+                            "created_at": "2026-06-15 04:40:43",
+                            "updated_at": "2026-06-15 04:40:43",
+                            "deleted_at": null,
+                            "before": {
+                                "action_item_status": "pending_manual_review",
+                                "operation_handoff": "not_recorded"
+                            },
+                            "after": {
+                                "operation_handoff": "recorded",
+                                "intent_id": 3,
+                                "task_id": 3,
+                                "approved": true,
+                                "executed": true
+                            },
+                            "platform_response": {
+                                "source": "online_daily_data",
+                                "platform": "ctrip",
+                                "system_hotel_id": 60,
+                                "target_date": "2026-06-15",
+                                "target_date_rows": 1,
+                                "evidence_refs": [
+                                    "source_summary",
+                                    "online_daily_data#15676"
+                                ]
+                            }
+                        }
+                    },
+                    "review": {
+                        "status": "near_success",
+                        "summary": "OTA diagnosis action entered execution loop with approval and evidence; Meituan target-date data remains a separate blocker.",
+                        "action_track_id": 442
+                    },
+                    "roi": {
+                        "status": "data_gap",
+                        "message": "revenue evidence missing"
+                    },
+                    "next_action": {
+                        "key": "none",
+                        "label": "无需操作",
+                        "priority": "low",
+                        "target_id": 0
+                    }
+                }
+            ],
+            "data_status": "ok",
+            "data_gaps": []
+        },
+        "scope": {
+            "date": "2026-06-15",
+            "platform": "ctrip",
+            "system_hotel_id": 60,
+            "hotel_id": "60",
+            "metric_scope": "ota_channel"
+        },
+        "scope_date": "2026-06-15",
+        "expected_scope_date": "2026-06-15",
+        "scope_date_status": "matched"
+    },
+    "employee_questions": [
+        {
+            "key": "today_ota_collected",
+            "question": "今天 OTA 数据有没有采到",
+            "status": "proved",
+            "evidence": {
+                "coverage_status": "complete",
+                "source_rows": 1,
+                "missing_platforms": [],
+                "platforms": [
+                    {
+                        "platform": "ctrip",
+                        "source_rows": 1,
+                        "target_date_rows": 1,
+                        "field_fact_status": "ready",
+                        "field_fact_count": 5,
+                        "field_fact_complete_count": 5,
+                        "field_fact_incomplete_captured_count": 0,
+                        "field_fact_capture_evidence_count": 5,
+                        "field_fact_raw_data_exposed": false,
+                        "etl_status": "ready",
+                        "metric_status": "ready",
+                        "traffic_rows": 1,
+                        "latest_available": {
+                            "date": "2026-06-15",
+                            "date_relation": "target_date",
+                            "count": 1,
+                            "data_types": [
+                                "traffic"
+                            ],
+                            "latest_trace_time": "2026-06-15 04:08:35",
+                            "sample_traces": [
+                                {
+                                    "row_id": 15676,
+                                    "source": "ctrip",
+                                    "data_type": "traffic",
+                                    "hotel_id": "60",
+                                    "system_hotel_id": 60,
+                                    "ingestion_method": "legacy",
+                                    "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                                    "validation_status": "normal"
+                                }
+                            ]
+                        },
+                        "latest_available_date": "2026-06-15",
+                        "latest_available_date_relation": "target_date"
+                    }
+                ],
+                "linked_action_count": 0
+            },
+            "next_action": "",
+            "next_action_codes": [],
+            "employee_detail": "目标日携程和美团 OTA 数据均有入库证据；最近可用数据只作参考。",
+            "employee_next_action": ""
+        },
+        {
+            "key": "trusted_fields",
+            "question": "哪些字段可信",
+            "status": "proved",
+            "evidence": {
+                "metric_trust_key_count": 5,
+                "metric_trust_keys": [
+                    "traffic.rows",
+                    "traffic.avg_flow_rate",
+                    "traffic.avg_submit_rate",
+                    "traffic.list_exposure",
+                    "traffic.detail_exposure"
+                ],
+                "source_rows": 1,
+                "coverage_status": "complete",
+                "missing_platforms": [],
+                "platform_field_trust": [
+                    {
+                        "platform": "ctrip",
+                        "target_date_rows": 1,
+                        "metric_status": "ready",
+                        "field_trust_status": "metric_trust_ready",
+                        "metric_trust_key_count": 5,
+                        "metric_trust_keys": [
+                            "traffic.rows",
+                            "traffic.avg_flow_rate",
+                            "traffic.avg_submit_rate",
+                            "traffic.list_exposure",
+                            "traffic.detail_exposure"
+                        ],
+                        "reported_metric_trust_key_count": 34,
+                        "reason_codes": [],
+                        "source_policy": "target_date_rows_plus_metric_trust_required"
+                    }
+                ],
+                "linked_action_count": 0
+            },
+            "next_action": "",
+            "next_action_codes": [],
+            "employee_detail": "字段可信度已有目标日入库、字段资产、数据质量和指标可信证据支撑。",
+            "employee_next_action": ""
+        },
+        {
+            "key": "missing_fields",
+            "question": "哪些字段缺失",
+            "status": "proved",
+            "evidence": {
+                "data_gap_codes": [
+                    "available_room_nights_missing",
+                    "commission_fields_missing",
+                    "net_revenue_fields_missing",
+                    "lead_time_fields_missing",
+                    "cancellation_fields_missing",
+                    "cancel_room_nights_missing",
+                    "competitor_price_fields_missing"
+                ],
+                "missing_field_codes": [
+                    "available_room_nights_missing",
+                    "commission_fields_missing",
+                    "net_revenue_fields_missing",
+                    "lead_time_fields_missing",
+                    "cancellation_fields_missing",
+                    "cancel_room_nights_missing",
+                    "competitor_price_fields_missing"
+                ],
+                "missing_field_summary": [
+                    {
+                        "code": "available_room_nights_missing",
+                        "label": "可售房晚缺失",
+                        "source_keys": [
+                            "data_gap_codes",
+                            "missing_field_codes"
+                        ],
+                        "source_text": "数据缺口 \/ 字段缺口",
+                        "business_impact": "缺可售房晚，暂不能可靠计算 OCC、RevPAR 或可售基准。",
+                        "next_action": "按字段资产核对平台返回和入库字段，再重跑收益指标核验。",
+                        "policy": "显式保留缺口；不使用 0、空值或成功状态替代。"
+                    },
+                    {
+                        "code": "commission_fields_missing",
+                        "label": "佣金字段缺失",
+                        "source_keys": [
+                            "data_gap_codes",
+                            "missing_field_codes"
+                        ],
+                        "source_text": "数据缺口 \/ 字段缺口",
+                        "business_impact": "缺佣金金额或佣金率，暂不能核算净收入和渠道成本。",
+                        "next_action": "按字段资产核对平台返回和入库字段，再重跑收益指标核验。",
+                        "policy": "显式保留缺口；不使用 0、空值或成功状态替代。"
+                    },
+                    {
+                        "code": "net_revenue_fields_missing",
+                        "label": "净收入字段缺失",
+                        "source_keys": [
+                            "data_gap_codes",
+                            "missing_field_codes"
+                        ],
+                        "source_text": "数据缺口 \/ 字段缺口",
+                        "business_impact": "缺净收入输入，暂不能输出净 RevPAR 或真实到手收入。",
+                        "next_action": "按字段资产核对平台返回和入库字段，再重跑收益指标核验。",
+                        "policy": "显式保留缺口；不使用 0、空值或成功状态替代。"
+                    },
+                    {
+                        "code": "lead_time_fields_missing",
+                        "label": "提前预订字段缺失",
+                        "source_keys": [
+                            "data_gap_codes",
+                            "missing_field_codes"
+                        ],
+                        "source_text": "数据缺口 \/ 字段缺口",
+                        "business_impact": "缺提前预订天数，暂不能判断提前期结构和临近入住风险。",
+                        "next_action": "按字段资产核对平台返回和入库字段，再重跑收益指标核验。",
+                        "policy": "显式保留缺口；不使用 0、空值或成功状态替代。"
+                    },
+                    {
+                        "code": "cancellation_fields_missing",
+                        "label": "取消字段缺失",
+                        "source_keys": [
+                            "data_gap_codes",
+                            "missing_field_codes"
+                        ],
+                        "source_text": "数据缺口 \/ 字段缺口",
+                        "business_impact": "缺取消订单或取消金额，暂不能判断取消对收入的影响。",
+                        "next_action": "按字段资产核对平台返回和入库字段，再重跑收益指标核验。",
+                        "policy": "显式保留缺口；不使用 0、空值或成功状态替代。"
+                    },
+                    {
+                        "code": "cancel_room_nights_missing",
+                        "label": "取消房晚缺失",
+                        "source_keys": [
+                            "data_gap_codes",
+                            "missing_field_codes"
+                        ],
+                        "source_text": "数据缺口 \/ 字段缺口",
+                        "business_impact": "缺取消房晚，暂不能计算房晚取消率。",
+                        "next_action": "按字段资产核对平台返回和入库字段，再重跑收益指标核验。",
+                        "policy": "显式保留缺口；不使用 0、空值或成功状态替代。"
+                    },
+                    {
+                        "code": "competitor_price_fields_missing",
+                        "label": "竞品价格字段缺失",
+                        "source_keys": [
+                            "data_gap_codes",
+                            "missing_field_codes"
+                        ],
+                        "source_text": "数据缺口 \/ 字段缺口",
+                        "business_impact": "缺竞品价格，暂不能做竞品价差和调价判断。",
+                        "next_action": "按字段资产核对平台返回和入库字段，再重跑收益指标核验。",
+                        "policy": "显式保留缺口；不使用 0、空值或成功状态替代。"
+                    }
+                ],
+                "linked_action_count": 0
+            },
+            "next_action": "按 data_gaps 处理字段缺口，不使用 0 或空值兜底。",
+            "next_action_codes": [],
+            "employee_detail": "字段缺口已显式列出；按数据缺口处理，不用 0 或空值兜底。",
+            "employee_next_action": "按数据缺口处理字段缺口，不使用 0 或空值兜底。"
+        },
+        {
+            "key": "revenue_traffic_conversion",
+            "question": "收入\/流量\/转化出了什么问题",
+            "status": "proved",
+            "evidence": {
+                "revenue_metric_status": "ready",
+                "primary_revenue_metric_status": "ready",
+                "traffic_rows": 1,
+                "metric_domain_readiness": [
+                    {
+                        "platform": "ctrip",
+                        "target_date": "2026-06-15",
+                        "revenue_status": "ready",
+                        "traffic_status": "ready",
+                        "conversion_status": "ready",
+                        "missing_domains": [],
+                        "metric_status": "ready",
+                        "traffic_rows": 1,
+                        "source_rows": 1,
+                        "target_date_rows": 1,
+                        "target_date_data_types": [
+                            "traffic"
+                        ]
+                    }
+                ],
+                "metric_domain_summary": [
+                    {
+                        "platform": "ctrip",
+                        "platform_label": "携程",
+                        "revenue_text": "可复核",
+                        "traffic_text": "可复核",
+                        "conversion_text": "可复核",
+                        "missing_text": "",
+                        "source_text": "目标日源数据 1 行 \/ 流量事实 1 行",
+                        "traffic_source_text": "目标日流量事实已入库",
+                        "traffic_source_next_action": "继续复核流量字段、来源路径和入库字段。",
+                        "problem": "收益、流量、转化均可复核。",
+                        "next_action": "可进入 OTA 经营诊断。",
+                        "policy": "只读目标日 OTA 指标域 \/ 流量\/转化；缺失时不输出确定结论。"
+                    }
+                ],
+                "traffic_source_readiness": [
+                    {
+                        "platform": "ctrip",
+                        "target_date": "2026-06-15",
+                        "target_date_rows": 1,
+                        "target_date_traffic_rows": 1,
+                        "target_date_data_types": [
+                            "traffic"
+                        ],
+                        "traffic_source_count": 2,
+                        "traffic_enabled_count": 2,
+                        "traffic_ready_count": 0,
+                        "traffic_waiting_config_count": 2,
+                        "traffic_managed_count": 2,
+                        "traffic_secret_configured_count": 0,
+                        "traffic_last_sync_status_counts": {
+                            "waiting_config": 2
+                        },
+                        "required_next_inputs": [],
+                        "recommended_collection_mode": "status_check",
+                        "action_entry": "\/api\/online-data\/collection-reliability",
+                        "status": "target_date_traffic_ready",
+                        "source_policy": "read_platform_data_sources_metadata_only",
+                        "sensitive_values_exposed": false,
+                        "p0_traffic_gate_status": "requires_p0_verifier",
+                        "p0_next_action_mode": "status_check",
+                        "p0_next_action_entry": "\/api\/online-data\/collection-reliability",
+                        "p0_next_step_count": 2,
+                        "next_command_policy": "metadata_only_no_sensitive_commands",
+                        "p0_external_evidence_status": "not_provided",
+                        "p0_pre_import_evidence_status": "not_provided",
+                        "p0_pre_import_evidence_policy": "External traffic evidence is source proof only; P0 closure still requires target-date traffic rows and ready verifier status.",
+                        "p0_traffic_field_fact_status": "requires_p0_verifier",
+                        "p0_payload_candidate_policy": "ui_metadata_only_no_import",
+                        "p0_payload_candidate_payload_policy": "path_metadata_only_no_payload_content",
+                        "p0_payload_candidate_storage_policy": "does_not_write_online_daily_data",
+                        "p0_payload_candidate_status_counts": {
+                            "expected_payload_present_unverified": 2
+                        },
+                        "p0_payload_candidate_ready_count": 0,
+                        "p0_payload_candidate_missing_count": 0,
+                        "p0_payload_candidate_unverified_count": 2,
+                        "p0_payload_candidate_paths": [
+                            "reports\/p0_traffic_ctrip_60_20260615.json",
+                            "reports\/p0_traffic_ctrip_64_20260615.json"
+                        ],
+                        "p0_payload_candidate_issue_codes": [
+                            "payload_file_present_requires_importer_dry_run"
+                        ],
+                        "p0_required_metric_keys": [
+                            "list_exposure",
+                            "detail_exposure",
+                            "flow_rate",
+                            "order_filling_num",
+                            "order_submit_num"
+                        ],
+                        "p0_required_storage_fields": [
+                            "online_daily_data.list_exposure",
+                            "online_daily_data.detail_exposure",
+                            "online_daily_data.flow_rate",
+                            "online_daily_data.order_filling_num",
+                            "online_daily_data.order_submit_num"
+                        ],
+                        "p0_required_field_fact_keys": [
+                            "capture_evidence",
+                            "source_path",
+                            "metric_key",
+                            "storage_field",
+                            "stored_value_present"
+                        ],
+                        "p0_missing_metric_keys": [],
+                        "p0_field_loop_matrix": [
+                            {
+                                "metric_key": "list_exposure",
+                                "expected_storage_field": "online_daily_data.list_exposure",
+                                "status": "complete",
+                                "target_date_traffic_rows": 1,
+                                "row_count": 2,
+                                "complete_row_count": 2,
+                                "sample_row_id": 15676,
+                                "capture_evidence_present": true,
+                                "desensitized_capture_evidence_present": true,
+                                "capture_evidence_matches_row": true,
+                                "source_path_structured": true,
+                                "storage_field_matches_expected": true,
+                                "stored_value_present": true,
+                                "ui_status_ready": true
+                            },
+                            {
+                                "metric_key": "detail_exposure",
+                                "expected_storage_field": "online_daily_data.detail_exposure",
+                                "status": "complete",
+                                "target_date_traffic_rows": 1,
+                                "row_count": 2,
+                                "complete_row_count": 2,
+                                "sample_row_id": 15676,
+                                "capture_evidence_present": true,
+                                "desensitized_capture_evidence_present": true,
+                                "capture_evidence_matches_row": true,
+                                "source_path_structured": true,
+                                "storage_field_matches_expected": true,
+                                "stored_value_present": true,
+                                "ui_status_ready": true
+                            },
+                            {
+                                "metric_key": "flow_rate",
+                                "expected_storage_field": "online_daily_data.flow_rate",
+                                "status": "complete",
+                                "target_date_traffic_rows": 1,
+                                "row_count": 2,
+                                "complete_row_count": 2,
+                                "sample_row_id": 15676,
+                                "capture_evidence_present": true,
+                                "desensitized_capture_evidence_present": true,
+                                "capture_evidence_matches_row": true,
+                                "source_path_structured": true,
+                                "storage_field_matches_expected": true,
+                                "stored_value_present": true,
+                                "ui_status_ready": true
+                            },
+                            {
+                                "metric_key": "order_filling_num",
+                                "expected_storage_field": "online_daily_data.order_filling_num",
+                                "status": "complete",
+                                "target_date_traffic_rows": 1,
+                                "row_count": 2,
+                                "complete_row_count": 2,
+                                "sample_row_id": 15676,
+                                "capture_evidence_present": true,
+                                "desensitized_capture_evidence_present": true,
+                                "capture_evidence_matches_row": true,
+                                "source_path_structured": true,
+                                "storage_field_matches_expected": true,
+                                "stored_value_present": true,
+                                "ui_status_ready": true
+                            },
+                            {
+                                "metric_key": "order_submit_num",
+                                "expected_storage_field": "online_daily_data.order_submit_num",
+                                "status": "complete",
+                                "target_date_traffic_rows": 1,
+                                "row_count": 2,
+                                "complete_row_count": 2,
+                                "sample_row_id": 15676,
+                                "capture_evidence_present": true,
+                                "desensitized_capture_evidence_present": true,
+                                "capture_evidence_matches_row": true,
+                                "source_path_structured": true,
+                                "storage_field_matches_expected": true,
+                                "stored_value_present": true,
+                                "ui_status_ready": true
+                            }
+                        ],
+                        "p0_traffic_closure_chain": {
+                            "capture_evidence": {
+                                "status": "ready",
+                                "required": "desensitized source_trace_id plus source_url_hash matched to each traffic row and field fact"
+                            },
+                            "source_path": {
+                                "status": "ready",
+                                "required": "structured source_path for every required traffic metric"
+                            },
+                            "metric_key": {
+                                "status": "ready",
+                                "required": "required traffic metric keys are present in field facts"
+                            },
+                            "storage_field": {
+                                "status": "ready",
+                                "required": "expected online_daily_data storage field for every required metric"
+                            },
+                            "stored_value": {
+                                "status": "ready",
+                                "required": "stored value present for every required traffic metric"
+                            },
+                            "ui_status": {
+                                "status": "ready",
+                                "required": "ready UI field_fact_status with no raw_data exposure"
+                            },
+                            "platform_hotel_identifier": {
+                                "status": "requires_p0_verifier",
+                                "required": "hotel_id_family"
+                            },
+                            "verifier": {
+                                "status": "requires_p0_verifier",
+                                "required": "P0 field-loop verifier returns ready"
+                            }
+                        },
+                        "p0_traffic_closure_chain_policy": "Every chain item is OTA-channel evidence only and remains incomplete until the P0 field-loop verifier returns ready.",
+                        "p0_platform_hotel_identifier_source": "hotel_id_family",
+                        "p0_platform_hotel_identifier_status": "requires_p0_verifier",
+                        "p0_platform_hotel_identifier_policy": "P0 traffic rows must prove the OTA platform hotel identifier through importer\/verifier checks; UI exposes only status and source family, not raw IDs.",
+                        "p0_target_traffic_data_types": [
+                            "traffic"
+                        ],
+                        "p0_source_chain_reference_only": false,
+                        "p0_source_chain_scope": "traffic_source_rows",
+                        "p0_source_chain_policy": "Target-date source rows include traffic\/flow\/conversion data types; P0 closure still requires ready verifier status."
+                    }
+                ],
+                "traffic_source_policy": "read_platform_data_sources_metadata_only",
+                "revenue_ready_platforms": [
+                    "ctrip"
+                ],
+                "traffic_ready_platforms": [
+                    "ctrip"
+                ],
+                "conversion_ready_platforms": [
+                    "ctrip"
+                ],
+                "revenue_missing_platforms": [],
+                "traffic_missing_platforms": [],
+                "conversion_missing_platforms": [],
+                "metric_domain_gap_codes": [],
+                "totals": {
+                    "revenue": 0,
+                    "gross_revenue": 0,
+                    "room_revenue": 0,
+                    "net_revenue": null,
+                    "commission_amount": null,
+                    "commission_rate": null,
+                    "room_nights": 0,
+                    "available_room_nights": null,
+                    "occupied_room_nights": null,
+                    "order_count": 0,
+                    "adr": null,
+                    "occ": null,
+                    "revpar": null,
+                    "net_revpar": null,
+                    "avg_lead_time_days": null,
+                    "cancellation_rate": null,
+                    "room_night_cancellation_rate": null,
+                    "review_count": 0,
+                    "avg_comment_score": null
+                },
+                "traffic": {
+                    "rows": 1,
+                    "avg_flow_rate": 0,
+                    "avg_submit_rate": null,
+                    "list_exposure": 0,
+                    "detail_exposure": 0
+                },
+                "linked_action_count": 0
+            },
+            "next_action": "收益指标可先复核：CTRIP；流量\/转化事实不足时，不输出流量\/转化确定结论。",
+            "next_action_codes": [],
+            "employee_detail": "收益、流量、转化均可基于目标日 OTA 事实复核。",
+            "employee_next_action": "收益指标可先复核：携程；流量\/转化事实不足时，不输出流量\/转化确定结论。"
+        },
+        {
+            "key": "ai_evidence",
+            "question": "AI 建议依据是什么",
+            "status": "proved",
+            "evidence": {
+                "diagnosis_status": "proved",
+                "action_item_status": "actionable",
+                "source_policy": "missing_real_ota_diagnosis_response",
+                "evidence_source_count": 2,
+                "data_gap_count": 0,
+                "action_item_count": 4,
+                "actionable_action_item_count": 4,
+                "blocked_action_item_count": 0,
+                "action_item_statuses": [
+                    "pending_manual_review",
+                    "pending_manual_review",
+                    "pending_manual_review",
+                    "pending_manual_review"
+                ],
+                "data_gap_evidence_present": false,
+                "scope_date_status": "matched",
+                "scope_date": "2026-06-15",
+                "expected_scope_date": "2026-06-15",
+                "blocking_missing_codes": [],
+                "linked_action_count": 0
+            },
+            "next_action": "",
+            "next_action_codes": [],
+            "employee_detail": "AI 建议已有证据来源、数据缺口和可执行动作项支撑。",
+            "employee_next_action": ""
+        },
+        {
+            "key": "next_operation_action",
+            "question": "下一步该执行什么动作",
+            "status": "proved",
+            "evidence": {
+                "operation_evidence_status": "proved",
+                "execution_intent_count": 1,
+                "execution_flow_present": true,
+                "execution_flow_item_count": 1,
+                "execution_flow_stage_count": 6,
+                "execution_flow_summary_total": 1,
+                "ota_diagnosis_linked_intent_count": 1,
+                "ota_diagnosis_linked_flow_item_count": 1,
+                "approved_count": 1,
+                "executed_count": 1,
+                "evidence_ready_count": 1,
+                "execution_evidence_count": 1,
+                "reviewed_count": 1,
+                "roi_ready_count": 0,
+                "blocked_execution_count": 0,
+                "completion_signal_count": 4,
+                "source_policy": "read_existing_operation_execution_state_only",
+                "raw_data_exposed": false,
+                "scope_date_status": "matched",
+                "scope_date": "2026-06-15",
+                "expected_scope_date": "2026-06-15",
+                "blocking_missing_codes": [],
+                "linked_action_count": 0
+            },
+            "next_action": "",
+            "next_action_codes": [],
+            "employee_detail": "运营动作已追溯到 OTA 诊断，并有审批、执行证据、复盘或 ROI 信号。",
+            "employee_next_action": ""
+        }
+    ],
+    "next_actions": [],
+    "closure_summary": {
+        "status": "passed",
+        "metric_scope": "ota_channel",
+        "employee_question_count": 6,
+        "proved_count": 6,
+        "missing_count": 0,
+        "missing_questions": [],
+        "missing_question_keys": [],
+        "source_policy": "read_existing_employee_questions_only",
+        "reference_policy": "latest_available_and_history_rows_are_reference_only_not_target_date_proof",
+        "protected_boundary": "不改变携程\/美团手动或自动获取逻辑，不改变获取字段和字段映射；证据不足时不生成确定经营结论。",
+        "top_action_source_snapshot": [],
+        "top_action_code": "",
+        "top_action_platform": "",
+        "top_action_family": "",
+        "top_action_entry": "",
+        "top_action_entry_options": [],
+        "top_action_success_criteria": "",
+        "top_action_status": "",
+        "top_action_related_question_keys": [],
+        "top_action_resolves_missing_codes": [],
+        "top_action_live_closure_gap_codes": [],
+        "top_action": "",
+        "top_action_employee_text": "",
+        "top_question_key": "",
+        "top_question": ""
+    },
+    "limitations": []
+}

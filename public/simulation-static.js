@@ -703,6 +703,132 @@ window.SUXI_SIMULATION_STATIC = (() => {
         return '';
     }
 
+    const simulationStateStorage = {
+        save(input, result, scenarios, modelAnalysis = null) {
+            localStorage.setItem('suxios_simulation_input', JSON.stringify(input));
+            localStorage.setItem('suxios_simulation_result', JSON.stringify(result));
+            localStorage.setItem('suxios_simulation_scenarios', JSON.stringify(scenarios));
+            if (modelAnalysis) {
+                localStorage.setItem('suxios_simulation_model_analysis', JSON.stringify(modelAnalysis));
+            } else {
+                localStorage.removeItem('suxios_simulation_model_analysis');
+            }
+            localStorage.setItem('suxios_report_simulation_seed', JSON.stringify({
+                roomCount: input.roomCount,
+                monthlyRent: input.monthlyRent,
+                decorationInvestment: input.decorationInvestment,
+                monthlyRevenue: result?.monthlyRevenue,
+                monthlyCost: result?.monthlyCost,
+                monthlyNetCashflow: result?.monthlyNetCashflow,
+                totalInvestment: result?.totalInvestment,
+                paybackMonths: result?.paybackMonths,
+                breakEvenOccupancy: result?.breakEvenOccupancy,
+                rentRatio: result?.rentRatio,
+                riskLevel: result?.riskLevel
+            }));
+        },
+        saveInputOnly(input) {
+            localStorage.setItem('suxios_simulation_input', JSON.stringify(input));
+            localStorage.removeItem('suxios_simulation_result');
+            localStorage.removeItem('suxios_simulation_scenarios');
+            localStorage.removeItem('suxios_simulation_model_analysis');
+            localStorage.removeItem('suxios_report_simulation_seed');
+        },
+        load(defaultInput, normalizeInput, normalizeModelAnalysis) {
+            let input = { ...defaultInput };
+            try {
+                const savedInput = JSON.parse(localStorage.getItem('suxios_simulation_input') || 'null');
+                if (savedInput) input = { ...input, ...normalizeInput(savedInput) };
+                const seed = JSON.parse(localStorage.getItem('suxios_simulation_seed') || 'null');
+                if (seed) {
+                    input = {
+                        ...input,
+                        ...normalizeInput(seed),
+                        roomCount: seed.roomCount ?? seed.room_count ?? input.roomCount,
+                        monthlyRent: seed.monthlyRent ?? seed.monthly_rent ?? input.monthlyRent,
+                        decorationInvestment: seed.decorationInvestment ?? seed.decoration_budget ?? input.decorationInvestment
+                    };
+                }
+                const savedResult = JSON.parse(localStorage.getItem('suxios_simulation_result') || 'null');
+                const savedScenarios = JSON.parse(localStorage.getItem('suxios_simulation_scenarios') || 'null');
+                const savedModelAnalysis = JSON.parse(localStorage.getItem('suxios_simulation_model_analysis') || 'null');
+                const result = savedResult && Object.prototype.hasOwnProperty.call(savedResult, 'monthlyRevenue') ? savedResult : null;
+                const scenarios = Array.isArray(savedScenarios) && savedScenarios[0] && Object.prototype.hasOwnProperty.call(savedScenarios[0], 'monthlyRevenue') ? savedScenarios : null;
+                const modelAnalysis = normalizeModelAnalysis(savedModelAnalysis || result?.modelAnalysis || result?.model_analysis);
+                return { input, result, scenarios, modelAnalysis };
+            } catch (err) {
+                return { input, result: null, scenarios: null, modelAnalysis: null };
+            }
+        },
+    };
+
+    function readinessBadgeClass(stage, readyStages, warningStages, dangerStages = []) {
+        if (readyStages.includes(stage)) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        if (warningStages.includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
+        if (dangerStages.includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
+        return 'bg-gray-50 text-gray-600 border-gray-200';
+    }
+
+    function readinessMissingText(readiness, emptyText) {
+        const missing = Array.isArray(readiness?.missing_evidence) ? readiness.missing_evidence : [];
+        if (!missing.length) return emptyText;
+        return `缺口：${missing.slice(0, 3).map(item => item.label || item.code).join('、')}`;
+    }
+
+    function simulationReadinessBadgeClass(stage) {
+        return readinessBadgeClass(
+            stage,
+            ['execution_ready', 'review_ready'],
+            ['approved_pending_execution', 'manual_input_only', 'partial_model'],
+            ['data_recheck_required']
+        );
+    }
+
+    function simulationReadinessMissingText(readiness) {
+        return readinessMissingText(readiness, '暂无显式缺口；执行前仍需保留审批、任务和效果证据。');
+    }
+
+    function transferReadinessBadgeClass(stage) {
+        return readinessBadgeClass(
+            stage,
+            ['decision_ready', 'review_ready'],
+            ['approved_pending_tracking', 'diligence_required', 'partial_calculation'],
+            ['data_recheck_required']
+        );
+    }
+
+    function transferReadinessMissingText(readiness) {
+        return readinessMissingText(readiness, '暂无显式缺口；进入投决前仍需保留审批和跟踪证据。');
+    }
+
+    function executionIntentIdFromRecord(record) {
+        const result = record?.result || {};
+        const direct = Number(record?.execution_intent_id || result.operation_execution_intent_id || result.execution_intent_id || 0);
+        if (direct > 0) return direct;
+        const tracking = result.execution_tracking;
+        const rows = Array.isArray(tracking) ? tracking : (tracking && typeof tracking === 'object' ? [tracking] : []);
+        for (let i = rows.length - 1; i >= 0; i -= 1) {
+            const id = Number(rows[i]?.execution_intent_id || rows[i]?.id || 0);
+            if (id > 0) return id;
+        }
+        return 0;
+    }
+
+    const trimMetricZeros = (value) => String(value).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+
+    function benchmarkMetricValue(value, suffix = '', decimals = 0) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) return '--';
+        return `${trimMetricZeros(number.toFixed(decimals))}${suffix}`;
+    }
+
+    function benchmarkSignedValue(value, suffix = '', decimals = 0) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) return '--';
+        const sign = number > 0 ? '+' : '';
+        return `${sign}${trimMetricZeros(number.toFixed(decimals))}${suffix}`;
+    }
+
     return {
         defaultSimulationInput,
         benchmarkModelDetailFields,
@@ -740,5 +866,13 @@ window.SUXI_SIMULATION_STATIC = (() => {
         normalizeSimulationModelAnalysis,
         normalizeSimulationInput,
         validateSimulationInput,
+        simulationStateStorage,
+        simulationReadinessBadgeClass,
+        simulationReadinessMissingText,
+        transferReadinessBadgeClass,
+        transferReadinessMissingText,
+        executionIntentIdFromRecord,
+        benchmarkMetricValue,
+        benchmarkSignedValue,
     };
 })();

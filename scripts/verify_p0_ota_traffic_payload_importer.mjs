@@ -9,6 +9,8 @@ const importer = path.join(root, 'scripts', 'import_p0_ota_traffic_payload.php')
 const p0Verifier = path.join(root, 'scripts', 'verify_p0_ota_field_loop_closure.php');
 const date = '2026-06-14';
 const systemHotelId = '7';
+const runtimeExecuteDate = '2099-12-31';
+const runtimeExecuteSystemHotelId = systemHotelId;
 const checks = [];
 
 const hash = (char) => char.repeat(64);
@@ -1519,6 +1521,7 @@ check('execute_contract', 'field fact preview uses platform hotel identity inste
 check('execute_contract', 'importer blocks failed browser capture envelopes', importerSource.includes('p0_import_payload_scope_issues') && importerSource.includes('browser_capture_auth_not_verified') && importerSource.includes('browser_capture_gate_not_pass') && importerSource.includes('browser_capture_login_only_not_importable') && importerSource.includes('browser_capture_source_missing') && importerSource.includes('browser_capture_system_hotel_id_missing') && importerSource.includes('browser_capture_row_capture_evidence_missing') && importerSource.includes('browser_capture_row_date_source_missing') && importerSource.includes('browser_capture_response_evidence_missing') && importerSource.includes('system_hotel_id_mismatch'));
 check('traffic_evidence_contract', 'importer emits traffic_evidence', importerSource.includes("'traffic_evidence' => $trafficEvidence"));
 check('traffic_evidence_contract', 'importer emits dry-run P0 completion status distinct from ready_to_import', importerSource.includes("'p0_completion_status' => $p0CompletionStatus") && importerSource.includes('pre_import_ready_not_p0_complete') && importerSource.includes('P0 complete only when --execute saves target-date traffic rows'));
+check('traffic_evidence_contract', 'importer top-level next verifier command stays platform and hotel scoped', importerSource.includes("'next_verifier_command' => 'npm.cmd run verify:p0-ota-field-loop -- --date=' . (string)$options['date'] . ' --platform=' . (string)$options['platform'] . ' --system-hotel-id=' . (int)$options['system-hotel-id']"));
 check('traffic_evidence_contract', 'importer execute completion status remains below final P0 verifier', importerSource.includes('imported_post_execute_readback_ready_requires_p0_verifier') && !importerSource.includes('imported_and_post_execute_verifier_ready'));
 check('traffic_evidence_contract', 'importer labels post execute readback as non-final P0 evidence', importerSource.includes("'post_execute_readback_policy'") && importerSource.includes('Importer post_execute_verification is DB readback evidence only') && importerSource.includes('a separate verify:p0-ota-field-loop run returns ready'));
 check('traffic_evidence_contract', 'importer emits traffic evidence UI status with desensitized evidence and structured source path counts', importerSource.includes('$uiStatus = p0_import_external_ui_status') && importerSource.includes("'ui_status' => $uiStatus") && importerSource.includes('desensitized_capture_evidence_count') && importerSource.includes('structured_source_path_count'));
@@ -1560,6 +1563,76 @@ const noSourceRowsMatrix = noSourceRowsTraffic.traffic_field_fact_closure?.field
 const requiredP0TrafficMetricKeys = ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'];
 check('source_chain_scope_contract', 'P0 verifier expands no-source traffic closure into every required metric', JSON.stringify(noSourceRowsMatrix.map((row) => String(row.metric_key || '')).sort()) === JSON.stringify([...requiredP0TrafficMetricKeys].sort()), JSON.stringify(noSourceRowsMatrix));
 check('source_chain_scope_contract', 'P0 verifier keeps every no-source metric explicitly unloaded', noSourceRowsMatrix.length === 5 && noSourceRowsMatrix.every((row) => row.status === 'no_target_date_traffic_rows' && Number(row.row_count || 0) === 0 && row.capture_evidence_present === false && row.source_path_structured === false && row.storage_field_matches_expected === false && row.stored_value_present === false && row.ui_status_ready === false), JSON.stringify(noSourceRowsMatrix));
+
+const runtimeExecuteCases = [
+  {
+    name: 'runtime_execute_ctrip_target_date_traffic_ready',
+    platform: 'ctrip',
+    payload: {
+      traffic: [
+        trafficRow({
+          hotelId: 'runtime-ctrip-platform-hotel',
+          date: runtimeExecuteDate,
+          dateSource: 'request.payload.dataDate',
+          trace: 'ctrip:runtime-execute-traffic',
+          hash: hash('r'),
+          sourcePath: 'traffic.0',
+        }),
+      ],
+    },
+  },
+  {
+    name: 'runtime_execute_meituan_target_date_traffic_ready',
+    platform: 'meituan',
+    payload: {
+      traffic: [
+        trafficRow({
+          poiId: 'runtime-meituan-platform-poi',
+          dataDate: runtimeExecuteDate,
+          dateSource: 'request.query.date',
+          trace: 'meituan:runtime-execute-traffic',
+          hash: hash('s'),
+          sourcePath: 'traffic.0',
+        }),
+      ],
+    },
+  },
+];
+
+for (const executeCase of runtimeExecuteCases) {
+  cleanupP0RuntimeRows(executeCase.platform, runtimeExecuteDate, runtimeExecuteSystemHotelId);
+  try {
+    const importerResult = runImporterExecuteCase(executeCase, runtimeExecuteDate, runtimeExecuteSystemHotelId);
+    const postExecute = importerResult.post_execute_verification || {};
+    check('runtime_execute_contract', `${executeCase.name} importer execute exits cleanly`, importerResult.exitCode === 0, JSON.stringify(importerResult.issues || []));
+    check('runtime_execute_contract', `${executeCase.name} importer saves target-date traffic row`, importerResult.status === 'imported' && Number(importerResult.saved_count || 0) > 0, JSON.stringify(importerResult));
+    check('runtime_execute_contract', `${executeCase.name} importer post-execute DB readback is ready`, postExecute.status === 'ready' && Number(postExecute.traffic_row_count || 0) > 0, JSON.stringify(postExecute));
+    check('runtime_execute_contract', `${executeCase.name} importer post-execute keeps DB readback below final P0 completion`, importerResult.p0_completion_status === 'imported_post_execute_readback_ready_requires_p0_verifier' && String(importerResult.post_execute_readback_policy || '').includes('final P0 closure still requires'), JSON.stringify(importerResult));
+
+    const verifierResult = runP0VerifierSnapshot(executeCase.platform, runtimeExecuteDate, runtimeExecuteSystemHotelId);
+    const platformResult = (verifierResult.platforms || []).find((platform) => platform.platform === executeCase.platform) || {};
+    const trafficGate = platformResult.p0_traffic_gate || {};
+    const trafficAvailability = (verifierResult.traffic_evidence_availability || []).find((traffic) => traffic.platform === executeCase.platform) || {};
+    const trafficClosure = trafficAvailability.traffic_field_fact_closure || {};
+    check('runtime_execute_contract', `${executeCase.name} P0 verifier marks the ingested target-date traffic gate ready`, trafficGate.status === 'ready' && Number(verifierResult.summary?.traffic_gates_ready || 0) === 1, JSON.stringify({ status: verifierResult.status, summary: verifierResult.summary || {}, trafficGate, issues: verifierResult.issues || [] }));
+    check('runtime_execute_contract', `${executeCase.name} P0 verifier counts scoped traffic rows`, Number(trafficGate.traffic_rows || 0) > 0 && Number(trafficAvailability.target_date?.traffic_rows || 0) > 0, JSON.stringify({ trafficGate, trafficAvailability }));
+    check('runtime_execute_contract', `${executeCase.name} P0 verifier closes every required metric key`, trafficClosure.status === 'ready' && requiredP0TrafficMetricKeys.every((key) => (trafficClosure.complete_metric_keys || []).includes(key)), JSON.stringify(trafficClosure));
+    check('runtime_execute_contract', `${executeCase.name} P0 verifier keeps platform hotel identity ready`, trafficGate.platform_hotel_identifier_status === 'ready' && Number(trafficGate.platform_hotel_identifier_rows || 0) > 0, JSON.stringify(trafficGate));
+  } finally {
+    cleanupP0RuntimeRows(executeCase.platform, runtimeExecuteDate, runtimeExecuteSystemHotelId);
+  }
+
+  const cleanupVerifierResult = runP0VerifierSnapshot(executeCase.platform, runtimeExecuteDate, runtimeExecuteSystemHotelId);
+  const cleanupPlatformResult = (cleanupVerifierResult.platforms || []).find((platform) => platform.platform === executeCase.platform) || {};
+  const cleanupTrafficGate = cleanupPlatformResult.p0_traffic_gate || {};
+  const cleanupTrafficAvailability = (cleanupVerifierResult.traffic_evidence_availability || []).find((traffic) => traffic.platform === executeCase.platform) || {};
+  check('runtime_execute_cleanup_contract', `${executeCase.name} cleanup removes synthetic target-date traffic rows`, cleanupTrafficGate.status === 'missing_target_date_traffic_rows' && Number(cleanupTrafficGate.traffic_rows || 0) === 0 && Number(cleanupTrafficAvailability.target_date?.traffic_rows || 0) === 0, JSON.stringify({
+    status: cleanupVerifierResult.status,
+    summary: cleanupVerifierResult.summary || {},
+    trafficGate: cleanupTrafficGate,
+    trafficAvailability: cleanupTrafficAvailability,
+  }));
+}
 
 const failed = checks.filter((item) => !item.ok);
 if (failed.length > 0) {
@@ -1649,6 +1722,37 @@ function runImporterMarkdownCase(item) {
   }
 }
 
+function runImporterExecuteCase(item, executeDate, scopedSystemHotelId) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'p0-ota-importer-execute-'));
+  const payloadPath = path.join(dir, `${item.name}.json`);
+  try {
+    writeFileSync(payloadPath, JSON.stringify(item.payload, null, 2), 'utf8');
+    const child = spawnSync(phpBinary, [
+      importer,
+      `--platform=${item.platform}`,
+      `--date=${executeDate}`,
+      `--system-hotel-id=${scopedSystemHotelId}`,
+      `--payload=${payloadPath}`,
+      '--execute',
+      '--format=json',
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    const stdout = String(child.stdout || '').trim();
+    let parsed = {};
+    try {
+      parsed = JSON.parse(stdout);
+    } catch (error) {
+      throw new Error(`${item.name} execute returned invalid JSON: ${error.message}; stdout=${stdout}; stderr=${child.stderr || ''}`);
+    }
+    parsed.exitCode = Number(child.status ?? 0);
+    return parsed;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 function runP0VerifierWithTrafficEvidence(importerResult, platform, scopedSystemHotelId = '') {
   const dir = mkdtempSync(path.join(tmpdir(), 'p0-ota-evidence-'));
   const evidencePath = path.join(dir, 'traffic-evidence.json');
@@ -1679,13 +1783,17 @@ function runP0VerifierWithTrafficEvidence(importerResult, platform, scopedSystem
   }
 }
 
-function runP0VerifierSnapshot(platform, verifierDate = date) {
-  const child = spawnSync(phpBinary, [
+function runP0VerifierSnapshot(platform, verifierDate = date, scopedSystemHotelId = '') {
+  const args = [
     p0Verifier,
     `--platform=${platform}`,
     `--date=${verifierDate}`,
     '--format=json',
-  ], {
+  ];
+  if (scopedSystemHotelId) {
+    args.splice(3, 0, `--system-hotel-id=${scopedSystemHotelId}`);
+  }
+  const child = spawnSync(phpBinary, args, {
     cwd: root,
     encoding: 'utf8',
   });
@@ -1694,6 +1802,36 @@ function runP0VerifierSnapshot(platform, verifierDate = date) {
     return JSON.parse(stdout);
   } catch (error) {
     throw new Error(`P0 verifier snapshot returned invalid JSON: ${error.message}; stdout=${stdout}; stderr=${child.stderr || ''}`);
+  }
+}
+
+function cleanupP0RuntimeRows(platform, cleanupDate, scopedSystemHotelId) {
+  const source = JSON.stringify(platform);
+  const dataDate = JSON.stringify(cleanupDate);
+  const systemId = Number(scopedSystemHotelId);
+  const code = `
+    $root = getcwd();
+    require $root . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
+    $app = new \\think\\App();
+    $app->initialize();
+    $columnRows = \\think\\facade\\Db::query('SHOW COLUMNS FROM online_daily_data');
+    $columns = array_fill_keys(array_column($columnRows, 'Field'), true);
+    $query = \\think\\facade\\Db::name('online_daily_data')
+        ->where('source', ${source})
+        ->where('data_date', ${dataDate})
+        ->whereIn('data_type', ['traffic', 'flow', 'conversion']);
+    if (isset($columns['system_hotel_id'])) {
+        $query->where('system_hotel_id', ${systemId});
+    }
+    $deleted = $query->delete();
+    echo json_encode(['deleted' => $deleted], JSON_UNESCAPED_UNICODE);
+  `;
+  const child = spawnSync(phpBinary, ['-r', code], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  if (Number(child.status ?? 0) !== 0) {
+    throw new Error(`cleanup failed for ${platform} ${cleanupDate}: stdout=${child.stdout || ''}; stderr=${child.stderr || ''}`);
   }
 }
 

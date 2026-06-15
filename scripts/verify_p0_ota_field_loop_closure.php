@@ -21,6 +21,7 @@ function p0_parse_args(array $argv): array
         'limit' => 5000,
         'format' => 'json',
         'traffic-evidence' => '',
+        'evidence' => '',
     ];
 
     foreach (array_slice($argv, 1) as $arg) {
@@ -132,6 +133,9 @@ function p0_run_inspector(array $options, array $platforms): array
     if ((int)($options['system-hotel-id'] ?? 0) > 0) {
         $args[] = '--system_hotel_id=' . (int)$options['system-hotel-id'];
     }
+    if (trim((string)($options['evidence'] ?? '')) !== '') {
+        $args[] = '--evidence=' . trim((string)$options['evidence']);
+    }
 
     $result = p0_run_process($args, $root);
     if ($result['exit_code'] !== 0) {
@@ -190,14 +194,29 @@ function p0_source_contains(string $path, string $needle): bool
 }
 
 /**
+ * @param array<int, string> $paths
+ */
+function p0_source_contains_any(array $paths, string $needle): bool
+{
+    foreach ($paths as $path) {
+        if (p0_source_contains($path, $needle)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * @param array<int, array<string, mixed>> $checks
  */
-function p0_add_global_check(array &$checks, string $code, bool $passed, string $message): void
+function p0_add_global_check(array &$checks, string $code, bool $passed, string $message, string $failureSeverity = 'failed'): void
 {
     $checks[] = [
         'code' => $code,
         'status' => $passed ? 'passed' : 'failed',
         'message' => $message,
+        'failure_severity' => in_array($failureSeverity, ['failed', 'incomplete'], true) ? $failureSeverity : 'failed',
     ];
 }
 
@@ -2079,6 +2098,83 @@ function p0_hotel_scoped_capture_bridge_contract(string $platform, string $targe
     ];
 }
 
+function p0_hotel_scoped_payload_path(string $platform, string $targetDate, int $systemHotelId): string
+{
+    return 'reports/p0_traffic_' . $platform . '_' . $systemHotelId . '_' . str_replace('-', '', $targetDate) . '.json';
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function p0_hotel_scoped_payload_candidate_scan(string $platform, string $targetDate, int $systemHotelId): array
+{
+    global $root;
+
+    if ($systemHotelId <= 0) {
+        return [];
+    }
+
+    $payloadPath = p0_hotel_scoped_payload_path($platform, $targetDate, $systemHotelId);
+    $absolutePayloadPath = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $payloadPath);
+    $base = [
+        'platform' => $platform,
+        'target_date' => $targetDate,
+        'system_hotel_id' => $systemHotelId,
+        'payload_path' => $payloadPath,
+        'status' => 'missing_expected_payload',
+        'ready_to_execute' => false,
+        'scan_policy' => 'dry_run_only_no_import',
+        'payload_policy' => 'path_and_importer_summary_only_no_payload_content',
+        'storage_policy' => 'does_not_write_online_daily_data',
+        'dry_run_command' => 'npm.cmd run import:p0-ota-traffic-payload -- --platform=' . $platform . ' --date=' . $targetDate . ' --system-hotel-id=' . $systemHotelId . ' --payload=' . $payloadPath . ' --format=json',
+        'execute_command' => 'npm.cmd run import:p0-ota-traffic-payload:execute -- --platform=' . $platform . ' --date=' . $targetDate . ' --system-hotel-id=' . $systemHotelId . ' --payload=' . $payloadPath . ' --format=json',
+        'verification_command' => 'npm.cmd run verify:p0-ota-field-loop -- --date=' . $targetDate . ' --platform=' . $platform . ' --system-hotel-id=' . $systemHotelId,
+        'importer_status' => 'not_run',
+        'importer_exit_code' => null,
+        'target_date_rows' => 0,
+        'traffic_evidence_rows' => 0,
+        'issue_codes' => ['expected_payload_file_missing'],
+    ];
+
+    if (!is_file($absolutePayloadPath)) {
+        return $base;
+    }
+
+    $result = p0_run_process([
+        PHP_BINARY,
+        $root . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'import_p0_ota_traffic_payload.php',
+        '--platform=' . $platform,
+        '--date=' . $targetDate,
+        '--system-hotel-id=' . $systemHotelId,
+        '--payload=' . $absolutePayloadPath,
+        '--format=json',
+    ], $root);
+
+    $base['importer_exit_code'] = (int)$result['exit_code'];
+    $decoded = json_decode(trim($result['stdout']), true);
+    if (!is_array($decoded)) {
+        $base['status'] = 'importer_invalid_json';
+        $base['importer_status'] = 'invalid_json';
+        $base['issue_codes'] = ['importer_invalid_json'];
+        return $base;
+    }
+
+    $issues = array_values(array_filter((array)($decoded['issues'] ?? []), 'is_array'));
+    $summary = p0_array($decoded['summary'] ?? null);
+    $base['importer_status'] = (string)($decoded['status'] ?? 'unknown');
+    $base['target_date_rows'] = (int)($summary['target_date_rows'] ?? 0);
+    $base['traffic_evidence_rows'] = count(array_values(array_filter((array)($decoded['traffic_evidence'] ?? []), 'is_array')));
+    $base['p0_completion_status'] = (string)($decoded['p0_completion_status'] ?? '');
+    $base['issue_codes'] = array_values(array_filter(array_map(
+        static fn(array $issue): string => (string)($issue['code'] ?? ''),
+        $issues
+    )));
+    $base['ready_to_execute'] = (int)$result['exit_code'] === 0 && $base['importer_status'] === 'ready_to_import';
+    $base['status'] = $base['ready_to_execute'] ? 'ready_to_import' : 'blocked';
+
+    return $base;
+}
+
 /**
  * @return array<string, mixed>
  */
@@ -2179,6 +2275,7 @@ function p0_hotel_scoped_traffic_sources(string $platform, string $targetDate, i
             'capture_sections_has_traffic' => (bool)($sample['capture_sections_has_traffic'] ?? false),
             'manual_login_state_verified' => (bool)($sample['manual_login_state_verified'] ?? false),
             'secret_configured' => (bool)($sample['secret_configured'] ?? false),
+            'payload_candidate_scan' => p0_hotel_scoped_payload_candidate_scan($platform, $targetDate, $systemHotelId),
             'capture_bridge' => p0_hotel_scoped_capture_bridge_contract($platform, $targetDate, $systemHotelId),
             'payload_contract' => p0_hotel_scoped_traffic_payload_contract($platform, $targetDate, $systemHotelId),
         ], p0_hotel_scoped_traffic_commands($platform, $targetDate, $systemHotelId));
@@ -2197,6 +2294,7 @@ function p0_hotel_scoped_traffic_sources(string $platform, string $targetDate, i
             'capture_sections_has_traffic' => false,
             'manual_login_state_verified' => false,
             'secret_configured' => false,
+            'payload_candidate_scan' => p0_hotel_scoped_payload_candidate_scan($platform, $targetDate, $scopeSystemHotelId),
             'capture_bridge' => p0_hotel_scoped_capture_bridge_contract($platform, $targetDate, $scopeSystemHotelId),
             'payload_contract' => p0_hotel_scoped_traffic_payload_contract($platform, $targetDate, $scopeSystemHotelId),
         ], p0_hotel_scoped_traffic_commands($platform, $targetDate, $scopeSystemHotelId));
@@ -2918,6 +3016,7 @@ function p0_platform_traffic_gate_next_steps(array $traffic): array
         }
         $command = p0_array($commandsByHotel[$systemHotelId] ?? null);
         $bridge = p0_array($bridgesByHotel[$systemHotelId] ?? null);
+        $payloadCandidateScan = p0_array($source['payload_candidate_scan'] ?? null);
         $steps[] = [
             'platform' => (string)($source['platform'] ?? $traffic['platform'] ?? ''),
             'system_hotel_id' => $systemHotelId,
@@ -2926,6 +3025,10 @@ function p0_platform_traffic_gate_next_steps(array $traffic): array
             'last_sync_status' => (string)($source['last_sync_status'] ?? ''),
             'capture_sections_has_traffic' => (bool)($source['capture_sections_has_traffic'] ?? false),
             'manual_login_state_verified' => (bool)($source['manual_login_state_verified'] ?? false),
+            'payload_candidate_status' => (string)($payloadCandidateScan['status'] ?? ''),
+            'payload_candidate_ready_to_execute' => (bool)($payloadCandidateScan['ready_to_execute'] ?? false),
+            'payload_candidate_path' => (string)($payloadCandidateScan['payload_path'] ?? ''),
+            'payload_candidate_issue_codes' => array_values(array_map('strval', (array)($payloadCandidateScan['issue_codes'] ?? []))),
             'payload_import_command' => (string)($command['payload_import_command'] ?? ''),
             'payload_import_execute_command' => (string)($command['payload_import_execute_command'] ?? ''),
             'traffic_evidence_verifier_command' => (string)($command['traffic_evidence_verifier_command'] ?? ''),
@@ -3241,11 +3344,16 @@ function p0_render_markdown(array $result): string
             $lines[] = '';
             $lines[] = '### Hotel Scoped Traffic Sources';
             $lines[] = '';
-            $lines[] = '| platform | system_hotel_id | data_source_id | method | status | last sync | managed by P0 | traffic section | login verified | scoped verifier |';
-            $lines[] = '| --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |';
+            $lines[] = '| platform | system_hotel_id | data_source_id | method | status | last sync | managed by P0 | traffic section | login verified | payload candidate | scoped verifier |';
+            $lines[] = '| --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- |';
             foreach ($hotelScopedSources as $source) {
+                $payloadCandidateScan = p0_array($source['payload_candidate_scan'] ?? null);
+                $payloadCandidateText = (string)($payloadCandidateScan['status'] ?? '');
+                if (($payloadCandidateScan['payload_path'] ?? '') !== '') {
+                    $payloadCandidateText .= ':' . (string)$payloadCandidateScan['payload_path'];
+                }
                 $lines[] = sprintf(
-                    '| `%s` | %d | %s | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` |',
+                    '| `%s` | %d | %s | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` |',
                     (string)($source['platform'] ?? ''),
                     (int)($source['system_hotel_id'] ?? 0),
                     ($source['data_source_id'] ?? null) === null ? '`null`' : (string)(int)$source['data_source_id'],
@@ -3255,6 +3363,7 @@ function p0_render_markdown(array $result): string
                     !empty($source['managed_by_p0']) ? 'true' : 'false',
                     !empty($source['capture_sections_has_traffic']) ? 'true' : 'false',
                     !empty($source['manual_login_state_verified']) ? 'true' : 'false',
+                    $payloadCandidateText,
                     (string)($source['p0_verifier_command'] ?? '')
                 );
             }
@@ -3442,26 +3551,28 @@ try {
     $scripts = p0_package_scripts();
     $p0Command = 'C:\\xampp\\php\\php.exe scripts\\verify_p0_ota_field_loop_closure.php';
     $p0ImportCommand = 'C:\\xampp\\php\\php.exe scripts\\import_p0_ota_traffic_payload.php';
+    $frontendSourcePaths = ['public/index.html', 'public/data-health-static.js'];
     $uiBackend = p0_source_contains('app/controller/OnlineData.php', 'buildOnlineDataFieldFactStatus')
         && p0_source_contains('app/controller/OnlineData.php', 'field_fact_status');
-    $uiFrontend = p0_source_contains('public/index.html', 'onlineAnalysisFieldFactStatusText(item)')
-        && p0_source_contains('public/index.html', 'onlineAnalysisFieldFactStatusClass(item)')
-        && p0_source_contains('public/index.html', 'onlineAnalysisFieldFactDetailText(item)')
-        && p0_source_contains('public/index.html', 'field_fact_status');
-    $uiP0SourceEvidence = p0_source_contains('public/index.html', 'onlineAnalysisP0CaptureEvidenceStatusText(item)')
-        && p0_source_contains('public/index.html', 'onlineAnalysisP0CaptureEvidenceStatusClass(item)')
-        && p0_source_contains('public/index.html', 'onlineAnalysisP0CaptureEvidenceDetailText(item)')
-        && p0_source_contains('public/index.html', 'desensitized_capture_evidence_count')
-        && p0_source_contains('public/index.html', 'P0证据待补')
-        && p0_source_contains('app/controller/OnlineData.php', 'desensitized_capture_evidence_count')
-        && p0_source_contains('app/controller/OnlineData.php', 'onlineDataFieldFactHasDesensitizedCaptureEvidence');
-    $uiTrafficStatus = p0_source_contains('public/index.html', 'traffic_source_readiness')
-        && p0_source_contains('public/index.html', 'target_date_traffic_rows')
-        && p0_source_contains('public/index.html', 'p0_source_chain_reference_only')
-        && p0_source_contains('public/index.html', 'p0_source_chain_scope')
-        && p0_source_contains('public/index.html', 'reference_only_non_traffic_source_rows')
-        && p0_source_contains('public/index.html', '流量缺失')
-        && p0_source_contains('public/index.html', '流量已入库')
+    $uiFrontend = p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisFieldFactStatusText')
+        && p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisFieldFactStatusClass')
+        && p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisFieldFactDetailText')
+        && p0_source_contains_any($frontendSourcePaths, 'field_fact_status');
+    $fieldFactBackendPaths = ['app/controller/OnlineData.php', 'app/service/OnlineDataFieldFactService.php'];
+    $uiP0SourceEvidence = p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisP0CaptureEvidenceStatusText(item)')
+        && p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisP0CaptureEvidenceStatusClass(item)')
+        && p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisP0CaptureEvidenceDetailText(item)')
+        && p0_source_contains_any($frontendSourcePaths, 'desensitized_capture_evidence_count')
+        && p0_source_contains_any($frontendSourcePaths, 'P0证据待补')
+        && p0_source_contains_any($fieldFactBackendPaths, 'desensitized_capture_evidence_count')
+        && p0_source_contains_any($fieldFactBackendPaths, 'fieldFactHasDesensitizedCaptureEvidence');
+    $uiTrafficStatus = p0_source_contains_any($frontendSourcePaths, 'traffic_source_readiness')
+        && p0_source_contains_any($frontendSourcePaths, 'target_date_traffic_rows')
+        && p0_source_contains_any($frontendSourcePaths, 'p0_source_chain_reference_only')
+        && p0_source_contains_any($frontendSourcePaths, 'p0_source_chain_scope')
+        && p0_source_contains_any($frontendSourcePaths, 'reference_only_non_traffic_source_rows')
+        && p0_source_contains_any($frontendSourcePaths, '流量缺失')
+        && p0_source_contains_any($frontendSourcePaths, '流量已入库')
         && p0_source_contains('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'traffic_status=ready')
         && p0_source_contains('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'p0_source_chain_reference_only')
         && p0_source_contains('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'reference_only_non_traffic_source_rows')
@@ -3499,7 +3610,8 @@ try {
         $globalChecks,
         'runtime_field_fact_summary_ready',
         p0_runtime_field_fact_summary_ready($sourceSummaryMap, $expectedPlatforms),
-        'Live inspector source summary proves capture_evidence, source_path, metric_key, storage_field, stored values, and raw-data safety.'
+        'Live inspector source summary proves capture_evidence, source_path, metric_key, storage_field, stored values, and raw-data safety.',
+        'incomplete'
     );
     p0_add_global_check(
         $globalChecks,
@@ -3509,7 +3621,7 @@ try {
     );
     foreach ($globalChecks as $check) {
         if (($check['status'] ?? '') !== 'passed') {
-            p0_add_issue($issues, 'failed', (string)$check['code'], (string)$check['message']);
+            p0_add_issue($issues, (string)($check['failure_severity'] ?? 'failed'), (string)$check['code'], (string)$check['message']);
         }
     }
 

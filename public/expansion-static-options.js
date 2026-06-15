@@ -650,6 +650,58 @@ window.SUXI_EXPANSION_STATIC = (() => {
         ];
     };
 
+    function readinessBadgeClass(stage, readyStages, warningStages, dangerStages = []) {
+        if (readyStages.includes(stage)) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        if (warningStages.includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
+        if (dangerStages.includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
+        return 'bg-gray-50 text-gray-600 border-gray-200';
+    }
+
+    function readinessMissingText(readiness, emptyText) {
+        const missing = Array.isArray(readiness?.missing_evidence) ? readiness.missing_evidence : [];
+        if (!missing.length) return emptyText;
+        return `缺口：${missing.slice(0, 3).map(item => item.label || item.code).join('、')}`;
+    }
+
+    function expansionReadinessBadgeClass(stage) {
+        return readinessBadgeClass(
+            stage,
+            ['project_ready', 'review_ready'],
+            ['approved_pending_tracking', 'diligence_required', 'partial_screening'],
+            ['risk_recheck_required']
+        );
+    }
+
+    function expansionReadinessMissingText(readiness) {
+        return readinessMissingText(readiness, '暂无显式缺口；立项后仍需关联执行和投后跟踪证据。');
+    }
+
+    function feasibilityReadinessBadgeClass(stage) {
+        return readinessBadgeClass(
+            stage,
+            ['feasibility_ready', 'review_ready'],
+            ['approved_pending_tracking', 'diligence_required', 'manual_input_only', 'partial_report'],
+            ['data_recheck_required']
+        );
+    }
+
+    function feasibilityReadinessMissingText(readiness) {
+        return readinessMissingText(readiness, '暂无显式缺口；可研后仍需保留审批、执行和投后跟踪证据。');
+    }
+
+    function executionIntentIdFromRecord(record) {
+        const result = record?.result || {};
+        const direct = Number(record?.execution_intent_id || result.operation_execution_intent_id || result.execution_intent_id || 0);
+        if (direct > 0) return direct;
+        const tracking = result.execution_tracking;
+        const rows = Array.isArray(tracking) ? tracking : (tracking && typeof tracking === 'object' ? [tracking] : []);
+        for (let i = rows.length - 1; i >= 0; i -= 1) {
+            const id = Number(rows[i]?.execution_intent_id || rows[i]?.id || 0);
+            if (id > 0) return id;
+        }
+        return 0;
+    }
+
     return {
         marketEvaluationCityTierOptions,
         marketEvaluationCityOptions,
@@ -688,5 +740,10 @@ window.SUXI_EXPANSION_STATIC = (() => {
         strategyDataNoticeForSnapshot,
         buildStrategyDataSourceRows,
         buildStrategyAiEmpowermentCards,
+        expansionReadinessBadgeClass,
+        expansionReadinessMissingText,
+        feasibilityReadinessBadgeClass,
+        feasibilityReadinessMissingText,
+        executionIntentIdFromRecord,
     };
 })();

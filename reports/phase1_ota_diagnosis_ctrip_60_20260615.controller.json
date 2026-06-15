@@ -1,0 +1,776 @@
+{
+    "code": 200,
+    "message": "success",
+    "data": {
+        "hotel": {
+            "id": 60,
+            "name": "敦煌漠蓝",
+            "code": "HOTEL004",
+            "address": "",
+            "status": 1
+        },
+        "platform": "ctrip",
+        "date_range": {
+            "start_date": "2026-06-15",
+            "end_date": "2026-06-15"
+        },
+        "data_summary": {
+            "has_ota_data": true,
+            "has_traffic_data": false,
+            "has_competitor_data": false,
+            "has_comment_data": false,
+            "has_advertising_data": false,
+            "has_service_quality_data": false,
+            "has_price_order_data": false,
+            "has_daily_report_data": false,
+            "last_sync_time": "2026-06-15 04:08:35",
+            "source_counts": {
+                "online_rows": 1,
+                "daily_reports": 0,
+                "competitor_prices": 0,
+                "competitor_analyses": 0,
+                "price_suggestions": 0,
+                "sync_logs": 0
+            }
+        },
+        "metrics": {
+            "record_count": 1,
+            "date_count": 1,
+            "amount": 0,
+            "quantity": 0,
+            "book_order_num": 0,
+            "adr": 0,
+            "list_exposure": 0,
+            "detail_visitors": 0,
+            "order_visitors": 0,
+            "submit_users": 0,
+            "detail_rate": 0,
+            "order_rate": 0,
+            "submit_rate": 0,
+            "comment_score": 0,
+            "qunar_comment_score": 0,
+            "advertising_spend": 0,
+            "advertising_order_amount": 0,
+            "advertising_bookings": 0,
+            "advertising_room_nights": 0,
+            "advertising_impressions": 0,
+            "advertising_clicks": 0,
+            "advertising_roas": 0,
+            "avg_psi_score": 0,
+            "avg_service_score": 0,
+            "avg_im_score": 0,
+            "avg_reply_rate": 0,
+            "hotel_collect": 0,
+            "daily_report_revenue": 0,
+            "competitor_avg_price": 0,
+            "suggested_avg_price": 0,
+            "daily_report_count": 0,
+            "competitor_price_count": 0,
+            "competitor_analysis_count": 0,
+            "price_suggestion_count": 0,
+            "sync_log_count": 0
+        },
+        "diagnosis": {
+            "summary": "敦煌漠蓝在2026-06-15的携程平台数据已入库，但核心经营指标（曝光、访问、订单、收入、间夜）均为0，且缺少流量、竞对、广告、服务质量等辅助数据，无法进行有效的经营诊断。当前诊断结论为数据采集不完整，需优先排查数据源同步问题。",
+            "data_overview": [
+                "数据日期: 2026-06-15",
+                "平台: 携程",
+                "OTA记录数: 1 条",
+                "订单数: 0",
+                "收入: 0",
+                "间夜数: 0",
+                "曝光量: 0",
+                "详情页访客数: 0",
+                "订单提交用户数: 0"
+            ],
+            "abnormal_metrics": [
+                "全核心指标（曝光、访问、订单、收入、间夜）均为0，需复核数据采集是否正常。",
+                "缺少流量数据（曝光、详情页访客），无法计算详情页转化率（detail_rate），该指标分母为0，不可计算。",
+                "缺少订单转化数据（订单提交用户数），无法计算订单转化率（order_rate）和提交转化率（submit_rate），该指标分母为0，不可计算。"
+            ],
+            "traffic_analysis": "缺少OTA流量数据（list_exposure, detail_visitors），无法判断曝光和访问漏斗。建议检查携程EBK后台的“流量分析”模块数据是否正常同步。",
+            "exposure_analysis": "缺少OTA曝光数据（list_exposure），无法判断曝光表现。建议检查携程EBK后台的“流量分析”模块数据是否正常同步。",
+            "visit_conversion_analysis": "缺少访问转化数据（detail_visitors, order_visitors），无法分析访问到下单的转化效率。",
+            "order_conversion_analysis": "缺少订单转化数据（order_visitors, submit_users），无法分析订单提交转化率。",
+            "price_analysis": "缺少价格\/房态\/订单相关数据（ADR, 订单量），暂不能判断价格竞争力。建议检查携程EBK后台的“生意通”或“经营报告”模块数据是否正常同步。",
+            "competitor_analysis": "缺少竞对数据（competitor_avg_price），无法判断同商圈机会。建议检查竞对价格数据源是否配置并正常同步。",
+            "advertising_analysis": "缺少OTA广告数据（advertising_spend, advertising_impressions等），暂不评估投放效率。",
+            "service_quality_analysis": "缺少OTA服务质量数据（avg_service_score, avg_im_score等），暂不评估服务质量对转化的影响。",
+            "comment_analysis": "",
+            "actions": [
+                "【高优先级】检查携程EBK数据源配置，确认“流量分析”、“生意通”、“经营报告”等模块的Cookie或API授权是否过期或失效，并重新同步2026-06-15的数据。",
+                "【高优先级】检查竞对价格数据源配置，确认是否已授权并正常抓取。",
+                "【中优先级】确认酒店在2026-06-15是否处于营业状态或存在房态关闭（如满房、停售）导致无数据。",
+                "【中优先级】待数据补齐后，按“曝光-访问-订单-收入”的漏斗顺序进行复盘，定位转化瓶颈。"
+            ],
+            "priority": "high"
+        },
+        "diagnosis_sections": [
+            {
+                "key": "data_overview",
+                "title": "数据概览",
+                "items": [
+                    "数据日期: 2026-06-15",
+                    "平台: 携程",
+                    "OTA记录数: 1 条",
+                    "订单数: 0",
+                    "收入: 0",
+                    "间夜数: 0",
+                    "曝光量: 0",
+                    "详情页访客数: 0",
+                    "订单提交用户数: 0"
+                ]
+            },
+            {
+                "key": "abnormal_metrics",
+                "title": "异常指标",
+                "items": [
+                    "全核心指标（曝光、访问、订单、收入、间夜）均为0，需复核数据采集是否正常。",
+                    "缺少流量数据（曝光、详情页访客），无法计算详情页转化率（detail_rate），该指标分母为0，不可计算。",
+                    "缺少订单转化数据（订单提交用户数），无法计算订单转化率（order_rate）和提交转化率（submit_rate），该指标分母为0，不可计算。"
+                ]
+            },
+            {
+                "key": "traffic",
+                "title": "流量问题",
+                "items": [
+                    "缺少OTA流量数据（list_exposure, detail_visitors），无法判断曝光和访问漏斗。建议检查携程EBK后台的“流量分析”模块数据是否正常同步。",
+                    "缺少OTA曝光数据（list_exposure），无法判断曝光表现。建议检查携程EBK后台的“流量分析”模块数据是否正常同步。"
+                ]
+            },
+            {
+                "key": "conversion",
+                "title": "转化问题",
+                "items": [
+                    "缺少访问转化数据（detail_visitors, order_visitors），无法分析访问到下单的转化效率。",
+                    "缺少订单转化数据（order_visitors, submit_users），无法分析订单提交转化率。"
+                ]
+            },
+            {
+                "key": "price_competitor",
+                "title": "价格\/竞对问题",
+                "items": [
+                    "缺少价格\/房态\/订单相关数据（ADR, 订单量），暂不能判断价格竞争力。建议检查携程EBK后台的“生意通”或“经营报告”模块数据是否正常同步。",
+                    "缺少竞对数据（competitor_avg_price），无法判断同商圈机会。建议检查竞对价格数据源是否配置并正常同步。"
+                ]
+            },
+            {
+                "key": "advertising_efficiency",
+                "title": "广告效率",
+                "items": [
+                    "缺少OTA广告数据（advertising_spend, advertising_impressions等），暂不评估投放效率。"
+                ]
+            },
+            {
+                "key": "service_quality",
+                "title": "服务质量",
+                "items": [
+                    "缺少OTA服务质量数据（avg_service_score, avg_im_score等），暂不评估服务质量对转化的影响。"
+                ]
+            },
+            {
+                "key": "actions",
+                "title": "运营建议",
+                "items": [
+                    "【高优先级】检查携程EBK数据源配置，确认“流量分析”、“生意通”、“经营报告”等模块的Cookie或API授权是否过期或失效，并重新同步2026-06-15的数据。",
+                    "【高优先级】检查竞对价格数据源配置，确认是否已授权并正常抓取。",
+                    "【中优先级】确认酒店在2026-06-15是否处于营业状态或存在房态关闭（如满房、停售）导致无数据。",
+                    "【中优先级】待数据补齐后，按“曝光-访问-订单-收入”的漏斗顺序进行复盘，定位转化瓶颈。"
+                ]
+            },
+            {
+                "key": "data_gaps",
+                "title": "数据缺失提示",
+                "items": [
+                    "OTA流量数据",
+                    "竞对数据",
+                    "价格\/房态\/订单相关数据",
+                    "日报经营数据"
+                ]
+            }
+        ],
+        "missing_sections": [
+            "OTA流量数据",
+            "竞对数据",
+            "价格\/房态\/订单相关数据",
+            "日报经营数据"
+        ],
+        "priority": "high",
+        "source_summary": {
+            "scope": {
+                "hotel_id": 60,
+                "hotel_name": "敦煌漠蓝",
+                "platform": "ctrip",
+                "start_date": "2026-06-15",
+                "end_date": "2026-06-15",
+                "analysis_type": "all"
+            },
+            "record_count": 1,
+            "date_count": 1,
+            "hotel_names": [
+                "本店"
+            ],
+            "totals": {
+                "amount": 0,
+                "quantity": 0,
+                "book_order_num": 0,
+                "data_value": 0,
+                "list_exposure": 0,
+                "detail_visitors": 0,
+                "order_visitors": 0,
+                "submit_users": 0,
+                "advertising_spend": 0,
+                "advertising_order_amount": 0,
+                "advertising_bookings": 0,
+                "advertising_room_nights": 0,
+                "advertising_impressions": 0,
+                "advertising_clicks": 0,
+                "advertising_rows": 0,
+                "service_quality_rows": 0,
+                "hotel_collect": 0
+            },
+            "averages": {
+                "comment_score": 0,
+                "qunar_comment_score": 0,
+                "adr": 0,
+                "avg_psi_score": 0,
+                "avg_service_score": 0,
+                "avg_im_score": 0,
+                "avg_reply_rate": 0,
+                "advertising_roas": 0
+            },
+            "daily": [
+                {
+                    "date": "2026-06-15",
+                    "amount": 0,
+                    "quantity": 0,
+                    "book_order_num": 0,
+                    "data_value": 0,
+                    "list_exposure": 0,
+                    "detail_visitors": 0,
+                    "order_visitors": 0,
+                    "submit_users": 0,
+                    "advertising_spend": 0,
+                    "advertising_order_amount": 0,
+                    "advertising_bookings": 0,
+                    "advertising_room_nights": 0,
+                    "advertising_impressions": 0,
+                    "advertising_clicks": 0,
+                    "advertising_rows": 0,
+                    "service_quality_rows": 0,
+                    "hotel_collect": 0
+                }
+            ],
+            "dimensions": {
+                "Ctrip:self": {
+                    "record_count": 1,
+                    "data_value": 0
+                }
+            },
+            "data_anomalies": [
+                "全指标为 0 的记录数: 1"
+            ],
+            "derived_rates": {
+                "detail_rate": 0,
+                "order_rate": 0,
+                "submit_rate": 0
+            }
+        },
+        "knowledge_context": {
+            "status": "available",
+            "keywords": [
+                "OTA",
+                "酒店指标",
+                "专业口径",
+                "转化率",
+                "流量",
+                "平台评分",
+                "收益管理",
+                "知识库",
+                "携程",
+                "服务质量分",
+                "ebooking"
+            ],
+            "items": [
+                {
+                    "source": "knowledge_units",
+                    "id": 14,
+                    "hotel_id": 0,
+                    "title": "酒店收益管理研究中心 - 异常检测",
+                    "summary": "异常检测已完成本地检索、联网检索与实现建议生成。",
+                    "chunks": [
+                        "收益研究实现结果: {\"product_key\":\"anomaly-detection\",\"product_name\":\"\\u5f02\\u5e38\\u68c0\\u6d4b\",\"status\":\"done\",\"model_key\":\"deepseek_chat\",\"generated_at\":\"2026-05-20 17:25:01\",\"generated_by\":1,\"loca"
+                    ]
+                },
+                {
+                    "source": "knowledge_units",
+                    "id": 13,
+                    "hotel_id": 0,
+                    "title": "酒店收益管理研究中心 - 点评主题与服务缺口识别",
+                    "summary": "点评主题与服务缺口识别已完成本地检索、联网检索与实现建议生成。",
+                    "chunks": [
+                        "收益研究实现结果: {\"product_key\":\"review-topic\",\"product_name\":\"\\u70b9\\u8bc4\\u4e3b\\u9898\\u4e0e\\u670d\\u52a1\\u7f3a\\u53e3\\u8bc6\\u522b\",\"status\":\"done\",\"model_key\":\"deepseek_chat\",\"generated_at\":\"2026-0"
+                    ]
+                },
+                {
+                    "source": "knowledge_units",
+                    "id": 12,
+                    "hotel_id": 0,
+                    "title": "酒店收益管理研究中心 - LTV 预测",
+                    "summary": "LTV 预测已完成本地检索、联网检索与实现建议生成。",
+                    "chunks": [
+                        "收益研究实现结果: {\"product_key\":\"ltv\",\"product_name\":\"LTV \\u9884\\u6d4b\",\"status\":\"done\",\"model_key\":\"deepseek_chat\",\"generated_at\":\"2026-05-20 17:24:37\",\"generated_by\":1,\"local_sources\":[{\"source\""
+                    ]
+                },
+                {
+                    "source": "knowledge_units",
+                    "id": 11,
+                    "hotel_id": 0,
+                    "title": "酒店收益管理研究中心 - 客群细分",
+                    "summary": "客群细分已完成本地检索、联网检索与实现建议生成。",
+                    "chunks": [
+                        "收益研究实现结果: {\"product_key\":\"customer-segmentation\",\"product_name\":\"\\u5ba2\\u7fa4\\u7ec6\\u5206\",\"status\":\"done\",\"model_key\":\"deepseek_chat\",\"generated_at\":\"2026-05-20 17:24:26\",\"generated_by\":1,\""
+                    ]
+                },
+                {
+                    "source": "knowledge_units",
+                    "id": 10,
+                    "hotel_id": 0,
+                    "title": "酒店收益管理研究中心 - 渠道归因与增量评估",
+                    "summary": "渠道归因与增量评估已完成本地检索、联网检索与实现建议生成。",
+                    "chunks": [
+                        "收益研究实现结果: {\"product_key\":\"channel-attribution\",\"product_name\":\"\\u6e20\\u9053\\u5f52\\u56e0\\u4e0e\\u589e\\u91cf\\u8bc4\\u4f30\",\"status\":\"done\",\"model_key\":\"deepseek_chat\",\"generated_at\":\"2026-05-20"
+                    ]
+                },
+                {
+                    "source": "knowledge_units",
+                    "id": 8,
+                    "hotel_id": 0,
+                    "title": "酒店收益管理研究中心 - 取消率预测",
+                    "summary": "取消率预测已完成本地检索、联网检索与实现建议生成。",
+                    "chunks": [
+                        "收益研究实现结果: {\"product_key\":\"cancellation-risk\",\"product_name\":\"\\u53d6\\u6d88\\u7387\\u9884\\u6d4b\",\"status\":\"done\",\"model_key\":\"deepseek_chat\",\"generated_at\":\"2026-05-20 17:23:31\",\"generated_by\":1"
+                    ]
+                },
+                {
+                    "source": "knowledge_base",
+                    "id": 6,
+                    "hotel_id": 0,
+                    "title": "OTA手动与自动获取策略",
+                    "summary": "# OTA手动与自动获取策略 ## 核心目标 携程和美团都要支持手动获取和自动获取，但不能把两条路径混用，也不能把两个平台写成同一种方式。 ## 路线区分 | 路径 | 适用场景 | 用户提供 | 系统动作 | 不做什么 | | --- | --- | --- | --- | --- | | 手动获取 | 临时补数、首次接入、平台改版排障、自动采集失效后补录 | 导出文件、Cookie\/Payload、平台 ID、日期、模块 | 校验、抓取\/导入、清洗、脱敏、去重、入库 | 不自动登录 OTA，不启动 Profil",
+                    "chunks": []
+                },
+                {
+                    "source": "knowledge_base",
+                    "id": 5,
+                    "hotel_id": 0,
+                    "title": "OTA数据分层架构与治理规则",
+                    "summary": "# OTA数据分层架构与治理规则 > 来源说明：按 2026-05-20 输入资料整理。本条目用于数据架构、治理规则和后续建设路线图，不代表已新增 ODS\/DWD\/DWS 表结构。 ## 数据流架构 ```mermaid flowchart LR A[美团 TMC 与直连平台<br\/>酒店 房型 价格库存 订单日志] --> ODS[ODS 原始层] B[携程 eBooking 与 Trip Connect<br\/>内容 ARI 预订 点评 分析导出] --> ODS C[可选补充<br\/>PMS CRS 广告成本",
+                    "chunks": []
+                }
+            ]
+        },
+        "evidence_sources": [
+            {
+                "ref": "source_summary",
+                "table": "derived",
+                "record_id": null,
+                "date": "",
+                "tags": [
+                    "summary"
+                ],
+                "label": "本次诊断聚合指标",
+                "metrics": {
+                    "amount": 0,
+                    "quantity": 0,
+                    "book_order_num": 0,
+                    "adr": 0,
+                    "list_exposure": 0,
+                    "detail_visitors": 0,
+                    "order_visitors": 0,
+                    "submit_users": 0,
+                    "detail_rate": 0,
+                    "order_rate": 0,
+                    "submit_rate": 0,
+                    "advertising_spend": 0,
+                    "advertising_order_amount": 0,
+                    "advertising_roas": 0,
+                    "avg_psi_score": 0,
+                    "avg_service_score": 0
+                }
+            },
+            {
+                "ref": "online_daily_data#15676",
+                "table": "online_daily_data",
+                "record_id": 15676,
+                "date": "2026-06-15",
+                "tags": [
+                    "online_daily_data",
+                    "traffic"
+                ],
+                "label": "ctrip traffic self",
+                "metrics": {
+                    "amount": "0.00",
+                    "quantity": 0,
+                    "book_order_num": 0,
+                    "list_exposure": 0,
+                    "detail_exposure": 0,
+                    "order_filling_num": 0,
+                    "order_submit_num": 0
+                }
+            }
+        ],
+        "core_conclusion": "敦煌漠蓝在2026-06-15的携程平台数据已入库，但核心经营指标（曝光、访问、订单、收入、间夜）均为0，且缺少流量、竞对、广告、服务质量等辅助数据，无法进行有效的经营诊断。当前诊断结论为数据采集不完整，需优先排查数据源同步问题。",
+        "main_problems": [
+            "全核心指标（曝光、访问、订单、收入、间夜）均为0，需复核数据采集是否正常。",
+            "缺少流量数据（曝光、详情页访客），无法计算详情页转化率（detail_rate），该指标分母为0，不可计算。",
+            "缺少订单转化数据（订单提交用户数），无法计算订单转化率（order_rate）和提交转化率（submit_rate），该指标分母为0，不可计算。"
+        ],
+        "possible_reasons": [
+            "缺少OTA曝光数据（list_exposure），无法判断曝光表现。建议检查携程EBK后台的“流量分析”模块数据是否正常同步。",
+            "缺少访问转化数据（detail_visitors, order_visitors），无法分析访问到下单的转化效率。",
+            "缺少订单转化数据（order_visitors, submit_users），无法分析订单提交转化率。",
+            "缺少价格\/房态\/订单相关数据（ADR, 订单量），暂不能判断价格竞争力。建议检查携程EBK后台的“生意通”或“经营报告”模块数据是否正常同步。",
+            "缺少竞对数据（competitor_avg_price），无法判断同商圈机会。建议检查竞对价格数据源是否配置并正常同步。",
+            "缺少OTA广告数据（advertising_spend, advertising_impressions等），暂不评估投放效率。",
+            "缺少OTA服务质量数据（avg_service_score, avg_im_score等），暂不评估服务质量对转化的影响。"
+        ],
+        "recommended_actions": [
+            "【高优先级】检查携程EBK数据源配置，确认“流量分析”、“生意通”、“经营报告”等模块的Cookie或API授权是否过期或失效，并重新同步2026-06-15的数据。",
+            "【高优先级】检查竞对价格数据源配置，确认是否已授权并正常抓取。",
+            "【中优先级】确认酒店在2026-06-15是否处于营业状态或存在房态关闭（如满房、停售）导致无数据。",
+            "【中优先级】待数据补齐后，按“曝光-访问-订单-收入”的漏斗顺序进行复盘，定位转化瓶颈。"
+        ],
+        "data_anomalies_needing_confirmation": [
+            "OTA流量数据",
+            "竞对数据",
+            "价格\/房态\/订单相关数据",
+            "日报经营数据"
+        ],
+        "action_items": [
+            {
+                "id": "ota_action_1",
+                "action": "【高优先级】检查携程EBK数据源配置，确认“流量分析”、“生意通”、“经营报告”等模块的Cookie或API授权是否过期或失效，并重新同步2026-06-15的数据。",
+                "status": "pending_manual_review",
+                "evidence_refs": [
+                    "source_summary",
+                    "online_daily_data#15676"
+                ],
+                "source_policy": "must cite evidence_refs before execution"
+            },
+            {
+                "id": "ota_action_2",
+                "action": "【高优先级】检查竞对价格数据源配置，确认是否已授权并正常抓取。",
+                "status": "pending_manual_review",
+                "evidence_refs": [
+                    "source_summary"
+                ],
+                "source_policy": "must cite evidence_refs before execution"
+            },
+            {
+                "id": "ota_action_3",
+                "action": "【中优先级】确认酒店在2026-06-15是否处于营业状态或存在房态关闭（如满房、停售）导致无数据。",
+                "status": "pending_manual_review",
+                "evidence_refs": [
+                    "source_summary"
+                ],
+                "source_policy": "must cite evidence_refs before execution"
+            },
+            {
+                "id": "ota_action_4",
+                "action": "【中优先级】待数据补齐后，按“曝光-访问-订单-收入”的漏斗顺序进行复盘，定位转化瓶颈。",
+                "status": "pending_manual_review",
+                "evidence_refs": [
+                    "source_summary",
+                    "online_daily_data#15676"
+                ],
+                "source_policy": "must cite evidence_refs before execution"
+            }
+        ],
+        "evidence_report": {
+            "report_type": "daily_diagnosis_action_list",
+            "source_policy": "database_only",
+            "date_range": {
+                "start_date": "2026-06-15",
+                "end_date": "2026-06-15"
+            },
+            "source_counts": {
+                "online_rows": 1,
+                "daily_reports": 0,
+                "competitor_prices": 0,
+                "competitor_analyses": 0,
+                "price_suggestions": 0,
+                "sync_logs": 0
+            },
+            "diagnosis": {
+                "summary": "敦煌漠蓝在2026-06-15的携程平台数据已入库，但核心经营指标（曝光、访问、订单、收入、间夜）均为0，且缺少流量、竞对、广告、服务质量等辅助数据，无法进行有效的经营诊断。当前诊断结论为数据采集不完整，需优先排查数据源同步问题。",
+                "main_problems": [
+                    "全核心指标（曝光、访问、订单、收入、间夜）均为0，需复核数据采集是否正常。",
+                    "缺少流量数据（曝光、详情页访客），无法计算详情页转化率（detail_rate），该指标分母为0，不可计算。",
+                    "缺少订单转化数据（订单提交用户数），无法计算订单转化率（order_rate）和提交转化率（submit_rate），该指标分母为0，不可计算。"
+                ],
+                "possible_reasons": [
+                    "缺少OTA曝光数据（list_exposure），无法判断曝光表现。建议检查携程EBK后台的“流量分析”模块数据是否正常同步。",
+                    "缺少访问转化数据（detail_visitors, order_visitors），无法分析访问到下单的转化效率。",
+                    "缺少订单转化数据（order_visitors, submit_users），无法分析订单提交转化率。",
+                    "缺少价格\/房态\/订单相关数据（ADR, 订单量），暂不能判断价格竞争力。建议检查携程EBK后台的“生意通”或“经营报告”模块数据是否正常同步。",
+                    "缺少竞对数据（competitor_avg_price），无法判断同商圈机会。建议检查竞对价格数据源是否配置并正常同步。",
+                    "缺少OTA广告数据（advertising_spend, advertising_impressions等），暂不评估投放效率。",
+                    "缺少OTA服务质量数据（avg_service_score, avg_im_score等），暂不评估服务质量对转化的影响。"
+                ]
+            },
+            "action_items": [
+                {
+                    "id": "ota_action_1",
+                    "action": "【高优先级】检查携程EBK数据源配置，确认“流量分析”、“生意通”、“经营报告”等模块的Cookie或API授权是否过期或失效，并重新同步2026-06-15的数据。",
+                    "status": "pending_manual_review",
+                    "evidence_refs": [
+                        "source_summary",
+                        "online_daily_data#15676"
+                    ],
+                    "source_policy": "must cite evidence_refs before execution"
+                },
+                {
+                    "id": "ota_action_2",
+                    "action": "【高优先级】检查竞对价格数据源配置，确认是否已授权并正常抓取。",
+                    "status": "pending_manual_review",
+                    "evidence_refs": [
+                        "source_summary"
+                    ],
+                    "source_policy": "must cite evidence_refs before execution"
+                },
+                {
+                    "id": "ota_action_3",
+                    "action": "【中优先级】确认酒店在2026-06-15是否处于营业状态或存在房态关闭（如满房、停售）导致无数据。",
+                    "status": "pending_manual_review",
+                    "evidence_refs": [
+                        "source_summary"
+                    ],
+                    "source_policy": "must cite evidence_refs before execution"
+                },
+                {
+                    "id": "ota_action_4",
+                    "action": "【中优先级】待数据补齐后，按“曝光-访问-订单-收入”的漏斗顺序进行复盘，定位转化瓶颈。",
+                    "status": "pending_manual_review",
+                    "evidence_refs": [
+                        "source_summary",
+                        "online_daily_data#15676"
+                    ],
+                    "source_policy": "must cite evidence_refs before execution"
+                }
+            ],
+            "diagnosis_sections": [
+                {
+                    "key": "data_overview",
+                    "title": "数据概览",
+                    "items": [
+                        "数据日期: 2026-06-15",
+                        "平台: 携程",
+                        "OTA记录数: 1 条",
+                        "订单数: 0",
+                        "收入: 0",
+                        "间夜数: 0",
+                        "曝光量: 0",
+                        "详情页访客数: 0",
+                        "订单提交用户数: 0"
+                    ]
+                },
+                {
+                    "key": "abnormal_metrics",
+                    "title": "异常指标",
+                    "items": [
+                        "全核心指标（曝光、访问、订单、收入、间夜）均为0，需复核数据采集是否正常。",
+                        "缺少流量数据（曝光、详情页访客），无法计算详情页转化率（detail_rate），该指标分母为0，不可计算。",
+                        "缺少订单转化数据（订单提交用户数），无法计算订单转化率（order_rate）和提交转化率（submit_rate），该指标分母为0，不可计算。"
+                    ]
+                },
+                {
+                    "key": "traffic",
+                    "title": "流量问题",
+                    "items": [
+                        "缺少OTA流量数据（list_exposure, detail_visitors），无法判断曝光和访问漏斗。建议检查携程EBK后台的“流量分析”模块数据是否正常同步。",
+                        "缺少OTA曝光数据（list_exposure），无法判断曝光表现。建议检查携程EBK后台的“流量分析”模块数据是否正常同步。"
+                    ]
+                },
+                {
+                    "key": "conversion",
+                    "title": "转化问题",
+                    "items": [
+                        "缺少访问转化数据（detail_visitors, order_visitors），无法分析访问到下单的转化效率。",
+                        "缺少订单转化数据（order_visitors, submit_users），无法分析订单提交转化率。"
+                    ]
+                },
+                {
+                    "key": "price_competitor",
+                    "title": "价格\/竞对问题",
+                    "items": [
+                        "缺少价格\/房态\/订单相关数据（ADR, 订单量），暂不能判断价格竞争力。建议检查携程EBK后台的“生意通”或“经营报告”模块数据是否正常同步。",
+                        "缺少竞对数据（competitor_avg_price），无法判断同商圈机会。建议检查竞对价格数据源是否配置并正常同步。"
+                    ]
+                },
+                {
+                    "key": "advertising_efficiency",
+                    "title": "广告效率",
+                    "items": [
+                        "缺少OTA广告数据（advertising_spend, advertising_impressions等），暂不评估投放效率。"
+                    ]
+                },
+                {
+                    "key": "service_quality",
+                    "title": "服务质量",
+                    "items": [
+                        "缺少OTA服务质量数据（avg_service_score, avg_im_score等），暂不评估服务质量对转化的影响。"
+                    ]
+                },
+                {
+                    "key": "actions",
+                    "title": "运营建议",
+                    "items": [
+                        "【高优先级】检查携程EBK数据源配置，确认“流量分析”、“生意通”、“经营报告”等模块的Cookie或API授权是否过期或失效，并重新同步2026-06-15的数据。",
+                        "【高优先级】检查竞对价格数据源配置，确认是否已授权并正常抓取。",
+                        "【中优先级】确认酒店在2026-06-15是否处于营业状态或存在房态关闭（如满房、停售）导致无数据。",
+                        "【中优先级】待数据补齐后，按“曝光-访问-订单-收入”的漏斗顺序进行复盘，定位转化瓶颈。"
+                    ]
+                },
+                {
+                    "key": "data_gaps",
+                    "title": "数据缺失提示",
+                    "items": [
+                        "OTA流量数据",
+                        "竞对数据",
+                        "价格\/房态\/订单相关数据",
+                        "日报经营数据"
+                    ]
+                }
+            ],
+            "evidence_sources": [
+                {
+                    "ref": "source_summary",
+                    "table": "derived",
+                    "record_id": null,
+                    "date": "",
+                    "tags": [
+                        "summary"
+                    ],
+                    "label": "本次诊断聚合指标",
+                    "metrics": {
+                        "amount": 0,
+                        "quantity": 0,
+                        "book_order_num": 0,
+                        "adr": 0,
+                        "list_exposure": 0,
+                        "detail_visitors": 0,
+                        "order_visitors": 0,
+                        "submit_users": 0,
+                        "detail_rate": 0,
+                        "order_rate": 0,
+                        "submit_rate": 0,
+                        "advertising_spend": 0,
+                        "advertising_order_amount": 0,
+                        "advertising_roas": 0,
+                        "avg_psi_score": 0,
+                        "avg_service_score": 0
+                    }
+                },
+                {
+                    "ref": "online_daily_data#15676",
+                    "table": "online_daily_data",
+                    "record_id": 15676,
+                    "date": "2026-06-15",
+                    "tags": [
+                        "online_daily_data",
+                        "traffic"
+                    ],
+                    "label": "ctrip traffic self",
+                    "metrics": {
+                        "amount": "0.00",
+                        "quantity": 0,
+                        "book_order_num": 0,
+                        "list_exposure": 0,
+                        "detail_exposure": 0,
+                        "order_filling_num": 0,
+                        "order_submit_num": 0
+                    }
+                }
+            ],
+            "data_gaps": []
+        },
+        "ai_governance": {
+            "scenario": "ota_diagnosis",
+            "prompt_version": "ota_diagnosis:v1",
+            "evaluation_set": "ota_diagnosis_governance_v1",
+            "confidence_level": "low",
+            "confidence_score": 0.35,
+            "low_confidence": true,
+            "low_confidence_reason": "source coverage is incomplete",
+            "human_confirmation_required": true,
+            "human_confirmation_reason": "recommended actions are pending manual review",
+            "decision_impact": "operational",
+            "knowledge_citations": [
+                {
+                    "ref": "knowledge_units#14",
+                    "source": "knowledge_units",
+                    "title": "酒店收益管理研究中心 - 异常检测"
+                },
+                {
+                    "ref": "knowledge_units#13",
+                    "source": "knowledge_units",
+                    "title": "酒店收益管理研究中心 - 点评主题与服务缺口识别"
+                },
+                {
+                    "ref": "knowledge_units#12",
+                    "source": "knowledge_units",
+                    "title": "酒店收益管理研究中心 - LTV 预测"
+                },
+                {
+                    "ref": "knowledge_units#11",
+                    "source": "knowledge_units",
+                    "title": "酒店收益管理研究中心 - 客群细分"
+                },
+                {
+                    "ref": "knowledge_units#10",
+                    "source": "knowledge_units",
+                    "title": "酒店收益管理研究中心 - 渠道归因与增量评估"
+                },
+                {
+                    "ref": "knowledge_units#8",
+                    "source": "knowledge_units",
+                    "title": "酒店收益管理研究中心 - 取消率预测"
+                },
+                {
+                    "ref": "knowledge_base#6",
+                    "source": "knowledge_base",
+                    "title": "OTA手动与自动获取策略"
+                },
+                {
+                    "ref": "knowledge_base#5",
+                    "source": "knowledge_base",
+                    "title": "OTA数据分层架构与治理规则"
+                }
+            ],
+            "evidence_refs": [
+                "source_summary",
+                "online_daily_data#15676"
+            ],
+            "source_policy": "database_evidence_and_knowledge_citations_required",
+            "model_call": {
+                "call_id": "ai_6a2f11c37789a688799733",
+                "call_log_id": 90,
+                "status": "success",
+                "provider": "deepseek",
+                "model_key": "deepseek_chat",
+                "model": "deepseek-chat"
+            },
+            "log_sink": "ai_model_call_logs"
+        },
+        "scope": {
+            "date": "2026-06-15",
+            "platform": "ctrip",
+            "system_hotel_id": 60,
+            "hotel_id": "60",
+            "metric_scope": "ota_channel",
+            "source_policy": "controller_invocation_same_code_path_as_api_not_http_auth"
+        }
+    },
+    "time": 1781469643
+}

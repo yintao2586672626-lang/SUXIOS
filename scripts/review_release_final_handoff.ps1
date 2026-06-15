@@ -35,11 +35,21 @@ if (-not $env:LLM_CONNECTIVITY_ATTESTATION_FILE) {
     $env:LLM_CONNECTIVITY_ATTESTATION_FILE = Join-Path $resolvedEvidenceDir "llm-attestation.json"
 }
 
+if (-not $env:DESIGN_HANDOFF_MANIFEST_FILE) {
+    $env:DESIGN_HANDOFF_MANIFEST_FILE = Join-Path $resolvedEvidenceDir "design_handoff_manifest.json"
+}
+
+if (-not $env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE) {
+    $env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE = Join-Path $resolvedEvidenceDir "ota_credential_rotation_attestation.json"
+}
+
 $env:RELEASE_PR_NUMBER = [string]$PrNumber
 
 Write-Host "Release evidence dir: $resolvedEvidenceDir"
 Write-Host "RELEASE_ENV_FILE: $env:RELEASE_ENV_FILE"
 Write-Host "LLM_CONNECTIVITY_ATTESTATION_FILE: $env:LLM_CONNECTIVITY_ATTESTATION_FILE"
+Write-Host "DESIGN_HANDOFF_MANIFEST_FILE: $env:DESIGN_HANDOFF_MANIFEST_FILE"
+Write-Host "OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE: $env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE"
 Write-Host "RELEASE_PR_NUMBER: $env:RELEASE_PR_NUMBER"
 
 Invoke-ReleaseStep "design handoff" { npm.cmd run review:release-design }

@@ -1,0 +1,24 @@
+{
+    "status": "ready",
+    "generated_at": "2030-01-01T00:00:00+08:00",
+    "counts": {
+        "responses": 3,
+        "catalog_facts": 7,
+        "standard_rows": 2
+    },
+    "available_groups": [
+        "revenue"
+    ],
+    "missing_groups": [],
+    "inputs": [
+        {
+            "path": "runtime\/ctrip_capture\/example.json",
+            "auth_status": {
+                "status": "logged_in"
+            },
+            "counts": {
+                "standard_rows": 2
+            }
+        }
+    ]
+}

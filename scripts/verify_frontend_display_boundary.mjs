@@ -48,8 +48,8 @@ const requiredBackendTokens = [
   ['app/controller/OnlineData.php', 'buildMeituanBusinessDisplaySummary', 'backend must build Meituan business display summary'],
   ['app/controller/OnlineData.php', 'mergeMeituanBusinessDisplayHotels', 'backend must merge Meituan display rows'],
   ['app/controller/OnlineData.php', 'meituanDisplayModel', 'backend must expose Meituan display model endpoint'],
-  ['app/controller/OnlineData.php', 'buildCtripTrafficDisplayRows', 'backend must build Ctrip traffic display rows'],
-  ['app/controller/OnlineData.php', 'buildCtripTrafficDisplaySummary', 'backend must build Ctrip traffic summary'],
+  ['app/service/CtripTrafficDisplayService.php', 'buildCtripTrafficDisplayRows', 'backend service must build Ctrip traffic display rows'],
+  ['app/service/CtripTrafficDisplayService.php', 'buildCtripTrafficDisplaySummary', 'backend service must build Ctrip traffic summary'],
 ];
 
 const failures = [];
