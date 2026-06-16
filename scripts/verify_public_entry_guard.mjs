@@ -109,7 +109,7 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
-  if (!content.includes('ctrip-static.js?v=20260613-manual-direct-fetch')
+  if (!content.includes('ctrip-static.js?v=20260615-startup-cache-fix')
     || !content.includes('meituan-static.js?v=20260613-manual-direct-fetch')) {
     failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance exports change.');
   }
@@ -205,11 +205,14 @@ if (!fs.existsSync(indexPath)) {
   if (loginBgPreloadOffset < 0 || tailwindOffset < 0 || loginBgPreloadOffset > tailwindOffset) {
     failures.push('public/index.html must evaluate login background preload before core stylesheets.');
   }
-  if (!content.includes('const normalizePermissionMap = (permissions = null) => {')
-    || !content.includes('if (Array.isArray(permissions)) {')
-    || !content.includes('if (key) acc[String(key)] = true;')
-    || !content.includes('const permissions = normalizePermissionMap(profile.permissions);')) {
-    failures.push('public/index.html must normalize cached permission arrays before first-paint menu filtering.');
+  if (!content.includes("requireAppSystemStatic('loadCachedAuthUser')")
+    || !content.includes("requireAppSystemStatic('saveCachedAuthUser')")
+    || !content.includes("requireAppSystemStatic('clearCachedAuthUser')")
+    || !systemStaticContent.includes('const normalizePermissionMap = (permissions = null) => {')
+    || !systemStaticContent.includes('if (Array.isArray(permissions)) {')
+    || !systemStaticContent.includes('if (key) acc[String(key)] = true;')
+    || !systemStaticContent.includes('const permissions = normalizePermissionMap(profile.permissions);')) {
+    failures.push('public/index.html must use system-static.js cached-auth helpers, and system-static.js must normalize permission arrays before first-paint menu filtering.');
   }
   if (!systemStaticContent.includes('const hasPermission = (permissions, key) => {')
     || !systemStaticContent.includes('if (Array.isArray(permissions)) return permissions.includes(key);')
@@ -1108,6 +1111,10 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html must use system-static.js helpers for hotel admin forms and save payloads.');
   }
   if (!content.includes("requireAppSystemStatic('getRememberedLoginAccount')")
+    || !content.includes("requireAppSystemStatic('loadCachedAuthUser')")
+    || !content.includes("requireAppSystemStatic('saveCachedAuthUser')")
+    || !content.includes("requireAppSystemStatic('clearCachedAuthUser')")
+    || !content.includes("requireAppSystemStatic('buildClientPagination')")
     || !content.includes("requireAppSystemStatic('buildLoginRequestPayload')")
     || !content.includes("requireAppSystemStatic('validateLoginRequestPayload')")
     || !content.includes("requireAppSystemStatic('applyRememberedLoginAccount')")
@@ -1116,7 +1123,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const payload = buildLoginRequestPayload(loginForm.value);')
     || !content.includes('const validationError = validateLoginRequestPayload(payload);')
     || !content.includes('applyRememberedLoginAccount({')) {
-    failures.push('public/index.html must use system-static.js helpers for login form defaults, payloads, validation, and remembered-account storage.');
+    failures.push('public/index.html must use system-static.js helpers for login form defaults, cached auth, pagination, payloads, validation, and remembered-account storage.');
   }
   if (!content.includes("requireAppSystemStatic('createRegisterForm')")
     || !content.includes("requireAppSystemStatic('buildRegisterRequestPayload')")
@@ -1135,10 +1142,14 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!systemStaticContent.includes('const createLoginForm = ({ username = \'\' } = {}) => ({')
     || !systemStaticContent.includes('const getRememberedLoginAccount = (storage) => {')
+    || !systemStaticContent.includes('const loadCachedAuthUser = (storage = browserLocalStorage(), now = Date.now()) => {')
+    || !systemStaticContent.includes('const saveCachedAuthUser = (profile, storage = browserLocalStorage(), now = Date.now()) => {')
+    || !systemStaticContent.includes('const clearCachedAuthUser = (storage = browserLocalStorage()) => {')
+    || !systemStaticContent.includes('const buildClientPagination = (rows, page, pageSize) => {')
     || !systemStaticContent.includes('const buildLoginRequestPayload = (form = {}) => ({')
     || !systemStaticContent.includes('const validateLoginRequestPayload = (payload = {}) => (')
     || !systemStaticContent.includes('const applyRememberedLoginAccount = ({ storage, username = \'\', remember = false } = {}) => {')) {
-    failures.push('public/system-static.js must own login form defaults, payload normalization, validation, and remembered-account storage policy.');
+    failures.push('public/system-static.js must own login form defaults, cached auth, pagination, payload normalization, validation, and remembered-account storage policy.');
   }
   if (!systemStaticContent.includes('const createRegisterForm = () => ({')
     || !systemStaticContent.includes('const buildRegisterRequestPayload = (form = {}) => ({')

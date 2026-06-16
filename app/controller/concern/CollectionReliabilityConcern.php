@@ -2160,4 +2160,53 @@ trait CollectionReliabilityConcern
         ];
     }
 
+    /**
+     * 定时任务触发接口（供外部cron调用）
+     * 每分钟调用一次，检查是否有需要执行的自动获取任务
+     */
+
+    public function cookieStatus(): Response
+    {
+        $this->checkPermission();
+        return $this->success([
+            'list' => $this->buildCookieStatusRows(),
+            'alerts' => $this->getCookieAlerts(),
+            'warning_days' => $this->cookieWarningDays(),
+            'expire_days' => $this->cookieExpireDays(),
+            'reauthorize_entry' => $this->cookieReauthorizeEntry(),
+        ]);
+    }
+
+    public function collectionReliability(): Response
+    {
+        $this->checkPermission();
+
+        $hotelIdRaw = $this->request->get('hotel_id', $this->request->get('system_hotel_id', ''));
+        $hotelId = $this->resolveOnlineDataSystemHotelId($hotelIdRaw);
+        [$startDate, $endDate] = $this->resolveDashboardDateRange();
+        $mode = $this->normalizeCollectionReliabilityMode($this->request->get('mode', 'full'));
+
+        try {
+            if ($mode === 'light') {
+                $cacheKey = $this->collectionReliabilityCacheKey($hotelId, $startDate, $endDate, $mode);
+                $cached = cache($cacheKey);
+                if (is_array($cached)) {
+                    return $this->success($cached);
+                }
+                $payload = $this->withPhase1EmployeeQuestions(
+                    $this->buildCollectionReliabilityLightPayload($hotelId, $startDate, $endDate)
+                );
+                cache($cacheKey, $payload, 45);
+                return $this->success($payload);
+            }
+
+            return $this->success($this->withPhase1EmployeeQuestions(
+                $this->buildCollectionReliabilityPayload($hotelId, $startDate, $endDate)
+            ));
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage());
+        } catch (\Throwable $e) {
+            return $this->error('采集可靠性查询失败: ' . $e->getMessage());
+        }
+    }
 }

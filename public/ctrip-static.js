@@ -706,6 +706,162 @@ window.SUXI_CTRIP_STATIC = (() => {
             sampleSourcePathCanSeedJson,
         };
     };
+    const buildCtripProfileFieldDerivationHelpers = ({
+        forbiddenFieldKeys = [],
+        captureSectionText = value => String(value || ''),
+        normalizeVerificationStatus = value => String(value || '').trim(),
+        sampleTextForField = () => '',
+    } = {}) => {
+        const forbiddenKeyItems = forbiddenFieldKeys && typeof forbiddenFieldKeys[Symbol.iterator] === 'function'
+            ? Array.from(forbiddenFieldKeys)
+            : (Array.isArray(forbiddenFieldKeys) ? forbiddenFieldKeys : []);
+        const forbiddenKeys = new Set(forbiddenKeyItems.map(item => String(item || '').trim()).filter(Boolean));
+        const resolveSampleText = typeof sampleTextForField === 'function' ? sampleTextForField : () => '';
+        const resolveSectionText = typeof captureSectionText === 'function' ? captureSectionText : value => String(value || '');
+        const resolveVerificationStatus = typeof normalizeVerificationStatus === 'function'
+            ? normalizeVerificationStatus
+            : value => String(value || '').trim();
+        const isFieldEnabled = field => (
+            field?.enabled !== false
+            && Number(field?.enabled ?? 1) !== 0
+            && String(field?.enabled ?? '').toLowerCase() !== 'false'
+        );
+        const isFieldForbidden = field => (
+            forbiddenKeys.has(String(field?.field_key || field?.field || '').trim())
+            || String(field?.asset_status || '').trim() === 'forbidden'
+            || String(field?.storage_table || '').trim() === 'not_collected'
+        );
+        const isFieldCollectable = field => isFieldEnabled(field) && !isFieldForbidden(field);
+        const matchesFilters = (field, filters = {}) => {
+            const activeFilters = filters || {};
+            const keyword = String(activeFilters.keyword || '').trim().toLowerCase();
+            if (activeFilters.section && String(field?.section || '') !== activeFilters.section) return false;
+            if (activeFilters.status && String(field?.status || '') !== activeFilters.status) return false;
+            if (activeFilters.enabled === 'enabled' && !isFieldEnabled(field)) return false;
+            if (activeFilters.enabled === 'disabled' && isFieldEnabled(field)) return false;
+            const sampleText = resolveSampleText(field);
+            if (activeFilters.sample === 'with_sample' && !sampleText) return false;
+            if (activeFilters.sample === 'not_returned' && (!isFieldCollectable(field) || sampleText)) return false;
+            if (activeFilters.sample === 'without_sample' && sampleText) return false;
+            if (!keyword) return true;
+            return [
+                field?.field_key,
+                field?.field_name,
+                resolveSectionText(field?.section),
+                field?.page_location,
+                field?.target_field,
+                field?.target_value,
+                field?.value_meaning,
+                field?.source_interface,
+                field?.source_keys,
+                field?.page_url,
+                field?.request_url,
+                field?.json_path,
+                field?.ownership_rule,
+                field?.storage_field,
+                field?.value_type,
+                field?.unit,
+                field?.transform_rule,
+                field?.notes,
+                sampleText,
+                field?.latest_sample_note,
+            ].some(item => String(item || '').toLowerCase().includes(keyword));
+        };
+        const filterFields = (fields, filters = {}) => (Array.isArray(fields) ? fields : [])
+            .filter(field => matchesFilters(field, filters));
+        const countStableFields = fields => (Array.isArray(fields) ? fields : []).filter(field => (
+            String(field?.status || '').trim() === 'confirmed'
+            || resolveVerificationStatus(field?.sample_verification_status) === 'matched'
+        )).length;
+        const buildVisibleDetail = ({ visibleCount = 0, totalCount = 0 } = {}) => (
+            Number(visibleCount) === Number(totalCount)
+                ? '只放已定义标准字段'
+                : `当前筛选 ${visibleCount} / 配置表 ${totalCount}`
+        );
+        const buildCaptureResultText = ({
+            sampleLoading = false,
+            samplesLoaded = false,
+            enabledCount = 0,
+            sampledCount = 0,
+            missingCount = 0,
+        } = {}) => {
+            if (sampleLoading) return '加载中';
+            if (!samplesLoaded) return `应抓 ${enabledCount} / 抓到未加载 / 未返回未加载`;
+            return `应抓 ${enabledCount} / 抓到 ${sampledCount} / 未返回 ${missingCount}`;
+        };
+        const buildAssetLedgerCards = ({
+            fieldVisibleCount = 0,
+            fieldTotalCount = 0,
+            enabledVisibleFieldCount = 0,
+            sampledVisibleFieldCount = 0,
+            stableVisibleFieldCount = 0,
+            notReturnedVisibleFieldCount = null,
+            sampleLoading = false,
+            samplesLoaded = false,
+            forbiddenFieldCount = 0,
+            visibleDetail = '',
+        } = {}) => ([
+            {
+                key: 'standard',
+                label: '标准字段',
+                value: fieldVisibleCount,
+                badge: fieldVisibleCount === fieldTotalCount ? '配置表' : '当前展示',
+                className: 'bg-slate-100 text-slate-700',
+                detail: visibleDetail || buildVisibleDetail({ visibleCount: fieldVisibleCount, totalCount: fieldTotalCount }),
+            },
+            {
+                key: 'capture_target',
+                label: '应抓字段',
+                value: enabledVisibleFieldCount,
+                badge: '启用',
+                className: 'bg-blue-100 text-blue-700',
+                detail: '当前展示中启用且非禁止采集的字段',
+            },
+            {
+                key: 'capture_success',
+                label: '已抓到',
+                value: sampleLoading ? '加载中' : (samplesLoaded ? sampledVisibleFieldCount : '未加载'),
+                badge: '有值',
+                className: samplesLoaded ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600',
+                detail: '当前展示启用字段已有历史获取值',
+            },
+            {
+                key: 'stable',
+                label: '稳定字段',
+                value: stableVisibleFieldCount,
+                badge: '已确认',
+                className: 'bg-emerald-100 text-emerald-700',
+                detail: '当前展示字段已确认或样例相符',
+            },
+            {
+                key: 'not_returned',
+                label: '未返回/失败',
+                value: sampleLoading ? '加载中' : (samplesLoaded ? notReturnedVisibleFieldCount : '未加载'),
+                badge: samplesLoaded ? '需复核' : '待加载',
+                className: samplesLoaded ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600',
+                detail: '当前展示启用字段暂无历史获取值，需区分接口未触发或字段未入库',
+            },
+            {
+                key: 'forbidden',
+                label: '禁止采集',
+                value: forbiddenFieldCount,
+                badge: '边界',
+                className: 'bg-red-100 text-red-700',
+                detail: '手机号、房态、房源映射不进表',
+            },
+        ]);
+        return {
+            isFieldEnabled,
+            isFieldForbidden,
+            isFieldCollectable,
+            matchesFilters,
+            filterFields,
+            countStableFields,
+            buildVisibleDetail,
+            buildCaptureResultText,
+            buildAssetLedgerCards,
+        };
+    };
     const normalizeCtripBrowserCaptureSections = (sections, fallbackSections = 'default') => {
         const sectionSource = Array.isArray(sections)
             ? sections
@@ -2427,6 +2583,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripProfileFieldSmartDefaults,
         buildCtripProfileFieldSavePayload,
         buildCtripProfileFieldSampleHelpers,
+        buildCtripProfileFieldDerivationHelpers,
         normalizeCtripBrowserCaptureSections,
         buildCtripBrowserCaptureTargetContext,
         buildCtripBrowserCapturePayload,

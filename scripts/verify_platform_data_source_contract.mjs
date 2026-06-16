@@ -135,6 +135,8 @@ for (const [method, label] of [
 ]) {
   checkSources([
     'app/controller/OnlineData.php',
+    'app/controller/concern/AutoFetchConcern.php',
+    'app/controller/concern/OnlineDataRequestConcern.php',
     'app/controller/concern/PlatformDataSourceConcern.php',
     'app/controller/concern/PlatformProfileCaptureConcern.php',
   ], label, (source) => source.includes(method), method);
@@ -153,7 +155,12 @@ for (const [needle, label] of [
   ['OnlineDataFieldFactService::attachToOnlineDailyRow($row, $item)', 'Meituan browser-captured rows attach field facts before storage'],
   ['OnlineDataFieldFactService::attachToOnlineDailyRow($row)', 'Meituan save path repairs rows that arrive without field facts'],
 ]) {
-  check('app/controller/OnlineData.php', label, (source) => source.includes(needle), needle);
+  checkSources([
+    'app/controller/OnlineData.php',
+    'app/controller/concern/OnlineDataQualityConcern.php',
+    'app/controller/concern/OnlineDataManualFetchConcern.php',
+    'app/controller/concern/MeituanCapturedDataConcern.php',
+  ], label, (source) => source.includes(needle), needle);
 }
 
 for (const [needle, label] of [
@@ -366,8 +373,12 @@ check(
   'Ctrip Profile ID cannot replace OTA platform hotel identity'
 );
 
-check(
-  'app/controller/OnlineData.php',
+checkSources(
+  [
+    'app/controller/OnlineData.php',
+    'app/controller/concern/AutoFetchConcern.php',
+    'app/controller/concern/OnlineDataRequestConcern.php',
+  ],
   'Ctrip browser Profile save paths do not use Profile ID as request hotel ID fallback',
   (source) => source.includes("$requestHotelId = $hotelId !== '' ? $hotelId : (string)($payload['hotel_id'] ?? '');")
     && source.includes("$requestHotelId = $ctripHotelId !== '' ? $ctripHotelId : (string)($payload['hotel_id'] ?? '');")
@@ -375,8 +386,11 @@ check(
   'requestHotelId must come from platform hotel evidence, not Profile ID'
 );
 
-check(
-  'app/controller/OnlineData.php',
+checkSources(
+  [
+    'app/controller/OnlineData.php',
+    'app/controller/concern/CtripAdsConcern.php',
+  ],
   'Ctrip captured advertising rows keep Profile ID out of platform hotel ID and raw context',
   (source) => source.includes("['hotel_id', 'hotelId', 'masterHotelId', 'master_hotel_id', 'hotelID', 'ctrip_hotel_id', 'ctripHotelId', 'ota_hotel_id', 'otaHotelId', 'node_id', 'nodeId']")
     && source.includes("'hotel_id' => $context['hotel_id'] ?? ''")
@@ -496,8 +510,10 @@ check(
   '展示最近 {{ onlineAnalysisRows.length }} 条'
 );
 
-check(
+checkSources([
   'app/controller/OnlineData.php',
+  'app/controller/concern/OnlineDataQualityConcern.php',
+],
   'daily data list marks legacy all requests as limited compatibility',
   (source) => source.includes("['all', '全部']") && source.includes("'all_requested' => $fetchAllRequested"),
   "['all', '全部'] and all_requested"
@@ -660,16 +676,24 @@ check(
   'ctripStandardFactStorage/storage_field_source'
 );
 
-check(
-  'public/index.html',
+checkSources(
+  [
+    'public/index.html',
+    'public/data-health-static.js',
+  ],
   'frontend field-quality evidence points to raw_data field facts and storage mapping',
   (source) => source.includes('raw_data.field_facts')
-    && source.includes('source_path、metric_key、storage_field'),
+    && source.includes('source_path')
+    && source.includes('metric_key')
+    && source.includes('storage_field'),
   'raw_data.field_facts/source_path/metric_key/storage_field'
 );
 
-check(
-  'public/index.html',
+checkSources(
+  [
+    'public/index.html',
+    'public/data-health-static.js',
+  ],
   'frontend analysis rows render field fact status without raw payload',
   (source) => source.includes('onlineAnalysisFieldFactStatusText(item)')
     && source.includes('onlineAnalysisFieldFactStatusClass(item)')
@@ -681,7 +705,7 @@ check(
     && source.includes('desensitized_capture_evidence_count')
     && source.includes('stored_value_present_count')
     && source.includes('stored_value_missing_count')
-    && source.includes('字段事实未写入'),
+    && source.includes('not_loaded'),
   'onlineAnalysisFieldFactStatusText/Class/Detail'
 );
 

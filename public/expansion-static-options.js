@@ -214,6 +214,12 @@ window.SUXI_EXPANSION_STATIC = (() => {
         ota_market_penetration_rate: 62
     };
     const marketEvaluationTierOfCity = (city) => marketEvaluationCityOptions.find(item => item.name === city)?.tier || '';
+    const marketEvaluationCityOptionsForTier = (cityOptions = marketEvaluationCityOptions, tier = '') => (
+        (Array.isArray(cityOptions) ? cityOptions : []).filter(item => item.tier === tier)
+    );
+    const secondaryMarketEvaluationCustomerOptions = (customerOptions = marketEvaluationCustomerOptions, primaryCustomer = '') => (
+        (Array.isArray(customerOptions) ? customerOptions : []).filter(option => option !== primaryCustomer)
+    );
     const splitMarketEvaluationCustomer = (value) => {
         const parts = String(value || '').split(/[+＋/、,，]/).map(item => item.trim()).filter(Boolean);
         return {
@@ -393,6 +399,27 @@ window.SUXI_EXPANSION_STATIC = (() => {
             ],
         };
     };
+    const buildFeasibilityPayload = ({
+        project = {},
+        simulationParams = {},
+    } = {}) => ({
+        project_name: project.project_name,
+        city: project.city,
+        district: project.district,
+        address: project.address,
+        property_area: project.property_area,
+        room_count: project.room_count,
+        monthly_rent: project.monthly_rent,
+        lease_years: project.lease_years,
+        decoration_budget: project.decoration_budget,
+        transfer_fee: project.transfer_fee || 0,
+        target_brand_level: project.target_brand_level || project.target_grade,
+        target_customer: project.target_customer || project.primary_customer,
+        notes: project.notes || '',
+        adr: simulationParams.adr,
+        occ: simulationParams.occupancyRate,
+    });
+
     const feasibilityDecisionClassForGrade = (grade) => {
         const normalized = String(grade || '').toUpperCase();
         if (normalized === 'A') return 'feasibility-grade-a';
@@ -523,6 +550,270 @@ window.SUXI_EXPANSION_STATIC = (() => {
             action: '补充真实竞品、客流和 OTA 数据后复核。'
         }, result, form, index)).filter(item => item.threshold);
     };
+    const marketEvaluationRiskSeverityClass = (severity) => {
+        if (severity === 'P0') return 'bg-red-50 text-red-700 border-red-100';
+        if (severity === 'P1') return 'bg-amber-50 text-amber-700 border-amber-100';
+        return 'bg-gray-50 text-gray-600 border-gray-100';
+    };
+    const formatMarketEvaluationScoreChange = (value) => {
+        const score = Number(value || 0);
+        if (score > 0) return `+${score}`;
+        return String(score);
+    };
+    const marketEvaluationScoreChangeClass = (value) => {
+        const score = Number(value || 0);
+        if (score > 0) return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+        if (score < 0) return 'bg-red-50 text-red-700 border-red-100';
+        return 'bg-gray-50 text-gray-600 border-gray-100';
+    };
+    const normalizeAiRecommendationDisplay = (item) => {
+        if (item && typeof item === 'object') {
+            const title = String(item.title || '').trim();
+            const detail = String(item.detail || item.content || '').trim();
+            return {
+                priority: String(item.priority || 'P1').trim() || 'P1',
+                title: title || 'AI建议',
+                detail: detail || title || '待补充建议'
+            };
+        }
+        return {
+            priority: 'P1',
+            title: 'AI建议',
+            detail: String(item || '').trim()
+        };
+    };
+    const buildMarketEvaluationAiJudgementRows = (result = {}) => {
+        const judgement = result.ai_evaluation?.market_judgement || {};
+        return [
+            {
+                label: '供给竞争强度',
+                value: judgement.supply_competition_strength || result.supply_competition_strength || '待补充竞品数据',
+            },
+            {
+                label: '价格带建议',
+                value: judgement.price_band_suggestion || result.price_band_suggestion || '待补充价格带数据',
+            },
+            {
+                label: '建议动作',
+                value: judgement.decision || result.ai_evaluation?.decision || result.decision || '待复核',
+            },
+        ];
+    };
+    const buildMarketEvaluationAiRecommendations = (result = {}) => {
+        const aiRecommendations = Array.isArray(result.ai_evaluation?.recommendations)
+            ? result.ai_evaluation.recommendations
+            : [];
+        const source = aiRecommendations.length
+            ? aiRecommendations
+            : (Array.isArray(result.ai_operation_suggestions) ? result.ai_operation_suggestions : []);
+        return source.map(normalizeAiRecommendationDisplay).filter(item => item.detail);
+    };
+    const buildMarketEvaluationAiAssumptions = (result = {}) => {
+        const assumptions = Array.isArray(result.ai_evaluation?.assumptions)
+            ? result.ai_evaluation.assumptions
+            : [];
+        return assumptions
+            .map(item => String(item || '').trim())
+            .filter(item => item && !/规则引擎|rule engine/i.test(item));
+    };
+    const buildMarketEvaluationScoreFormula = (result = {}) => {
+        const formula = result.market_heat_score_formula || {};
+        const finalScore = Number(result.market_heat_score || 0);
+        return {
+            base_score: Number(formula.base_score ?? 62),
+            raw_score: Number(formula.raw_score ?? finalScore),
+            final_score: Number(formula.final_score ?? finalScore),
+            cap_rule: String(formula.cap_rule || '0-100封顶/保底')
+        };
+    };
+    const buildMarketEvaluationScoreBreakdown = (result = {}) => {
+        const rows = Array.isArray(result.market_heat_score_breakdown)
+            ? result.market_heat_score_breakdown
+            : [];
+        if (rows.length) {
+            return rows.map((item, index) => ({
+                label: String(item.label || `评分项${index + 1}`).trim(),
+                score_change: Number(item.score_change ?? item.delta ?? 0),
+                raw_score_after: Number(item.raw_score_after ?? 0),
+                reason: String(item.reason || '按当前输入参与市场热度评分。').trim()
+            })).filter(item => item.label && item.reason);
+        }
+        const finalScore = Number(result.market_heat_score || 0);
+        return [{
+            label: '历史评分',
+            score_change: finalScore,
+            raw_score_after: finalScore,
+            reason: '历史记录未保存评分明细，仅保留市场热度总分。'
+        }];
+    };
+    const buildMarketEvaluationScorePercent = (formula = {}) => {
+        const finalScore = Number(formula.final_score);
+        return Math.max(0, Math.min(100, Number.isFinite(finalScore) ? finalScore : 0));
+    };
+    const buildMarketEvaluationAiRiskNote = (result = {}) => {
+        const assumptions = buildMarketEvaluationAiAssumptions(result);
+        if (assumptions.length) {
+            return `AI复核假设：${assumptions.join('；')}`;
+        }
+        if (result.ai_evaluation?.source === 'llm') {
+            return 'AI风险建议基于当前输入和市场评估结果生成，需用真实市场、竞品和 OTA 数据复核。';
+        }
+        if (result.ai_evaluation?.source === 'fallback') {
+            return 'AI模型不可用，当前使用本地兜底风险建议。';
+        }
+        return String(result.data_status?.notice || '').trim();
+    };
+    const benchmarkModelAiSourceLabelForResult = (result = {}) => {
+        const source = result.ai_evaluation?.source;
+        if (source === 'llm') return 'AI模型评估';
+        if (source === 'fallback') return '本地兜底';
+        return 'AI评估';
+    };
+    const buildBenchmarkModelAiRecommendations = (result = {}) => {
+        const recommendations = result.ai_evaluation?.recommendations;
+        return Array.isArray(recommendations)
+            ? recommendations.map(normalizeAiRecommendationDisplay).filter(item => item.detail)
+            : [];
+    };
+    const buildBenchmarkModelAiWatchPoints = (result = {}) => {
+        const watchPoints = result.ai_evaluation?.watch_points;
+        if (!Array.isArray(watchPoints)) return [];
+        return watchPoints.map(item => ({
+            metric: String(item?.metric || '关注指标').trim() || '关注指标',
+            threshold: String(item?.threshold || '').trim(),
+            action: String(item?.action || '').trim() || '补充真实竞品和 OTA 数据后复核。'
+        })).filter(item => item.metric || item.threshold || item.action);
+    };
+    const buildBenchmarkModelAiAssumptionNote = (result = {}) => {
+        const assumptions = result.ai_evaluation?.assumptions;
+        if (!Array.isArray(assumptions)) return '';
+        const items = assumptions.map(item => String(item || '').trim()).filter(Boolean);
+        return items.length ? `AI复核假设：${items.join('；')}` : '';
+    };
+    const benchmarkModelDataNoticeForResult = (result = {}) => {
+        if (result.ai_evaluation?.source === 'llm') {
+            return 'AI赋能结果基于当前输入、竞品细化数据和标杆模型生成，需用真实竞品与 OTA 数据复核。';
+        }
+        if (result.ai_evaluation?.source === 'fallback') {
+            return 'AI模型不可用，当前使用本地兜底生成标杆建议，需接入真实竞品与 OTA 数据复核。';
+        }
+        return String(result.data_status?.notice || '').trim();
+    };
+    const buildBenchmarkModelAiOutcomeCards = ({
+        result = {},
+        recommendations = [],
+        watchPoints = [],
+        assumptionNote = '',
+        dataNotice = '',
+        detailCompleteness = '',
+    } = {}) => {
+        const evaluation = result.ai_evaluation || {};
+        const judgement = evaluation.model_judgement || {};
+        const bestBenchmark = Array.isArray(result.recommended_benchmarks) ? result.recommended_benchmarks[0] : null;
+        const bestModel = String(judgement.best_fit_model || bestBenchmark?.name || '').trim() || '--';
+        const firstRecommendation = recommendations[0] || {};
+        const firstWatchPoint = watchPoints[0] || {};
+        const assumptionText = String(assumptionNote || '').replace(/^AI复核假设：/, '');
+        return [
+            {
+                label: '选模结论',
+                value: evaluation.decision || '等待AI结论',
+                hint: bestModel !== '--' ? `优先标杆：${bestModel}` : '生成后输出优先标杆',
+                icon: 'fas fa-bullseye'
+            },
+            {
+                label: '复制策略',
+                value: judgement.copy_priority || firstRecommendation.detail || '先复制高匹配标杆做法',
+                hint: firstRecommendation.title || '房型、价格、渠道优先',
+                icon: 'fas fa-copy'
+            },
+            {
+                label: '风险监控',
+                value: firstWatchPoint.metric || '真实竞品价格带',
+                hint: firstWatchPoint.threshold || firstWatchPoint.action || '补齐竞品ADR、评分、点评量',
+                icon: 'fas fa-shield-halved'
+            },
+            {
+                label: '数据复核',
+                value: dataNotice || detailCompleteness,
+                hint: assumptionText || '生成后用 OTA 转化与点评文本复核',
+                icon: 'fas fa-clipboard-check'
+            }
+        ];
+    };
+
+    const normalizeStrategyAiEvaluation = (raw) => {
+        if (!raw || typeof raw !== 'object') return null;
+        const toList = (value) => {
+            if (Array.isArray(value)) {
+                return value.map(item => {
+                    if (item && typeof item === 'object') {
+                        return item.detail || item.title || item.summary || '';
+                    }
+                    return String(item || '');
+                }).map(item => item.trim()).filter(Boolean);
+            }
+            if (typeof value === 'string') {
+                return value.split(/[\n\r;；、]+/).map(item => item.trim()).filter(Boolean);
+            }
+            return [];
+        };
+        const evaluation = {
+            source: String(raw.source || '').trim(),
+            model_key: String(raw.model_key || raw.modelKey || '').trim(),
+            generated_at: String(raw.generated_at || raw.generatedAt || '').trim(),
+            summary: String(raw.summary || '').trim(),
+            decision: String(raw.decision || '').trim(),
+            recommended_model: String(raw.recommended_model || raw.recommendedModel || '').trim(),
+            target_customer: String(raw.target_customer || raw.targetCustomer || '').trim(),
+            competition_pressure: String(raw.competition_pressure || raw.competitionPressure || '').trim(),
+            decision_direction: String(raw.decision_direction || raw.decisionDirection || '').trim(),
+            key_actions: toList(raw.key_actions || raw.keyActions),
+            main_risks: toList(raw.main_risks || raw.mainRisks),
+            next_data_to_verify: toList(raw.next_data_to_verify || raw.nextDataToVerify),
+            assumptions: toList(raw.assumptions),
+            error: String(raw.error || '').trim()
+        };
+        return (evaluation.summary || evaluation.decision || evaluation.key_actions.length || evaluation.main_risks.length || evaluation.assumptions.length) ? evaluation : null;
+    };
+
+    const normalizeStrategyResult = (data) => {
+        const scores = data?.scores || {};
+        const recommendation = data?.recommendation || {};
+        const aiEvaluation = normalizeStrategyAiEvaluation(recommendation.ai_evaluation || data?.ai_evaluation);
+        return {
+            ...data,
+            ai_evaluation: aiEvaluation,
+            market_score: scores.market_demand?.score ?? 0,
+            competition_score: scores.competition?.score ?? 0,
+            property_score: scores.property_fit?.score ?? 0,
+            cost_score: scores.cost_pressure?.score ?? 0,
+            exit_score: scores.exit_safety?.score ?? 0,
+            recommended_model: aiEvaluation?.recommended_model || recommendation.recommended_model || '',
+            target_customer: aiEvaluation?.target_customer || recommendation.target_customer || '',
+            competition_pressure: aiEvaluation?.competition_pressure || recommendation.competition_pressure || '',
+            decision_direction: aiEvaluation?.decision_direction || recommendation.decision_direction || '智略定方向',
+            strategy_conclusion: aiEvaluation?.decision || data?.decision || recommendation.decision || ''
+        };
+    };
+
+    const buildStrategyPayload = (project = {}) => ({
+        project_name: project.project_name,
+        city_tier: project.city_tier,
+        city: project.city,
+        district: project.district,
+        address: project.address,
+        property_area: toNumber(project.property_area),
+        room_count: toNumber(project.room_count),
+        monthly_rent: toNumber(project.monthly_rent),
+        decoration_budget: toNumber(project.decoration_budget),
+        lease_years: toNumber(project.lease_years),
+        rent_free_months: toNumber(project.rent_free_months),
+        business_type: project.business_type,
+        target_customer: project.primary_customer,
+        competitor_count: toNumber(project.competitor_count),
+        target_hotel_level: project.target_grade,
+    });
 
     const buildStrategyScoreCards = (result = null) => {
         if (!result) return [];
@@ -650,6 +941,12 @@ window.SUXI_EXPANSION_STATIC = (() => {
         ];
     };
 
+    const expansionRecordTypeLabel = (type) => ({
+        market: '市场评估',
+        benchmark: '标杆选模',
+        collaboration: '协同提效',
+    }[type] || type || '--');
+
     function readinessBadgeClass(stage, readyStages, warningStages, dangerStages = []) {
         if (readyStages.includes(stage)) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
         if (warningStages.includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
@@ -702,6 +999,30 @@ window.SUXI_EXPANSION_STATIC = (() => {
         return 0;
     }
 
+    function resolveExpansionCurrentReadiness({
+        page = '',
+        marketEvaluationResult = null,
+        benchmarkModelResult = null,
+        collaborationEfficiencyResult = null,
+    } = {}) {
+        if (['market-evaluation', 'market-eval'].includes(page)) {
+            return marketEvaluationResult?.project_readiness || null;
+        }
+        if (page === 'benchmark-model') {
+            return benchmarkModelResult?.project_readiness || marketEvaluationResult?.project_readiness || null;
+        }
+        if (['collaboration-efficiency', 'sync-efficiency'].includes(page)) {
+            return collaborationEfficiencyResult?.project_readiness
+                || benchmarkModelResult?.project_readiness
+                || marketEvaluationResult?.project_readiness
+                || null;
+        }
+        return collaborationEfficiencyResult?.project_readiness
+            || benchmarkModelResult?.project_readiness
+            || marketEvaluationResult?.project_readiness
+            || null;
+    }
+
     return {
         marketEvaluationCityTierOptions,
         marketEvaluationCityOptions,
@@ -716,6 +1037,8 @@ window.SUXI_EXPANSION_STATIC = (() => {
         marketEvaluationConditionFields,
         marketEvaluationDefaults,
         marketEvaluationTierOfCity,
+        marketEvaluationCityOptionsForTier,
+        secondaryMarketEvaluationCustomerOptions,
         strategyDistrictOptionsForCity,
         strategyAddressKeywordOptionsForLocation,
         isKnownStrategyAddressKeyword,
@@ -729,9 +1052,30 @@ window.SUXI_EXPANSION_STATIC = (() => {
         buildFeasibilityInputCards,
         buildFeasibilityReportCards,
         buildFeasibilityAiEmpowerment,
+        buildFeasibilityPayload,
         feasibilityDecisionClassForGrade,
         stringifyFeasibilityReport,
         buildMarketEvaluationAiRiskSuggestions,
+        marketEvaluationRiskSeverityClass,
+        formatMarketEvaluationScoreChange,
+        marketEvaluationScoreChangeClass,
+        normalizeAiRecommendationDisplay,
+        buildMarketEvaluationAiJudgementRows,
+        buildMarketEvaluationAiRecommendations,
+        buildMarketEvaluationAiAssumptions,
+        buildMarketEvaluationScoreFormula,
+        buildMarketEvaluationScoreBreakdown,
+        buildMarketEvaluationScorePercent,
+        buildMarketEvaluationAiRiskNote,
+        benchmarkModelAiSourceLabelForResult,
+        buildBenchmarkModelAiRecommendations,
+        buildBenchmarkModelAiWatchPoints,
+        buildBenchmarkModelAiAssumptionNote,
+        benchmarkModelDataNoticeForResult,
+        buildBenchmarkModelAiOutcomeCards,
+        normalizeStrategyAiEvaluation,
+        normalizeStrategyResult,
+        buildStrategyPayload,
         buildStrategyScoreCards,
         strategyFreshnessLabelForSnapshot,
         strategyAiSourceLabelForResult,
@@ -740,10 +1084,12 @@ window.SUXI_EXPANSION_STATIC = (() => {
         strategyDataNoticeForSnapshot,
         buildStrategyDataSourceRows,
         buildStrategyAiEmpowermentCards,
+        expansionRecordTypeLabel,
         expansionReadinessBadgeClass,
         expansionReadinessMissingText,
         feasibilityReadinessBadgeClass,
         feasibilityReadinessMissingText,
         executionIntentIdFromRecord,
+        resolveExpansionCurrentReadiness,
     };
 })();

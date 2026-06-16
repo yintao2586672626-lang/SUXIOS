@@ -183,6 +183,35 @@ window.SUXI_SYSTEM_STATIC = (() => {
             'aiModelQuickSetup.networkErrorFallback': 'Network error',
         },
     };
+    const normalizeLocale = (locale) => {
+        const lang = String(locale || '').replace('_', '-').toLowerCase();
+        if (lang.startsWith('en')) return 'en-US';
+        return 'zh-CN';
+    };
+    const getInitialLocale = ({
+        search = typeof window !== 'undefined' ? (window.location?.search || '') : '',
+        storage = browserLocalStorage(),
+        navigatorLanguage = typeof navigator !== 'undefined' ? navigator.language : '',
+    } = {}) => {
+        const params = new URLSearchParams(search || '');
+        return normalizeLocale(
+            params.get('lang') ||
+            params.get('locale') ||
+            params.get('think_lang') ||
+            storage?.getItem?.('suxios_locale') ||
+            navigatorLanguage ||
+            'zh-CN'
+        );
+    };
+    const createAiModelConfigText = (localeResolver) => (key, values = {}) => {
+        const resolvedLocale = normalizeLocale(typeof localeResolver === 'function' ? localeResolver() : localeResolver);
+        const defaultText = aiModelConfigI18n['zh-CN']?.[key] || key;
+        let text = aiModelConfigI18n[resolvedLocale]?.[key] || defaultText;
+        Object.entries(values || {}).forEach(([name, value]) => {
+            text = text.replaceAll(`{${name}}`, String(value));
+        });
+        return text;
+    };
     const languageOptions = [
         { value: 'zh-CN', label: '中文' },
         { value: 'en-US', label: 'English' },
@@ -390,6 +419,261 @@ window.SUXI_SYSTEM_STATIC = (() => {
             remember: !!username,
             form: createLoginForm({ username }),
         };
+    };
+    const authUserCacheKey = 'suxios_auth_user_cache_v1';
+    const authUserCacheMaxAgeMs = 12 * 60 * 60 * 1000;
+    const browserLocalStorage = () => (typeof localStorage !== 'undefined' ? localStorage : null);
+    const normalizePermissionMap = (permissions = null) => {
+        if (Array.isArray(permissions)) {
+            return permissions.reduce((acc, key) => {
+                if (key) acc[String(key)] = true;
+                return acc;
+            }, {});
+        }
+        return permissions && typeof permissions === 'object'
+            ? { ...permissions }
+            : {};
+    };
+    const sanitizeCachedAuthUser = (profile = null) => {
+        if (!profile || typeof profile !== 'object') return null;
+        const permissions = normalizePermissionMap(profile.permissions);
+        const permitted = Array.isArray(profile.permitted_hotels)
+            ? profile.permitted_hotels
+                .filter(item => item && item.id)
+                .map(item => ({
+                    id: item.id,
+                    tenant_id: item.tenant_id ?? null,
+                    name: item.name || '',
+                    code: item.code || '',
+                    status: item.status ?? 1,
+                }))
+            : [];
+        return {
+            id: profile.id ?? null,
+            username: profile.username || '',
+            realname: profile.realname || '',
+            role_id: profile.role_id ?? null,
+            role_name: profile.role_name || '',
+            hotel_id: profile.hotel_id ?? null,
+            is_super_admin: profile.is_super_admin === true,
+            is_hotel_manager: profile.is_hotel_manager === true,
+            permissions,
+            permitted_hotels: permitted,
+        };
+    };
+    const loadCachedAuthUser = (storage = browserLocalStorage(), now = Date.now()) => {
+        try {
+            const payload = JSON.parse(storage?.getItem?.(authUserCacheKey) || 'null');
+            if (!payload || typeof payload !== 'object') return null;
+            if (now - Number(payload.saved_at || 0) > authUserCacheMaxAgeMs) return null;
+            return sanitizeCachedAuthUser(payload.user);
+        } catch (e) {
+            return null;
+        }
+    };
+    const saveCachedAuthUser = (profile, storage = browserLocalStorage(), now = Date.now()) => {
+        const cachedUser = sanitizeCachedAuthUser(profile);
+        if (!cachedUser) return;
+        try {
+            storage?.setItem?.(authUserCacheKey, JSON.stringify({ saved_at: now, user: cachedUser }));
+        } catch (e) {
+            // Auth cache only improves first paint and should not block login.
+        }
+    };
+    const clearCachedAuthUser = (storage = browserLocalStorage()) => {
+        try {
+            storage?.removeItem?.(authUserCacheKey);
+        } catch (e) {
+            // Ignore localStorage cleanup failures.
+        }
+    };
+    const buildClientPagination = (rows, page, pageSize) => {
+        const list = Array.isArray(rows) ? rows : [];
+        const size = Math.max(1, Number(pageSize) || 50);
+        const total = list.length;
+        const totalPages = Math.max(1, Math.ceil(total / size));
+        const safePage = Math.min(Math.max(1, Number(page) || 1), totalPages);
+        const startIndex = (safePage - 1) * size;
+        return {
+            rows: list.slice(startIndex, startIndex + size),
+            total,
+            page: safePage,
+            pageSize: size,
+            totalPages,
+            startIndex,
+            start: total ? startIndex + 1 : 0,
+            end: Math.min(total, startIndex + size),
+        };
+    };
+    const toNumber = (value, fallback = 0) => {
+        const num = Number(value);
+        return Number.isFinite(num) ? num : fallback;
+    };
+    const toFixedSafe = (value, digits = 0, fallback = '-') => {
+        const num = toNumber(value, NaN);
+        if (!Number.isFinite(num)) return fallback;
+        return num.toFixed(digits);
+    };
+    const safeDivide = (num, denom, fallback = 0) => {
+        const n = toNumber(num, NaN);
+        const d = toNumber(denom, NaN);
+        if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return fallback;
+        return n / d;
+    };
+    const formatNumber = (num) => {
+        if (num === null || num === undefined || num === '') return '-';
+        const value = toNumber(num, NaN);
+        return Number.isFinite(value) ? value.toLocaleString() : '-';
+    };
+    const formatDate = (date) => {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    };
+    const formatConfigDate = (value) => {
+        if (!value) return '';
+        return String(value).slice(0, 10);
+    };
+    const formatKnowledgeJson = (value) => {
+        try {
+            return JSON.stringify(value || {}, null, 2);
+        } catch (error) {
+            return String(value || '');
+        }
+    };
+    const formatCommentTime = (timestamp) => {
+        if (!timestamp) return '';
+        if (typeof timestamp === 'number') {
+            return new Date(timestamp).toLocaleString('zh-CN');
+        }
+        return timestamp;
+    };
+    const aiRound = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits));
+    const formatPaybackMonth = (value) => value === null || value === undefined ? '不可回收' : `${aiRound(value, 1)}个月`;
+    const formatCurrency = (value) => `¥${Math.round(toNumber(value)).toLocaleString()}`;
+    const formatMoney = formatCurrency;
+    const formatPercent = (value) => `${aiRound(toNumber(value) * 100, 1)}%`;
+    const formatWan = (value) => value === null || value === undefined ? '--' : `${aiRound(toNumber(value), 2)}万元`;
+    const calculateHhi = (items, valueGetter) => {
+        const values = (items || []).map(item => Math.max(0, toNumber(valueGetter(item), 0)));
+        const total = values.reduce((sum, value) => sum + value, 0);
+        if (total <= 0) return 0;
+        return values.reduce((sum, value) => {
+            const share = value / total;
+            return sum + share * share;
+        }, 0) * 10000;
+    };
+    const getConcentrationLevel = (hhi, lowThreshold, mediumThreshold, highLevel) => {
+        if (hhi <= 0) {
+            return {
+                value: '0.00',
+                level: '',
+                textClass: 'text-gray-600',
+                style: { backgroundColor: '#ffffff', border: '1px solid #e5e7eb' },
+            };
+        }
+        if (hhi < lowThreshold) {
+            return {
+                value: toFixedSafe(hhi, 2),
+                level: '低度内卷',
+                textClass: 'text-yellow-600',
+                style: { backgroundColor: '#fefce8', border: '1px solid #fde047' },
+            };
+        }
+        if (hhi <= mediumThreshold) {
+            return {
+                value: toFixedSafe(hhi, 2),
+                level: '中度内卷',
+                textClass: 'text-orange-600',
+                style: { backgroundColor: '#fff7ed', border: '1px solid #fdba74' },
+            };
+        }
+        return {
+            value: toFixedSafe(hhi, 2),
+            level: highLevel,
+            textClass: 'text-red-600',
+            style: { backgroundColor: '#fef2f2', border: '1px solid #fca5a5' },
+        };
+    };
+    const revenueConcentration = (items, valueGetter) => getConcentrationLevel(calculateHhi(items, valueGetter), 500, 800, '寡头市场');
+    const visitConcentration = (items, valueGetter) => getConcentrationLevel(calculateHhi(items, valueGetter), 400, 700, '高度内卷');
+    const isExpansionStaticPage = (page) => [
+        'ai-strategy',
+        'ai-feasibility',
+        'market-evaluation',
+        'market-eval',
+        'benchmark-model',
+        'collaboration-efficiency',
+        'sync-efficiency',
+    ].includes(page);
+    const isSimulationStaticPage = (page) => [
+        'ai-strategy',
+        'ai-feasibility',
+        'ai-simulation',
+        'benchmark-model',
+        'collaboration-efficiency',
+        'sync-efficiency',
+        'asset-pricing',
+        'timing-strategy',
+        'decision-board',
+    ].includes(page);
+    const deferUiTask = (callback, delay = 0) => {
+        const runner = () => {
+            try {
+                const result = callback();
+                if (result && typeof result.catch === 'function') {
+                    result.catch(error => console.warn('deferred task failed:', error));
+                }
+            } catch (error) {
+                console.warn('deferred task failed:', error);
+            }
+        };
+        if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(runner, { timeout: Math.max(80, delay || 80) });
+            return;
+        }
+        setTimeout(runner, delay);
+    };
+    const scheduleDelayedPageTask = (callback, delay = 0) => {
+        setTimeout(() => {
+            try {
+                const result = callback();
+                if (result && typeof result.catch === 'function') {
+                    result.catch(error => console.warn('deferred task failed:', error));
+                }
+            } catch (error) {
+                console.warn('deferred task failed:', error);
+            }
+        }, Math.max(0, Number(delay) || 0));
+    };
+    const deferFrameTask = (callback, delay = 0) => {
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => deferUiTask(callback, delay));
+            return;
+        }
+        deferUiTask(callback, delay);
+    };
+    const sidebarPreferenceKey = 'suxios_sidebar_collapsed';
+    const isCompactViewport = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
+    const loadSidebarCollapsedPreference = (storage = browserLocalStorage()) => {
+        if (isCompactViewport()) return true;
+        try {
+            const saved = storage?.getItem?.(sidebarPreferenceKey);
+            if (saved === 'expanded') return false;
+            if (saved === 'collapsed') return true;
+        } catch (e) {
+            // Ignore storage failures and keep the layout compact.
+        }
+        return false;
+    };
+    const persistSidebarCollapsedPreference = (collapsed, storage = browserLocalStorage()) => {
+        if (isCompactViewport()) return;
+        try {
+            storage?.setItem?.(sidebarPreferenceKey, collapsed ? 'collapsed' : 'expanded');
+        } catch (e) {
+            // Layout state should not block the app.
+        }
     };
     const buildLoginRequestPayload = (form = {}) => ({
         username: String(form.username || ''),
@@ -1126,8 +1410,189 @@ window.SUXI_SYSTEM_STATIC = (() => {
         ];
     };
 
+    const riskBadgeClass = (risk) => {
+        if (['高风险', 'D', 'E'].includes(risk)) return 'bg-red-50 text-red-700 border-red-200';
+        if (['中高风险', 'C'].includes(risk)) return 'bg-orange-50 text-orange-700 border-orange-200';
+        if (['中风险', 'B'].includes(risk)) return 'bg-yellow-50 text-yellow-700 border-yellow-200';
+        return 'bg-green-50 text-green-700 border-green-200';
+    };
+
+    const transferRiskTextClass = (risk) => {
+        if (risk === '高风险') return 'text-red-600';
+        if (risk === '中风险') return 'text-amber-600';
+        return 'text-green-600';
+    };
+
+    const transferDecisionClass = (decision) => {
+        if (decision === '适合转让') return 'text-green-600';
+        if (decision === '谨慎转让') return 'text-amber-600';
+        return 'text-red-600';
+    };
+
+    const pricingReadinessBadgeClass = (stage) => {
+        if (stage === 'pricing_ready' || stage === 'evidence_ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        if (['pending_approval', 'approved_pending_execution', 'execution_intent_pending_approval', 'local_applied_pending_evidence'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
+        if (['data_recheck_required', 'rejected', 'blocked'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
+        return 'bg-gray-50 text-gray-600 border-gray-200';
+    };
+
+    const priceSuggestionReviewReadinessClass = (stage) => {
+        if (stage === 'effect_review_ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        if (['effect_review_window_open', 'effect_review_sample_missing', 'effect_review_not_started'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
+        if (stage === 'effect_review_read_failed') return 'bg-rose-50 text-rose-700 border-rose-200';
+        return 'bg-gray-50 text-gray-600 border-gray-200';
+    };
+
+    const agentClosureReadinessBadgeClass = (stage) => {
+        if (['service_closed', 'conversation_service_closed', 'saving_verified', 'maintenance_completed', 'knowledge_active_used'].includes(stage)) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        if (['conversation_observed', 'resolved_pending_review', 'completed_pending_saving', 'executed_pending_review'].includes(stage)) return 'bg-blue-50 text-blue-700 border-blue-200';
+        if (['conversation_needs_work_order', 'low_confidence_review', 'pending_assignment', 'in_progress', 'pending_processing', 'pending_approval', 'approved_pending_start', 'implementing', 'maintenance_due', 'active_missing_schedule', 'active_pending_execution', 'knowledge_active_unused', 'knowledge_missing_content', 'knowledge_missing_keywords'].includes(stage) || String(stage || '').startsWith('work_order_linked_')) return 'bg-amber-50 text-amber-700 border-amber-200';
+        if (['escalated_blocked', 'rejected', 'overdue', 'cancelled'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
+        return 'bg-gray-50 text-gray-600 border-gray-200';
+    };
+
+    const operationDataStatusText = (status) => status === 'ok' ? '已接入' : (status || '待接入真实数据');
+    const operationProblemLevelLabel = (level) => ({
+        high: '高风险',
+        medium: '中风险',
+        low: '低风险',
+        data_insufficient: '数据不足',
+    }[level] || '待判断');
+    const operationAlertLevelLabel = (level) => ({ high: '高风险', medium: '中风险', low: '低风险' }[level] || '待判断');
+    const operationAlertStatusLabel = (status) => ({ unread: '未读', read: '已读' }[status] || '未读');
+    const operationAlertLevelClass = (level) => ({
+        high: 'bg-red-50 text-red-600',
+        medium: 'bg-amber-50 text-amber-600',
+        low: 'bg-blue-50 text-blue-600',
+    }[level] || 'bg-gray-100 text-gray-500');
+    const operationRiskLevelLabel = (level) => ({
+        low: '低风险',
+        medium: '中风险',
+        medium_high: '中高风险',
+        high: '高风险',
+    }[level] || '待判断');
+    const operationActionStatusLabel = (status) => ({
+        observing: '观察中',
+        success: '有效',
+        near_success: '接近有效',
+        failed: '无效',
+        active: '执行中',
+        finished: '已结束',
+        cancelled: '已取消',
+    }[status] || '观察中');
+    const operationEffectStatusLabel = (status) => ({
+        ready: '已形成闭环',
+        partial: '部分可验证',
+        data_gap: '待补齐数据',
+    }[status] || '待验证');
+    const operationEffectStatusClass = (status) => ({
+        ready: 'bg-green-50 text-green-700',
+        partial: 'bg-amber-50 text-amber-700',
+        data_gap: 'bg-gray-100 text-gray-500',
+    }[status] || 'bg-gray-100 text-gray-500');
+    const operationEffectMetricStatusLabel = (status) => status === 'ready' ? '可验证' : '数据不足';
+    const operationExecutionStatusLabel = (status) => ({
+        draft: '草稿',
+        pending_approval: '待审批',
+        approved: '已审批',
+        rejected: '已驳回',
+        blocked: '已阻塞',
+        pending_create: '待生成任务',
+        pending_execute: '待执行',
+        executing: '执行中',
+        executed: '已执行',
+        failed: '执行失败',
+        observing: '观察中',
+        success: '有效',
+        near_success: '接近有效',
+    }[status] || status || '-');
+    const operationExecutionStatusClass = (status) => ({
+        approved: 'bg-green-50 text-green-700',
+        executed: 'bg-green-50 text-green-700',
+        success: 'bg-green-50 text-green-700',
+        pending_approval: 'bg-amber-50 text-amber-700',
+        pending_execute: 'bg-blue-50 text-blue-700',
+        executing: 'bg-blue-50 text-blue-700',
+        blocked: 'bg-amber-50 text-amber-700',
+        rejected: 'bg-gray-100 text-gray-500',
+        failed: 'bg-red-50 text-red-700',
+    }[status] || 'bg-gray-100 text-gray-500');
+    const operationExecutionNextActionClass = (action) => ({
+        high: 'bg-red-50 text-red-700',
+        medium: 'bg-amber-50 text-amber-700',
+        low: 'bg-gray-100 text-gray-500',
+    }[action?.priority] || 'bg-gray-100 text-gray-500');
+    const operationClosureStatusClass = (status) => ({
+        roi_ready: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+        reviewed_no_roi: 'bg-blue-50 text-blue-700 border-blue-100',
+        evidence_ready: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+        executed_missing_evidence: 'bg-amber-50 text-amber-700 border-amber-100',
+        approved_pending_execution: 'bg-amber-50 text-amber-700 border-amber-100',
+        pending_approval: 'bg-slate-50 text-slate-700 border-slate-200',
+        record_only: 'bg-orange-50 text-orange-700 border-orange-100',
+        not_started: 'bg-gray-50 text-gray-500 border-gray-200',
+        not_loaded: 'bg-red-50 text-red-700 border-red-100',
+        blocked: 'bg-red-50 text-red-700 border-red-100',
+        rejected: 'bg-gray-100 text-gray-500 border-gray-200',
+    }[status] || 'bg-gray-50 text-gray-500 border-gray-200');
+    const operationClosureScoreClass = (score) => {
+        const value = Number(score || 0);
+        if (value >= 90) return 'text-emerald-700';
+        if (value >= 70) return 'text-blue-700';
+        if (value >= 40) return 'text-amber-700';
+        return 'text-gray-500';
+    };
+    const operationValue = (value, suffix = '') => {
+        if (value === null || value === undefined || value === '') return '-';
+        if (typeof value === 'number') return `${Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2)}${suffix}`;
+        return `${value}${suffix}`;
+    };
+    const operationMoney = (value) => value === null || value === undefined || value === '' ? '-' : `¥${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    const operationPercent = (value) => {
+        if (value === null || value === undefined || value === '') return '-';
+        const number = Number(value);
+        if (!Number.isFinite(number)) return '-';
+        return `${number <= 1 ? (number * 100).toFixed(0) : number.toFixed(2)}%`;
+    };
+    const operationMetricLabel = (key) => ({
+        avg_orders: '日均订单',
+        avg_revenue: '日均收入',
+        avg_room_nights: '日均间夜',
+        avg_conversion: '平均转化',
+        orders_change: '订单变化',
+        revenue_change: '收入变化',
+        conversion_change: '转化变化',
+        data_status: '数据状态',
+        actual_days: '有效天数',
+        days: '统计天数',
+    }[key] || key);
+    const operationMetricRows = (data) => Object.entries(data || {})
+        .filter(([key]) => !['data_status'].includes(key))
+        .map(([key, value]) => ({
+            label: operationMetricLabel(key),
+            value: key.includes('revenue') ? operationMoney(value) : (key.includes('conversion') ? operationValue(value, '%') : operationValue(value)),
+        }));
+    const operationActionDataText = (data) => {
+        if (!data || data.data_status === '待接入真实数据') return '待接入真实数据';
+        return `订单${operationValue(data.avg_orders)} / 收入${operationMoney(data.avg_revenue)}`;
+    };
+    const operationActionTarget = (action) => {
+        const label = { orders: '订单', revenue: '收入', room_nights: '间夜', conversion: '转化率' }[action?.target_metric] || '目标';
+        const rate = action?.target_change_rate ?? action?.result?.target_change_rate ?? '';
+        return `${label}提升${rate || '-'}%`;
+    };
+    const operationEffectMetricValue = (metric) => {
+        if (!metric || metric.value === null || metric.value === undefined) return '待验证';
+        const value = Number(metric.value);
+        if (!Number.isFinite(value)) return '待验证';
+        return `${value.toFixed(2)}${metric.unit || ''}`;
+    };
+
     return {
         aiModelConfigI18n,
+        normalizeLocale,
+        getInitialLocale,
+        createAiModelConfigText,
         languageOptions,
         menuItemDefinitions,
         testIdNameMap,
@@ -1135,6 +1600,37 @@ window.SUXI_SYSTEM_STATIC = (() => {
         userColumns,
         createLoginForm,
         getRememberedLoginAccount,
+        normalizePermissionMap,
+        sanitizeCachedAuthUser,
+        loadCachedAuthUser,
+        saveCachedAuthUser,
+        clearCachedAuthUser,
+        buildClientPagination,
+        toNumber,
+        toFixedSafe,
+        safeDivide,
+        formatNumber,
+        formatDate,
+        formatConfigDate,
+        formatKnowledgeJson,
+        formatCommentTime,
+        aiRound,
+        formatPaybackMonth,
+        formatCurrency,
+        formatMoney,
+        formatPercent,
+        formatWan,
+        calculateHhi,
+        revenueConcentration,
+        visitConcentration,
+        isExpansionStaticPage,
+        isSimulationStaticPage,
+        deferUiTask,
+        scheduleDelayedPageTask,
+        deferFrameTask,
+        isCompactViewport,
+        loadSidebarCollapsedPreference,
+        persistSidebarCollapsedPreference,
         buildLoginRequestPayload,
         validateLoginRequestPayload,
         applyRememberedLoginAccount,
@@ -1168,6 +1664,35 @@ window.SUXI_SYSTEM_STATIC = (() => {
         filterVisibleMenuItems,
         platformNextActionMeta,
         platformAccountStoreText,
+        riskBadgeClass,
+        transferRiskTextClass,
+        transferDecisionClass,
+        pricingReadinessBadgeClass,
+        priceSuggestionReviewReadinessClass,
+        agentClosureReadinessBadgeClass,
+        operationDataStatusText,
+        operationProblemLevelLabel,
+        operationAlertLevelLabel,
+        operationAlertStatusLabel,
+        operationAlertLevelClass,
+        operationRiskLevelLabel,
+        operationActionStatusLabel,
+        operationEffectStatusLabel,
+        operationEffectStatusClass,
+        operationEffectMetricStatusLabel,
+        operationExecutionStatusLabel,
+        operationExecutionStatusClass,
+        operationExecutionNextActionClass,
+        operationClosureStatusClass,
+        operationClosureScoreClass,
+        operationValue,
+        operationMoney,
+        operationPercent,
+        operationMetricLabel,
+        operationMetricRows,
+        operationActionDataText,
+        operationActionTarget,
+        operationEffectMetricValue,
         loadChartJs,
     };
 })();

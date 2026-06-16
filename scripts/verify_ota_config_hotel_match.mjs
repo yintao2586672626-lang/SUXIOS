@@ -1,6 +1,14 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
-const backend = readFileSync('app/controller/OnlineData.php', 'utf8');
+const backendFiles = [
+  'app/controller/OnlineData.php',
+  'app/controller/concern/OtaConfigConcern.php',
+  'app/controller/concern/MeituanConfigConcern.php',
+];
+const backend = backendFiles
+  .filter((file) => existsSync(file))
+  .map((file) => readFileSync(file, 'utf8'))
+  .join('\n');
 const frontend = readFileSync('public/index.html', 'utf8');
 
 const checks = [

@@ -1,0 +1,2289 @@
+<?php
+declare(strict_types=1);
+
+namespace app\controller\concern;
+
+use app\model\OperationLog;
+use app\service\BrowserProfileCaptureRequestService;
+use app\service\OtaTrafficUrlNormalizer;
+use app\service\PlatformDataSyncService;
+use think\Response;
+use think\facade\Db;
+
+trait OnlineDataRequestConcern
+{
+    /**
+     * 解析并保存美团差评数据
+     */
+    // Browser profile capture payload entrypoint.
+    public function saveMeituanCapturedData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $requestData = $this->requestData();
+        $payload = $requestData['payload'] ?? $requestData['captured_data'] ?? $requestData;
+        if (!is_array($payload)) {
+            return $this->error('Invalid Meituan captured payload');
+        }
+
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['hotel_id']
+            ?? $payload['system_hotel_id']
+            ?? $payload['hotel_id']
+            ?? null
+        );
+        $rows = $this->buildMeituanCapturedDailyRows($payload, $systemHotelId);
+        if (empty($rows)) {
+            return $this->success([
+                'saved_count' => 0,
+                'row_count' => 0,
+                'counts' => [],
+            ], 'No Meituan captured rows to save');
+        }
+
+        $savedCount = $this->saveMeituanCapturedDailyRows($rows);
+        if ($this->currentUser && isset($this->currentUser->id)) {
+            OperationLog::record(
+                'online_data',
+                'save_meituan_captured_data',
+                'Save Meituan captured OTA data',
+                $this->currentUser->id,
+                $systemHotelId ? (int)$systemHotelId : null
+            );
+        }
+
+        return $this->success([
+            'saved_count' => $savedCount,
+            'row_count' => count($rows),
+            'counts' => $this->summarizeMeituanCapturedRows($rows),
+        ]);
+    }
+
+    // Launch local browser profile capture, then save the captured payload.
+    public function captureMeituanBrowserData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+        @set_time_limit(0);
+
+        $requestData = $this->requestData();
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['hotel_id']
+            ?? null
+        );
+        $storeId = BrowserProfileCaptureRequestService::resolveMeituanStoreId($requestData);
+        if ($storeId === '') {
+            return $this->error('请填写美团 Store ID / 门店 ID');
+        }
+
+        $loginOnly = $this->isCtripLoginOnlyRequest($requestData);
+
+        $projectRoot = dirname(__DIR__, 2);
+        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs';
+        if (!is_file($scriptPath)) {
+            return $this->error('未找到美团浏览器抓取脚本');
+        }
+
+        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
+        if ($nodeBinary === '') {
+            return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
+        }
+
+        $chromePath = BrowserProfileCaptureRequestService::resolveChromePath();
+        $capturePlan = BrowserProfileCaptureRequestService::buildMeituanPlan(
+            $requestData,
+            $projectRoot,
+            $nodeBinary,
+            $loginOnly,
+            $systemHotelId ? (int)$systemHotelId : null,
+            date('YmdHis'),
+            $chromePath
+        );
+        $outputDir = $capturePlan['output_dir'];
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
+            return $this->error('无法创建美团抓取输出目录');
+        }
+
+        $outputPath = $capturePlan['output_path'];
+        $timeoutSeconds = (int)$capturePlan['timeout_seconds'];
+
+        $args = $capturePlan['args'];
+        $poiId = (string)$capturePlan['poi_id'];
+
+        $lock = $this->acquirePlatformProfileCaptureLock('meituan', $storeId);
+        if ($lock === null) {
+            return $this->error('Meituan browser Profile capture is already running for this store.', 409, [
+                'lock_key' => 'meituan:' . BrowserProfileCaptureRequestService::safeFilePart($storeId),
+            ]);
+        }
+
+        try {
+            $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $timeoutSeconds);
+        } finally {
+            $this->releasePlatformProfileCaptureLock($lock);
+        }
+        if (!$runResult['success']) {
+            if (is_file($outputPath)) {
+                $failedPayload = json_decode((string)file_get_contents($outputPath), true);
+                if (is_array($failedPayload)) {
+                    $authStatus = is_array($failedPayload['auth_status'] ?? null) ? $failedPayload['auth_status'] : [];
+                    if ($authStatus !== [] && empty($authStatus['ok'])) {
+                        if ($systemHotelId) {
+                            $this->cachePlatformProfileStatus('meituan', (int)$systemHotelId, $storeId, [
+                                'checked_at' => date('Y-m-d H:i:s'),
+                                'auth_status' => $authStatus,
+                                'capture_gate' => $failedPayload['capture_gate'] ?? null,
+                                'status_code' => 'login_expired',
+                                'output' => $outputPath,
+                            ]);
+                        }
+                        return $this->error('重新登录美团平台账号', 400, [
+                            'auth_status' => $authStatus,
+                            'capture_gate' => $failedPayload['capture_gate'] ?? null,
+                            'output' => $outputPath,
+                            'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                            'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                        ]);
+                    }
+                }
+            }
+            return $this->error($runResult['message'], 400, [
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        if (!is_file($outputPath)) {
+            return $this->error('抓取脚本已结束，但未生成结果文件', 400, [
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        $payload = json_decode((string)file_get_contents($outputPath), true);
+        if (!is_array($payload)) {
+            return $this->error('抓取结果 JSON 无法解析', 400, [
+                'output' => $outputPath,
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        if ($systemHotelId && empty($payload['system_hotel_id'])) {
+            $payload['system_hotel_id'] = $systemHotelId;
+        }
+
+        $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        if ($authStatus !== [] && empty($authStatus['ok'])) {
+            if ($systemHotelId) {
+                $this->cachePlatformProfileStatus('meituan', (int)$systemHotelId, $storeId, [
+                    'checked_at' => date('Y-m-d H:i:s'),
+                    'auth_status' => $authStatus,
+                    'capture_gate' => $payload['capture_gate'] ?? null,
+                    'status_code' => 'login_expired',
+                    'output' => $outputPath,
+                ]);
+            }
+            return $this->error('重新登录美团平台账号', 400, [
+                'auth_status' => $authStatus,
+                'capture_gate' => $payload['capture_gate'] ?? null,
+                'output' => $outputPath,
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+            ]);
+        }
+
+        if ($systemHotelId && $authStatus !== []) {
+            $this->cachePlatformProfileStatus('meituan', (int)$systemHotelId, $storeId, [
+                'checked_at' => date('Y-m-d H:i:s'),
+                'auth_status' => $authStatus,
+                'capture_gate' => $payload['capture_gate'] ?? null,
+                'status_code' => 'logged_in',
+                'output' => $outputPath,
+            ]);
+        }
+
+        if ($loginOnly) {
+            $responsePayload = [
+                'mode' => (string)($payload['mode'] ?? 'login_only'),
+                'store_id' => (string)($payload['store_id'] ?? $storeId),
+                'poi_id' => (string)($payload['poi_id'] ?? $poiId),
+                'auth_status' => $payload['auth_status'] ?? null,
+                'capture_gate' => $payload['capture_gate'] ?? null,
+                'pages' => $payload['pages'] ?? [],
+                'saved_count' => 0,
+                'row_count' => 0,
+                'counts' => [],
+                'output' => $outputPath,
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+            ];
+            if ($systemHotelId && $this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
+                $responsePayload['data_source'] = $this->bindBrowserProfileDataSource('meituan', (int)$systemHotelId, $requestData, $payload);
+            }
+
+            return $this->success($responsePayload, '美团浏览器 Profile 登录状态已准备，未执行数据采集和入库');
+        }
+
+        $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
+        if ($gate !== [] && ($gate['status'] ?? 'fail') !== 'pass') {
+            return $this->error('美团浏览器 Profile 采集门禁未通过，未入库空数据', 400, [
+                'auth_status' => $payload['auth_status'] ?? null,
+                'capture_gate' => $gate,
+                'output' => $outputPath,
+                'pages' => $payload['pages'] ?? [],
+                'responses' => array_slice(is_array($payload['responses'] ?? null) ? $payload['responses'] : [], 0, 20),
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        $rows = $this->buildMeituanCapturedDailyRows($payload, $systemHotelId);
+        if (empty($rows)) {
+            return $this->error('美团浏览器 Profile 采集未解析到业务行，未入库空数据', 400, [
+                'auth_status' => $payload['auth_status'] ?? null,
+                'capture_gate' => $payload['capture_gate'] ?? null,
+                'output' => $outputPath,
+                'pages' => $payload['pages'] ?? [],
+                'responses' => array_slice(is_array($payload['responses'] ?? null) ? $payload['responses'] : [], 0, 20),
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+            ]);
+        }
+        $dataSourceBinding = null;
+        $dataSourceBindingError = '';
+        $dataSourceId = null;
+        if ($systemHotelId && $this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
+            try {
+                $dataSourceBinding = $this->bindBrowserProfileDataSource('meituan', (int)$systemHotelId, $requestData, $payload);
+                $boundId = (int)($dataSourceBinding['id'] ?? 0);
+                $dataSourceId = $boundId > 0 ? $boundId : null;
+            } catch (\Throwable $e) {
+                $dataSourceBindingError = $e->getMessage();
+            }
+        }
+        if ($dataSourceId !== null) {
+            foreach ($rows as &$row) {
+                if (is_array($row)) {
+                    $row['data_source_id'] = $dataSourceId;
+                }
+            }
+            unset($row);
+        }
+        $savedCount = empty($rows) ? 0 : $this->saveMeituanCapturedDailyRows($rows);
+
+        if ($this->currentUser && isset($this->currentUser->id)) {
+            OperationLog::record(
+                'online_data',
+                'capture_meituan_browser_data',
+                'Capture Meituan OTA data via local browser profile',
+                $this->currentUser->id,
+                $systemHotelId ? (int)$systemHotelId : null
+            );
+        }
+
+        $responsePayload = [
+            'saved_count' => $savedCount,
+            'row_count' => count($rows),
+            'counts' => $this->summarizeMeituanCapturedRows($rows),
+            'payload_counts' => [
+                'reviews' => $this->countMeituanPayloadSection($payload, 'reviews'),
+                'traffic' => $this->countMeituanPayloadSection($payload, 'traffic'),
+                'ads' => $this->countMeituanPayloadSection($payload, 'ads'),
+                'orders' => $this->countMeituanPayloadSection($payload, 'orders'),
+                'responses' => $this->countMeituanPayloadSection($payload, 'responses'),
+            ],
+            'output' => $outputPath,
+            'pages' => $payload['pages'] ?? [],
+            'screenshots' => $payload['screenshots'] ?? [],
+            'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+        ];
+        if ($dataSourceBinding !== null) {
+            $responsePayload['data_source'] = $dataSourceBinding;
+            $responsePayload['data_source_binding'] = ['status' => 'success', 'data_source_id' => (int)($dataSourceBinding['id'] ?? 0)];
+        } elseif ($dataSourceBindingError !== '') {
+            $responsePayload['data_source_binding'] = ['status' => 'failed', 'message' => $dataSourceBindingError];
+        }
+
+        return $this->success($responsePayload, $savedCount > 0 ? '美团浏览器抓取完成并已入库' : '美团浏览器抓取完成，但未解析到可入库数据');
+    }
+
+    // Direct Ctrip comment-detail browser capture is disabled.
+    public function captureCtripCommentsBrowserData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        return $this->commentCollectionDisabledResponse();
+    }
+
+    public function captureCtripBrowserData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+        @set_time_limit(0);
+
+        $requestData = $this->requestData();
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? null
+        );
+        if (!$systemHotelId) {
+            return $this->error('请选择数据归属酒店');
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
+        if ($dataDate === '') {
+            $dataDate = date('Y-m-d', strtotime('-1 day'));
+        }
+
+        $hotelId = BrowserProfileCaptureRequestService::resolveCtripHotelId($requestData);
+        $profileId = BrowserProfileCaptureRequestService::resolveCtripProfileId($requestData, (int)$systemHotelId, $hotelId);
+        $loginOnly = $this->isCtripLoginOnlyRequest($requestData);
+
+        $projectRoot = dirname(__DIR__, 2);
+        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs';
+        if (!is_file($scriptPath)) {
+            return $this->error('未找到携程浏览器 Profile 采集脚本');
+        }
+
+        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
+        if ($nodeBinary === '') {
+            return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
+        }
+
+        $capturePlan = BrowserProfileCaptureRequestService::buildCtripBasePlan(
+            $requestData,
+            $projectRoot,
+            $nodeBinary,
+            (int)$systemHotelId,
+            $dataDate,
+            date('YmdHis')
+        );
+        $outputDir = $capturePlan['output_dir'];
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
+            return $this->error('无法创建携程采集输出目录');
+        }
+
+        $outputPath = $capturePlan['output_path'];
+        $timeoutSeconds = (int)$capturePlan['timeout_seconds'];
+        $args = $capturePlan['args'];
+        $fieldConfigPayload = $this->buildCtripProfileFieldConfigPayload($this->readCtripProfileCaptureFields(true));
+        $sectionsList = $this->resolveCtripProfileCaptureSectionsForRun($requestData, $fieldConfigPayload, $loginOnly);
+        if (!$loginOnly && empty($sectionsList)) {
+            return $this->error('获取字段配置中没有启用的可抓取字段，请先在“获取字段配置”启用字段或模块', 400);
+        }
+        $args[] = '--sections=' . implode(',', $sectionsList ?: ['business_overview']);
+        $args = $this->appendCtripLoginOnlyArg($args, $requestData);
+        $args = $this->appendCtripCaptureGateArgs($args, $requestData);
+        $mappingArgs = $this->appendCtripApprovedMappingsArg($args, $requestData, $projectRoot);
+        $approvedMappings = $mappingArgs['approved_mappings'];
+        if ($mappingArgs['error'] !== '') {
+            return $this->error((string)$mappingArgs['error'], 400);
+        }
+        $args = $mappingArgs['args'];
+        $fieldConfigPath = $this->createCtripProfileFieldConfigFile($projectRoot, $fieldConfigPayload);
+        if ($fieldConfigPath === '') {
+            return $this->error('无法创建携程 Profile 字段配置快照', 500);
+        }
+        $args[] = '--field-config=' . $fieldConfigPath;
+        $chromePath = BrowserProfileCaptureRequestService::resolveChromePath();
+        if ($chromePath !== '') {
+            $args[] = '--chrome-path=' . $chromePath;
+        }
+
+        $lock = $this->acquirePlatformProfileCaptureLock('ctrip', $profileId);
+        if ($lock === null) {
+            $this->removeAutoFetchCookieFile($fieldConfigPath);
+            return $this->error('Ctrip browser Profile capture is already running for this profile.', 409, [
+                'lock_key' => 'ctrip:' . BrowserProfileCaptureRequestService::safeFilePart($profileId),
+            ]);
+        }
+
+        try {
+            $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $timeoutSeconds);
+        } finally {
+            $this->removeAutoFetchCookieFile($fieldConfigPath);
+            $this->releasePlatformProfileCaptureLock($lock);
+        }
+        if (!$runResult['success']) {
+            return $this->error(str_replace('美团', '携程', $runResult['message']), 400, [
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                'partial_capture' => $this->buildCtripPartialCaptureErrorPayload($outputPath),
+            ]);
+        }
+
+        if (!is_file($outputPath)) {
+            return $this->error('采集脚本已结束，但未生成结果文件', 400, [
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        $payload = json_decode((string)file_get_contents($outputPath), true);
+        if (!is_array($payload)) {
+            return $this->error('采集结果 JSON 无法解析', 400, [
+                'output' => $outputPath,
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        if (empty($payload['system_hotel_id'])) {
+            $payload['system_hotel_id'] = $systemHotelId;
+        }
+        if ($hotelId !== '' && empty($payload['hotel_id'])) {
+            $payload['hotel_id'] = $hotelId;
+        }
+        if (empty($payload['default_data_date'])) {
+            $payload['default_data_date'] = $dataDate;
+        }
+
+        if ($loginOnly) {
+            $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+            if ($authStatus !== [] && empty($authStatus['ok'])) {
+                $this->cachePlatformProfileStatus('ctrip', (int)$systemHotelId, $profileId, [
+                    'checked_at' => date('Y-m-d H:i:s'),
+                    'auth_status' => $authStatus,
+                    'capture_gate' => $payload['capture_gate'] ?? null,
+                    'status_code' => 'login_expired',
+                    'output' => $outputPath,
+                ]);
+                return $this->error('重新登录携程平台账号', 400, [
+                    'auth_status' => $authStatus,
+                    'capture_gate' => $payload['capture_gate'] ?? null,
+                    'output' => $outputPath,
+                    'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                ]);
+            }
+
+            $this->cachePlatformProfileStatus('ctrip', (int)$systemHotelId, $profileId, [
+                'checked_at' => date('Y-m-d H:i:s'),
+                'auth_status' => $authStatus !== [] ? $authStatus : ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => $payload['capture_gate'] ?? null,
+                'status_code' => 'logged_in',
+                'output' => $outputPath,
+            ]);
+            $responsePayload = $this->buildCtripLoginOnlyResponsePayload(
+                $payload,
+                $outputPath,
+                $this->trimMeituanCaptureLog($runResult['stdout'] ?? '')
+            );
+            if ($this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
+                $responsePayload['data_source'] = $this->bindBrowserProfileDataSource('ctrip', (int)$systemHotelId, $requestData, $payload);
+            }
+
+            return $this->success($responsePayload, '携程浏览器 Profile 登录状态已准备，未执行数据采集和入库');
+        }
+
+        $captureGateDecision = $this->buildCtripCaptureGateDecision($payload);
+        $captureGateWarning = null;
+        if (!$captureGateDecision['accepted']) {
+            if ($this->canContinueCtripCaptureWithSoftGateWarning($payload, $captureGateDecision)) {
+                $captureGateWarning = $this->buildCtripCaptureGateWarning($captureGateDecision);
+            } else {
+                $capturedCounts = $this->buildCtripCaptureCounts($payload);
+                return $this->error('携程浏览器 Profile 采集门禁未通过，未入库且未更新最新采集状态', 400, [
+                    'output' => $outputPath,
+                    'auth_status' => $payload['auth_status'] ?? null,
+                    'capture_gate' => $captureGateDecision['gate'],
+                    'capture_gate_status' => $captureGateDecision['status'],
+                    'capture_gate_failed_check_ids' => $captureGateDecision['failed_check_ids'],
+                    'capture_gate_blocking_failed_check_ids' => $this->getCtripCaptureBlockingFailedCheckIds($captureGateDecision['failed_check_ids']),
+                    'capture_audit' => $payload['capture_audit'] ?? null,
+                    'captured_counts' => $capturedCounts,
+                    'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
+                    'pages' => $payload['pages'] ?? [],
+                    'xhr_urls' => array_slice($payload['xhr_urls'] ?? [], 0, 20),
+                    'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                    'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                ]);
+            }
+        }
+
+        $dataSourceBinding = null;
+        $dataSourceBindingError = '';
+        $dataSourceId = null;
+        if ($this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
+            try {
+                $dataSourceBinding = $this->bindBrowserProfileDataSource('ctrip', (int)$systemHotelId, $requestData, $payload);
+                $boundId = (int)($dataSourceBinding['id'] ?? 0);
+                $dataSourceId = $boundId > 0 ? $boundId : null;
+            } catch (\Throwable $e) {
+                $dataSourceBindingError = $e->getMessage();
+            }
+        }
+
+        $requestHotelId = $hotelId !== '' ? $hotelId : (string)($payload['hotel_id'] ?? '');
+        $saveResult = $this->saveCtripBrowserProfilePayload($payload, (int)$systemHotelId, $dataDate, $requestHotelId, $dataSourceId);
+        $savedCount = (int)$saveResult['saved_count'];
+        $capturedCounts = $this->buildCtripCaptureCounts($payload);
+
+        if ($this->currentUser && isset($this->currentUser->id)) {
+            OperationLog::record(
+                'online_data',
+                'capture_ctrip_browser',
+                'Capture Ctrip OTA data via local browser profile',
+                $this->currentUser->id,
+                (int)$systemHotelId
+            );
+        }
+        if ($savedCount > 0) {
+            $this->updateCtripLatestFetchStatus((int)$systemHotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
+        }
+
+        $rowCount = (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'];
+        $responsePayload = array_merge([
+            'saved_count' => $savedCount,
+            'row_count' => $rowCount,
+        ], $this->buildCtripCaptureFactRowCountPayload($capturedCounts, $savedCount, $rowCount), [
+            'counts' => [
+                'business' => (int)$saveResult['business_saved'],
+                'traffic' => (int)$saveResult['traffic_saved'],
+                'standard_rows' => (int)($saveResult['standard_saved'] ?? 0),
+            ],
+            'captured_counts' => $capturedCounts,
+            'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
+            'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
+            'standard_section_counts' => $capturedCounts['standard_by_section'],
+            'endpoint_candidate_counts' => $capturedCounts['candidate_by_section'],
+            'endpoint_candidates' => array_slice(is_array($payload['endpoint_candidates'] ?? null) ? $payload['endpoint_candidates'] : [], 0, 20),
+            'p3_evidence_counts' => $capturedCounts['p3_evidence_by_section'],
+            'p3_evidence_status_counts' => $capturedCounts['p3_evidence_by_status'],
+            'p3_evidence_ready_count' => $capturedCounts['p3_evidence_ready'],
+            'p3_evidence_drafts' => array_slice(is_array($payload['p3_evidence_drafts'] ?? null) ? $payload['p3_evidence_drafts'] : [], 0, 20),
+            'p3_evidence_matrix' => is_array($payload['p3_evidence_matrix'] ?? null) ? $payload['p3_evidence_matrix'] : null,
+            'auth_status' => $payload['auth_status'] ?? null,
+            'capture_gate' => $payload['capture_gate'] ?? null,
+            'capture_gate_warning' => $captureGateWarning,
+            'capture_audit' => $payload['capture_audit'] ?? null,
+            'approved_mappings' => $payload['approved_mappings'] ?? ['configured' => (bool)$approvedMappings['configured']],
+            'modules' => $saveResult['modules'],
+            'output' => $outputPath,
+            'pages' => $payload['pages'] ?? [],
+            'xhr_urls' => array_slice($payload['xhr_urls'] ?? [], 0, 20),
+            'screenshots' => $payload['screenshots'] ?? [],
+            'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+        ]);
+        if ($dataSourceBinding !== null) {
+            $responsePayload['data_source'] = $dataSourceBinding;
+            $responsePayload['data_source_binding'] = ['status' => 'success', 'data_source_id' => (int)($dataSourceBinding['id'] ?? 0)];
+        } elseif ($dataSourceBindingError !== '') {
+            $responsePayload['data_source_binding'] = ['status' => 'failed', 'message' => $dataSourceBindingError];
+        }
+
+        return $this->success($responsePayload, $savedCount > 0 ? '携程浏览器 Profile 采集完成并已入库' : '携程浏览器 Profile 采集完成，但未解析到可入库数据');
+    }
+
+    public function validateCtripEndpointEvidence(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $projectRoot = dirname(__DIR__, 2);
+            $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'validate_ctrip_endpoint_evidence.mjs';
+            if (!is_file($scriptPath)) {
+                return $this->error('未找到携程接口证据校验脚本');
+            }
+
+            $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
+            if ($nodeBinary === '') {
+                return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
+            }
+
+            $requestData = $this->requestData();
+            $prepared = $this->prepareCtripEndpointEvidenceValidationFiles($requestData, $projectRoot);
+            $runResult = $this->runMeituanCaptureProcess([
+                $nodeBinary,
+                $scriptPath,
+                '--input=' . $prepared['input_path'],
+                '--output=' . $prepared['output_path'],
+                '--markdown=' . $prepared['markdown_path'],
+            ], $projectRoot, 60);
+
+            if (!$runResult['success']) {
+                return $this->error('携程接口证据校验失败: ' . str_replace('美团浏览器抓取', 'Node脚本', $runResult['message']), 400, [
+                    'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                    'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                ]);
+            }
+
+            $validation = $this->readLocalJsonFile($prepared['output_path']);
+            $catalogPreviewImport = $this->buildCtripEndpointEvidenceCatalogPreviewImportPlan($validation, $requestData);
+            if ($catalogPreviewImport['requested']) {
+                $requestData['_resolved_system_hotel_id'] = $this->resolveOnlineDataSystemHotelId(
+                    $requestData['system_hotel_id']
+                    ?? $requestData['systemHotelId']
+                    ?? null
+                );
+                $catalogPreviewImport = $this->buildCtripEndpointEvidenceCatalogPreviewImportPlan($validation, $requestData);
+            }
+            $candidatePath = '';
+            $candidate = null;
+            $candidateError = '';
+            if (($validation['field_mapping_draft']['ready_for_mapping'] ?? false) === true) {
+                $promoteScript = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'promote_ctrip_mapping_draft.mjs';
+                if (is_file($promoteScript)) {
+                    $candidatePath = $prepared['candidate_path'];
+                    $promoteResult = $this->runMeituanCaptureProcess([
+                        $nodeBinary,
+                        $promoteScript,
+                        '--input=' . $prepared['output_path'],
+                        '--output=' . $candidatePath,
+                    ], $projectRoot, 60);
+                    if ($promoteResult['success'] && is_file($candidatePath)) {
+                        $candidate = $this->readLocalJsonFile($candidatePath);
+                    } else {
+                        $candidateError = trim((string)($promoteResult['stderr'] ?? $promoteResult['stdout'] ?? $promoteResult['message'] ?? '候选映射生成失败'));
+                        $candidatePath = '';
+                    }
+                }
+            }
+
+            if ($catalogPreviewImport['requested'] && $catalogPreviewImport['can_save']) {
+                $standardRows = $this->extractCtripStandardRows(
+                    ['standard_rows' => $catalogPreviewImport['rows']],
+                    (int)$catalogPreviewImport['system_hotel_id'],
+                    (string)$catalogPreviewImport['data_date'],
+                    (string)$catalogPreviewImport['request_hotel_id']
+                );
+                $catalogPreviewImport['saved_count'] = !empty($standardRows) ? $this->saveCtripStandardRows($standardRows) : 0;
+                $catalogPreviewImport['message'] = $catalogPreviewImport['saved_count'] > 0
+                    ? 'catalog preview standard rows saved'
+                    : 'catalog preview import requested but no rows were saved';
+            }
+
+            return $this->success($this->buildCtripEndpointEvidenceValidationPayload(
+                $validation,
+                $prepared,
+                $candidate,
+                $candidatePath,
+                $candidateError,
+                $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                $catalogPreviewImport
+            ), ($validation['evidence_status'] ?? '') === 'complete_redacted'
+                ? '携程接口证据完整，已生成待人工审核映射草案'
+                : '携程接口证据已校验，但仍缺少必要信息');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 400);
+        } catch (\Throwable $e) {
+            return $this->error('携程接口证据校验异常: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function ctripDiagnosisSnapshot(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $profileId = trim((string)($this->request->get('profile_id', $this->request->get('profileId', ''))));
+        $snapshot = $this->buildLatestCtripDiagnosisSnapshot($profileId);
+        if (empty($snapshot['available'])) {
+            return $this->error('暂无可用于诊断的携程采集快照，请先完成 Profile 采集或 Cookie 采集。', 404, $snapshot);
+        }
+
+        return $this->success($snapshot, '携程诊断快照读取完成');
+    }
+
+    public function ctripProfileStatus(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $requestData = array_merge($this->request->get(), $this->requestData());
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? null
+        );
+        $probeCookie = $this->isTruthyRequestValue($requestData['probe_cookie'] ?? $requestData['probeCookie'] ?? false);
+        $status = $this->buildCtripProfileStatus($requestData, $systemHotelId, $probeCookie);
+        if ($probeCookie && $systemHotelId !== null && !empty($status['profile_id'])) {
+            $this->cachePlatformProfileStatus('ctrip', (int)$systemHotelId, (string)$status['profile_id'], [
+                'checked_at' => date('Y-m-d H:i:s'),
+                'auth_status' => [
+                    'ok' => ($status['status'] ?? '') === 'ready',
+                    'status' => ($status['status'] ?? '') === 'ready' ? 'logged_in' : 'login_required',
+                    'message' => (string)($status['next_action'] ?? ''),
+                ],
+                'status_code' => ($status['status'] ?? '') === 'ready' ? 'logged_in' : 'login_expired',
+            ]);
+        }
+
+        return $this->success(
+            $status,
+            !empty($status['exists']) ? '携程 Profile 状态已读取' : '未找到携程 Profile'
+        );
+    }
+
+    public function meituanProfileStatus(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $requestData = array_merge($this->request->get(), $this->requestData());
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? null
+        );
+        $probeLogin = $this->isTruthyRequestValue($requestData['probe_login'] ?? $requestData['probeLogin'] ?? false);
+        $status = $this->buildMeituanProfileStatus($requestData, $systemHotelId, $probeLogin);
+
+        return $this->success(
+            $status,
+            !empty($status['exists']) ? '美团 Profile 状态已读取' : '未找到美团 Profile'
+        );
+    }
+
+    public function platformProfileStatus(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        $requestData = array_merge($this->request->get(), $this->requestData());
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? $requestData['hotel_id']
+            ?? $requestData['hotelId']
+            ?? null
+        );
+        if (!$systemHotelId) {
+            return $this->error('请选择酒店后查看平台账号状态', 400);
+        }
+
+        return $this->success($this->buildPlatformProfileStatus((int)$systemHotelId), '平台账号/Profile 状态已读取');
+    }
+
+    public function deletePlatformProfileBinding(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
+
+        $requestData = $this->requestData();
+        $platform = strtolower(trim((string)($requestData['platform'] ?? '')));
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            return $this->error('不支持的平台绑定类型', 400);
+        }
+
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? $requestData['hotel_id']
+            ?? $requestData['hotelId']
+            ?? null
+        );
+        if (!$systemHotelId) {
+            return $this->error('请选择酒店后解除平台 Profile 绑定', 400);
+        }
+
+        $profileKey = trim((string)(
+            $requestData['profile_key']
+            ?? $requestData['profileId']
+            ?? $requestData['profile_id']
+            ?? $requestData['storeId']
+            ?? $requestData['store_id']
+            ?? ''
+        ));
+        $sourceId = (int)($requestData['data_source_id'] ?? $requestData['source_id'] ?? 0);
+
+        try {
+            $source = $sourceId > 0
+                ? Db::name('platform_data_sources')->where('id', $sourceId)->find()
+                : $this->findBrowserProfileDataSourceForUnbind((int)$systemHotelId, $platform, $profileKey);
+            if (!$source || !is_array($source)) {
+                if ($profileKey === '') {
+                    return $this->error('未找到当前酒店可解除的平台 Profile 数据源绑定', 404);
+                }
+
+                $this->clearPlatformProfileStatusCache($platform, (int)$systemHotelId, $profileKey);
+                OperationLog::record(
+                    'online_data',
+                    'clear_platform_profile_status',
+                    '清除' . ($platform === 'ctrip' ? '携程' : '美团') . ' Profile状态缓存: ' . $profileKey,
+                    $this->currentUser->id,
+                    (int)$systemHotelId
+                );
+
+                return $this->success([
+                    'id' => null,
+                    'platform' => $platform,
+                    'system_hotel_id' => (int)$systemHotelId,
+                    'profile_key' => $profileKey,
+                    'cleared_status_cache' => true,
+                ], '未找到数据源绑定，已清除当前酒店的 Profile 登录状态缓存');
+            }
+            if ((int)($source['system_hotel_id'] ?? 0) !== (int)$systemHotelId
+                || strtolower((string)($source['platform'] ?? '')) !== $platform
+                || strtolower((string)($source['ingestion_method'] ?? '')) !== 'browser_profile') {
+                return $this->error('平台 Profile 绑定与当前酒店不匹配，已拒绝解除', 400);
+            }
+
+            $service = new PlatformDataSyncService();
+            $service->deleteDataSource($this->currentUser, (int)$source['id']);
+            $this->clearBrowserProfileStatusCacheForSource($source);
+            $this->clearAutoFetchLightProfileSourcesCache((int)($source['system_hotel_id'] ?? 0), (string)($source['platform'] ?? ''));
+            OperationLog::record(
+                'online_data',
+                'unbind_platform_profile',
+                '解除' . ($platform === 'ctrip' ? '携程' : '美团') . ' Profile绑定ID: ' . (int)$source['id'],
+                $this->currentUser->id,
+                (int)$systemHotelId
+            );
+
+            return $this->success([
+                'id' => (int)$source['id'],
+                'platform' => $platform,
+                'system_hotel_id' => (int)$systemHotelId,
+            ], 'Profile 绑定已解除');
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 400);
+        } catch (\Throwable $e) {
+            return $this->error('解除平台 Profile 绑定失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function triggerPlatformProfileLogin(string $platform): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $platform = strtolower(trim($platform));
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            return $this->error('不支持的平台登录类型', 400);
+        }
+
+        $requestData = $this->requestData();
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? $requestData['hotel_id']
+            ?? $requestData['hotelId']
+            ?? null
+        );
+        if (!$systemHotelId) {
+            return $this->error('请选择酒店后登录平台账号', 400);
+        }
+
+        $profileKey = $this->resolvePlatformProfileLoginProfileKey($platform, $requestData, (int)$systemHotelId);
+        if ($profileKey === '') {
+            return $this->error($platform === 'ctrip' ? '请填写携程 Profile ID 或酒店 ID' : '请填写美团 Store ID / POI ID', 400);
+        }
+
+        $requestData = $this->preparePlatformProfileLoginRequest($platform, $requestData, (int)$systemHotelId, $profileKey);
+
+        try {
+            $task = $this->createPlatformProfileLoginTask($platform, (int)$systemHotelId, $profileKey, $requestData);
+            if (!$this->launchPlatformProfileLoginTask($task)) {
+                $task = array_merge($task, [
+                    'status' => 'failed',
+                    'message' => '无法启动平台登录后台任务，请检查 PHP CLI / think 命令是否可用',
+                    'finished_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+                $this->cachePlatformProfileLoginTask($task);
+                return $this->error($task['message'], 500, $this->normalizePlatformProfileLoginTask($task));
+            }
+
+            OperationLog::record(
+                'online_data',
+                'trigger_profile_login',
+                '触发' . ($platform === 'ctrip' ? '携程' : '美团') . '平台账号登录: ' . $profileKey,
+                $this->currentUser->id ?? null,
+                (int)$systemHotelId
+            );
+
+            return $this->success(
+                $this->normalizePlatformProfileLoginTask($task),
+                ($platform === 'ctrip' ? '携程' : '美团') . '登录任务已启动，请在弹出的浏览器中完成验证'
+            );
+        } catch (\Throwable $e) {
+            return $this->error('启动平台登录失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function platformProfileLoginStatus(string $platform): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        $platform = strtolower(trim($platform));
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            return $this->error('不支持的平台登录类型', 400);
+        }
+
+        $requestData = array_merge($this->request->get(), $this->requestData());
+        $taskId = trim((string)($requestData['task_id'] ?? $requestData['taskId'] ?? ''));
+        if ($taskId !== '') {
+            $task = $this->readPlatformProfileLoginTask($taskId);
+            if ($task === []) {
+                return $this->error('未找到平台登录任务', 404);
+            }
+        } else {
+            $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+                $requestData['system_hotel_id']
+                ?? $requestData['systemHotelId']
+                ?? $requestData['hotel_id']
+                ?? $requestData['hotelId']
+                ?? null
+            );
+            $profileKey = $systemHotelId
+                ? $this->resolvePlatformProfileLoginProfileKey($platform, $requestData, (int)$systemHotelId)
+                : '';
+            if (!$systemHotelId || $profileKey === '') {
+                return $this->success([
+                    'status' => 'idle',
+                    'status_text' => '暂无登录任务',
+                    'done' => true,
+                    'message' => '暂无登录任务',
+                ], '暂无登录任务');
+            }
+            $task = $this->readPlatformProfileLoginCurrentTask($platform, (int)$systemHotelId, $profileKey);
+            if ($task === []) {
+                return $this->success([
+                    'status' => 'idle',
+                    'status_text' => '暂无登录任务',
+                    'done' => true,
+                    'platform' => $platform,
+                    'system_hotel_id' => (int)$systemHotelId,
+                    'profile_key' => $profileKey,
+                    'message' => '暂无登录任务',
+                ], '暂无登录任务');
+            }
+        }
+
+        if (($task['platform'] ?? '') !== $platform) {
+            return $this->error('登录任务平台不匹配', 400);
+        }
+
+        $taskHotelId = (int)($task['system_hotel_id'] ?? 0);
+        if ($taskHotelId > 0 && $this->resolveOnlineDataSystemHotelId($taskHotelId) !== $taskHotelId) {
+            return $this->error('无权查看该酒店登录任务', 403);
+        }
+
+        return $this->success($this->normalizePlatformProfileLoginTask($task), '平台登录任务状态已读取');
+    }
+
+    public function fetchCtripCookieApiData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $requestData = $this->requestData();
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? null
+        );
+        $autoSave = !array_key_exists('auto_save', $requestData) && !array_key_exists('autoSave', $requestData)
+            ? true
+            : $this->isTruthyRequestValue($requestData['auto_save'] ?? $requestData['autoSave'] ?? false);
+        if ($autoSave && $systemHotelId === null) {
+            return $this->error('保存携程 Cookie API 采集结果需要指定 system_hotel_id', 400);
+        }
+
+        $cookies = $this->readCtripCookieHeaderFromRequest($requestData);
+
+        try {
+            $projectRoot = dirname(__DIR__, 2);
+            $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_cookie_api_capture.mjs';
+            if (!is_file($scriptPath)) {
+                return $this->error('未找到携程 Cookie API 采集脚本', 500);
+            }
+
+            $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
+            if ($nodeBinary === '') {
+                return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY', 500);
+            }
+
+            $prepared = $this->prepareCtripCookieApiCaptureFiles($requestData, $projectRoot, $systemHotelId);
+            $profileCookieMeta = null;
+            if ($cookies !== '') {
+                $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'ctrip_api', (int)($systemHotelId ?? 0), $cookies);
+            } else {
+                $profileCookieMeta = $this->createCtripCookieApiCookieFileFromProfile($requestData, $projectRoot, (int)($systemHotelId ?? 0));
+                $cookieFile = (string)($profileCookieMeta['cookie_file'] ?? '');
+            }
+            if ($cookieFile === '') {
+                return $this->error('无法创建携程 Cookie 临时文件', 500);
+            }
+
+            try {
+                $runResult = $this->runMeituanCaptureProcess([
+                    $nodeBinary,
+                    $scriptPath,
+                    '--input=' . $prepared['input_path'],
+                    '--cookies-file=' . $cookieFile,
+                    '--output=' . $prepared['output_path'],
+                ], $projectRoot, 90);
+            } finally {
+                $this->removeAutoFetchCookieFile($cookieFile);
+                @unlink($prepared['input_path']);
+            }
+
+            if (!$runResult['success']) {
+                return $this->error('携程 Cookie API 采集失败: ' . str_replace('美团浏览器抓取', 'Node脚本', $runResult['message']), 400, [
+                    'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                    'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                    'output' => $prepared['output_path'],
+                ]);
+            }
+
+            $payload = $this->readLocalJsonFile($prepared['output_path']);
+            $capturedCounts = $this->buildCtripCaptureCounts($payload);
+            $saveResult = [
+                'saved_count' => 0,
+                'business_saved' => 0,
+                'traffic_saved' => 0,
+                'standard_saved' => 0,
+                'modules' => [],
+            ];
+            if ($autoSave) {
+                $identityCheck = $this->validateCtripPayloadHotelIdentity($payload, (int)$systemHotelId, $prepared['config'] ?? []);
+                if (empty($identityCheck['ok'])) {
+                    return $this->error((string)$identityCheck['message'], 409, [
+                        'reason' => 'hotel_identity_mismatch',
+                        'identity_check' => $identityCheck,
+                        'saved_count' => 0,
+                        'row_count' => (int)$capturedCounts['standard_rows'],
+                        'output' => $prepared['output_path'],
+                    ]);
+                }
+                $requestHotelId = trim((string)($payload['hotel_id'] ?? $prepared['config']['hotel_id'] ?? $systemHotelId ?? ''));
+                $dataDate = $this->normalizeOnlineDataDate($payload['default_data_date'] ?? $prepared['config']['data_date'] ?? '');
+                if ($dataDate === '') {
+                    $dataDate = date('Y-m-d');
+                }
+                $saveResult = $this->saveCtripBrowserProfilePayload($payload, (int)$systemHotelId, $dataDate, $requestHotelId);
+            }
+
+            $readiness = $this->buildCtripCookieApiReadiness($payload, $capturedCounts, $saveResult, $autoSave);
+
+            if ($this->currentUser && isset($this->currentUser->id)) {
+                OperationLog::record(
+                    'online_data',
+                    'fetch_ctrip_cookie_api',
+                    'Fetch Ctrip data by Cookie and API request list',
+                    $this->currentUser->id,
+                    $systemHotelId
+                );
+            }
+
+            return $this->success([
+                'status' => $readiness['status'],
+                'is_ready' => $readiness['is_ready'],
+                'next_action' => $readiness['next_action'],
+                'warning' => $readiness['warning'],
+                'auth_status' => $payload['auth_status'] ?? null,
+                'saved_count' => (int)($saveResult['saved_count'] ?? 0),
+                'row_count' => (int)$capturedCounts['standard_rows'],
+                'counts' => [
+                    'business' => (int)($saveResult['business_saved'] ?? 0),
+                    'traffic' => (int)($saveResult['traffic_saved'] ?? 0),
+                    'standard_rows' => (int)($saveResult['standard_saved'] ?? 0),
+                ],
+                'captured_counts' => $capturedCounts,
+                'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
+                'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
+                'standard_section_counts' => $capturedCounts['standard_by_section'],
+                'request_count' => count($prepared['config']['endpoints'] ?? []),
+                'cookie_source' => $cookies !== '' ? 'request' : 'browser_profile',
+                'profile_cookie_meta' => $profileCookieMeta ? [
+                    'profile_id' => (string)($profileCookieMeta['profile_id'] ?? ''),
+                    'cookie_count' => (int)($profileCookieMeta['cookie_count'] ?? 0),
+                    'skipped_count' => (int)($profileCookieMeta['skipped_count'] ?? 0),
+                ] : null,
+                'responses' => array_slice(is_array($payload['responses'] ?? null) ? $payload['responses'] : [], 0, 20),
+                'errors' => is_array($payload['errors'] ?? null) ? $payload['errors'] : [],
+                'output' => $prepared['output_path'],
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+            ], $readiness['is_ready'] ? '携程 Cookie API 采集完成' : '携程 Cookie API 未达到诊断就绪');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 400);
+        } catch (\Throwable $e) {
+            return $this->error('携程 Cookie API 采集异常: ' . $e->getMessage(), 500);
+        }
+    }
+
+    private function buildCtripEndpointEvidenceCatalogPreviewImportPlan(array $validation, array $requestData): array
+    {
+        $requested = $this->isCtripEndpointEvidenceCatalogPreviewImportRequested($requestData);
+        $preview = is_array($validation['catalog_preview'] ?? null) ? $validation['catalog_preview'] : [];
+        $rows = array_values(array_filter(
+            is_array($preview['standard_rows'] ?? null) ? $preview['standard_rows'] : [],
+            static fn($row): bool => is_array($row)
+        ));
+
+        $systemHotelId = $this->readPositiveInt($requestData['_resolved_system_hotel_id'] ?? $requestData['system_hotel_id'] ?? $requestData['systemHotelId'] ?? null);
+        $dataDate = $this->normalizeOnlineDataDate(
+            $requestData['data_date']
+            ?? $requestData['dataDate']
+            ?? $requestData['report_date']
+            ?? $requestData['reportDate']
+            ?? ($rows[0]['data_date'] ?? '')
+        );
+        $requestHotelId = trim((string)(
+            $requestData['request_hotel_id']
+            ?? $requestData['requestHotelId']
+            ?? $requestData['ctrip_hotel_id']
+            ?? $requestData['ctripHotelId']
+            ?? ($rows[0]['hotel_id'] ?? '')
+        ));
+
+        $available = !empty($rows);
+        $catalogReady = (bool)($validation['catalog_ready'] ?? false);
+        $safeToCatalog = (bool)($validation['safe_to_catalog'] ?? false);
+        $canSave = $requested
+            && $available
+            && $catalogReady
+            && $safeToCatalog
+            && $systemHotelId !== null
+            && $dataDate !== '';
+
+        $message = 'preview only';
+        if ($requested && !$available) {
+            $message = 'catalog preview has no standard rows';
+        } elseif ($requested && (!$catalogReady || !$safeToCatalog)) {
+            $message = 'catalog preview is not catalog ready';
+        } elseif ($requested && $systemHotelId === null) {
+            $message = 'missing system_hotel_id for catalog preview import';
+        } elseif ($requested && $dataDate === '') {
+            $message = 'missing data_date for catalog preview import';
+        } elseif ($canSave) {
+            $message = 'catalog preview import ready';
+        }
+
+        return [
+            'requested' => $requested,
+            'available' => $available,
+            'can_save' => $canSave,
+            'row_count' => count($rows),
+            'saved_count' => 0,
+            'system_hotel_id' => $systemHotelId,
+            'data_date' => $dataDate,
+            'request_hotel_id' => $requestHotelId,
+            'rows' => $canSave ? $rows : [],
+            'message' => $message,
+        ];
+    }
+
+    private function isCtripEndpointEvidenceCatalogPreviewImportRequested(array $requestData): bool
+    {
+        foreach (['save_standard_rows', 'saveStandardRows', 'import_catalog_preview', 'importCatalogPreview', 'save_catalog_preview', 'saveCatalogPreview'] as $key) {
+            if (array_key_exists($key, $requestData) && $this->isTruthyRequestValue($requestData[$key])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isTruthyRequestValue($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (float)$value !== 0.0;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'y', 'on', 'save', 'import'], true);
+        }
+
+        return false;
+    }
+
+    private function isFalseRequestValue($value): bool
+    {
+        if (is_bool($value)) {
+            return !$value;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (float)$value === 0.0;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower(trim($value)), ['0', 'false', 'no', 'n', 'off', 'light'], true);
+        }
+
+        return false;
+    }
+
+    private function readPositiveInt($value): ?int
+    {
+        if ($value === null || $value === '' || !is_numeric($value) || (int)$value <= 0) {
+            return null;
+        }
+
+        return (int)$value;
+    }
+
+    private function buildCtripEndpointEvidenceValidationPayload(array $validation, array $prepared, ?array $candidate, string $candidatePath, string $candidateError, string $stdout, ?array $catalogPreviewImport = null): array
+    {
+        return [
+            'evidence_status' => $validation['evidence_status'] ?? 'unknown',
+            'catalog_ready' => (bool)($validation['catalog_ready'] ?? false),
+            'safe_to_catalog' => (bool)($validation['safe_to_catalog'] ?? false),
+            'candidate_section' => $validation['candidate_section'] ?? '',
+            'candidate_label' => $validation['candidate_label'] ?? '',
+            'data_type' => $validation['data_type'] ?? '',
+            'missing_evidence' => $validation['missing_evidence'] ?? [],
+            'field_mapping_draft' => $validation['field_mapping_draft'] ?? [],
+            'catalog_preview' => $validation['catalog_preview'] ?? null,
+            'paths' => [
+                'input' => $prepared['input_path'] ?? '',
+                'output' => $prepared['output_path'] ?? '',
+                'markdown' => $prepared['markdown_path'] ?? '',
+                'candidate_mapping' => $candidatePath,
+            ],
+            'candidate_mapping' => $candidate,
+            'candidate_error' => $candidateError,
+            'stdout' => $stdout,
+            'catalog_preview_import' => $catalogPreviewImport,
+        ];
+    }
+
+    public function fetchCtripOverviewData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $requestData = $this->requestData();
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? null
+        );
+        $hotelId = trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? $requestData['ctripHotelId'] ?? ''));
+        $hotelName = trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? ''));
+        $cookies = trim((string)($requestData['cookies'] ?? $requestData['cookie'] ?? ''));
+        $requestUrls = $this->normalizeCtripOverviewRequestUrls($requestData['request_urls'] ?? $requestData['requestUrls'] ?? $requestData['url'] ?? '');
+        $payloadJson = trim((string)($requestData['payload_json'] ?? $requestData['payloadJson'] ?? ''));
+        $method = strtoupper(trim((string)($requestData['method'] ?? 'GET')));
+        $spidertoken = trim((string)($requestData['spidertoken'] ?? $requestData['token'] ?? ''));
+        $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
+        if ($dataDate === '') {
+            $dataDate = date('Y-m-d', strtotime('-1 day'));
+        }
+
+        if ($cookies === '') {
+            return $this->error('请提供携程 Cookie');
+        }
+        if (empty($requestUrls)) {
+            return $this->error('请填写 Network 中今日概况相关 JSON 接口 Request URL');
+        }
+        if ($method !== 'GET' && $method !== 'POST') {
+            return $this->error('今日概况接口请求方式仅支持 POST 或 GET');
+        }
+
+        try {
+            $basePayload = $payloadJson !== '' ? $this->parseJsonParams($payloadJson) : [];
+        } catch (\Throwable $e) {
+            return $this->error('Payload JSON格式错误');
+        }
+        $basePayload = $this->buildCtripOverviewRequestPayload($basePayload, $hotelId, $dataDate);
+
+        $responses = [];
+        $errors = [];
+        $xhrUrls = [];
+        foreach ($requestUrls as $requestUrl) {
+            if (preg_match('#/datacenter/inland/businessreport/outline(?:\?|$)#i', $requestUrl)) {
+                $errors[] = '不能填写今日概况页面地址，请填写 Network 中的 JSON 接口 URL';
+                continue;
+            }
+            if (!$this->isAllowedOtaRequestUrl($requestUrl, ['ctrip.com'])) {
+                $errors[] = '仅允许请求携程官方域名: ' . $requestUrl;
+                continue;
+            }
+            if (!$this->isCtripOverviewApiUrl($requestUrl)) {
+                $errors[] = '今日概况接口 URL 必须命中指定接口: ' . $requestUrl;
+                continue;
+            }
+
+            $result = $this->sendCtripOverviewRequest($requestUrl, $basePayload, $cookies, $method, $spidertoken);
+            $xhrUrls[] = ['url' => $requestUrl, 'status' => (int)($result['http_code'] ?? 0), 'request_type' => strtolower($method)];
+            if (!empty($result['error'])) {
+                $errors[] = $result['error'];
+                continue;
+            }
+            $responses[] = [
+                'url' => $requestUrl,
+                'section' => 'business',
+                'status' => (int)($result['http_code'] ?? 200),
+                'request_type' => strtolower($method),
+                'data' => $result['decoded_data'] ?? [],
+            ];
+        }
+
+        if (empty($responses) && !empty($errors)) {
+            return $this->error('携程今日概况接口请求失败: ' . implode('；', array_slice($errors, 0, 3)), 400, [
+                'errors' => $errors,
+                'request_urls' => $requestUrls,
+            ]);
+        }
+
+        $overviewHotelId = $hotelId !== ''
+            ? $hotelId
+            : $this->inferCtripOverviewHotelIdFromResponses($responses, $systemHotelId ? (string)$systemHotelId : '');
+
+        $payload = [
+            'hotel_id' => $overviewHotelId,
+            'hotel_name' => $hotelName,
+            'system_hotel_id' => $systemHotelId,
+            'default_data_date' => $dataDate,
+            'source' => 'ctrip_manual_overview',
+            'captured_at' => date('Y-m-d H:i:s'),
+            'responses' => $responses,
+            'xhr_urls' => $xhrUrls,
+        ];
+        $overviewRows = $this->collectCtripOverviewRows($payload, $overviewHotelId, $dataDate);
+        $savedCount = $this->saveCtripOverviewRows($overviewRows, $dataDate, $systemHotelId ? (int)$systemHotelId : null);
+
+        if ($this->currentUser && isset($this->currentUser->id)) {
+            OperationLog::record(
+                'online_data',
+                'fetch_ctrip_overview',
+                'Fetch Ctrip today overview by manual cookie and API URL',
+                $this->currentUser->id,
+                $systemHotelId ? (int)$systemHotelId : null
+            );
+        }
+
+        return $this->success([
+            'data' => $overviewRows,
+            'total' => count($overviewRows),
+            'saved_count' => $savedCount,
+            'row_count' => count($overviewRows),
+            'counts' => ['overview' => count($overviewRows)],
+            'metrics' => $this->summarizeCtripOverviewRows($overviewRows),
+            'payload_counts' => [
+                'responses' => count($responses),
+                'xhr_urls' => count($xhrUrls),
+            ],
+            'request_urls' => $requestUrls,
+            'errors' => $errors,
+        ], $savedCount > 0 ? '携程今日概况获取完成并已入库' : '携程今日概况获取完成，但未解析到可入库概况数据');
+    }
+
+    public function fetchCustom(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $url = $this->request->post('url', '');
+        $method = $this->request->post('method', 'GET');
+        $headers = $this->request->post('headers', '');
+        $body = $this->request->post('body', '');
+
+        if (empty($url)) {
+            return $this->error('请提供URL');
+        }
+        if (!$this->isAllowedOtaRequestUrl($url, ['ctrip.com', 'ctripbiz.com', 'ctripbiz.cn', 'meituan.com'])) {
+            return $this->error('仅允许请求携程、携程商旅或美团官方域名');
+        }
+
+        try {
+            $result = $this->sendCustomRequest($url, $method, $headers, $body);
+
+            if ($result['success']) {
+                OperationLog::record('online_data', 'fetch_custom', '获取自定义线上数据: ' . $url, $this->currentUser->id);
+                return $this->success([
+                    'data' => $result['data'],
+                    'status' => $result['status'],
+                    'headers' => $result['response_headers'],
+                ]);
+            } else {
+                return $this->error('请求失败: ' . $result['error']);
+            }
+        } catch (\Exception $e) {
+            return $this->error('请求异常: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * 接收来自书签脚本的Cookies（跨域请求）
+     * 不需要常规认证，通过 Authorization 头中的 token 识别用户
+     */
+    /**
+     * 返回CORS错误响应
+     */
+    /**
+     * 返回CORS成功响应
+     */
+    /**
+     * Public OTA endpoints bypass the auth middleware, so they keep a small
+     * independent rate gate and audit trail. Do not store Cookie/token values.
+     *
+     * @return array<string, mixed>|null
+     */
+    /**
+     * @param array<string, mixed> $extra
+     */
+    /**
+     * 获取书签脚本代码
+     */
+    /**
+     * 保存Cookies配置（按门店隔离）
+     */
+    /**
+     * 获取已保存的Cookies列表（按门店隔离）
+     */
+    /**
+     * 删除Cookies配置（按门店隔离）
+     */
+    /**
+     * 批量删除Cookies配置（按门店隔离）
+     */
+    /**
+     * 保存美团配置（API地址、Partner ID、POI ID、排名类型、时间维度、Cookies等）
+     */
+    /**
+     * 获取美团配置
+     */
+    /**
+     * 保存美团配置（列表方式，支持多个配置）
+     */
+    /**
+     * 获取美团配置列表
+     */
+    /**
+     * 删除美团配置
+     */
+    /**
+     * 保存美团点评配置（优化版）
+     */
+    /**
+     * 获取美团点评配置列表
+     */
+    /**
+     * 生成美团一键获取Cookies书签脚本
+     */
+
+    public function saveCtripConfig(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $requestData = $this->requestData();
+            $id = trim((string)($requestData['id'] ?? $this->request->post('id', '')));
+            $name = trim((string)($requestData['name'] ?? $this->request->post('name', '')));
+            $cookies = (string)($requestData['cookies'] ?? $this->request->post('cookies', ''));
+
+            if ($name === '' || trim($cookies) === '') {
+                return json(['code' => 400, 'message' => '配置名称和Cookies不能为空']);
+            }
+
+            // 读取现有配置，编辑时复用原 ID
+            $key = 'ctrip_config_list';
+            $existing = \think\facade\Db::name('system_configs')->where('config_key', $key)->find();
+            $list = [];
+            if ($existing) {
+                $list = json_decode($existing['config_value'], true) ?: [];
+            }
+
+            if ($id !== '') {
+                if (!isset($list[$id])) {
+                    return $this->error('配置不存在');
+                }
+                if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
+                    return $this->error('无权修改此配置');
+                }
+            } else {
+                $id = 'ctrip_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
+            }
+
+            // 非超级管理员保存时记录 user_id；超级管理员编辑旧配置时保留原归属
+            $originalConfig = $list[$id] ?? [];
+            $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
+            $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($requestData['hotel_id'] ?? ($originalConfig['hotel_id'] ?? ($originalConfig['system_hotel_id'] ?? null)));
+            $hotelIdValue = $resolvedHotelId !== null ? (string)$resolvedHotelId : '';
+            $ctripHotelId = trim((string)(
+                $requestData['ctrip_hotel_id']
+                ?? $requestData['ctripHotelId']
+                ?? $requestData['ota_hotel_id']
+                ?? $requestData['otaHotelId']
+                ?? $originalConfig['ctrip_hotel_id']
+                ?? $originalConfig['ctripHotelId']
+                ?? $originalConfig['ota_hotel_id']
+                ?? $originalConfig['otaHotelId']
+                ?? ''
+            ));
+            $captureOptions = $this->buildCtripProfileCaptureConfigOptions($requestData, $originalConfig);
+            if ($captureOptions['approved_mappings_path'] !== '') {
+                $mappingCheck = $this->resolveCtripApprovedMappingsPath(['approved_mappings_path' => $captureOptions['approved_mappings_path']], dirname(__DIR__, 2));
+                if ($mappingCheck['path'] === '') {
+                    return $this->error((string)$mappingCheck['error'], 400);
+                }
+            }
+
+            $config = array_merge($originalConfig, [
+                'id' => $id,
+                'name' => $name,
+                'cookies' => $cookies,
+                'hotel_id' => $hotelIdValue,
+                'system_hotel_id' => $resolvedHotelId,
+                'ctrip_hotel_id' => $ctripHotelId,
+                'ctripHotelId' => $ctripHotelId,
+                'ota_hotel_id' => $ctripHotelId,
+                'url' => $requestData['url'] ?? ($originalConfig['url'] ?? ''),
+                'node_id' => $requestData['node_id'] ?? ($originalConfig['node_id'] ?? ''),
+                'user_id' => $userId,
+                'update_time' => date('Y-m-d H:i:s'),
+                'created_at' => $originalConfig['created_at'] ?? date('Y-m-d H:i:s'),
+            ], $captureOptions);
+            $config = $this->normalizeOtaConfigHotelBinding($config, 'ctrip');
+
+            $list[$id] = $config;
+
+            $jsonValue = json_encode($list, JSON_UNESCAPED_UNICODE);
+
+            if ($existing) {
+                \think\facade\Db::name('system_configs')->where('config_key', $key)->update([
+                    'config_value' => $jsonValue,
+                    'update_time' => date('Y-m-d H:i:s'),
+                ]);
+            } else {
+                \think\facade\Db::name('system_configs')->insert([
+                    'config_key' => $key,
+                    'config_value' => $jsonValue,
+                    'description' => '携程配置列表',
+                    'create_time' => date('Y-m-d H:i:s'),
+                    'update_time' => date('Y-m-d H:i:s'),
+                ]);
+            }
+
+            $this->clearAutoFetchLightConfigListCache('ctrip');
+            return json(['code' => 200, 'message' => '配置保存成功', 'data' => $this->sanitizeSecretConfig($config)]);
+        } catch (\Exception $e) {
+            \think\facade\Log::error('保存携程配置异常: ' . $e->getMessage());
+            return json(['code' => 500, 'message' => '保存失败: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * 获取携程配置列表
+     */
+    public function getCtripConfigList(): Response
+    {
+        // 仅检查登录状态，不强制要求酒店关联（配置读取不需要绑定酒店）
+        if (!$this->currentUser || !$this->currentUser->id) {
+            return json(['code' => 401, 'message' => '未登录']);
+        }
+
+        try {
+            $key = 'ctrip_config_list';
+            $raw = \think\facade\Db::name('system_configs')->where('config_key', $key)->value('config_value');
+            $list = $raw ? json_decode($raw, true) : [];
+            if (!is_array($list)) {
+                $list = [];
+            }
+            $list = $this->normalizeStoredOtaConfigList('system_configs', $key, $list, 'ctrip');
+
+            $list = $this->filterOtaConfigListForCurrentUser($list);
+
+            usort($list, function($a, $b) {
+                return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
+            });
+
+            return $this->success(array_map([$this, 'sanitizeSecretConfig'], array_values($list)));
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('获取携程配置列表失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('获取携程配置列表失败', 500);
+        }
+    }
+
+    public function getCtripConfigDetail(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $id = trim((string)$this->request->get('id', ''));
+        if ($id === '') {
+            return $this->error('Config id is required.');
+        }
+
+        $key = 'ctrip_config_list';
+        $raw = \think\facade\Db::name('system_configs')->where('config_key', $key)->value('config_value');
+        $list = $raw ? json_decode((string)$raw, true) : [];
+        if (!is_array($list)) {
+            $list = [];
+        }
+        $list = $this->normalizeStoredOtaConfigList('system_configs', $key, $list, 'ctrip');
+
+        if (!isset($list[$id])) {
+            return $this->error('Config not found.', 404);
+        }
+        if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
+            return $this->error('Forbidden', 403);
+        }
+
+        return $this->success($list[$id]);
+    }
+
+    /**
+     * 删除携程配置
+     */
+    public function deleteCtripConfig(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
+
+        $id = $this->request->param('id', '');
+        if (empty($id)) {
+            return $this->error('配置ID不能为空');
+        }
+
+        $key = 'ctrip_config_list';
+        $existing = \think\facade\Db::name('system_configs')->where('config_key', $key)->find();
+        if (!$existing) {
+            return $this->error('配置不存在');
+        }
+
+        $list = json_decode($existing['config_value'], true) ?: [];
+        $list = $this->normalizeStoredOtaConfigList('system_configs', $key, $list, 'ctrip');
+
+        if (!isset($list[$id])) {
+            return $this->error('配置不存在');
+        }
+
+        if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
+            return $this->error('无权删除此配置');
+        }
+
+        $name = $list[$id]['name'] ?? '';
+        unset($list[$id]);
+        \think\facade\Db::name('system_configs')->where('config_key', $key)->update([
+            'config_value' => json_encode($list, JSON_UNESCAPED_UNICODE),
+            'update_time' => date('Y-m-d H:i:s'),
+        ]);
+        $this->clearAutoFetchLightConfigListCache('ctrip');
+
+        OperationLog::record('online_data', 'delete_ctrip_config', "删除携程配置: {$name}", $this->currentUser->id);
+
+        return $this->success(null, '删除成功');
+    }
+
+    /**
+     * 生成携程一键获取Cookies书签脚本
+     */
+    public function generateCtripBookmarklet(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $token = $this->extractTokenFromAuthorizationHeader((string)$this->request->header('Authorization', ''));
+        if ($token === '') {
+            return $this->error('缺少Token', 401);
+        }
+
+        $script = $this->buildCookieBookmarkletScript($token, 'ctrip_config');
+        $script = preg_replace('/\s+/', ' ', $script);
+
+        return $this->success([
+            'script' => $script,
+            'bookmarklet' => 'javascript:' . $script,
+        ]);
+    }
+
+    /**
+     * 自动捕获携程Cookie（从请求头中获取）
+     */
+    public function autoCaptureCtripCookie(): Response
+    {
+        // 允许跨域请求
+        header('Access-Control-Allow-Origin: https://ebooking.ctrip.com');
+        header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type, Authorization');
+        header('Access-Control-Allow-Credentials: true');
+
+        // 处理 OPTIONS 预检请求
+        if ($this->request->method() === 'OPTIONS') {
+            return $this->success([]);
+        }
+
+        // 从请求头中获取 Cookie
+        $cookieHeader = $this->request->header('cookie', '');
+
+        if (empty($cookieHeader)) {
+            return $this->error('未能获取到Cookie，请确保在携程页面执行此操作');
+        }
+
+        // 检查关键 Cookie
+        if (strpos($cookieHeader, 'usertoken') === false && strpos($cookieHeader, 'usersign') === false) {
+            return $this->error('Cookie中缺少关键认证信息(usertoken/usersign)，请确保已登录携程ebooking');
+        }
+
+        return $this->error('此方法已弃用，请使用书签脚本');
+    }
+
+    /**
+     * 通过书签保存携程配置（接收Cookie数据）
+     */
+    public function saveCtripConfigByBookmark(): Response
+    {
+        // 允许跨域请求
+        header('Access-Control-Allow-Origin: https://ebooking.ctrip.com');
+        header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type, Authorization');
+        header('Access-Control-Allow-Credentials: true');
+
+        // 处理 OPTIONS 预检请求
+        if ($this->request->method() === 'OPTIONS') {
+            return $this->success([]);
+        }
+
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        // 获取请求数据
+        $rawInput = file_get_contents('php://input');
+        $data = json_decode($rawInput, true);
+
+        if (!$data) {
+            return $this->error('无效的请求数据');
+        }
+
+        $name = $data['name'] ?? '携程配置_' . date('Y-m-d');
+        $cookies = $data['cookies'] ?? '';
+        $authData = $data['auth_data'] ?? [];
+        $uid = $data['uid'] ?? null;
+        $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($data['hotel_id'] ?? ($data['system_hotel_id'] ?? null));
+        $hotelIdValue = $resolvedHotelId !== null ? (string)$resolvedHotelId : '';
+        $userId = $this->currentUser->isSuperAdmin() ? null : $this->currentUser->id;
+
+        if (empty($cookies)) {
+            return $this->error('Cookie不能为空');
+        }
+
+        // 获取配置列表
+        $key = 'ctrip_config_list';
+        $list = $this->getConfigList($key);
+
+        // 生成唯一ID
+        $id = 'ctrip_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
+
+        // 解析Cookie为对象
+        $cookieObj = [];
+        $cookiePairs = explode(';', $cookies);
+        foreach ($cookiePairs as $pair) {
+            $kv = array_map('trim', explode('=', $pair, 2));
+            if (count($kv) === 2) {
+                $cookieObj[$kv[0]] = $kv[1];
+            }
+        }
+
+        // 构建完整的auth_data
+        if (empty($authData)) {
+            $authData = [
+                'cookieObj' => $cookieObj,
+                'xCtxCurrency' => $cookieObj['cookiePricesDisplayed'] ?? 'CNY',
+                'xCtxLocale' => 'zh-CN',
+                'xCtxUbtPageid' => $cookieObj['GUID'] ?? '',
+                'xCtxUbtVid' => $cookieObj['UBT_VID'] ?? '',
+                'xCtxUbtSid' => '',
+                'xCtxUbtPvid' => '',
+                'xCtxWclientReq' => substr(md5(uniqid()), 0, 32),
+            ];
+        }
+
+        $config = array_merge([
+            'id' => $id,
+            'name' => $name,
+            'hotel_id' => $hotelIdValue,
+            'system_hotel_id' => $resolvedHotelId,
+            'hotel_name' => '',
+            'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+            'node_id' => '24588',
+            'cookies' => $cookies,
+            'auth_data' => $authData,
+            'user_id' => $userId,
+            'update_time' => date('Y-m-d H:i:s'),
+            'created_at' => date('Y-m-d H:i:s'),
+        ], $this->buildCtripProfileCaptureConfigOptions($data, []));
+        $config = $this->normalizeOtaConfigHotelBinding($config, 'ctrip');
+        $list[$id] = $config;
+
+        $this->setConfigList($key, $list);
+        $this->clearAutoFetchLightConfigListCache('ctrip');
+
+        // 检查关键Cookie
+        $hasUsertoken = strpos($cookies, 'usertoken') !== false;
+        $hasUsersign = strpos($cookies, 'usersign') !== false;
+
+        return $this->success([
+            'id' => $id,
+            'has_usertoken' => $hasUsertoken,
+            'has_usersign' => $hasUsersign,
+        ], '配置保存成功');
+    }
+
+    /**
+     * 发送HTTP请求到携程ebooking（使用file_get_contents）
+     */
+    private function sendHttpRequest(string $url, array $postData, string $cookies, array $authData = []): array
+    {
+        if (!$this->isAllowedOtaRequestUrl($url, ['ctrip.com'])) {
+            return ['success' => false, 'error' => '仅允许请求携程官方域名'];
+        }
+
+        // 从authData中提取cookieObj
+        $cookieObj = $authData['cookieObj'] ?? [];
+
+        $headers = [
+            'Accept: */*',
+            'Accept-Encoding: gzip, deflate, br, zstd',
+            'Accept-Language: zh-CN,zh;q=0.9',
+            'Content-Type: application/x-www-form-urlencoded; charset=UTF-8',
+            'Origin: https://ebooking.ctrip.com',
+            'Referer: https://ebooking.ctrip.com/',
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+            'Cookie: ' . $cookies,
+            'cookieorigin: https://ebooking.ctrip.com',
+            'sec-ch-ua: "Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
+            'sec-ch-ua-mobile: ?0',
+            'sec-ch-ua-platform: "Windows"',
+            'sec-fetch-dest: empty',
+            'sec-fetch-mode: cors',
+            'sec-fetch-site: same-origin',
+        ];
+
+        // x-ctx 系列请求头 - 必须的
+        $headers[] = 'x-ctx-currency: ' . ($authData['xCtxCurrency'] ?? $cookieObj['cookiePricesDisplayed'] ?? 'CNY');
+        $headers[] = 'x-ctx-locale: ' . ($authData['xCtxLocale'] ?? 'zh-CN');
+        $headers[] = 'x-ctx-ubt-pageid: ' . ($authData['xCtxUbtPageid'] ?? $cookieObj['GUID'] ?? '');
+        $headers[] = 'x-ctx-ubt-vid: ' . ($authData['xCtxUbtVid'] ?? $cookieObj['UBT_VID'] ?? '');
+        $headers[] = 'x-ctx-ubt-sid: ' . ($authData['xCtxUbtSid'] ?? '');
+        $headers[] = 'x-ctx-ubt-pvid: ' . ($authData['xCtxUbtPvid'] ?? '');
+        $headers[] = 'x-ctx-wclient-req: ' . ($authData['xCtxWclientReq'] ?? substr(md5(uniqid()), 0, 32));
+
+        $headerStr = implode("\r\n", $headers);
+
+        $formContent = http_build_query($postData);
+
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'POST',
+                'header' => $headerStr,
+                'content' => $formContent,
+                'timeout' => 30,
+                'ignore_errors' => true,
+                'follow_location' => 0, // 不跟随重定向
+            ],
+            'ssl' => $this->buildStreamSslOptions(),
+        ]);
+
+        $response = @file_get_contents($url, false, $context);
+
+        if ($response === false) {
+            $error = error_get_last();
+            return [
+                'success' => false,
+                'error' => $error['message'] ?? 'Unknown error',
+            ];
+        }
+
+        // 解压gzip响应
+        $decodedResponse = $response;
+        if (substr($response, 0, 2) === "\x1f\x8b") {
+            $decodedResponse = gzdecode($response);
+        }
+
+        // 获取HTTP响应码
+        $httpCode = 0;
+        if (isset($http_response_header)) {
+            foreach ($http_response_header as $header) {
+                if (preg_match('/HTTP\/\d+\.?\d*\s+(\d+)/', $header, $matches)) {
+                    $httpCode = (int)$matches[1];
+                    break;
+                }
+            }
+        }
+
+        // 检查HTTP响应码
+        if ($httpCode !== 200) {
+            return [
+                'success' => false,
+                'error' => "HTTP错误: {$httpCode}" . ($httpCode === 302 ? ' (可能Cookie已失效，请重新登录携程)' : ''),
+                'http_code' => $httpCode,
+                'raw' => $decodedResponse,
+            ];
+        }
+
+        // 检查是否返回了HTML而不是JSON
+        if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', $decodedResponse)) {
+            return [
+                'success' => false,
+                'error' => '返回了HTML页面而非JSON数据（可能Cookie已过期或请求参数不一致，请重新获取）',
+                'http_code' => $httpCode,
+                'raw' => substr($decodedResponse, 0, 500),
+            ];
+        }
+
+        $decoded = json_decode($decodedResponse, true);
+
+        // JSON解析失败
+        if ($decoded === null && !empty($decodedResponse)) {
+            return [
+                'success' => false,
+                'error' => 'JSON解析失败: ' . json_last_error_msg(),
+                'http_code' => $httpCode,
+                'raw' => substr($decodedResponse, 0, 500),
+            ];
+        }
+
+        return [
+            'success' => true,
+            'data' => $decoded,
+            'raw' => $decodedResponse,
+            'http_code' => $httpCode,
+        ];
+    }
+
+    /**
+     * 发送携程流量 JSON 请求
+     */
+    private function sendCtripJsonRequest(string $url, array $postData, string $cookies): array
+    {
+        $emptyResult = [
+            'http_code' => 0,
+            'raw_response' => '',
+            'decoded_data' => null,
+            'error' => '',
+        ];
+
+        if (!$this->isAllowedOtaRequestUrl($url, ['ctrip.com'])) {
+            return array_merge($emptyResult, ['error' => '仅允许请求携程官方域名']);
+        }
+
+        if (!function_exists('curl_init')) {
+            return array_merge($emptyResult, ['error' => '服务器未启用 cURL，无法请求携程流量接口']);
+        }
+
+        $jsonPayload = json_encode($postData, JSON_UNESCAPED_UNICODE);
+        if ($jsonPayload === false) {
+            return array_merge($emptyResult, ['error' => '请求 Body JSON 编码失败: ' . json_last_error_msg()]);
+        }
+
+        $headers = [
+            'Accept: application/json, text/javascript, */*; q=0.01',
+            'Accept-Encoding: gzip, deflate, br',
+            'Accept-Language: zh-CN,zh;q=0.9',
+            'Content-Type: application/json',
+            'Origin: https://ebooking.ctrip.com',
+            'Referer: https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true',
+            'X-Requested-With: XMLHttpRequest',
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Cookie: ' . $cookies,
+        ];
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $jsonPayload,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => false,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_ENCODING => '',
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => $this->shouldVerifyOtaSsl(),
+            CURLOPT_SSL_VERIFYHOST => $this->shouldVerifyOtaSsl() ? 2 : 0,
+        ]);
+
+        $rawResponse = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $curlErrno = curl_errno($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+
+        if ($rawResponse === false) {
+            return [
+                'http_code' => $httpCode,
+                'raw_response' => '',
+                'decoded_data' => null,
+                'error' => '请求携程流量接口失败: ' . ($curlError ?: 'cURL 错误 ' . $curlErrno),
+            ];
+        }
+
+        $result = [
+            'http_code' => $httpCode,
+            'raw_response' => $rawResponse,
+            'decoded_data' => null,
+            'error' => '',
+        ];
+
+        if ($httpCode !== 200) {
+            if (in_array($httpCode, [301, 302], true)) {
+                $result['error'] = 'Cookie 可能已失效，请重新登录携程 eBooking 后复制 Cookie';
+            } elseif ($httpCode === 415) {
+                $result['error'] = '携程流量接口必须使用 JSON Body，请检查 Content-Type 和 POSTFIELDS';
+            } else {
+                $result['error'] = '携程流量接口 HTTP 错误: ' . $httpCode;
+            }
+            return $result;
+        }
+
+        if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', $rawResponse)) {
+            $result['error'] = '携程接口返回异常，请检查 Cookie / 日期参数';
+            return $result;
+        }
+
+        $decodedData = json_decode($rawResponse, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $result['error'] = '携程接口返回异常，请检查 Cookie / 日期参数';
+            return $result;
+        }
+
+        $result['decoded_data'] = $decodedData;
+        return $result;
+    }
+
+    private function sendCtripAdsRequest(string $url, array $params, string $cookies, string $method = 'POST'): array
+    {
+        $emptyResult = [
+            'http_code' => 0,
+            'raw_response' => '',
+            'decoded_data' => null,
+            'request_url' => $url,
+            'error' => '',
+        ];
+
+        if (!$this->isAllowedOtaRequestUrl($url, ['ctrip.com'])) {
+            return array_merge($emptyResult, ['error' => '仅允许请求携程官方域名']);
+        }
+        if (!$this->isCtripAdsApiUrl($url)) {
+            return array_merge($emptyResult, ['error' => '金字塔广告接口 URL 必须来自 Network 中 pyramidad / promotion 的 XHR 或 fetch 请求']);
+        }
+        if (!function_exists('curl_init')) {
+            return array_merge($emptyResult, ['error' => '服务器未启用 cURL，无法请求携程广告接口']);
+        }
+
+        $method = strtoupper($method) === 'GET' ? 'GET' : 'POST';
+        $requestUrl = $url;
+        $jsonPayload = '';
+        if ($method === 'GET') {
+            if (!empty($params)) {
+                $query = http_build_query($params);
+                $requestUrl .= (str_contains($requestUrl, '?') ? '&' : '?') . $query;
+            }
+        } else {
+            $jsonPayload = json_encode($params, JSON_UNESCAPED_UNICODE);
+            if ($jsonPayload === false) {
+                return array_merge($emptyResult, ['error' => '请求 Body JSON 编码失败: ' . json_last_error_msg()]);
+            }
+        }
+
+        $headers = [
+            'Accept: application/json, text/javascript, */*; q=0.01',
+            'Accept-Encoding: gzip, deflate, br',
+            'Accept-Language: zh-CN,zh;q=0.9',
+            'Content-Type: application/json',
+            'Origin: https://ebooking.ctrip.com',
+            'Referer: https://ebooking.ctrip.com/toolcenter/cpc/pyramid',
+            'X-Requested-With: XMLHttpRequest',
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Cookie: ' . $cookies,
+        ];
+
+        $ch = curl_init($requestUrl);
+        $options = [
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => false,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_ENCODING => '',
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => $this->shouldVerifyOtaSsl(),
+            CURLOPT_SSL_VERIFYHOST => $this->shouldVerifyOtaSsl() ? 2 : 0,
+        ];
+        if ($method === 'POST') {
+            $options[CURLOPT_POST] = true;
+            $options[CURLOPT_POSTFIELDS] = $jsonPayload;
+        } else {
+            $options[CURLOPT_HTTPGET] = true;
+        }
+        curl_setopt_array($ch, $options);
+
+        $rawResponse = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $curlErrno = curl_errno($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+
+        $result = [
+            'http_code' => $httpCode,
+            'raw_response' => $rawResponse === false ? '' : (string)$rawResponse,
+            'decoded_data' => null,
+            'request_url' => $requestUrl,
+            'error' => '',
+        ];
+
+        if ($rawResponse === false) {
+            $result['error'] = '请求携程广告接口失败: ' . ($curlError ?: 'cURL 错误 ' . $curlErrno);
+            return $result;
+        }
+        if ($httpCode !== 200) {
+            if (in_array($httpCode, [301, 302], true)) {
+                $result['error'] = 'Cookie 可能已失效，请重新登录携程 eBooking 后复制 Cookie';
+            } else {
+                $result['error'] = '携程广告接口 HTTP 错误: ' . $httpCode;
+            }
+            return $result;
+        }
+        if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', (string)$rawResponse)) {
+            $result['error'] = '携程广告接口返回了页面 HTML。请填写 Network 中 pyramidad / promotion 的 JSON 请求 URL，而不是金字塔广告页面地址';
+            return $result;
+        }
+
+        $decodedData = json_decode((string)$rawResponse, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $result['error'] = '携程广告接口返回异常，JSON 解析失败: ' . json_last_error_msg();
+            return $result;
+        }
+
+        $result['decoded_data'] = $decodedData;
+        return $result;
+    }
+
+    /**
+     * 识别携程流量接口业务错误
+     */
+    private function getCtripTrafficApiError($responseData): string
+    {
+        if (!is_array($responseData)) {
+            return '';
+        }
+
+        $code = $responseData['code'] ?? $responseData['resultCode'] ?? $responseData['status'] ?? null;
+        $message = $responseData['message']
+            ?? $responseData['msg']
+            ?? $responseData['errorMessage']
+            ?? $responseData['error_description']
+            ?? $responseData['error']
+            ?? '';
+
+        if (isset($responseData['success']) && $responseData['success'] === false) {
+            return '携程流量接口返回失败: ' . ($message ?: '未知错误');
+        }
+
+        if (isset($responseData['error'])) {
+            return '携程流量接口返回异常: ' . ($message ?: (string)$responseData['error']);
+        }
+
+        if ($code !== null && !in_array((string)$code, ['0', '200', 'success', 'SUCCESS'], true)) {
+            $error = '携程流量接口返回异常: ' . ($message ?: ('code=' . (string)$code));
+            if (preg_match('/登录|过期|权限|未授权|unauthorized|forbidden/i', (string)$message)) {
+                $error .= '，请重新登录携程后台复制Cookie';
+            }
+            return $error;
+        }
+
+        $ack = $responseData['ResponseStatus']['Ack'] ?? null;
+        if ($ack !== null && !in_array((string)$ack, ['Success', 'SUCCESS'], true)) {
+            $errorMessage = $responseData['ResponseStatus']['Errors'][0]['Message'] ?? $message ?: '未知错误';
+            return '携程流量接口返回异常: ' . $errorMessage;
+        }
+
+        return '';
+    }
+
+    /**
+     * 发送自定义HTTP请求（使用file_get_contents）
+     */
+    private function normalizeCtripTrafficUrl(string $url): string
+    {
+        return OtaTrafficUrlNormalizer::normalizeCtripTrafficUrl($url);
+    }
+
+    private function isAllowedOtaRequestUrl(string $url, array $allowedHostSuffixes): bool
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            return false;
+        }
+
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = strtolower((string)($parts['host'] ?? ''));
+        if ($scheme !== 'https' || $host === '') {
+            return false;
+        }
+
+        foreach ($allowedHostSuffixes as $suffix) {
+            $suffix = strtolower(ltrim($suffix, '.'));
+            if ($host === $suffix || str_ends_with($host, '.' . $suffix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function sendCustomRequest(string $url, string $method, string $headersStr, string $body): array
+    {
+        $headers = [];
+        if (!empty($headersStr)) {
+            $headerLines = explode("\n", $headersStr);
+            foreach ($headerLines as $line) {
+                $line = trim($line);
+                if (!empty($line)) {
+                    $headers[] = $line;
+                }
+            }
+        }
+
+        $headerStr = implode("\r\n", $headers);
+
+        $options = [
+            'http' => [
+                'method' => strtoupper($method),
+                'header' => $headerStr,
+                'timeout' => 30,
+                'ignore_errors' => true,
+            ],
+            'ssl' => $this->buildStreamSslOptions(),
+        ];
+
+        if (strtoupper($method) === 'POST' && !empty($body)) {
+            $options['http']['content'] = $body;
+        }
+
+        $context = stream_context_create($options);
+
+        $response = @file_get_contents($url, false, $context);
+
+        if ($response === false) {
+            $error = error_get_last();
+            return [
+                'success' => false,
+                'error' => $error['message'] ?? 'Unknown error',
+            ];
+        }
+
+        // 获取响应头
+        $responseHeaders = '';
+        $status = 200;
+        if (isset($http_response_header)) {
+            $responseHeaders = implode("\r\n", $http_response_header);
+            // 解析HTTP状态码
+            if (preg_match('/HTTP\/\d+\.?\d*\s+(\d+)/', $http_response_header[0] ?? '', $matches)) {
+                $status = (int)$matches[1];
+            }
+        }
+
+        $decoded = json_decode($response, true);
+
+        return [
+            'success' => true,
+            'data' => $decoded,
+            'raw' => $response,
+            'status' => $status,
+            'response_headers' => $responseHeaders,
+        ];
+    }
+}

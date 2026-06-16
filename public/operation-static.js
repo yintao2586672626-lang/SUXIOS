@@ -57,6 +57,56 @@ window.SUXI_OPERATION_STATIC = (() => {
         { value: 'blocked', label: '受阻' },
     ];
     const openingProgressQuickValues = [0, 25, 50, 75, 100];
+    const formatOpeningDate = (date) => {
+        const value = date instanceof Date ? date : new Date(date);
+        if (Number.isNaN(value.getTime())) return '';
+        const year = value.getFullYear();
+        const month = String(value.getMonth() + 1).padStart(2, '0');
+        const day = String(value.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+    const buildOpeningProjectFormDefaults = (now = new Date()) => {
+        const baseDate = now instanceof Date ? now : new Date(now);
+        return {
+            hotel_id: '',
+            project_name: '',
+            hotel_name: '',
+            city: '',
+            brand: '',
+            positioning: '',
+            room_count: '',
+            opening_date: formatOpeningDate(new Date(baseDate.getTime() + 45 * 24 * 60 * 60 * 1000)),
+            manager_name: '',
+        };
+    };
+    const normalizeOpeningProjectFormForSubmit = (form = {}, hotelOptions = []) => {
+        const normalized = { ...form };
+        const options = Array.isArray(hotelOptions) ? hotelOptions : [];
+        if (!normalized.hotel_id && options.length === 1) {
+            normalized.hotel_id = String(options[0].id);
+        }
+        if (!normalized.project_name && normalized.hotel_name) {
+            normalized.project_name = `${normalized.hotel_name}开业项目`;
+        }
+        normalized.room_count = Math.max(0, Number(normalized.room_count || 0));
+        return normalized;
+    };
+    const buildOpeningProjectFormFromProject = (project = null) => {
+        const defaults = buildOpeningProjectFormDefaults();
+        if (!project) return defaults;
+        return {
+            ...defaults,
+            hotel_id: project.hotel_id ? String(project.hotel_id) : '',
+            project_name: project.project_name || '',
+            hotel_name: project.hotel_name || '',
+            city: project.city || '',
+            brand: project.brand || '',
+            positioning: project.positioning || '',
+            room_count: project.room_count || '',
+            opening_date: project.opening_date || defaults.opening_date,
+            manager_name: project.manager_name || '',
+        };
+    };
     const operationFormatters = (formatters = {}) => ({
         value: typeof formatters.value === 'function'
             ? formatters.value
@@ -170,6 +220,117 @@ window.SUXI_OPERATION_STATIC = (() => {
                 desc: holiday.suggestion || '用于决定是否提前处理库存、底价和活动节奏。',
             },
         ];
+    };
+    const operationCanApproveExecution = (item) => item?.approval?.status === 'pending_approval';
+    const operationCanExecuteWithEvidence = (item) => ['pending_execute', 'executing'].includes(item?.execution?.status || '') && Number(item?.execution?.task_id || 0) > 0;
+    const operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
+    const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item) || operationCanExecuteWithEvidence(item) || operationCanReviewExecution(item);
+    const operationExecutionRateText = (value) => value === null || value === undefined ? '-' : `${Number(value).toFixed(0)}%`;
+    const buildOperationExecutionSummaryCards = (summary = {}, formatters = {}) => {
+        const formatter = operationFormatters(formatters);
+        return [
+            { label: '执行单', value: formatter.value(summary.total || 0), hint: '建议转执行意图总数' },
+            { label: '审批率', value: operationExecutionRateText(summary.approval_rate), hint: `已审批 ${summary.approved || 0}` },
+            { label: '执行率', value: operationExecutionRateText(summary.execution_rate), hint: `已执行 ${summary.executed || 0}` },
+            { label: '证据率', value: operationExecutionRateText(summary.evidence_rate), hint: `证据齐备 ${summary.evidence_ready || 0}` },
+            { label: '净收益', value: formatter.money(summary.total_profit || 0), hint: `增量收入 ${formatter.money(summary.total_incremental_revenue || 0)}` },
+            { label: '平均 ROI', value: summary.avg_roi === null || summary.avg_roi === undefined ? '-' : `${summary.avg_roi}%`, hint: `百分比样本 ${summary.roi_percent_ready || 0}` },
+            { label: '价格 Lift', value: summary.avg_revenue_lift === null || summary.avg_revenue_lift === undefined ? '-' : formatter.money(summary.avg_revenue_lift), hint: `金额样本 ${summary.revenue_lift_ready || 0}` },
+        ];
+    };
+    const operationExecutionBottleneckText = (summary = {}, helpers = {}) => {
+        const bottleneck = summary?.bottleneck || {};
+        if (!bottleneck.stage || !bottleneck.count) return '暂无明显瓶颈';
+        const statusLabel = typeof helpers.statusLabel === 'function' ? helpers.statusLabel : (status => status || '-');
+        return `${bottleneck.label || statusLabel(bottleneck.stage)} ${bottleneck.count} 单`;
+    };
+    const operationExecutionMoneyStatusText = (status) => ({
+        profit_positive: '已验证赚钱',
+        profit_negative: '已验证亏损',
+        break_even: '收益持平',
+        no_roi: '缺少 ROI 证据',
+    }[String(status || '')] || '待判断');
+    const operationExecutionMoneyStatusClass = (status) => ({
+        profit_positive: 'border-green-100 bg-green-50 text-green-700',
+        profit_negative: 'border-red-100 bg-red-50 text-red-700',
+        break_even: 'border-blue-100 bg-blue-50 text-blue-700',
+        no_roi: 'border-gray-100 bg-gray-50 text-gray-600',
+    }[String(status || '')] || 'border-gray-100 bg-gray-50 text-gray-600');
+    const operationExecutionSourceText = (item) => {
+        const source = item?.recommendation?.source || '';
+        return source && !source.endsWith('#0') ? source : (item?.recommendation?.source_module || 'manual');
+    };
+    const operationExecutionActionText = (item, helpers = {}) => {
+        const recommendation = item?.recommendation || {};
+        const objectText = ({ price: '价格', inventory: '房态', campaign: '活动' }[recommendation.object_type] || recommendation.object_type || '动作');
+        const strategyTypeLabel = typeof helpers.strategyTypeLabel === 'function' ? helpers.strategyTypeLabel : (type => type || '未知策略');
+        return `${objectText} · ${strategyTypeLabel(recommendation.action_type)}`;
+    };
+    const operationExecutionReviewText = (item, helpers = {}) => {
+        const review = item?.review || {};
+        const statusLabel = typeof helpers.statusLabel === 'function' ? helpers.statusLabel : (status => status || '-');
+        const label = statusLabel(review.status);
+        return review.summary ? `${label} · ${review.summary}` : label;
+    };
+    const operationExecutionRoiText = (roi, formatters = {}) => {
+        const formatter = operationFormatters(formatters);
+        if (!roi || roi.status !== 'ready') return roi?.message || '待计算';
+        if (roi.unit === 'amount') return `收入${formatter.money(roi.incremental_revenue || roi.value || 0)} / 利润${formatter.money(roi.profit)}`;
+        return `${roi.value}% / 利润${formatter.money(roi.profit)}`;
+    };
+    const buildOperationExecutionTraceRows = (summary = {}) => {
+        const total = Number(summary.total || 0);
+        const approved = Number(summary.approved || 0);
+        const executed = Number(summary.executed || 0);
+        const evidenceReady = Number(summary.evidence_ready || 0);
+        const roiReady = Number(summary.roi_ready || 0);
+        return [
+            {
+                key: 'source',
+                label: '建议来源',
+                value: total ? `${total}条` : '待生成',
+                className: total ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                detail: '来源可以是 AI策略、运营预警或人工创建，进入执行池前不视为已执行动作。',
+            },
+            {
+                key: 'approval',
+                label: '人工审批',
+                value: total ? `${approved}/${total}` : '待审批',
+                className: approved ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100',
+                detail: '涉及价格、房态、活动的动作必须先确认，驳回原因应保留在记录中。',
+            },
+            {
+                key: 'evidence',
+                label: '执行证据',
+                value: executed ? `${evidenceReady}/${executed}` : '待执行',
+                className: evidenceReady ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                detail: '执行后需记录平台、截图路径或操作说明；没有证据时不计算最终收益结论。',
+            },
+            {
+                key: 'roi',
+                label: 'ROI复盘',
+                value: roiReady ? `${roiReady}个样本` : '待计算',
+                className: roiReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                detail: '活动等投入动作计算 ROI 百分比；价格调整记录收入 lift，缺执行前后样本时显示待计算。',
+            },
+        ];
+    };
+    const buildOperationClosureSummaryBadge = (summary = {}) => (
+        String(summary?.status || '') === 'closed'
+            ? { text: '全部闭环', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
+            : { text: '存在未闭环', className: 'bg-amber-50 text-amber-700 border-amber-100' }
+    );
+    const buildOperationClosureSummaryCards = (summary = {}) => [
+        { label: '板块数', value: summary.module_count ?? 0, hint: '收益分析之后的业务板块' },
+        { label: '真闭环', value: summary.closed_loop_count ?? 0, hint: '必须有复盘或效果证据' },
+        { label: '未闭环', value: summary.not_closed_count ?? 0, hint: '仍停在建议/记录/执行中' },
+        { label: '平均成熟度', value: summary.avg_maturity_score === null || summary.avg_maturity_score === undefined ? '-' : `${summary.avg_maturity_score}%`, hint: '只读成熟度评分' },
+    ];
+    const operationClosureGapText = (module = {}) => {
+        const gaps = Array.isArray(module?.data_gaps) ? module.data_gaps : [];
+        if (!gaps.length) return '暂无显式缺口';
+        const first = gaps[0] || {};
+        return first.message || first.code || '存在未说明缺口';
     };
     const openingRiskTextFallback = (risk) => ({ high: '高风险', medium: '中风险', low: '低风险' }[risk] || '低风险');
     const openingRiskTextClassFallback = (risk) => ({ high: 'text-red-600', medium: 'text-yellow-600', low: 'text-green-600' }[risk] || 'text-green-600');
@@ -427,6 +588,206 @@ window.SUXI_OPERATION_STATIC = (() => {
         { value: 'noOwner', label: '未分配', count: stats.noOwner, activeClass: 'bg-gray-700 text-white border-gray-700' },
         { value: 'core', label: '核心项', count: stats.core, activeClass: 'bg-blue-600 text-white border-blue-600' },
     ];
+    const openingTaskDaysUntil = (deadline, now = new Date()) => {
+        const dateText = String(deadline || '').slice(0, 10);
+        if (!dateText) return null;
+        const dueDate = new Date(`${dateText}T00:00:00`);
+        if (Number.isNaN(dueDate.getTime())) return null;
+        const today = new Date(now);
+        today.setHours(0, 0, 0, 0);
+        return Math.ceil((dueDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+    };
+    const openingTaskIsDone = (task) => (task?.status || 'todo') === 'done';
+    const openingTaskIsOverdue = (task, now = new Date()) => {
+        if (!task || openingTaskIsDone(task)) return false;
+        if (Number(task.is_overdue) === 1) return true;
+        const days = openingTaskDaysUntil(task.deadline, now);
+        return days !== null && days < 0;
+    };
+    const openingTaskIsDueSoon = (task, now = new Date()) => {
+        if (!task || openingTaskIsDone(task)) return false;
+        const days = openingTaskDaysUntil(task.deadline, now);
+        return days !== null && days >= 0 && days <= 7;
+    };
+    const openingTaskHasOwner = (task) => String(task?.owner_name || '').trim().length > 0;
+    const clampOpeningTaskProgress = (value) => {
+        const number = Number(value);
+        if (!Number.isFinite(number)) return 0;
+        return Math.max(0, Math.min(100, Math.round(number)));
+    };
+    const openingTaskProgressPercent = (task) => clampOpeningTaskProgress(task?.progress_percent ?? (task?.status === 'done' ? 100 : 0));
+    const openingTaskDueLabel = (task, now = new Date()) => {
+        if (!task?.deadline) return '未设截止';
+        if (openingTaskIsDone(task)) return '已完成';
+        const days = openingTaskDaysUntil(task.deadline, now);
+        if (days === null) return '截止时间待确认';
+        if (days < 0) return `逾期 ${Math.abs(days)} 天`;
+        if (days === 0) return '今日截止';
+        return `${days} 天后截止`;
+    };
+    const openingTaskDueClass = (task, now = new Date()) => {
+        if (openingTaskIsOverdue(task, now)) return 'text-red-600';
+        if (openingTaskIsDueSoon(task, now)) return 'text-yellow-700';
+        if (openingTaskIsDone(task)) return 'text-green-600';
+        return 'text-gray-500';
+    };
+    const openingTaskProgressStage = (task) => {
+        if ((task?.status || '') === 'blocked') return '受阻';
+        const progress = openingTaskProgressPercent(task);
+        if (progress >= 100) return '已完成';
+        if (progress >= 50) return '推进过半';
+        if (progress > 0) return '已启动';
+        return '未开始';
+    };
+    const openingTaskProgressTextClass = (task) => {
+        if ((task?.status || '') === 'blocked') return 'text-yellow-700';
+        const progress = openingTaskProgressPercent(task);
+        if (progress >= 100) return 'text-green-600';
+        if (progress >= 50) return 'text-blue-600';
+        if (progress > 0) return 'text-yellow-700';
+        return 'text-gray-600';
+    };
+    const syncOpeningTaskProgressByStatus = (task) => {
+        if (!task) return;
+        const progress = openingTaskProgressPercent(task);
+        if (task.status === 'done') {
+            task.progress_percent = 100;
+        } else if (task.status === 'todo') {
+            task.progress_percent = 0;
+        } else if (task.status === 'doing' && progress === 0) {
+            task.progress_percent = 50;
+        } else if (task.status === 'blocked' && progress >= 100) {
+            task.progress_percent = 75;
+        } else {
+            task.progress_percent = progress;
+        }
+    };
+    const syncOpeningTaskStatusByProgress = (task) => {
+        if (!task) return;
+        task.progress_percent = openingTaskProgressPercent(task);
+        if (task.progress_percent >= 100) {
+            task.status = 'done';
+        } else if (task.progress_percent > 0 && (!task.status || task.status === 'todo')) {
+            task.status = 'doing';
+        } else if (task.progress_percent === 0 && task.status !== 'blocked') {
+            task.status = 'todo';
+        }
+    };
+    const buildOpeningTaskUpdatePayload = (task = {}) => ({
+        owner_name: task.owner_name || '',
+        collaborator_name: task.collaborator_name || '',
+        deadline: task.deadline || '',
+        status: task.status || 'todo',
+        progress_percent: openingTaskProgressPercent(task),
+        remark: task.remark || '',
+    });
+    const snapshotOpeningTaskForRollback = (task = {}) => ({
+        owner_name: task.owner_name,
+        collaborator_name: task.collaborator_name,
+        deadline: task.deadline,
+        status: task.status,
+        progress_percent: task.progress_percent,
+        remark: task.remark,
+    });
+    const openingTaskPatchHasChanges = (patch = {}) => (
+        Object.prototype.hasOwnProperty.call(patch, 'status')
+        || Object.prototype.hasOwnProperty.call(patch, 'progress_percent')
+    );
+    const applyOpeningTaskPatch = (task, patch = {}) => {
+        if (!task) return task;
+        if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
+            task.status = patch.status;
+            syncOpeningTaskProgressByStatus(task);
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'progress_percent')) {
+            task.progress_percent = clampOpeningTaskProgress(patch.progress_percent);
+            syncOpeningTaskStatusByProgress(task);
+        }
+        return task;
+    };
+    const openingRiskText = (risk) => ({ high: '高风险', medium: '中风险', low: '低风险' }[risk] || '低风险');
+    const openingRiskTextClass = (risk) => ({ high: 'text-red-600', medium: 'text-yellow-600', low: 'text-green-600' }[risk] || 'text-green-600');
+    const openingRiskClass = (risk) => ({
+        high: 'bg-red-50 text-red-700 border border-red-100',
+        medium: 'bg-yellow-50 text-yellow-700 border border-yellow-100',
+        low: 'bg-green-50 text-green-700 border border-green-100',
+    }[risk] || 'bg-green-50 text-green-700 border border-green-100');
+    const buildOpeningTaskStats = (tasks = [], now = new Date()) => {
+        const rows = Array.isArray(tasks) ? tasks : [];
+        const count = (predicate) => rows.filter(predicate).length;
+        const total = rows.length;
+        const done = count(task => task.status === 'done');
+        const doing = count(task => task.status === 'doing');
+        const todo = count(task => !task.status || task.status === 'todo');
+        const blocked = count(task => task.status === 'blocked');
+        const highRisk = count(task => task.risk_level === 'high');
+        const overdue = count(task => openingTaskIsOverdue(task, now));
+        const dueSoon = count(task => openingTaskIsDueSoon(task, now));
+        const core = count(task => Number(task.is_core) === 1);
+        const noOwner = count(task => !openingTaskHasOwner(task));
+        const progressSum = rows.reduce((sum, task) => sum + openingTaskProgressPercent(task), 0);
+        const averageProgress = total > 0 ? Math.round(progressSum / total) : 0;
+        const progressEmpty = count(task => openingTaskProgressPercent(task) <= 0);
+        const progressLow = count(task => {
+            const progress = openingTaskProgressPercent(task);
+            return progress > 0 && progress < 50;
+        });
+        const progressHigh = count(task => {
+            const progress = openingTaskProgressPercent(task);
+            return progress >= 50 && progress < 100;
+        });
+        const progressDone = count(task => openingTaskProgressPercent(task) >= 100);
+        const completionRate = total > 0 ? Math.round((done / total) * 100) : 0;
+        return { total, done, doing, todo, blocked, highRisk, overdue, dueSoon, core, noOwner, completionRate, averageProgress, progressEmpty, progressLow, progressHigh, progressDone };
+    };
+    const matchesOpeningAttention = (task, attention, now = new Date()) => {
+        if (!attention) return true;
+        if (attention === 'overdue') return openingTaskIsOverdue(task, now);
+        if (attention === 'dueSoon') return openingTaskIsDueSoon(task, now);
+        if (attention === 'high') return task?.risk_level === 'high';
+        if (attention === 'blocked') return task?.status === 'blocked';
+        if (attention === 'noOwner') return !openingTaskHasOwner(task);
+        if (attention === 'core') return Number(task?.is_core) === 1;
+        return true;
+    };
+    const filterOpeningTasks = (tasks = [], filter = {}, now = new Date()) => (
+        (Array.isArray(tasks) ? tasks : []).filter(task => {
+            if (filter.category && task.category !== filter.category) return false;
+            if (filter.status && task.status !== filter.status) return false;
+            if (filter.risk && task.risk_level !== filter.risk) return false;
+            if (!matchesOpeningAttention(task, filter.attention, now)) return false;
+            return true;
+        })
+    );
+    const normalizeOpeningTaskId = (taskOrId) => String(typeof taskOrId === 'object' ? taskOrId?.id : taskOrId || '');
+    const selectOpeningTasks = (tasks = [], selectedTaskIds = []) => {
+        const selectedIds = new Set((Array.isArray(selectedTaskIds) ? selectedTaskIds : []).map(normalizeOpeningTaskId).filter(Boolean));
+        return (Array.isArray(tasks) ? tasks : []).filter(task => selectedIds.has(normalizeOpeningTaskId(task)));
+    };
+    const areAllFilteredOpeningTasksSelected = (filteredTasks = [], selectedTaskIds = []) => {
+        const visibleIds = (Array.isArray(filteredTasks) ? filteredTasks : []).map(normalizeOpeningTaskId).filter(Boolean);
+        if (!visibleIds.length) return false;
+        const selectedIds = new Set((Array.isArray(selectedTaskIds) ? selectedTaskIds : []).map(normalizeOpeningTaskId).filter(Boolean));
+        return visibleIds.every(id => selectedIds.has(id));
+    };
+    const pruneOpeningTaskIds = (tasks = [], selectedTaskIds = []) => {
+        const validIds = new Set((Array.isArray(tasks) ? tasks : []).map(normalizeOpeningTaskId).filter(Boolean));
+        return (Array.isArray(selectedTaskIds) ? selectedTaskIds : [])
+            .map(normalizeOpeningTaskId)
+            .filter(id => validIds.has(id));
+    };
+    const mergeOpeningTaskSelection = (filteredTasks = [], selectedTaskIds = [], checked = true) => {
+        const visibleIds = (Array.isArray(filteredTasks) ? filteredTasks : []).map(normalizeOpeningTaskId).filter(Boolean);
+        const selectedIds = new Set((Array.isArray(selectedTaskIds) ? selectedTaskIds : []).map(normalizeOpeningTaskId).filter(Boolean));
+        visibleIds.forEach(id => {
+            if (checked) {
+                selectedIds.add(id);
+            } else {
+                selectedIds.delete(id);
+            }
+        });
+        return Array.from(selectedIds);
+    };
     const openingAiTaskProgressPercent = (task, helpers = {}) => {
         if (typeof helpers.taskProgressPercent === 'function') {
             return helpers.taskProgressPercent(task);
@@ -549,6 +910,23 @@ window.SUXI_OPERATION_STATIC = (() => {
         buildOperationCompetitorCards,
         buildOperationSourceBrief,
         buildOperationDecisionCards,
+        operationCanApproveExecution,
+        operationCanExecuteWithEvidence,
+        operationCanReviewExecution,
+        operationExecutionActionAvailable,
+        operationExecutionRateText,
+        buildOperationExecutionSummaryCards,
+        operationExecutionBottleneckText,
+        operationExecutionMoneyStatusText,
+        operationExecutionMoneyStatusClass,
+        operationExecutionSourceText,
+        operationExecutionActionText,
+        operationExecutionReviewText,
+        operationExecutionRoiText,
+        buildOperationExecutionTraceRows,
+        buildOperationClosureSummaryBadge,
+        buildOperationClosureSummaryCards,
+        operationClosureGapText,
         buildOpeningOverviewCards,
         buildOpeningCategoryProgressCards,
         buildOpeningPositioningImpact,
@@ -556,9 +934,40 @@ window.SUXI_OPERATION_STATIC = (() => {
         buildOpeningTaskProgressStages,
         buildOpeningStatusFilterChips,
         buildOpeningAttentionFilterChips,
+        openingTaskDaysUntil,
+        openingTaskIsDone,
+        openingTaskIsOverdue,
+        openingTaskIsDueSoon,
+        openingTaskHasOwner,
+        clampOpeningTaskProgress,
+        openingTaskProgressPercent,
+        openingTaskDueLabel,
+        openingTaskDueClass,
+        openingTaskProgressStage,
+        openingTaskProgressTextClass,
+        syncOpeningTaskProgressByStatus,
+        syncOpeningTaskStatusByProgress,
+        buildOpeningTaskUpdatePayload,
+        snapshotOpeningTaskForRollback,
+        openingTaskPatchHasChanges,
+        applyOpeningTaskPatch,
+        openingRiskText,
+        openingRiskTextClass,
+        openingRiskClass,
+        buildOpeningTaskStats,
+        matchesOpeningAttention,
+        filterOpeningTasks,
+        normalizeOpeningTaskId,
+        selectOpeningTasks,
+        areAllFilteredOpeningTasksSelected,
+        pruneOpeningTaskIds,
+        mergeOpeningTaskSelection,
         buildOpeningAiOutputResult,
         openingCategories,
         openingStatusOptions,
         openingProgressQuickValues,
+        buildOpeningProjectFormDefaults,
+        normalizeOpeningProjectFormForSubmit,
+        buildOpeningProjectFormFromProject,
     };
 })();

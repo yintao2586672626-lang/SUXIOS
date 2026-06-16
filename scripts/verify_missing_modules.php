@@ -17,6 +17,21 @@ function read_file(string $relative): string
     return $content;
 }
 
+function read_online_data_controller_source(): string
+{
+    global $root;
+    $source = read_file('app/controller/OnlineData.php');
+    $concernDir = $root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'controller' . DIRECTORY_SEPARATOR . 'concern';
+    foreach (glob($concernDir . DIRECTORY_SEPARATOR . '*.php') ?: [] as $path) {
+        $content = file_get_contents($path);
+        if ($content === false) {
+            throw new RuntimeException("Cannot read file: {$path}");
+        }
+        $source .= "\n" . $content;
+    }
+    return $source;
+}
+
 function assert_true(bool $condition, string $message): void
 {
     if (!$condition) {
@@ -74,7 +89,7 @@ $ai = read_file('app/controller/Ai.php');
 assert_true(str_contains($ai, 'FeasibilityReportService'), 'Ai feasibility must use FeasibilityReportService');
 $checks[] = 'ai_controller';
 
-$onlineData = read_file('app/controller/OnlineData.php');
+$onlineData = read_online_data_controller_source();
 assert_true(str_contains($onlineData, "\$this->request->param('id', 0)"), 'deleteData must accept id from DELETE params/body');
 assert_true(str_contains($onlineData, 'function cookieStatus()'), 'OnlineData must expose cookieStatus');
 $checks[] = 'online_data';

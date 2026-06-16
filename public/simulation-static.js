@@ -344,6 +344,52 @@ window.SUXI_SIMULATION_STATIC = (() => {
             },
         ];
     };
+    const applyDefinedFields = (target, source) => {
+        Object.entries(source || {}).forEach(([key, value]) => {
+            if (value !== null && value !== undefined && value !== '') {
+                target[key] = value;
+            }
+        });
+    };
+    const buildTransferPricingPayload = ({
+        form = {},
+        hotelId = '',
+        selectedHotelId = '',
+        snapshot = null,
+    } = {}) => ({
+        ...form,
+        hotel_id: hotelId || selectedHotelId || form.hotel_id || snapshot?.hotel_id || '',
+        snapshot: snapshot || {},
+    });
+    const buildTransferTimingPayload = ({
+        form = {},
+        dataCheck = {},
+        hotelId = '',
+        selectedHotelId = '',
+        snapshot = null,
+    } = {}) => ({
+        ...form,
+        has_data_anomaly: Boolean(form.has_data_anomaly || dataCheck.hasDataAnomaly),
+        has_data_gap: Boolean(form.has_data_gap || dataCheck.hasDataGap),
+        hotel_id: hotelId || selectedHotelId || form.hotel_id || snapshot?.hotel_id || '',
+        snapshot: snapshot || {},
+    });
+    const buildTransferDashboardPayload = ({
+        pricing = null,
+        timing = null,
+        pricingInput = {},
+        timingInput = {},
+        hotelId = '',
+        snapshot = null,
+    } = {}) => ({
+        pricing,
+        timing,
+        metrics: {},
+        pricing_input: pricingInput || {},
+        timing_input: timingInput || {},
+        hotel_id: hotelId,
+        snapshot: snapshot || {},
+    });
     const simulationCostFields = [
         { key: 'monthlyRent', label: '月租金' },
         { key: 'laborCost', label: '人工成本' },
@@ -801,6 +847,14 @@ window.SUXI_SIMULATION_STATIC = (() => {
         return readinessMissingText(readiness, '暂无显式缺口；进入投决前仍需保留审批和跟踪证据。');
     }
 
+    function transferRecordTypeLabel(type) {
+        return {
+            pricing: '资产定价',
+            timing: '时机推演',
+            dashboard: '数据看板',
+        }[type] || type || '--';
+    }
+
     function executionIntentIdFromRecord(record) {
         const result = record?.result || {};
         const direct = Number(record?.execution_intent_id || result.operation_execution_intent_id || result.execution_intent_id || 0);
@@ -816,10 +870,133 @@ window.SUXI_SIMULATION_STATIC = (() => {
 
     const trimMetricZeros = (value) => String(value).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
 
+    function benchmarkStrategyLabel(key) {
+        return {
+            room_type: '房型',
+            price: '价格',
+            channel: '渠道',
+            review: '点评',
+            image: '图片',
+            service: '服务',
+            data: '数据',
+        }[key] || key;
+    }
+
     function benchmarkMetricValue(value, suffix = '', decimals = 0) {
         const number = Number(value);
         if (!Number.isFinite(number)) return '--';
         return `${trimMetricZeros(number.toFixed(decimals))}${suffix}`;
+    }
+
+    function buildBenchmarkModelDetailCards(metrics = {}) {
+        return [
+            { label: '竞品数量', value: benchmarkMetricValue(metrics.competitor_count, '家') },
+            { label: '竞品均价', value: benchmarkMetricValue(metrics.avg_competitor_price, '元') },
+            { label: '竞品均分', value: benchmarkMetricValue(metrics.avg_competitor_score, '分', 1) },
+            { label: '平均点评量', value: benchmarkMetricValue(metrics.avg_review_count) },
+            { label: 'OTA热度指数', value: benchmarkMetricValue(metrics.ota_heat_index, '%') },
+            { label: '采样半径', value: benchmarkMetricValue(metrics.traffic_radius_km, 'km', 1) }
+        ];
+    }
+
+    function benchmarkModelDetailCompletenessText(metrics = {}) {
+        const completeness = metrics.data_completeness;
+        return completeness ? `录入完整度 ${completeness}` : '录入完整度 --';
+    }
+
+    function benchmarkModelEstimatedFields(metrics = {}) {
+        const fields = metrics.estimated_fields;
+        return Array.isArray(fields) ? fields : [];
+    }
+
+    function buildTransferPricingCards({
+        result = null,
+        suggestion = '--',
+        formatWan = (value) => value ?? '--',
+        formatPaybackMonth = (value) => value ?? '--',
+        transferRiskTextClass = () => '',
+        toNumber = Number,
+    } = {}) {
+        if (!result) return [];
+        const profit = result.profit || {};
+        const valuation = result.valuation || {};
+        return [
+            {
+                label: '当前月净利润',
+                value: formatWan(profit.monthly_net_profit),
+                className: toNumber(profit.monthly_net_profit) >= 0 ? 'text-green-600' : 'text-red-600'
+            },
+            { label: '年净利润', value: formatWan(profit.annual_net_profit) },
+            { label: '投资回收周期', value: formatPaybackMonth(profit.payback_months) },
+            { label: '报价判断', value: valuation.quote_judgement || '--' },
+            { label: '接盘风险等级', value: result.risk_level || '--', className: transferRiskTextClass(result.risk_level) },
+            { label: '建议动作', value: suggestion },
+        ];
+    }
+
+    function buildTransferPricingValuationRows({
+        valuation = null,
+        formatWan = (value) => value ?? '--',
+        aiRound = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits)),
+    } = {}) {
+        if (!valuation) return [];
+        return [
+            { label: '保守估值', value: formatWan(valuation.conservative_valuation) },
+            { label: '合理估值', value: formatWan(valuation.reasonable_valuation) },
+            { label: '乐观估值', value: formatWan(valuation.optimistic_valuation) },
+            { label: '业主预期转让价', value: formatWan(valuation.expected_transfer_price) },
+            { label: '估值倍数', value: `${aiRound(valuation.valuation_multiple, 1)}个月` },
+        ];
+    }
+
+    function transferPricingAiEvaluationSourceLabel(analysis = null) {
+        const source = analysis?.source;
+        if (source === 'llm') return 'AI模型生成';
+        if (source === 'fallback') return '本地兜底（非AI）';
+        return '未生成';
+    }
+
+    function resolveTransferCurrentReadiness({ dashboardResult = null, pricingResult = null, timingResult = null } = {}) {
+        return dashboardResult?.decision_readiness
+            || pricingResult?.decision_readiness
+            || timingResult?.decision_readiness
+            || null;
+    }
+
+    function expansionRecordTypeForPage(page, pageTypes = expansionRecordPageTypes) {
+        return pageTypes?.[page] || '';
+    }
+
+    function filterExpansionRecords(records = [], recordType = '') {
+        const rows = Array.isArray(records) ? records : [];
+        if (!recordType) return rows;
+        return rows.filter(record => record?.record_type === recordType);
+    }
+
+    function hasExpansionRecordType(records = [], recordType = '') {
+        const rows = Array.isArray(records) ? records : [];
+        return rows.some(record => record?.record_type === recordType);
+    }
+
+    function hasAnyExpansionRecord(records = []) {
+        return Array.isArray(records) && records.length > 0;
+    }
+
+    function buildSimulationMetricCards(baseSimulation = null, formatCurrency = value => value ?? '--') {
+        if (!baseSimulation) {
+            return [
+                { label: '月总收入', value: '--' },
+                { label: '月净现金流', value: '--' },
+                { label: 'RevPAR', value: '--' },
+                { label: '回本周期', value: '--' }
+            ];
+        }
+        return [
+            { label: '月总收入', value: formatCurrency(baseSimulation.monthlyRevenue) },
+            { label: '月净现金流', value: formatCurrency(baseSimulation.monthlyNetCashflow) },
+            { label: 'RevPAR', value: formatCurrency(baseSimulation.revPAR) },
+            { label: '回本周期', value: baseSimulation.paybackMonths === null ? '不可回本' : `${Math.round(baseSimulation.paybackMonths)}个月` }
+        ];
     }
 
     function benchmarkSignedValue(value, suffix = '', decimals = 0) {
@@ -845,6 +1022,10 @@ window.SUXI_SIMULATION_STATIC = (() => {
         transferTimingDataFields,
         buildTransferTimingDataCheck,
         buildTransferDecisionLayerRows,
+        applyDefinedFields,
+        buildTransferPricingPayload,
+        buildTransferTimingPayload,
+        buildTransferDashboardPayload,
         simulationCostFields,
         simulationCostFieldGroups,
         simulationOtaCommissionChannelDefinitions,
@@ -871,8 +1052,22 @@ window.SUXI_SIMULATION_STATIC = (() => {
         simulationReadinessMissingText,
         transferReadinessBadgeClass,
         transferReadinessMissingText,
+        transferRecordTypeLabel,
         executionIntentIdFromRecord,
+        benchmarkStrategyLabel,
         benchmarkMetricValue,
+        buildBenchmarkModelDetailCards,
+        benchmarkModelDetailCompletenessText,
+        benchmarkModelEstimatedFields,
+        buildTransferPricingCards,
+        buildTransferPricingValuationRows,
+        transferPricingAiEvaluationSourceLabel,
+        resolveTransferCurrentReadiness,
+        expansionRecordTypeForPage,
+        filterExpansionRecords,
+        hasExpansionRecordType,
+        hasAnyExpansionRecord,
+        buildSimulationMetricCards,
         benchmarkSignedValue,
     };
 })();

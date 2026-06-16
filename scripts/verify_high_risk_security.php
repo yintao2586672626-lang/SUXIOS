@@ -152,9 +152,13 @@ assert_same(1600.0, $multiHotelMetrics['revenue'], 'daily report financial keys 
 assert_same(16.0, $multiHotelMetrics['room_nights'], 'daily report room-night keys must stay hotel-scoped');
 
 $onlineSource = file_get_contents(__DIR__ . '/../app/controller/OnlineData.php');
+foreach (glob(__DIR__ . '/../app/controller/concern/*.php') ?: [] as $concernFile) {
+    $onlineSource .= "\n" . file_get_contents($concernFile);
+}
 $authSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
 $dailyReportSource = file_get_contents(__DIR__ . '/../app/controller/DailyReport.php');
 $platformSyncSource = file_get_contents(__DIR__ . '/../app/service/PlatformDataSyncService.php');
+$onlineDailyPersistenceSource = file_get_contents(__DIR__ . '/../app/service/OnlineDailyDataPersistenceService.php');
 $competitorSource = file_get_contents(__DIR__ . '/../app/controller/CompetitorApi.php');
 $aiConfigSource = file_get_contents(__DIR__ . '/../app/controller/AiConfig.php');
 $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
@@ -184,7 +188,7 @@ assert_true(str_contains($dailyReportSource, 'EXPORT_BATCH_LIMIT'), 'daily repor
 assert_true(str_contains($dailyReportSource, 'SUXIOS Export Watermark'), 'daily report exports must include a user watermark');
 assert_true(!preg_match('/\beval\s*\(/', $dailyReportSource), 'daily report formulas must not use eval');
 assert_true(!preg_match('/\bshell_exec\s*\(/', $dailyReportSource), 'daily report Excel parsing must not use shell_exec');
-assert_true(str_contains($onlineSource, 'tenantIdForSystemHotel'), 'online daily data writes must populate tenant_id when available');
+assert_true(str_contains($onlineDailyPersistenceSource, 'tenantIdForSystemHotel'), 'online daily data writes must populate tenant_id when available');
 assert_true(str_contains($platformSyncSource, "'tenant_id'"), 'platform sync writes must populate tenant_id when available');
 assert_true(str_contains($loginLogSource, 'tenantIdForUser'), 'login logs must populate tenant_id for authenticated users when available');
 assert_true(str_contains($operationSource, 'withTenantId'), 'operation management writes must populate tenant_id when available');

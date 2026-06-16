@@ -1,8 +1,24 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = process.cwd();
 const publicIndex = readFileSync(join(root, 'public', 'index.html'), 'utf8');
+const onlineDataConcernDir = join(root, 'app', 'controller', 'concern');
+const onlineDataConcernFiles = existsSync(onlineDataConcernDir)
+  ? readdirSync(onlineDataConcernDir)
+    .filter(file => file.endsWith('.php'))
+    .sort()
+    .map(file => join(onlineDataConcernDir, file))
+  : [];
+const onlineDataControllerSource = [
+  join(root, 'app', 'controller', 'OnlineData.php'),
+  ...onlineDataConcernFiles,
+].map(file => readFileSync(file, 'utf8')).join('\n');
+const readBackendSource = (file) => (
+  file === 'app/controller/OnlineData.php'
+    ? onlineDataControllerSource
+    : readFileSync(join(root, file), 'utf8')
+);
 
 const forbiddenFrontendTokens = [
   ['const extractAllCtripHotels', 'frontend must not parse Ctrip business response payloads'],
@@ -61,7 +77,7 @@ for (const [token, message] of forbiddenFrontendTokens) {
 }
 
 for (const [file, token, message] of requiredBackendTokens) {
-  const source = readFileSync(join(root, file), 'utf8');
+  const source = readBackendSource(file);
   if (!source.includes(token)) {
     failures.push(`${message}: missing ${token}`);
   }

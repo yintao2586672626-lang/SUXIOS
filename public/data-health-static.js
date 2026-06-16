@@ -1527,6 +1527,717 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         competitor_price_fields_missing: '缺竞品价格，暂不能做竞品价差和调价判断。',
     }[String(code || '').trim()] || '该缺口需要补齐字段定义或目标日样本后再判断。');
 
+    const phase1MissingFieldLabel = (code) => ({
+        available_room_nights_missing: '可售房晚缺失',
+        commission_fields_missing: '佣金字段缺失',
+        net_revenue_fields_missing: '净收入字段缺失',
+        lead_time_fields_missing: '提前预订字段缺失',
+        cancellation_fields_missing: '取消字段缺失',
+        cancel_room_nights_missing: '取消房晚缺失',
+        competitor_price_fields_missing: '竞品价格字段缺失',
+    }[String(code || '').trim()] || String(code || '').trim() || '未命名缺口');
+
+    const phase1MissingFieldNextActionText = (code, source = 'data_gaps') => {
+        const raw = String(code || '').trim();
+        if (/available_room_nights|net_revenue|commission|lead_time|cancellation|cancel_room_nights|competitor_price/i.test(raw)) {
+            return '按字段资产核对平台返回和入库字段，再重跑收益指标核验。';
+        }
+        return source === 'missing_field_codes'
+            ? '按字段缺口清单补齐字段定义或样本证据。'
+            : '按数据缺口清单补齐目标日证据后复跑诊断。';
+    };
+
+    const phase1MissingFieldSourceText = (source) => source === 'missing_field_codes' ? '字段缺口' : '数据缺口';
+
+    const phase1MetricDomainStatusText = (status) => String(status || '').toLowerCase() === 'ready' ? '可复核' : '缺失';
+    const phase1MetricDomainStatusClass = (status) => String(status || '').toLowerCase() === 'ready'
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        : 'border-amber-200 bg-amber-50 text-amber-700';
+    const phase1MetricDomainMissingLabel = (domain) => ({
+        revenue: '收益',
+        traffic: '流量',
+        conversion: '转化',
+    }[String(domain || '').toLowerCase()] || String(domain || ''));
+    const phase1MetricDomainProblemText = ({ revenueReady, trafficReady, conversionReady, sourceRows, trafficRows } = {}) => {
+        if (revenueReady && trafficReady && conversionReady) {
+            return '收益、流量、转化均可复核。';
+        }
+        if (sourceRows <= 0) {
+            return '目标日源数据缺失，收益、流量、转化都不能证明。';
+        }
+        if (revenueReady && (!trafficReady || !conversionReady || trafficRows <= 0)) {
+            return '收益可先复核；流量/转化缺失，不能判断曝光到下单漏斗。';
+        }
+        if (!trafficReady || !conversionReady || trafficRows <= 0) {
+            return '流量/转化缺失，不能判断曝光、访问或下单转化问题。';
+        }
+        return '收益指标缺失，不能输出收入问题结论。';
+    };
+    const phase1MetricDomainNextActionText = ({ revenueReady, trafficReady, conversionReady, sourceRows, trafficRows } = {}) => {
+        if (revenueReady && trafficReady && conversionReady) {
+            return '可进入 OTA 经营诊断。';
+        }
+        if (sourceRows <= 0) {
+            return '先补目标日 OTA 源数据，再复跑收益指标核验。';
+        }
+        if (!revenueReady) {
+            return '复核标准事实层和收益指标输入。';
+        }
+        if (!trafficReady || !conversionReady || trafficRows <= 0) {
+            return '补齐流量/转化事实，再复核漏斗诊断。';
+        }
+        return '按缺口补齐目标日证据后复跑诊断。';
+    };
+
+    const phase1EmployeeCountItem = (key, label, value, ok = false) => ({
+        key,
+        label,
+        value: String(value ?? 0),
+        className: ok ? 'text-emerald-700' : 'text-slate-800',
+    });
+    const phase1EmployeeQuestionBlockingGapCodes = (row = {}) => {
+        const evidence = row?.evidence && typeof row.evidence === 'object' ? row.evidence : {};
+        const status = String(row?.status || '').trim();
+        if (['proved', 'no_gap_reported'].includes(status)) {
+            return [];
+        }
+        const codes = [];
+        [
+            row?.blocking_gap_codes,
+            evidence.blocking_gap_codes,
+            evidence.blocking_missing_codes,
+            evidence.operation_blocking_missing_codes,
+            evidence.metric_domain_gap_codes,
+            evidence.direct_next_action_resolves_missing_codes,
+            evidence.primary_next_action_resolves_missing_codes,
+            evidence.data_gap_codes,
+        ].forEach((items) => {
+            (Array.isArray(items) ? items : []).forEach((item) => {
+                const code = String(item || '').trim();
+                if (code && !codes.includes(code)) {
+                    codes.push(code);
+                }
+            });
+        });
+        return codes;
+    };
+    const mergePhase1EmployeeQuestionRow = (backendRow = {}, localRow = {}) => {
+        const merged = { ...(localRow || {}), ...(backendRow || {}) };
+        return {
+            ...merged,
+            detail: backendRow?.detail || localRow?.detail || '',
+            detailRawText: backendRow?.detailRawText || localRow?.detailRawText || '',
+            nextActionText: backendRow?.nextActionText || localRow?.nextActionText || '',
+            nextActionRawText: backendRow?.nextActionRawText || localRow?.nextActionRawText || '',
+            employeeNextActionText: backendRow?.employeeNextActionText || localRow?.employeeNextActionText || '',
+            actionCodes: backendRow?.actionCodes || localRow?.actionCodes || '',
+            primaryNextActionCode: backendRow?.primaryNextActionCode || localRow?.primaryNextActionCode || '',
+            directNextActionCode: backendRow?.directNextActionCode || localRow?.directNextActionCode || '',
+            actionCodesText: backendRow?.actionCodesText || localRow?.actionCodesText || '',
+            primaryNextActionText: backendRow?.primaryNextActionText || localRow?.primaryNextActionText || '',
+            directNextActionText: backendRow?.directNextActionText || localRow?.directNextActionText || '',
+            primaryNextActionEntry: backendRow?.primaryNextActionEntry || localRow?.primaryNextActionEntry || '',
+            directNextActionEntry: backendRow?.directNextActionEntry || localRow?.directNextActionEntry || '',
+            primaryNextActionEntryText: backendRow?.primaryNextActionEntryText || localRow?.primaryNextActionEntryText || '',
+            directNextActionEntryText: backendRow?.directNextActionEntryText || localRow?.directNextActionEntryText || '',
+            primaryNextActionSuccessCriteria: backendRow?.primaryNextActionSuccessCriteria || localRow?.primaryNextActionSuccessCriteria || '',
+            directNextActionSuccessCriteria: backendRow?.directNextActionSuccessCriteria || localRow?.directNextActionSuccessCriteria || '',
+            primaryNextActionSuccessCriteriaText: backendRow?.primaryNextActionSuccessCriteriaText || localRow?.primaryNextActionSuccessCriteriaText || '',
+            directNextActionSuccessCriteriaText: backendRow?.directNextActionSuccessCriteriaText || localRow?.directNextActionSuccessCriteriaText || '',
+            blockedActionCodes: backendRow?.blockedActionCodes || localRow?.blockedActionCodes || '',
+            blockedActionCodesText: backendRow?.blockedActionCodesText || localRow?.blockedActionCodesText || '',
+            blockingGapCodes: backendRow?.blockingGapCodes?.length ? backendRow.blockingGapCodes : (localRow?.blockingGapCodes || []),
+            blockingReasonText: backendRow?.blockingReasonText || localRow?.blockingReasonText || '',
+            linkedActionCount: Number(backendRow?.linkedActionCount || localRow?.linkedActionCount || 0),
+        };
+    };
+    const phase1EmployeeQuestionPresentationRow = (backendRow = {}, localRow = {}) => ({
+        ...(backendRow || {}),
+        question: backendRow?.question || localRow?.question || '',
+        detail: backendRow?.detail || localRow?.detail || '',
+        detailRawText: backendRow?.detailRawText || localRow?.detailRawText || '',
+        nextActionText: backendRow?.nextActionText || localRow?.nextActionText || '',
+        nextActionRawText: backendRow?.nextActionRawText || localRow?.nextActionRawText || '',
+        employeeNextActionText: backendRow?.employeeNextActionText || localRow?.employeeNextActionText || '',
+        blockingReasonText: backendRow?.blockingReasonText || localRow?.blockingReasonText || '',
+    });
+    const phase1EmployeeActionRawCode = (item) => {
+        if (typeof item === 'string') return item.trim();
+        if (!item || typeof item !== 'object') return '';
+        return String(item.action_code || item.actionCode || item.code || '').trim();
+    };
+    const phase1EmployeeActionPlatformText = (item, rawCode) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const explicitPlatform = String(source.platform || '').trim();
+        if (explicitPlatform) return phase1EmployeePlatformText(explicitPlatform);
+        const match = String(rawCode || '').match(/(?:^|_)(ctrip|meituan)(?:_|$)/);
+        return match ? phase1EmployeePlatformText(match[1]) : 'OTA 平台';
+    };
+    const phase1EmployeeActionEntryText = (entry, item = {}) => {
+        const rawEntry = String(entry || '').trim();
+        if (!rawEntry) return '';
+        const pathOnly = rawEntry.split('?')[0].replace(/^https?:\/\/[^/]+/i, '');
+        const rawCode = phase1EmployeeActionRawCode(item);
+        const platformText = phase1EmployeeActionPlatformText(item, rawCode);
+        const entryMap = {
+            '/api/online-data/collection-reliability': 'OTA 采集可靠性状态核对',
+            '/api/online-data/fetch-ctrip': '携程手动 Cookie/API 获取入口',
+            '/api/online-data/fetch-meituan': '美团手动 Cookie/API 获取入口',
+            '/api/online-data/capture-ctrip-browser': '携程浏览器 Profile 采集入口',
+            '/api/online-data/capture-meituan-browser': '美团浏览器 Profile 采集入口',
+            '/api/online-data/fetch-ctrip-traffic': '携程流量/转化采集入口',
+            '/api/online-data/fetch-meituan-traffic': '美团流量/转化采集入口',
+            '/api/online-data/data-analysis': 'OTA 经营数据分析入口',
+            '/api/ota-standard/revenue-metrics': 'OTA 收益指标与标准事实核对',
+            '/api/agent/ota-diagnosis': 'AI 诊断证据核对入口',
+            '/api/operation/execution-intents': '运营执行意图入口',
+            '/api/operation/execution-flow': '运营执行流程核对入口',
+        };
+        if (entryMap[pathOnly]) return entryMap[pathOnly];
+        if (rawCode === 'phase1_confirm_source_date_evidence' || String(item?.action_family || item?.actionFamily || '') === 'target_date_source_rows') {
+            return `${platformText}目标日源数据补证入口`;
+        }
+        if (String(item?.action_family || item?.actionFamily || '') === 'traffic_conversion_facts') {
+            return `${platformText}流量/转化证据核对入口`;
+        }
+        if (String(item?.action_family || item?.actionFamily || '') === 'revenue_metric_inputs' || String(item?.action_family || item?.actionFamily || '') === 'standard_facts') {
+            return `${platformText}收益指标与标准事实核对入口`;
+        }
+        const family = String(item?.action_family || item?.actionFamily || '').trim();
+        if (family === 'operation_execution_evidence') return '现有运营执行入口';
+        if (family === 'ai_diagnosis_evidence') return '现有 AI 诊断入口';
+        if (family === 'target_date_source_rows') return '现有目标日源数据补证入口';
+        if (family === 'traffic_conversion_facts') return '现有流量/转化核对入口';
+        if (family === 'revenue_metric_inputs' || family === 'standard_facts') return '现有收益指标核对入口';
+        return '现有核验入口';
+    };
+    const phase1EmployeeActionEntryOptionModeText = (option) => {
+        if (!option || typeof option !== 'object') {
+            return String(option || '').trim();
+        }
+        const rawMode = String(option.mode || option.type || '').trim();
+        return ({
+            manual_cookie_api: '手动 Cookie/API',
+            browser_profile: '浏览器 Profile',
+            status_check: '状态核对',
+        }[rawMode] || String(option.label || '').trim() || rawMode);
+    };
+    const phase1EmployeeActionEntryOptionRawText = (option) => {
+        if (!option || typeof option !== 'object') {
+            return String(option || '').trim();
+        }
+        const label = String(option.label || option.mode || option.type || '').trim();
+        const entry = String(option.entry || '').trim();
+        return [label, entry].filter(Boolean).join('：');
+    };
+    const phase1EmployeeActionEntryOptionText = (option) => {
+        if (!option || typeof option !== 'object') {
+            return String(option || '').trim();
+        }
+        const modeText = phase1EmployeeActionEntryOptionModeText(option);
+        const entry = phase1EmployeeActionEntryText(option.entry || '', option);
+        return [modeText, entry].filter(Boolean).join('：');
+    };
+    const phase1EmployeeActionEntryOptionPlatformText = (option) => {
+        if (!option || typeof option !== 'object') {
+            return 'OTA';
+        }
+        const raw = [
+            option.platform,
+            option.source,
+            option.entry,
+            option.label,
+        ].map(value => String(value || '').toLowerCase()).join(' ');
+        if (raw.includes('ctrip') || raw.includes('携程')) {
+            return '携程';
+        }
+        if (raw.includes('meituan') || raw.includes('美团')) {
+            return '美团';
+        }
+        return 'OTA';
+    };
+    const phase1EmployeeActionEntryOptionInputText = (value) => ({
+        target_date: '目标日期',
+        system_hotel_id: '系统酒店 ID',
+        ctrip_hotel_id_or_node_id: '携程酒店/节点 ID',
+        meituan_poi_id_or_partner_id: '美团 POI/合作方 ID',
+        authorized_cookie_or_headers: '授权 Cookie/请求头',
+        traffic_request_url_or_cdp_endpoint_evidence: '流量接口或 CDP 端点证据',
+        traffic_payload_or_query_params: '流量 Payload/查询参数',
+        desensitized_traffic_response_sample_or_source_trace_id: '脱敏响应样例或 source_trace_id',
+        authorized_ctrip_profile_dir: '授权携程 Profile',
+        authorized_meituan_profile_dir: '授权美团 Profile',
+        manual_login_state_verified: '人工确认登录态',
+        traffic_response_listener: '流量响应监听',
+    }[String(value || '').trim()] || String(value || '').trim());
+    const phase1EmployeeActionEntryOptionContractText = (option) => {
+        const contract = option && typeof option === 'object' && option.input_contract && typeof option.input_contract === 'object'
+            ? option.input_contract
+            : null;
+        if (!contract || String(contract.target_data_type || '').trim() !== 'traffic') {
+            return '';
+        }
+        const metricKeys = Array.isArray(contract.required_metric_keys)
+            ? contract.required_metric_keys.map(value => String(value || '').trim()).filter(Boolean)
+            : [];
+        const storageFields = Array.isArray(contract.required_storage_fields)
+            ? contract.required_storage_fields.map(value => String(value || '').trim()).filter(Boolean)
+            : [];
+        const inputs = Array.isArray(contract.required_inputs)
+            ? contract.required_inputs.map(phase1EmployeeActionEntryOptionInputText).filter(Boolean)
+            : [];
+        const fieldFactKeys = Array.isArray(contract.required_field_fact_keys)
+            ? contract.required_field_fact_keys.map(value => String(value || '').trim()).filter(Boolean)
+            : [];
+        const metricText = metricKeys.length ? `需闭环指标 ${metricKeys.join('、')}` : '';
+        const storageText = storageFields.length ? `需入库字段 ${storageFields.join('、')}` : '';
+        const inputText = inputs.length ? `需补输入 ${inputs.join('、')}` : '';
+        const factText = fieldFactKeys.length ? '需证明采集证据、source path、metric key、入库字段和已入库值' : '';
+        const sensitiveText = contract.sensitive_values_allowed === false ? '不展示 Cookie、token 或 Profile 原值' : '';
+        return [metricText, storageText, inputText, factText, sensitiveText].filter(Boolean).join('；');
+    };
+    const phase1EmployeeActionEntryOptionGuidanceText = (option) => {
+        if (!option || typeof option !== 'object') {
+            return '';
+        }
+        const modeText = phase1EmployeeActionEntryOptionModeText(option);
+        const rawMode = String(option.mode || option.type || '').trim();
+        const platformText = phase1EmployeeActionEntryOptionPlatformText(option);
+        const platformPrefix = platformText === 'OTA' ? '' : platformText;
+        const platformBackendText = platformText === 'OTA' ? 'OTA 后台' : `${platformText}后台`;
+        const stableDetails = ({
+            manual_cookie_api: [
+                `用于已取得${platformText} Cookie/Payload/导出上下文时补齐目标日数据`,
+                '需用户提供授权上下文、门店标识和目标日期',
+                `不代登录${platformBackendText}，不启动浏览器 Profile，不改变采集字段`,
+            ],
+            browser_profile: [
+                `用于${platformPrefix}已授权本机浏览器 Profile 走现有自动采集路径`,
+                '需 Profile 存在，登录态仍由现有流程核验',
+                '不绕过验证码、短信或人机验证，不改变自动采集逻辑',
+            ],
+            status_check: [
+                '用于只读核对目标日入库、最近可用日期和失败原因',
+                '只读取现有采集可靠性和 online_daily_data 状态',
+                '不写 OTA 数据，不改变字段映射',
+            ],
+        }[rawMode] || [
+            '按现有入口要求选择',
+            '按现有入口要求补齐上下文',
+            '不改变采集逻辑和字段',
+        ]);
+        const contractText = phase1EmployeeActionEntryOptionContractText(option);
+        const details = [...stableDetails, contractText].filter(Boolean).join('；');
+        return [modeText, details].filter(Boolean).join('：');
+    };
+    const phase1EmployeeActionEntryOptionGuidanceRawText = (option) => {
+        if (!option || typeof option !== 'object') {
+            return '';
+        }
+        return [
+            String(option.use_when || '').trim(),
+            String(option.requires || '').trim(),
+            String(option.boundary || '').trim(),
+        ].filter(Boolean).join('；');
+    };
+    const phase1EmployeeActionEntryOptionReadinessText = (option) => {
+        if (!option || typeof option !== 'object') {
+            return '';
+        }
+        const readiness = option.readiness && typeof option.readiness === 'object' ? option.readiness : null;
+        if (!readiness) {
+            return '';
+        }
+        const modeText = phase1EmployeeActionEntryOptionModeText(option);
+        const label = phase1EmployeeReadinessStatusText(readiness.status) || String(readiness.label || '').trim();
+        const canRunNowText = readiness.can_run_now === true ? '可直接执行' : (readiness.can_run_now === false ? '需先准备' : '');
+        const reason = String(readiness.reason || '').trim();
+        const evidenceValues = [
+            phase1EmployeeReadinessEvidenceText(readiness.evidence),
+            phase1EmployeeReadinessEvidenceText(readiness.source_policy),
+        ].filter(Boolean);
+        const evidence = Array.from(new Set(evidenceValues)).join(' / ');
+        const profileCount = Number.isFinite(Number(readiness.profile_count)) ? Number(readiness.profile_count) : null;
+        const profileText = profileCount === null ? '' : `Profile ${profileCount} 个`;
+        return [modeText, [canRunNowText, label, profileText, reason, evidence].filter(Boolean).join(' / ')].filter(Boolean).join('：');
+    };
+    const phase1EmployeeKnownQuestionText = (key) => {
+        const raw = String(key || '').trim();
+        const text = phase1EmployeeQuestionKeyText(raw);
+        return text && text !== raw ? text : '';
+    };
+    const phase1EmployeeKnownQuestionListText = (values) => {
+        const list = Array.isArray(values) ? values : (values ? [values] : []);
+        const mapped = list.map(phase1EmployeeKnownQuestionText).filter(Boolean);
+        return mapped.length ? mapped.join('、') : (list.length ? '未识别员工问题' : '');
+    };
+    const phase1EmployeeActionSuccessCriteriaText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const employeeCriteria = String(source.employee_success_criteria || source.employeeSuccessCriteria || '').trim();
+        if (employeeCriteria) return employeeCriteria;
+        const rawCode = phase1EmployeeActionRawCode(item);
+        const family = String(source.action_family || source.actionFamily || '').trim();
+        const platformText = phase1EmployeeActionPlatformText(source, rawCode);
+        if (rawCode === 'phase1_confirm_source_date_evidence' || family === 'target_date_source_rows') {
+            return `${platformText}目标日入库行数 > 0；最近可用/历史数据只作参考`;
+        }
+        if (/^(?:phase1_collect_(ctrip|meituan)_target_date_source_rows|(ctrip|meituan)_source_rows_missing_collect_existing_path)$/.test(rawCode)) {
+            return `${platformText}目标日入库行数 > 0；最近可用/历史数据只作参考`;
+        }
+        if (/^(ctrip|meituan)_etl_not_ready_check_standard_facts$/.test(rawCode) || family === 'standard_facts') {
+            return `${platformText}标准事实层已就绪，目标日数据能进入收益/流量/转化指标计算`;
+        }
+        if (/^(?:phase1_(?:check|confirm)_(ctrip|meituan)_revenue_metric_inputs|(ctrip|meituan)_revenue_metrics_not_ready_check_metric_inputs)$/.test(rawCode) || family === 'revenue_metric_inputs') {
+            return `${platformText}收益指标输入可复核，指标可信状态和数据缺口均有明确状态`;
+        }
+        if (/^(?:phase1_confirm_(ctrip|meituan)_traffic_conversion_facts|(ctrip|meituan)_traffic_facts_missing_confirm_traffic_collection)$/.test(rawCode) || family === 'traffic_conversion_facts') {
+            return `${platformText}流量/转化事实已入库并可复核，缺口不再阻断 AI 依据`;
+        }
+        if (rawCode === 'resolve_ai_diagnosis_blocked_action_items') {
+            return 'AI 动作项不再被上游 OTA 缺口阻断，并带有证据来源、数据缺口和可执行动作项';
+        }
+        if (rawCode === 'phase1_collect_ai_diagnosis_evidence' || rawCode === 'collect_ai_diagnosis_evidence' || family === 'ai_diagnosis_evidence') {
+            return 'AI 诊断带有证据来源、数据缺口和至少一个非阻断动作项';
+        }
+        if (rawCode === 'phase1_create_operation_execution_evidence' || rawCode === 'collect_operation_execution_evidence' || family === 'operation_execution_evidence') {
+            return '执行意图可追溯到 OTA 诊断动作，并出现审批、执行证据、复盘或 ROI 信号';
+        }
+        const localMatch = rawCode.match(/^local_(.+)_required_action$/);
+        const questionKey = localMatch?.[1] || String(source.question_key || source.questionKey || '').trim();
+        if (questionKey) {
+            const questionText = phase1EmployeeKnownQuestionText(questionKey) || '当前员工问题';
+            return ({
+                today_ota_collected: '目标日携程/美团入库状态可复核，缺失平台明确标出',
+                trusted_fields: '字段可信状态有字段资产、指标可信状态和目标日样例支撑',
+                missing_fields: '缺失字段和数据缺口被显式列出，无缺口时也保留可复核证据',
+                revenue_traffic_conversion: '收益、流量、转化分别有 ready/missing 状态，缺失时不输出确定结论',
+                ai_evidence: 'AI 建议有证据来源、数据缺口和非阻断动作项',
+                next_operation_action: '下一步动作能追溯到 OTA 诊断，并出现执行闭环信号',
+            }[questionKey] || `${questionText}从未证明变为可复核`);
+        }
+        return rawCode || family || String(source.success_criteria || source.successCriteria || '').trim()
+            ? '该动作对应缺口从待证明变为可复核；原始完成条件仅保留追溯。'
+            : '';
+    };
+    const phase1EmployeeActionEvidenceNeededText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const employeeEvidence = Array.isArray(source.employee_evidence_needed || source.employeeEvidenceNeeded)
+            ? (source.employee_evidence_needed || source.employeeEvidenceNeeded).filter(Boolean).join('、')
+            : String(source.employee_evidence_needed || source.employeeEvidenceNeeded || '').trim();
+        if (employeeEvidence) return employeeEvidence;
+        const rawCode = phase1EmployeeActionRawCode(item);
+        const family = String(source.action_family || source.actionFamily || '').trim();
+        const platformText = phase1EmployeeActionPlatformText(source, rawCode);
+        if (rawCode === 'phase1_confirm_source_date_evidence' || family === 'target_date_source_rows') {
+            return `${platformText}目标日入库行、平台源数据快照、采集日志或回放记录`;
+        }
+        if (/^(?:phase1_collect_(ctrip|meituan)_target_date_source_rows|(ctrip|meituan)_source_rows_missing_collect_existing_path)$/.test(rawCode)) {
+            return `${platformText}目标日入库行、平台源数据快照、采集日志或回放记录`;
+        }
+        if (/^(ctrip|meituan)_etl_not_ready_check_standard_facts$/.test(rawCode) || family === 'standard_facts') {
+            return `${platformText}标准事实层状态、验收行数、校验标记和数据类型`;
+        }
+        if (/^(?:phase1_(?:check|confirm)_(ctrip|meituan)_revenue_metric_inputs|(ctrip|meituan)_revenue_metrics_not_ready_check_metric_inputs)$/.test(rawCode) || family === 'revenue_metric_inputs') {
+            return `${platformText}目标日收益样本、指标可信状态、数据缺口清单`;
+        }
+        if (/^(?:phase1_confirm_(ctrip|meituan)_traffic_conversion_facts|(ctrip|meituan)_traffic_facts_missing_confirm_traffic_collection)$/.test(rawCode) || family === 'traffic_conversion_facts') {
+            return `${platformText}流量/转化事实、数据缺口、目标日数据类型`;
+        }
+        if (rawCode === 'resolve_ai_diagnosis_blocked_action_items' || rawCode === 'phase1_collect_ai_diagnosis_evidence' || rawCode === 'collect_ai_diagnosis_evidence' || family === 'ai_diagnosis_evidence') {
+            return 'AI 诊断证据来源、数据缺口、非阻断动作项';
+        }
+        if (rawCode === 'phase1_create_operation_execution_evidence' || rawCode === 'collect_operation_execution_evidence' || family === 'operation_execution_evidence') {
+            return '运营执行意图或执行流程、审批、执行证据、复盘或 ROI';
+        }
+        const localMatch = rawCode.match(/^local_(.+)_required_action$/);
+        const questionKey = localMatch?.[1] || String(source.question_key || source.questionKey || '').trim();
+        if (questionKey) {
+            return ({
+                today_ota_collected: '目标日平台源数据快照、入库行数、缺失平台',
+                trusted_fields: '字段资产、指标可信状态、数据质量、目标日样例',
+                missing_fields: '缺失字段清单、数据缺口、字段资产',
+                revenue_traffic_conversion: '目标日收益事实、流量事实、转化事实、指标可信状态、数据缺口',
+                ai_evidence: 'AI 诊断证据来源、数据缺口、动作项',
+                next_operation_action: '运营执行意图或执行流程、审批、执行证据、复盘/ROI',
+            }[questionKey] || '当前问题对应的可复核证据');
+        }
+        return rawCode || family || source.evidence_needed || source.evidenceNeeded
+            ? '当前动作对应的目标日 OTA 证据、状态快照和缺口清单'
+            : '';
+    };
+    const phase1EmployeeActionVerificationStepsText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        return Array.isArray(source.employee_verification_steps || source.employeeVerificationSteps)
+            ? (source.employee_verification_steps || source.employeeVerificationSteps).filter(Boolean).join('；')
+            : String(source.employee_verification_steps || source.employeeVerificationSteps || '').trim();
+    };
+    const phase1EmployeeActionBlockedActionText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const blockedCodes = Array.isArray(source.blocked_by_action_codes || source.blockedByActionCodes)
+            ? (source.blocked_by_action_codes || source.blockedByActionCodes)
+            : String(source.blocked_by_action_codes || source.blockedByActionCodes || '').split(/[、,，\s]+/);
+        return blockedCodes.map(code => phase1EmployeeActionCodeText(code, {
+            knownQuestionText: phase1EmployeeKnownQuestionText,
+            platformText: phase1EmployeePlatformText,
+        })).filter(Boolean).join('、');
+    };
+    const phase1EmployeeActionEmployeeExplanationText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const rawCode = phase1EmployeeActionRawCode(item);
+        const family = String(source.action_family || source.actionFamily || '').trim();
+        const platformText = phase1EmployeeActionPlatformText(source, rawCode);
+        const fallback = String(source.employee_explanation || source.employeeExplanation || '').trim();
+        if (rawCode === 'resolve_ai_diagnosis_blocked_action_items') return 'AI 动作项仍被上游 OTA 证据缺口阻断，当前只能定位缺口，不能直接进入执行。';
+        if (rawCode === 'phase1_create_operation_execution_evidence' || rawCode === 'collect_operation_execution_evidence' || family === 'operation_execution_evidence') return '运营动作还没有形成可追溯的审批、执行证据、复盘或 ROI 信号，不能证明闭环完成。';
+        if (rawCode === 'phase1_collect_ai_diagnosis_evidence' || rawCode === 'collect_ai_diagnosis_evidence' || family === 'ai_diagnosis_evidence') return 'AI 诊断需要同时引用证据来源、数据缺口和动作项，缺少任一环节都只能作为待补证据。';
+        if (/^(?:phase1_collect_(ctrip|meituan)_target_date_source_rows|(ctrip|meituan)_source_rows_missing_collect_existing_path)$/.test(rawCode) || rawCode === 'phase1_confirm_source_date_evidence' || family === 'target_date_source_rows') return `${platformText}目标日源数据还没有形成入库证明，当前不能判定该平台今日 OTA 数据已采到。`;
+        if (/^(ctrip|meituan)_etl_not_ready_check_standard_facts$/.test(rawCode) || family === 'standard_facts') return `${platformText}源数据尚未证明进入标准事实层，收益、流量或转化分析不能直接使用该平台事实。`;
+        if (/^(?:phase1_(?:check|confirm)_(ctrip|meituan)_revenue_metric_inputs|(ctrip|meituan)_revenue_metrics_not_ready_check_metric_inputs)$/.test(rawCode) || family === 'revenue_metric_inputs') return `${platformText}收益指标输入或指标可信证据未就绪，不能给出确定的收入、ADR、订单或间夜结论。`;
+        if (/^(?:phase1_confirm_(ctrip|meituan)_traffic_conversion_facts|(ctrip|meituan)_traffic_facts_missing_confirm_traffic_collection)$/.test(rawCode) || family === 'traffic_conversion_facts') return `${platformText}流量/转化事实缺失，不能判断曝光、访问、下单或转化问题。`;
+        const localMatch = rawCode.match(/^local_(.+)_required_action$/);
+        const questionKey = localMatch?.[1] || String(source.question_key || source.questionKey || '').trim();
+        if (questionKey) {
+            const questionText = phase1EmployeeKnownQuestionText(questionKey) || '当前员工问题';
+            return `${questionText}还没有形成完整证据，只能作为待补证据项处理。`;
+        }
+        return fallback;
+    };
+    const phase1EmployeeActionLimitedConclusionsText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const rawCode = phase1EmployeeActionRawCode(item);
+        const family = String(source.action_family || source.actionFamily || '').trim();
+        const platformText = phase1EmployeeActionPlatformText(source, rawCode);
+        const fallback = Array.isArray(source.limited_conclusions || source.limitedConclusions)
+            ? (source.limited_conclusions || source.limitedConclusions).filter(Boolean).join('、')
+            : String(source.limited_conclusions || source.limitedConclusions || '').trim();
+        if (rawCode === 'resolve_ai_diagnosis_blocked_action_items') return '不能声明 AI 建议可执行，不能创建确定运营动作。';
+        if (rawCode === 'phase1_create_operation_execution_evidence' || rawCode === 'collect_operation_execution_evidence' || family === 'operation_execution_evidence') return '不能声明运营动作已完成，不能声明已有 ROI 或复盘结论。';
+        if (rawCode === 'phase1_collect_ai_diagnosis_evidence' || rawCode === 'collect_ai_diagnosis_evidence' || family === 'ai_diagnosis_evidence') return '不能声明 AI 依据完整，不能把缺证据建议当作确定决策。';
+        if (/^(?:phase1_collect_(ctrip|meituan)_target_date_source_rows|(ctrip|meituan)_source_rows_missing_collect_existing_path)$/.test(rawCode) || rawCode === 'phase1_confirm_source_date_evidence' || family === 'target_date_source_rows') return `不能判定${platformText}目标日已采到，不能据此下收益或 AI 结论。`;
+        if (/^(ctrip|meituan)_etl_not_ready_check_standard_facts$/.test(rawCode) || family === 'standard_facts') return `不能确认${platformText}标准事实层已就绪，不能进入确定指标计算。`;
+        if (/^(?:phase1_(?:check|confirm)_(ctrip|meituan)_revenue_metric_inputs|(ctrip|meituan)_revenue_metrics_not_ready_check_metric_inputs)$/.test(rawCode) || family === 'revenue_metric_inputs') return `不能确认${platformText}收入、ADR、间夜、订单趋势，不能作为 AI 定价依据。`;
+        if (/^(?:phase1_confirm_(ctrip|meituan)_traffic_conversion_facts|(ctrip|meituan)_traffic_facts_missing_confirm_traffic_collection)$/.test(rawCode) || family === 'traffic_conversion_facts') return `不能确认${platformText}曝光、访问、转化率或漏斗问题。`;
+        return fallback;
+    };
+    const phase1EmployeeActionStillUsableMetricsText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const rawCode = phase1EmployeeActionRawCode(item);
+        const family = String(source.action_family || source.actionFamily || '').trim();
+        const platformText = phase1EmployeeActionPlatformText(source, rawCode);
+        const fallback = Array.isArray(source.still_usable_metrics || source.stillUsableMetrics)
+            ? (source.still_usable_metrics || source.stillUsableMetrics).filter(Boolean).join('、')
+            : String(source.still_usable_metrics || source.stillUsableMetrics || '').trim();
+        if (rawCode === 'resolve_ai_diagnosis_blocked_action_items') return '已有证据来源和数据缺口可用于定位缺口，但不能当作可执行建议。';
+        if (rawCode === 'phase1_create_operation_execution_evidence' || rawCode === 'collect_operation_execution_evidence' || family === 'operation_execution_evidence') return '已有执行流计数可用于排查进度，但缺少可追溯 OTA 诊断链时不算闭环。';
+        if (rawCode === 'phase1_collect_ai_diagnosis_evidence' || rawCode === 'collect_ai_diagnosis_evidence' || family === 'ai_diagnosis_evidence') return '已有 OTA 数据缺口和字段状态可用于定位诊断阻断点。';
+        if (/^(?:phase1_collect_(ctrip|meituan)_target_date_source_rows|(ctrip|meituan)_source_rows_missing_collect_existing_path)$/.test(rawCode) || rawCode === 'phase1_confirm_source_date_evidence' || family === 'target_date_source_rows') return '已采到的其他平台、最近可用日期和历史样本可作参考，但不能替代目标日缺失平台。';
+        if (/^(ctrip|meituan)_etl_not_ready_check_standard_facts$/.test(rawCode) || family === 'standard_facts') return `${platformText}源数据行、原始快照、验收或拒绝原因可用于排查。`;
+        if (/^(?:phase1_(?:check|confirm)_(ctrip|meituan)_revenue_metric_inputs|(ctrip|meituan)_revenue_metrics_not_ready_check_metric_inputs)$/.test(rawCode) || family === 'revenue_metric_inputs') return '已就绪平台的指标和数据缺口可用于定位缺口，不能补齐缺失平台结论。';
+        if (/^(?:phase1_confirm_(ctrip|meituan)_traffic_conversion_facts|(ctrip|meituan)_traffic_facts_missing_confirm_traffic_collection)$/.test(rawCode) || family === 'traffic_conversion_facts') return '已有收益事实和已入库业务事实可参考，流量/转化结论需等事实补齐。';
+        return fallback;
+    };
+    const phase1EmployeeActionExplanationNextActionText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const employeeNextAction = String(source.employee_explanation_next_action || source.employeeExplanationNextAction || '').trim();
+        if (employeeNextAction) return employeeNextAction;
+        const rawCode = phase1EmployeeActionRawCode(item);
+        const family = String(source.action_family || source.actionFamily || '').trim();
+        const platformText = phase1EmployeeActionPlatformText(source, rawCode);
+        const blockedText = phase1EmployeeActionBlockedActionText(source);
+        const fallback = String(source.explanation_next_action || source.explanationNextAction || '').trim();
+        if (rawCode === 'resolve_ai_diagnosis_blocked_action_items') return blockedText ? `先处理：${blockedText}；再重新生成 AI 诊断。` : '先补齐 OTA 证据，再重新生成 AI 诊断。';
+        if (rawCode === 'phase1_create_operation_execution_evidence' || rawCode === 'collect_operation_execution_evidence' || family === 'operation_execution_evidence') return blockedText ? `先完成上游动作：${blockedText}；再创建或复核执行意图。` : '从真实 AI 动作项创建执行意图，并保留审批、执行证据和复盘。';
+        if (rawCode === 'phase1_collect_ai_diagnosis_evidence' || rawCode === 'collect_ai_diagnosis_evidence' || family === 'ai_diagnosis_evidence') return '补齐 OTA 证据后重新生成诊断，确认返回证据来源、数据缺口和动作项。';
+        if (/^(?:phase1_collect_(ctrip|meituan)_target_date_source_rows|(ctrip|meituan)_source_rows_missing_collect_existing_path)$/.test(rawCode) || rawCode === 'phase1_confirm_source_date_evidence' || family === 'target_date_source_rows') return `通过现有${platformText}手动 Cookie/API 或浏览器 Profile 入口补齐目标日源数据。`;
+        if (/^(ctrip|meituan)_etl_not_ready_check_standard_facts$/.test(rawCode) || family === 'standard_facts') return `复核${platformText}标准事实层验收行、校验标记和 data_type。`;
+        if (/^(?:phase1_(?:check|confirm)_(ctrip|meituan)_revenue_metric_inputs|(ctrip|meituan)_revenue_metrics_not_ready_check_metric_inputs)$/.test(rawCode) || family === 'revenue_metric_inputs') return `复核${platformText}收益指标输入、指标可信证据和数据缺口。`;
+        if (/^(?:phase1_confirm_(ctrip|meituan)_traffic_conversion_facts|(ctrip|meituan)_traffic_facts_missing_confirm_traffic_collection)$/.test(rawCode) || family === 'traffic_conversion_facts') return `补齐${platformText}流量/转化事实，再复跑收益指标和 AI 诊断。`;
+        const localMatch = rawCode.match(/^local_(.+)_required_action$/);
+        const questionKey = localMatch?.[1] || String(source.question_key || source.questionKey || '').trim();
+        if (questionKey) {
+            const questionText = phase1EmployeeKnownQuestionText(questionKey) || '当前员工问题';
+            return `按“${questionText}”对应证据清单补齐后复跑员工六问。`;
+        }
+        return fallback;
+    };
+    const phase1EmployeeActionDisplayText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const employeeAction = String(source.employee_action || source.employeeAction || '').trim();
+        if (employeeAction) return employeeAction;
+        const rawCode = phase1EmployeeActionRawCode(source);
+        const codeText = phase1EmployeeActionCodeText(rawCode, {
+            knownQuestionText: phase1EmployeeKnownQuestionText,
+            platformText: phase1EmployeePlatformText,
+        });
+        if (codeText && codeText !== rawCode) return codeText;
+        const questionKey = String(source.question_key || source.questionKey || '').trim();
+        const family = String(source.action_family || source.actionFamily || '').trim();
+        const questionText = phase1EmployeeKnownQuestionText(questionKey);
+        const familyText = phase1EmployeeActionFamilyText(family);
+        if (questionText && family) return `${questionText}：${familyText}`;
+        if (questionText) return `补齐${questionText}证据`;
+        if (family) return `现有${familyText}补证动作`;
+        return '现有首要补证动作';
+    };
+    const phase1EmployeeActionOwnerText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const family = String(source.action_family || source.actionFamily || '').trim();
+        const questionKey = String(source.question_key || source.questionKey || '').trim();
+        if (family === 'ai_diagnosis_evidence' || questionKey === 'ai_evidence') return 'AI 诊断复核';
+        if (family === 'operation_execution_evidence' || questionKey === 'next_operation_action') return '运营执行负责人';
+        if (['standard_facts', 'revenue_metric_inputs', 'traffic_conversion_facts'].includes(family) || questionKey === 'revenue_traffic_conversion') return '收益/数据复核';
+        if (family === 'target_date_source_rows' || questionKey === 'today_ota_collected') return '酒店运营人员';
+        return String(source.owner || '').trim() || '酒店运营人员';
+    };
+    const phase1EmployeeActionMetaText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const rawCode = phase1EmployeeActionRawCode(source);
+        const platformText = phase1EmployeeActionPlatformText(source, rawCode);
+        const questionText = phase1EmployeeKnownQuestionText(source.question_key || source.questionKey || '') || '当前员工问题';
+        return [
+            phase1EmployeeActionOwnerText(source),
+            platformText || 'OTA 渠道',
+            questionText,
+            phase1EmployeeActionStatusText(source.status),
+        ].filter(Boolean).join(' / ');
+    };
+    const phase1EmployeeActionProtectedBoundaryText = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const rawCode = phase1EmployeeActionRawCode(source);
+        const family = String(source.action_family || source.actionFamily || '').trim();
+        if (/^(?:phase1_collect_(ctrip|meituan)_target_date_source_rows|(ctrip|meituan)_source_rows_missing_collect_existing_path)$/.test(rawCode) || rawCode === 'phase1_confirm_source_date_evidence' || family === 'target_date_source_rows') {
+            return '只使用现有手动 Cookie/API、浏览器 Profile 或状态核对入口补证；不改变采集逻辑和字段。';
+        }
+        if (family === 'standard_facts' || /^(ctrip|meituan)_etl_not_ready_check_standard_facts$/.test(rawCode)) {
+            return '只复核现有入库数据和标准事实状态；不新增采集字段或表结构。';
+        }
+        if (family === 'revenue_metric_inputs' || /^(?:phase1_(?:check|confirm)_(ctrip|meituan)_revenue_metric_inputs|(ctrip|meituan)_revenue_metrics_not_ready_check_metric_inputs)$/.test(rawCode)) {
+            return '只复核现有收益指标输入、指标可信证据和数据缺口；不把缺失指标补成成功。';
+        }
+        if (family === 'traffic_conversion_facts' || /^(?:phase1_confirm_(ctrip|meituan)_traffic_conversion_facts|(ctrip|meituan)_traffic_facts_missing_confirm_traffic_collection)$/.test(rawCode)) {
+            return '只复核现有流量/转化事实和缺口；不推断未采集平台数据。';
+        }
+        if (family === 'ai_diagnosis_evidence' || rawCode === 'resolve_ai_diagnosis_blocked_action_items') {
+            return 'AI 只能引用已有 OTA 证据、数据缺口和动作项；不能替代缺失采集。';
+        }
+        if (family === 'operation_execution_evidence' || rawCode === 'collect_operation_execution_evidence') {
+            return '执行闭环必须追溯到 OTA 诊断动作和执行证据；不把普通建议当作已执行。';
+        }
+        const rawBoundary = String(source.protected_boundary || source.protectedBoundary || '').trim();
+        return rawBoundary ? '按现有证据边界处理；不改变采集逻辑和字段，不把缺失证据写成完成。' : '';
+    };
+    const normalizePhase1EmployeeRequiredAction = (item) => {
+        const gapCodeText = (code) => phase1EmployeeGapCodeText(code, phase1EmployeeKnownQuestionText);
+        const actionCodeText = (code) => phase1EmployeeActionCodeText(code, {
+            knownQuestionText: phase1EmployeeKnownQuestionText,
+            platformText: phase1EmployeePlatformText,
+        });
+        const entryOptions = Array.isArray(item?.entry_options)
+            ? item.entry_options.map(phase1EmployeeActionEntryOptionText).filter(Boolean)
+            : [];
+        const entryOptionRaw = Array.isArray(item?.entry_options)
+            ? item.entry_options.map(phase1EmployeeActionEntryOptionRawText).filter(Boolean)
+            : [];
+        const entryOptionGuidance = Array.isArray(item?.entry_options)
+            ? item.entry_options.map(phase1EmployeeActionEntryOptionGuidanceText).filter(Boolean)
+            : [];
+        const entryOptionGuidanceRaw = Array.isArray(item?.entry_options)
+            ? item.entry_options.map(phase1EmployeeActionEntryOptionGuidanceRawText).filter(Boolean)
+            : [];
+        const entryReadiness = Array.isArray(item?.entry_options)
+            ? item.entry_options.map(phase1EmployeeActionEntryOptionReadinessText).filter(Boolean)
+            : [];
+        return {
+            actionCode: String(item?.action_code || item?.code || item?.action || ''),
+            actionFamily: String(item?.action_family || ''),
+            actionFamilyText: phase1EmployeeActionFamilyText(item?.action_family || item?.type || ''),
+            type: String(item?.type || ''),
+            priority: String(item?.priority || 'medium'),
+            status: String(item?.status || 'missing'),
+            platform: String(item?.platform || '').toUpperCase(),
+            questionKey: String(item?.question_key || ''),
+            reason: String(item?.reason || ''),
+            employeeAction: String(item?.employee_action || ''),
+            action: String(item?.next_action || item?.action || ''),
+            actionText: phase1EmployeeActionDisplayText(item),
+            employeeExplanation: String(item?.employee_explanation || ''),
+            employeeExplanationText: phase1EmployeeActionEmployeeExplanationText(item),
+            limitedConclusions: Array.isArray(item?.limited_conclusions) ? item.limited_conclusions.filter(Boolean).join('、') : String(item?.limited_conclusions || ''),
+            limitedConclusionsText: phase1EmployeeActionLimitedConclusionsText(item),
+            stillUsableMetrics: Array.isArray(item?.still_usable_metrics) ? item.still_usable_metrics.filter(Boolean).join('、') : String(item?.still_usable_metrics || ''),
+            stillUsableMetricsText: phase1EmployeeActionStillUsableMetricsText(item),
+            employeeExplanationNextAction: String(item?.employee_explanation_next_action || ''),
+            explanationNextAction: String(item?.explanation_next_action || ''),
+            explanationNextActionText: phase1EmployeeActionExplanationNextActionText(item),
+            entry: String(item?.entry || ''),
+            entryText: phase1EmployeeActionEntryText(item?.entry || '', item),
+            entryOptions,
+            entryOptionsText: entryOptions.join('、'),
+            entryOptionsRawText: entryOptionRaw.join('、'),
+            entryOptionGuidanceText: entryOptionGuidance.join('；'),
+            entryOptionGuidanceRawText: entryOptionGuidanceRaw.join('；'),
+            entryReadinessText: entryReadiness.join('；'),
+            relatedQuestionKeys: Array.isArray(item?.related_question_keys) ? item.related_question_keys.map(value => String(value)).filter(Boolean) : [],
+            relatedQuestionKeysText: phase1EmployeeKnownQuestionListText(item?.related_question_keys),
+            relatedQuestionKeysRawText: Array.isArray(item?.related_question_keys) ? item.related_question_keys.map(value => String(value)).filter(Boolean).join('、') : '',
+            owner: String(item?.owner || '未指定'),
+            ownerText: phase1EmployeeActionOwnerText(item),
+            actionMetaText: phase1EmployeeActionMetaText(item),
+            actionMetaRawText: [String(item?.owner || ''), String(item?.platform || ''), String(item?.reason || ''), String(item?.status || '')].filter(Boolean).join(' / '),
+            employeeEvidenceNeeded: Array.isArray(item?.employee_evidence_needed) ? item.employee_evidence_needed.filter(Boolean).join('、') : String(item?.employee_evidence_needed || ''),
+            evidenceNeeded: Array.isArray(item?.evidence_needed) ? item.evidence_needed.filter(Boolean).join('、') : String(item?.evidence_needed || ''),
+            evidenceNeededText: phase1EmployeeActionEvidenceNeededText(item),
+            employeeSuccessCriteria: String(item?.employee_success_criteria || ''),
+            successCriteria: String(item?.success_criteria || ''),
+            successCriteriaText: phase1EmployeeActionSuccessCriteriaText(item),
+            employeeVerificationSteps: Array.isArray(item?.employee_verification_steps) ? item.employee_verification_steps.filter(Boolean).join('、') : String(item?.employee_verification_steps || ''),
+            verificationStepsText: phase1EmployeeActionVerificationStepsText(item),
+            blockedBy: Array.isArray(item?.blocked_by) ? item.blocked_by.map(gapCodeText).filter(Boolean).join('、') : gapCodeText(item?.blocked_by || ''),
+            blockedByActions: Array.isArray(item?.blocked_by_action_codes) ? item.blocked_by_action_codes.map(actionCodeText).filter(Boolean).join('、') : String(item?.blocked_by_action_codes || '').split('、').map(actionCodeText).filter(Boolean).join('、'),
+            liveClosureGapCodes: Array.isArray(item?.live_closure_gap_codes) ? item.live_closure_gap_codes.map(gapCodeText).filter(Boolean).join('、') : gapCodeText(item?.live_closure_gap_codes || ''),
+            resolvesMissingCodes: Array.isArray(item?.resolves_missing_codes) ? item.resolves_missing_codes.map(gapCodeText).filter(Boolean).join('、') : gapCodeText(item?.resolves_missing_codes || ''),
+            protectedBoundary: String(item?.protected_boundary || ''),
+            protectedBoundaryText: phase1EmployeeActionProtectedBoundaryText(item),
+            sourcePolicy: String(item?.source_policy || ''),
+        };
+    };
+    const phase1EmployeeAiJudgementText = ({ status, blockingCount, actionableCount } = {}) => {
+        if (String(status || '').toLowerCase() === 'proved' && actionableCount > 0 && blockingCount === 0) {
+            return 'AI 建议已有可追溯证据和可执行动作项。';
+        }
+        if (blockingCount > 0) {
+            return 'AI 建议依据已暴露上游缺口，动作项仍被阻断。';
+        }
+        return 'AI 建议依据未证明，不能作为确定经营结论。';
+    };
+    const phase1EmployeeAiLimitText = ({ blockingCount, actionableCount } = {}) => {
+        if (blockingCount > 0) {
+            return '不能把 blocked 动作项当成可执行经营建议。';
+        }
+        if (actionableCount <= 0) {
+            return '没有可执行动作项时，不能创建运营执行闭环。';
+        }
+        return '';
+    };
+    const phase1EmployeeOperationJudgementText = ({ status, executionIntentCount, executionFlowItemCount, completionSignalCount } = {}) => {
+        if (String(status || '').toLowerCase() === 'proved' && completionSignalCount > 0) {
+            return '运营动作已有审批、执行、证据、复盘或 ROI 信号。';
+        }
+        if (executionIntentCount <= 0 && executionFlowItemCount <= 0) {
+            return '还没有可追溯执行意图或执行流。';
+        }
+        return '已有执行记录但缺少闭环完成信号。';
+    };
+    const phase1EmployeeOperationLimitText = ({ completionSignalCount, linkedIntentCount, linkedFlowCount } = {}) => {
+        if (linkedIntentCount <= 0 && linkedFlowCount <= 0) {
+            return '不能把未关联 OTA 诊断的普通执行记录算作闭环。';
+        }
+        if (completionSignalCount <= 0) {
+            return '没有审批、执行、证据、复盘或 ROI 信号时，不能证明动作已落地。';
+        }
+        return '';
+    };
+
     const phase1EmployeeEvidenceStatusText = (value) => ({
         proved: '已证明',
         ready: '已就绪',
@@ -1659,6 +2370,176 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const trafficMatch = raw.match(/^(?:phase1_confirm_(ctrip|meituan)_traffic_conversion_facts|(ctrip|meituan)_traffic_facts_missing_confirm_traffic_collection)$/);
         if (trafficMatch) return `核对${platformText(trafficMatch[1] || trafficMatch[2])}流量/转化采集证据`;
         return '未识别补证动作';
+    };
+
+    const phase1EmployeeCollectionDataTypeText = (type) => {
+        const raw = String(type || '').toLowerCase();
+        if (['business', 'business_overview', 'revenue', 'order', 'orders'].includes(raw)) return '经营/收益';
+        if (['traffic', 'flow', 'flow_data'].includes(raw)) return '流量/转化';
+        if (['advertising', 'ads'].includes(raw)) return '广告';
+        if (['quality', 'quality_psi'].includes(raw)) return '服务质量';
+        if (['review', 'comment'].includes(raw)) return '点评';
+        return raw ? '未识别数据类型' : '';
+    };
+    const normalizePhase1CollectionSourceSummaryRow = (row) => {
+        const latest = row?.latest_available && typeof row.latest_available === 'object' ? row.latest_available : {};
+        const latestDate = String(latest?.date || '').trim();
+        const latestRelation = String(latest?.date_relation || '').trim();
+        const latestRelationText = phase1EmployeeDateRelationText(latestRelation);
+        const latestRows = Number(latest?.rows ?? latest?.count ?? 0);
+        const targetRows = Number(row?.target_date_rows || 0);
+        const targetTypes = Array.isArray(row?.target_date_data_types) ? row.target_date_data_types.filter(Boolean).map(item => String(item)) : [];
+        const targetTypeText = Array.from(new Set(targetTypes.map(phase1EmployeeCollectionDataTypeText).filter(Boolean))).join('、');
+        const platform = String(row?.platform || '').toLowerCase();
+        const referenceOnly = row?.latest_available_reference_only !== false && latestRelation !== 'target_date';
+        const statusText = targetRows > 0 ? '目标日已入库' : (latestDate ? '仅有参考' : '目标日缺失');
+        const latestText = latestDate
+            ? `最近可用 ${latestDate}${latestRows ? ` / ${latestRows} 行` : ''}${latestRelationText ? ` / ${latestRelationText}` : ''}${referenceOnly ? ' / 不能替代目标日' : ''}`
+            : '最近可用：未查询到';
+        return {
+            platform,
+            platformLabel: phase1EmployeePlatformText(platform),
+            targetDateRows: targetRows,
+            targetText: `目标日 ${targetRows} 行${targetTypeText ? ` / ${targetTypeText}` : ''}`,
+            targetRawText: `target_date_data_types=${targetTypes.join(',') || 'empty'}`,
+            latestText,
+            latestRawText: `latest_available.date=${latestDate || 'empty'} / date_relation=${latestRelation || 'empty'} / latest_available_reference_only=${referenceOnly ? 'true' : 'false'}`,
+            statusText,
+            boundaryText: `${phase1EmployeeStorageTableText(row?.storage_table || 'online_daily_data')} / ${phase1EmployeeEvidencePolicyText(row?.source_policy || 'read_existing_online_daily_data_only')} / 不改变采集逻辑`,
+            boundaryRawText: `${row?.storage_table || 'online_daily_data'} / ${row?.source_policy || 'read_existing_online_daily_data_only'} / collection_logic_changed=${row?.collection_logic_changed === true ? 'true' : 'false'}`,
+        };
+    };
+    const phase1FieldTrustStatusClass = (status) => String(status || '').toLowerCase() === 'metric_trust_ready'
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        : 'border-amber-200 bg-amber-50 text-amber-700';
+    const normalizePhase1EmployeeFieldTrustRow = (row) => {
+        const platform = String(row?.platform || '').toLowerCase();
+        const targetRows = Number(row?.target_date_rows || 0);
+        const trustKeyCount = Number(row?.metric_trust_key_count || 0);
+        const trustKeys = Array.isArray(row?.metric_trust_keys)
+            ? row.metric_trust_keys.map(item => String(item || '')).filter(Boolean)
+            : [];
+        const reasonCodes = Array.isArray(row?.reason_codes)
+            ? row.reason_codes.map(item => String(item || '')).filter(Boolean)
+            : [];
+        const status = String(row?.field_trust_status || '').toLowerCase();
+        const metricStatusRaw = String(row?.metric_status || 'unknown').toLowerCase();
+        const metricStatusText = ({
+            ready: '指标已就绪',
+            missing: '指标缺失',
+            empty: '指标为空',
+            unknown: '指标状态未知',
+        }[metricStatusRaw] || '指标需复核');
+        return {
+            platform,
+            platformLabel: phase1EmployeePlatformText(platform),
+            statusText: phase1FieldTrustStatusText(status),
+            statusClass: phase1FieldTrustStatusClass(status),
+            metricText: `目标日 ${targetRows} 行 / 指标可信证据 ${trustKeyCount} 项 / ${metricStatusText}`,
+            metricRawText: `target_date_rows=${targetRows} / metric_trust_key_count=${trustKeyCount} / metric_status=${metricStatusRaw}`,
+            trustKeyText: trustKeys.slice(0, 5).join('、') + (trustKeys.length > 5 ? ` 等 ${trustKeys.length} 项` : ''),
+            reasonText: reasonCodes.map(code => phase1EmployeeGapCodeText(code, phase1EmployeeKnownQuestionText)).filter(Boolean).join('、'),
+            reasonRawText: reasonCodes.join('、'),
+            policyText: `${phase1EmployeeEvidencePolicyText(row?.source_policy || 'target_date_rows_plus_metric_trust_required')}；未证明时不把字段写成可信`,
+            policyRawText: String(row?.source_policy || 'target_date_rows_plus_metric_trust_required'),
+        };
+    };
+    const normalizePhase1EmployeeMissingFieldRow = (code, source = 'data_gaps') => {
+        const normalizedCode = String(code || '').trim();
+        return {
+            code: normalizedCode,
+            label: phase1MissingFieldLabel(normalizedCode),
+            sourceText: phase1MissingFieldSourceText(source),
+            detailText: phase1MissingFieldDetailText(normalizedCode),
+            nextActionText: phase1MissingFieldNextActionText(normalizedCode, source),
+            nextActionRawText: `${source || 'data_gaps'} / ${normalizedCode || 'missing_code'}`,
+            policyText: '显式保留缺口；不使用 0、空值或成功状态替代',
+            policyRawText: `${source || 'data_gaps'} / ${normalizedCode || 'missing_code'}`,
+        };
+    };
+    const normalizePhase1EmployeeMissingFieldSummaryRow = (item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const normalizedCode = String(source.code || '').trim();
+        const sourceKeys = Array.isArray(source.source_keys || source.sourceKeys)
+            ? (source.source_keys || source.sourceKeys).map(value => String(value)).filter(Boolean)
+            : [];
+        const fallbackSource = sourceKeys.includes('missing_field_codes') ? 'missing_field_codes' : 'data_gaps';
+        return {
+            code: normalizedCode,
+            label: String(source.label || '').trim() || phase1MissingFieldLabel(normalizedCode),
+            sourceText: String(source.source_text || source.sourceText || '').trim() || phase1MissingFieldSourceText(fallbackSource),
+            detailText: String(source.business_impact || source.businessImpact || '').trim() || phase1MissingFieldDetailText(normalizedCode),
+            nextActionText: String(source.next_action || source.nextAction || '').trim() || phase1MissingFieldNextActionText(normalizedCode, fallbackSource),
+            nextActionRawText: `${sourceKeys.join('、') || fallbackSource} / ${normalizedCode || 'missing_code'}`,
+            policyText: String(source.policy || '').trim() || '显式保留缺口；不使用 0、空值或成功状态替代',
+            policyRawText: `${sourceKeys.join('、') || fallbackSource} / ${normalizedCode || 'missing_code'}`,
+        };
+    };
+    const normalizePhase1EmployeeMetricDomainRow = (row) => {
+        const platform = String(row?.platform || '').toLowerCase();
+        const missingDomains = Array.isArray(row?.missing_domains)
+            ? Array.from(new Set(row.missing_domains.map(phase1MetricDomainMissingLabel).filter(Boolean)))
+            : [];
+        const sourceRows = Number(row?.source_rows ?? row?.target_date_rows ?? 0);
+        const trafficRows = Number(row?.traffic_rows ?? 0);
+        const dataTypes = Array.isArray(row?.target_date_data_types)
+            ? row.target_date_data_types.map(item => String(item || '')).filter(Boolean)
+            : [];
+        const dataTypeText = Array.from(new Set(dataTypes.map(phase1MetricDomainDataTypeText).filter(Boolean))).join('、');
+        const revenueReady = String(row?.revenue_status || '').toLowerCase() === 'ready';
+        const trafficReady = String(row?.traffic_status || '').toLowerCase() === 'ready';
+        const conversionReady = String(row?.conversion_status || '').toLowerCase() === 'ready';
+        const problemText = phase1MetricDomainProblemText({ revenueReady, trafficReady, conversionReady, sourceRows, trafficRows });
+        const nextActionText = phase1MetricDomainNextActionText({ revenueReady, trafficReady, conversionReady, sourceRows, trafficRows });
+        return {
+            platform,
+            platformLabel: phase1MetricDomainPlatformText(platform),
+            revenueText: phase1MetricDomainStatusText(row?.revenue_status),
+            trafficText: phase1MetricDomainStatusText(row?.traffic_status),
+            conversionText: phase1MetricDomainStatusText(row?.conversion_status),
+            revenueClass: phase1MetricDomainStatusClass(row?.revenue_status),
+            trafficClass: phase1MetricDomainStatusClass(row?.traffic_status),
+            conversionClass: phase1MetricDomainStatusClass(row?.conversion_status),
+            missingText: missingDomains.join('、'),
+            sourceText: `目标日源数据 ${sourceRows} 行 / 流量事实 ${trafficRows} 行`,
+            sourceRawText: `platform=${platform || 'platform_missing'} / source_rows=${sourceRows} / traffic_rows=${trafficRows}`,
+            trafficSourceText: '',
+            trafficSourceRawText: '',
+            problemText,
+            problemRawText: `revenue_status=${row?.revenue_status || 'missing'} / traffic_status=${row?.traffic_status || 'missing'} / conversion_status=${row?.conversion_status || 'missing'} / missing_domains=${Array.isArray(row?.missing_domains) ? row.missing_domains.join(',') : 'empty'}`,
+            nextActionText,
+            nextActionRawText: `source_rows=${sourceRows} / traffic_rows=${trafficRows} / revenue_ready=${revenueReady ? 'true' : 'false'} / traffic_ready=${trafficReady ? 'true' : 'false'} / conversion_ready=${conversionReady ? 'true' : 'false'}`,
+            policyText: `只读目标日指标域${dataTypeText ? ` / ${dataTypeText}` : ''}；缺失时不输出确定结论`,
+            policyRawText: `target_date_data_types=${dataTypes.join(',') || 'empty'}`,
+        };
+    };
+    const normalizePhase1EmployeeMetricDomainSummaryRow = (row) => {
+        const source = row && typeof row === 'object' ? row : {};
+        const platform = String(source.platform || '').toLowerCase();
+        const revenueReady = String(source.revenue_text || source.revenueText || '').includes('可复核');
+        const trafficReady = String(source.traffic_text || source.trafficText || '').includes('可复核');
+        const conversionReady = String(source.conversion_text || source.conversionText || '').includes('可复核');
+        return {
+            platform,
+            platformLabel: String(source.platform_label || source.platformLabel || '').trim() || phase1MetricDomainPlatformText(platform),
+            revenueText: String(source.revenue_text || source.revenueText || '').trim() || '缺失',
+            trafficText: String(source.traffic_text || source.trafficText || '').trim() || '缺失',
+            conversionText: String(source.conversion_text || source.conversionText || '').trim() || '缺失',
+            revenueClass: phase1MetricDomainStatusClass(revenueReady ? 'ready' : 'missing'),
+            trafficClass: phase1MetricDomainStatusClass(trafficReady ? 'ready' : 'missing'),
+            conversionClass: phase1MetricDomainStatusClass(conversionReady ? 'ready' : 'missing'),
+            missingText: String(source.missing_text || source.missingText || '').trim(),
+            sourceText: String(source.source_text || source.sourceText || '').trim(),
+            sourceRawText: `platform=${platform || 'platform_missing'}`,
+            trafficSourceText: String(source.traffic_source_text || source.trafficSourceText || '').trim(),
+            trafficSourceRawText: String(source.traffic_source_status || source.trafficSourceStatus || source.traffic_source_next_action || source.trafficSourceNextAction || '').trim(),
+            problemText: String(source.problem || source.problemText || '').trim(),
+            problemRawText: `platform=${platform || 'platform_missing'}`,
+            nextActionText: String(source.next_action || source.nextAction || '').trim(),
+            nextActionRawText: `platform=${platform || 'platform_missing'}`,
+            policyText: String(source.policy || '').trim(),
+            policyRawText: `platform=${platform || 'platform_missing'}`,
+        };
     };
 
     const onlineAnalysisSourceText = (source) => {
@@ -1979,18 +2860,69 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         phase1EmployeeReadinessStatusText,
         phase1EmployeeReadinessEvidenceText,
         phase1EmployeeQuestionKeyText,
+        phase1EmployeeKnownQuestionText,
+        phase1EmployeeKnownQuestionListText,
         phase1EmployeePlatformText,
         phase1EmployeeDateRelationText,
         phase1EmployeeActionStatusText,
         phase1MetricDomainPlatformText,
         phase1MetricDomainDataTypeText,
         phase1MissingFieldDetailText,
+        phase1MissingFieldLabel,
+        phase1MissingFieldNextActionText,
+        phase1MissingFieldSourceText,
+        phase1MetricDomainStatusText,
+        phase1MetricDomainStatusClass,
+        phase1MetricDomainMissingLabel,
+        phase1MetricDomainProblemText,
+        phase1MetricDomainNextActionText,
+        phase1EmployeeCountItem,
+        phase1EmployeeQuestionBlockingGapCodes,
+        mergePhase1EmployeeQuestionRow,
+        phase1EmployeeQuestionPresentationRow,
+        phase1EmployeeActionRawCode,
+        phase1EmployeeActionPlatformText,
+        phase1EmployeeActionEntryText,
+        phase1EmployeeActionEntryOptionModeText,
+        phase1EmployeeActionEntryOptionRawText,
+        phase1EmployeeActionEntryOptionText,
+        phase1EmployeeActionEntryOptionPlatformText,
+        phase1EmployeeActionEntryOptionInputText,
+        phase1EmployeeActionEntryOptionContractText,
+        phase1EmployeeActionEntryOptionGuidanceText,
+        phase1EmployeeActionEntryOptionGuidanceRawText,
+        phase1EmployeeActionEntryOptionReadinessText,
+        phase1EmployeeActionSuccessCriteriaText,
+        phase1EmployeeActionEvidenceNeededText,
+        phase1EmployeeActionVerificationStepsText,
+        phase1EmployeeActionBlockedActionText,
+        phase1EmployeeActionEmployeeExplanationText,
+        phase1EmployeeActionLimitedConclusionsText,
+        phase1EmployeeActionStillUsableMetricsText,
+        phase1EmployeeActionExplanationNextActionText,
+        phase1EmployeeActionDisplayText,
+        phase1EmployeeActionOwnerText,
+        phase1EmployeeActionMetaText,
+        phase1EmployeeActionProtectedBoundaryText,
+        normalizePhase1EmployeeRequiredAction,
+        phase1EmployeeAiJudgementText,
+        phase1EmployeeAiLimitText,
+        phase1EmployeeOperationJudgementText,
+        phase1EmployeeOperationLimitText,
         phase1EmployeeEvidenceStatusText,
         phase1FieldTrustStatusText,
         phase1EmployeeEvidencePolicyText,
         phase1EmployeeStorageTableText,
         phase1EmployeeGapCodeText,
         phase1EmployeeActionCodeText,
+        phase1EmployeeCollectionDataTypeText,
+        normalizePhase1CollectionSourceSummaryRow,
+        phase1FieldTrustStatusClass,
+        normalizePhase1EmployeeFieldTrustRow,
+        normalizePhase1EmployeeMissingFieldRow,
+        normalizePhase1EmployeeMissingFieldSummaryRow,
+        normalizePhase1EmployeeMetricDomainRow,
+        normalizePhase1EmployeeMetricDomainSummaryRow,
         onlineAnalysisFieldFactStatus,
         onlineAnalysisP0CaptureEvidenceStatus,
         onlineAnalysisP0CaptureEvidenceStatusText,

@@ -25,6 +25,16 @@ function requireText(file, needle, label) {
   });
 }
 
+function requireOnlineDataControllerText(needle, label) {
+  const source = readOnlineDataControllerSource();
+  checks.push({
+    file: onlineDataControllerFiles.join(' + '),
+    label,
+    ok: source.includes(needle),
+    detail: needle,
+  });
+}
+
 function requireNoText(file, needle, label) {
   const source = read(file);
   checks.push({
@@ -107,7 +117,7 @@ requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user f
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
-requireText('public/index.html', 'ctrip-static.js?v=20260613-manual-direct-fetch', 'entry bumps Ctrip static helper version for direct manual-fetch exports');
+requireText('public/index.html', 'ctrip-static.js?v=20260615-startup-cache-fix', 'entry bumps Ctrip static helper version for startup cache fixes');
 requireText('public/index.html', 'meituan-static.js?v=20260613-manual-direct-fetch', 'entry bumps Meituan static helper version for direct manual-fetch exports');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
@@ -121,16 +131,76 @@ requireText('public/system-static.js', 'const buildHotelPlatformBindingRows', 's
 requireNoText('public/index.html', 'const meituanIdentifierMissing = [', 'hotel platform binding row group logic is not re-inlined');
 requireText('public/system-static.js', "target: 'profile-login'", 'system static keeps profile login direct target metadata');
 requireText('public/system-static.js', "target: 'sync-logs'", 'system static keeps sync logs direct target metadata');
+requireText('public/index.html', "requireAppSystemStatic('operationExecutionStatusLabel')", 'entry uses extracted operation execution status labels');
+requireText('public/index.html', "requireAppSystemStatic('operationClosureStatusClass')", 'entry uses extracted operation closure status classes');
+requireText('public/index.html', "requireAppSystemStatic('operationEffectStatusClass')", 'entry uses extracted operation effect status classes');
+requireText('public/index.html', "requireAppSystemStatic('operationValue')", 'entry uses extracted operation value formatter');
+requireText('public/index.html', "requireAppSystemStatic('operationMetricRows')", 'entry uses extracted operation metric row builder');
+requireText('public/index.html', "requireAppSystemStatic('operationActionTarget')", 'entry uses extracted operation action target formatter');
+requireText('public/index.html', "requireAppSystemStatic('deferUiTask')", 'entry uses extracted deferred UI task scheduler');
+requireText('public/index.html', "requireAppSystemStatic('scheduleDelayedPageTask')", 'entry uses extracted delayed page task scheduler');
+requireText('public/index.html', "requireAppSystemStatic('deferFrameTask')", 'entry uses extracted frame task scheduler');
+requireText('public/index.html', "requireAppSystemStatic('loadSidebarCollapsedPreference')", 'entry uses extracted sidebar preference reader');
+requireText('public/index.html', "requireAppSystemStatic('persistSidebarCollapsedPreference')", 'entry uses extracted sidebar preference writer');
+requireText('public/index.html', "requireAppSystemStatic('isCompactViewport')", 'entry uses extracted compact viewport detector');
+requireText('public/index.html', "requireAppSystemStatic('toNumber')", 'entry uses extracted numeric parser');
+requireText('public/index.html', "requireAppSystemStatic('safeDivide')", 'entry uses extracted safe divide helper');
+requireText('public/index.html', "requireAppSystemStatic('formatNumber')", 'entry uses extracted number formatter');
+requireText('public/index.html', "requireAppSystemStatic('formatDate')", 'entry uses extracted date formatter');
+requireText('public/index.html', "requireAppSystemStatic('formatConfigDate')", 'entry uses extracted config date formatter');
+requireText('public/index.html', "requireAppSystemStatic('formatKnowledgeJson')", 'entry uses extracted knowledge JSON formatter');
+requireText('public/index.html', "requireAppSystemStatic('formatCommentTime')", 'entry uses extracted comment time formatter');
+requireText('public/index.html', "requireAppSystemStatic('formatPaybackMonth')", 'entry uses extracted payback month formatter');
+requireText('public/index.html', "requireAppSystemStatic('formatCurrency')", 'entry uses extracted currency formatter');
+requireText('public/index.html', "requireAppSystemStatic('formatPercent')", 'entry uses extracted percent formatter');
+requireText('public/index.html', "requireAppSystemStatic('formatWan')", 'entry uses extracted ten-thousand formatter');
+requireText('public/index.html', "requireAppSystemStatic('normalizeLocale')", 'entry uses extracted locale normalizer');
+requireText('public/index.html', "requireAppSystemStatic('getInitialLocale')", 'entry uses extracted initial locale resolver');
+requireText('public/index.html', "requireAppSystemStatic('createAiModelConfigText')", 'entry uses extracted AI model config text factory');
+requireText('public/index.html', "requireAppSystemStatic('revenueConcentration')", 'entry uses extracted revenue concentration helper');
+requireText('public/index.html', "requireAppSystemStatic('visitConcentration')", 'entry uses extracted visit concentration helper');
+requireText('public/index.html', "requireAppSystemStatic('isExpansionStaticPage')", 'entry uses extracted expansion static page detector');
+requireText('public/index.html', "requireAppSystemStatic('isSimulationStaticPage')", 'entry uses extracted simulation static page detector');
+requireText('public/system-static.js', 'const operationExecutionStatusLabel', 'system static owns operation execution status labels');
+requireText('public/system-static.js', 'const operationClosureStatusClass', 'system static owns operation closure status classes');
+requireText('public/system-static.js', 'const operationEffectStatusClass', 'system static owns operation effect status classes');
+requireText('public/system-static.js', 'const operationValue', 'system static owns operation value formatter');
+requireText('public/system-static.js', 'const operationMetricRows', 'system static owns operation metric row builder');
+requireText('public/system-static.js', 'const operationActionTarget', 'system static owns operation action target formatter');
+requireText('public/system-static.js', 'const deferUiTask', 'system static owns deferred UI task scheduler');
+requireText('public/system-static.js', 'const scheduleDelayedPageTask', 'system static owns delayed page task scheduler');
+requireText('public/system-static.js', 'const deferFrameTask', 'system static owns frame task scheduler');
+requireText('public/system-static.js', 'const loadSidebarCollapsedPreference', 'system static owns sidebar preference reader');
+requireText('public/system-static.js', 'const persistSidebarCollapsedPreference', 'system static owns sidebar preference writer');
+requireText('public/system-static.js', 'const isCompactViewport', 'system static owns compact viewport detector');
+requireText('public/system-static.js', 'const toNumber', 'system static owns numeric parser');
+requireText('public/system-static.js', 'const safeDivide', 'system static owns safe divide helper');
+requireText('public/system-static.js', 'const formatNumber', 'system static owns number formatter');
+requireText('public/system-static.js', 'const formatDate', 'system static owns date formatter');
+requireText('public/system-static.js', 'const formatConfigDate', 'system static owns config date formatter');
+requireText('public/system-static.js', 'const formatKnowledgeJson', 'system static owns knowledge JSON formatter');
+requireText('public/system-static.js', 'const formatCommentTime', 'system static owns comment time formatter');
+requireText('public/system-static.js', 'const formatPaybackMonth', 'system static owns payback month formatter');
+requireText('public/system-static.js', 'const formatCurrency', 'system static owns currency formatter');
+requireText('public/system-static.js', 'const formatPercent', 'system static owns percent formatter');
+requireText('public/system-static.js', 'const formatWan', 'system static owns ten-thousand formatter');
+requireText('public/system-static.js', 'const normalizeLocale', 'system static owns locale normalizer');
+requireText('public/system-static.js', 'const getInitialLocale', 'system static owns initial locale resolver');
+requireText('public/system-static.js', 'const createAiModelConfigText', 'system static owns AI model config text factory');
+requireText('public/system-static.js', 'const revenueConcentration', 'system static owns revenue concentration helper');
+requireText('public/system-static.js', 'const visitConcentration', 'system static owns visit concentration helper');
+requireText('public/system-static.js', 'const isExpansionStaticPage', 'system static owns expansion static page detector');
+requireText('public/system-static.js', 'const isSimulationStaticPage', 'system static owns simulation static page detector');
 requireText('public/index.html', "requireCtripStatic('runCtripBrowserCaptureFlow')", 'entry uses extracted Ctrip browser capture flow runner');
 requireText('app/service/BrowserProfileCaptureRequestService.php', 'final class BrowserProfileCaptureRequestService', 'browser Profile capture request planning lives in a focused service');
-requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::buildMeituanPlan(', 'OnlineData delegates Meituan browser Profile capture request planning');
-requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::buildCtripBasePlan(', 'OnlineData delegates Ctrip browser Profile capture base request planning');
-requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::buildCtripAutoArgs(', 'OnlineData delegates Ctrip browser Profile auto-fetch base arguments');
-requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::buildMeituanAutoArgs(', 'OnlineData delegates Meituan browser Profile auto-fetch base arguments');
-requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::resolveNodeBinary(', 'OnlineData delegates browser capture Node binary resolution');
-requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::resolveChromePath(', 'OnlineData delegates browser capture Chrome path resolution');
-requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::normalizeProfileSections(', 'OnlineData delegates browser Profile section normalization');
-requireText('app/controller/OnlineData.php', 'BrowserProfileCaptureRequestService::safeFilePart(', 'OnlineData delegates browser capture safe file keys');
+requireOnlineDataControllerText('BrowserProfileCaptureRequestService::buildMeituanPlan(', 'OnlineData delegates Meituan browser Profile capture request planning');
+requireOnlineDataControllerText('BrowserProfileCaptureRequestService::buildCtripBasePlan(', 'OnlineData delegates Ctrip browser Profile capture base request planning');
+requireOnlineDataControllerText('BrowserProfileCaptureRequestService::buildCtripAutoArgs(', 'OnlineData delegates Ctrip browser Profile auto-fetch base arguments');
+requireOnlineDataControllerText('BrowserProfileCaptureRequestService::buildMeituanAutoArgs(', 'OnlineData delegates Meituan browser Profile auto-fetch base arguments');
+requireOnlineDataControllerText('BrowserProfileCaptureRequestService::resolveNodeBinary(', 'OnlineData delegates browser capture Node binary resolution');
+requireOnlineDataControllerText('BrowserProfileCaptureRequestService::resolveChromePath(', 'OnlineData delegates browser capture Chrome path resolution');
+requireOnlineDataControllerText('BrowserProfileCaptureRequestService::normalizeProfileSections(', 'OnlineData delegates browser Profile section normalization');
+requireOnlineDataControllerText('BrowserProfileCaptureRequestService::safeFilePart(', 'OnlineData delegates browser capture safe file keys');
 requireNoText('app/controller/OnlineData.php', 'resolveMeituanCaptureNodeBinary', 'browser capture Node resolution is not wrapped in OnlineData');
 requireNoText('app/controller/OnlineData.php', 'resolveMeituanCaptureChromePath', 'browser capture Chrome resolution is not wrapped in OnlineData');
 requireNoText('app/controller/OnlineData.php', 'normalizeProfileCaptureSections', 'browser Profile section normalization is not wrapped in OnlineData');
@@ -174,10 +244,12 @@ requireText('public/index.html', "requireCtripStatic('createCtripProfileFieldFor
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSmartDefaults')", 'entry uses extracted Ctrip Profile field smart defaults builder');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSavePayload')", 'entry uses extracted Ctrip Profile field save payload builder');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSampleHelpers')", 'entry uses extracted Ctrip Profile field sample helpers');
+requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldDerivationHelpers')", 'entry uses extracted Ctrip Profile field derivation helpers');
 requireText('public/ctrip-static.js', 'const createCtripProfileFieldForm', 'Ctrip static builds Profile field default forms');
 requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSmartDefaults', 'Ctrip static builds Profile field smart defaults');
 requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSavePayload', 'Ctrip static builds Profile field save payloads');
 requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSampleHelpers', 'Ctrip static builds Profile field sample helpers');
+requireText('public/ctrip-static.js', 'const buildCtripProfileFieldDerivationHelpers', 'Ctrip static builds Profile field derivation helpers');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckRunContext')", 'entry uses extracted Ctrip Profile recheck run context builder');
 requireText('public/index.html', "requireCtripStatic('runCtripProfileRecheckFlow')", 'entry uses extracted Ctrip Profile recheck flow runner');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
@@ -194,18 +266,18 @@ requireText('public/index.html', "requireMeituanStatic('runMeituanManualTabSwitc
 requireText('app/service/MeituanRankDataExtractionService.php', 'final class MeituanRankDataExtractionService', 'Meituan rank response extraction lives in a focused service');
 requireText('app/service/MeituanOnlineDataPersistenceService.php', 'final class MeituanOnlineDataPersistenceService', 'Meituan persistence lives in a focused service');
 requireText('app/service/MeituanOnlineDataPersistenceService.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence rank rows use extracted service');
-requireText('app/controller/OnlineData.php', 'return (new MeituanOnlineDataPersistenceService())->parseAndSaveMeituanData(', 'OnlineData keeps only a compatibility wrapper for Meituan persistence');
+requireOnlineDataControllerText('return (new MeituanOnlineDataPersistenceService())->parseAndSaveMeituanData(', 'OnlineData keeps only a compatibility wrapper for Meituan persistence');
 requireNoText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence is not re-inlined in OnlineData');
 requireText('app/service/MeituanManualFetchRequestService.php', 'final class MeituanManualFetchRequestService', 'Meituan manual fetch request parameter building lives in a focused service');
-requireText('app/controller/OnlineData.php', 'MeituanManualFetchRequestService::buildRankRequestParams(', 'OnlineData delegates Meituan rank request parameters');
-requireText('app/controller/OnlineData.php', 'MeituanManualFetchRequestService::buildTrafficRequestParams(', 'OnlineData delegates Meituan traffic request parameters');
-requireText('app/controller/OnlineData.php', 'return MeituanManualFetchRequestService::normalizeDateRange($startDate, $endDate);', 'OnlineData keeps only a compatibility wrapper for Meituan manual date ranges');
+requireOnlineDataControllerText('MeituanManualFetchRequestService::buildRankRequestParams(', 'OnlineData delegates Meituan rank request parameters');
+requireOnlineDataControllerText('MeituanManualFetchRequestService::buildTrafficRequestParams(', 'OnlineData delegates Meituan traffic request parameters');
+requireOnlineDataControllerText('return MeituanManualFetchRequestService::normalizeDateRange($startDate, $endDate);', 'OnlineData keeps only a compatibility wrapper for Meituan manual date ranges');
 requireText('app/service/CtripManualFetchRequestService.php', 'final class CtripManualFetchRequestService', 'Ctrip manual fetch request parameter building lives in a focused service');
-requireText('app/controller/OnlineData.php', 'CtripManualFetchRequestService::normalizeBusinessReportUrl(', 'OnlineData delegates Ctrip manual report URL defaults');
-requireText('app/controller/OnlineData.php', 'CtripManualFetchRequestService::normalizeDateRange($startDate, $endDate)', 'OnlineData delegates Ctrip manual date ranges');
-requireText('app/controller/OnlineData.php', 'CtripManualFetchRequestService::buildDailyPostData($nodeId, $currentDate)', 'OnlineData delegates Ctrip daily request payloads');
-requireText('app/controller/OnlineData.php', 'CtripManualFetchRequestService::hasRepeatedMultiDayFingerprint(', 'OnlineData delegates Ctrip repeated multi-day fingerprint detection');
-requireText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForDisplay($responseData)', 'Meituan display rank rows use extracted service');
+requireOnlineDataControllerText('CtripManualFetchRequestService::normalizeBusinessReportUrl(', 'OnlineData delegates Ctrip manual report URL defaults');
+requireOnlineDataControllerText('CtripManualFetchRequestService::normalizeDateRange($startDate, $endDate)', 'OnlineData delegates Ctrip manual date ranges');
+requireOnlineDataControllerText('CtripManualFetchRequestService::buildDailyPostData($nodeId, $currentDate)', 'OnlineData delegates Ctrip daily request payloads');
+requireOnlineDataControllerText('CtripManualFetchRequestService::hasRepeatedMultiDayFingerprint(', 'OnlineData delegates Ctrip repeated multi-day fingerprint detection');
+requireOnlineDataControllerText('MeituanRankDataExtractionService::extractForDisplay($responseData)', 'Meituan display rank rows use extracted service');
 requireNoText('app/controller/OnlineData.php', "isset($responseData['data']['peerRankData']) && is_array($responseData['data']['peerRankData'])", 'OnlineData no longer inlines Meituan peerRankData extraction');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
@@ -451,13 +523,16 @@ requireNoText('public/index.html', 'loadCollectionReliability(normalizedMode)', 
 requireText('public/index.html', 'const platformProfileStatusRequestPromises = new Map();', 'platform profile status requests are deduplicated by hotel');
 requireText('public/index.html', 'ctrip_auto_fetch_mode: autoFetchMode.value', 'platform auto-fetch keeps Ctrip on the selected fast mode by default');
 requireText('public/index.html', "const isCoreOtaPageVisible = () => ['online-data', 'ctrip-ebooking', 'meituan-ebooking'].includes(currentPage.value);", 'core OTA pages are explicit so background refreshes can yield to them');
-requireText('public/index.html', "const authUserCacheKey = 'suxios_auth_user_cache_v1';", 'entry caches the last verified auth user for repeat-session first paint');
-requireText('public/index.html', 'const authUserCacheMaxAgeMs = 12 * 60 * 60 * 1000;', 'cached auth profile has a bounded freshness window');
-requireText('public/index.html', 'const normalizePermissionMap = (permissions = null) => {', 'cached auth profile normalizes permission arrays for repeat-session menu filtering');
-requireText('public/index.html', 'if (Array.isArray(permissions)) {', 'cached auth profile accepts array-shaped permissions');
+requireText('public/index.html', "requireAppSystemStatic('loadCachedAuthUser')", 'entry uses extracted cached auth reader');
+requireText('public/index.html', "requireAppSystemStatic('saveCachedAuthUser')", 'entry uses extracted cached auth writer');
+requireText('public/index.html', "requireAppSystemStatic('clearCachedAuthUser')", 'entry uses extracted cached auth cleanup');
+requireText('public/system-static.js', "const authUserCacheKey = 'suxios_auth_user_cache_v1';", 'system static caches the last verified auth user for repeat-session first paint');
+requireText('public/system-static.js', 'const authUserCacheMaxAgeMs = 12 * 60 * 60 * 1000;', 'cached auth profile has a bounded freshness window');
+requireText('public/system-static.js', 'const normalizePermissionMap = (permissions = null) => {', 'cached auth profile normalizes permission arrays for repeat-session menu filtering');
+requireText('public/system-static.js', 'if (Array.isArray(permissions)) {', 'cached auth profile accepts array-shaped permissions');
 requireText('public/system-static.js', 'const hasPermission = (permissions, key) => {', 'visible menu filter accepts both object and array permission payloads');
 requireText('public/system-static.js', 'if (Array.isArray(permissions)) return permissions.includes(key);', 'visible menu filter keeps array permission payloads usable');
-requireText('public/index.html', 'if (Date.now() - Number(payload.saved_at || 0) > authUserCacheMaxAgeMs) return null;', 'expired cached auth profile is ignored');
+requireText('public/system-static.js', 'if (now - Number(payload.saved_at || 0) > authUserCacheMaxAgeMs) return null;', 'expired cached auth profile is ignored');
 requireText('public/index.html', 'const cachedAuthUser = token.value ? loadCachedAuthUser() : null;', 'entry loads cached auth user only when a token exists');
 requireText('public/index.html', 'const isLoggedIn = ref(!!token.value && !!cachedAuthUser);', 'entry can render the app shell before auth/info returns for repeat sessions');
 requireText('public/index.html', 'const user = ref(cachedAuthUser);', 'entry uses cached auth profile for initial permission filtering');
@@ -553,15 +628,15 @@ requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true }
 requireText('public/index.html', 'const compassBackgroundJobs = [', 'deferred compass background jobs are queued explicitly');
 requireText('public/index.html', 'await job();', 'deferred compass background jobs run serially instead of in parallel');
 requireText('public/index.html', '}, 1200);', 'deferred compass background jobs leave a short window for fast page switches');
-requireText('app/controller/OnlineData.php', "?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
-requireText('app/controller/OnlineData.php', "get('include_detail'", 'backend auto-fetch status supports light detail requests');
-requireText('app/controller/OnlineData.php', "'detail_loaded' => false", 'backend auto-fetch status marks light responses explicitly');
+requireOnlineDataControllerText("?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
+requireOnlineDataControllerText("get('include_detail'", 'backend auto-fetch status supports light detail requests');
+requireOnlineDataControllerText("'detail_loaded' => false", 'backend auto-fetch status marks light responses explicitly');
 {
-  const source = read('app/controller/OnlineData.php');
+  const source = readOnlineDataControllerSource();
   const lightStatusMatch = source.match(/\} else \{\s+\$status\['missed_dates'\] = \[\];\s+\$status\['missed_count'\] = null;([\s\S]*?)\$status\['detail_loaded'\] = false;/);
   const lightStatusBranch = lightStatusMatch ? lightStatusMatch[1] : '';
   checks.push({
-    file: 'app/controller/OnlineData.php',
+    file: onlineDataControllerFiles.join(' + '),
     label: 'backend light auto-fetch status does not run full config/profile diagnostics',
     ok: source.includes('private function buildAutoFetchPlatformLightStatus')
       && lightStatusBranch.includes('buildAutoFetchPlatformLightStatus')
@@ -572,7 +647,7 @@ requireText('app/controller/OnlineData.php', "'detail_loaded' => false", 'backen
   const lightHelperMatch = source.match(/private function buildAutoFetchPlatformLightStatus\(int \$hotelId, array \$status\): array\s+\{([\s\S]*?)\n    private function autoFetchPlatformsHaveConfig/);
   const lightHelperSource = lightHelperMatch ? lightHelperMatch[1] : '';
   checks.push({
-    file: 'app/controller/OnlineData.php',
+    file: onlineDataControllerFiles.join(' + '),
     label: 'backend light auto-fetch platform status uses raw read-only config resolvers',
     ok: lightHelperSource.includes('resolveCtripFetchConfigForHotelLight')
       && lightHelperSource.includes('resolveMeituanFetchConfigForHotelLight')
@@ -583,7 +658,7 @@ requireText('app/controller/OnlineData.php', "'detail_loaded' => false", 'backen
     detail: 'buildAutoFetchPlatformLightStatus must not normalize or write stored platform config lists',
   });
   checks.push({
-    file: 'app/controller/OnlineData.php',
+    file: onlineDataControllerFiles.join(' + '),
     label: 'backend light auto-fetch platform status short-caches read-only dependencies',
     ok: source.includes('private const AUTO_FETCH_LIGHT_READ_CACHE_TTL_SECONDS = 5;')
       && source.includes('private array $autoFetchLightReadCache = [];')
@@ -829,20 +904,20 @@ requireText('app/service/ManualOnlineFetchTaskService.php', 'launchWindowsScript
 requireText('app/service/ManualOnlineFetchTaskService.php', 'launchWindowsBatchFileWithStart($batPath)', 'manual OTA background task launch falls back to cmd start when wscript does not execute');
 requireText('app/service/ManualOnlineFetchTaskService.php', 'appendWindowsLauncherDiagnostic($batPath', 'manual OTA background task launch records launcher fallback diagnostics');
 requireNoText('app/service/ManualOnlineFetchTaskService.php', 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand', 'manual OTA background task service must not launch via powershell on the API request path');
-requireText('app/controller/OnlineData.php', "createTask('ctrip'", 'backend can run Ctrip manual fetch as a background task through the manual OTA task service');
-requireText('app/controller/OnlineData.php', "createTask(strtolower($platform) . '_traffic'", 'backend can run Ctrip traffic manual fetch as a background task through the manual OTA task service');
-requireText('app/controller/OnlineData.php', "createTask('ctrip_ads'", 'backend can run Ctrip ads manual fetch as a background task through the manual OTA task service');
-requireText('app/controller/OnlineData.php', 'launchTask($task)', 'backend launches manual OTA fetch tasks through the manual OTA task service');
-requireText('app/controller/OnlineData.php', 'launchWindowsBatchFile($batPath)', 'platform auto-fetch background launch uses the Windows fast launcher wrapper');
-requireText('app/controller/OnlineData.php', 'launchWindowsScriptHost($launcherPath)', 'platform auto-fetch background launch confirms the Windows script host path ran');
-requireText('app/controller/OnlineData.php', 'launchWindowsBatchFileWithStart($batPath)', 'platform auto-fetch background launch falls back to cmd start when wscript does not execute');
-requireText('app/controller/OnlineData.php', 'appendWindowsLauncherDiagnostic($batPath', 'platform auto-fetch background launch records launcher fallback diagnostics');
+requireOnlineDataControllerText("createTask('ctrip'", 'backend can run Ctrip manual fetch as a background task through the manual OTA task service');
+requireOnlineDataControllerText("createTask(strtolower($platform) . '_traffic'", 'backend can run Ctrip traffic manual fetch as a background task through the manual OTA task service');
+requireOnlineDataControllerText("createTask('ctrip_ads'", 'backend can run Ctrip ads manual fetch as a background task through the manual OTA task service');
+requireOnlineDataControllerText('launchTask($task)', 'backend launches manual OTA fetch tasks through the manual OTA task service');
+requireOnlineDataControllerText('launchWindowsBatchFile($batPath)', 'platform auto-fetch background launch uses the Windows fast launcher wrapper');
+requireOnlineDataControllerText('launchWindowsScriptHost($launcherPath)', 'platform auto-fetch background launch confirms the Windows script host path ran');
+requireOnlineDataControllerText('launchWindowsBatchFileWithStart($batPath)', 'platform auto-fetch background launch falls back to cmd start when wscript does not execute');
+requireOnlineDataControllerText('appendWindowsLauncherDiagnostic($batPath', 'platform auto-fetch background launch records launcher fallback diagnostics');
 requireNoText('app/controller/OnlineData.php', 'private function createManualCtripFetchBackgroundTask', 'OnlineData does not re-inline Ctrip manual background task creation');
 requireNoText('app/controller/OnlineData.php', 'private function launchManualCtripFetchBackgroundTask', 'OnlineData does not re-inline manual background task launching');
 requireText('app/command/ManualFetchOnlineDataOnce.php', 'online-data:manual-fetch-once', 'manual Ctrip fetch has a one-shot background worker command');
 requireText('config/console.php', "'online-data:manual-fetch-once'", 'console exposes one-shot manual Ctrip fetch worker command');
 requireText('app/service/OnlineTrafficDataExtractionService.php', 'extractCtripTrafficRows', 'traffic response extraction lives in a focused service');
-requireText('app/controller/OnlineData.php', 'OnlineTrafficDataExtractionService::extractCtripTrafficRows', 'OnlineData keeps a thin Ctrip traffic extraction wrapper');
+requireOnlineDataControllerText('OnlineTrafficDataExtractionService::extractCtripTrafficRows', 'OnlineData keeps a thin Ctrip traffic extraction wrapper');
 requireNoText('app/controller/OnlineData.php', 'private function extractCtripTrafficRowsRecursive', 'OnlineData does not re-inline recursive Ctrip traffic extraction');
 for (const directRefreshBinding of [
   'refreshLatestCtripData: loadLatestCtripData',
@@ -892,13 +967,13 @@ requireText('public/meituan-static.js', 'const requestBody = { ...task.body, asy
 requireText('public/meituan-static.js', 'await Promise.all(fetchTasks.map(async (task, index) => {', 'Meituan manual ranking fetch keeps independent direct requests concurrent');
 requireNoText('public/meituan-static.js', 'const requestBody = { ...task.body, async: true, background: true }', 'Meituan manual ranking fetch must not enqueue background tasks by default');
 requireText('public/meituan-static.js', 'const modelRes = await requestDisplayModel', 'Meituan manual ranking fetch still builds the display model when direct results are returned');
-requireText('app/controller/OnlineData.php', 'markAutoFetchRunningStatus', 'backend records running auto-fetch task status');
-requireText('app/controller/OnlineData.php', 'createAutoFetchBackgroundTask', 'backend creates one-shot auto-fetch background tasks');
-requireText('app/controller/OnlineData.php', "'/api/online-data/retry-auto-fetch'", 'backend retry auto-fetch posts the one-shot worker back to retry endpoint');
-requireText('app/controller/OnlineData.php', "'retry_auto_fetch_queued'", 'backend records queued retry auto-fetch tasks');
-requireText('app/controller/OnlineData.php', "createTask('meituan'", 'backend creates one-shot Meituan manual fetch background tasks through the manual OTA task service');
-requireText('app/controller/OnlineData.php', "createTask('meituan_traffic'", 'backend creates one-shot Meituan traffic manual fetch background tasks through the manual OTA task service');
-requireText('app/controller/OnlineData.php', "createTask('meituan_' . $section", 'backend creates one-shot Meituan order/ads manual fetch background tasks through the manual OTA task service');
+requireOnlineDataControllerText('markAutoFetchRunningStatus', 'backend records running auto-fetch task status');
+requireOnlineDataControllerText('createAutoFetchBackgroundTask', 'backend creates one-shot auto-fetch background tasks');
+requireOnlineDataControllerText("'/api/online-data/retry-auto-fetch'", 'backend retry auto-fetch posts the one-shot worker back to retry endpoint');
+requireOnlineDataControllerText("'retry_auto_fetch_queued'", 'backend records queued retry auto-fetch tasks');
+requireOnlineDataControllerText("createTask('meituan'", 'backend creates one-shot Meituan manual fetch background tasks through the manual OTA task service');
+requireOnlineDataControllerText("createTask('meituan_traffic'", 'backend creates one-shot Meituan traffic manual fetch background tasks through the manual OTA task service');
+requireOnlineDataControllerText("createTask('meituan_' . $section", 'backend creates one-shot Meituan order/ads manual fetch background tasks through the manual OTA task service');
 requireNoText('app/controller/OnlineData.php', 'private function createManualMeituanFetchBackgroundTask', 'OnlineData does not re-inline Meituan manual background task creation');
 requireText('app/command/AutoFetchOnlineDataOnce.php', 'online-data:auto-fetch-once', 'backend registers a one-shot auto-fetch worker command');
 requireText('config/console.php', "'online-data:auto-fetch-once'", 'console exposes one-shot auto-fetch worker command');
@@ -971,6 +1046,45 @@ requireText('public/index.html', "requireDataHealthStatic('buildPhase1TrafficP0N
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeEvidenceStatusText')", 'entry uses extracted Phase1 employee evidence status text mapper');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeGapCodeText')", 'entry uses extracted Phase1 employee gap code text mapper');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionCodeText')", 'entry uses extracted Phase1 employee action code text mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1MissingFieldLabel')", 'entry uses extracted Phase1 missing field label mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1MissingFieldNextActionText')", 'entry uses extracted Phase1 missing field next-action mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1MetricDomainProblemText')", 'entry uses extracted Phase1 metric-domain problem text mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1MetricDomainNextActionText')", 'entry uses extracted Phase1 metric-domain next-action mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeCountItem')", 'entry uses extracted Phase1 employee count item builder');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeQuestionBlockingGapCodes')", 'entry uses extracted Phase1 question blocking gap code builder');
+requireText('public/index.html', "requireDataHealthStatic('mergePhase1EmployeeQuestionRow')", 'entry uses extracted Phase1 question row merger');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeQuestionPresentationRow')", 'entry uses extracted Phase1 question presentation row builder');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionEntryText')", 'entry uses extracted Phase1 action entry text mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionEntryOptionText')", 'entry uses extracted Phase1 action entry option text mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionEntryOptionGuidanceText')", 'entry uses extracted Phase1 action entry option guidance mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionEntryOptionReadinessText')", 'entry uses extracted Phase1 action entry option readiness mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeKnownQuestionText')", 'entry uses extracted Phase1 employee known question mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeKnownQuestionListText')", 'entry uses extracted Phase1 employee known question list mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionSuccessCriteriaText')", 'entry uses extracted Phase1 action success criteria mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionEvidenceNeededText')", 'entry uses extracted Phase1 action evidence-needed mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionVerificationStepsText')", 'entry uses extracted Phase1 action verification steps mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionBlockedActionText')", 'entry uses extracted Phase1 blocked-action mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionEmployeeExplanationText')", 'entry uses extracted Phase1 action employee explanation mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionLimitedConclusionsText')", 'entry uses extracted Phase1 limited conclusions mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionStillUsableMetricsText')", 'entry uses extracted Phase1 still-usable metrics mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionExplanationNextActionText')", 'entry uses extracted Phase1 explanation next-action mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionDisplayText')", 'entry uses extracted Phase1 action display mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionOwnerText')", 'entry uses extracted Phase1 action owner mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionMetaText')", 'entry uses extracted Phase1 action meta mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionProtectedBoundaryText')", 'entry uses extracted Phase1 protected boundary mapper');
+requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeRequiredAction')", 'entry uses extracted Phase1 required action normalizer');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionRawCode')", 'entry uses extracted Phase1 action raw-code helper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionPlatformText')", 'entry uses extracted Phase1 action platform helper');
+requireText('public/index.html', "requireDataHealthStatic('normalizePhase1CollectionSourceSummaryRow')", 'entry uses extracted Phase1 collection source summary normalizer');
+requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeFieldTrustRow')", 'entry uses extracted Phase1 field trust normalizer');
+requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeMissingFieldRow')", 'entry uses extracted Phase1 missing field normalizer');
+requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeMissingFieldSummaryRow')", 'entry uses extracted Phase1 missing field summary normalizer');
+requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeMetricDomainRow')", 'entry uses extracted Phase1 metric domain normalizer');
+requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeMetricDomainSummaryRow')", 'entry uses extracted Phase1 metric domain summary normalizer');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeAiJudgementText')", 'entry uses extracted Phase1 AI judgement text mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeAiLimitText')", 'entry uses extracted Phase1 AI limit text mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeOperationJudgementText')", 'entry uses extracted Phase1 operation judgement text mapper');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeOperationLimitText')", 'entry uses extracted Phase1 operation limit text mapper');
 requireText('public/index.html', 'data-health-static.js?v=20260612-dashboard-requests', 'entry bumps data-health static helper version for dashboard request exports');
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
 requireText('public/data-health-static.js', 'const buildHotelDataDashboardRequests', 'data-health static builds hotel data dashboard request URLs');
@@ -979,6 +1093,47 @@ requireText('public/data-health-static.js', 'const buildPhase1TrafficP0NextText'
 requireText('public/data-health-static.js', 'const phase1EmployeeEvidenceStatusText', 'data-health static maps Phase1 employee evidence status text');
 requireText('public/data-health-static.js', 'const phase1EmployeeGapCodeText', 'data-health static maps Phase1 employee gap code text');
 requireText('public/data-health-static.js', 'const phase1EmployeeActionCodeText', 'data-health static maps Phase1 employee action code text');
+requireText('public/data-health-static.js', 'const phase1MissingFieldLabel', 'data-health static maps Phase1 missing field labels');
+requireText('public/data-health-static.js', 'const phase1MissingFieldNextActionText', 'data-health static maps Phase1 missing field next actions');
+requireText('public/data-health-static.js', 'const phase1MetricDomainProblemText', 'data-health static maps Phase1 metric-domain problem text');
+requireText('public/data-health-static.js', 'const phase1MetricDomainNextActionText', 'data-health static maps Phase1 metric-domain next action text');
+requireText('public/data-health-static.js', 'const phase1EmployeeCountItem', 'data-health static builds Phase1 employee count items');
+requireText('public/data-health-static.js', 'const phase1EmployeeQuestionBlockingGapCodes', 'data-health static builds Phase1 question blocking gap codes');
+requireText('public/data-health-static.js', 'const mergePhase1EmployeeQuestionRow', 'data-health static merges Phase1 question rows');
+requireText('public/data-health-static.js', 'const phase1EmployeeQuestionPresentationRow', 'data-health static builds Phase1 presentation question rows');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionEntryText', 'data-health static maps Phase1 action entries');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionEntryOptionText', 'data-health static maps Phase1 action entry options');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionEntryOptionGuidanceText', 'data-health static maps Phase1 action entry option guidance');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionEntryOptionReadinessText', 'data-health static maps Phase1 action entry option readiness');
+requireText('public/data-health-static.js', 'const phase1EmployeeKnownQuestionText', 'data-health static maps Phase1 known question text');
+requireText('public/data-health-static.js', 'const phase1EmployeeKnownQuestionListText', 'data-health static maps Phase1 known question list text');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionRawCode', 'data-health static extracts Phase1 action raw codes');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionPlatformText', 'data-health static maps Phase1 action platform text');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionSuccessCriteriaText', 'data-health static maps Phase1 action success criteria');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionEvidenceNeededText', 'data-health static maps Phase1 action evidence needed');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionVerificationStepsText', 'data-health static maps Phase1 action verification steps');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionBlockedActionText', 'data-health static maps Phase1 blocked actions');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionEmployeeExplanationText', 'data-health static maps Phase1 employee explanations');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionLimitedConclusionsText', 'data-health static maps Phase1 limited conclusions');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionStillUsableMetricsText', 'data-health static maps Phase1 still-usable metrics');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionExplanationNextActionText', 'data-health static maps Phase1 explanation next actions');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionDisplayText', 'data-health static maps Phase1 action display text');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionOwnerText', 'data-health static maps Phase1 action owner text');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionMetaText', 'data-health static maps Phase1 action meta text');
+requireText('public/data-health-static.js', 'const phase1EmployeeActionProtectedBoundaryText', 'data-health static maps Phase1 protected boundary text');
+requireText('public/data-health-static.js', 'const normalizePhase1EmployeeRequiredAction', 'data-health static normalizes Phase1 required actions');
+requireText('public/data-health-static.js', 'const phase1EmployeeCollectionDataTypeText', 'data-health static maps Phase1 collection data types');
+requireText('public/data-health-static.js', 'const normalizePhase1CollectionSourceSummaryRow', 'data-health static normalizes Phase1 collection source summary rows');
+requireText('public/data-health-static.js', 'const phase1FieldTrustStatusClass', 'data-health static maps Phase1 field trust status class');
+requireText('public/data-health-static.js', 'const normalizePhase1EmployeeFieldTrustRow', 'data-health static normalizes Phase1 field trust rows');
+requireText('public/data-health-static.js', 'const normalizePhase1EmployeeMissingFieldRow', 'data-health static normalizes Phase1 missing field rows');
+requireText('public/data-health-static.js', 'const normalizePhase1EmployeeMissingFieldSummaryRow', 'data-health static normalizes Phase1 missing field summary rows');
+requireText('public/data-health-static.js', 'const normalizePhase1EmployeeMetricDomainRow', 'data-health static normalizes Phase1 metric domain rows');
+requireText('public/data-health-static.js', 'const normalizePhase1EmployeeMetricDomainSummaryRow', 'data-health static normalizes Phase1 metric domain summary rows');
+requireText('public/data-health-static.js', 'const phase1EmployeeAiJudgementText', 'data-health static maps Phase1 AI judgement text');
+requireText('public/data-health-static.js', 'const phase1EmployeeAiLimitText', 'data-health static maps Phase1 AI limit text');
+requireText('public/data-health-static.js', 'const phase1EmployeeOperationJudgementText', 'data-health static maps Phase1 operation judgement text');
+requireText('public/data-health-static.js', 'const phase1EmployeeOperationLimitText', 'data-health static maps Phase1 operation limit text');
 requireText('public/index.html', 'const params = buildOnlineHistoryQueryParams({', 'online history loader delegates query parameter construction');
 requireText('public/index.html', 'const requests = buildHotelDataDashboardRequests({ selectedHotelId });', 'hotel data dashboard loader delegates request URL construction');
 requireText('public/index.html', '} = buildPhase1MetricDomainReadiness({', 'Phase1 employee questions delegate metric domain readiness construction');
@@ -989,6 +1144,46 @@ requireNoText('public/index.html', 'const trafficP0NextText = (row) => {', 'Phas
 requireNoText('public/index.html', 'const evidenceStatusText = (value) => ({', 'Phase1 employee evidence status mapping is not re-inlined');
 requireNoText('public/index.html', "source_date_evidence_missing: '目标日来源证据缺失'", 'Phase1 employee gap code mapping is not re-inlined');
 requireNoText('public/index.html', "if (raw === 'phase1_confirm_source_date_evidence')", 'Phase1 employee action code mapping is not re-inlined');
+requireNoText('public/index.html', "available_room_nights_missing: '可售房晚缺失'", 'Phase1 missing field labels are not re-inlined');
+requireNoText('public/index.html', "按字段资产核对平台返回和入库字段", 'Phase1 missing field next actions are not re-inlined');
+requireNoText('public/index.html', "收益、流量、转化均可复核。", 'Phase1 metric-domain problem text is not re-inlined');
+requireNoText('public/index.html', "补齐流量/转化事实，再复核漏斗诊断。", 'Phase1 metric-domain next action text is not re-inlined');
+requireNoText('public/index.html', "AI 建议已有可追溯证据和可执行动作项。", 'Phase1 AI judgement text is not re-inlined');
+requireNoText('public/index.html', "不能把 blocked 动作项当成可执行经营建议。", 'Phase1 AI limit text is not re-inlined');
+requireNoText('public/index.html', "运营动作已有审批、执行、证据、复盘或 ROI 信号。", 'Phase1 operation judgement text is not re-inlined');
+requireNoText('public/index.html', "不能把未关联 OTA 诊断的普通执行记录算作闭环。", 'Phase1 operation limit text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeQuestionBlockingGapCodes = (row) => {', 'Phase1 question blocking gap builder is not re-inlined');
+requireNoText('public/index.html', 'const mergePhase1EmployeeQuestionRow = (backendRow, localRow) => {', 'Phase1 question row merger is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeQuestionPresentationRow = (backendRow, localRow) => ({', 'Phase1 question presentation row builder is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionEntryText = (entry, item = {}) => {', 'Phase1 action entry text mapper is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionEntryOptionModeText = (option) => {', 'Phase1 action entry option mode text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionEntryOptionContractText = (option) => {', 'Phase1 action entry option contract text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionEntryOptionReadinessText = (option) => {', 'Phase1 action entry option readiness text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeKnownQuestionText = (key) => {', 'Phase1 known question text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeKnownQuestionListText = (values) => {', 'Phase1 known question list text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionRawCode = (item) => {', 'Phase1 action raw-code helper is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionPlatformText = (item, rawCode) => {', 'Phase1 action platform helper is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionSuccessCriteriaText = (item) => {', 'Phase1 action success criteria text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionEvidenceNeededText = (item) => {', 'Phase1 action evidence needed text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionVerificationStepsText = (item) => {', 'Phase1 action verification steps text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionBlockedActionText = (item) => {', 'Phase1 blocked action text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionEmployeeExplanationText = (item) => {', 'Phase1 employee explanation text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionLimitedConclusionsText = (item) => {', 'Phase1 limited conclusions text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionStillUsableMetricsText = (item) => {', 'Phase1 still usable metrics text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionExplanationNextActionText = (item) => {', 'Phase1 explanation next action text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionDisplayText = (item) => {', 'Phase1 action display text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionOwnerText = (item) => {', 'Phase1 action owner text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionMetaText = (item) => {', 'Phase1 action meta text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeActionProtectedBoundaryText = (item) => {', 'Phase1 protected boundary text is not re-inlined');
+requireNoText('public/index.html', 'const normalizePhase1EmployeeRequiredAction = (item) => {', 'Phase1 required action normalizer is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeCollectionDataTypeText = (type) => {', 'Phase1 collection data type text is not re-inlined');
+requireNoText('public/index.html', 'const normalizePhase1CollectionSourceSummaryRow = (row) => {', 'Phase1 collection source summary normalizer is not re-inlined');
+requireNoText('public/index.html', 'const phase1FieldTrustStatusClass = (status) =>', 'Phase1 field trust status class is not re-inlined');
+requireNoText('public/index.html', 'const normalizePhase1EmployeeFieldTrustRow = (row) => {', 'Phase1 field trust normalizer is not re-inlined');
+requireNoText('public/index.html', 'const normalizePhase1EmployeeMissingFieldRow = (code, source =', 'Phase1 missing field normalizer is not re-inlined');
+requireNoText('public/index.html', 'const normalizePhase1EmployeeMissingFieldSummaryRow = (item) => {', 'Phase1 missing field summary normalizer is not re-inlined');
+requireNoText('public/index.html', 'const normalizePhase1EmployeeMetricDomainRow = (row) => {', 'Phase1 metric domain normalizer is not re-inlined');
+requireNoText('public/index.html', 'const normalizePhase1EmployeeMetricDomainSummaryRow = (row) => {', 'Phase1 metric domain summary normalizer is not re-inlined');
 requireText('public/index.html', 'let onlineHistoryHotelListLoadingPromise = null;', 'online history hotel filter options deduplicate in-flight hotel list loads');
 requireText('public/index.html', 'const onlineHistoryHotelListLoaded = ref(false);', 'online history hotel filter options track loaded state');
 requireText('public/index.html', 'const refreshOnlineHistory = async (options = {}) => {', 'online history refresh supports skipping hotel filter reloads');
@@ -1302,11 +1497,87 @@ requireText('public/index.html', 'history-simulation-reuse', 'simulation history
 requireText('public/index.html', 'history-expansion-reuse', 'expansion history reuse button has stable selector');
 requireText('public/index.html', 'history-transfer-reuse', 'transfer history reuse button has stable selector');
 requireText('public/index.html', 'field-strategy-city', 'strategy city field has stable selector');
+requireNoText('public/index.html', 'aiNumber(', 'strategy payload uses the defined numeric helper');
 requireText('public/index.html', 'field-simulation-adr', 'simulation ADR field has stable selector');
 requireText('public/index.html', 'field-market-business-area', 'market business area field has stable selector');
 requireText('public/index.html', 'field-transfer-pricing-', 'transfer pricing fields have stable selectors');
 requireText('public/index.html', "requireSimulationStatic('buildTransferDecisionLayerRows')", 'entry uses extracted transfer decision layer builder');
 requireText('public/simulation-static.js', 'const buildTransferDecisionLayerRows', 'simulation static builds transfer decision layer rows');
+requireText('public/index.html', "requireSimulationStatic('buildTransferPricingPayload')", 'entry uses extracted transfer pricing payload builder');
+requireText('public/index.html', "requireSimulationStatic('buildTransferTimingPayload')", 'entry uses extracted transfer timing payload builder');
+requireText('public/index.html', "requireSimulationStatic('buildTransferDashboardPayload')", 'entry uses extracted transfer dashboard payload builder');
+requireText('public/index.html', "requireSimulationStatic('applyDefinedFields')", 'entry uses extracted defined-field merge helper');
+requireText('public/index.html', "requireSimulationStatic('buildBenchmarkModelDetailCards')", 'entry uses extracted benchmark model detail cards builder');
+requireText('public/index.html', "requireSimulationStatic('benchmarkModelDetailCompletenessText')", 'entry uses extracted benchmark model detail completeness text');
+requireText('public/index.html', "requireSimulationStatic('benchmarkModelEstimatedFields')", 'entry uses extracted benchmark model estimated fields reader');
+requireText('public/index.html', "requireSimulationStatic('buildTransferPricingCards')", 'entry uses extracted transfer pricing cards builder');
+requireText('public/index.html', "requireSimulationStatic('buildTransferPricingValuationRows')", 'entry uses extracted transfer pricing valuation rows builder');
+requireText('public/index.html', "requireSimulationStatic('transferPricingAiEvaluationSourceLabel')", 'entry uses extracted transfer pricing AI source label');
+requireText('public/index.html', "requireSimulationStatic('resolveTransferCurrentReadiness')", 'entry uses extracted transfer readiness resolver');
+requireText('public/index.html', "requireSimulationStatic('expansionRecordTypeForPage')", 'entry uses extracted expansion record type resolver');
+requireText('public/index.html', "requireSimulationStatic('filterExpansionRecords')", 'entry uses extracted expansion record filter');
+requireText('public/index.html', "requireSimulationStatic('hasExpansionRecordType')", 'entry uses extracted expansion record type presence check');
+requireText('public/index.html', "requireSimulationStatic('hasAnyExpansionRecord')", 'entry uses extracted expansion history presence check');
+requireText('public/index.html', "requireSimulationStatic('buildSimulationMetricCards')", 'entry uses extracted simulation metric cards builder');
+requireText('public/simulation-static.js', 'const buildTransferPricingPayload', 'simulation static builds transfer pricing payloads');
+requireText('public/simulation-static.js', 'const buildTransferTimingPayload', 'simulation static builds transfer timing payloads');
+requireText('public/simulation-static.js', 'const buildTransferDashboardPayload', 'simulation static builds transfer dashboard payloads');
+requireText('public/simulation-static.js', 'const applyDefinedFields', 'simulation static merges defined transfer fields');
+requireText('public/simulation-static.js', 'function buildBenchmarkModelDetailCards', 'simulation static builds benchmark model detail cards');
+requireText('public/simulation-static.js', 'function benchmarkModelDetailCompletenessText', 'simulation static builds benchmark model detail completeness text');
+requireText('public/simulation-static.js', 'function benchmarkModelEstimatedFields', 'simulation static reads benchmark model estimated fields');
+requireText('public/simulation-static.js', 'function buildTransferPricingCards', 'simulation static builds transfer pricing cards');
+requireText('public/simulation-static.js', 'function buildTransferPricingValuationRows', 'simulation static builds transfer pricing valuation rows');
+requireText('public/simulation-static.js', 'function transferPricingAiEvaluationSourceLabel', 'simulation static builds transfer pricing AI source label');
+requireText('public/simulation-static.js', 'function resolveTransferCurrentReadiness', 'simulation static owns transfer readiness resolver');
+requireText('public/simulation-static.js', 'function expansionRecordTypeForPage', 'simulation static owns expansion record type resolver');
+requireText('public/simulation-static.js', 'function filterExpansionRecords', 'simulation static owns expansion record filter');
+requireText('public/simulation-static.js', 'function hasExpansionRecordType', 'simulation static owns expansion record type presence check');
+requireText('public/simulation-static.js', 'function hasAnyExpansionRecord', 'simulation static owns expansion history presence check');
+requireText('public/simulation-static.js', 'function buildSimulationMetricCards', 'simulation static builds simulation metric cards');
+requireText('public/index.html', "requireExpansionStaticOption('buildStrategyPayload')", 'entry uses extracted strategy payload builder');
+requireText('public/expansion-static-options.js', 'const buildStrategyPayload', 'expansion static builds strategy payloads');
+requireText('public/index.html', "requireExpansionStaticOption('buildFeasibilityPayload')", 'entry uses extracted feasibility payload builder');
+requireText('public/expansion-static-options.js', 'const buildFeasibilityPayload', 'expansion static builds feasibility payloads');
+requireText('public/index.html', "requireExpansionStaticOption('marketEvaluationRiskSeverityClass')", 'entry uses extracted market evaluation risk severity class');
+requireText('public/index.html', "requireExpansionStaticOption('formatMarketEvaluationScoreChange')", 'entry uses extracted market evaluation score change formatter');
+requireText('public/index.html', "requireExpansionStaticOption('marketEvaluationScoreChangeClass')", 'entry uses extracted market evaluation score change class');
+requireText('public/index.html', "requireExpansionStaticOption('marketEvaluationCityOptionsForTier')", 'entry uses extracted market evaluation city tier filter');
+requireText('public/index.html', "requireExpansionStaticOption('secondaryMarketEvaluationCustomerOptions')", 'entry uses extracted secondary market customer filter');
+requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationAiJudgementRows')", 'entry uses extracted market evaluation AI judgement rows builder');
+requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationAiRecommendations')", 'entry uses extracted market evaluation AI recommendations builder');
+requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationAiAssumptions')", 'entry uses extracted market evaluation AI assumptions builder');
+requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationScoreFormula')", 'entry uses extracted market evaluation score formula builder');
+requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationScoreBreakdown')", 'entry uses extracted market evaluation score breakdown builder');
+requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationScorePercent')", 'entry uses extracted market evaluation score percent builder');
+requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationAiRiskNote')", 'entry uses extracted market evaluation AI risk note builder');
+requireText('public/index.html', "requireExpansionStaticOption('benchmarkModelAiSourceLabelForResult')", 'entry uses extracted benchmark model AI source label builder');
+requireText('public/index.html', "requireExpansionStaticOption('buildBenchmarkModelAiRecommendations')", 'entry uses extracted benchmark model AI recommendations builder');
+requireText('public/index.html', "requireExpansionStaticOption('buildBenchmarkModelAiWatchPoints')", 'entry uses extracted benchmark model AI watch points builder');
+requireText('public/index.html', "requireExpansionStaticOption('buildBenchmarkModelAiAssumptionNote')", 'entry uses extracted benchmark model AI assumption note builder');
+requireText('public/index.html', "requireExpansionStaticOption('benchmarkModelDataNoticeForResult')", 'entry uses extracted benchmark model data notice builder');
+requireText('public/index.html', "requireExpansionStaticOption('buildBenchmarkModelAiOutcomeCards')", 'entry uses extracted benchmark model AI outcome cards builder');
+requireText('public/index.html', "requireExpansionStaticOption('resolveExpansionCurrentReadiness')", 'entry uses extracted expansion readiness resolver');
+requireText('public/expansion-static-options.js', 'const marketEvaluationRiskSeverityClass', 'expansion static owns market evaluation risk severity class');
+requireText('public/expansion-static-options.js', 'const formatMarketEvaluationScoreChange', 'expansion static owns market evaluation score change formatter');
+requireText('public/expansion-static-options.js', 'const marketEvaluationScoreChangeClass', 'expansion static owns market evaluation score change class');
+requireText('public/expansion-static-options.js', 'const marketEvaluationCityOptionsForTier', 'expansion static owns market evaluation city tier filter');
+requireText('public/expansion-static-options.js', 'const secondaryMarketEvaluationCustomerOptions', 'expansion static owns secondary market customer filter');
+requireText('public/expansion-static-options.js', 'const normalizeAiRecommendationDisplay', 'expansion static owns AI recommendation display normalizer');
+requireText('public/expansion-static-options.js', 'const buildMarketEvaluationAiJudgementRows', 'expansion static owns market evaluation AI judgement rows builder');
+requireText('public/expansion-static-options.js', 'const buildMarketEvaluationAiRecommendations', 'expansion static owns market evaluation AI recommendations builder');
+requireText('public/expansion-static-options.js', 'const buildMarketEvaluationAiAssumptions', 'expansion static owns market evaluation AI assumptions builder');
+requireText('public/expansion-static-options.js', 'const buildMarketEvaluationScoreFormula', 'expansion static owns market evaluation score formula builder');
+requireText('public/expansion-static-options.js', 'const buildMarketEvaluationScoreBreakdown', 'expansion static owns market evaluation score breakdown builder');
+requireText('public/expansion-static-options.js', 'const buildMarketEvaluationScorePercent', 'expansion static owns market evaluation score percent builder');
+requireText('public/expansion-static-options.js', 'const buildMarketEvaluationAiRiskNote', 'expansion static owns market evaluation AI risk note builder');
+requireText('public/expansion-static-options.js', 'const benchmarkModelAiSourceLabelForResult', 'expansion static owns benchmark model AI source label builder');
+requireText('public/expansion-static-options.js', 'const buildBenchmarkModelAiRecommendations', 'expansion static owns benchmark model AI recommendations builder');
+requireText('public/expansion-static-options.js', 'const buildBenchmarkModelAiWatchPoints', 'expansion static owns benchmark model AI watch points builder');
+requireText('public/expansion-static-options.js', 'const buildBenchmarkModelAiAssumptionNote', 'expansion static owns benchmark model AI assumption note builder');
+requireText('public/expansion-static-options.js', 'const benchmarkModelDataNoticeForResult', 'expansion static owns benchmark model data notice builder');
+requireText('public/expansion-static-options.js', 'const buildBenchmarkModelAiOutcomeCards', 'expansion static owns benchmark model AI outcome cards builder');
+requireText('public/expansion-static-options.js', 'function resolveExpansionCurrentReadiness', 'expansion static owns expansion readiness resolver');
 requireNoText('public/index.html', 'const pricingReady = !!transferPricingResult.value;', 'transfer decision pricing ready state is not re-inlined');
 requireNoText('public/index.html', "label: '事实数据',\n                        status: snapshot ? '有快照' : '待取数'", 'transfer decision fact row is not re-inlined');
 requireNoText('public/index.html', "evidence: `定价 ${pricingReady ? '有' : '无'} / 时机 ${timingReady ? '有' : '无'}`", 'transfer decision calculation evidence is not re-inlined');
@@ -1434,19 +1705,132 @@ requireNoText('app/service/RevenueResearchService.php', "'review-topic' =>", 're
 requireTextInFiles(['public/index.html', 'public/operation-static.js'], 'service_quality', 'operation dashboard renders service quality data');
 requireText('public/operation-static.js', 'buildOperationSourceBrief', 'operation source brief builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOperationDecisionCards', 'operation decision card builder lives in operation static module');
+requireText('public/operation-static.js', 'operationCanApproveExecution', 'operation approval action guard lives in operation static module');
+requireText('public/operation-static.js', 'operationCanExecuteWithEvidence', 'operation evidence action guard lives in operation static module');
+requireText('public/operation-static.js', 'operationCanReviewExecution', 'operation review action guard lives in operation static module');
+requireText('public/operation-static.js', 'operationExecutionActionAvailable', 'operation execution action availability lives in operation static module');
+requireText('public/operation-static.js', 'buildOperationExecutionTraceRows', 'operation execution trace rows builder lives in operation static module');
+requireText('public/operation-static.js', 'buildOperationExecutionSummaryCards', 'operation execution summary cards builder lives in operation static module');
+requireText('public/operation-static.js', 'operationExecutionBottleneckText', 'operation execution bottleneck text helper lives in operation static module');
+requireText('public/operation-static.js', 'operationExecutionMoneyStatusText', 'operation execution money status text helper lives in operation static module');
+requireText('public/operation-static.js', 'operationExecutionMoneyStatusClass', 'operation execution money status class helper lives in operation static module');
+requireText('public/operation-static.js', 'operationExecutionSourceText', 'operation execution source text helper lives in operation static module');
+requireText('public/operation-static.js', 'operationExecutionActionText', 'operation execution action text helper lives in operation static module');
+requireText('public/operation-static.js', 'operationExecutionReviewText', 'operation execution review text helper lives in operation static module');
+requireText('public/operation-static.js', 'operationExecutionRoiText', 'operation execution ROI text helper lives in operation static module');
+requireText('public/operation-static.js', 'buildOperationClosureSummaryBadge', 'operation closure summary badge builder lives in operation static module');
+requireText('public/operation-static.js', 'buildOperationClosureSummaryCards', 'operation closure summary cards builder lives in operation static module');
+requireText('public/operation-static.js', 'operationClosureGapText', 'operation closure gap text helper lives in operation static module');
 requireText('public/operation-static.js', 'buildOpeningCategoryProgressCards', 'opening category progress cards builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOpeningPositioningImpact', 'opening positioning impact builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOpeningTaskProgressCards', 'opening task progress cards builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOpeningTaskProgressStages', 'opening task progress stages builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOpeningStatusFilterChips', 'opening status filter chips builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOpeningAttentionFilterChips', 'opening attention filter chips builder lives in operation static module');
+requireText('public/operation-static.js', 'buildOpeningTaskStats', 'opening task stats builder lives in operation static module');
+requireText('public/operation-static.js', 'filterOpeningTasks', 'opening task filter lives in operation static module');
+requireText('public/operation-static.js', 'selectOpeningTasks', 'opening task selection reader lives in operation static module');
+requireText('public/operation-static.js', 'areAllFilteredOpeningTasksSelected', 'opening all-selected check lives in operation static module');
+requireText('public/operation-static.js', 'pruneOpeningTaskIds', 'opening selected-id pruning lives in operation static module');
+requireText('public/operation-static.js', 'mergeOpeningTaskSelection', 'opening selection merge lives in operation static module');
+requireText('public/operation-static.js', 'openingTaskDueLabel', 'opening task due label lives in operation static module');
+requireText('public/operation-static.js', 'openingTaskDueClass', 'opening task due class lives in operation static module');
+requireText('public/operation-static.js', 'openingTaskProgressStage', 'opening task progress stage lives in operation static module');
+requireText('public/operation-static.js', 'openingTaskProgressTextClass', 'opening task progress text class lives in operation static module');
+requireText('public/operation-static.js', 'syncOpeningTaskProgressByStatus', 'opening task status-progress sync lives in operation static module');
+requireText('public/operation-static.js', 'syncOpeningTaskStatusByProgress', 'opening task progress-status sync lives in operation static module');
+requireText('public/operation-static.js', 'buildOpeningTaskUpdatePayload', 'opening task update payload builder lives in operation static module');
+requireText('public/operation-static.js', 'snapshotOpeningTaskForRollback', 'opening task rollback snapshot builder lives in operation static module');
+requireText('public/operation-static.js', 'openingTaskPatchHasChanges', 'opening task patch guard lives in operation static module');
+requireText('public/operation-static.js', 'applyOpeningTaskPatch', 'opening task patch applier lives in operation static module');
+requireText('public/operation-static.js', 'openingRiskText', 'opening risk text lives in operation static module');
+requireText('public/operation-static.js', 'openingRiskTextClass', 'opening risk text class lives in operation static module');
+requireText('public/operation-static.js', 'openingRiskClass', 'opening risk badge class lives in operation static module');
+requireText('public/operation-static.js', 'buildOpeningProjectFormDefaults', 'opening project default form builder lives in operation static module');
+requireText('public/operation-static.js', 'normalizeOpeningProjectFormForSubmit', 'opening project submit normalizer lives in operation static module');
+requireText('public/operation-static.js', 'buildOpeningProjectFormFromProject', 'opening project form hydration lives in operation static module');
 requireText('public/index.html', 'buildOperationDecisionCards(operationFullData.value || {}, operationDisplayFormatters)', 'operation dashboard uses extracted decision card builder');
+requireText('public/index.html', "operationCanApproveExecution = requireOperationStatic(staticConfig, 'operationCanApproveExecution')", 'operation approval action guard uses extracted helper');
+requireText('public/index.html', "operationCanExecuteWithEvidence = requireOperationStatic(staticConfig, 'operationCanExecuteWithEvidence')", 'operation evidence action guard uses extracted helper');
+requireText('public/index.html', "operationCanReviewExecution = requireOperationStatic(staticConfig, 'operationCanReviewExecution')", 'operation review action guard uses extracted helper');
+requireText('public/index.html', "operationExecutionActionAvailable = requireOperationStatic(staticConfig, 'operationExecutionActionAvailable')", 'operation action availability uses extracted helper');
+requireText('public/index.html', "buildOperationExecutionTraceRows = requireOperationStatic(staticConfig, 'buildOperationExecutionTraceRows')", 'operation execution trace rows use extracted helper');
+requireText('public/index.html', 'buildOperationExecutionTraceRows(operationExecutionFlow.value?.summary || {})', 'operation execution trace rows call extracted builder');
+requireText('public/index.html', "buildOperationExecutionSummaryCards = requireOperationStatic(staticConfig, 'buildOperationExecutionSummaryCards')", 'operation execution summary cards use extracted helper');
+requireText('public/index.html', "operationExecutionBottleneckTextForSummary = requireOperationStatic(staticConfig, 'operationExecutionBottleneckText')", 'operation execution bottleneck text uses extracted helper');
+requireText('public/index.html', "operationExecutionMoneyStatusTextForStatus = requireOperationStatic(staticConfig, 'operationExecutionMoneyStatusText')", 'operation execution money status text uses extracted helper');
+requireText('public/index.html', "operationExecutionMoneyStatusClassForStatus = requireOperationStatic(staticConfig, 'operationExecutionMoneyStatusClass')", 'operation execution money status class uses extracted helper');
+requireText('public/index.html', "operationExecutionSourceText = requireOperationStatic(staticConfig, 'operationExecutionSourceText')", 'operation execution source text uses extracted helper');
+requireText('public/index.html', "operationExecutionActionTextForItem = requireOperationStatic(staticConfig, 'operationExecutionActionText')", 'operation execution action text uses extracted helper');
+requireText('public/index.html', "operationExecutionReviewTextForItem = requireOperationStatic(staticConfig, 'operationExecutionReviewText')", 'operation execution review text uses extracted helper');
+requireText('public/index.html', "operationExecutionRoiTextForRoi = requireOperationStatic(staticConfig, 'operationExecutionRoiText')", 'operation execution ROI text uses extracted helper');
+requireText('public/index.html', 'buildOperationExecutionSummaryCards(operationExecutionFlow.value?.summary || {}, operationDisplayFormatters)', 'operation execution summary cards call extracted builder');
+requireText('public/index.html', 'operationExecutionBottleneckTextForSummary(operationExecutionFlow.value?.summary || {}, { statusLabel: operationExecutionStatusLabel })', 'operation execution bottleneck text calls extracted helper');
+requireText('public/index.html', 'operationExecutionActionTextForItem(item, { strategyTypeLabel: operationStrategyTypeLabel })', 'operation execution action text calls extracted helper');
+requireText('public/index.html', 'operationExecutionReviewTextForItem(item, { statusLabel: operationExecutionStatusLabel })', 'operation execution review text calls extracted helper');
+requireText('public/index.html', 'operationExecutionRoiTextForRoi(roi, operationDisplayFormatters)', 'operation execution ROI text calls extracted helper');
+requireText('public/index.html', "buildOperationClosureSummaryBadge = requireOperationStatic(staticConfig, 'buildOperationClosureSummaryBadge')", 'operation closure summary badge uses extracted helper');
+requireText('public/index.html', "buildOperationClosureSummaryCards = requireOperationStatic(staticConfig, 'buildOperationClosureSummaryCards')", 'operation closure summary cards use extracted helper');
+requireText('public/index.html', "operationClosureGapText = requireOperationStatic(staticConfig, 'operationClosureGapText')", 'operation closure gap text uses extracted helper');
+requireText('public/index.html', 'buildOperationClosureSummaryBadge(operationClosureOverview.value?.summary || {})', 'operation closure summary badge calls extracted builder');
+requireText('public/index.html', 'buildOperationClosureSummaryCards(operationClosureOverview.value?.summary || {})', 'operation closure summary cards call extracted builder');
 requireText('public/index.html', 'buildOpeningCategoryProgressCards(openingOverview.value?.category_progress || [])', 'opening category progress cards use extracted builder');
 requireText('public/index.html', 'buildOpeningPositioningImpact(openingProjectForm.value.positioning)', 'opening positioning impact uses extracted builder');
 requireText('public/index.html', 'buildOpeningTaskProgressCards(openingTaskStats.value)', 'opening progress cards use extracted builder');
 requireText('public/index.html', 'buildOpeningTaskProgressStages(openingTaskStats.value)', 'opening progress stages use extracted builder');
 requireText('public/index.html', 'buildOpeningStatusFilterChips(openingTaskStats.value)', 'opening status filter chips use extracted builder');
 requireText('public/index.html', 'buildOpeningAttentionFilterChips(openingTaskStats.value)', 'opening attention filter chips use extracted builder');
+requireText('public/index.html', 'buildOpeningTaskStats(openingTasks.value)', 'opening task stats use extracted builder');
+requireText('public/index.html', 'filterOpeningTasks(openingTasks.value, openingTaskFilter.value)', 'opening task filtering uses extracted helper');
+requireText('public/index.html', 'selectOpeningTasks(openingTasks.value, selectedOpeningTaskIds.value)', 'opening task selection uses extracted helper');
+requireText('public/index.html', 'areAllFilteredOpeningTasksSelected(filteredOpeningTasks.value, selectedOpeningTaskIds.value)', 'opening all-selected check uses extracted helper');
+requireText('public/index.html', 'pruneOpeningTaskIds(openingTasks.value, selectedOpeningTaskIds.value)', 'opening selected-id pruning uses extracted helper');
+requireText('public/index.html', 'mergeOpeningTaskSelection(filteredOpeningTasks.value, selectedOpeningTaskIds.value, checked)', 'opening selection merge uses extracted helper');
+requireText('public/index.html', "openingTaskDueLabel = requireOperationStatic(staticConfig, 'openingTaskDueLabel')", 'opening task due label uses extracted helper');
+requireText('public/index.html', "openingTaskDueClass = requireOperationStatic(staticConfig, 'openingTaskDueClass')", 'opening task due class uses extracted helper');
+requireText('public/index.html', "openingTaskProgressStage = requireOperationStatic(staticConfig, 'openingTaskProgressStage')", 'opening task progress stage uses extracted helper');
+requireText('public/index.html', "openingTaskProgressTextClass = requireOperationStatic(staticConfig, 'openingTaskProgressTextClass')", 'opening task progress text class uses extracted helper');
+requireText('public/index.html', "syncOpeningTaskProgressByStatus = requireOperationStatic(staticConfig, 'syncOpeningTaskProgressByStatus')", 'opening task status-progress sync uses extracted helper');
+requireText('public/index.html', "syncOpeningTaskStatusByProgress = requireOperationStatic(staticConfig, 'syncOpeningTaskStatusByProgress')", 'opening task progress-status sync uses extracted helper');
+requireText('public/index.html', "buildOpeningTaskUpdatePayload = requireOperationStatic(staticConfig, 'buildOpeningTaskUpdatePayload')", 'opening task update payload uses extracted helper');
+requireText('public/index.html', "snapshotOpeningTaskForRollback = requireOperationStatic(staticConfig, 'snapshotOpeningTaskForRollback')", 'opening task rollback snapshot uses extracted helper');
+requireText('public/index.html', "openingTaskPatchHasChanges = requireOperationStatic(staticConfig, 'openingTaskPatchHasChanges')", 'opening task patch guard uses extracted helper');
+requireText('public/index.html', "applyOpeningTaskPatch = requireOperationStatic(staticConfig, 'applyOpeningTaskPatch')", 'opening task patch applier uses extracted helper');
+requireText('public/index.html', 'const payload = buildOpeningTaskUpdatePayload(task)', 'opening task save payload uses extracted helper');
+requireText('public/index.html', 'const snapshot = snapshotOpeningTaskForRollback(task)', 'opening task rollback snapshot uses extracted helper at call site');
+requireText('public/index.html', 'if (!openingTaskPatchHasChanges(patch)) return', 'opening task batch patch guard uses extracted helper');
+requireText('public/index.html', 'applyOpeningTaskPatch(task, patch)', 'opening task batch patch uses extracted helper');
+requireText('public/index.html', 'applyOpeningTaskPatch(task, { status })', 'opening task status patch uses extracted helper');
+requireText('public/index.html', 'applyOpeningTaskPatch(task, { progress_percent: value })', 'opening task quick progress patch uses extracted helper');
+requireText('public/index.html', "openingRiskText = requireOperationStatic(staticConfig, 'openingRiskText')", 'opening risk text uses extracted helper');
+requireText('public/index.html', "openingRiskTextClass = requireOperationStatic(staticConfig, 'openingRiskTextClass')", 'opening risk text class uses extracted helper');
+requireText('public/index.html', "openingRiskClass = requireOperationStatic(staticConfig, 'openingRiskClass')", 'opening risk badge class uses extracted helper');
+requireText('public/index.html', "buildOpeningProjectFormDefaults = requireOperationStatic(staticConfig, 'buildOpeningProjectFormDefaults')", 'opening project default form uses extracted helper');
+requireText('public/index.html', "normalizeOpeningProjectFormForSubmitModel = requireOperationStatic(staticConfig, 'normalizeOpeningProjectFormForSubmit')", 'opening project submit normalization uses extracted helper');
+requireText('public/index.html', "buildOpeningProjectFormFromProject = requireOperationStatic(staticConfig, 'buildOpeningProjectFormFromProject')", 'opening project form hydration uses extracted helper');
+requireNoText('public/index.html', 'const openingTaskDueLabel = (task) => {', 'opening due label helper is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const openingTaskDueClass = (task) => {', 'opening due class helper is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const openingTaskProgressStage = (task) => {', 'opening progress stage helper is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const openingTaskProgressTextClass = (task) => {', 'opening progress text class helper is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const syncOpeningTaskProgressByStatus = (task) => {', 'opening status-progress sync is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "task.progress_percent >= 100", 'opening progress-status sync is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const payload = {\\n                        owner_name:', 'opening task update payload is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const snapshot = {\\n                            owner_name:', 'opening task rollback snapshot is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "Object.prototype.hasOwnProperty.call(patch, 'progress_percent')", 'opening task patch guard is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const openingRiskText = (risk) =>', 'opening risk text helper is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const openingRiskClass = (risk) => ({', 'opening risk badge class helper is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "if (!form.project_name && form.hotel_name)", 'opening project submit normalizer is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "project_name: project.project_name || ''", 'opening project form hydration is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "const operationCanApproveExecution = (item) => item?.approval?.status === 'pending_approval'", 'operation approval action guard is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "label: '人工审批',", 'operation execution trace cards are not re-inlined in the SPA entry');
+requireNoText('public/index.html', "label: '审批率'", 'operation execution summary cards are not re-inlined in the SPA entry');
+requireNoText('public/index.html', "profit_positive: '已验证赚钱'", 'operation execution money status text is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "const operationExecutionSourceText = (item) => {", 'operation execution source text helper is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "const operationExecutionActionText = (item) => {", 'operation execution action text helper is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "const operationExecutionReviewText = (item) => {", 'operation execution review text helper is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "const operationExecutionRoiText = (roi) => {", 'operation execution ROI text helper is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "label: '板块数'", 'operation closure summary cards are not re-inlined in the SPA entry');
+requireNoText('public/index.html', "operationClosureOverview.summary?.status === 'closed'", 'operation closure summary badge is not re-inlined in the SPA entry');
 requireNoText('public/index.html', "status: '待生成'", 'opening category progress display model is not re-inlined in the SPA entry');
 requireNoText('public/index.html', "items: ['房价体系', 'OTA卖点', '物资标准', '培训话术']", 'opening positioning impact display model is not re-inlined in the SPA entry');
 requireNoText('public/index.html', "label: '任务进度均值'", 'opening progress cards are not re-inlined in the SPA entry');
@@ -1524,11 +1908,11 @@ requireNoText('public/index.html', "/online-data/capture-ctrip-comments-browser"
 requireNoText('public/index.html', "/online-data/fetch-meituan-comments", 'frontend does not call Meituan comment fetch endpoint');
 requireText('public/index.html', 'online-data-ota-supplement', 'online data page renders daily OTA supplement summary panel');
 requireText('public/index.html', 'ota_channel_supplement', 'frontend consumes OTA supplement summary from daily data summary');
-requireText('app/controller/OnlineData.php', "'ota_channel_supplement' =>", 'daily data summary returns OTA supplement summary');
-requireText('app/controller/OnlineData.php', "'scope' => 'ota_channel'", 'OTA supplement summary is explicitly scoped to OTA channel');
+requireOnlineDataControllerText("'ota_channel_supplement' =>", 'daily data summary returns OTA supplement summary');
+requireOnlineDataControllerText("'scope' => 'ota_channel'", 'OTA supplement summary is explicitly scoped to OTA channel');
 requireText('app/service/OnlineDailyDataPersistenceService.php', 'final class OnlineDailyDataPersistenceService', 'online daily data persistence lives in a focused service');
 requireText('app/service/OnlineDailyDataPersistenceService.php', 'public function parseAndSaveTrafficData(', 'traffic persistence service owns traffic save orchestration');
-requireText('app/controller/OnlineData.php', 'return (new OnlineDailyDataPersistenceService())->parseAndSaveTrafficData(', 'OnlineData keeps only a compatibility wrapper for traffic persistence');
+requireOnlineDataControllerText('return (new OnlineDailyDataPersistenceService())->parseAndSaveTrafficData(', 'OnlineData keeps only a compatibility wrapper for traffic persistence');
 requireNoText('app/controller/OnlineData.php', '$dataList = $this->extractCtripTrafficRows($responseData);', 'traffic persistence is not re-inlined in OnlineData');
 
 requireText('tests/automation/e2e-helpers.js', 'function modulePath', 'helpers expose module path mapping');
@@ -4206,6 +4590,7 @@ try {
   const buildCtripProfileFieldSmartDefaults = ctripStatic.buildCtripProfileFieldSmartDefaults;
   const buildCtripProfileFieldSavePayload = ctripStatic.buildCtripProfileFieldSavePayload;
   const buildCtripProfileFieldSampleHelpers = ctripStatic.buildCtripProfileFieldSampleHelpers;
+  const buildCtripProfileFieldDerivationHelpers = ctripStatic.buildCtripProfileFieldDerivationHelpers;
   const buildCtripProfileRecheckInitialState = ctripStatic.buildCtripProfileRecheckInitialState;
   const buildCtripProfileRecheckRunContext = ctripStatic.buildCtripProfileRecheckRunContext;
   const buildCtripProfileRecheckCaptureRefreshState = ctripStatic.buildCtripProfileRecheckCaptureRefreshState;
@@ -4400,7 +4785,8 @@ try {
   if (typeof createCtripProfileFieldForm !== 'function'
     || typeof buildCtripProfileFieldSmartDefaults !== 'function'
     || typeof buildCtripProfileFieldSavePayload !== 'function'
-    || typeof buildCtripProfileFieldSampleHelpers !== 'function') {
+    || typeof buildCtripProfileFieldSampleHelpers !== 'function'
+    || typeof buildCtripProfileFieldDerivationHelpers !== 'function') {
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports Profile field form and sample builders',
@@ -4462,6 +4848,46 @@ try {
         && sampleHelpers.sampleBatchKey({ sync_task_id: 7 }) === 'sync_task:7'
         && sampleHelpers.sampleText({ latest_value: 'A / B' }).includes('A'),
       detail: 'Profile field sample helper sample',
+    });
+    const derivationHelpers = buildCtripProfileFieldDerivationHelpers({
+      forbiddenFieldKeys: new Set(['guest_phone']),
+      captureSectionText: section => `section:${section}`,
+      normalizeVerificationStatus: value => String(value || '').trim(),
+      sampleTextForField: field => String(field?.latest_value || '').trim(),
+    });
+    const derivationFields = [
+      { field_key: 'order_amount', field_name: 'Revenue', section: 'sales', enabled: 1, status: 'confirmed', latest_value: '100' },
+      { field_key: 'visitor_count', field_name: 'Traffic', section: 'traffic', enabled: true, sample_verification_status: 'matched', latest_value: '' },
+      { field_key: 'guest_phone', field_name: 'Phone', section: 'order', enabled: true, latest_value: 'secret' },
+      { field_key: 'disabled_metric', field_name: 'Disabled', section: 'sales', enabled: 0, latest_value: '' },
+    ];
+    const filteredTraffic = derivationHelpers.filterFields(derivationFields, { keyword: 'section:traffic' });
+    const notReturned = derivationHelpers.filterFields(derivationFields, { sample: 'not_returned' });
+    const cards = derivationHelpers.buildAssetLedgerCards({
+      fieldVisibleCount: derivationFields.length,
+      fieldTotalCount: 5,
+      enabledVisibleFieldCount: 2,
+      sampledVisibleFieldCount: 1,
+      stableVisibleFieldCount: derivationHelpers.countStableFields(derivationFields),
+      notReturnedVisibleFieldCount: 1,
+      samplesLoaded: true,
+      forbiddenFieldCount: 1,
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip Profile field derivation helpers preserve filters, capture boundaries and card counts',
+      ok: derivationHelpers.isFieldCollectable(derivationFields[0]) === true
+        && derivationHelpers.isFieldForbidden(derivationFields[2]) === true
+        && derivationHelpers.isFieldEnabled(derivationFields[3]) === false
+        && filteredTraffic.length === 1
+        && filteredTraffic[0].field_key === 'visitor_count'
+        && notReturned.length === 1
+        && notReturned[0].field_key === 'visitor_count'
+        && derivationHelpers.buildCaptureResultText({ samplesLoaded: true, enabledCount: 2, sampledCount: 1, missingCount: 1 }).includes('2')
+        && cards.length === 6
+        && cards.find(card => card.key === 'not_returned')?.value === 1
+        && cards.find(card => card.key === 'forbidden')?.value === 1,
+      detail: 'Profile field derivation helper sample',
     });
   }
   if (typeof buildCtripBrowserCaptureTargetContext !== 'function'
