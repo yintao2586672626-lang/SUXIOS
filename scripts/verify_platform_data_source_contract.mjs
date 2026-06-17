@@ -157,6 +157,7 @@ for (const [needle, label] of [
 ]) {
   checkSources([
     'app/controller/OnlineData.php',
+    'app/controller/concern/OnlineDataSupportConcern.php',
     'app/controller/concern/OnlineDataQualityConcern.php',
     'app/controller/concern/OnlineDataManualFetchConcern.php',
     'app/controller/concern/MeituanCapturedDataConcern.php',
@@ -244,10 +245,15 @@ for (const [needle, label] of [
   ['platformSyncLogs', 'frontend renders sync logs'],
   ["requireAutoFetchStatic('normalizeDataConfigForForm')", 'frontend reads data-config normalizer from auto-fetch static module'],
   ["requireAutoFetchStatic('buildDataConfigRequestBody')", 'frontend reads data-config request builder from auto-fetch static module'],
+]) {
+  check('public/index.html', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
   ['manual_login_state_verified', 'frontend traffic readiness keeps manual login verification visible'],
   ['人工确认登录态', 'frontend traffic readiness labels manual login verification for operators'],
 ]) {
-  check('public/index.html', label, (source) => source.includes(needle), needle);
+  check('public/data-health-static.js', label, (source) => source.includes(needle), needle);
 }
 
 for (const [needle, label] of [

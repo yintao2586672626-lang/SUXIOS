@@ -122,7 +122,7 @@ test('Ctrip store data overview exposes business sections and field-level misses
   ];
 
   for (const label of requiredLabels) {
-    assert.match(html, new RegExp(label.replace(/[()]/g, '\\$&')), `missing overview label: ${label}`);
+    assert.match(dataHealthOverviewSource, new RegExp(label.replace(/[()]/g, '\\$&')), `missing overview label: ${label}`);
   }
 
   assert.match(ctripBusinessBoard, /未抓到/);
@@ -132,12 +132,13 @@ test('Ctrip store data overview exposes business sections and field-level misses
   assert.doesNotMatch(ctripBusinessBoard, /字段缺失 \/ 定义|采集覆盖统计|字段质量|接口响应|携程授权状态|失败原因|历史回放|待采集项|待补字段/);
   assert.doesNotMatch(ctripBusinessBoard, /用户画像|IM看板|房型/);
   assert.match(html, /collectionHealthCtripPersistedRows/);
-  assert.match(html, /String\(b\?\.data_date \|\| ''\)\.localeCompare\(String\(a\?\.data_date \|\| ''\)\)/);
+  assert.match(html, /buildCollectionHealthCtripPersistedRows/);
+  assert.match(dataHealthStatic, /String\(b\?\.data_date \|\| ''\)\.localeCompare\(String\(a\?\.data_date \|\| ''\)\)/);
   assert.match(html, /collectionHealthCtripMetricFromRows/);
-  assert.match(html, /metric_preview/);
-  assert.match(html, /for \(const mapKey of \['metrics', 'raw_metrics', 'rank_metrics'\]\)/);
-  assert.match(html, /const canUseDirectPreviewValue = metricKeyMatched && \(previewMetricKey \|\| dimensionIncludes\.length\)/);
-  assert.match(html, /collectionHealthCtripMetricPreviewValue\(preview, key, \{ direct: canUseDirectPreviewValue \}\)/);
+  assert.match(dataHealthStatic, /metric_preview/);
+  assert.match(dataHealthStatic, /for \(const mapKey of \['metrics', 'raw_metrics', 'rank_metrics'\]\)/);
+  assert.match(dataHealthStatic, /const canUseDirectPreviewValue = metricKeyMatched && \(previewMetricKey \|\| dimensionIncludes\.length\)/);
+  assert.match(dataHealthStatic, /collectionHealthCtripMetricPreviewValue\(preview, key, \{ direct: canUseDirectPreviewValue \}\)/);
 });
 
 test('Ctrip store data overview diagnoses missing metrics and keeps supplement capture in place', () => {
@@ -148,9 +149,9 @@ test('Ctrip store data overview diagnoses missing metrics and keeps supplement c
   assert.match(html, /const collectionHealthCtripMissingDiagnosis = \(sections, labels, options = {}\) =>/);
   assert.match(html, /const collectionHealthCtripMissingActionRows = computed\(\(\) =>/);
   assert.match(html, /const collectionHealthCtripModuleStats = \(sections\) =>/);
-  assert.match(html, /配置问题/);
-  assert.match(html, /抓取位置不对/);
-  assert.match(html, /字段映射\/入库/);
+  assert.match(dataHealthStatic, /配置问题/);
+  assert.match(dataHealthStatic, /抓取位置不对/);
+  assert.match(dataHealthStatic, /字段映射\/入库/);
 });
 
 test('Ctrip profile field config manages modules from the same panel', () => {
@@ -488,7 +489,7 @@ test('Ctrip collection quality rows overfetch before identity filtering', () => 
 
 test('Ctrip overview matches compound catalog metric keys from persisted rows', () => {
   const metricKeyMatcher = sliceBetween(
-    html,
+    dataHealthStatic,
     'const collectionHealthCtripMetricKeyMatches',
     'const collectionHealthCtripMissingDiagnosis'
   );
@@ -496,19 +497,20 @@ test('Ctrip overview matches compound catalog metric keys from persisted rows', 
   assert.match(metricKeyMatcher, /metricKeyParts/);
   assert.match(metricKeyMatcher, /\.split\(\s*\/\[\\\+,\\\|\\s\]\+\/\s*\)/);
   assert.match(metricKeyMatcher, /collectionHealthCtripMetricKeyAliases\(key\)\.has\(part\)/);
-  assert.match(html, /visitor_rank/);
-  assert.match(html, /const calculatedValue = collectionHealthCtripCalculatedValue\(preview, key\)/);
-  assert.match(html, /if \(calculatedValue !== undefined\)/);
+  assert.match(dataHealthStatic, /visitor_rank/);
+  assert.match(dataHealthStatic, /const calculatedValue = collectionHealthCtripCalculatedValue\(preview, key\)/);
+  assert.match(dataHealthStatic, /if \(calculatedValue !== undefined\)/);
 });
 
 test('Ctrip overview funnel keeps my hotel metrics scoped to self rows', () => {
   const funnelMetricBuilder = sliceBetween(
-    html,
-    'const collectionHealthCtripOverviewFunnelMetric',
-    'const collectionHealthCtripOverviewPanels'
+    dataHealthStatic,
+    'const buildCollectionHealthCtripOverviewFunnelRows',
+    'const buildCollectionHealthCtripOverviewPanels'
   );
 
-  assert.match(funnelMetricBuilder, /collectionHealthCtripOverviewFunnelMetric\([^\\n]+,\s*\['self', 'myhotel'\]\)/);
+  assert.match(html, /buildCollectionHealthCtripOverviewFunnelRows\(collectionHealthCtripOverviewContext\(\)\)/);
+  assert.match(funnelMetricBuilder, /funnelMetric\([^\\n]+,\s*\['self', 'myhotel'\]\)/);
   assert.doesNotMatch(funnelMetricBuilder, /collectionHealthCtripMetricFromRows\(keys, \{ dataTypes: \['traffic'\] \}\)/);
 });
 
@@ -519,8 +521,8 @@ test('Ctrip store overview surfaces identity-filtered rows instead of generic un
   assert.match(ctripPage, /已抓到数据，但当前门店身份不安全，暂不展示经营结果。/);
   assert.match(dataHealthOverviewSource, /门店身份冲突/);
   assert.match(dataHealthOverviewSource, /已过滤 \$\{identityReport\.filtered_count \|\| 0\} 条错店风险数据/);
-  assert.match(html, /diagnosisType:\s*'hotel_identity_conflict'/);
-  assert.match(html, /已抓到携程数据，但门店身份存在冲突，系统已阻止展示错店风险数据。/);
+  assert.match(dataHealthStatic, /diagnosisType:\s*'hotel_identity_conflict'/);
+  assert.match(dataHealthStatic, /已抓到携程数据，但门店身份存在冲突，系统已阻止展示错店风险数据。/);
 });
 
 test('Ctrip store overview ignores stale health responses after hotel switching', () => {
@@ -551,11 +553,17 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(dataHealthStatic, /const buildDataHealthDiagnosticBoundary = /);
   assert.match(dataHealthStatic, /const buildDataHealthQualityTaskRows = /);
   assert.match(dataHealthStatic, /const summarizePublicEndpointSecurity = /);
+  assert.match(dataHealthStatic, /const buildCollectionHealthAuthorizationRowsReadable = /);
+  assert.match(dataHealthStatic, /const buildCollectionHealthPendingActionRows = /);
+  assert.match(dataHealthStatic, /const buildCollectionHealthFieldAssetCards = /);
   assert.match(dataHealthStatic, /const buildCollectionHealthCtripCatalogCards = /);
   assert.match(dataHealthStatic, /const buildCollectionHealthCtripLatestCards = /);
   assert.match(dataHealthStatic, /const buildCollectionHealthCtripOverviewStatusCards = /);
   assert.match(dataHealthStatic, /const buildCtripOverviewFetchModuleCards = /);
   assert.match(html, /requireDataHealthStatic\('buildCollectionHealthFailureReasonRanking'\)/);
+  assert.match(html, /requireDataHealthStatic\('buildCollectionHealthAuthorizationRowsReadable'\)/);
+  assert.match(html, /requireDataHealthStatic\('buildCollectionHealthPendingActionRows'\)/);
+  assert.match(html, /requireDataHealthStatic\('buildCollectionHealthFieldAssetCards'\)/);
   assert.match(html, /requireDataHealthStatic\('buildDataHealthQualityTaskRows'\)/);
   assert.match(html, /requireDataHealthStatic\('summarizePublicEndpointSecurity'\)/);
   assert.match(html, /requireDataHealthStatic\('buildCollectionHealthCtripCatalogCards'\)/);

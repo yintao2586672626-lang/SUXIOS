@@ -117,8 +117,8 @@ requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user f
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
-requireText('public/index.html', 'ctrip-static.js?v=20260615-startup-cache-fix', 'entry bumps Ctrip static helper version for startup cache fixes');
-requireText('public/index.html', 'meituan-static.js?v=20260613-manual-direct-fetch', 'entry bumps Meituan static helper version for direct manual-fetch exports');
+requireText('public/index.html', 'ctrip-static.js?v=20260617-profile-verification-cache-fix', 'entry bumps Ctrip static helper version for Profile verification cache fixes');
+requireText('public/index.html', 'meituan-static.js?v=20260617-metric-cache-fix', 'entry bumps Meituan static helper version for metric export cache fixes');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -245,11 +245,14 @@ requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSmar
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSavePayload')", 'entry uses extracted Ctrip Profile field save payload builder');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSampleHelpers')", 'entry uses extracted Ctrip Profile field sample helpers');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldDerivationHelpers')", 'entry uses extracted Ctrip Profile field derivation helpers');
+requireText('public/index.html', "requireCtripStatic('normalizeCtripProfileFieldVerificationStatus')", 'entry uses extracted Ctrip Profile field verification status helper');
 requireText('public/ctrip-static.js', 'const createCtripProfileFieldForm', 'Ctrip static builds Profile field default forms');
 requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSmartDefaults', 'Ctrip static builds Profile field smart defaults');
 requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSavePayload', 'Ctrip static builds Profile field save payloads');
 requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSampleHelpers', 'Ctrip static builds Profile field sample helpers');
 requireText('public/ctrip-static.js', 'const buildCtripProfileFieldDerivationHelpers', 'Ctrip static builds Profile field derivation helpers');
+requireText('public/ctrip-static.js', 'const normalizeCtripProfileFieldVerificationStatus', 'Ctrip static owns Profile field verification status normalization');
+requireNoText('public/index.html', "if (['matched', 'match', 'ok', 'correct'].includes(value)) return 'matched';", 'entry does not re-inline Profile field verification status mapping');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckRunContext')", 'entry uses extracted Ctrip Profile recheck run context builder');
 requireText('public/index.html', "requireCtripStatic('runCtripProfileRecheckFlow')", 'entry uses extracted Ctrip Profile recheck flow runner');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
@@ -464,7 +467,8 @@ requireText('public/index.html', 'const scheduleDownloadCenterTabLoad = (tab, co
 requireText('public/index.html', "const switchDownloadTab = (tab) => {", 'download center tab switch is non-blocking');
 requireText('public/index.html', "const switchToDownloadCenter = () => {", 'Ctrip download center entry is non-blocking');
 requireText('public/index.html', "const switchToMeituanDownloadCenter = () => {", 'Meituan download center entry is non-blocking');
-requireText('public/index.html', 'const meituanDownloadData = computed(() => {', 'Meituan download center computes empty data into explicit zero-valued dashboard rows');
+requireText('public/meituan-static.js', 'const buildMeituanDownloadData = (rows = []) => {', 'Meituan download center computes empty data into explicit zero-valued dashboard rows');
+requireText('public/index.html', 'const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));', 'Meituan download center uses the static dashboard data builder');
 requireText('public/index.html', 'switchToMeituanDownloadCenter, meituanDownloadData,', 'Meituan download center dashboard data is exposed to the Vue template');
 requireNoText('public/index.html', 'const switchDownloadTab = async (tab) => {', 'download center tab switch must not serially await tab data loads');
 requireNoText('public/index.html', 'const switchToDownloadCenter = async () => {', 'Ctrip download center entry must not wait on history refresh before returning');
@@ -999,6 +1003,15 @@ requireText('public/system-static.js', 'const createHotelForm', 'system static b
 requireText('public/system-static.js', 'const buildHotelSavePayload', 'system static builds hotel save payloads');
 requireText('public/system-static.js', 'const buildHotelOtaCtripConfigSavePayload', 'system static builds hotel Ctrip OTA config save payloads');
 requireText('public/system-static.js', 'const buildHotelOtaMeituanConfigSavePayload', 'system static builds hotel Meituan OTA config save payloads');
+requireText('public/system-static.js', 'const getHotelCodeNumber', 'system static parses generated hotel code suffixes');
+requireText('public/system-static.js', 'const formatHotelCode', 'system static formats generated hotel codes');
+requireText('public/system-static.js', 'const normalizeOtaConfigHotelName', 'system static normalizes OTA config hotel names');
+requireText('public/system-static.js', 'const formatHotelBindingDate', 'system static formats hotel platform binding dates');
+requireText('public/index.html', "requireAppSystemStatic('getHotelCodeNumber')", 'entry uses extracted hotel-code suffix parser');
+requireText('public/index.html', "requireAppSystemStatic('formatHotelCode')", 'entry uses extracted hotel-code formatter');
+requireText('public/index.html', "requireAppSystemStatic('normalizeOtaConfigHotelName')", 'entry uses extracted OTA config hotel-name normalizer');
+requireText('public/index.html', "requireAppSystemStatic('formatHotelBindingDate')", 'entry uses extracted hotel binding-date formatter');
+requireText('public/index.html', 'system-static.js?v=20260616-hotel-config-helpers', 'entry bumps system static helper version for hotel config helpers');
 requireText('public/index.html', "requireSystemStatic('buildKnowledgeImportRequestBody')", 'entry uses extracted knowledge import request body builder');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportSuccessMessage')", 'entry uses extracted knowledge import success message');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportErrorMessage')", 'entry uses extracted knowledge import error message');
@@ -1009,6 +1022,10 @@ requireNoText('public/index.html', "hotelForm.value = { id: null, name: '', code
 requireNoText('public/index.html', 'name: hotelForm.value.name.trim(),\n                    code: normalizedCode,', 'hotel save payload is not re-inlined in the SPA entry');
 requireNoText('public/index.html', 'ctrip_hotel_id: ctrip.ctrip_hotel_id || existing?.ctrip_hotel_id || existing?.ctripHotelId || existing?.ota_hotel_id || \'\',', 'hotel Ctrip OTA config save payload is not re-inlined in the SPA entry');
 requireNoText('public/index.html', 'hotel_room_count: meituan.hotel_room_count || existing?.hotel_room_count || \'\',', 'hotel Meituan OTA config save payload is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const getHotelCodeNumber = (code) => {', 'hotel-code suffix parser is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const formatHotelCode = (num) => {', 'hotel-code formatter is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const normalizeOtaConfigHotelName = (value = \'\') => String(value || \'\')', 'OTA config hotel-name normalizer is not re-inlined in the SPA entry');
+requireNoText('public/index.html', 'const formatHotelBindingDate = (value) => {', 'hotel binding-date formatter is not re-inlined in the SPA entry');
 requireNoText('public/index.html', "successCount = Number(res.data?.success_count", 'knowledge import success message is not re-inlined in the SPA entry');
 requireNoText('public/index.html', "error.name === 'AbortError'", 'knowledge import abort message is not re-inlined in the SPA entry');
 {
@@ -1036,13 +1053,71 @@ requireNoText('public/index.html', "error.name === 'AbortError'", 'knowledge imp
     detail: 'knowledge import helper must keep the original request defaults and explicit timeout message',
   });
 }
+{
+  const context = { window: {} };
+  vm.runInNewContext(read('public/system-static.js'), context, {
+    filename: 'public/system-static.js',
+  });
+  const helpers = context.window.SUXI_SYSTEM_STATIC;
+  checks.push({
+    file: 'public/system-static.js',
+    label: 'hotel config helpers preserve formatting semantics',
+    ok: helpers.getHotelCodeNumber('HOTEL042') === 42
+      && helpers.getHotelCodeNumber('manual') === 0
+      && helpers.formatHotelCode(7) === 'HOTEL007'
+      && helpers.normalizeOtaConfigHotelName(' 天成美团数据源 ') === '天成'
+      && helpers.normalizeOtaConfigHotelName('天成携程数据源') === '天成'
+      && helpers.formatHotelBindingDate('2026-06-16T09:30:45') === '2026-06-16 09:30'
+      && helpers.formatHotelBindingDate('') === '-',
+    detail: 'hotel config helpers must keep generated hotel codes, OTA data-source suffix cleanup, and compact date display stable',
+  });
+}
 requireText('public/index.html', "requireDataHealthStatic('buildOnlineAnalysisChartConfig')", 'entry uses extracted online analysis chart config');
 requireText('public/data-health-static.js', 'const buildOnlineAnalysisChartConfig', 'data-health static builds online analysis chart config');
 requireText('public/index.html', 'new ChartLib(ctx, buildOnlineAnalysisChartConfig(analysisData.value.chart_data))', 'analysis chart rendering keeps only lifecycle wiring in the SPA entry');
 requireText('public/index.html', "requireDataHealthStatic('buildOnlineHistoryQueryParams')", 'entry uses extracted online history query parameter builder');
+requireText('public/index.html', "requireDataHealthStatic('formatOnlineHistoryHotelOption')", 'entry uses extracted online history hotel option formatter');
 requireText('public/index.html', "requireDataHealthStatic('buildHotelDataDashboardRequests')", 'entry uses extracted hotel data dashboard request builder');
-requireText('public/index.html', "requireDataHealthStatic('buildPhase1MetricDomainReadiness')", 'entry uses extracted Phase1 metric domain readiness builder');
-requireText('public/index.html', "requireDataHealthStatic('buildPhase1TrafficP0NextText')", 'entry uses extracted Phase1 traffic P0 next text builder');
+requireText('public/index.html', "requireDataHealthStatic('buildCollectionHealthCtripCatalogDetailRows')", 'entry uses extracted Ctrip catalog detail rows builder');
+requireText('public/index.html', "requireDataHealthStatic('buildCollectionHealthCtripCatalogActionRows')", 'entry uses extracted Ctrip catalog action rows builder');
+requireText('public/index.html', "requireDataHealthStatic('collectionHealthCtripCatalogStatus')", 'entry uses extracted Ctrip catalog status helper');
+requireText('public/index.html', "requireDataHealthStatic('collectionHealthCtripCatalogMessage')", 'entry uses extracted Ctrip catalog message helper');
+requireText('public/index.html', "requireDataHealthStatic('collectionHealthCtripCatalogGateText')", 'entry uses extracted Ctrip catalog gate text helper');
+requireText('public/index.html', "requireDataHealthStatic('buildCollectionHealthCtripPersistedRows')", 'entry uses extracted Ctrip persisted rows builder');
+requireText('public/index.html', "requireDataHealthStatic('collectionHealthCtripIdentityBlocked')", 'entry uses extracted Ctrip identity blocked helper');
+requireText('public/index.html', "requireDataHealthStatic('collectionHealthCtripIdentityMessage')", 'entry uses extracted Ctrip identity message helper');
+requireText('public/index.html', "requireDataHealthStatic('buildCollectionHealthCtripOverviewAuthState')", 'entry uses extracted Ctrip overview auth state builder');
+requireText('public/index.html', "requireDataHealthStatic('collectionHealthCtripMetricValue')", 'entry uses extracted Ctrip metric value helper');
+requireText('public/index.html', "requireDataHealthStatic('collectionHealthCtripMetricFromRows')", 'entry uses extracted Ctrip persisted metric helper');
+requireText('public/index.html', "requireDataHealthStatic('collectionHealthCtripMissingDiagnosis')", 'entry uses extracted Ctrip missing diagnosis helper');
+requireText('public/index.html', "const collectionHealthCtripRuntimeContext = (options = {}) => ({", 'entry keeps only Ctrip runtime context wiring');
+requireText('public/index.html', "requireDataHealthStatic('buildCollectionHealthCtripCoreSnapshotGroups')", 'entry uses extracted Ctrip core snapshot group builder');
+requireText('public/index.html', "requireDataHealthStatic('buildCollectionHealthCtripOverviewRevenueMetrics')", 'entry uses extracted Ctrip revenue metric list builder');
+requireText('public/index.html', "requireDataHealthStatic('buildCollectionHealthCtripOverviewTrafficMetrics')", 'entry uses extracted Ctrip traffic metric list builder');
+requireText('public/index.html', "requireDataHealthStatic('buildCollectionHealthCtripOverviewFunnelRows')", 'entry uses extracted Ctrip funnel rows builder');
+requireText('public/index.html', "requireDataHealthStatic('buildCollectionHealthCtripOverviewPanels')", 'entry uses extracted Ctrip overview panels builder');
+requireText('public/index.html', "requireDataHealthStatic('buildCollectionHealthCtripMissingActionRows')", 'entry uses extracted Ctrip missing action rows builder');
+requireText('public/data-health-static.js', 'const buildCollectionHealthCtripCatalogDetailRows', 'data-health static builds Ctrip catalog detail rows');
+requireText('public/data-health-static.js', 'const buildCollectionHealthCtripCatalogActionRows', 'data-health static builds Ctrip catalog action rows');
+requireText('public/data-health-static.js', 'const collectionHealthCtripCatalogStatus', 'data-health static maps Ctrip catalog status');
+requireText('public/data-health-static.js', 'const collectionHealthCtripCatalogMessage', 'data-health static maps Ctrip catalog message');
+requireText('public/data-health-static.js', 'const collectionHealthCtripCatalogGateText', 'data-health static maps Ctrip catalog gate text');
+requireText('public/data-health-static.js', 'const buildCollectionHealthCtripPersistedRows', 'data-health static builds Ctrip persisted rows');
+requireText('public/data-health-static.js', 'const collectionHealthCtripIdentityBlocked', 'data-health static detects Ctrip identity blocking');
+requireText('public/data-health-static.js', 'const collectionHealthCtripIdentityMessage', 'data-health static builds Ctrip identity messages');
+requireText('public/data-health-static.js', 'const buildCollectionHealthCtripOverviewAuthState', 'data-health static builds Ctrip overview auth state');
+requireText('public/data-health-static.js', 'const collectionHealthCtripMetricPreviewValue', 'data-health static reads Ctrip metric preview values');
+requireText('public/data-health-static.js', 'const collectionHealthCtripCalculatedValue', 'data-health static calculates derived Ctrip metrics');
+requireText('public/data-health-static.js', 'const collectionHealthCtripMetricKeyMatches', 'data-health static matches compound Ctrip metric keys');
+requireText('public/data-health-static.js', 'const collectionHealthCtripMissingDiagnosis', 'data-health static diagnoses missing Ctrip metrics');
+requireText('public/data-health-static.js', 'const collectionHealthCtripMetricFromRows', 'data-health static reads Ctrip persisted metrics');
+requireText('public/data-health-static.js', 'const collectionHealthCtripMetricValue', 'data-health static resolves Ctrip overview metric values');
+requireText('public/data-health-static.js', 'const buildCollectionHealthCtripCoreSnapshotGroups', 'data-health static builds Ctrip core snapshot groups');
+requireText('public/data-health-static.js', 'const buildCollectionHealthCtripOverviewRevenueMetrics', 'data-health static builds Ctrip revenue metric lists');
+requireText('public/data-health-static.js', 'const buildCollectionHealthCtripOverviewTrafficMetrics', 'data-health static builds Ctrip traffic metric lists');
+requireText('public/data-health-static.js', 'const buildCollectionHealthCtripOverviewFunnelRows', 'data-health static builds Ctrip funnel rows');
+requireText('public/data-health-static.js', 'const buildCollectionHealthCtripOverviewPanels', 'data-health static builds Ctrip overview panels');
+requireText('public/data-health-static.js', 'const buildCollectionHealthCtripMissingActionRows', 'data-health static builds Ctrip missing action rows');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeEvidenceStatusText')", 'entry uses extracted Phase1 employee evidence status text mapper');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeGapCodeText')", 'entry uses extracted Phase1 employee gap code text mapper');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionCodeText')", 'entry uses extracted Phase1 employee action code text mapper');
@@ -1050,10 +1125,6 @@ requireText('public/index.html', "requireDataHealthStatic('phase1MissingFieldLab
 requireText('public/index.html', "requireDataHealthStatic('phase1MissingFieldNextActionText')", 'entry uses extracted Phase1 missing field next-action mapper');
 requireText('public/index.html', "requireDataHealthStatic('phase1MetricDomainProblemText')", 'entry uses extracted Phase1 metric-domain problem text mapper');
 requireText('public/index.html', "requireDataHealthStatic('phase1MetricDomainNextActionText')", 'entry uses extracted Phase1 metric-domain next-action mapper');
-requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeCountItem')", 'entry uses extracted Phase1 employee count item builder');
-requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeQuestionBlockingGapCodes')", 'entry uses extracted Phase1 question blocking gap code builder');
-requireText('public/index.html', "requireDataHealthStatic('mergePhase1EmployeeQuestionRow')", 'entry uses extracted Phase1 question row merger');
-requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeQuestionPresentationRow')", 'entry uses extracted Phase1 question presentation row builder');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionEntryText')", 'entry uses extracted Phase1 action entry text mapper');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionEntryOptionText')", 'entry uses extracted Phase1 action entry option text mapper');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionEntryOptionGuidanceText')", 'entry uses extracted Phase1 action entry option guidance mapper');
@@ -1072,27 +1143,34 @@ requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionD
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionOwnerText')", 'entry uses extracted Phase1 action owner mapper');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionMetaText')", 'entry uses extracted Phase1 action meta mapper');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionProtectedBoundaryText')", 'entry uses extracted Phase1 protected boundary mapper');
-requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeRequiredAction')", 'entry uses extracted Phase1 required action normalizer');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeRequiredActions')", 'entry uses extracted Phase1 required actions builder');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1AiDiagnosisEvidence')", 'entry uses extracted Phase1 AI diagnosis evidence builder');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionRawCode')", 'entry uses extracted Phase1 action raw-code helper');
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionPlatformText')", 'entry uses extracted Phase1 action platform helper');
-requireText('public/index.html', "requireDataHealthStatic('normalizePhase1CollectionSourceSummaryRow')", 'entry uses extracted Phase1 collection source summary normalizer');
-requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeFieldTrustRow')", 'entry uses extracted Phase1 field trust normalizer');
-requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeMissingFieldRow')", 'entry uses extracted Phase1 missing field normalizer');
-requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeMissingFieldSummaryRow')", 'entry uses extracted Phase1 missing field summary normalizer');
-requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeMetricDomainRow')", 'entry uses extracted Phase1 metric domain normalizer');
-requireText('public/index.html', "requireDataHealthStatic('normalizePhase1EmployeeMetricDomainSummaryRow')", 'entry uses extracted Phase1 metric domain summary normalizer');
-requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeAiJudgementText')", 'entry uses extracted Phase1 AI judgement text mapper');
-requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeAiLimitText')", 'entry uses extracted Phase1 AI limit text mapper');
-requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeOperationJudgementText')", 'entry uses extracted Phase1 operation judgement text mapper');
-requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeOperationLimitText')", 'entry uses extracted Phase1 operation limit text mapper');
-requireText('public/index.html', 'data-health-static.js?v=20260612-dashboard-requests', 'entry bumps data-health static helper version for dashboard request exports');
+requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeSourceSnapshotText')", 'entry uses extracted Phase1 source snapshot text mapper');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeQuestionRows')", 'entry uses extracted Phase1 employee question rows builder');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeCollectionSourceRows')", 'entry uses extracted Phase1 collection source rows builder');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeFieldTrustRows')", 'entry uses extracted Phase1 field trust rows builder');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeMissingFieldRows')", 'entry uses extracted Phase1 missing field rows builder');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeMetricDomainRows')", 'entry uses extracted Phase1 metric domain rows builder');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeAiEvidenceSummary')", 'entry uses extracted Phase1 AI evidence summary builder');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeOperationSummary')", 'entry uses extracted Phase1 operation summary builder');
+requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeClosureSummary')", 'entry uses extracted Phase1 closure summary builder');
+requireText('public/index.html', "requireDataHealthStatic('formatOnlineHistoryRaw')", 'entry uses extracted online history raw formatter');
+requireText('public/index.html', 'data-health-static.js?v=20260616-history-raw-helper', 'entry bumps data-health static helper version for history raw helper exports');
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
+requireText('public/data-health-static.js', 'const formatOnlineHistoryHotelOption', 'data-health static formats online history hotel options');
+requireText('public/data-health-static.js', 'const formatOnlineHistoryRaw', 'data-health static formats online history raw payloads');
 requireText('public/data-health-static.js', 'const buildHotelDataDashboardRequests', 'data-health static builds hotel data dashboard request URLs');
 requireText('public/data-health-static.js', 'const buildPhase1MetricDomainReadiness', 'data-health static builds Phase1 metric domain readiness');
 requireText('public/data-health-static.js', 'const buildPhase1TrafficP0NextText', 'data-health static builds Phase1 traffic P0 next text');
 requireText('public/data-health-static.js', 'const phase1EmployeeEvidenceStatusText', 'data-health static maps Phase1 employee evidence status text');
 requireText('public/data-health-static.js', 'const phase1EmployeeGapCodeText', 'data-health static maps Phase1 employee gap code text');
 requireText('public/data-health-static.js', 'const phase1EmployeeActionCodeText', 'data-health static maps Phase1 employee action code text');
+requireText('public/data-health-static.js', 'const phase1EmployeeSourceSnapshotText', 'data-health static maps Phase1 source snapshots');
+requireText('public/data-health-static.js', 'const phase1EmployeeQuestionNextActionText', 'data-health static maps Phase1 question next actions');
+requireText('public/data-health-static.js', 'const phase1EmployeeQuestionEvidenceText', 'data-health static maps Phase1 question evidence text');
+requireText('public/data-health-static.js', 'const normalizePhase1EmployeeQuestionRow', 'data-health static normalizes Phase1 employee question rows');
 requireText('public/data-health-static.js', 'const phase1MissingFieldLabel', 'data-health static maps Phase1 missing field labels');
 requireText('public/data-health-static.js', 'const phase1MissingFieldNextActionText', 'data-health static maps Phase1 missing field next actions');
 requireText('public/data-health-static.js', 'const phase1MetricDomainProblemText', 'data-health static maps Phase1 metric-domain problem text');
@@ -1122,25 +1200,67 @@ requireText('public/data-health-static.js', 'const phase1EmployeeActionOwnerText
 requireText('public/data-health-static.js', 'const phase1EmployeeActionMetaText', 'data-health static maps Phase1 action meta text');
 requireText('public/data-health-static.js', 'const phase1EmployeeActionProtectedBoundaryText', 'data-health static maps Phase1 protected boundary text');
 requireText('public/data-health-static.js', 'const normalizePhase1EmployeeRequiredAction', 'data-health static normalizes Phase1 required actions');
+requireText('public/data-health-static.js', 'const phase1LocalActionMeta', 'data-health static maps Phase1 local action metadata');
+requireText('public/data-health-static.js', 'const buildPhase1LocalRequiredAction', 'data-health static builds Phase1 local required actions');
+requireText('public/data-health-static.js', 'const buildPhase1EmployeeRequiredActions', 'data-health static builds Phase1 required actions');
+requireText('public/data-health-static.js', 'const phase1DiagnosisActionItemStatus', 'data-health static maps Phase1 diagnosis action item status');
+requireText('public/data-health-static.js', 'const phase1DiagnosisActionItemText', 'data-health static maps Phase1 diagnosis action item text');
+requireText('public/data-health-static.js', 'const phase1DiagnosisActionItemBlocked', 'data-health static detects blocked Phase1 diagnosis action items');
+requireText('public/data-health-static.js', 'const buildPhase1AiDiagnosisEvidence', 'data-health static builds Phase1 AI diagnosis evidence');
 requireText('public/data-health-static.js', 'const phase1EmployeeCollectionDataTypeText', 'data-health static maps Phase1 collection data types');
 requireText('public/data-health-static.js', 'const normalizePhase1CollectionSourceSummaryRow', 'data-health static normalizes Phase1 collection source summary rows');
+requireText('public/data-health-static.js', 'const buildPhase1EmployeeCollectionSourceRows', 'data-health static builds Phase1 collection source rows');
 requireText('public/data-health-static.js', 'const phase1FieldTrustStatusClass', 'data-health static maps Phase1 field trust status class');
 requireText('public/data-health-static.js', 'const normalizePhase1EmployeeFieldTrustRow', 'data-health static normalizes Phase1 field trust rows');
+requireText('public/data-health-static.js', 'const buildPhase1EmployeeFieldTrustRows', 'data-health static builds Phase1 field trust rows');
 requireText('public/data-health-static.js', 'const normalizePhase1EmployeeMissingFieldRow', 'data-health static normalizes Phase1 missing field rows');
 requireText('public/data-health-static.js', 'const normalizePhase1EmployeeMissingFieldSummaryRow', 'data-health static normalizes Phase1 missing field summary rows');
+requireText('public/data-health-static.js', 'const buildPhase1EmployeeMissingFieldRows', 'data-health static builds Phase1 missing field rows');
 requireText('public/data-health-static.js', 'const normalizePhase1EmployeeMetricDomainRow', 'data-health static normalizes Phase1 metric domain rows');
 requireText('public/data-health-static.js', 'const normalizePhase1EmployeeMetricDomainSummaryRow', 'data-health static normalizes Phase1 metric domain summary rows');
+requireText('public/data-health-static.js', 'const buildPhase1EmployeeMetricDomainRows', 'data-health static builds Phase1 metric domain rows');
 requireText('public/data-health-static.js', 'const phase1EmployeeAiJudgementText', 'data-health static maps Phase1 AI judgement text');
 requireText('public/data-health-static.js', 'const phase1EmployeeAiLimitText', 'data-health static maps Phase1 AI limit text');
 requireText('public/data-health-static.js', 'const phase1EmployeeOperationJudgementText', 'data-health static maps Phase1 operation judgement text');
 requireText('public/data-health-static.js', 'const phase1EmployeeOperationLimitText', 'data-health static maps Phase1 operation limit text');
+requireText('public/data-health-static.js', 'const buildPhase1EmployeeAiEvidenceSummary', 'data-health static builds Phase1 AI evidence summary');
+requireText('public/data-health-static.js', 'const buildPhase1EmployeeOperationSummary', 'data-health static builds Phase1 operation summary');
+requireText('public/data-health-static.js', 'const buildPhase1EmployeeClosureSummary', 'data-health static builds Phase1 closure summary');
+requireText('public/data-health-static.js', 'const buildPhase1EmployeeQuestionRows', 'data-health static builds Phase1 employee question rows');
 requireText('public/index.html', 'const params = buildOnlineHistoryQueryParams({', 'online history loader delegates query parameter construction');
 requireText('public/index.html', 'const requests = buildHotelDataDashboardRequests({ selectedHotelId });', 'hotel data dashboard loader delegates request URL construction');
-requireText('public/index.html', '} = buildPhase1MetricDomainReadiness({', 'Phase1 employee questions delegate metric domain readiness construction');
-requireText('public/index.html', 'const p0NextText = buildPhase1TrafficP0NextText(row);', 'Phase1 employee questions delegate traffic P0 next text construction');
+requireText('public/index.html', 'const phase1EmployeeQuestionRows = computed(() => buildPhase1EmployeeQuestionRows({', 'Phase1 employee questions delegate row construction');
+requireText('public/data-health-static.js', 'const p0NextText = buildPhase1TrafficP0NextText(row);', 'Phase1 employee question evidence delegates traffic P0 next text construction');
 requireNoText('public/index.html', "const accountParams = new URLSearchParams();\n                    accountParams.append('days', '30');", 'hotel data dashboard request parameters are not re-inlined');
 requireNoText('public/index.html', 'const phase1HasAnyDataType = (types, needles)', 'Phase1 metric domain type matching is not re-inlined');
 requireNoText('public/index.html', 'const trafficP0NextText = (row) => {', 'Phase1 traffic P0 next text builder is not re-inlined');
+requireNoText('public/index.html', "key: 'default-sections'", 'Ctrip catalog detail rows are not re-inlined');
+requireNoText('public/index.html', 'const actions = Array.isArray(collectionHealthCtripCatalog.value?.capture_gap_next_actions)', 'Ctrip catalog action rows are not re-inlined');
+requireNoText('public/index.html', 'reasonText: collectionHealthCtripCatalogActionReasonText(action?.reason)', 'Ctrip catalog action row reason mapping is not re-inlined');
+requireNoText('public/index.html', "if (!catalog.available) return 'waiting_config';", 'Ctrip catalog status is not re-inlined');
+requireNoText('public/index.html', "if (!catalog.available) return catalog.message || '等待携程采集目录生成';", 'Ctrip catalog message is not re-inlined');
+requireNoText('public/index.html', "if (catalog.is_live_capture_ready) return '采集状态：可用';", 'Ctrip catalog gate text is not re-inlined');
+requireNoText('public/index.html', ".filter(row => String(row?.source || '').toLowerCase() === 'ctrip')", 'Ctrip persisted row filtering is not re-inlined');
+requireNoText('public/index.html', 'Number(report.filtered_count || 0) > 0', 'Ctrip identity blocked logic is not re-inlined');
+requireNoText('public/index.html', "if (!rows.length) return { value: '未配置', status: 'waiting_config', className: 'text-amber-700' };", 'Ctrip overview auth state is not re-inlined');
+requireNoText('public/index.html', "for (const mapKey of ['metrics', 'raw_metrics', 'rank_metrics'])", 'Ctrip metric preview mapping is not re-inlined');
+requireNoText('public/index.html', "if (key === 'avg_price' && amount !== null && quantity && quantity > 0)", 'Ctrip calculated metric logic is not re-inlined');
+requireNoText('public/index.html', "[/订单|预订/, ['book_order_num', 'order_count', 'orderCount', 'bookOrderNum']]", 'Ctrip metric label key mapping is not re-inlined');
+requireNoText('public/index.html', "const modules = collectionHealthCtripLatestModules.value.filter(module => sectionSet.has(String(module?.section || '').trim()));", 'Ctrip module stats are not re-inlined');
+requireNoText('public/index.html', 'return collectionHealthCtripPersistedRows.value.filter(row => {', 'Ctrip context row filtering is not re-inlined');
+requireNoText('public/index.html', 'const collectionHealthCtripMetricKeyAliases = (key) => {', 'Ctrip metric aliases are not re-inlined');
+requireNoText('public/index.html', 'const metricKeyParts = metricKey.split(/[\\+,\\|\\s]+/).map(part => part.trim()).filter(Boolean);', 'Ctrip compound metric-key matching is not re-inlined');
+requireNoText('public/index.html', 'const authState = collectionHealthCtripOverviewAuthState.value;', 'Ctrip missing diagnosis auth wiring is not re-inlined');
+requireNoText('public/index.html', 'const rows = collectionHealthCtripPersistedRows.value;', 'Ctrip persisted metric lookup is not re-inlined');
+requireNoText('public/index.html', 'const modules = collectionHealthCtripLatestModules.value;', 'Ctrip metric value module snapshots are not re-inlined');
+requireNoText('public/index.html', 'const collectionHealthCtripOverviewMetric = (label, sections, labels, options = {}) => ({', 'Ctrip overview metric list construction is not re-inlined');
+requireNoText('public/index.html', "const buildGroup = (key, label, sections, metrics) => ({", 'Ctrip core snapshot groups are not re-inlined');
+requireNoText('public/index.html', "collectionHealthCtripOverviewMetric('实时预订订单'", 'Ctrip revenue metric definitions are not re-inlined');
+requireNoText('public/index.html', "collectionHealthCtripOverviewMetric('实时访客量'", 'Ctrip traffic metric definitions are not re-inlined');
+requireNoText('public/index.html', 'const collectionHealthCtripOverviewFunnelMetric = (label, keys, dimensionIncludes = []) => ({', 'Ctrip funnel metric rows are not re-inlined');
+requireNoText('public/index.html', "collectionHealthCtripOverviewFunnelMetric('列表页曝光量'", 'Ctrip funnel row definitions are not re-inlined');
+requireNoText('public/index.html', "key: 'competitor',\n                    title: '竞争表现',", 'Ctrip overview panel definitions are not re-inlined');
+requireNoText('public/index.html', 'const allMetrics = [', 'Ctrip missing action grouping is not re-inlined');
 requireNoText('public/index.html', 'const evidenceStatusText = (value) => ({', 'Phase1 employee evidence status mapping is not re-inlined');
 requireNoText('public/index.html', "source_date_evidence_missing: '目标日来源证据缺失'", 'Phase1 employee gap code mapping is not re-inlined');
 requireNoText('public/index.html', "if (raw === 'phase1_confirm_source_date_evidence')", 'Phase1 employee action code mapping is not re-inlined');
@@ -1149,6 +1269,17 @@ requireNoText('public/index.html', "按字段资产核对平台返回和入库�
 requireNoText('public/index.html', "收益、流量、转化均可复核。", 'Phase1 metric-domain problem text is not re-inlined');
 requireNoText('public/index.html', "补齐流量/转化事实，再复核漏斗诊断。", 'Phase1 metric-domain next action text is not re-inlined');
 requireNoText('public/index.html', "AI 建议已有可追溯证据和可执行动作项。", 'Phase1 AI judgement text is not re-inlined');
+requireNoText('public/index.html', "const provedRows = rows.filter(row => ['proved', 'no_gap_reported'].includes(String(row?.status || '')));", 'Phase1 employee closure proved rows are not re-inlined');
+requireNoText('public/index.html', "const topAction = actions.find(item => String(item?.status || '') !== 'blocked') || actions[0] || null;", 'Phase1 employee closure top-action selection is not re-inlined');
+requireNoText('public/index.html', 'const summaryRows = Array.isArray(backendQuestionSource?.collection_source_summary)', 'Phase1 collection source rows builder is not re-inlined');
+requireNoText('public/index.html', "const trustedQuestion = backendRows.find(row => String(row?.key || '') === 'trusted_fields') || {};", 'Phase1 field trust rows builder is not re-inlined');
+requireNoText('public/index.html', 'const appendCodes = (codes, source) => {', 'Phase1 missing field rows builder is not re-inlined');
+requireNoText('public/index.html', 'const hasType = (needles) => targetTypes.some(type => needles.some(needle => type.includes(needle)));', 'Phase1 metric domain rows builder is not re-inlined');
+requireNoText('public/index.html', 'const latestLog = collectionHealthLatestLog.value || {};', 'Phase1 employee question rows builder is not re-inlined');
+requireNoText('public/index.html', 'const localRows = [', 'Phase1 employee question local rows are not re-inlined');
+requireNoText('public/index.html', 'const normalizedLocalRows = localRows.map(normalizePhase1EmployeeQuestionRow);', 'Phase1 employee question row normalization is not re-inlined');
+requireNoText('public/index.html', 'const actions = Array.isArray(backendQuestionSource?.next_required_actions)', 'Phase1 required actions builder is not re-inlined');
+requireNoText('public/index.html', '.map(buildPhase1LocalRequiredAction)', 'Phase1 local required action mapping is not re-inlined');
 requireNoText('public/index.html', "不能把 blocked 动作项当成可执行经营建议。", 'Phase1 AI limit text is not re-inlined');
 requireNoText('public/index.html', "运营动作已有审批、执行、证据、复盘或 ROI 信号。", 'Phase1 operation judgement text is not re-inlined');
 requireNoText('public/index.html', "不能把未关联 OTA 诊断的普通执行记录算作闭环。", 'Phase1 operation limit text is not re-inlined');
@@ -1163,6 +1294,12 @@ requireNoText('public/index.html', 'const phase1EmployeeKnownQuestionText = (key
 requireNoText('public/index.html', 'const phase1EmployeeKnownQuestionListText = (values) => {', 'Phase1 known question list text is not re-inlined');
 requireNoText('public/index.html', 'const phase1EmployeeActionRawCode = (item) => {', 'Phase1 action raw-code helper is not re-inlined');
 requireNoText('public/index.html', 'const phase1EmployeeActionPlatformText = (item, rawCode) => {', 'Phase1 action platform helper is not re-inlined');
+requireNoText('public/index.html', 'phase1EmployeeGapCodeTextFromStatic', 'Phase1 gap code text does not use an entry adapter');
+requireNoText('public/index.html', 'phase1EmployeeActionCodeTextFromStatic', 'Phase1 action code text does not use an entry adapter');
+requireNoText('public/index.html', 'const phase1EmployeeSourceSnapshotText = (sourceSnapshot) => {', 'Phase1 source snapshot text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeQuestionNextActionText = (row) => {', 'Phase1 question next-action text is not re-inlined');
+requireNoText('public/index.html', 'const phase1EmployeeQuestionEvidenceText = (evidence) => {', 'Phase1 question evidence text is not re-inlined');
+requireNoText('public/index.html', 'const normalizePhase1EmployeeQuestionRow = (row) => ({', 'Phase1 employee question row normalizer is not re-inlined');
 requireNoText('public/index.html', 'const phase1EmployeeActionSuccessCriteriaText = (item) => {', 'Phase1 action success criteria text is not re-inlined');
 requireNoText('public/index.html', 'const phase1EmployeeActionEvidenceNeededText = (item) => {', 'Phase1 action evidence needed text is not re-inlined');
 requireNoText('public/index.html', 'const phase1EmployeeActionVerificationStepsText = (item) => {', 'Phase1 action verification steps text is not re-inlined');
@@ -1176,6 +1313,14 @@ requireNoText('public/index.html', 'const phase1EmployeeActionOwnerText = (item)
 requireNoText('public/index.html', 'const phase1EmployeeActionMetaText = (item) => {', 'Phase1 action meta text is not re-inlined');
 requireNoText('public/index.html', 'const phase1EmployeeActionProtectedBoundaryText = (item) => {', 'Phase1 protected boundary text is not re-inlined');
 requireNoText('public/index.html', 'const normalizePhase1EmployeeRequiredAction = (item) => {', 'Phase1 required action normalizer is not re-inlined');
+requireNoText('public/index.html', 'const phase1LocalActionMeta = (key) => ({', 'Phase1 local action metadata is not re-inlined');
+requireNoText('public/index.html', 'const buildPhase1LocalRequiredAction = (row, index = 0) => {', 'Phase1 local required action builder is not re-inlined');
+requireNoText('public/index.html', 'const phase1DiagnosisActionItemStatus = (item) =>', 'Phase1 diagnosis action item status is not re-inlined');
+requireNoText('public/index.html', 'const phase1DiagnosisActionItemText = (item) =>', 'Phase1 diagnosis action item text is not re-inlined');
+requireNoText('public/index.html', 'const phase1DiagnosisActionItemBlocked = (item) => {', 'Phase1 diagnosis action item blocked detector is not re-inlined');
+requireNoText('public/index.html', 'const evidenceSources = Array.isArray(diagnosisResult?.evidence_sources)', 'Phase1 AI diagnosis evidence calculation is not re-inlined');
+requireNoText('public/index.html', 'const allBlocking = Array.from(new Set([...blocking, ...rowBlocking]));', 'Phase1 AI evidence summary is not re-inlined');
+requireNoText('public/index.html', 'const completionSignalCount = Number(evidence.completion_signal_count || 0)', 'Phase1 operation summary is not re-inlined');
 requireNoText('public/index.html', 'const phase1EmployeeCollectionDataTypeText = (type) => {', 'Phase1 collection data type text is not re-inlined');
 requireNoText('public/index.html', 'const normalizePhase1CollectionSourceSummaryRow = (row) => {', 'Phase1 collection source summary normalizer is not re-inlined');
 requireNoText('public/index.html', 'const phase1FieldTrustStatusClass = (status) =>', 'Phase1 field trust status class is not re-inlined');
@@ -1329,6 +1474,112 @@ requireNoText('public/index.html', "text: '销售额(¥)'", 'analysis chart axis
         platformText: value => (value === 'meituan' ? '美团' : value),
       }) === '使用现有美团入口补齐目标日源数据',
     detail: 'phase1EmployeeGapCodeText/phase1EmployeeActionCodeText samples',
+  });
+}
+{
+  const context = { window: {} };
+  vm.runInNewContext(read('public/home-static.js'), context, {
+    filename: 'public/home-static.js',
+  });
+  const homeStatic = context.window.SUXI_HOME_STATIC || {};
+  const holiday = homeStatic.normalizeHolidayCountdownItem({
+    name: 'Future Holiday',
+    start_date: '2099-10-01',
+    end_date: '2099-10-03',
+  });
+  const holidaySuggestions = homeStatic.buildHolidayOperationSuggestions({
+    nearest: { name: 'Future Holiday', days_left: 5, holiday_days: 3 },
+    next: { name: 'Next Holiday', days_left: 40 },
+    hotelPool: [{ id: 7, name: 'Hotel 7' }],
+    selectedHotelId: '7',
+    trendHasSamples: true,
+    trendSampleDays: 12,
+    trendJudgement: 'up',
+    weatherSignal: { level: 'red', status_text: 'alert' },
+  });
+  const macroFallback = homeStatic.buildMacroSignalFallback('sample');
+  const macroCards = homeStatic.buildMacroSignalViewCards([
+    { key: 'weather', status: 'pending', status_text: 'sync', metrics: [{ label: 'L1', value: 'V1' }], suggestions: ['S1'] },
+  ], {
+    weather: { icon: 'weather-icon', meaning: 'meaning', impact: 'impact', action: 'fallback-action' },
+  });
+  const forecastItems = homeStatic.buildHomeMarketForecastItems({
+    trendCards: [{ key: 'demand', value: '100', direction: 'up' }],
+    demandSignal: { status: 'ok', status_text: 'ready' },
+    priceSignal: { status: 'pending', status_text: 'pending' },
+    channelSignal: { status: 'ok', status_text: 'channel-ready' },
+    nearestHoliday: { name: 'Future Holiday', distance_text: '5d' },
+    weatherValue: 'weather-ready',
+    trendHasSamples: true,
+  });
+  const forecastSummary = homeStatic.buildHomeMarketForecastSummaryRows(
+    forecastItems,
+    Object.fromEntries([[forecastItems[0]?.name, 'note-demand']]),
+  );
+  const forecastStatus = homeStatic.homeMarketForecastStatus(forecastItems);
+  const forecastAction = homeStatic.resolveHomeMarketForecastAction({
+    trendHasSamples: true,
+    trendAction: 'Action',
+    readinessNextAction: 'Next',
+  });
+  const metricSample = {
+    revenue: { data: ['1,000', '', null, -2, 300] },
+    adr: { data: [100, 200, 'bad'] },
+  };
+  const signalMetric = homeStatic.homeSignalMetricText({
+    metrics: [{ label: 'exposure visitors', value: '12', unit: '%' }],
+  }, ['visitors']);
+  const competitorSample = {
+    source_notice: 'source notice',
+    display_hotels: [{ isSelf: true }],
+    display_summary: { rank_insights: [{ key: 'rank' }] },
+  };
+  checks.push({
+    file: 'public/home-static.js',
+    label: 'home static exports holiday, trend, signal, and competitor tag helpers',
+    ok: holiday?.start_date === '2099-10-01'
+      && holiday?.end_date === '2099-10-03'
+      && holiday?.holiday_days === 3
+      && homeStatic.homeTrendBadgeClass('green').includes('text-green-700')
+      && homeStatic.homeTrendCardHasData({ value: '128', direction: 'up' }) === true
+      && homeStatic.homeTrendCardHasData({ value: '待同步', direction: '待同步' }) === false
+      && homeStatic.macroSignalLevelClass({ level: 'red' }).includes('text-red-700')
+      && homeStatic.homeTextHasValue('未返回') === false
+      && homeStatic.homeTextHasValue('12%') === true
+      && homeStatic.competitorPlatformTagText({ platform_tag_summary: { status: 'returned', vip_count: 2, returned_count: 5, tag_count: 3 } }).includes('VIP 2家')
+      && homeStatic.competitorPlatformTagClass({ platform_tag_summary: { status: 'returned_empty' } }).includes('text-amber-700')
+      && typeof homeStatic.holidayOperationStageText({ days_left: 5 }) === 'string'
+      && homeStatic.holidayOperationStageText({ days_left: 5 }).length > 0
+      && Array.isArray(holidaySuggestions)
+      && holidaySuggestions.length > 0
+      && holidaySuggestions.length <= 4
+      && holidaySuggestions.some(item => String(item).includes('Future Holiday'))
+      && Array.isArray(macroFallback)
+      && macroFallback.length === 5
+      && macroFallback.some(item => item.key === 'weather')
+      && macroFallback.every(item => item.status === 'pending')
+      && macroCards[0]?.icon === 'weather-icon'
+      && macroCards[0]?.primaryAction === 'S1'
+      && macroCards[0]?.primaryMetrics?.length === 2
+      && forecastItems.length === 5
+      && forecastItems.every(item => item.name && item.value && item.entry)
+      && forecastSummary.length === 3
+      && forecastSummary[0]?.note === 'note-demand'
+      && typeof forecastStatus === 'string'
+      && forecastStatus.length > 0
+      && forecastAction === 'Action'
+      && homeStatic.homeMetricSeriesSum(metricSample, 'revenue') === 1300
+      && homeStatic.homeMetricSeriesAvg(metricSample, 'adr') === 150
+      && homeStatic.homeMetricToneClass(true, 'green').includes('text-emerald-700')
+      && homeStatic.homeMetricToneClass(false, 'green').includes('text-gray-500')
+      && signalMetric.value === '12%'
+      && signalMetric.ready === true
+      && homeStatic.homeSignalMetricText(null, ['missing']).ready === false
+      && homeStatic.competitorDisplayRows(competitorSample).length === 1
+      && homeStatic.competitorDisplaySummary(competitorSample).rank_insights.length === 1
+      && homeStatic.competitorSummarySourceNotice(competitorSample) === 'source notice'
+      && homeStatic.competitorSummaryReadinessClass({ status: 'error' }).includes('text-red-700'),
+    detail: 'home-static extracted helper samples',
   });
 }
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
@@ -2060,17 +2311,41 @@ try {
   const resolveDataConfigTestEndpoint = autoFetchStatic.resolveDataConfigTestEndpoint;
   const buildDataConfigTestRequest = autoFetchStatic.buildDataConfigTestRequest;
   const runDataConfigTestFlow = autoFetchStatic.runDataConfigTestFlow;
+  const autoFetchDisplayHelpers = [
+    'autoFetchScopeStatusClass',
+    'autoFetchModeLabel',
+    'formatAutoFetchElapsed',
+    'formatAutoFetchMs',
+    'autoFetchResultStatusText',
+    'autoFetchResultStatusClass',
+    'autoFetchModuleLabel',
+    'platformProfileStatusLabel',
+    'platformProfileStatusRawText',
+    'platformProfileStatusBadgeClass',
+    'platformProfileCheckClass',
+    'platformProfileBindingRawText',
+    'platformProfileBindingText',
+    'platformProfileStrategyText',
+    'platformProfilePrimaryActionText',
+    'platformProfileNextActionText',
+    'platformProfileLoginTaskText',
+    'platformProfileLoginTaskRawText',
+    'platformSourceStatusClass',
+    'platformTaskStatusClass',
+    'platformSyncActionText',
+  ];
   if (typeof buildAutoFetchTriggerRequestBody !== 'function'
     || typeof buildAutoFetchRunStartState !== 'function'
     || typeof runAutoFetchTriggerFlow !== 'function'
     || typeof resolveDataConfigTestEndpoint !== 'function'
     || typeof buildDataConfigTestRequest !== 'function'
-    || typeof runDataConfigTestFlow !== 'function') {
+    || typeof runDataConfigTestFlow !== 'function'
+    || autoFetchDisplayHelpers.some(key => typeof autoFetchStatic[key] !== 'function')) {
     checks.push({
       file: 'public/auto-fetch-static.js',
       label: 'auto-fetch static exports trigger flow helpers',
       ok: false,
-      detail: 'trigger request, start state, flow runner, data-config test runner',
+      detail: 'trigger request, start state, flow runner, data-config test runner, display helpers',
     });
   } else {
     const triggerBody = buildAutoFetchTriggerRequestBody({
@@ -2199,6 +2474,35 @@ try {
     const configUnsupportedRun = await runDataConfigTestSample({ type: 'booking-ota' });
     const configInvalidUrlRun = await runDataConfigTestSample({ form: { url: 'https://ebooking.ctrip.com/page' } });
     const configExceptionRun = await runDataConfigTestSample({ throwRequest: true });
+
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'auto-fetch static owns display labels, timing, and status classes',
+      ok: autoFetchStatic.autoFetchScopeStatusClass('ready').includes('emerald')
+        && autoFetchStatic.autoFetchModeLabel('profile_browser').length > 0
+        && autoFetchStatic.formatAutoFetchElapsed(65).includes('1')
+        && autoFetchStatic.formatAutoFetchElapsed(65).includes('05')
+        && autoFetchStatic.formatAutoFetchMs(999) === '999ms'
+        && autoFetchStatic.formatAutoFetchMs(1500).includes('2')
+        && autoFetchStatic.autoFetchResultStatusText({ skipped: true }).length > 0
+        && autoFetchStatic.autoFetchResultStatusClass({ success: true }).includes('green')
+        && autoFetchStatic.autoFetchModuleLabel('browser_profile').length > 0
+        && autoFetchStatic.autoFetchModuleLabel('custom_module') === 'custom_module'
+        && autoFetchStatic.platformProfileStatusLabel({ status_code: 'logged_in' }).length > 0
+        && autoFetchStatic.platformProfileStatusBadgeClass('logged_in').includes('emerald')
+        && autoFetchStatic.platformProfileCheckClass('error').includes('red')
+        && autoFetchStatic.platformProfileBindingText({ platform: 'ctrip', profile_key: '63', binding: { ctrip_hotel_id: '6866634' } }).length > 0
+        && autoFetchStatic.platformProfileBindingRawText({ platform: 'meituan', profile_key: 'store-1', binding: { poi_id: 'poi-1', partner_id_configured: true } }).includes('poi-1')
+        && autoFetchStatic.platformProfileStrategyText({ platform: 'ctrip' }).length > 0
+        && autoFetchStatic.platformProfilePrimaryActionText({ platform: 'meituan' }).length > 0
+        && autoFetchStatic.platformProfileNextActionText({ status_code: 'logged_in' }).length > 0
+        && autoFetchStatic.platformProfileLoginTaskText({ status: 'running' }).length > 0
+        && autoFetchStatic.platformProfileLoginTaskRawText({ task_id: 'task-1' }).includes('task-1')
+        && autoFetchStatic.platformSourceStatusClass('failed').includes('red')
+        && autoFetchStatic.platformTaskStatusClass('partial_success').includes('amber')
+        && autoFetchStatic.platformSyncActionText('login expired').length > 0,
+      detail: 'auto-fetch display helper samples',
+    });
 
     checks.push({
       file: 'public/auto-fetch-static.js',
@@ -4591,6 +4895,10 @@ try {
   const buildCtripProfileFieldSavePayload = ctripStatic.buildCtripProfileFieldSavePayload;
   const buildCtripProfileFieldSampleHelpers = ctripStatic.buildCtripProfileFieldSampleHelpers;
   const buildCtripProfileFieldDerivationHelpers = ctripStatic.buildCtripProfileFieldDerivationHelpers;
+  const normalizeCtripProfileFieldVerificationStatus = ctripStatic.normalizeCtripProfileFieldVerificationStatus;
+  const ctripProfileFieldVerificationText = ctripStatic.ctripProfileFieldVerificationText;
+  const ctripProfileFieldVerificationBadgeClass = ctripStatic.ctripProfileFieldVerificationBadgeClass;
+  const ctripProfileFieldVerificationLightClass = ctripStatic.ctripProfileFieldVerificationLightClass;
   const buildCtripProfileRecheckInitialState = ctripStatic.buildCtripProfileRecheckInitialState;
   const buildCtripProfileRecheckRunContext = ctripStatic.buildCtripProfileRecheckRunContext;
   const buildCtripProfileRecheckCaptureRefreshState = ctripStatic.buildCtripProfileRecheckCaptureRefreshState;
@@ -4786,7 +5094,11 @@ try {
     || typeof buildCtripProfileFieldSmartDefaults !== 'function'
     || typeof buildCtripProfileFieldSavePayload !== 'function'
     || typeof buildCtripProfileFieldSampleHelpers !== 'function'
-    || typeof buildCtripProfileFieldDerivationHelpers !== 'function') {
+    || typeof buildCtripProfileFieldDerivationHelpers !== 'function'
+    || typeof normalizeCtripProfileFieldVerificationStatus !== 'function'
+    || typeof ctripProfileFieldVerificationText !== 'function'
+    || typeof ctripProfileFieldVerificationBadgeClass !== 'function'
+    || typeof ctripProfileFieldVerificationLightClass !== 'function') {
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports Profile field form and sample builders',
@@ -4829,6 +5141,17 @@ try {
         && savePayload.storage_field === 'online_daily_data.amount'
         && savePayload.status === 'needs_parser',
       detail: 'Profile field builder sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip Profile field verification helpers map review statuses',
+      ok: normalizeCtripProfileFieldVerificationStatus('ok') === 'matched'
+        && normalizeCtripProfileFieldVerificationStatus('wrong') === 'mismatched'
+        && normalizeCtripProfileFieldVerificationStatus('') === 'unverified'
+        && ctripProfileFieldVerificationText('matched').length > 0
+        && ctripProfileFieldVerificationBadgeClass('mismatched').includes('red')
+        && ctripProfileFieldVerificationLightClass('matched').includes('emerald'),
+      detail: 'Profile field verification helper sample',
     });
     const sampleHelpers = buildCtripProfileFieldSampleHelpers();
     const sampleRows = sampleHelpers.sampleItems({

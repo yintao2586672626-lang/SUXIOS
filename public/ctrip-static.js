@@ -55,6 +55,29 @@ window.SUXI_CTRIP_STATIC = (() => {
             return pageUrl;
         }
     };
+    const normalizeCtripProfileFieldVerificationStatus = (status) => {
+        const value = String(status || '').trim().toLowerCase();
+        if (['matched', 'match', 'ok', 'correct'].includes(value)) return 'matched';
+        if (['mismatched', 'mismatch', 'wrong', 'incorrect'].includes(value)) return 'mismatched';
+        return 'unverified';
+    };
+    const ctripProfileFieldVerificationText = (status) => ({
+        matched: '数值相符',
+        mismatched: '数据不符',
+        unverified: '待核验',
+    }[normalizeCtripProfileFieldVerificationStatus(status)] || '待核验');
+    const ctripProfileFieldVerificationBadgeClass = (status) => {
+        const value = normalizeCtripProfileFieldVerificationStatus(status);
+        if (value === 'matched') return 'border-emerald-100 bg-emerald-50 text-emerald-700';
+        if (value === 'mismatched') return 'border-red-100 bg-red-50 text-red-700';
+        return 'border-gray-200 bg-gray-50 text-gray-500';
+    };
+    const ctripProfileFieldVerificationLightClass = (status) => {
+        const value = normalizeCtripProfileFieldVerificationStatus(status);
+        if (value === 'matched') return 'bg-emerald-500';
+        if (value === 'mismatched') return 'bg-red-500';
+        return 'bg-gray-300';
+    };
     const ctripOverviewApiKeywords = [
         'getDayReportRealTimeDate',
         'fetchMarketOverViewV2',
@@ -2556,6 +2579,10 @@ window.SUXI_CTRIP_STATIC = (() => {
         normalizeCtripProfileModuleRow,
         ctripProfileModulePageUrl,
         ctripProfileModulePageDisplay,
+        normalizeCtripProfileFieldVerificationStatus,
+        ctripProfileFieldVerificationText,
+        ctripProfileFieldVerificationBadgeClass,
+        ctripProfileFieldVerificationLightClass,
         ctripOverviewApiKeywords,
         ctripFlowOverviewApiGroups,
         ctripFlowOverviewDefaultRequestUrls,

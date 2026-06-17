@@ -82,6 +82,10 @@ if (!fs.existsSync(indexPath)) {
   const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
   const dataHealthStaticPath = path.join(repoRoot, 'public/data-health-static.js');
   const dataHealthStaticContent = fs.existsSync(dataHealthStaticPath) ? fs.readFileSync(dataHealthStaticPath, 'utf8') : '';
+  const homeStaticPath = path.join(repoRoot, 'public/home-static.js');
+  const homeStaticContent = fs.existsSync(homeStaticPath) ? fs.readFileSync(homeStaticPath, 'utf8') : '';
+  const autoFetchStaticPath = path.join(repoRoot, 'public/auto-fetch-static.js');
+  const autoFetchStaticContent = fs.existsSync(autoFetchStaticPath) ? fs.readFileSync(autoFetchStaticPath, 'utf8') : '';
   const platformAutoSettingsPanelsPath = path.join(repoRoot, 'public/components/online-data/platform-auto-settings-panels.js');
   const platformAutoSettingsPanelsContent = fs.existsSync(platformAutoSettingsPanelsPath)
     ? fs.readFileSync(platformAutoSettingsPanelsPath, 'utf8')
@@ -93,6 +97,22 @@ if (!fs.existsSync(indexPath)) {
 
   if (stat.size < 500_000) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
+  }
+
+  if (!content.includes('system-static.js?v=20260616-hotel-config-helpers')
+    || !systemStaticContent.includes('const getHotelCodeNumber = (code) => {')
+    || !systemStaticContent.includes('const formatHotelCode = (num) =>')
+    || !systemStaticContent.includes('const normalizeOtaConfigHotelName = (value = \'\') =>')
+    || !systemStaticContent.includes('const formatHotelBindingDate = (value) => {')
+    || !content.includes("const getHotelCodeNumber = requireAppSystemStatic('getHotelCodeNumber');")
+    || !content.includes("const formatHotelCode = requireAppSystemStatic('formatHotelCode');")
+    || !content.includes("const normalizeOtaConfigHotelName = requireAppSystemStatic('normalizeOtaConfigHotelName');")
+    || !content.includes("const formatHotelBindingDate = requireAppSystemStatic('formatHotelBindingDate');")
+    || content.includes('const getHotelCodeNumber = (code) => {')
+    || content.includes('const formatHotelCode = (num) => {')
+    || content.includes('const normalizeOtaConfigHotelName = (value = \'\') => String(value || \'\')')
+    || content.includes('const formatHotelBindingDate = (value) => {')) {
+    failures.push('public/index.html must delegate hotel code, OTA config hotel-name normalization, and binding-date formatting to public/system-static.js.');
   }
 
   const requiredMarkers = [
@@ -109,9 +129,9 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
-  if (!content.includes('ctrip-static.js?v=20260615-startup-cache-fix')
-    || !content.includes('meituan-static.js?v=20260613-manual-direct-fetch')) {
-    failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance exports change.');
+  if (!content.includes('ctrip-static.js?v=20260617-profile-verification-cache-fix')
+    || !content.includes('meituan-static.js?v=20260617-metric-cache-fix')) {
+    failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance/metric exports change.');
   }
   if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';")
     || !content.includes("const PlatformAutoSettingsPanels = {")
@@ -320,11 +340,58 @@ if (!fs.existsSync(indexPath)) {
     || !/const\s+ensureAutoFetchStaticReady\s*=\s*async\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader and ready guard for auto-fetch-static.js.');
   }
+  if (!autoFetchStaticContent.includes('const autoFetchScopeStatusClass = (status) => ({')
+    || !autoFetchStaticContent.includes('const autoFetchModeLabel = (mode, options = autoFetchModeOptions) => {')
+    || !autoFetchStaticContent.includes('const formatAutoFetchElapsed = (seconds) => {')
+    || !autoFetchStaticContent.includes('const formatAutoFetchMs = (ms) => {')
+    || !autoFetchStaticContent.includes('const autoFetchResultStatusText = (row) => {')
+    || !autoFetchStaticContent.includes('const autoFetchResultStatusClass = (row) => {')
+    || !autoFetchStaticContent.includes('const autoFetchModuleLabel = (module) => ({')
+    || !autoFetchStaticContent.includes('const platformProfileStatusLabel = (item) => {')
+    || !autoFetchStaticContent.includes('const platformProfileBindingText = (item) => {')
+    || !autoFetchStaticContent.includes('const platformProfileNextActionText = (item) => {')
+    || !autoFetchStaticContent.includes('const platformProfileLoginTaskText = (task) => {')
+    || !autoFetchStaticContent.includes('const platformSourceStatusClass = (status) => {')
+    || !autoFetchStaticContent.includes('const platformTaskStatusClass = (status) => {')
+    || !autoFetchStaticContent.includes('const platformSyncActionText = (message) => {')
+    || !content.includes('autoFetchStatic.value.autoFetchModeLabel(mode, autoFetchModeOptions.value)')
+    || !content.includes('autoFetchStatic.value.formatAutoFetchElapsed(seconds)')
+    || !content.includes('autoFetchStatic.value.formatAutoFetchMs(ms)')
+    || !content.includes('autoFetchStatic.value.autoFetchResultStatusText(row)')
+    || !content.includes('autoFetchStatic.value.autoFetchResultStatusClass(row)')
+    || !content.includes('autoFetchStatic.value.autoFetchModuleLabel(module)')
+    || !content.includes('autoFetchStatic.value?.platformProfileStatusLabel?.(item)')
+    || !content.includes('autoFetchStatic.value?.platformProfileBindingText?.(item)')
+    || !content.includes('autoFetchStatic.value?.platformProfileNextActionText?.(item)')
+    || !content.includes('autoFetchStatic.value?.platformProfileLoginTaskText?.(task)')
+    || !content.includes('autoFetchStatic.value?.platformSourceStatusClass?.(status)')
+    || !content.includes('autoFetchStatic.value?.platformTaskStatusClass?.(status)')
+    || !content.includes('autoFetchStatic.value?.platformSyncActionText?.(message)')
+    || content.includes('const formatAutoFetchElapsed = (seconds) => {\n                const total = Math.max(0, Number.parseInt(seconds, 10) || 0);')
+    || content.includes('const autoFetchModuleLabel = (module) => ({\n                business:')
+    || content.includes('const platformProfileMachineText = (value) =>')
+    || content.includes('const platformProfileStatusBadgeClass = (statusCode) => ({')
+    || content.includes('const platformSourceStatusClass = (status) => {\n                if (status === ')
+    || content.includes('const platformSyncActionText = (message) => {\n                const text = String(message || ')) {
+    failures.push('public/index.html must delegate auto-fetch display labels, timing formatting, profile/source status wording, and status classes to auto-fetch-static.js.');
+  }
   if (!/const prewarmAutoFetchStaticForPlatformAuto = \(\) => \{[\s\S]*if \(!isVisibleOnlineDataTab\(['"]platform-auto['"]\)\) return null;[\s\S]*const staticReadyPromise = loadAutoFetchStatic\(\)\.catch\(error => \{[\s\S]*void staticReadyPromise;/.test(content)
     || /const loadAutoFetchPanel = async[\s\S]*const staticReadyPromise = loadAutoFetchStatic\(\)\.catch\(error => \{/.test(content)
     || /const loadAutoFetchPanel = async[\s\S]*Promise\.all\(\[[\s\S]*staticReadyPromise/.test(content)
     || !/const triggerAutoFetch = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*requireAutoFetchStatic\(['"]runAutoFetchTriggerFlow['"]\)/.test(content)) {
     failures.push('public/index.html must delay auto-fetch-static.js prewarm beyond platform-auto first paint, and load it before triggering manual auto-fetch.');
+  }
+  if (!ctripStaticContent.includes('const normalizeCtripProfileFieldVerificationStatus = (status) => {')
+    || !ctripStaticContent.includes('const ctripProfileFieldVerificationText = (status) => ({')
+    || !ctripStaticContent.includes('const ctripProfileFieldVerificationBadgeClass = (status) => {')
+    || !ctripStaticContent.includes('const ctripProfileFieldVerificationLightClass = (status) => {')
+    || !content.includes("const normalizeCtripProfileFieldVerificationStatus = requireCtripStatic('normalizeCtripProfileFieldVerificationStatus');")
+    || !content.includes("const ctripProfileFieldVerificationText = requireCtripStatic('ctripProfileFieldVerificationText');")
+    || !content.includes("const ctripProfileFieldVerificationBadgeClass = requireCtripStatic('ctripProfileFieldVerificationBadgeClass');")
+    || !content.includes("const ctripProfileFieldVerificationLightClass = requireCtripStatic('ctripProfileFieldVerificationLightClass');")
+    || content.includes("if (['matched', 'match', 'ok', 'correct'].includes(value)) return 'matched';")
+    || content.includes("const ctripProfileFieldVerificationBadgeClass = (status) => {\n                const value = normalizeCtripProfileFieldVerificationStatus(status);")) {
+    failures.push('public/index.html must delegate Ctrip Profile field verification labels and classes to ctrip-static.js.');
   }
   if (!content.includes('const autoFetchConfigProofPendingForHotelId = (hotelId) => {')
     || !content.includes('autoFetchStatusRequestPromises.has(`${keyPrefix}light`)')
@@ -863,13 +930,14 @@ if (!fs.existsSync(indexPath)) {
   }
   const downloadCenterTabSource = content.slice(
     content.indexOf('const scheduleDownloadCenterTabLoad = (tab, context = {}) => {'),
-    content.indexOf('const getOnlineDataMetricNumber')
+    content.indexOf('const applyOnlineHistoryDatePreset = () => {')
   );
   if (!content.includes('const scheduleDownloadCenterTabLoad = (tab, context = {}) => {')
     || !content.includes('const switchDownloadTab = (tab) => {')
     || !content.includes('const switchToDownloadCenter = () => {')
     || !content.includes('const switchToMeituanDownloadCenter = () => {')
-    || !content.includes('const meituanDownloadData = computed(() => {')
+    || !meituanStaticContent.includes('const buildMeituanDownloadData = (rows = []) => {')
+    || !content.includes('const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));')
     || !content.includes('switchToMeituanDownloadCenter, meituanDownloadData,')
     || !downloadCenterTabSource.includes("await refreshOnlineHistory({ refreshHotels: false });")
     || !downloadCenterTabSource.includes('scheduleDelayedPageTask(() => {')
@@ -1091,6 +1159,82 @@ if (!fs.existsSync(indexPath)) {
   }
   if (content.includes("text: '销售额(¥)'") || content.includes("text: '房晚/订单'")) {
     failures.push('public/index.html must not re-inline online analysis chart axis labels; use buildOnlineAnalysisChartConfig.');
+  }
+  if (!homeStaticContent.includes('const normalizeHolidayCountdownItem = (item) => {')
+    || !homeStaticContent.includes('const homeTrendBadgeClass = (level) => ({')
+    || !homeStaticContent.includes('const homeTrendCardHasData = (card) => {')
+    || !homeStaticContent.includes('const macroSignalLevelClass = (signal) => {')
+    || !homeStaticContent.includes('const homeTextHasValue = (value) => {')
+    || !homeStaticContent.includes('const competitorPlatformTagText = (summary) => {')
+    || !homeStaticContent.includes('const competitorPlatformTagClass = (summary) => ({')
+    || !homeStaticContent.includes('const holidayOperationStageText = (nearest = null) => {')
+    || !homeStaticContent.includes('const buildHolidayOperationSuggestions = ({')
+    || !homeStaticContent.includes('const buildMacroSignalFallback = (summary = ')
+    || !homeStaticContent.includes('const buildMacroSignalViewCards = (signals = [], meaningMap = {}) => (')
+    || !homeStaticContent.includes('const buildHomeMarketForecastItems = ({')
+    || !homeStaticContent.includes('const homeMarketForecastStatus = (items = []) => {')
+    || !homeStaticContent.includes('const buildHomeMarketForecastSummaryRows = (items = [], noteMap = {}) => (')
+    || !homeStaticContent.includes('const resolveHomeMarketForecastAction = ({')
+    || !homeStaticContent.includes('const homeMetricSeriesValues = (metrics = {}, key = ')
+    || !homeStaticContent.includes('const homeMetricToneClass = (ready, level = ')
+    || !homeStaticContent.includes('const homeSignalMetricText = (signal = null, labels = []) => {')
+    || !homeStaticContent.includes('const competitorDisplayRows = (summary) => (')
+    || !homeStaticContent.includes('const competitorSummarySourceNotice = (summary) => (')
+    || !homeStaticContent.includes('const competitorSummaryReadinessClass = (readiness) => ({')
+    || !homeStaticContent.includes('normalizeHolidayCountdownItem,')
+    || !homeStaticContent.includes('competitorPlatformTagClass,')
+    || !homeStaticContent.includes('buildHolidayOperationSuggestions,')
+    || !homeStaticContent.includes('buildMacroSignalFallback,')
+    || !homeStaticContent.includes('buildMacroSignalViewCards,')
+    || !homeStaticContent.includes('resolveHomeMarketForecastAction,')
+    || !homeStaticContent.includes('homeMetricSeriesSum,')
+    || !homeStaticContent.includes('homeSignalMetricText,')
+    || !homeStaticContent.includes('competitorSummaryReadinessClass,')
+    || !content.includes("const normalizeHolidayCountdownItem = requireHomeStatic('normalizeHolidayCountdownItem');")
+    || !content.includes("const homeTrendBadgeClass = requireHomeStatic('homeTrendBadgeClass');")
+    || !content.includes("const homeTrendCardHasData = requireHomeStatic('homeTrendCardHasData');")
+    || !content.includes("const macroSignalLevelClass = requireHomeStatic('macroSignalLevelClass');")
+    || !content.includes("const homeTextHasValue = requireHomeStatic('homeTextHasValue');")
+    || !content.includes("const competitorPlatformTagText = requireHomeStatic('competitorPlatformTagText');")
+    || !content.includes("const competitorPlatformTagClass = requireHomeStatic('competitorPlatformTagClass');")
+    || !content.includes("const holidayOperationStageTextFromStatic = requireHomeStatic('holidayOperationStageText');")
+    || !content.includes("const buildHolidayOperationSuggestions = requireHomeStatic('buildHolidayOperationSuggestions');")
+    || !content.includes("const buildMacroSignalFallback = requireHomeStatic('buildMacroSignalFallback');")
+    || !content.includes("const buildMacroSignalViewCards = requireHomeStatic('buildMacroSignalViewCards');")
+    || !content.includes("const buildHomeMarketForecastItems = requireHomeStatic('buildHomeMarketForecastItems');")
+    || !content.includes("const homeMarketForecastStatusFromStatic = requireHomeStatic('homeMarketForecastStatus');")
+    || !content.includes("const buildHomeMarketForecastSummaryRows = requireHomeStatic('buildHomeMarketForecastSummaryRows');")
+    || !content.includes("const resolveHomeMarketForecastAction = requireHomeStatic('resolveHomeMarketForecastAction');")
+    || !content.includes("const homeMetricSeriesSumFromStatic = requireHomeStatic('homeMetricSeriesSum');")
+    || !content.includes("const homeMetricSeriesAvgFromStatic = requireHomeStatic('homeMetricSeriesAvg');")
+    || !content.includes("const homeMetricToneClass = requireHomeStatic('homeMetricToneClass');")
+    || !content.includes("const homeSignalMetricTextFromStatic = requireHomeStatic('homeSignalMetricText');")
+    || !content.includes("const competitorDisplayRows = requireHomeStatic('competitorDisplayRows');")
+    || !content.includes("const competitorDisplaySummary = requireHomeStatic('competitorDisplaySummary');")
+    || !content.includes("const competitorSummarySourceNotice = requireHomeStatic('competitorSummarySourceNotice');")
+    || !content.includes("const competitorSummaryReadinessClass = requireHomeStatic('competitorSummaryReadinessClass');")
+    || !content.includes('const holidayOperationStageText = computed(() => holidayOperationStageTextFromStatic(holidayOperationCountdown.value.nearest));')
+    || !content.includes('const macroSignalViewCards = computed(() => buildMacroSignalViewCards(macroSignalCards.value, macroSignalMeaningMap));')
+    || !content.includes('const homeMarketForecastStatus = computed(() => homeMarketForecastStatusFromStatic(homeMarketForecastItems.value));')
+    || !content.includes("const homeTrendChartMetrics = computed(() => homeTrendData.value?.chart?.metrics || {});")
+    || !content.includes("const homeSignalMetricText = (signalKey, labels) => homeSignalMetricTextFromStatic(findMacroSignal(signalKey), labels);")
+    || content.includes('const parseHolidayDate = (value) => {')
+    || content.includes('const formatHolidayDate = (date) => {')
+    || content.includes('const homeTrendCardHasData = (card) => {')
+    || content.includes('const competitorPlatformTagText = (summary) => {')
+    || content.includes('const normalizeMacroSignalMetric = (metric) => ({')
+    || content.includes('const macroSignalPrimaryMetrics = (signal) => {')
+    || content.includes('const isSignalReady = (signal) =>')
+    || content.includes('const formatTrendValue = (card, fallback) => {')
+    || content.includes('const homeMetricSeriesValues = (key) => {')
+    || content.includes('const homeMetricToneClass = (ready, level = ')
+    || content.includes('const findHomeSignalMetric = (signalKey, labels) => {')
+    || content.includes('const competitorDisplayRows = (summary) => Array.isArray')
+    || content.includes('const competitorSummarySourceNotice = (summary) =>')
+    || content.includes('const competitorSummaryReadinessClass = (readiness) => ({')
+    || content.includes("return ['暂无可用节假日窗口")
+    || content.includes("const buildMacroSignalFallback = (summary = '待同步') => ([")) {
+    failures.push('public/index.html must delegate home holiday, trend, signal, and competitor tag display helpers to home-static.js.');
   }
   if (!content.includes("requireSystemStatic('buildKnowledgeImportRequestBody')")
     || !content.includes("requireSystemStatic('knowledgeImportSuccessMessage')")
@@ -1358,11 +1502,17 @@ if (!fs.existsSync(indexPath)) {
   );
   if (!dataHealthStaticContent.includes('const buildOnlineHistoryQueryParams = ({ page = 1, pageSize = 20, filter = {} } = {}) => {')
     || !dataHealthStaticContent.includes('buildOnlineHistoryQueryParams,')
+    || !dataHealthStaticContent.includes('const formatOnlineHistoryHotelOption = (hotel) => {')
+    || !dataHealthStaticContent.includes('formatOnlineHistoryHotelOption,')
+    || !dataHealthStaticContent.includes('const formatOnlineHistoryRaw = (raw) => {')
+    || !dataHealthStaticContent.includes('formatOnlineHistoryRaw,')
     || !dataHealthStaticContent.includes('const buildHotelDataDashboardRequests = ({ selectedHotelId = \'\', days = 30 } = {}) => {')
     || !dataHealthStaticContent.includes('buildHotelDataDashboardRequests,')
     || !content.includes("const buildOnlineHistoryQueryParams = requireDataHealthStatic('buildOnlineHistoryQueryParams');")
+    || !content.includes("const formatOnlineHistoryHotelOption = requireDataHealthStatic('formatOnlineHistoryHotelOption');")
+    || !content.includes("const formatOnlineHistoryRaw = requireDataHealthStatic('formatOnlineHistoryRaw');")
     || !content.includes("const buildHotelDataDashboardRequests = requireDataHealthStatic('buildHotelDataDashboardRequests');")
-    || !content.includes('data-health-static.js?v=20260612-dashboard-requests')
+    || !content.includes('data-health-static.js?v=20260616-history-raw-helper')
     || !onlineHistorySource.includes('const params = buildOnlineHistoryQueryParams({')
     || !hotelDashboardSource.includes('const requests = buildHotelDataDashboardRequests({ selectedHotelId });')
     || hotelDashboardSource.includes('const accountParams = new URLSearchParams();')
@@ -1373,46 +1523,262 @@ if (!fs.existsSync(indexPath)) {
     || content.includes('await Promise.all([loadOnlineHistory(), loadOnlineHistoryHotelList()]);')
     || content.includes("schedulePostFetchRefresh('online-history', () => refreshOnlineHistory(), 340)")
     || onlineHistorySource.includes('const params = new URLSearchParams({')
-    || onlineHistorySource.includes("params.append('hotel_id', filter.hotel_scope);")) {
+    || content.includes('const formatOnlineHistoryRaw = (raw) => {')
+    || onlineHistorySource.includes("params.append('hotel_id', filter.hotel_scope);")
+    || content.includes('const isDirtyQuestionMarkText = (text) => {')) {
     failures.push('public/index.html must delegate online history and hotel dashboard request construction and avoid reloading hotel filters on post-fetch history refresh.');
+  }
+  if (!dataHealthStaticContent.includes('const buildCollectionHealthCtripCatalogDetailRows = (catalog = {}) => [')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthCtripCatalogActionRows = (catalog = {}) => {')
+    || !dataHealthStaticContent.includes('buildCollectionHealthCtripCatalogDetailRows,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthCtripCatalogActionRows,')
+    || !content.includes("const buildCollectionHealthCtripCatalogDetailRows = requireDataHealthStatic('buildCollectionHealthCtripCatalogDetailRows');")
+    || !content.includes("const buildCollectionHealthCtripCatalogActionRows = requireDataHealthStatic('buildCollectionHealthCtripCatalogActionRows');")
+    || !content.includes('const collectionHealthCtripCatalogDetailRows = computed(() => buildCollectionHealthCtripCatalogDetailRows(collectionHealthCtripCatalog.value || {}));')
+    || !content.includes('const collectionHealthCtripCatalogActionRows = computed(() => buildCollectionHealthCtripCatalogActionRows(collectionHealthCtripCatalog.value || {}));')
+    || content.includes("key: 'default-sections'")
+    || content.includes('const actions = Array.isArray(collectionHealthCtripCatalog.value?.capture_gap_next_actions)')
+    || content.includes('reasonText: collectionHealthCtripCatalogActionReasonText(action?.reason)')) {
+    failures.push('public/index.html must delegate Ctrip catalog detail and action row construction to data-health-static.js.');
+  }
+  if (!dataHealthStaticContent.includes('const collectionHealthCtripCatalogStatus = (catalog = {}) => {')
+    || !dataHealthStaticContent.includes('const collectionHealthCtripCatalogMessage = (catalog = {}) => {')
+    || !dataHealthStaticContent.includes('const collectionHealthCtripCatalogGateText = (catalog = {}) => {')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthCtripPersistedRows = (rows = []) => (')
+    || !dataHealthStaticContent.includes('const collectionHealthCtripIdentityBlocked = (report = {}) => (')
+    || !dataHealthStaticContent.includes('const collectionHealthCtripIdentityMessage = (report = {}) => {')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthCtripOverviewAuthState = (rows = []) => {')
+    || !dataHealthStaticContent.includes('collectionHealthCtripCatalogStatus,')
+    || !dataHealthStaticContent.includes('collectionHealthCtripCatalogMessage,')
+    || !dataHealthStaticContent.includes('collectionHealthCtripCatalogGateText,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthCtripPersistedRows,')
+    || !dataHealthStaticContent.includes('collectionHealthCtripIdentityBlocked,')
+    || !dataHealthStaticContent.includes('collectionHealthCtripIdentityMessage,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthCtripOverviewAuthState,')
+    || !content.includes("const collectionHealthCtripCatalogStatusFromStatic = requireDataHealthStatic('collectionHealthCtripCatalogStatus');")
+    || !content.includes("const collectionHealthCtripCatalogMessageFromStatic = requireDataHealthStatic('collectionHealthCtripCatalogMessage');")
+    || !content.includes("const collectionHealthCtripCatalogGateTextFromStatic = requireDataHealthStatic('collectionHealthCtripCatalogGateText');")
+    || !content.includes("const buildCollectionHealthCtripPersistedRows = requireDataHealthStatic('buildCollectionHealthCtripPersistedRows');")
+    || !content.includes("const collectionHealthCtripIdentityBlockedFromStatic = requireDataHealthStatic('collectionHealthCtripIdentityBlocked');")
+    || !content.includes("const collectionHealthCtripIdentityMessageFromStatic = requireDataHealthStatic('collectionHealthCtripIdentityMessage');")
+    || !content.includes("const buildCollectionHealthCtripOverviewAuthState = requireDataHealthStatic('buildCollectionHealthCtripOverviewAuthState');")
+    || !content.includes('const collectionHealthCtripCatalogStatus = computed(() => collectionHealthCtripCatalogStatusFromStatic(collectionHealthCtripCatalog.value || {}));')
+    || !content.includes('const collectionHealthCtripCatalogMessage = computed(() => collectionHealthCtripCatalogMessageFromStatic(collectionHealthCtripCatalog.value || {}));')
+    || !content.includes('const collectionHealthCtripCatalogGateText = computed(() => collectionHealthCtripCatalogGateTextFromStatic(collectionHealthCtripCatalog.value || {}));')
+    || !content.includes('const collectionHealthCtripPersistedRows = computed(() => buildCollectionHealthCtripPersistedRows(collectionHealthHistoryReplay.value || []));')
+    || !content.includes('const collectionHealthCtripIdentityBlocked = computed(() => collectionHealthCtripIdentityBlockedFromStatic(collectionHealthCtripIdentityFilter.value || {}));')
+    || !content.includes('const collectionHealthCtripIdentityMessage = computed(() => collectionHealthCtripIdentityMessageFromStatic(collectionHealthCtripIdentityFilter.value || {}));')
+    || !content.includes('const collectionHealthCtripOverviewAuthState = computed(() => buildCollectionHealthCtripOverviewAuthState(collectionHealthCtripAuthorizationRows.value || []));')
+    || content.includes("if (!catalog.available) return 'waiting_config';")
+    || content.includes('if (!catalog.available) return catalog.message ||')
+    || content.includes('if (catalog.is_live_capture_ready) return')
+    || content.includes(".filter(row => String(row?.source || '').toLowerCase() === 'ctrip')")
+    || content.includes('Number(report.filtered_count || 0) > 0')
+    || content.includes("status: 'waiting_config', className: 'text-amber-700' };")) {
+    failures.push('public/index.html must delegate Ctrip catalog status, persisted rows, identity blocking, and authorization state to data-health-static.js.');
+  }
+  if (!dataHealthStaticContent.includes('const collectionHealthLifecycleStageStatus = (stage, context = {}) => {')
+    || !dataHealthStaticContent.includes('collectionHealthLifecycleStageStatus,')
+    || !dataHealthStaticContent.includes('collectionHealthLifecycleReadyCount,')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthAuthorizationRowsReadable = (rows = []) => (')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthFailureReasonRows = (items = []) => (')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthPendingActionRows = (items = []) => (')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthFieldAssetCards = (summary = {}) => [')
+    || !dataHealthStaticContent.includes('buildCollectionHealthAuthorizationRowsReadable,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthFailureReasonRows,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthPendingActionRows,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthFieldAssetCards,')
+    || !content.includes("const collectionHealthLifecycleStageStatusFromStatic = requireDataHealthStatic('collectionHealthLifecycleStageStatus');")
+    || !content.includes("const collectionHealthLifecycleReadyCountFromStatic = requireDataHealthStatic('collectionHealthLifecycleReadyCount');")
+    || !content.includes("const buildCollectionHealthAuthorizationRowsReadable = requireDataHealthStatic('buildCollectionHealthAuthorizationRowsReadable');")
+    || !content.includes("const buildCollectionHealthFailureReasonRows = requireDataHealthStatic('buildCollectionHealthFailureReasonRows');")
+    || !content.includes("const buildCollectionHealthPendingActionRows = requireDataHealthStatic('buildCollectionHealthPendingActionRows');")
+    || !content.includes("const buildCollectionHealthFieldAssetCards = requireDataHealthStatic('buildCollectionHealthFieldAssetCards');")
+    || !content.includes('const collectionHealthAuthorizationRowsReadable = computed(() => buildCollectionHealthAuthorizationRowsReadable(collectionHealthAuthorizationRows.value));')
+    || !content.includes('const collectionHealthFailureReasonRows = computed(() => buildCollectionHealthFailureReasonRows(collectionHealthFailureReasons.value));')
+    || !content.includes('const collectionHealthPendingActionRows = computed(() => buildCollectionHealthPendingActionRows(collectionHealthPendingActions.value));')
+    || !content.includes('const collectionHealthFieldAssetCards = computed(() => buildCollectionHealthFieldAssetCards(collectionHealthFieldAssetSummary.value));')
+    || content.includes('const collectionHealthLifecycleStageStatus = (stage) => {')
+    || content.includes("if (key === 'platform_binding') {")
+    || content.includes("const platform = String(row?.platform || '').trim();")
+    || content.includes("const evidenceNeededRawText = Array.isArray(item?.evidence_needed)")
+    || content.includes("{ key: 'stable', label: '稳定字段'")) {
+    failures.push('public/index.html must delegate collection lifecycle, authorization, pending-action, and field-asset display rules to data-health-static.js.');
+  }
+  if (!dataHealthStaticContent.includes('const collectionHealthCtripMetricPreviewValue = (preview, key, options = {}) => {')
+    || !dataHealthStaticContent.includes('const collectionHealthCtripCalculatedValue = (preview, key) => {')
+    || !dataHealthStaticContent.includes('const collectionHealthCtripMetricKeyMatches = (preview, key) => {')
+    || !dataHealthStaticContent.includes('const collectionHealthCtripMissingDiagnosis = (sections, labels, options = {}) => {')
+    || !dataHealthStaticContent.includes('const collectionHealthCtripMetricFromRows = (keys, options = {}) => {')
+    || !dataHealthStaticContent.includes('const collectionHealthCtripMetricValue = (sections, labels, options = {}) => {')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthCtripCoreSnapshotGroups = (context = {}) => {')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthCtripOverviewRevenueMetrics = (context = {}) => [')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthCtripOverviewTrafficMetrics = (context = {}) => [')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthCtripOverviewFunnelRows = (context = {}) => {')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthCtripOverviewPanels = (context = {}) => [')
+    || !dataHealthStaticContent.includes('const buildCollectionHealthCtripMissingActionRows = ({')
+    || !dataHealthStaticContent.includes('collectionHealthCtripMetricPreviewValue,')
+    || !dataHealthStaticContent.includes('collectionHealthCtripMetricFromRows,')
+    || !dataHealthStaticContent.includes('collectionHealthCtripMetricValue,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthCtripCoreSnapshotGroups,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthCtripOverviewRevenueMetrics,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthCtripOverviewTrafficMetrics,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthCtripOverviewFunnelRows,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthCtripOverviewPanels,')
+    || !dataHealthStaticContent.includes('buildCollectionHealthCtripMissingActionRows,')
+    || !content.includes("const collectionHealthCtripMetricValueFromStatic = requireDataHealthStatic('collectionHealthCtripMetricValue');")
+    || !content.includes("const collectionHealthCtripMetricFromRowsFromStatic = requireDataHealthStatic('collectionHealthCtripMetricFromRows');")
+    || !content.includes("const collectionHealthCtripMissingDiagnosisFromStatic = requireDataHealthStatic('collectionHealthCtripMissingDiagnosis');")
+    || !content.includes("const buildCollectionHealthCtripCoreSnapshotGroups = requireDataHealthStatic('buildCollectionHealthCtripCoreSnapshotGroups');")
+    || !content.includes("const buildCollectionHealthCtripMissingActionRows = requireDataHealthStatic('buildCollectionHealthCtripMissingActionRows');")
+    || !content.includes('const collectionHealthCtripRuntimeContext = (options = {}) => ({')
+    || !content.includes('const collectionHealthCtripOverviewContext = () => collectionHealthCtripRuntimeContext({')
+    || !content.includes('collectionHealthCtripMetricValueFromStatic(sections, labels, collectionHealthCtripRuntimeContext({')
+    || !content.includes('const collectionHealthCtripCoreSnapshotGroups = computed(() => buildCollectionHealthCtripCoreSnapshotGroups(collectionHealthCtripOverviewContext()));')
+    || content.includes("for (const mapKey of ['metrics', 'raw_metrics', 'rank_metrics'])")
+    || content.includes("if (key === 'avg_price' && amount !== null && quantity && quantity > 0)")
+    || content.includes("[/订单|预订/, ['book_order_num', 'order_count', 'orderCount', 'bookOrderNum']]")
+    || content.includes("const modules = collectionHealthCtripLatestModules.value.filter(module => sectionSet.has(String(module?.section || '').trim()));")
+    || content.includes('return collectionHealthCtripPersistedRows.value.filter(row => {')
+    || content.includes('const collectionHealthCtripMetricKeyAliases = (key) => {')
+    || content.includes('const metricKeyParts = metricKey.split(/[\\+,\\|\\s]+/).map(part => part.trim()).filter(Boolean);')
+    || content.includes('const authState = collectionHealthCtripOverviewAuthState.value;')
+    || content.includes('const rows = collectionHealthCtripPersistedRows.value;')
+    || content.includes('const modules = collectionHealthCtripLatestModules.value;')
+    || content.includes('const collectionHealthCtripOverviewMetric = (label, sections, labels, options = {}) => ({')
+    || content.includes("const buildGroup = (key, label, sections, metrics) => ({")
+    || content.includes("collectionHealthCtripOverviewMetric('实时预订订单'")
+    || content.includes("collectionHealthCtripOverviewMetric('实时访客量'")
+    || content.includes('const collectionHealthCtripOverviewFunnelMetric = (label, keys, dimensionIncludes = []) => ({')
+    || content.includes("collectionHealthCtripOverviewFunnelMetric('列表页曝光量'")
+    || content.includes("key: 'competitor',\n                    title: '竞争表现',")
+    || content.includes('const allMetrics = [')) {
+    failures.push('public/index.html must delegate Ctrip metric lookup, overview metric lists, and missing-diagnosis rules to data-health-static.js.');
   }
   if (!dataHealthStaticContent.includes('const buildPhase1MetricDomainReadiness = ({')
     || !dataHealthStaticContent.includes('buildPhase1MetricDomainReadiness,')
-    || !content.includes("const buildPhase1MetricDomainReadiness = requireDataHealthStatic('buildPhase1MetricDomainReadiness');")
-    || !content.includes('} = buildPhase1MetricDomainReadiness({')
+    || content.includes("const buildPhase1MetricDomainReadiness = requireDataHealthStatic('buildPhase1MetricDomainReadiness');")
+    || content.includes('} = buildPhase1MetricDomainReadiness({')
     || content.includes('const phase1HasAnyDataType = (types, needles)')) {
     failures.push('public/index.html must delegate Phase1 metric domain readiness to data-health-static.js and not re-inline OTA evidence domain matching.');
   }
   if (!dataHealthStaticContent.includes('const buildPhase1TrafficP0NextText = (row = {}) => {')
     || !dataHealthStaticContent.includes('buildPhase1TrafficP0NextText,')
-    || !content.includes("const buildPhase1TrafficP0NextText = requireDataHealthStatic('buildPhase1TrafficP0NextText');")
-    || !content.includes('const p0NextText = buildPhase1TrafficP0NextText(row);')
+    || !dataHealthStaticContent.includes('const p0NextText = buildPhase1TrafficP0NextText(row);')
+    || content.includes("const buildPhase1TrafficP0NextText = requireDataHealthStatic('buildPhase1TrafficP0NextText');")
     || content.includes('const trafficP0NextText = (row) => {')) {
     failures.push('public/index.html must delegate Phase1 traffic P0 next text to data-health-static.js and not re-inline traffic evidence wording.');
   }
   if (!dataHealthStaticContent.includes('const phase1EmployeeEvidenceStatusText = (value) => ({')
     || !dataHealthStaticContent.includes('phase1EmployeeEvidenceStatusText,')
     || !content.includes("const phase1EmployeeEvidenceStatusText = requireDataHealthStatic('phase1EmployeeEvidenceStatusText');")
-    || !content.includes('phase1EmployeeEvidenceStatusText(evidence.diagnosis_status)')
+    || !dataHealthStaticContent.includes('phase1EmployeeEvidenceStatusText(evidence.diagnosis_status)')
     || content.includes('const evidenceStatusText = (value) => ({')) {
     failures.push('public/index.html must delegate Phase1 employee evidence status labels to data-health-static.js and not re-inline status wording.');
   }
-  if (!dataHealthStaticContent.includes('const phase1EmployeeGapCodeText = (code, knownQuestionText = () => \'\') => {')
+  if (!dataHealthStaticContent.includes('const phase1EmployeeGapCodeText = (code, knownQuestionText = phase1EmployeeKnownQuestionText) => {')
     || !dataHealthStaticContent.includes('phase1EmployeeGapCodeText,')
-    || !content.includes("const phase1EmployeeGapCodeTextFromStatic = requireDataHealthStatic('phase1EmployeeGapCodeText');")
-    || !content.includes('return phase1EmployeeGapCodeTextFromStatic(raw, phase1EmployeeKnownQuestionText);')
+    || !content.includes("const phase1EmployeeGapCodeText = requireDataHealthStatic('phase1EmployeeGapCodeText');")
+    || content.includes('phase1EmployeeGapCodeTextFromStatic')
     || content.includes("source_date_evidence_missing: '目标日来源证据缺失'")) {
-    failures.push('public/index.html must delegate Phase1 employee gap code labels to data-health-static.js and keep only local callback wiring.');
+    failures.push('public/index.html must delegate Phase1 employee gap code labels directly to data-health-static.js.');
   }
   if (!dataHealthStaticContent.includes('const phase1EmployeeActionCodeText = (code, helpers = {}) => {')
     || !dataHealthStaticContent.includes('phase1EmployeeActionCodeText,')
-    || !content.includes("const phase1EmployeeActionCodeTextFromStatic = requireDataHealthStatic('phase1EmployeeActionCodeText');")
-    || !content.includes('return phase1EmployeeActionCodeTextFromStatic(raw, {')
+    || !dataHealthStaticContent.includes('phase1EmployeeKnownQuestionText')
+    || !dataHealthStaticContent.includes('phase1EmployeePlatformText')
+    || !content.includes("const phase1EmployeeActionCodeText = requireDataHealthStatic('phase1EmployeeActionCodeText');")
+    || content.includes('phase1EmployeeActionCodeTextFromStatic')
     || content.includes("if (raw === 'phase1_confirm_source_date_evidence')")) {
-    failures.push('public/index.html must delegate Phase1 employee action code labels to data-health-static.js and keep only local callback wiring.');
+    failures.push('public/index.html must delegate Phase1 employee action code labels directly to data-health-static.js.');
+  }
+  if (!dataHealthStaticContent.includes('const phase1EmployeeSourceSnapshotText = (sourceSnapshot) => {')
+    || !dataHealthStaticContent.includes('phase1EmployeeSourceSnapshotText,')
+    || !content.includes("const phase1EmployeeSourceSnapshotText = requireDataHealthStatic('phase1EmployeeSourceSnapshotText');")
+    || content.includes('const phase1EmployeeSourceSnapshotText = (sourceSnapshot) => {')) {
+    failures.push('public/index.html must delegate Phase1 source snapshot wording directly to data-health-static.js.');
+  }
+  if (!dataHealthStaticContent.includes('const phase1EmployeeQuestionNextActionText = (row) => {')
+    || !dataHealthStaticContent.includes('phase1EmployeeQuestionNextActionText,')
+    || content.includes("const phase1EmployeeQuestionNextActionText = requireDataHealthStatic('phase1EmployeeQuestionNextActionText');")
+    || content.includes('const phase1EmployeeQuestionNextActionText = (row) => {')) {
+    failures.push('public/index.html must delegate Phase1 question next-action wording directly to data-health-static.js.');
+  }
+  if (!dataHealthStaticContent.includes('const phase1EmployeeQuestionEvidenceText = (evidence) => {')
+    || !dataHealthStaticContent.includes('const normalizePhase1EmployeeQuestionRow = (row) => ({')
+    || !dataHealthStaticContent.includes('const buildPhase1EmployeeQuestionRows = ({')
+    || !dataHealthStaticContent.includes('phase1EmployeeQuestionEvidenceText,')
+    || !dataHealthStaticContent.includes('normalizePhase1EmployeeQuestionRow,')
+    || !dataHealthStaticContent.includes('buildPhase1EmployeeQuestionRows,')
+    || !content.includes("const buildPhase1EmployeeQuestionRows = requireDataHealthStatic('buildPhase1EmployeeQuestionRows');")
+    || !content.includes('const phase1EmployeeQuestionRows = computed(() => buildPhase1EmployeeQuestionRows({')
+    || content.includes("const phase1EmployeeQuestionEvidenceText = requireDataHealthStatic('phase1EmployeeQuestionEvidenceText');")
+    || content.includes("const normalizePhase1EmployeeQuestionRow = requireDataHealthStatic('normalizePhase1EmployeeQuestionRow');")
+    || content.includes('const phase1EmployeeQuestionEvidenceText = (evidence) => {')
+    || content.includes('const normalizePhase1EmployeeQuestionRow = (row) => ({')
+    || content.includes('const latestLog = collectionHealthLatestLog.value || {};')
+    || content.includes('const localRows = [')
+    || content.includes('const normalizedLocalRows = localRows.map(normalizePhase1EmployeeQuestionRow);')) {
+    failures.push('public/index.html must delegate Phase1 employee question row construction, evidence, and normalization to data-health-static.js.');
+  }
+  if (!dataHealthStaticContent.includes('const buildPhase1EmployeeCollectionSourceRows = ({ backendQuestionSource = {}, collectionReliability = {}, dashboardDataSources = {} } = {}) => {')
+    || !dataHealthStaticContent.includes('const buildPhase1EmployeeFieldTrustRows = ({ backendQuestionSource = {}, collectionReliability = {}, dashboardDataSources = {} } = {}) => {')
+    || !dataHealthStaticContent.includes('const buildPhase1EmployeeMissingFieldRows = ({ backendQuestionSource = {}, collectionHealthQuality = {}, otaDiagnosisDataGaps = [] } = {}) => {')
+    || !dataHealthStaticContent.includes('const buildPhase1EmployeeMetricDomainRows = ({ backendQuestionSource = {}, collectionReliability = {}, dashboardDataSources = {} } = {}) => {')
+    || !dataHealthStaticContent.includes('buildPhase1EmployeeCollectionSourceRows,')
+    || !dataHealthStaticContent.includes('buildPhase1EmployeeFieldTrustRows,')
+    || !dataHealthStaticContent.includes('buildPhase1EmployeeMissingFieldRows,')
+    || !dataHealthStaticContent.includes('buildPhase1EmployeeMetricDomainRows,')
+    || !content.includes("const buildPhase1EmployeeCollectionSourceRows = requireDataHealthStatic('buildPhase1EmployeeCollectionSourceRows');")
+    || !content.includes("const buildPhase1EmployeeFieldTrustRows = requireDataHealthStatic('buildPhase1EmployeeFieldTrustRows');")
+    || !content.includes("const buildPhase1EmployeeMissingFieldRows = requireDataHealthStatic('buildPhase1EmployeeMissingFieldRows');")
+    || !content.includes("const buildPhase1EmployeeMetricDomainRows = requireDataHealthStatic('buildPhase1EmployeeMetricDomainRows');")
+    || content.includes('const summaryRows = Array.isArray(backendQuestionSource?.collection_source_summary)')
+    || content.includes("const trustedQuestion = backendRows.find(row => String(row?.key || '') === 'trusted_fields') || {};")
+    || content.includes('const appendCodes = (codes, source) => {')
+    || content.includes('const hasType = (needles) => targetTypes.some(type => needles.some(needle => type.includes(needle)));')) {
+    failures.push('public/index.html must delegate Phase1 collection, trust, missing-field, and metric-domain row construction to data-health-static.js.');
+  }
+  if (!dataHealthStaticContent.includes('const phase1LocalActionMeta = (key) => ({')
+    || !dataHealthStaticContent.includes('const buildPhase1LocalRequiredAction = (row, index = 0) => {')
+    || !dataHealthStaticContent.includes('const buildPhase1EmployeeRequiredActions = ({ backendQuestionSource = {}, rows = [] } = {}) => {')
+    || !dataHealthStaticContent.includes('buildPhase1LocalRequiredAction,')
+    || !dataHealthStaticContent.includes('buildPhase1EmployeeRequiredActions,')
+    || !content.includes("const buildPhase1EmployeeRequiredActions = requireDataHealthStatic('buildPhase1EmployeeRequiredActions');")
+    || content.includes("const buildPhase1LocalRequiredAction = requireDataHealthStatic('buildPhase1LocalRequiredAction');")
+    || content.includes("const normalizePhase1EmployeeRequiredAction = requireDataHealthStatic('normalizePhase1EmployeeRequiredAction');")
+    || content.includes('const phase1LocalActionMeta = (key) => ({')
+    || content.includes('const buildPhase1LocalRequiredAction = (row, index = 0) => {')
+    || content.includes('const actions = Array.isArray(backendQuestionSource?.next_required_actions)')
+    || content.includes('.map(buildPhase1LocalRequiredAction)')) {
+    failures.push('public/index.html must delegate Phase1 required action metadata and construction to data-health-static.js.');
   }
   if (/ctrip_auto_fetch_mode:\s*['"]profile_browser['"]/.test(autoFetchModePayloadSource)) {
     failures.push('public/index.html must not force platform auto-fetch Ctrip runs through browser Profile by default.');
+  }
+  if (!dataHealthStaticContent.includes('const buildPhase1AiDiagnosisEvidence = ({ diagnosisResult = {}, gaps = [], actions = [] } = {}) => {')
+    || !dataHealthStaticContent.includes('buildPhase1AiDiagnosisEvidence,')
+    || !content.includes("const buildPhase1AiDiagnosisEvidence = requireDataHealthStatic('buildPhase1AiDiagnosisEvidence');")
+    || !content.includes('return buildPhase1AiDiagnosisEvidence({')
+    || content.includes('const phase1DiagnosisActionItemStatus = (item) =>')
+    || content.includes('const phase1DiagnosisActionItemBlocked = (item) => {')
+    || content.includes('const evidenceSources = Array.isArray(diagnosisResult?.evidence_sources)')) {
+    failures.push('public/index.html must delegate Phase1 AI diagnosis evidence calculation to data-health-static.js.');
+  }
+  if (!dataHealthStaticContent.includes('const buildPhase1EmployeeAiEvidenceSummary = ({ row = {}, evidence = {} } = {}) => {')
+    || !dataHealthStaticContent.includes('const buildPhase1EmployeeOperationSummary = ({ row = {}, evidence = {} } = {}) => {')
+    || !dataHealthStaticContent.includes("const buildPhase1EmployeeClosureSummary = ({ rows = [], actions = [], backendSummary = {}, protectedBoundary = '' } = {}) => {")
+    || !dataHealthStaticContent.includes('buildPhase1EmployeeAiEvidenceSummary,')
+    || !dataHealthStaticContent.includes('buildPhase1EmployeeOperationSummary,')
+    || !dataHealthStaticContent.includes('buildPhase1EmployeeClosureSummary,')
+    || !content.includes("const buildPhase1EmployeeAiEvidenceSummary = requireDataHealthStatic('buildPhase1EmployeeAiEvidenceSummary');")
+    || !content.includes("const buildPhase1EmployeeOperationSummary = requireDataHealthStatic('buildPhase1EmployeeOperationSummary');")
+    || !content.includes("const buildPhase1EmployeeClosureSummary = requireDataHealthStatic('buildPhase1EmployeeClosureSummary');")
+    || content.includes('const allBlocking = Array.from(new Set([...blocking, ...rowBlocking]));')
+    || content.includes('const completionSignalCount = Number(evidence.completion_signal_count || 0)')
+    || content.includes("const provedRows = rows.filter(row => ['proved', 'no_gap_reported'].includes(String(row?.status || '')));")
+    || content.includes("const topAction = actions.find(item => String(item?.status || '') !== 'blocked') || actions[0] || null;")) {
+    failures.push('public/index.html must delegate Phase1 AI, operation, and closure summary construction to data-health-static.js.');
   }
   if (!content.includes('schedulePostFetchRefresh')
     || !content.includes('scheduleOnlineDataRefresh')
@@ -1503,8 +1869,6 @@ if (!fs.existsSync(indexPath)) {
       failures.push(`public/index.html must pass scheduled post-fetch refresh callbacks instead of direct binding: ${directRefreshBinding.trim()}`);
     }
   }
-  const autoFetchStaticPath = path.join(repoRoot, 'public/auto-fetch-static.js');
-  const autoFetchStaticContent = fs.existsSync(autoFetchStaticPath) ? fs.readFileSync(autoFetchStaticPath, 'utf8') : '';
   if (!/const\s+buildAutoFetchTriggerRequestBody[\s\S]*async:\s*true/.test(autoFetchStaticContent)) {
     failures.push('public/auto-fetch-static.js must submit platform auto-fetch triggers with async: true so the UI is not blocked by OTA collection.');
   }

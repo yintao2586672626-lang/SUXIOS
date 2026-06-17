@@ -764,6 +764,34 @@ window.SUXI_SYSTEM_STATIC = (() => {
         hotel_room_count: meituan.hotel_room_count || existing?.hotel_room_count || '',
         competitor_room_count: meituan.competitor_room_count || existing?.competitor_room_count || '',
     });
+    const getHotelCodeNumber = (code) => {
+        const match = String(code || '').match(/(\d+)$/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+    const formatHotelCode = (num) => `HOTEL${String(Math.max(num, 1)).padStart(3, '0')}`;
+    const normalizeOtaConfigHotelName = (value = '') => String(value || '')
+        .trim()
+        .replace(/\s+/g, '')
+        .replace(/(?:\u7f8e\u56e2|\u643a\u7a0b)?\u6570\u636e\u6e90$/u, '');
+    const secretPreview = (item = {}) => {
+        if (item.cookies_preview) return item.cookies_preview;
+        return item.has_cookies ? '\u5df2\u4fdd\u5b58' : '-';
+    };
+    const meituanConfigHasCookies = (config) => (
+        !!(String(config?.cookies || '').trim() || config?.has_cookies)
+    );
+    const meituanConfigMissingFields = (config) => {
+        const backendMissing = config?.credential_requirement?.missing_fields || config?.missing_fields;
+        if (Array.isArray(backendMissing)) {
+            return backendMissing.filter(Boolean);
+        }
+        const missing = [];
+        if (!String(config?.partner_id || config?.partnerId || '').trim()) missing.push('\u5e73\u53f0\u63a5\u53e3\u6807\u8bc6');
+        if (!String(config?.poi_id || config?.poiId || '').trim()) missing.push('\u5e73\u53f0\u95e8\u5e97\u6807\u8bc6');
+        if (!meituanConfigHasCookies(config)) missing.push('\u5e73\u53f0\u6388\u6743');
+        return missing;
+    };
+    const meituanConfigMissingText = (config) => meituanConfigMissingFields(config).join(' / ');
     const knowledgeCenterBaseSourceOptions = ['document', 'video', 'link', 'text', 'strategy', 'manual', 'url', 'ota', 'ctrip', 'meituan', 'ai', 'revenue_research', 'ml_distillation'];
     const knowledgeImportModeMetaMap = {
         document: { label: '门店文档', placeholder: '整份门店文档会作为一条资料读取，不按空行拆分' },
@@ -1178,6 +1206,65 @@ window.SUXI_SYSTEM_STATIC = (() => {
     const firstNonEmptyText = (...values) => {
         const value = values.find(item => item !== undefined && item !== null && String(item).trim() !== '');
         return value === undefined ? '' : String(value).trim();
+    };
+    const formatHotelBindingDate = (value) => {
+        const text = firstNonEmptyText(value);
+        if (!text) return '-';
+        return text.replace('T', ' ').slice(0, 16);
+    };
+    const hotelPlatformCardClass = (platform) => {
+        if (platform === 'ctrip') return 'bg-blue-50/60 border-blue-100';
+        if (platform === 'meituan') return 'bg-orange-50/60 border-orange-100';
+        return 'bg-gray-50 border-gray-100';
+    };
+    const platformAccountStatusClass = (statusCode) => ({
+        unbound: 'bg-gray-50 text-gray-500 border-gray-200',
+        waiting_login: 'bg-amber-50 text-amber-700 border-amber-200',
+        logged_in: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        login_expired: 'bg-red-50 text-red-700 border-red-200',
+        missing_config: 'bg-amber-50 text-amber-700 border-amber-200',
+        mismatch: 'bg-red-50 text-red-700 border-red-200',
+    }[statusCode] || 'bg-gray-50 text-gray-500 border-gray-200');
+    const platformAccountStatusText = (statusCode) => ({
+        unbound: '\u672a\u7ed1\u5b9a',
+        waiting_login: '\u5f85\u767b\u5f55',
+        logged_in: '\u5df2\u767b\u5f55',
+        login_expired: '\u767b\u5f55\u5931\u6548',
+        missing_config: '\u914d\u7f6e\u7f3a\u9879',
+        mismatch: '\u5e73\u53f0\u95e8\u5e97\u4e0d\u5339\u914d',
+    }[statusCode] || '\u672a\u7ed1\u5b9a');
+    const platformCaptureStatusClass = (statusCode) => ({
+        success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        partial_success: 'bg-amber-50 text-amber-700 border-amber-200',
+        failed: 'bg-red-50 text-red-700 border-red-200',
+        running: 'bg-blue-50 text-blue-700 border-blue-200',
+        none: 'bg-gray-50 text-gray-500 border-gray-200',
+        unknown: 'bg-gray-50 text-gray-500 border-gray-200',
+    }[statusCode] || 'bg-gray-50 text-gray-500 border-gray-200');
+    const platformCaptureStatusText = (statusCode) => ({
+        success: '\u6700\u8fd1\u91c7\u96c6\u6210\u529f',
+        partial_success: '\u90e8\u5206\u6210\u529f',
+        failed: '\u6700\u8fd1\u91c7\u96c6\u5931\u8d25',
+        running: '\u91c7\u96c6\u4e2d',
+        none: '\u672a\u91c7\u96c6',
+        unknown: '\u72b6\u6001\u672a\u77e5',
+    }[statusCode] || '\u72b6\u6001\u672a\u77e5');
+    const platformLastSuccessText = (source = {}, config = {}, captureCode = '', lastCaptureText = '-') => {
+        const successTime = firstNonEmptyText(
+            source?.last_success_time,
+            source?.last_success_at,
+            source?.last_success_sync_time,
+            source?.last_successful_sync_time,
+            source?.last_stored_at,
+            config?.last_success_time,
+            config?.last_success_at,
+            config?.last_success_sync_time,
+            config?.last_successful_sync_time,
+            config?.last_stored_at
+        );
+        if (successTime) return formatHotelBindingDate(successTime);
+        if (captureCode === 'success') return lastCaptureText || '-';
+        return '-';
     };
     const requireHotelPlatformHelper = (helpers, key) => {
         const helper = helpers?.[key];
@@ -1641,6 +1728,20 @@ window.SUXI_SYSTEM_STATIC = (() => {
         buildHotelSavePayload,
         buildHotelOtaCtripConfigSavePayload,
         buildHotelOtaMeituanConfigSavePayload,
+        getHotelCodeNumber,
+        formatHotelCode,
+        normalizeOtaConfigHotelName,
+        secretPreview,
+        meituanConfigHasCookies,
+        meituanConfigMissingFields,
+        meituanConfigMissingText,
+        formatHotelBindingDate,
+        hotelPlatformCardClass,
+        platformAccountStatusClass,
+        platformAccountStatusText,
+        platformCaptureStatusClass,
+        platformCaptureStatusText,
+        platformLastSuccessText,
         knowledgeCenterBaseSourceOptions,
         knowledgeImportModeMetaMap,
         buildKnowledgeImportRequestBody,

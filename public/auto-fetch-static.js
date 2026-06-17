@@ -62,6 +62,208 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             action: '广告数据独立进入 advertising 口径，不和自然流量、自然订单混算。',
         },
     ];
+    const autoFetchScopeStatusClass = (status) => ({
+        ready: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+        partial: 'bg-amber-50 text-amber-700 border-amber-100',
+        blocked: 'bg-rose-50 text-rose-700 border-rose-100',
+        manual: 'bg-slate-50 text-slate-600 border-slate-200',
+    }[String(status || '')] || 'bg-slate-50 text-slate-600 border-slate-200');
+    const autoFetchModeLabel = (mode, options = autoFetchModeOptions) => {
+        const rows = Array.isArray(options) ? options : [];
+        const found = rows.find(item => item?.value === mode);
+        return found ? found.label : '接口直连自动';
+    };
+    const formatAutoFetchElapsed = (seconds) => {
+        const total = Math.max(0, Number.parseInt(seconds, 10) || 0);
+        const minutes = Math.floor(total / 60);
+        const remain = total % 60;
+        if (minutes <= 0) return `${remain}秒`;
+        return `${minutes}分${String(remain).padStart(2, '0')}秒`;
+    };
+    const formatAutoFetchMs = (ms) => {
+        const totalMs = Math.max(0, Number.parseInt(ms, 10) || 0);
+        if (totalMs < 1000) return `${totalMs}ms`;
+        const seconds = Math.round(totalMs / 1000);
+        return formatAutoFetchElapsed(seconds);
+    };
+    const autoFetchResultStatusText = (row) => {
+        if (row?.success) return '成功';
+        if (row?.skipped) return '跳过';
+        return '失败';
+    };
+    const autoFetchResultStatusClass = (row) => {
+        if (row?.success) return 'bg-green-100 text-green-700 border-green-200';
+        if (row?.skipped) return 'bg-gray-100 text-gray-600 border-gray-200';
+        return 'bg-red-100 text-red-700 border-red-200';
+    };
+    const autoFetchModuleLabel = (module) => ({
+        business: '经营',
+        traffic: '流量',
+        ranking: '排名',
+        rank: '排名',
+        comments: '点评',
+        reviews: '点评',
+        ads: '广告',
+        configuration: '配置',
+        cookie_config_tasks: '配置任务',
+        day_report_api: '昨日概况',
+        browser_profile: '登录会话',
+        browser_business: '经营',
+        browser_traffic: '流量',
+        browser_catalog_standard: '标准字段',
+        ranking_api: '排名',
+    }[module] || module || '模块');
+    const platformProfileMachineText = (value) => /[a-z]+[_-][a-z]+|\/api\/|https?:|[{}[\]=]/i.test(String(value || ''));
+    const platformProfileStatusLabel = (item) => {
+        const statusCode = String(item?.status_code || '').trim().toLowerCase();
+        const map = {
+            unconfigured: '未配置',
+            waiting_login: '待登录',
+            logged_in: '已登录',
+            login_expired: '登录失效',
+            login_required: '需要登录',
+            capture_failed: '采集失败',
+            missing_profile: '缺少 Profile',
+            needs_profile: '缺少 Profile',
+        };
+        if (map[statusCode]) return map[statusCode];
+        const currentStatus = String(item?.current_status || '').trim();
+        if (currentStatus && !platformProfileMachineText(currentStatus)) return currentStatus;
+        return '未配置';
+    };
+    const platformProfileStatusRawText = (item) => [
+        `platform=${item?.platform || 'platform_missing'}`,
+        `status_code=${item?.status_code || 'status_missing'}`,
+        `current_status=${item?.current_status || 'status_text_missing'}`,
+        `profile_key=${item?.profile_key || 'profile_key_missing'}`,
+    ].join(' / ');
+    const platformProfileStatusBadgeClass = (statusCode) => ({
+        logged_in: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        waiting_login: 'bg-amber-50 text-amber-700 border-amber-200',
+        login_expired: 'bg-red-50 text-red-700 border-red-200',
+        capture_failed: 'bg-red-50 text-red-700 border-red-200',
+        unconfigured: 'bg-gray-50 text-gray-500 border-gray-200',
+    }[statusCode] || 'bg-gray-50 text-gray-500 border-gray-200');
+    const platformProfileCheckClass = (status) => ({
+        ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        warning: 'bg-amber-50 text-amber-700 border-amber-200',
+        missing: 'bg-slate-50 text-slate-600 border-slate-200',
+        error: 'bg-red-50 text-red-700 border-red-200',
+    }[status] || 'bg-slate-50 text-slate-600 border-slate-200');
+    const platformProfileBindingRawText = (item) => {
+        const binding = item?.binding || {};
+        if (item?.platform === 'ctrip') {
+            const profile = binding.profile_id || item.profile_key || '-';
+            const hotelId = binding.ctrip_hotel_id || binding.hotel_id || '-';
+            const name = binding.hotel_name ? ` / ${binding.hotel_name}` : '';
+            return `登录会话 ${profile} / 平台酒店 ${hotelId}${name}`;
+        }
+        if (item?.platform === 'meituan') {
+            const storeId = binding.store_id || item.profile_key || '-';
+            const poiId = binding.poi_id || '-';
+            const partner = binding.partner_id_configured ? '接口标识已配置' : '接口标识未配置';
+            return `美团门店 ${storeId} / 平台门店 ${poiId} / ${partner}`;
+        }
+        return '-';
+    };
+    const platformProfileBindingText = (item) => {
+        const binding = item?.binding || {};
+        if (item?.platform === 'ctrip') {
+            const profileConfigured = !!(binding.profile_id || item.profile_key);
+            const hotelConfigured = !!(binding.ctrip_hotel_id || binding.hotel_id);
+            const name = String(binding.hotel_name || '').trim();
+            return [
+                profileConfigured ? '登录会话已绑定' : '登录会话未绑定',
+                hotelConfigured ? '平台酒店标识已配置' : '平台酒店标识未配置',
+                name ? `酒店 ${name}` : '',
+            ].filter(Boolean).join(' / ');
+        }
+        if (item?.platform === 'meituan') {
+            const storeConfigured = !!(binding.store_id || item.profile_key);
+            const poiConfigured = !!binding.poi_id;
+            const partnerConfigured = !!binding.partner_id_configured;
+            return [
+                storeConfigured ? '美团门店会话已绑定' : '美团门店会话未绑定',
+                poiConfigured ? '平台门店标识已配置' : '平台门店标识未配置',
+                partnerConfigured ? '接口标识已配置' : '接口标识未配置',
+            ].join(' / ');
+        }
+        return 'Profile 绑定状态待确认';
+    };
+    const platformProfileStrategyText = (item) => {
+        if (item?.platform === 'ctrip') return '登录会话自动采集';
+        if (item?.platform === 'meituan') return '平台授权与门店标识；完成登录后可自动同步';
+        return '-';
+    };
+    const platformProfilePrimaryActionText = (item) => {
+        if (item?.status_code === 'login_expired') return '重新登录平台账号';
+        return item?.platform === 'meituan' ? '登录美团' : '登录携程';
+    };
+    const platformProfileNextActionText = (item) => {
+        const raw = String(item?.next_action || '').trim();
+        const statusCode = String(item?.status_code || '').trim().toLowerCase();
+        if (['logged_in'].includes(statusCode)) return '授权可用，下一步以目标日入库行证明采集成功';
+        if (['waiting_login', 'login_expired', 'login_required'].includes(statusCode) || /login|auth|cookie|登录|授权|过期|失效/i.test(raw)) {
+            return '完成或刷新平台登录后，再运行现有自动采集';
+        }
+        if (['unconfigured', 'missing_profile', 'needs_profile'].includes(statusCode) || /profile|store|poi|hotel|配置|绑定|标识|缺少|missing/i.test(raw)) {
+            return '先补齐平台绑定和 Profile，再运行现有采集入口';
+        }
+        if (/capture|fetch|采集|抓取|失败|failed/i.test(raw)) return '按现有采集入口重试，并保留失败原因';
+        if (raw && !platformProfileMachineText(raw)) return raw;
+        return '复核平台绑定、登录状态和目标日入库证据';
+    };
+    const platformProfileLoginTaskText = (task) => {
+        if (!task) return '';
+        const statusText = String(task.status_text || '').trim();
+        const status = String(task.status || '').trim().toLowerCase();
+        const message = String(task.message || '').trim();
+        const combined = `${statusText} ${status} ${message}`;
+        if (/success|done|logged|完成|成功|已登录/i.test(combined)) return '登录任务已完成，请刷新状态并运行现有采集';
+        if (/running|pending|wait|启动|等待|处理中|进行中/i.test(combined)) return '登录任务进行中，请在打开的浏览器内完成平台验证';
+        if (/fail|error|expired|timeout|失败|错误|超时|过期/i.test(combined)) return '登录任务异常，请重新触发登录并保留失败原因';
+        if (message && !platformProfileMachineText(message)) return message;
+        return statusText || '登录任务状态待确认';
+    };
+    const platformProfileLoginTaskRawText = (task) => {
+        if (!task) return '';
+        return [
+            `status=${task.status || 'status_missing'}`,
+            `status_text=${task.status_text || 'status_text_missing'}`,
+            `message=${task.message || 'message_missing'}`,
+            `task_id=${task.task_id || 'task_id_missing'}`,
+        ].join(' / ');
+    };
+    const platformSourceStatusClass = (status) => {
+        if (status === 'success' || status === 'ready') return 'bg-emerald-50 text-emerald-700';
+        if (status === 'failed') return 'bg-red-50 text-red-700';
+        if (status === 'partial_success' || status === 'waiting_config') return 'bg-amber-50 text-amber-700';
+        if (status === 'disabled') return 'bg-gray-100 text-gray-500';
+        return 'bg-blue-50 text-blue-700';
+    };
+    const platformTaskStatusClass = (status) => {
+        if (status === 'success') return 'bg-emerald-50 text-emerald-700';
+        if (status === 'failed') return 'bg-red-50 text-red-700';
+        if (status === 'partial_success') return 'bg-amber-50 text-amber-700';
+        return 'bg-blue-50 text-blue-700';
+    };
+    const platformSyncActionText = (message) => {
+        const text = String(message || '');
+        if (!text) return '';
+        if (text.includes('browser_runtime_error=spawn EPERM') || text.includes('browser_runtime_error=spawn EACCES')) {
+            return '处理动作：检查服务器/定时任务运行账号是否允许启动浏览器；本次未写入空数据。';
+        }
+        if (text.includes('login session is not ready') || text.includes('login expired') || text.includes('重新登录')) {
+            return '处理动作：重新登录平台账号后再同步。';
+        }
+        if (text.includes('Profile is not prepared') || text.includes('Profile ID is not configured') || text.includes('store_id is not configured')) {
+            return '处理动作：先配置平台账号并完成首次登录。';
+        }
+        if (text.includes('no business rows') || text.includes('No business rows')) {
+            return '处理动作：检查采集页面、接口命中和字段映射；系统不会写入空数据。';
+        }
+        return '';
+    };
     const firstDataConfigValue = (...values) => {
         const value = values.find(item => item !== undefined && item !== null && item !== '');
         return value === undefined ? '' : value;
@@ -541,6 +743,28 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         autoFetchModeOptions,
         autoFetchCollectionBlueprintRows,
         autoFetchFieldScopeGroups,
+        autoFetchScopeStatusClass,
+        autoFetchModeLabel,
+        formatAutoFetchElapsed,
+        formatAutoFetchMs,
+        autoFetchResultStatusText,
+        autoFetchResultStatusClass,
+        autoFetchModuleLabel,
+        platformProfileMachineText,
+        platformProfileStatusLabel,
+        platformProfileStatusRawText,
+        platformProfileStatusBadgeClass,
+        platformProfileCheckClass,
+        platformProfileBindingRawText,
+        platformProfileBindingText,
+        platformProfileStrategyText,
+        platformProfilePrimaryActionText,
+        platformProfileNextActionText,
+        platformProfileLoginTaskText,
+        platformProfileLoginTaskRawText,
+        platformSourceStatusClass,
+        platformTaskStatusClass,
+        platformSyncActionText,
         parseDataConfigValue,
         normalizeDataConfigForForm,
         compactDataConfigBody,

@@ -32,6 +32,124 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const meituanDisplayRowKey = (row, index) => String(row?.poiId || row?.hotelName || index);
 
+    const getOnlineDataMetricNumber = (item, keys) => {
+        for (const key of keys) {
+            const value = item?.[key];
+            if (value !== undefined && value !== null && value !== '') {
+                const number = Number(String(value).replace(/[,，%￥¥元\s]/g, ''));
+                if (Number.isFinite(number)) {
+                    return number;
+                }
+            }
+        }
+        return 0;
+    };
+
+    const safeDivideMetric = (numerator, denominator) => {
+        const top = Number(numerator);
+        const bottom = Number(denominator);
+        if (!Number.isFinite(top) || !Number.isFinite(bottom) || bottom === 0) {
+            return 0;
+        }
+        return top / bottom;
+    };
+
+    const getMeituanExposureMetric = (item) => getOnlineDataMetricNumber(item, ['list_exposure', 'exposure_count', 'exposure', 'data_value']);
+    const getMeituanClickMetric = (item) => getOnlineDataMetricNumber(item, ['detail_exposure', 'click_count', 'clicks', 'order_filling_num']);
+    const getMeituanVisitorMetric = (item) => getOnlineDataMetricNumber(item, ['order_filling_num', 'visitor_count', 'unique_visitors', 'detail_exposure']);
+    const getMeituanSubmitMetric = (item) => getOnlineDataMetricNumber(item, ['order_submit_num', 'submit_users', 'book_order_num']);
+    const getMeituanFlowRateMetric = (item) => {
+        const explicit = getOnlineDataMetricNumber(item, ['flow_rate', 'conversion_rate', 'conversionRate']);
+        if (explicit > 0) {
+            return explicit;
+        }
+        return safeDivideMetric(getMeituanClickMetric(item), getMeituanExposureMetric(item)) * 100;
+    };
+    const isMeituanTrafficDataRow = (item) => item?.source === 'meituan' && (item?.data_type === 'traffic' || getMeituanExposureMetric(item) > 0);
+    const isMeituanOrderDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'order';
+    const isMeituanAdsDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'advertising';
+
+    const buildMeituanDownloadData = (rows = []) => {
+        const overviewRows = [];
+        const trafficRows = [];
+        const orderRows = [];
+        const adsRows = [];
+
+        let overviewBookOrder = 0;
+        let overviewAmount = 0;
+        let overviewQuantity = 0;
+        let trafficExposure = 0;
+        let trafficClick = 0;
+        let trafficFlowRateSum = 0;
+        let trafficFlowRateCount = 0;
+        let orderBookOrder = 0;
+        let orderQuantity = 0;
+        let orderAmount = 0;
+        let adsExposure = 0;
+        let adsClick = 0;
+
+        for (const item of Array.isArray(rows) ? rows : []) {
+            if (item?.source !== 'meituan') {
+                continue;
+            }
+            overviewRows.push(item);
+            overviewBookOrder += Number(item?.book_order_num || 0);
+            overviewAmount += Number(item?.amount || 0);
+            overviewQuantity += Number(item?.quantity || 0);
+
+            if (isMeituanTrafficDataRow(item)) {
+                trafficRows.push(item);
+                const exposure = getMeituanExposureMetric(item);
+                const click = getMeituanClickMetric(item);
+                trafficExposure += exposure;
+                trafficClick += click;
+                const flowRate = getMeituanFlowRateMetric(item);
+                if (flowRate > 0) {
+                    trafficFlowRateSum += flowRate;
+                    trafficFlowRateCount++;
+                }
+            }
+
+            if (isMeituanOrderDataRow(item)) {
+                orderRows.push(item);
+                orderBookOrder += Number(item?.book_order_num || 0);
+                orderQuantity += Number(item?.quantity || 0);
+                orderAmount += Number(item?.amount || 0);
+            }
+
+            if (isMeituanAdsDataRow(item)) {
+                adsRows.push(item);
+                adsExposure += getMeituanExposureMetric(item);
+                adsClick += getMeituanClickMetric(item);
+            }
+        }
+
+        const trafficAvgFlowRate = trafficFlowRateCount > 0 ? trafficFlowRateSum / trafficFlowRateCount : 0;
+
+        return {
+            overviewRows,
+            trafficRows,
+            orderRows,
+            adsRows,
+            overviewRowsCount: overviewRows.length,
+            overviewBookOrder,
+            overviewAmount,
+            overviewQuantity,
+            trafficExposure,
+            trafficClick,
+            trafficAvgFlowRate,
+            trafficClickRate: safeDivideMetric(trafficClick, trafficExposure) * 100,
+            orderRowsCount: orderRows.length,
+            orderBookOrder,
+            orderQuantity,
+            orderAmount,
+            adsRowsCount: adsRows.length,
+            adsExposure,
+            adsClick,
+            adsClickRate: safeDivideMetric(adsClick, adsExposure) * 100,
+        };
+    };
+
     const defaultMeituanAdsUrl = () => 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-merchant-product-menu/html/index.html';
     const runPostFetchRefresh = (callback, ...args) => {
         try {
@@ -1229,6 +1347,16 @@ window.SUXI_MEITUAN_STATIC = (() => {
         meituanSortMetricValue,
         formatMeituanSortGapValue,
         meituanDisplayRowKey,
+        getOnlineDataMetricNumber,
+        getMeituanExposureMetric,
+        getMeituanClickMetric,
+        getMeituanVisitorMetric,
+        getMeituanSubmitMetric,
+        getMeituanFlowRateMetric,
+        isMeituanTrafficDataRow,
+        isMeituanOrderDataRow,
+        isMeituanAdsDataRow,
+        buildMeituanDownloadData,
         defaultMeituanAdsUrl,
         createMeituanRankingForm,
         createMeituanTrafficForm,

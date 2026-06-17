@@ -506,6 +506,363 @@ window.SUXI_HOME_STATIC = (() => {
         ];
     };
 
+    const parseHolidayDate = (value) => {
+        const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match) return null;
+        return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    };
+
+    const formatHolidayDate = (date) => {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    };
+
+    const normalizeHolidayCountdownItem = (item) => {
+        const name = item?.name || item?.holiday_name || item?.title || '';
+        const start = parseHolidayDate(item?.start_date || item?.startDate);
+        const end = parseHolidayDate(item?.end_date || item?.endDate || item?.start_date || item?.startDate);
+        if (!name || !start || !end) return null;
+        const today = new Date();
+        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        if (end < todayStart) return null;
+        const dayMs = 24 * 60 * 60 * 1000;
+        const daysLeft = Math.max(0, Math.round((start - todayStart) / dayMs));
+        const holidayDays = Math.max(1, Math.round((end - start) / dayMs) + 1);
+        return {
+            name,
+            start_date: formatHolidayDate(start),
+            end_date: formatHolidayDate(end),
+            days_left: daysLeft,
+            distance_text: start <= todayStart && end >= todayStart ? '进行中' : `${daysLeft}天`,
+            holiday_days: holidayDays,
+        };
+    };
+
+    const homeTrendBadgeClass = (level) => ({
+        red: 'bg-red-50 text-red-700 border-red-200',
+        yellow: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+        green: 'bg-green-50 text-green-700 border-green-200',
+        blue: 'bg-blue-50 text-blue-700 border-blue-200',
+        gray: 'bg-gray-50 text-gray-500 border-gray-200',
+    }[level] || 'bg-gray-50 text-gray-500 border-gray-200');
+
+    const homeTrendCardHasData = (card) => {
+        const value = String(card?.value ?? '').trim();
+        const direction = String(card?.direction ?? '').trim();
+        if (!value || value === '--' || value === '-' || value === '待同步') return false;
+        return !['待同步', '数据不足'].includes(direction);
+    };
+
+    const macroSignalLevelClass = (signal) => {
+        const level = signal?.level || 'gray';
+        const map = {
+            red: 'bg-red-50 text-red-700 border-red-200',
+            yellow: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+            green: 'bg-green-50 text-green-700 border-green-200',
+            blue: 'bg-blue-50 text-blue-700 border-blue-200',
+            gray: 'bg-gray-50 text-gray-500 border-gray-200'
+        };
+        return map[level] || map.gray;
+    };
+
+    const homeTextHasValue = (value) => {
+        const text = String(value ?? '').trim();
+        return !!text && !['--', '-', '待同步', '数据不足', '未返回'].includes(text);
+    };
+
+    const competitorPlatformTagSummary = (summary) => {
+        const displaySummary = summary?.display_summary || {};
+        return displaySummary.platform_tag_summary || summary?.platform_tag_summary || {};
+    };
+
+    const competitorPlatformTagClass = (summary) => ({
+        returned: 'bg-orange-50 text-orange-800 border-orange-100',
+        returned_empty: 'bg-amber-50 text-amber-700 border-amber-100',
+        not_returned: 'bg-gray-50 text-gray-500 border-gray-200',
+    }[String(competitorPlatformTagSummary(summary)?.status || 'not_returned')] || 'bg-gray-50 text-gray-500 border-gray-200');
+
+    const competitorPlatformTagText = (summary) => {
+        const tagSummary = competitorPlatformTagSummary(summary);
+        const status = String(tagSummary?.status || 'not_returned');
+        if (status === 'returned') {
+            const vipCount = Number(tagSummary.vip_count || 0);
+            const returnedCount = Number(tagSummary.returned_count || 0);
+            const tagCount = Number(tagSummary.tag_count || 0);
+            return `VIP ${vipCount}家 / 标签返回 ${returnedCount}家 / 标签种类 ${tagCount}类 · 字段 raw_data.hasVipTag`;
+        }
+        if (status === 'returned_empty') {
+            const emptyCount = Number(tagSummary.returned_empty_count || 0);
+            return `平台返回空标签 ${emptyCount}家，不推断VIP · 字段 raw_data.platformTagStatus`;
+        }
+        return '平台标签未返回，不推断VIP · 待同步美团榜单字段';
+    };
+
+    const holidayOperationStageText = (nearest = null) => {
+        if (!nearest) return '等待节假日';
+        const days = Number(nearest.days_left || 0);
+        if (nearest.distance_text === '进行中' || days === 0) return '假期执行中';
+        if (days <= 7) return '临门执行';
+        if (days <= 30) return '重点跟进';
+        if (days <= 45) return '预热筹备';
+        return '年度排期';
+    };
+
+    const buildHolidayOperationSuggestions = ({
+        nearest = null,
+        next = null,
+        hotelPool = [],
+        selectedHotelId = '',
+        trendHasSamples = false,
+        trendSampleDays = 0,
+        trendJudgement = '',
+        weatherSignal = null,
+    } = {}) => {
+        const suggestions = [];
+        const add = (text) => {
+            if (text && !suggestions.includes(text)) suggestions.push(text);
+        };
+        if (!nearest) {
+            return ['暂无可用节假日窗口，先维护节假日日历和基准价盘'];
+        }
+
+        const days = Number(nearest.days_left || 0);
+        if (nearest.distance_text === '进行中' || days === 0) {
+            add(`${nearest.name}正在进行，优先盯今日房态、取消订单和到店提醒`);
+        } else if (days <= 7) {
+            add(`${nearest.name}还有${days}天，逐日复核可售房、低价房和连住限制`);
+        } else if (days <= 30) {
+            add(`${nearest.name}进入T-${days}重点期，先锁底价、库存和活动价，避免临近被低价占量`);
+        } else if (days <= 45) {
+            add(`${nearest.name}还有${days}天，先完成预售价盘和渠道活动报名，T-30再加密复盘`);
+        } else {
+            add(`${nearest.name}还有${days}天，保留年度价盘占位，暂不占用每日运营节奏`);
+        }
+
+        if (Number(nearest.holiday_days || 0) >= 3) {
+            add(`${nearest.name}连续${nearest.holiday_days}天，设置首尾日差异价和连住策略`);
+        } else {
+            add(`${nearest.name}为${nearest.holiday_days}天短假，重点看周边游、亲子和临近订单`);
+        }
+
+        const hotels = Array.isArray(hotelPool) ? hotelPool : [];
+        if (!selectedHotelId && hotels.length > 1) {
+            add(`当前为全部门店视角，按门店拆分${nearest.name}价盘，避免统一价格覆盖差异需求`);
+        } else if (selectedHotelId) {
+            const selectedHotel = hotels.find(hotel => String(hotel?.id || '') === String(selectedHotelId));
+            add(`${selectedHotel?.name || '当前门店'}单店视角下，优先复核本店房型库存和渠道价差`);
+        }
+
+        if (trendHasSamples) {
+            add(`结合${Number(trendSampleDays || 0)}天经营趋势样本，按${trendJudgement || '当前趋势'}校准节假日涨价幅度`);
+        } else {
+            add('趋势样本不足，先同步 OTA 和经营日报，再决定节假日涨价幅度');
+        }
+
+        if (weatherSignal && ['yellow', 'red'].includes(weatherSignal.level || '')) {
+            add(`天气信号提示${weatherSignal.status_text || '关注'}，节前补充到店提醒和取消订单二次售卖预案`);
+        }
+
+        if (next && suggestions.length < 4) {
+            add(`${next.name}还有${next.days_left}天，先维护预售价盘和节假日日历，不进入重点跟进`);
+        }
+
+        return suggestions.slice(0, 4);
+    };
+
+    const buildMacroSignalFallback = (summary = '待同步') => ([
+        { key: 'cycle', title: '周期信号', status: 'pending', status_text: '待同步', level: 'gray', summary, metrics: [{ label: '数据状态', value: '待同步' }], suggestions: ['同步订单与日期数据后生成判断'], action_text: '查看详情', updated_at: '--' },
+        { key: 'weather', title: '天气信号', status: 'pending', status_text: '自动获取中', level: 'gray', summary: '天气会按门店城市自动获取，正在等待返回结果', metrics: [{ label: '获取方式', value: '自动获取' }], suggestions: ['检查门店地址和高德天气配置'], action_text: '查看详情', updated_at: '--' },
+        { key: 'channel', title: '渠道信号', status: 'pending', status_text: '待同步', level: 'gray', summary, metrics: [{ label: '数据状态', value: '待同步' }], suggestions: ['同步 OTA 流量数据后生成判断'], action_text: '去分析', updated_at: '--' },
+        { key: 'price', title: '价格信号', status: 'pending', status_text: '待同步', level: 'gray', summary, metrics: [{ label: '数据状态', value: '待同步' }], suggestions: ['同步价格与竞对数据后生成判断'], action_text: '去分析', updated_at: '--' },
+        { key: 'demand', title: '需求信号', status: 'pending', status_text: '待同步', level: 'gray', summary, metrics: [{ label: '数据状态', value: '待同步' }], suggestions: ['同步订单与预测数据后生成判断'], action_text: '查看详情', updated_at: '--' }
+    ]);
+
+    const normalizeMacroSignalMetric = (metric) => ({
+        label: metric?.label || '数据状态',
+        value: metric?.value === undefined || metric?.value === null || metric?.value === '' ? '--' : metric.value,
+        unit: metric?.unit || '',
+    });
+
+    const macroSignalPrimaryMetrics = (signal) => {
+        const metrics = Array.isArray(signal?.metrics) ? signal.metrics.map(normalizeMacroSignalMetric) : [];
+        if (metrics.length >= 2) return metrics.slice(0, 2);
+        return [
+            ...metrics,
+            { label: '状态', value: signal?.status_text || signal?.status || '待同步', unit: '' },
+        ].slice(0, 2);
+    };
+
+    const buildMacroSignalViewCards = (signals = [], meaningMap = {}) => (
+        (Array.isArray(signals) ? signals : []).map(signal => {
+            const meta = meaningMap[signal.key] || {
+                icon: 'fas fa-signal',
+                meaning: '用于辅助判断当前经营环境。',
+                impact: '影响运营优先级和后续跟进动作。',
+                action: '查看详情后确认下一步动作。',
+            };
+            const suggestions = Array.isArray(signal.suggestions) ? signal.suggestions : [];
+            return {
+                ...signal,
+                icon: meta.icon,
+                meaning: meta.meaning,
+                impact: meta.impact,
+                primaryAction: suggestions[0] || meta.action,
+                primaryMetrics: macroSignalPrimaryMetrics(signal),
+            };
+        })
+    );
+
+    const buildHomeMarketForecastItems = ({
+        trendCards = [],
+        demandSignal = null,
+        priceSignal = null,
+        channelSignal = null,
+        nearestHoliday = null,
+        weatherValue = '',
+        trendHasSamples = false,
+    } = {}) => {
+        const cards = Array.isArray(trendCards) ? trendCards : [];
+        const findTrendCard = (key) => cards.find(card => card.key === key) || null;
+        const formatTrendValue = (card, fallback) => {
+            if (!card) return fallback;
+            return [card.value, card.direction].filter(Boolean).join(' ');
+        };
+        return [
+            {
+                name: '市场需求',
+                value: formatTrendValue(findTrendCard('demand'), isHomeSignalReady(demandSignal) ? (demandSignal.status_text || '已形成') : '待需求样本'),
+                level: 'core',
+                actionLabel: trendHasSamples ? '查看趋势' : '同步样本',
+                entry: trendHasSamples ? { page: 'revenue-research-center' } : { page: 'ctrip-ebooking', tab: 'ctrip-ranking' }
+            },
+            {
+                name: '价格带',
+                value: formatTrendValue(findTrendCard('price'), isHomeSignalReady(priceSignal) ? (priceSignal.status_text || '已形成') : '待竞对价格'),
+                level: 'core',
+                actionLabel: '进入策略模拟',
+                entry: { page: 'ops-plan' }
+            },
+            {
+                name: '渠道热度',
+                value: formatTrendValue(findTrendCard('channel'), isHomeSignalReady(channelSignal) ? (channelSignal.status_text || '已形成') : '待 OTA 数据'),
+                level: 'core',
+                actionLabel: '查看流量漏斗',
+                entry: { page: 'ctrip-ebooking', tab: 'ctrip-traffic' }
+            },
+            {
+                name: '天气影响',
+                value: weatherValue || '待天气数据',
+                level: 'support',
+                actionLabel: '查看预警',
+                entry: { page: 'ops-insight' }
+            },
+            {
+                name: '节假期窗口',
+                value: nearestHoliday ? `${nearestHoliday.name} ${nearestHoliday.distance_text}` : '待生成',
+                level: 'support',
+                actionLabel: '安排策略',
+                entry: { page: 'ops-plan' }
+            }
+        ];
+    };
+
+    const homeMarketForecastStatus = (items = []) => {
+        const readyCount = (Array.isArray(items) ? items : []).filter(item => !/^待/.test(String(item.value || ''))).length;
+        if (readyCount >= 4) return '可形成预估';
+        if (readyCount > 0) return `部分可估 ${readyCount}/5`;
+        return '待形成样本';
+    };
+
+    const buildHomeMarketForecastSummaryRows = (items = [], noteMap = {}) => (
+        (Array.isArray(items) ? items : [])
+            .filter(item => ['市场需求', '价格带', '渠道热度'].includes(item.name))
+            .map(item => ({
+                ...item,
+                note: noteMap[item.name] || '用于辅助当前经营动作排序。',
+                actionLabel: item.actionLabel || '查看',
+            }))
+    );
+
+    const resolveHomeMarketForecastAction = ({
+        trendHasSamples = false,
+        trendAction = '',
+        readinessNextAction = '',
+    } = {}) => {
+        if (!trendHasSamples) return '先同步 OTA 与经营日报，形成可用趋势样本';
+        return (trendAction || readinessNextAction || '进入数据中心复核关键指标').replace(/。$/, '');
+    };
+
+    const homeMetricSeriesValues = (metrics = {}, key = '') => {
+        const raw = metrics?.[key]?.data;
+        if (!Array.isArray(raw)) return [];
+        return raw
+            .map(value => {
+                if (value === null || value === undefined || value === '') return null;
+                const numeric = Number(String(value).replace(/,/g, ''));
+                return Number.isFinite(numeric) ? numeric : null;
+            })
+            .filter(value => value !== null && value > 0);
+    };
+
+    const homeMetricSeriesSum = (metrics = {}, key = '') => (
+        homeMetricSeriesValues(metrics, key).reduce((sum, value) => sum + value, 0)
+    );
+
+    const homeMetricSeriesAvg = (metrics = {}, key = '') => {
+        const values = homeMetricSeriesValues(metrics, key);
+        return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+    };
+
+    const homeMetricToneClass = (ready, level = '') => {
+        if (!ready) return 'border-gray-200 bg-gray-50 text-gray-500';
+        return {
+            red: 'border-rose-100 bg-rose-50 text-rose-700',
+            yellow: 'border-amber-100 bg-amber-50 text-amber-700',
+            green: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+            blue: 'border-blue-100 bg-blue-50 text-blue-700',
+            gray: 'border-gray-200 bg-gray-50 text-gray-500',
+        }[level] || 'border-blue-100 bg-blue-50 text-blue-700';
+    };
+
+    const findHomeSignalMetric = (signal = null, labels = []) => {
+        const metrics = Array.isArray(signal?.metrics) ? signal.metrics : [];
+        const safeLabels = Array.isArray(labels) ? labels : [];
+        return metrics.find(metric => safeLabels.some(label => String(metric?.label || '').includes(label))) || null;
+    };
+
+    const homeSignalMetricText = (signal = null, labels = []) => {
+        const metric = findHomeSignalMetric(signal, labels);
+        if (!metric) return { value: '待同步', ready: false };
+        const value = String(metric.value ?? '').trim() || '待同步';
+        const unit = String(metric.unit || '').trim();
+        const display = unit && value !== '待同步' && !value.endsWith(unit) ? `${value}${unit}` : value;
+        return { value: display, ready: homeTextHasValue(display) };
+    };
+
+    const competitorDisplayRows = (summary) => (
+        Array.isArray(summary?.display_hotels) ? summary.display_hotels : []
+    );
+
+    const competitorDisplaySummary = (summary) => summary?.display_summary || {};
+
+    const competitorSummarySourceNotice = (summary) => (
+        summary?.source_notice
+        || competitorDisplaySummary(summary).source_notice
+        || '仅展示美团榜单已返回字段；未返回字段保留缺失状态。'
+    );
+
+    const competitorSummaryReadinessClass = (readiness) => ({
+        ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        attention: 'bg-amber-50 text-amber-700 border-amber-200',
+        warning: 'bg-amber-50 text-amber-700 border-amber-200',
+        missing: 'bg-gray-50 text-gray-500 border-gray-200',
+        error: 'bg-red-50 text-red-700 border-red-200',
+        blocked: 'bg-red-50 text-red-700 border-red-200',
+    }[readiness?.status] || 'bg-gray-50 text-gray-500 border-gray-200');
+
     return {
         buildHomeClosedLoopStages,
         buildHomeAiTraceRows,
@@ -516,5 +873,29 @@ window.SUXI_HOME_STATIC = (() => {
         buildHomeDataSources,
         buildCompassDataReadiness,
         buildHomeDecisionSummaryRows,
+        normalizeHolidayCountdownItem,
+        homeTrendBadgeClass,
+        homeTrendCardHasData,
+        macroSignalLevelClass,
+        homeTextHasValue,
+        competitorPlatformTagText,
+        competitorPlatformTagClass,
+        holidayOperationStageText,
+        buildHolidayOperationSuggestions,
+        buildMacroSignalFallback,
+        buildMacroSignalViewCards,
+        buildHomeMarketForecastItems,
+        homeMarketForecastStatus,
+        buildHomeMarketForecastSummaryRows,
+        resolveHomeMarketForecastAction,
+        homeMetricSeriesValues,
+        homeMetricSeriesSum,
+        homeMetricSeriesAvg,
+        homeMetricToneClass,
+        homeSignalMetricText,
+        competitorDisplayRows,
+        competitorDisplaySummary,
+        competitorSummarySourceNotice,
+        competitorSummaryReadinessClass,
     };
 })();

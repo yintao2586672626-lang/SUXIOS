@@ -3552,13 +3552,14 @@ try {
     $p0Command = 'C:\\xampp\\php\\php.exe scripts\\verify_p0_ota_field_loop_closure.php';
     $p0ImportCommand = 'C:\\xampp\\php\\php.exe scripts\\import_p0_ota_traffic_payload.php';
     $frontendSourcePaths = ['public/index.html', 'public/data-health-static.js'];
-    $uiBackend = p0_source_contains('app/controller/OnlineData.php', 'buildOnlineDataFieldFactStatus')
-        && p0_source_contains('app/controller/OnlineData.php', 'field_fact_status');
+    $onlineDataBackendPaths = ['app/controller/OnlineData.php', 'app/controller/concern/OnlineDataQualityConcern.php'];
+    $uiBackend = p0_source_contains_any($onlineDataBackendPaths, 'buildOnlineDataFieldFactStatus')
+        && p0_source_contains_any($onlineDataBackendPaths, 'field_fact_status');
     $uiFrontend = p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisFieldFactStatusText')
         && p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisFieldFactStatusClass')
         && p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisFieldFactDetailText')
         && p0_source_contains_any($frontendSourcePaths, 'field_fact_status');
-    $fieldFactBackendPaths = ['app/controller/OnlineData.php', 'app/service/OnlineDataFieldFactService.php'];
+    $fieldFactBackendPaths = ['app/controller/OnlineData.php', 'app/controller/concern/OnlineDataQualityConcern.php', 'app/service/OnlineDataFieldFactService.php'];
     $uiP0SourceEvidence = p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisP0CaptureEvidenceStatusText(item)')
         && p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisP0CaptureEvidenceStatusClass(item)')
         && p0_source_contains_any($frontendSourcePaths, 'onlineAnalysisP0CaptureEvidenceDetailText(item)')

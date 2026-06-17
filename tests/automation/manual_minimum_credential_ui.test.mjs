@@ -755,7 +755,7 @@ test('Online analysis tab reuses recent analysis and detail reads during tab ret
 test('Download center defers hotel filter loading after primary data', () => {
   const downloadCenterScheduler = sliceFrom(
     'const scheduleDownloadCenterTabLoad = (tab, context = {}) => {',
-    '\n            const getOnlineDataMetricNumber'
+    '\n            const applyOnlineHistoryDatePreset = () => {'
   );
 
   assert.match(downloadCenterScheduler, /await refreshOnlineHistory\(\{ refreshHotels: false \}\);/);
@@ -764,7 +764,7 @@ test('Download center defers hotel filter loading after primary data', () => {
   assert.match(downloadCenterScheduler, /await loadOnlineDataList\(\{ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS \}\);/);
   assert.match(downloadCenterScheduler, /scheduleDelayedPageTask\(\(\) => \{\s*if \(seq !== downloadCenterTabLoadSeq \|\| !isCurrentTab\(\)\) return null;\s*return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);\s*\}, 720\);/);
   assert.match(downloadCenterScheduler, /return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);/);
-  assert.match(html, /const meituanDownloadData = computed\(\(\) => \{/);
+  assert.match(html, /const meituanDownloadData = computed\(\(\) => buildMeituanDownloadData\(onlineDataList\.value\)\);/);
   assert.match(html, /switchToMeituanDownloadCenter, meituanDownloadData,/);
   assert.doesNotMatch(downloadCenterScheduler, /await refreshOnlineHistory\(\);\s*return null;/);
   assert.doesNotMatch(

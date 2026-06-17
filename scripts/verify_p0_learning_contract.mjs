@@ -7,6 +7,7 @@ const read = (path) => readFileSync(join(root, path), 'utf8');
 const controllerSource = read('app/controller/OnlineData.php');
 const platformProfileBindingReadinessSource = read('app/service/PlatformProfileBindingReadinessService.php');
 const publicSource = read('public/index.html');
+const homeStaticSource = read('public/home-static.js');
 const ctripStaticSource = read('public/ctrip-static.js');
 const meituanStaticSource = read('public/meituan-static.js');
 const packageSource = read('package.json');
@@ -80,16 +81,17 @@ const checks = [
   },
   {
     name: 'frontend renders P0 binding checks in platform profile panel',
-    pass: publicSource.includes('item.binding_checks && item.binding_checks.length')
+    pass: publicSource.includes('(item.checks || []).length')
       && publicSource.includes('platformProfileCheckClass(check.status)')
       && publicSource.includes('const platformProfileCheckClass = (status)'),
   },
   {
     name: 'frontend surfaces competitor summary readiness on home and hotel detail',
     pass: publicSource.includes('homeCompetitorReadiness')
-      && publicSource.includes('hotelCompetitorReadiness(hotelFormAccountHotel())')
+      && publicSource.includes('hotelCompetitorReadiness(hotel)')
       && publicSource.includes('const competitorSummaryReadiness = (summary, hotel = null)')
-      && publicSource.includes('const competitorSummaryReadinessClass = (readiness)'),
+      && publicSource.includes("const competitorSummaryReadinessClass = requireHomeStatic('competitorSummaryReadinessClass')")
+      && homeStaticSource.includes('const competitorSummaryReadinessClass = (readiness)'),
   },
   {
     name: 'Meituan ranking page refreshes competitor summary for selected hotel',
@@ -115,11 +117,11 @@ const checks = [
   {
     name: 'frontend surfaces VIP platform tag evidence without inference',
     pass: publicSource.includes('homeCompetitorPlatformTagText')
-      && publicSource.includes('hotelCompetitorPlatformTagText(hotelFormAccountHotel())')
-      && publicSource.includes('const competitorPlatformTagSummary = (summary)')
-      && publicSource.includes('displaySummary.platform_tag_summary')
-      && publicSource.includes('VIP标签证据')
-      && publicSource.includes('平台标签未返回，不推断VIP'),
+      && publicSource.includes('hotelCompetitorPlatformTagText(hotel)')
+      && homeStaticSource.includes('const competitorPlatformTagSummary = (summary)')
+      && homeStaticSource.includes('displaySummary.platform_tag_summary')
+      && homeStaticSource.includes('VIP ')
+      && homeStaticSource.includes('平台标签未返回，不推断VIP'),
   },
   {
     name: 'frontend surfaces VIP platform tag evidence on Meituan ranking page',

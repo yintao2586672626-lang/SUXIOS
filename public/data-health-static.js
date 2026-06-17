@@ -71,6 +71,39 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         return params;
     };
 
+    const isDirtyQuestionMarkText = (text) => {
+        const value = String(text || '').replace(/\s+/g, '');
+        if (!value) return false;
+        const count = (value.match(/\?/g) || []).length;
+        return count >= 4 && count / Math.max(1, value.length) >= 0.35;
+    };
+
+    const formatOnlineHistoryHotelOption = (hotel) => {
+        const id = hotel?.id ? String(hotel.id) : '';
+        const name = String(hotel?.name || '').trim();
+        if (!id || !name || isDirtyQuestionMarkText(name)) {
+            return null;
+        }
+        const otaHotelId = String(hotel?.ota_hotel_id || hotel?.platform_hotel_id || hotel?.hotel_id || '').trim();
+        const code = String(hotel?.code || '').trim();
+        const suffix = otaHotelId || code;
+        return {
+            value: id,
+            label: suffix ? `${name} (${suffix})` : name,
+            ota_hotel_id: otaHotelId,
+        };
+    };
+
+    const formatOnlineHistoryRaw = (raw) => {
+        if (!raw) return '\u65e0\u539f\u59cb\u6570\u636e';
+        try {
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return JSON.stringify(parsed, null, 2);
+        } catch (error) {
+            return String(raw);
+        }
+    };
+
     const buildHotelDataDashboardRequests = ({ selectedHotelId = '', days = 30 } = {}) => {
         const accountParams = new URLSearchParams();
         accountParams.append('days', String(days || 30));
@@ -1062,6 +1095,110 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             .join(' / ') + (items.length > 4 ? ` 等${items.length}项` : '');
     };
 
+    const buildCollectionHealthAuthorizationRowsReadable = (rows = []) => (
+        (Array.isArray(rows) ? rows : []).map(row => {
+            const platform = String(row?.platform || '').trim();
+            const platformKey = platform.toLowerCase();
+            const statusRawText = String(row?.status || '').trim();
+            const messageRawText = String(row?.message || '').trim();
+            const actionHintRawText = String(row?.action_hint || '').trim();
+            const nameText = String(row?.name || '').trim() || '未命名授权';
+            const configText = String(row?.config_id || row?.id || row?.hotel_id || '').trim();
+            return {
+                ...row,
+                platformKey,
+                platformText: collectionHealthAuthorizationPlatformText(platform),
+                nameText,
+                statusRawText,
+                messageText: collectionHealthAuthorizationMessageText(row),
+                messageRawText,
+                actionHintText: collectionHealthAuthorizationActionHintText(row),
+                actionHintRawText,
+                metaRawText: `${platform || 'platform_missing'} / ${statusRawText || 'status_missing'} / ${configText || 'config_missing'}`,
+            };
+        })
+    );
+
+    const buildCollectionHealthFailureReasonRows = (items = []) => (
+        (Array.isArray(items) ? items : []).map(item => {
+            const platformText = dataHealthPlatformText(item?.platform) || 'OTA 平台';
+            const typeText = collectionHealthFailureTypeText(item?.type);
+            return {
+                ...item,
+                platformText,
+                typeText,
+                metaRawText: `${item?.platform || 'platform_missing'} / ${item?.type || 'type_missing'}`,
+                reasonText: collectionHealthFailureReasonText(item?.reason),
+                reasonRawText: String(item?.reason || ''),
+                nextActionText: collectionHealthFailureNextActionText(item?.next_action, item),
+                nextActionRawText: String(item?.next_action || ''),
+            };
+        })
+    );
+
+    const buildCollectionHealthPendingActionRows = (items = []) => (
+        (Array.isArray(items) ? items : []).map(item => {
+            const evidenceNeededRawText = Array.isArray(item?.evidence_needed)
+                ? item.evidence_needed.map(value => String(value || '').trim()).filter(Boolean).join('、')
+                : String(item?.evidence_needed || '').trim();
+            return {
+                ...item,
+                typeText: collectionHealthPendingActionTypeText(item),
+                typeRawText: String(item?.type || ''),
+                platformText: collectionHealthPendingActionPlatformText(item?.platform),
+                reasonText: collectionHealthPendingActionReasonText(item),
+                reasonRawText: String(item?.reason || ''),
+                actionText: collectionHealthPendingActionText(item),
+                actionRawText: String(item?.action || item?.next_action || ''),
+                ownerText: collectionHealthPendingActionOwnerText(item),
+                ownerRawText: String(item?.owner || ''),
+                evidenceNeededText: collectionHealthPendingActionEvidenceText(item),
+                evidenceNeededRawText,
+                protectedBoundaryText: collectionHealthPendingActionProtectedBoundaryText(item),
+                protectedBoundaryRawText: String(item?.protected_boundary || ''),
+            };
+        })
+    );
+
+    const buildCollectionHealthFieldAssetCards = (summary = {}) => [
+        { key: 'stable', label: '稳定字段', value: summary.stable_field_count || summary.required_field_count || 0 },
+        { key: 'not-returned', label: '未返回字段', value: summary.not_returned_field_count || 0 },
+        { key: 'forbidden', label: '禁止采集', value: summary.forbidden_field_count || 0 },
+        { key: 'collectable', label: '可采集字段', value: summary.collectable_field_count ?? summary.field_count ?? 0 },
+    ];
+
+    const collectionHealthLifecycleStageStatus = (stage, context = {}) => {
+        const key = String(stage?.stage || '');
+        const auth = context.authorization || {};
+        const latest = context.latestLog || {};
+        const quality = context.quality || {};
+        const catalog = context.ctripCatalog || {};
+        const profileSummary = context.platformProfileSummary || {};
+        if (key === 'platform_binding') {
+            if (Number(profileSummary.ready_to_collect || 0) > 0) return 'ok';
+            if (Number(profileSummary.identity_blocked || 0) > 0) return 'failed';
+            if (Number(profileSummary.needs_identity_check || 0) > 0) return 'warning';
+            return auth.total ? 'warning' : 'unknown';
+        }
+        if (key === 'authorization') {
+            return auth.overall_status || (auth.total ? 'warning' : 'unknown');
+        }
+        if (key === 'trial_capture') {
+            return latest.status || catalog.capture_gate_status || 'unknown';
+        }
+        if (key === 'field_assets') {
+            return context.fieldAssetStatus || 'unknown';
+        }
+        if (key === 'quality_gate') {
+            return quality.status || 'unknown';
+        }
+        return 'unknown';
+    };
+
+    const collectionHealthLifecycleReadyCount = (rows = []) => (
+        (Array.isArray(rows) ? rows : []).filter(row => ['ok', 'success'].includes(String(row.status || '').toLowerCase())).length
+    );
+
     const buildCollectionHealthCtripCatalogCards = (catalog = {}) => {
         const valueOrZero = (key) => catalog[key] || 0;
         return [
@@ -1072,6 +1209,33 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             { key: 'rows', label: '入库快照', value: `${valueOrZero('standard_row_count')}`, sub: valueOrZero('standard_row_count') > 0 ? '已形成标准数据' : '未形成标准数据' },
             { key: 'coverage', label: '覆盖率', value: catalog.coverage_rate === null || catalog.coverage_rate === undefined ? '-' : `${catalog.coverage_rate}%`, sub: '按已抓/待补统计' },
         ];
+    };
+
+    const collectionHealthCtripCatalogStatus = (catalog = {}) => {
+        if (!catalog.available) return 'waiting_config';
+        if (catalog.is_live_capture_ready) return 'ok';
+        const gate = String(catalog.capture_gate_status || '').toLowerCase();
+        if (gate === 'fail') return 'failed';
+        if (['pass', 'ok', 'success'].includes(gate)) return 'ok';
+        if (gate === 'missing') return 'warning';
+        return 'unknown';
+    };
+
+    const collectionHealthCtripCatalogMessage = (catalog = {}) => {
+        if (!catalog.available) return catalog.message || '等待携程采集目录生成';
+        if (catalog.is_live_capture_ready) return '携程真实采集已通过基础校验，可用于判断快照可信度。';
+        const gate = String(catalog.capture_gate_status || '').toLowerCase();
+        if (gate === 'fail') return '携程真实采集未通过，当前快照只保留聚合状态。';
+        if (gate === 'missing') return '尚未形成完整采集校验结果。';
+        return catalog.message || '携程采集覆盖统计已更新。';
+    };
+
+    const collectionHealthCtripCatalogGateText = (catalog = {}) => {
+        if (catalog.is_live_capture_ready) return '采集状态：可用';
+        const gate = String(catalog.capture_gate_status || '').toLowerCase();
+        if (gate === 'fail') return '采集状态：未通过';
+        if (gate === 'missing') return '采集状态：待验证';
+        return '采集状态：待处理';
     };
 
     const collectionHealthCtripCatalogDiagnosticScopeText = () => '经营、流量、竞争、PSI、广告';
@@ -1114,6 +1278,114 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         return '采集状态待确认，请查看失败原因或重新采集。';
     };
 
+    const buildCollectionHealthCtripCatalogDetailRows = (catalog = {}) => [
+        {
+            key: 'default-sections',
+            label: '默认采集范围',
+            valueText: collectionHealthCtripCatalogCodeListText(catalog.default_sections),
+            rawText: Array.isArray(catalog.default_sections) ? catalog.default_sections.join('、') : '',
+        },
+        {
+            key: 'wide-sections',
+            label: '扩展采集范围',
+            valueText: collectionHealthCtripCatalogCodeListText(catalog.wide_sections),
+            rawText: Array.isArray(catalog.wide_sections) ? catalog.wide_sections.join('、') : '',
+        },
+        {
+            key: 'capture-gate',
+            label: '采集门禁',
+            valueText: collectionHealthCtripCatalogStatusText(catalog.capture_gate_status),
+            rawText: String(catalog.capture_gate_status || 'missing'),
+        },
+        {
+            key: 'auth-status',
+            label: '授权状态',
+            valueText: collectionHealthCtripCatalogAuthStatusText(catalog.auth_status),
+            rawText: String(catalog.auth_status || 'unknown'),
+        },
+        {
+            key: 'failed-checks',
+            label: '未通过检查',
+            valueText: collectionHealthCtripCatalogCodeListText(catalog.failed_check_ids),
+            rawText: Array.isArray(catalog.failed_check_ids) ? catalog.failed_check_ids.join('、') : '',
+            wide: true,
+        },
+        {
+            key: 'gap-status',
+            label: '采集缺口状态',
+            valueText: collectionHealthCtripCatalogStatusText(catalog.capture_gap_status),
+            rawText: String(catalog.capture_gap_status || 'missing'),
+        },
+        {
+            key: 'pending-rules',
+            label: '待补采集规则',
+            valueText: `${Number(catalog.capture_gap_missing_formal_endpoint_count || 0)} 项`,
+            rawText: String(catalog.capture_gap_missing_formal_endpoint_count || 0),
+        },
+        {
+            key: 'pending-fields',
+            label: '待补数值项',
+            valueText: `${Number(catalog.capture_gap_missing_field_count || 0)} 项`,
+            rawText: String(catalog.capture_gap_missing_field_count || 0),
+        },
+        {
+            key: 'evidence-directions',
+            label: '候选证据方向',
+            valueText: `${Number(catalog.capture_gap_p3_evidence_section_count || 0)} 个`,
+            rawText: String(catalog.capture_gap_p3_evidence_section_count || 0),
+        },
+        {
+            key: 'blockers',
+            label: '阻塞原因',
+            valueText: collectionHealthCtripCatalogCodeListText(catalog.capture_gap_blockers),
+            rawText: Array.isArray(catalog.capture_gap_blockers) ? catalog.capture_gap_blockers.join('、') : '',
+            wide: true,
+        },
+    ];
+
+    const buildCollectionHealthCtripCatalogActionRows = (catalog = {}) => {
+        const actions = Array.isArray(catalog?.capture_gap_next_actions)
+            ? catalog.capture_gap_next_actions
+            : [];
+        return actions.map(action => {
+            const sectionText = collectionHealthCtripCatalogCodeText(action?.section || action?.candidate_section || '');
+            const endpointText = action?.endpoint_id ? '对应采集规则' : '';
+            return {
+                ...action,
+                actionText: String(action?.action || '').trim() || '补齐携程采集证据',
+                reasonText: collectionHealthCtripCatalogActionReasonText(action?.reason),
+                scopeText: [sectionText, endpointText].filter(Boolean).join(' / '),
+                rawText: [
+                    action?.action,
+                    action?.reason,
+                    action?.section,
+                    action?.candidate_section,
+                    action?.endpoint_id,
+                ].filter(Boolean).join(' / '),
+            };
+        });
+    };
+
+    const buildCollectionHealthCtripPersistedRows = (rows = []) => (
+        (Array.isArray(rows) ? rows : [])
+            .filter(row => String(row?.source || '').toLowerCase() === 'ctrip')
+            .sort((a, b) => (
+                String(b?.data_date || '').localeCompare(String(a?.data_date || ''))
+                || String(b?.updated_at || b?.update_time || '').localeCompare(String(a?.updated_at || a?.update_time || ''))
+                || Number(b?.id || 0) - Number(a?.id || 0)
+            ))
+    );
+
+    const collectionHealthCtripIdentityBlocked = (report = {}) => (
+        Number(report.filtered_count || 0) > 0 && ['blocked', 'warning'].includes(String(report.status || '').toLowerCase())
+    );
+
+    const collectionHealthCtripIdentityMessage = (report = {}) => {
+        const message = String(report.message || '').trim();
+        const nextAction = String(report.next_action || '').trim();
+        return [message, nextAction].filter(Boolean).join(' ');
+    };
+
     const buildCollectionHealthCtripLatestCards = (latest = {}) => {
         const freshness = latest.freshness || {};
         const effectiveness = latest.effectiveness || {};
@@ -1128,6 +1400,17 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             { key: 'coverage_rate', label: '覆盖率', value: latest.coverage_rate === null || latest.coverage_rate === undefined ? '-' : `${latest.coverage_rate}%`, sub: '按已抓/待补口径统计' },
             { key: 'freshness', label: '实效', value: freshnessValue, sub: effectiveness.label || freshness.label || '需要重新采集' },
         ];
+    };
+
+    const buildCollectionHealthCtripOverviewAuthState = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        if (!safeRows.length) return { value: '未配置', status: 'waiting_config', className: 'text-amber-700' };
+        if (safeRows.some(row => row?.is_usable)) return { value: '已登录', status: 'ok', className: 'text-emerald-700' };
+        const status = String(safeRows[0]?.status || '').toLowerCase();
+        if (['expired', 'failed', 'auth_failed'].includes(status) || safeRows.every(row => !row?.is_usable)) {
+            return { value: '需重新登录', status: 'expired', className: 'text-red-700' };
+        }
+        return { value: '待验证', status: status || 'unknown', className: 'text-amber-700' };
     };
 
     const buildCollectionHealthCtripOverviewStatusCards = ({
@@ -1168,6 +1451,476 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             { key: 'quality', title: '服务质量', subtitle: 'PSI、评分、回复率、收藏数', tab: 'ctrip-quality', icon: 'fas fa-shield-alt', actionLabel: actionLabel('抓取 PSI') },
             { key: 'ads', title: '广告投放', subtitle: '花费、曝光、点击、ROAS', tab: 'ctrip-ads', icon: 'fas fa-bullhorn', actionLabel: actionLabel('抓取广告') },
         ];
+    };
+
+    const collectionHealthCtripMetricPreviewValue = (preview, key, options = {}) => {
+        if (!preview || !key) return undefined;
+        const normalizedKey = String(key || '').trim();
+        for (const mapKey of ['metrics', 'raw_metrics', 'rank_metrics']) {
+            const map = preview?.[mapKey];
+            if (map && typeof map === 'object' && Object.prototype.hasOwnProperty.call(map, normalizedKey) && map[normalizedKey] !== null && map[normalizedKey] !== '') {
+                return map[normalizedKey];
+            }
+        }
+        if (options.direct !== false && Object.prototype.hasOwnProperty.call(preview, key) && preview[key] !== null && preview[key] !== '') {
+            return preview[key];
+        }
+        return undefined;
+    };
+
+    const collectionHealthCtripCalculatedValue = (preview, key) => {
+        const amount = collectionHealthCtripNumberValue(preview?.amount);
+        const quantity = collectionHealthCtripNumberValue(preview?.quantity);
+        const listExposure = collectionHealthCtripNumberValue(preview?.list_exposure);
+        const detailExposure = collectionHealthCtripNumberValue(preview?.detail_exposure);
+        const orderFilling = collectionHealthCtripNumberValue(preview?.order_filling_num);
+        const orderSubmit = collectionHealthCtripNumberValue(preview?.order_submit_num);
+        const adOrderAmount = collectionHealthCtripNumberValue(preview?.ad_order_amount ?? preview?.order_amount);
+        if (key === 'avg_price' && amount !== null && quantity && quantity > 0) return amount / quantity;
+        if (key === 'exposure_conversion_rate' && listExposure && listExposure > 0 && detailExposure !== null) return detailExposure / listExposure * 100;
+        if (key === 'order_fill_rate' && detailExposure && detailExposure > 0 && orderFilling !== null) return orderFilling / detailExposure * 100;
+        if (key === 'deal_rate' && orderFilling && orderFilling > 0 && orderSubmit !== null) return orderSubmit / orderFilling * 100;
+        if (key === 'roas' && amount && amount > 0 && adOrderAmount !== null) return adOrderAmount / amount;
+        return undefined;
+    };
+
+    const collectionHealthCtripKeysForLabels = (labels) => {
+        const joined = (Array.isArray(labels) ? labels : [labels]).join(' ');
+        const rules = [
+            [/订单|预订/, ['book_order_num', 'order_count', 'orderCount', 'bookOrderNum']],
+            [/间夜/, ['quantity', 'room_nights', 'roomNights']],
+            [/销售额|成交收入|花费|费用|成本/, ['amount', 'order_amount', 'cost_amount']],
+            [/平均卖价|均价|价格/, ['avg_price', 'average_price', 'avgPrice']],
+            [/访客|详情页/, ['detail_exposure', 'detail_visitor', 'visitor_count', 'detailVisitors']],
+            [/曝光|列表页/, ['list_exposure', 'listExposure', 'exposure']],
+            [/提交/, ['order_submit_num', 'submitUsers', 'orderSubmitNum']],
+            [/点击/, ['detail_exposure', 'clicks', 'click_count']],
+            [/转化率|成交率/, ['flow_rate', 'conversion_rate', 'exposure_conversion_rate']],
+            [/点评分|评分/, ['comment_score', 'commentScore', 'qunar_comment_score']],
+            [/PSI|服务质量/, ['psi', 'psi_score', 'psiScore', 'service_score']],
+            [/回复率/, ['five_min_reply_rate', 'reply_rate', 'response_rate']],
+            [/收藏/, ['hotel_collect', 'collect_count', 'favorite_count']],
+            [/排名/, ['amount_rank', 'rank', 'quantity_rank', 'book_order_num_rank']],
+            [/ROAS/, ['roas']],
+        ];
+        const keys = [];
+        rules.forEach(([pattern, values]) => {
+            if (pattern.test(joined)) keys.push(...values);
+        });
+        return [...new Set(keys)];
+    };
+
+    const collectionHealthCtripDataTypesForSections = (sections) => {
+        const set = new Set();
+        (Array.isArray(sections) ? sections : [sections]).forEach(section => {
+            const value = String(section || '');
+            if (value.includes('ads')) set.add('advertising');
+            if (value.includes('traffic')) set.add('traffic');
+            if (value.includes('business') || value.includes('sales') || value.includes('competitor') || value.includes('quality')) set.add('business');
+        });
+        return Array.from(set);
+    };
+
+    const collectionHealthCtripActionForSections = (sections) => {
+        const list = (Array.isArray(sections) ? sections : [sections]).map(item => String(item || ''));
+        if (list.some(section => section.includes('ads'))) return { module: '广告投放', actionLabel: '补抓广告', actionTab: 'ctrip-ads' };
+        if (list.some(section => section.includes('traffic'))) return { module: '流量漏斗', actionLabel: '补抓流量', actionTab: 'ctrip-traffic' };
+        if (list.some(section => section.includes('competitor'))) return { module: '竞争表现', actionLabel: '补抓竞争', actionTab: 'ctrip-ranking' };
+        if (list.some(section => section.includes('quality'))) return { module: '服务质量', actionLabel: '补抓 PSI', actionTab: 'ctrip-quality' };
+        return { module: '收益经营', actionLabel: '补抓经营', actionTab: 'ctrip-flow-overview' };
+    };
+
+    const collectionHealthCtripModuleStats = (sections, modules = []) => {
+        const sectionSet = new Set((Array.isArray(sections) ? sections : [sections]).map(item => String(item || '').trim()).filter(Boolean));
+        const matchedModules = (Array.isArray(modules) ? modules : []).filter(module => sectionSet.has(String(module?.section || '').trim()));
+        return matchedModules.reduce((stats, module) => {
+            stats.moduleCount += 1;
+            stats.fileFound = stats.fileFound || !!module.file_found;
+            stats.failed = stats.failed || ['failed', 'error'].includes(String(module.status || '').toLowerCase()) || String(module.gate_status || '').toLowerCase() === 'fail';
+            stats.responseCount += Number(module.response_count || 0);
+            stats.standardRowCount += Number(module.standard_row_count || 0);
+            stats.catalogFactCount += Number(module.catalog_fact_count || 0);
+            stats.missingEndpointCount += Number(module.missing_endpoint_count || 0);
+            return stats;
+        }, {
+            moduleCount: 0,
+            fileFound: false,
+            failed: false,
+            responseCount: 0,
+            standardRowCount: 0,
+            catalogFactCount: 0,
+            missingEndpointCount: 0,
+        });
+    };
+
+    const collectionHealthCtripRowsForContext = (rows = [], options = {}) => {
+        const dataTypes = Array.isArray(options.dataTypes) ? options.dataTypes.map(item => String(item).toLowerCase()) : [];
+        const dimensionIncludes = Array.isArray(options.dimensionIncludes) ? options.dimensionIncludes.map(item => String(item).toLowerCase()) : [];
+        return (Array.isArray(rows) ? rows : []).filter(row => {
+            const dataType = String(row?.data_type || '').toLowerCase();
+            if (dataTypes.length && !dataTypes.includes(dataType)) return false;
+            const preview = row?.metric_preview || {};
+            const dimension = String(preview.dimension || row?.dimension || '').toLowerCase();
+            if (dimensionIncludes.length && !dimensionIncludes.some(item => dimension.includes(item))) return false;
+            return true;
+        });
+    };
+
+    const collectionHealthCtripPreviewMetricKey = (preview = {}) => {
+        const direct = String(preview.metric_key || preview.metricKey || '').trim().toLowerCase();
+        if (direct) return direct;
+        const dimension = String(preview.dimension || '').trim().toLowerCase();
+        const match = dimension.match(/^catalog:[^:]+:[^:]+:([^:]+)/);
+        return match ? match[1] : '';
+    };
+
+    const collectionHealthCtripMetricKeyAliases = (key) => {
+        const aliasMap = {
+            amount: ['amount', 'order_amount', 'book_amount', 'sale_amount', 'ad_cost', 'cost_amount', 'business_amount'],
+            order_amount: ['amount', 'order_amount', 'book_amount', 'sale_amount', 'ad_order_amount', 'booking_amount', 'gmv'],
+            cost_amount: ['amount', 'ad_cost', 'cost_amount'],
+            quantity: ['quantity', 'room_nights', 'roomnight', 'room_night', 'check_out_quantity', 'ad_room_nights'],
+            room_nights: ['quantity', 'room_nights', 'roomnight', 'room_night'],
+            book_order_num: ['book_order_num', 'order_count', 'orders', 'book_order_count', 'bookordernum', 'ad_orders'],
+            order_count: ['book_order_num', 'order_count', 'orders', 'book_order_count'],
+            list_exposure: ['list_exposure', 'listexposure', 'ad_impressions', 'impressions', 'exposure'],
+            detail_exposure: ['detail_exposure', 'detail_visitor', 'visitor_count', 'detailvisitors', 'ad_clicks', 'clicks'],
+            order_filling_num: ['order_filling_num', 'order_page_visitor', 'orderfillingnum'],
+            order_submit_num: ['order_submit_num', 'order_submit_user', 'ordersubmitnum', 'submit_users', 'ad_orders'],
+            flow_rate: ['flow_rate', 'conversion_rate', 'exposure_conversion_rate', 'order_conversion_rate', 'deal_rate'],
+            conversion_rate: ['flow_rate', 'conversion_rate', 'exposure_conversion_rate', 'order_conversion_rate', 'deal_rate'],
+            deal_rate: ['deal_rate', 'transaction_rate', 'conversion_rate'],
+            avg_price: ['avg_price', 'average_price', 'adr', 'price'],
+            average_price: ['avg_price', 'average_price', 'adr', 'price'],
+            rank: ['rank', 'amount_rank', 'quantity_rank', 'book_order_num_rank', 'avg_price_rank', 'price_rank', 'visitor_rank', 'flow_rank', 'traffic_rank'],
+            data_value: ['data_value', 'value'],
+            ad_order_amount: ['ad_order_amount', 'order_amount', 'booking_amount', 'gmv'],
+            roas: ['roas', 'roi'],
+            psi: ['psi', 'psi_score', 'service_score'],
+            psi_score: ['psi', 'psi_score', 'service_score'],
+            comment_score: ['comment_score', 'score', 'hotel_score'],
+            qunar_comment_score: ['qunar_comment_score', 'comment_score', 'score'],
+            five_min_reply_rate: ['five_min_reply_rate', 'reply_rate', 'response_rate'],
+            reply_rate: ['five_min_reply_rate', 'reply_rate', 'response_rate'],
+            hotel_collect: ['hotel_collect', 'collect_count', 'favorite_count'],
+        };
+        const normalized = String(key || '').trim().toLowerCase();
+        return new Set([normalized, ...(aliasMap[normalized] || [])]);
+    };
+
+    const collectionHealthCtripMetricKeyMatches = (preview, key) => {
+        const metricKey = collectionHealthCtripPreviewMetricKey(preview);
+        if (!metricKey) return true;
+        const aliases = collectionHealthCtripMetricKeyAliases(key);
+        if (aliases.has(metricKey)) return true;
+        const metricKeyParts = metricKey.split(/[\+,\|\s]+/).map(part => part.trim()).filter(Boolean);
+        return metricKeyParts.some(part => collectionHealthCtripMetricKeyAliases(key).has(part));
+    };
+
+    const collectionHealthCtripMissingDiagnosis = (sections, labels, options = {}) => {
+        const sectionList = (Array.isArray(sections) ? sections : [sections]).map(item => String(item || '').trim()).filter(Boolean);
+        const targetLabels = (Array.isArray(labels) ? labels : [labels]).map(item => String(item || '').trim()).filter(Boolean);
+        const action = collectionHealthCtripActionForSections(sectionList);
+        const authState = options.authState || {};
+        if (authState.status === 'waiting_config') {
+            return { diagnosisType: 'config', module: action.module, reasonText: '配置问题：缺少携程 Cookie，先补充 Cookie 后再抓。', actionLabel: '检查配置', actionTab: '' };
+        }
+        if (authState.status === 'expired') {
+            return { diagnosisType: 'config', module: action.module, reasonText: '配置问题：携程 Cookie 不可用或过期，先重新授权。', actionLabel: '重新授权', actionTab: '' };
+        }
+        if (options.identityBlocked) {
+            return {
+                diagnosisType: 'hotel_identity_conflict',
+                module: action.module,
+                reasonText: options.identityMessage || '已抓到携程数据，但门店身份存在冲突，系统已阻止展示错店风险数据。',
+                actionLabel: '检查配置',
+                actionTab: '',
+            };
+        }
+
+        const dataTypes = options.dataTypes || collectionHealthCtripDataTypesForSections(sectionList);
+        const rows = collectionHealthCtripRowsForContext(options.persistedRows || [], { dataTypes, dimensionIncludes: options.dimensionIncludes || [] });
+        const stats = collectionHealthCtripModuleStats(sectionList, options.latestModules || []);
+        if (!stats.fileFound && rows.length === 0) {
+            return { diagnosisType: 'not_captured', module: action.module, reasonText: `未补抓对应模块：尚无${action.module}抓取结果，先执行${action.actionLabel}。`, actionLabel: action.actionLabel, actionTab: action.actionTab };
+        }
+        if (stats.failed) {
+            return { diagnosisType: 'request_failed', module: action.module, reasonText: `接口失败：${action.module}已发起但请求失败，需检查 Cookie 或平台返回。`, actionLabel: action.actionLabel, actionTab: action.actionTab };
+        }
+        if (stats.responseCount <= 0 && stats.fileFound) {
+            return { diagnosisType: 'wrong_endpoint', module: action.module, reasonText: `抓取位置不对：${action.module}接口未命中，需补抓对应模块或校验平台页面位置。`, actionLabel: action.actionLabel, actionTab: action.actionTab };
+        }
+        if (stats.missingEndpointCount > 0 && rows.length === 0) {
+            return { diagnosisType: 'wrong_endpoint', module: action.module, reasonText: `抓取位置不对：${action.module}关键接口未命中，需补抓对应模块。`, actionLabel: action.actionLabel, actionTab: action.actionTab };
+        }
+        if (stats.responseCount > 0 && stats.standardRowCount <= 0 && rows.length === 0) {
+            return { diagnosisType: 'mapping', module: action.module, reasonText: `字段映射/入库问题：${action.module}接口有响应但未形成入库字段。`, actionLabel: action.actionLabel, actionTab: action.actionTab };
+        }
+        if (rows.length > 0 || stats.standardRowCount > 0 || stats.catalogFactCount > 0) {
+            return { diagnosisType: 'mapping', module: action.module, reasonText: `字段映射/入库问题：${action.module}已抓到数据，但${targetLabels[0] || '该字段'}未保存或维度不匹配。`, actionLabel: action.actionLabel, actionTab: action.actionTab };
+        }
+        return { diagnosisType: 'unknown', module: action.module, reasonText: `需补抓${action.module}后复核配置和字段映射。`, actionLabel: action.actionLabel, actionTab: action.actionTab };
+    };
+
+    const collectionHealthCtripMissingMetric = (sections, labels, options = {}) => {
+        const diagnosis = collectionHealthCtripMissingDiagnosis(sections, labels, options);
+        return { value: '未抓到', status: 'missing', source: diagnosis.reasonText, ...diagnosis };
+    };
+
+    const collectionHealthCtripMetricFromRows = (keys, options = {}) => {
+        const targetKeys = (keys || []).filter(Boolean);
+        if (!targetKeys.length) return null;
+        const dataTypes = Array.isArray(options.dataTypes) ? options.dataTypes.map(item => String(item).toLowerCase()) : [];
+        const dimensionIncludes = Array.isArray(options.dimensionIncludes) ? options.dimensionIncludes.map(item => String(item).toLowerCase()) : [];
+        const unit = options.unit || '';
+        const rows = Array.isArray(options.persistedRows) ? options.persistedRows : [];
+        for (const row of rows) {
+            const dataType = String(row?.data_type || '').toLowerCase();
+            if (dataTypes.length && !dataTypes.includes(dataType)) continue;
+            const preview = row?.metric_preview || {};
+            const dimension = String(preview.dimension || row?.dimension || '').toLowerCase();
+            if (dimensionIncludes.length && !dimensionIncludes.some(item => dimension.includes(item))) continue;
+            for (const key of targetKeys) {
+                const previewMetricKey = collectionHealthCtripPreviewMetricKey(preview);
+                const metricKeyMatched = collectionHealthCtripMetricKeyMatches(preview, key);
+                const canUseDirectPreviewValue = metricKeyMatched && (previewMetricKey || dimensionIncludes.length);
+                let value = collectionHealthCtripMetricPreviewValue(preview, key, { direct: canUseDirectPreviewValue });
+                if (canUseDirectPreviewValue && value === undefined) {
+                    value = collectionHealthCtripMetricPreviewValue(preview, 'data_value');
+                }
+                if (value === undefined) {
+                    const calculatedValue = collectionHealthCtripCalculatedValue(preview, key);
+                    if (calculatedValue !== undefined) {
+                        value = calculatedValue;
+                    }
+                }
+                if (value === undefined || value === null || value === '') continue;
+                return {
+                    value: collectionHealthCtripMetricDisplay(value, unit),
+                    status: 'ok',
+                    source: `最近入库 ${row.data_date || '-'}`,
+                    reasonText: '已入库',
+                    diagnosisType: 'ok',
+                };
+            }
+        }
+        return null;
+    };
+
+    const collectionHealthCtripMetricValue = (sections, labels, options = {}) => {
+        const modules = Array.isArray(options.latestModules) ? options.latestModules : [];
+        const targetLabels = (Array.isArray(labels) ? labels : [labels]).map(label => String(label || '').trim()).filter(Boolean);
+        const sectionList = (Array.isArray(sections) ? sections : [sections]).map(section => String(section || '').trim()).filter(Boolean);
+        const persisted = collectionHealthCtripMetricFromRows(
+            options.keys || collectionHealthCtripKeysForLabels(targetLabels),
+            {
+                dataTypes: options.dataTypes || collectionHealthCtripDataTypesForSections(sectionList),
+                dimensionIncludes: options.dimensionIncludes || [],
+                unit: options.unit || '',
+                persistedRows: options.persistedRows || [],
+            }
+        );
+        if (persisted) return persisted;
+        const canUseModuleSnapshot = !String(options.targetHotelId || '').trim();
+        if (!canUseModuleSnapshot) {
+            return collectionHealthCtripMissingMetric(sectionList, targetLabels, options);
+        }
+        for (const section of sectionList) {
+            const module = modules.find(item => item.section === section);
+            if (!module) continue;
+            const snapshotValues = Array.isArray(module.snapshot_values) ? module.snapshot_values : [];
+            const snapshotHit = snapshotValues.find(item => targetLabels.includes(String(item?.label || '').trim()));
+            if (snapshotHit) {
+                return {
+                    value: collectionHealthCtripValueText(snapshotHit),
+                    status: 'ok',
+                    source: `${module.label || section} / ${snapshotHit.label}`,
+                    reasonText: '已抓到',
+                    diagnosisType: 'ok',
+                };
+            }
+            const metrics = Array.isArray(module.metrics) ? module.metrics : [];
+            const metricHit = metrics.find(item => targetLabels.includes(String(item?.label || item?.key || '').trim()));
+            const examples = Array.isArray(metricHit?.examples) ? metricHit.examples.filter(item => item !== null && item !== '') : [];
+            if (metricHit && examples.length) {
+                return {
+                    value: collectionHealthCtripValueText({ value: examples[0], unit: metricHit.unit || '' }),
+                    status: 'ok',
+                    source: `${module.label || section} / ${metricHit.label || metricHit.key || '-'}`,
+                    reasonText: '已抓到',
+                    diagnosisType: 'ok',
+                };
+            }
+        }
+        return collectionHealthCtripMissingMetric(sectionList, targetLabels, options);
+    };
+
+    const collectionHealthCtripOverviewMetric = (label, sections, labels, options = {}, context = {}) => ({
+        label,
+        ...collectionHealthCtripMetricValue(sections, labels, { ...context, ...options }),
+    });
+
+    const buildCollectionHealthCtripCoreSnapshotGroups = (context = {}) => {
+        const metric = (sections, label, labels) => collectionHealthCtripOverviewMetric(label, sections, labels, {}, context);
+        const groupStatus = (metrics) => metrics.some(item => item.status === 'ok') ? 'captured' : 'missing_file';
+        const buildGroup = (key, label, sections, metrics) => ({
+            key,
+            label,
+            sourceText: sections.join(' / '),
+            status: groupStatus(metrics),
+            metrics,
+        });
+        const businessMetrics = [
+            metric(['business_overview', 'sales_report'], '预订销售额', ['预订销售额', '成交收入']),
+            metric(['business_overview', 'sales_report'], '间夜量', ['间夜量', '成交间夜']),
+            metric(['business_overview', 'sales_report'], '预订订单数', ['预订订单数', '昨日订单数']),
+            metric(['business_overview', 'sales_report'], '平均卖价', ['平均卖价', '平均房价']),
+            metric(['business_overview', 'sales_report'], '出租率（OTA渠道）', ['出租率']),
+        ];
+        const trafficMetrics = [
+            metric(['traffic_report', 'business_overview'], '列表页曝光', ['列表页曝光量', '昨日浏览量']),
+            metric(['traffic_report', 'business_overview'], '详情页访客', ['详情页访客量']),
+            metric(['traffic_report', 'business_overview'], '访客量', ['访客量', '昨日访客数']),
+            metric(['traffic_report', 'business_overview'], '订单提交人数', ['订单提交人数']),
+            metric(['traffic_report', 'business_overview'], '转化率', ['流量转化率', '成交/下单转化率', '下单转化率', '昨日转化率']),
+        ];
+        const competitorMetrics = [
+            metric(['business_overview', 'competitor_overview', 'competitor_rank'], '竞争圈排名', ['竞争圈排名', '竞争圈成交排名', '预订销售额排名', '访客排名']),
+            metric(['business_overview', 'competitor_overview'], '竞争圈平均值', ['竞争圈平均值', '竞争圈平均访客', '竞品访客']),
+            metric(['business_overview', 'competitor_overview', 'competitor_rank'], '竞品价格/排名', ['平均卖价', '平均房价', '出租率排名', '销售额排名']),
+        ];
+        const qualityMetrics = [
+            metric(['quality_psi', 'business_overview'], 'PSI服务质量分', ['PSI服务质量分', '服务质量分']),
+            metric(['quality_psi', 'business_overview'], '基础分', ['基础分']),
+            metric(['quality_psi', 'business_overview'], '奖励分', ['奖励分']),
+            metric(['quality_psi', 'business_overview'], '减分项', ['减分项']),
+            metric(['quality_psi'], '提分任务', ['提分任务']),
+        ];
+        const adsMetrics = [
+            metric(['ads_pyramid'], '广告花费', ['广告花费']),
+            metric(['ads_pyramid'], '广告曝光', ['广告曝光']),
+            metric(['ads_pyramid'], '广告点击', ['广告点击']),
+            metric(['ads_pyramid'], '广告订单', ['广告订单', '广告预订订单']),
+            metric(['ads_pyramid'], '广告金额', ['广告金额', '广告订单金额']),
+            metric(['ads_pyramid'], 'ROAS', ['ROAS', '广告投产比ROAS']),
+        ];
+        return [
+            buildGroup('business', '经营成交', ['business_overview', 'sales_report'], businessMetrics),
+            buildGroup('traffic', '流量转化', ['traffic_report', 'business_overview'], trafficMetrics),
+            buildGroup('competitor', '竞争表现', ['business_overview', 'competitor_overview'], competitorMetrics),
+            buildGroup('quality', '服务质量', ['quality_psi', 'business_overview'], qualityMetrics),
+            buildGroup('ads', '广告投放', ['ads_pyramid'], adsMetrics),
+        ];
+    };
+
+    const buildCollectionHealthCtripOverviewRevenueMetrics = (context = {}) => [
+        collectionHealthCtripOverviewMetric('实时预订订单', ['business_overview', 'sales_report'], ['预订订单数', '昨日订单数'], { dataTypes: ['business'], keys: ['book_order_num', 'order_count', 'orderCount', 'bookOrderNum'] }, context),
+        collectionHealthCtripOverviewMetric('实时在店间夜', ['business_overview', 'sales_report'], ['间夜量', '成交间夜'], { dataTypes: ['business'], keys: ['quantity', 'room_nights', 'roomNights'] }, context),
+        collectionHealthCtripOverviewMetric('离店销售额', ['business_overview', 'sales_report'], ['预订销售额', '成交收入'], { dataTypes: ['business'], keys: ['amount', 'order_amount'] }, context),
+        collectionHealthCtripOverviewMetric('离店间夜', ['business_overview', 'sales_report'], ['间夜量', '成交间夜'], { dataTypes: ['business'], keys: ['quantity', 'room_nights', 'roomNights'] }, context),
+        collectionHealthCtripOverviewMetric('成交率', ['business_overview', 'sales_report'], ['成交/下单转化率', '下单转化率', '流量转化率'], { dataTypes: ['business', 'traffic'], keys: ['flow_rate', 'conversion_rate', 'deal_rate'], unit: '%' }, context),
+        collectionHealthCtripOverviewMetric('平均卖价', ['business_overview', 'sales_report'], ['平均卖价', '平均房价'], { dataTypes: ['business'], keys: ['avg_price', 'average_price', 'avgPrice'] }, context),
+    ];
+
+    const buildCollectionHealthCtripOverviewTrafficMetrics = (context = {}) => [
+        collectionHealthCtripOverviewMetric('实时访客量', ['traffic_report', 'business_overview'], ['访客量', '详情页访客量'], { dataTypes: ['traffic', 'business'], keys: ['detail_exposure', 'detail_visitor', 'visitor_count', 'detailVisitors'] }, context),
+        collectionHealthCtripOverviewMetric('实时排名', ['traffic_report', 'business_overview'], ['流量排名', '访客排名'], { dataTypes: ['traffic', 'business'], keys: ['flow_rank', 'rank', 'amount_rank'] }, context),
+        collectionHealthCtripOverviewMetric('竞争圈排名', ['business_overview', 'competitor_overview', 'competitor_rank'], ['竞争圈排名', '竞争圈成交排名'], { dataTypes: ['business'], keys: ['amount_rank', 'quantity_rank', 'book_order_num_rank', 'rank'] }, context),
+        collectionHealthCtripOverviewMetric('曝光转化率', ['traffic_report'], ['曝光转化率', '流量转化率'], { dataTypes: ['traffic'], keys: ['flow_rate', 'exposure_conversion_rate'], dimensionIncludes: ['self', 'myhotel'], unit: '%' }, context),
+        collectionHealthCtripOverviewMetric('下单转化率', ['traffic_report'], ['下单转化率'], { dataTypes: ['traffic'], keys: ['order_fill_rate'], dimensionIncludes: ['self', 'myhotel'], unit: '%' }, context),
+        collectionHealthCtripOverviewMetric('成交转化率', ['traffic_report'], ['成交转化率'], { dataTypes: ['traffic'], keys: ['deal_rate'], dimensionIncludes: ['self', 'myhotel'], unit: '%' }, context),
+    ];
+
+    const buildCollectionHealthCtripOverviewFunnelRows = (context = {}) => {
+        const funnelMetric = (label, keys, dimensionIncludes = []) => ({
+            label,
+            myHotel: collectionHealthCtripMetricFromRows(keys, { ...context, dataTypes: ['traffic'], dimensionIncludes }) || collectionHealthCtripMissingMetric(['traffic_report'], [label], { ...context, dataTypes: ['traffic'], keys, dimensionIncludes }),
+            competitorAverage: collectionHealthCtripMetricFromRows(keys, { ...context, dataTypes: ['traffic'], dimensionIncludes: ['competitor', 'avg'] }) || collectionHealthCtripMissingMetric(['traffic_report'], [label, '竞争圈平均'], { ...context, dataTypes: ['traffic'], keys, dimensionIncludes: ['competitor', 'avg'] }),
+        });
+        return [
+            funnelMetric('列表页曝光量', ['list_exposure', 'listExposure'], ['self', 'myhotel']),
+            funnelMetric('详情页访客量', ['detail_exposure', 'detailVisitors'], ['self', 'myhotel']),
+            funnelMetric('订单页访客量', ['order_filling_num', 'orderFillingNum'], ['self', 'myhotel']),
+            funnelMetric('订单提交人数', ['order_submit_num', 'orderSubmitNum'], ['self', 'myhotel']),
+        ];
+    };
+
+    const buildCollectionHealthCtripOverviewPanels = (context = {}) => [
+        {
+            key: 'competitor',
+            title: '竞争表现',
+            scope: '竞争圈',
+            metrics: [
+                collectionHealthCtripOverviewMetric('竞争圈排名', ['business_overview', 'competitor_overview', 'competitor_rank'], ['竞争圈排名', '竞争圈成交排名'], { dataTypes: ['business'], keys: ['amount_rank', 'quantity_rank', 'book_order_num_rank', 'rank'] }, context),
+                collectionHealthCtripOverviewMetric('竞争圈平均值', ['business_overview', 'competitor_overview'], ['竞争圈平均值', '竞争圈平均访客'], { dataTypes: ['traffic', 'business'], keys: ['competitor_average', 'competitor_amount', 'competitor_orders'], dimensionIncludes: ['competitor', 'avg'] }, context),
+                collectionHealthCtripOverviewMetric('价格排名', ['business_overview', 'competitor_rank'], ['价格排名', '平均卖价排名'], { dataTypes: ['business'], keys: ['avg_price_rank', 'price_rank', 'amount_rank'] }, context),
+                collectionHealthCtripOverviewMetric('竞品均价', ['business_overview', 'competitor_overview'], ['竞品均价', '竞争圈平均房价'], { dataTypes: ['business'], keys: ['competitor_avg_price', 'avg_price'], dimensionIncludes: ['competitor', 'avg'] }, context),
+            ],
+        },
+        {
+            key: 'service',
+            title: '服务质量',
+            scope: 'PSI',
+            metrics: [
+                collectionHealthCtripOverviewMetric('PSI服务质量分', ['quality_psi', 'business_overview'], ['PSI服务质量分', '服务质量分'], { dataTypes: ['business'], keys: ['psi', 'psi_score', 'psiScore', 'service_score'] }, context),
+                collectionHealthCtripOverviewMetric('酒店点评分', ['quality_psi', 'business_overview'], ['酒店点评分', '点评分'], { dataTypes: ['business'], keys: ['comment_score', 'commentScore', 'qunar_comment_score'] }, context),
+                collectionHealthCtripOverviewMetric('5分钟回复率', ['quality_psi'], ['5分钟回复率', '回复率'], { dataTypes: ['business'], keys: ['five_min_reply_rate', 'reply_rate', 'response_rate'], unit: '%' }, context),
+                collectionHealthCtripOverviewMetric('酒店收藏数', ['quality_psi', 'business_overview'], ['酒店收藏数', '收藏数'], { dataTypes: ['business'], keys: ['hotel_collect', 'collect_count', 'favorite_count'] }, context),
+            ],
+        },
+        {
+            key: 'ads',
+            title: '广告投放',
+            scope: '效果页',
+            metrics: [
+                collectionHealthCtripOverviewMetric('广告花费', ['ads_pyramid'], ['广告花费'], { dataTypes: ['advertising'], keys: ['amount', 'ad_cost', 'cost_amount'] }, context),
+                collectionHealthCtripOverviewMetric('广告曝光', ['ads_pyramid'], ['广告曝光'], { dataTypes: ['advertising'], keys: ['list_exposure', 'ad_impressions'] }, context),
+                collectionHealthCtripOverviewMetric('广告点击', ['ads_pyramid'], ['广告点击'], { dataTypes: ['advertising'], keys: ['detail_exposure', 'ad_clicks'] }, context),
+                collectionHealthCtripOverviewMetric('广告订单', ['ads_pyramid'], ['广告订单', '广告预订订单'], { dataTypes: ['advertising'], keys: ['book_order_num', 'order_submit_num', 'ad_orders'] }, context),
+                collectionHealthCtripOverviewMetric('广告金额', ['ads_pyramid'], ['广告金额', '广告订单金额'], { dataTypes: ['advertising'], keys: ['ad_order_amount', 'order_amount'] }, context),
+                collectionHealthCtripOverviewMetric('ROAS', ['ads_pyramid'], ['ROAS', '广告投产比ROAS'], { dataTypes: ['advertising'], keys: ['roas'] }, context),
+            ],
+        },
+    ];
+
+    const buildCollectionHealthCtripMissingActionRows = ({
+        revenueMetrics = [],
+        trafficMetrics = [],
+        funnelRows = [],
+        panels = [],
+    } = {}) => {
+        const allMetrics = [
+            ...(Array.isArray(revenueMetrics) ? revenueMetrics : []),
+            ...(Array.isArray(trafficMetrics) ? trafficMetrics : []),
+            ...(Array.isArray(funnelRows) ? funnelRows : []).flatMap(row => [
+                { ...(row?.myHotel || {}), label: row?.label || '' },
+                { ...(row?.competitorAverage || {}), label: `${row?.label || ''} 竞争圈平均` },
+            ]),
+            ...(Array.isArray(panels) ? panels : []).flatMap(panel => (Array.isArray(panel?.metrics) ? panel.metrics : []).map(metric => ({
+                ...metric,
+                label: `${panel?.title || ''}-${metric?.label || ''}`,
+            }))),
+        ];
+        const groups = new Map();
+        allMetrics.forEach(metric => {
+            if (!metric || metric.status === 'ok') return;
+            const key = `${metric.diagnosisType || 'unknown'}|${metric.actionTab || ''}|${metric.reasonText || metric.source || ''}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    diagnosisType: metric.diagnosisType || 'unknown',
+                    module: metric.module || collectionHealthCtripActionForSections([]).module,
+                    reasonText: metric.reasonText || metric.source || '未抓到',
+                    actionLabel: metric.actionLabel || '',
+                    actionTab: metric.actionTab || '',
+                    count: 0,
+                    fields: [],
+                });
+            }
+            const group = groups.get(key);
+            group.count += 1;
+            group.fields.push(metric.label || '未命名指标');
+        });
+        return Array.from(groups.values()).slice(0, 6);
     };
 
     const normalizePhase1MetricDataType = (value) => String(value || '').toLowerCase().trim();
@@ -2201,6 +2954,127 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             sourcePolicy: String(item?.source_policy || ''),
         };
     };
+    const phase1LocalActionMeta = (key) => ({
+        today_ota_collected: {
+            actionFamily: 'target_date_source_rows',
+            priority: 'high',
+            entry: '/api/online-data/collection-reliability',
+            owner: '酒店运营人员',
+            evidenceNeeded: '目标日来源证据、OTA 入库表同日期源数据行、采集日志或回放记录',
+            successCriteria: '目标日携程/美团均有入库行，且缺失平台为空。',
+        },
+        trusted_fields: {
+            actionFamily: 'standard_facts',
+            priority: 'medium',
+            entry: '/api/online-data/collection-reliability',
+            owner: '收益运营人员',
+            evidenceNeeded: '字段资产、指标可信证据、数据质量状态、目标日样例',
+            successCriteria: '字段资产、指标可信证据和数据质量状态均能支撑字段可信判断。',
+        },
+        missing_fields: {
+            actionFamily: 'standard_facts',
+            priority: 'medium',
+            entry: '/api/online-data/collection-reliability',
+            owner: '产品/技术',
+            evidenceNeeded: '数据质量缺失字段、OTA 诊断数据缺口、字段资产',
+            successCriteria: '缺失字段和数据缺口被显式列出；无缺口时也保留可复核证据。',
+        },
+        revenue_traffic_conversion: {
+            actionFamily: 'traffic_conversion_facts',
+            priority: 'high',
+            entry: '/api/ota-standard/revenue-metrics',
+            owner: 'OTA 运营人员',
+            evidenceNeeded: '目标日收益事实、流量事实、转化事实、指标可信证据、数据缺口',
+            successCriteria: '收益、流量、转化指标域分别有 ready/missing 状态，缺失时不输出确定结论。',
+        },
+        ai_evidence: {
+            actionFamily: 'ai_diagnosis_evidence',
+            priority: 'high',
+            entry: '/api/agent/ota-diagnosis',
+            owner: 'AI 运营人员',
+            evidenceNeeded: '证据来源、数据缺口、动作项',
+            successCriteria: 'OTA 诊断响应包含证据来源、数据缺口和至少一个非阻断动作项。',
+        },
+        next_operation_action: {
+            actionFamily: 'operation_execution_evidence',
+            priority: 'medium',
+            entry: '/api/operation/execution-intents',
+            owner: '运营负责人',
+            evidenceNeeded: '执行意图或执行流、审批状态、执行证据、复盘或 ROI',
+            successCriteria: '执行意图或执行流程可追溯到 OTA 诊断动作项，并出现审批、执行证据、复盘或 ROI 信号。',
+        },
+    }[String(key || '')] || {
+        actionFamily: 'evidence_scope',
+        priority: 'medium',
+        entry: '/api/online-data/collection-reliability',
+        owner: '运营人员',
+        evidenceNeeded: '当前问题对应的可复核证据',
+        successCriteria: '证据状态从待证明变为可复核。',
+    });
+    const buildPhase1LocalRequiredAction = (row, index = 0) => {
+        const key = String(row?.key || row?.question || `question_${index + 1}`).trim();
+        const meta = phase1LocalActionMeta(key);
+        const statusText = phase1EmployeeQuestionStatusText(row?.status);
+        const detail = String(row?.detail || row?.evidence || '').trim();
+        return normalizePhase1EmployeeRequiredAction({
+            action_code: `local_${key}_required_action`,
+            action_family: meta.actionFamily,
+            type: 'local_employee_question_action',
+            priority: meta.priority,
+            status: 'missing',
+            platform: 'ota',
+            question_key: key,
+            reason: ['本地六问推导', statusText, detail].filter(Boolean).join(' / '),
+            next_action: String(row?.nextActionText || row?.employeeNextActionText || row?.nextAction || '复核当前问题对应证据。'),
+            entry: meta.entry,
+            owner: meta.owner,
+            evidence_needed: meta.evidenceNeeded,
+            success_criteria: meta.successCriteria,
+            blocked_by: row?.primaryNextActionCode ? [row.primaryNextActionCode] : [],
+            blocked_by_action_codes: row?.primaryNextActionCode ? [row.primaryNextActionCode] : [],
+            resolves_missing_codes: [key],
+            source_policy: 'local_ui_derived_from_employee_questions',
+            protected_boundary: '仅为前端根据已加载员工六问推导的待办；不代表后端采集成功，不改变携程/美团手动或自动获取逻辑，不改变获取字段。',
+        });
+    };
+    const phase1DiagnosisActionItemStatus = (item) => String(item?.status || '').trim();
+    const phase1DiagnosisActionItemText = (item) => String(item?.action || item?.title || item?.name || '').trim();
+    const phase1DiagnosisActionItemBlocked = (item) => {
+        const status = phase1DiagnosisActionItemStatus(item);
+        return status === 'blocked' || status.startsWith('blocked_');
+    };
+    const buildPhase1AiDiagnosisEvidence = ({ diagnosisResult = {}, gaps = [], actions = [] } = {}) => {
+        const source = diagnosisResult && typeof diagnosisResult === 'object' ? diagnosisResult : {};
+        const evidenceSources = Array.isArray(source?.evidence_sources) ? source.evidence_sources : [];
+        const safeGaps = Array.isArray(gaps) ? gaps : [];
+        const safeActions = Array.isArray(actions) ? actions : [];
+        const dataGapEvidencePresent = Object.prototype.hasOwnProperty.call(source, 'data_gaps');
+        const actionableCount = safeActions.filter(item => !phase1DiagnosisActionItemBlocked(item) && phase1DiagnosisActionItemText(item)).length;
+        const blockedCount = safeActions.filter(phase1DiagnosisActionItemBlocked).length;
+        const hasEvidence = evidenceSources.length > 0 && dataGapEvidencePresent && safeActions.length > 0;
+        const status = hasEvidence && actionableCount > 0
+            ? 'proved'
+            : ((evidenceSources.length > 0 || dataGapEvidencePresent || safeGaps.length > 0 || safeActions.length > 0) ? 'warning' : 'missing');
+        const blockingMissingCodes = [];
+        if (evidenceSources.length === 0) blockingMissingCodes.push('ai_evidence_sources_missing');
+        if (!dataGapEvidencePresent) blockingMissingCodes.push('ai_data_gaps_missing');
+        if (safeActions.length === 0) {
+            blockingMissingCodes.push('ai_action_items_missing');
+        } else if (blockedCount >= safeActions.length) {
+            blockingMissingCodes.push('ai_action_items_blocked');
+        }
+        return {
+            status,
+            evidence_source_count: evidenceSources.length,
+            data_gap_evidence_present: dataGapEvidencePresent,
+            data_gap_count: safeGaps.length,
+            action_item_count: safeActions.length,
+            actionable_action_item_count: actionableCount,
+            blocked_action_item_count: blockedCount,
+            action_item_statuses: safeActions.map(phase1DiagnosisActionItemStatus).filter(Boolean),
+            blocking_missing_codes: status === 'proved' ? [] : blockingMissingCodes,
+        };
+    };
     const phase1EmployeeAiJudgementText = ({ status, blockingCount, actionableCount } = {}) => {
         if (String(status || '').toLowerCase() === 'proved' && actionableCount > 0 && blockingCount === 0) {
             return 'AI 建议已有可追溯证据和可执行动作项。';
@@ -2236,6 +3110,233 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             return '没有审批、执行、证据、复盘或 ROI 信号时，不能证明动作已落地。';
         }
         return '';
+    };
+    const buildPhase1EmployeeAiEvidenceSummary = ({ row = {}, evidence = {} } = {}) => {
+        const source = evidence && typeof evidence === 'object' ? evidence : {};
+        if (!source || typeof source !== 'object') return null;
+        const blocking = Array.isArray(source.blocking_missing_codes) ? source.blocking_missing_codes.filter(Boolean).map(item => String(item)) : [];
+        const rowBlocking = Array.isArray(row?.blocking_gap_codes) ? row.blocking_gap_codes.filter(Boolean).map(item => String(item)) : [];
+        const allBlocking = Array.from(new Set([...blocking, ...rowBlocking]));
+        const status = String(row?.status || source.status || (source.proved ? 'proved' : 'warning'));
+        const evidenceSourceCount = Number(source.evidence_source_count || 0);
+        const actionableCount = Number(source.actionable_action_item_count || 0);
+        const dataGapPresent = source.data_gap_evidence_present === true || allBlocking.length > 0;
+        const directEntry = String(row?.direct_next_action_entry || source.direct_next_action_entry || '');
+        const primaryEntry = String(row?.primary_next_action_entry || source.primary_next_action_entry || '');
+        const directCode = String(row?.direct_next_action_code || source.direct_next_action_code || '');
+        const primaryCode = String(row?.primary_next_action_code || source.primary_next_action_code || '');
+        const linkedCodes = Array.isArray(row?.next_action_codes) ? row.next_action_codes : [];
+        const mappedNextAction = (directCode || primaryCode || linkedCodes.length) ? phase1EmployeeQuestionNextActionText(row) : '';
+        const entryRaw = directEntry || primaryEntry || '/api/agent/ota-diagnosis';
+        const entryText = phase1EmployeeActionEntryText(entryRaw, {
+            action_code: directCode || primaryCode || 'resolve_ai_diagnosis_blocked_action_items',
+            action_family: row?.direct_next_action_family || row?.evidence?.direct_next_action_family || 'ai_diagnosis_evidence',
+            question_key: 'ai_evidence',
+        });
+        return {
+            items: [
+                phase1EmployeeCountItem('status', '状态', phase1EmployeeQuestionStatusText(status), status === 'proved'),
+                phase1EmployeeCountItem('evidence_sources', '证据来源', evidenceSourceCount, evidenceSourceCount > 0),
+                phase1EmployeeCountItem('data_gaps', '数据缺口', dataGapPresent ? '已返回' : '缺失', dataGapPresent),
+                phase1EmployeeCountItem('action_items', '可执行动作', actionableCount, actionableCount > 0),
+            ],
+            blockingText: allBlocking.map(phase1EmployeeGapCodeText).filter(Boolean).join('、'),
+            blockingRawText: allBlocking.join('、'),
+            judgementText: phase1EmployeeAiJudgementText({ status, blockingCount: allBlocking.length, actionableCount }),
+            judgementRawText: `status=${status || 'missing'} / blocking_gap_count=${allBlocking.length} / actionable_action_item_count=${actionableCount}`,
+            limitText: phase1EmployeeAiLimitText({ blockingCount: allBlocking.length, actionableCount }),
+            limitRawText: `blocked_action_codes=${Array.isArray(row?.blocked_action_codes) ? row.blocked_action_codes.join(',') : 'empty'} / blocking_gap_codes=${allBlocking.join(',') || 'empty'}`,
+            nextActionText: mappedNextAction || '先补齐上游 OTA 证据，再生成 AI 诊断。',
+            policyText: `入口 ${entryText || entryRaw}；AI 建议必须引用证据来源、数据缺口和动作项，不用缺失数据生成确定结论`,
+            policyRawText: entryRaw,
+        };
+    };
+    const buildPhase1EmployeeOperationSummary = ({ row = {}, evidence = {} } = {}) => {
+        const source = evidence && typeof evidence === 'object' ? evidence : {};
+        if (!source || typeof source !== 'object') return null;
+        const blocking = Array.isArray(source.blocking_missing_codes) ? source.blocking_missing_codes.filter(Boolean).map(item => String(item)) : [];
+        const status = String(row?.status || source.operation_evidence_status || 'missing');
+        const directEntry = String(row?.direct_next_action_entry || source.direct_next_action_entry || '');
+        const directCode = String(row?.direct_next_action_code || source.direct_next_action_code || '');
+        const primaryCode = String(row?.primary_next_action_code || source.primary_next_action_code || '');
+        const linkedCodes = Array.isArray(row?.next_action_codes) ? row.next_action_codes : [];
+        const mappedNextAction = (directCode || primaryCode || linkedCodes.length) ? phase1EmployeeQuestionNextActionText(row) : '';
+        const entryRaw = directEntry || '/api/operation/execution-intents';
+        const entryText = phase1EmployeeActionEntryText(entryRaw, {
+            action_code: directCode || primaryCode || 'collect_operation_execution_evidence',
+            action_family: row?.direct_next_action_family || row?.evidence?.direct_next_action_family || 'operation_execution_evidence',
+            question_key: 'next_operation_action',
+        });
+        const evidenceReadyCount = Number(source.evidence_ready_count || source.execution_evidence_count || 0);
+        const linkedIntentCount = Number(source.ota_diagnosis_linked_intent_count || 0);
+        const linkedFlowCount = Number(source.ota_diagnosis_linked_flow_item_count || 0);
+        const completionSignalCount = Number(source.completion_signal_count || 0)
+            || (
+                Number(source.approved_count || 0)
+                + Number(source.executed_count || 0)
+                + evidenceReadyCount
+                + Number(source.reviewed_count || 0)
+                + Number(source.roi_ready_count || 0)
+            );
+        const executionIntentCount = Number(source.execution_intent_count || 0);
+        const executionFlowItemCount = Number(source.execution_flow_item_count || 0);
+        return {
+            items: [
+                phase1EmployeeCountItem('status', '状态', phase1EmployeeQuestionStatusText(status), status === 'proved'),
+                phase1EmployeeCountItem('intents', '执行意图', executionIntentCount, executionIntentCount > 0),
+                phase1EmployeeCountItem('flow', '执行流', executionFlowItemCount, executionFlowItemCount > 0),
+                phase1EmployeeCountItem('evidence', '执行证据', evidenceReadyCount, evidenceReadyCount > 0),
+                phase1EmployeeCountItem('approved', '已审批', Number(source.approved_count || 0), Number(source.approved_count || 0) > 0),
+                phase1EmployeeCountItem('executed', '已执行', Number(source.executed_count || 0), Number(source.executed_count || 0) > 0),
+                phase1EmployeeCountItem('reviewed', '已复盘', Number(source.reviewed_count || 0), Number(source.reviewed_count || 0) > 0),
+                phase1EmployeeCountItem('roi', 'ROI', Number(source.roi_ready_count || 0), Number(source.roi_ready_count || 0) > 0),
+            ],
+            blockingText: blocking.map(phase1EmployeeGapCodeText).filter(Boolean).join('、'),
+            blockingRawText: blocking.join('、'),
+            judgementText: phase1EmployeeOperationJudgementText({ status, executionIntentCount, executionFlowItemCount, completionSignalCount }),
+            judgementRawText: `operation_evidence_status=${status || 'missing'} / execution_intent_count=${executionIntentCount} / execution_flow_item_count=${executionFlowItemCount} / completion_signal_count=${completionSignalCount}`,
+            limitText: phase1EmployeeOperationLimitText({ completionSignalCount, linkedIntentCount, linkedFlowCount }),
+            limitRawText: `ota_diagnosis_linked_intent_count=${linkedIntentCount} / ota_diagnosis_linked_flow_item_count=${linkedFlowCount} / completion_signal_count=${completionSignalCount}`,
+            nextActionText: mappedNextAction || '先取得真实 OTA 诊断动作项，再创建执行意图并保留审批、执行证据和复盘。',
+            policyText: `入口 ${entryText || entryRaw}；只有可追溯到 OTA 诊断动作项且有审批、执行、复盘或 ROI 信号时才算闭环`,
+            policyRawText: entryRaw,
+        };
+    };
+    const buildPhase1EmployeeClosureSummary = ({ rows = [], actions = [], backendSummary = {}, protectedBoundary = '' } = {}) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        if (!safeRows.length) return null;
+        const safeActions = Array.isArray(actions) ? actions : [];
+        const summary = backendSummary && typeof backendSummary === 'object' ? backendSummary : {};
+        const provedRows = safeRows.filter(row => ['proved', 'no_gap_reported'].includes(String(row?.status || '')));
+        const unresolvedRows = safeRows.filter(row => !['proved', 'no_gap_reported'].includes(String(row?.status || '')));
+        const topAction = safeActions.find(item => String(item?.status || '') !== 'blocked') || safeActions[0] || null;
+        const fallbackActionRow = unresolvedRows.find(row => String(row?.nextActionText || row?.employeeNextActionText || row?.nextAction || row?.next_action || '').trim())
+            || safeRows.find(row => String(row?.nextActionText || row?.employeeNextActionText || row?.nextAction || row?.next_action || '').trim())
+            || null;
+        const backendStatus = String(summary?.status || '').trim();
+        const provedCount = Number.isFinite(Number(summary?.proved_count)) ? Number(summary.proved_count) : provedRows.length;
+        const questionCount = Number.isFinite(Number(summary?.employee_question_count)) ? Number(summary.employee_question_count) : safeRows.length;
+        const unresolvedCount = Number.isFinite(Number(summary?.missing_count)) ? Number(summary.missing_count) : unresolvedRows.length;
+        const backendMissingQuestions = Array.isArray(summary?.missing_questions) ? summary.missing_questions.map(item => String(item)).filter(Boolean) : [];
+        const backendMissingQuestionKeys = Array.isArray(summary?.missing_question_keys) ? summary.missing_question_keys.map(item => String(item)).filter(Boolean) : [];
+        const isClosed = backendStatus === 'complete' || (unresolvedCount === 0 && safeRows.length > 0);
+        const isPartial = provedCount > 0;
+        const topActionCode = String(summary?.top_action_code || topAction?.actionCode || fallbackActionRow?.directNextActionCode || fallbackActionRow?.primaryNextActionCode || '').trim();
+        const topActionTextRaw = String(summary?.top_action || topAction?.action || fallbackActionRow?.nextAction || fallbackActionRow?.next_action || '').trim();
+        const topActionText = topActionCode
+            ? phase1EmployeeActionDisplayText({
+                action_code: topActionCode,
+                action: topActionTextRaw,
+                question_key: summary?.top_question_key || summary?.top_action_question_key || topAction?.questionKey || fallbackActionRow?.key || '',
+                action_family: summary?.top_action_family || topAction?.actionFamily || '',
+                platform: summary?.top_action_platform || topAction?.platform || '',
+            })
+            : (isClosed ? '继续复核 OTA 证据和执行结果' : '先补齐 OTA 渠道证据');
+        const backendEntryOptions = Array.isArray(summary?.top_action_entry_options)
+            ? summary.top_action_entry_options.map(phase1EmployeeActionEntryOptionText).filter(Boolean)
+            : [];
+        const backendEntryOptionRaw = Array.isArray(summary?.top_action_entry_options)
+            ? summary.top_action_entry_options.map(phase1EmployeeActionEntryOptionRawText).filter(Boolean)
+            : [];
+        const backendEntryOptionGuidance = Array.isArray(summary?.top_action_entry_options)
+            ? summary.top_action_entry_options.map(phase1EmployeeActionEntryOptionGuidanceText).filter(Boolean)
+            : [];
+        const backendEntryOptionGuidanceRaw = Array.isArray(summary?.top_action_entry_options)
+            ? summary.top_action_entry_options.map(phase1EmployeeActionEntryOptionGuidanceRawText).filter(Boolean)
+            : [];
+        const backendEntryOptionReadiness = Array.isArray(summary?.top_action_entry_options)
+            ? summary.top_action_entry_options.map(phase1EmployeeActionEntryOptionReadinessText).filter(Boolean)
+            : [];
+        const localEntryOptions = Array.isArray(topAction?.entryOptions)
+            ? topAction.entryOptions
+            : (Array.isArray(topAction?.entry_options) ? topAction.entry_options.map(phase1EmployeeActionEntryOptionText).filter(Boolean) : []);
+        const localEntryOptionRaw = topAction?.entryOptionsRawText
+            ? [topAction.entryOptionsRawText]
+            : (Array.isArray(topAction?.entry_options) ? topAction.entry_options.map(phase1EmployeeActionEntryOptionRawText).filter(Boolean) : []);
+        const localEntryOptionGuidance = topAction?.entryOptionGuidanceText
+            ? [topAction.entryOptionGuidanceText]
+            : (Array.isArray(topAction?.entry_options) ? topAction.entry_options.map(phase1EmployeeActionEntryOptionGuidanceText).filter(Boolean) : []);
+        const localEntryOptionGuidanceRaw = topAction?.entryOptionGuidanceRawText
+            ? [topAction.entryOptionGuidanceRawText]
+            : (Array.isArray(topAction?.entry_options) ? topAction.entry_options.map(phase1EmployeeActionEntryOptionGuidanceRawText).filter(Boolean) : []);
+        const localEntryOptionReadiness = topAction?.entryReadinessText
+            ? [topAction.entryReadinessText]
+            : (Array.isArray(topAction?.entry_options) ? topAction.entry_options.map(phase1EmployeeActionEntryOptionReadinessText).filter(Boolean) : []);
+        const topActionEntryOptionsText = (backendEntryOptions.length ? backendEntryOptions : localEntryOptions).join('、');
+        const topActionEntryOptionsRawText = (backendEntryOptionRaw.length ? backendEntryOptionRaw : localEntryOptionRaw).join('、');
+        const topActionEntryOptionGuidanceText = (backendEntryOptionGuidance.length ? backendEntryOptionGuidance : localEntryOptionGuidance).join('；');
+        const topActionEntryOptionGuidanceRawText = (backendEntryOptionGuidanceRaw.length ? backendEntryOptionGuidanceRaw : localEntryOptionGuidanceRaw).join('；');
+        const topActionEntryReadinessText = (backendEntryOptionReadiness.length ? backendEntryOptionReadiness : localEntryOptionReadiness).join('；');
+        const topActionVerificationText = String(topAction?.verificationStepsText || topAction?.employeeVerificationSteps || '').trim();
+        const backendTopActionImpactRaw = Array.isArray(summary?.top_action_related_question_keys) ? summary.top_action_related_question_keys.map(value => String(value)).filter(Boolean) : [];
+        const backendTopActionImpactText = phase1EmployeeKnownQuestionListText(backendTopActionImpactRaw);
+        const backendTopActionResolves = Array.isArray(summary?.top_action_resolves_missing_codes) ? summary.top_action_resolves_missing_codes.map(phase1EmployeeGapCodeText).filter(Boolean) : [];
+        const backendTopActionLiveGaps = Array.isArray(summary?.top_action_live_closure_gap_codes) ? summary.top_action_live_closure_gap_codes.map(phase1EmployeeGapCodeText).filter(Boolean) : [];
+        const localTopActionImpactRaw = Array.isArray(topAction?.relatedQuestionKeys)
+            ? topAction.relatedQuestionKeys.map(value => String(value)).filter(Boolean)
+            : (Array.isArray(topAction?.related_question_keys) ? topAction.related_question_keys.map(value => String(value)).filter(Boolean) : []);
+        const localTopActionImpactText = phase1EmployeeKnownQuestionListText(localTopActionImpactRaw);
+        const localTopActionResolves = topAction?.resolvesMissingCodes ? String(topAction.resolvesMissingCodes).split('、').map(phase1EmployeeGapCodeText).filter(Boolean) : (Array.isArray(topAction?.resolves_missing_codes) ? topAction.resolves_missing_codes.map(phase1EmployeeGapCodeText).filter(Boolean) : []);
+        const localTopActionLiveGaps = topAction?.liveClosureGapCodes ? String(topAction.liveClosureGapCodes).split('、').map(phase1EmployeeGapCodeText).filter(Boolean) : (Array.isArray(topAction?.live_closure_gap_codes) ? topAction.live_closure_gap_codes.map(phase1EmployeeGapCodeText).filter(Boolean) : []);
+        const topActionImpactText = backendTopActionImpactText || localTopActionImpactText;
+        const topActionImpactRawText = (backendTopActionImpactRaw.length ? backendTopActionImpactRaw : localTopActionImpactRaw).join('、');
+        const topActionResolvesText = (backendTopActionResolves.length ? backendTopActionResolves : localTopActionResolves).join('、');
+        const topActionLiveGapText = (backendTopActionLiveGaps.length ? backendTopActionLiveGaps : localTopActionLiveGaps).join('、');
+        const topActionSuccessCriteriaRaw = String(summary?.top_action_success_criteria || topAction?.successCriteria || fallbackActionRow?.directNextActionSuccessCriteria || fallbackActionRow?.primaryNextActionSuccessCriteria || '').trim();
+        const topActionSuccessCriteria = phase1EmployeeActionSuccessCriteriaText({
+            action_code: topActionCode,
+            platform: summary?.top_action_platform || topAction?.platform || '',
+            question_key: summary?.top_action_question_key || topAction?.questionKey || fallbackActionRow?.key || '',
+            action_family: topAction?.actionFamily || '',
+            success_criteria: topActionSuccessCriteriaRaw,
+        });
+        const topActionEntryRaw = String(summary?.top_action_entry || topAction?.entry || topAction?.directNextActionEntry || fallbackActionRow?.directNextActionEntry || fallbackActionRow?.primaryNextActionEntry || '').trim();
+        const topActionEntryText = phase1EmployeeActionEntryText(topActionEntryRaw, {
+            action_code: topActionCode,
+            platform: summary?.top_action_platform || topAction?.platform || '',
+            action_family: summary?.top_action_family || topAction?.actionFamily || '',
+        });
+        const sourceSnapshot = summary?.top_action_source_snapshot && typeof summary.top_action_source_snapshot === 'object'
+            ? summary.top_action_source_snapshot
+            : {};
+        const topActionSourceSnapshotText = phase1EmployeeSourceSnapshotText(sourceSnapshot);
+        const unresolvedQuestionTextRaw = backendMissingQuestions.join('、');
+        const unresolvedQuestionText = (
+            backendMissingQuestionKeys.length
+                ? backendMissingQuestionKeys.map(phase1EmployeeKnownQuestionText).filter(Boolean)
+                : unresolvedRows.map(row => phase1EmployeeKnownQuestionText(row?.key || '')).filter(Boolean)
+        ).join('、') || (unresolvedCount > 0 ? '未识别员工问题' : '');
+        return {
+            status: isClosed ? 'complete' : (isPartial ? 'warning' : 'not_proved'),
+            statusText: isClosed ? '可进入经营诊断' : '未闭环',
+            panelClass: isClosed ? 'border-emerald-100 bg-emerald-50' : (isPartial ? 'border-amber-100 bg-amber-50' : 'border-slate-200 bg-slate-50'),
+            badgeClass: isClosed ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : (isPartial ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-600'),
+            provedText: `${provedCount} / ${questionCount}`,
+            unresolvedText: `${unresolvedCount} 项`,
+            unresolvedQuestionText,
+            unresolvedQuestionTextRaw,
+            summaryText: isClosed
+                ? '六个员工问题均有可复核证据，可继续进入 AI 诊断和运营执行复盘。'
+                : `仍有 ${unresolvedCount} 个问题未证明：${unresolvedQuestionText || '待加载'}。未证明前不输出确定经营结论。`,
+            topActionText,
+            topActionTextRaw,
+            topActionEntry: topActionEntryRaw,
+            topActionEntryText,
+            topActionEntryOptionsText,
+            topActionEntryOptionsRawText,
+            topActionEntryOptionGuidanceText,
+            topActionEntryOptionGuidanceRawText,
+            topActionEntryReadinessText,
+            topActionVerificationText,
+            topActionImpactText,
+            topActionImpactRawText,
+            topActionResolvesText,
+            topActionLiveGapText,
+            topActionSourceSnapshotText,
+            topActionSuccessCriteria,
+            topActionSuccessCriteriaRaw,
+            boundaryText: String(summary?.protected_boundary || protectedBoundary || '只按 OTA 渠道证据判断；latest_available/历史样本只作参考；不改变携程/美团手动或自动获取逻辑，不改变获取字段。'),
+        };
     };
 
     const phase1EmployeeEvidenceStatusText = (value) => ({
@@ -2302,7 +3403,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         online_daily_data: 'OTA 入库表',
     }[String(value || '').trim()] || String(value || '').trim());
 
-    const phase1EmployeeGapCodeText = (code, knownQuestionText = () => '') => {
+    const phase1EmployeeGapCodeText = (code, knownQuestionText = phase1EmployeeKnownQuestionText) => {
         const raw = String(code || '').trim();
         if (!raw) return '';
         const questionText = typeof knownQuestionText === 'function' ? knownQuestionText(raw) : '';
@@ -2351,8 +3452,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const phase1EmployeeActionCodeText = (code, helpers = {}) => {
         const raw = String(code || '').trim();
         if (!raw) return '';
-        const knownQuestionText = typeof helpers.knownQuestionText === 'function' ? helpers.knownQuestionText : () => '';
-        const platformText = typeof helpers.platformText === 'function' ? helpers.platformText : value => String(value || '').toUpperCase();
+        const knownQuestionText = typeof helpers.knownQuestionText === 'function' ? helpers.knownQuestionText : phase1EmployeeKnownQuestionText;
+        const platformText = typeof helpers.platformText === 'function' ? helpers.platformText : phase1EmployeePlatformText;
         if (raw === 'phase1_confirm_source_date_evidence') return '核对目标日 OTA 入库证据';
         if (raw === 'phase1_collect_ai_diagnosis_evidence' || raw === 'collect_ai_diagnosis_evidence') return '补齐 AI 诊断证据';
         if (raw === 'resolve_ai_diagnosis_blocked_action_items') return '先解除 AI 动作项阻断';
@@ -2371,6 +3472,318 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         if (trafficMatch) return `核对${platformText(trafficMatch[1] || trafficMatch[2])}流量/转化采集证据`;
         return '未识别补证动作';
     };
+
+    const phase1EmployeeSourceSnapshotText = (sourceSnapshot) => {
+        if (!sourceSnapshot || typeof sourceSnapshot !== 'object') return '';
+        const latest = sourceSnapshot.latest_available && typeof sourceSnapshot.latest_available === 'object'
+            ? sourceSnapshot.latest_available
+            : {};
+        const platformText = phase1EmployeePlatformText(sourceSnapshot.platform);
+        const targetRows = Number.isFinite(Number(sourceSnapshot.target_date_rows)) ? Number(sourceSnapshot.target_date_rows) : 0;
+        const targetDate = String(sourceSnapshot.target_date || '').trim();
+        const parts = [];
+        if (platformText) {
+            parts.push(`${platformText}${targetDate ? ` ${targetDate}` : ''} 目标日入库 ${targetRows} 行`);
+        }
+        if (latest.date) {
+            const relationText = phase1EmployeeDateRelationText(latest.date_relation);
+            const latestRows = Number.isFinite(Number(latest.rows)) ? Number(latest.rows) : null;
+            parts.push(`最近可用 ${latest.date}${latestRows === null ? '' : ` / ${latestRows} 行`}${relationText ? ` / ${relationText}` : ''}`);
+        }
+        if (sourceSnapshot.latest_available_reference_only === true) {
+            parts.push('最近可用只作参考，不能替代目标日入库证明');
+        }
+        if (sourceSnapshot.platform || sourceSnapshot.proof_requirement) {
+            parts.push(targetRows > 0 ? '已满足：目标日该平台入库行 > 0' : '证明要求：目标日该平台入库行 > 0');
+        }
+        return parts.join('；');
+    };
+    const phase1EmployeeQuestionNextActionText = (row) => {
+        const directCode = String(row?.direct_next_action_code || row?.evidence?.direct_next_action_code || '').trim();
+        const primaryCode = String(row?.primary_next_action_code || row?.evidence?.primary_next_action_code || '').trim();
+        const directText = phase1EmployeeActionCodeText(directCode);
+        const primaryText = phase1EmployeeActionCodeText(primaryCode);
+        if (primaryText && primaryCode && primaryCode !== directCode) {
+            const fallbackQuestionText = phase1EmployeeKnownQuestionText(row?.key || row?.question || '') || '当前员工问题';
+            return `先处理${primaryText}，再执行${directText || `补齐${fallbackQuestionText}证据`}`;
+        }
+        if (directText) return directText;
+        const linkedCodes = Array.isArray(row?.next_action_codes)
+            ? row.next_action_codes
+            : String(row?.next_action_codes || '').split(/[、,，\s]+/);
+        const linkedText = linkedCodes.map(phase1EmployeeActionCodeText).find(Boolean);
+        if (linkedText) return linkedText;
+        const questionText = phase1EmployeeKnownQuestionText(row?.key || row?.question || '');
+        return questionText ? `补齐${questionText}证据` : '按动作队列补齐证据';
+    };
+    const phase1EmployeeQuestionEvidenceText = (evidence) => {
+        if (!evidence) return '';
+        if (typeof evidence === 'string') return evidence;
+        if (Array.isArray(evidence)) return evidence.filter(Boolean).join('、');
+        if (typeof evidence !== 'object') return String(evidence || '');
+        const parts = [];
+        if (Number(evidence.source_rows || 0) > 0) parts.push(`源数据 ${evidence.source_rows} 行`);
+        if (Object.prototype.hasOwnProperty.call(evidence, 'target_date_source_rows')) {
+            parts.push(`目标日 ${Number(evidence.target_date_source_rows || 0)} 行`);
+        }
+        const platformCoverage = evidence.target_date_platform_coverage && typeof evidence.target_date_platform_coverage === 'object'
+            ? evidence.target_date_platform_coverage
+            : null;
+        if (platformCoverage) {
+            const missingPlatforms = Array.isArray(platformCoverage.missing_platforms)
+                ? platformCoverage.missing_platforms.filter(Boolean).map(phase1EmployeePlatformText)
+                : [];
+            if (missingPlatforms.length) parts.push(`缺失平台 ${missingPlatforms.join('、')}`);
+            else if (Number(platformCoverage.platform_count || 0) > 0) parts.push(`平台覆盖 ${platformCoverage.covered_platform_count || 0}/${platformCoverage.platform_count}`);
+            if (platformCoverage.source_date_evidence_missing) parts.push('缺少目标日来源证据');
+        } else if (evidence.coverage_status) {
+            parts.push(`覆盖 ${evidence.coverage_status}`);
+        }
+        if (Array.isArray(evidence.platforms) && evidence.platforms.length) {
+            const platformRowsText = evidence.platforms
+                .map(row => {
+                    const platform = phase1EmployeePlatformText(row?.platform || '');
+                    const rows = Number(row?.source_rows?.count ?? row?.source_rows ?? row?.target_date_rows ?? 0);
+                    const latest = row?.latest_available && typeof row.latest_available === 'object' ? row.latest_available : {};
+                    const latestDate = String(latest?.date || row?.latest_available_date || '').trim();
+                    const latestRelation = String(latest?.date_relation || row?.latest_available_date_relation || '').trim();
+                    const latestRelationText = phase1EmployeeDateRelationText(latestRelation);
+                    const latestText = latestDate ? `最近可用参考 ${latestDate}${latestRelationText ? `(${latestRelationText})` : ''}` : '';
+                    return [platform ? `${platform} 目标日${rows}行` : `目标日${rows}行`, latestText].filter(Boolean).join(' ');
+                })
+                .filter(Boolean)
+                .slice(0, 4)
+                .join('、');
+            if (platformRowsText) parts.push(`平台明细 ${platformRowsText}`);
+        }
+        if (Number(evidence.reference_saved_count || 0) > 0) parts.push(`入库参考 ${evidence.reference_saved_count} 条`);
+        if (Number(evidence.reference_replay_count || 0) > 0) parts.push(`回放参考 ${evidence.reference_replay_count} 条`);
+        if (Number(evidence.analysis_rows_reference_only || 0) > 0) parts.push(`分析参考 ${evidence.analysis_rows_reference_only} 条`);
+        const formatPlatformList = (items) => Array.isArray(items)
+            ? items.filter(Boolean).map(phase1EmployeePlatformText).join('、')
+            : '';
+        const revenueReadyPlatforms = formatPlatformList(evidence.revenue_ready_platforms);
+        const trafficReadyPlatforms = formatPlatformList(evidence.traffic_ready_platforms);
+        const conversionReadyPlatforms = formatPlatformList(evidence.conversion_ready_platforms);
+        const revenueMissingPlatforms = formatPlatformList(evidence.revenue_missing_platforms);
+        const trafficMissingPlatforms = formatPlatformList(evidence.traffic_missing_platforms);
+        const conversionMissingPlatforms = formatPlatformList(evidence.conversion_missing_platforms);
+        if (revenueReadyPlatforms) parts.push(`收益可复核 ${revenueReadyPlatforms}`);
+        if (trafficReadyPlatforms) parts.push(`流量可复核 ${trafficReadyPlatforms}`);
+        if (conversionReadyPlatforms) parts.push(`转化可复核 ${conversionReadyPlatforms}`);
+        if (revenueMissingPlatforms) parts.push(`收益缺失 ${revenueMissingPlatforms}`);
+        if (trafficMissingPlatforms) parts.push(`流量缺失 ${trafficMissingPlatforms}`);
+        if (conversionMissingPlatforms) parts.push(`转化缺失 ${conversionMissingPlatforms}`);
+        if (Array.isArray(evidence.metric_domain_readiness) && evidence.metric_domain_readiness.length) {
+            const missingDomainText = evidence.metric_domain_readiness
+                .map(row => {
+                    const domains = Array.isArray(row?.missing_domains)
+                        ? row.missing_domains.filter(Boolean).map(phase1MetricDomainMissingLabel).join('/')
+                        : '';
+                    return domains ? `${phase1EmployeePlatformText(row?.platform || '')}:${domains}` : '';
+                })
+                .filter(Boolean)
+                .slice(0, 3)
+                .join('、');
+            if (missingDomainText) parts.push(`指标域缺失 ${missingDomainText}`);
+        }
+        if (Array.isArray(evidence.traffic_source_readiness) && evidence.traffic_source_readiness.length) {
+            const trafficInputLabel = (key) => ({
+                registered_traffic_data_source: '登记采集源',
+                traffic_request_url_or_cdp_endpoint_evidence: '请求证据',
+                traffic_payload_or_query_params: 'Payload/参数',
+                manual_login_state_verified: '人工确认登录态',
+                authorized_ctrip_profile_dir: '携程Profile',
+                authorized_meituan_profile_dir: '美团Profile',
+                traffic_collection_run_and_target_date_rows: '目标日入库',
+                traffic_data_source_ready_state: '采集源就绪',
+                platform_data_sources_table: '采集源表',
+                platform_data_sources_schema: '采集源字段',
+                platform_data_sources_readable: '采集源可读',
+            }[String(key || '')] || String(key || ''));
+            const trafficSourceText = evidence.traffic_source_readiness
+                .map(row => {
+                    const platform = phase1EmployeePlatformText(row?.platform || '');
+                    const sourceCount = Number(row?.traffic_source_count || 0);
+                    const readyCount = Number(row?.traffic_ready_count || 0);
+                    const waitingCount = Number(row?.traffic_waiting_config_count || 0);
+                    const trafficRows = Number(row?.target_date_traffic_rows || 0);
+                    const p0NextText = buildPhase1TrafficP0NextText(row);
+                    const requiredInputs = Array.isArray(row?.required_next_inputs)
+                        ? row.required_next_inputs.map(trafficInputLabel).filter(Boolean).slice(0, 3).join('/')
+                        : '';
+                    const suffix = requiredInputs ? `（需${requiredInputs}）` : '';
+                    if (trafficRows > 0) return `${platform}流量已入库${p0NextText}`;
+                    if (sourceCount <= 0) return `${platform}流量采集源未登记${suffix}${p0NextText}`;
+                    if (waitingCount > 0) return `${platform}流量采集源待授权${suffix}${p0NextText}`;
+                    if (readyCount > 0) return `${platform}流量采集源已就绪${suffix}${p0NextText}`;
+                    return `${platform}流量采集源未就绪${suffix}${p0NextText}`;
+                })
+                .filter(Boolean)
+                .slice(0, 3)
+                .join('、');
+            if (trafficSourceText) parts.push(`采集源 ${trafficSourceText}`);
+        }
+        if (evidence.metric_domain_policy) parts.push(`指标域口径 ${phase1EmployeeEvidencePolicyText(evidence.metric_domain_policy)}`);
+        if (evidence.traffic_source_policy) parts.push(`采集源口径 ${phase1EmployeeEvidencePolicyText(evidence.traffic_source_policy)}`);
+        if (Number(evidence.field_definition_count || 0) > 0) parts.push(`字段定义 ${evidence.field_definition_count} 项`);
+        const evidenceKeyText = (items, limit = 4, mapper = (item) => String(item || '').trim()) => Array.isArray(items)
+            ? items.filter(Boolean).map(item => mapper(item)).filter(Boolean).slice(0, limit).join('、')
+            : '';
+        const phase1EmployeeReadableGapText = (code) => {
+            const raw = String(code || '').trim();
+            if (!raw) return '';
+            const fieldText = phase1MissingFieldLabel(raw);
+            if (fieldText && fieldText !== raw) return fieldText;
+            const gapText = phase1EmployeeGapCodeText(raw);
+            if (gapText && gapText !== raw) return gapText;
+            return '未识别缺口';
+        };
+        const phase1EmployeeReadableActionOrGapText = (code) => {
+            const raw = String(code || '').trim();
+            if (!raw) return '';
+            const actionText = phase1EmployeeActionCodeText(raw);
+            if (actionText && actionText !== raw) return actionText;
+            return phase1EmployeeReadableGapText(raw);
+        };
+        const fieldDefinitionKeys = evidenceKeyText(evidence.field_definition_keys);
+        const metricTrustKeys = evidenceKeyText(evidence.metric_trust_keys);
+        const metricDomainGapCodes = evidenceKeyText(evidence.metric_domain_gap_codes, 4, phase1EmployeeReadableGapText);
+        const dataGapCodes = evidenceKeyText(evidence.data_gap_codes, 4, phase1EmployeeReadableGapText);
+        const missingFieldCodes = evidenceKeyText(evidence.missing_field_codes, 4, phase1EmployeeReadableGapText);
+        const fieldPendingActionCodes = evidenceKeyText(evidence.field_pending_action_codes, 4, phase1EmployeeReadableActionOrGapText);
+        const blockedActionCodes = evidenceKeyText(evidence.blocked_action_codes, 3, phase1EmployeeReadableActionOrGapText);
+        const blockingMissingCodes = evidenceKeyText(evidence.blocking_missing_codes, 5, phase1EmployeeReadableGapText);
+        const diagnosisStatus = phase1EmployeeEvidenceStatusText(evidence.diagnosis_status);
+        const actionItemStatus = phase1EmployeeEvidenceStatusText(evidence.action_item_status);
+        const sourcePolicyText = phase1EmployeeEvidenceStatusText(evidence.source_policy);
+        const platformFieldTrustText = Array.isArray(evidence.platform_field_trust)
+            ? evidence.platform_field_trust
+                .map(row => {
+                    const platform = phase1EmployeePlatformText(row?.platform || '');
+                    const statusText = phase1FieldTrustStatusText(row?.field_trust_status);
+                    const rows = Number(row?.target_date_rows || 0);
+                    const keyCount = Number(row?.metric_trust_key_count || 0);
+                    const trustKeys = Array.isArray(row?.metric_trust_keys) && row.metric_trust_keys.length ? ` 指标可信证据${keyCount}项` : '';
+                    const reasonCodesText = Array.isArray(row?.reason_codes)
+                        ? row.reason_codes.slice(0, 2).map(phase1EmployeeGapCodeText).filter(Boolean).join('/')
+                        : '';
+                    const reasonText = reasonCodesText ? ` / ${reasonCodesText}` : '';
+                    return platform ? `${platform}:${statusText} ${rows}行${trustKeys}${reasonText}` : '';
+                })
+                .filter(Boolean)
+                .slice(0, 4)
+                .join('、')
+            : '';
+        if (fieldDefinitionKeys) parts.push(`字段资产 ${fieldDefinitionKeys}`);
+        if (metricTrustKeys) parts.push(`指标可信键 ${metricTrustKeys}`);
+        if (platformFieldTrustText) parts.push(`字段可信平台 ${platformFieldTrustText}`);
+        if (metricDomainGapCodes) parts.push(`指标域缺口 ${metricDomainGapCodes}`);
+        if (dataGapCodes) parts.push(`数据缺口 ${dataGapCodes}`);
+        if (missingFieldCodes && missingFieldCodes !== dataGapCodes) parts.push(`缺口字段 ${missingFieldCodes}`);
+        if (fieldPendingActionCodes) parts.push(`字段动作 ${fieldPendingActionCodes}`);
+        const directNextActionCode = String(evidence.direct_next_action_code || '').trim();
+        const primaryNextActionCode = String(evidence.primary_next_action_code || '').trim();
+        const nextActionContext = {
+            action_code: directNextActionCode || primaryNextActionCode,
+            action_family: evidence.direct_next_action_family || evidence.primary_next_action_family || '',
+            question_key: evidence.question_key || evidence.key || '',
+        };
+        if (directNextActionCode) parts.push(`直接动作 ${phase1EmployeeActionCodeText(directNextActionCode)}`);
+        if (primaryNextActionCode && primaryNextActionCode !== directNextActionCode) parts.push(`先处理动作 ${phase1EmployeeActionCodeText(primaryNextActionCode)}`);
+        if (Number(evidence.linked_action_count || 0) > 0) parts.push(`关联动作 ${evidence.linked_action_count} 项`);
+        if (evidence.direct_next_action_entry) parts.push(`入口 ${phase1EmployeeActionEntryText(evidence.direct_next_action_entry, nextActionContext)}`);
+        if (evidence.direct_next_action_success_criteria) parts.push(`完成判定 ${phase1EmployeeActionSuccessCriteriaText({
+            ...nextActionContext,
+            success_criteria: evidence.direct_next_action_success_criteria,
+        })}`);
+        if (diagnosisStatus) parts.push(`AI状态 ${diagnosisStatus}`);
+        if (actionItemStatus) parts.push(`动作状态 ${actionItemStatus}`);
+        if (sourcePolicyText) parts.push(`证据口径 ${sourcePolicyText}`);
+        if (blockedActionCodes) parts.push(`阻断动作 ${blockedActionCodes}`);
+        if (blockingMissingCodes) parts.push(`阻断缺口 ${blockingMissingCodes}`);
+        if (evidence.metric_trust_required) parts.push('需复核指标可信证据');
+        if (evidence.data_quality_status) parts.push(`质量 ${phase1EmployeeEvidenceStatusText(evidence.data_quality_status) || '需复核'}`);
+        if (Number(evidence.missing_field_count || 0) > 0) parts.push(`缺失字段 ${evidence.missing_field_count} 项`);
+        if (Number(evidence.field_pending_action_count || 0) > 0) parts.push(`字段待办 ${evidence.field_pending_action_count} 项`);
+        if (Number(evidence.evidence_source_count || 0) > 0) parts.push(`AI证据 ${evidence.evidence_source_count} 条`);
+        if (evidence.data_gap_evidence_present) parts.push(`AI缺口 ${Number(evidence.data_gap_count || 0)} 项`);
+        else if (Object.prototype.hasOwnProperty.call(evidence, 'data_gap_evidence_present')) parts.push('缺少数据缺口证据');
+        if (Number(evidence.actionable_action_item_count || 0) > 0) parts.push(`可执行建议 ${evidence.actionable_action_item_count} 条`);
+        if (Number(evidence.blocked_action_item_count || 0) > 0) parts.push(`阻断建议 ${evidence.blocked_action_item_count} 条`);
+        if (Number(evidence.pending_action_count || 0) > 0) parts.push(`待办 ${evidence.pending_action_count} 项`);
+        if (evidence.operation_evidence_status) {
+            const statusText = phase1EmployeeEvidenceStatusText(evidence.operation_evidence_status) || phase1EmployeeQuestionStatusText(evidence.operation_evidence_status);
+            parts.push(`运营证据 ${statusText}`);
+        }
+        if (Number(evidence.execution_intent_count || 0) > 0) parts.push(`执行意图 ${evidence.execution_intent_count} 条`);
+        if (Number(evidence.execution_flow_item_count || 0) > 0) parts.push(`执行流 ${evidence.execution_flow_item_count} 条`);
+        if (Number(evidence.ota_diagnosis_linked_intent_count || 0) > 0) parts.push(`OTA诊断执行 ${evidence.ota_diagnosis_linked_intent_count} 条`);
+        if (Number(evidence.ota_diagnosis_linked_flow_item_count || 0) > 0) parts.push(`OTA诊断执行流 ${evidence.ota_diagnosis_linked_flow_item_count} 条`);
+        if (evidence.operation_ai_action_link_required && !evidence.ai_action_items_ready) parts.push('缺少可执行 AI 动作项');
+        if (Number(evidence.approved_count || 0) > 0) parts.push(`已审批 ${evidence.approved_count}`);
+        if (Number(evidence.executed_count || 0) > 0) parts.push(`已执行 ${evidence.executed_count}`);
+        if (Number(evidence.evidence_ready_count || 0) > 0) parts.push(`执行证据 ${evidence.evidence_ready_count}`);
+        if (Number(evidence.reviewed_count || 0) > 0) parts.push(`已复盘 ${evidence.reviewed_count}`);
+        if (Number(evidence.blocked_execution_count || 0) > 0) parts.push(`执行阻断 ${evidence.blocked_execution_count}`);
+        if (Array.isArray(evidence.upstream_blockers) && evidence.upstream_blockers.length) {
+            parts.push(`阻断 ${evidence.upstream_blockers.slice(0, 3).join('、')}`);
+        }
+        if (Array.isArray(evidence.blocking_missing_codes) && evidence.blocking_missing_codes.length) {
+            parts.push(`阻断 ${evidence.blocking_missing_codes.slice(0, 3).map(phase1EmployeeGapCodeText).join('、')}`);
+        }
+        if (Array.isArray(evidence.evidence_refs) && evidence.evidence_refs.length) {
+            parts.push(evidence.evidence_refs.slice(0, 2).join(' / '));
+        }
+        return parts.join('；');
+    };
+    const normalizePhase1EmployeeQuestionRow = (row) => ({
+        key: String(row?.key || row?.question || ''),
+        question: String(row?.question || ''),
+        status: String(row?.status || 'not_proved'),
+        detail: String(row?.employee_detail || row?.detail || row?.message || ''),
+        detailRawText: String(row?.detail || row?.message || ''),
+        evidence: phase1EmployeeQuestionEvidenceText(row?.evidence),
+        blockingGapCodes: phase1EmployeeQuestionBlockingGapCodes(row),
+        blockingReasonText: phase1EmployeeQuestionBlockingGapCodes(row).slice(0, 6).map(phase1EmployeeGapCodeText).join('、'),
+        nextAction: String(row?.next_action || row?.nextAction || ''),
+        nextActionRawText: String(row?.next_action || row?.nextAction || ''),
+        employeeNextActionText: String(row?.employee_next_action || ''),
+        nextActionText: phase1EmployeeQuestionNextActionText(row),
+        actionCodes: Array.isArray(row?.next_action_codes) ? row.next_action_codes.filter(Boolean).join('、') : String(row?.next_action_codes || ''),
+        primaryNextActionCode: String(row?.primary_next_action_code || row?.evidence?.primary_next_action_code || ''),
+        directNextActionCode: String(row?.direct_next_action_code || row?.evidence?.direct_next_action_code || ''),
+        actionCodesText: Array.isArray(row?.next_action_codes) ? row.next_action_codes.map(phase1EmployeeActionCodeText).filter(Boolean).join('、') : String(row?.next_action_codes || '').split('、').map(phase1EmployeeActionCodeText).filter(Boolean).join('、'),
+        primaryNextActionText: phase1EmployeeActionCodeText(row?.primary_next_action_code || row?.evidence?.primary_next_action_code || ''),
+        directNextActionText: phase1EmployeeActionCodeText(row?.direct_next_action_code || row?.evidence?.direct_next_action_code || ''),
+        primaryNextActionEntry: String(row?.primary_next_action_entry || row?.evidence?.primary_next_action_entry || ''),
+        directNextActionEntry: String(row?.direct_next_action_entry || row?.evidence?.direct_next_action_entry || ''),
+        primaryNextActionEntryText: phase1EmployeeActionEntryText(row?.primary_next_action_entry || row?.evidence?.primary_next_action_entry || '', {
+            action_code: row?.primary_next_action_code || row?.evidence?.primary_next_action_code || '',
+        }),
+        directNextActionEntryText: phase1EmployeeActionEntryText(row?.direct_next_action_entry || row?.evidence?.direct_next_action_entry || '', {
+            action_code: row?.direct_next_action_code || row?.evidence?.direct_next_action_code || '',
+        }),
+        primaryNextActionSuccessCriteria: String(row?.primary_next_action_success_criteria || row?.evidence?.primary_next_action_success_criteria || ''),
+        directNextActionSuccessCriteria: String(row?.direct_next_action_success_criteria || row?.evidence?.direct_next_action_success_criteria || ''),
+        primaryNextActionSuccessCriteriaText: phase1EmployeeActionSuccessCriteriaText({
+            action_code: row?.primary_next_action_code || row?.evidence?.primary_next_action_code || '',
+            success_criteria: row?.primary_next_action_success_criteria || row?.evidence?.primary_next_action_success_criteria || '',
+            question_key: row?.key || '',
+        }),
+        directNextActionSuccessCriteriaText: phase1EmployeeActionSuccessCriteriaText({
+            action_code: row?.direct_next_action_code || row?.evidence?.direct_next_action_code || '',
+            success_criteria: row?.direct_next_action_success_criteria || row?.evidence?.direct_next_action_success_criteria || '',
+            question_key: row?.key || '',
+        }),
+        blockedActionCodes: Array.isArray(row?.blocked_action_codes || row?.evidence?.blocked_action_codes)
+            ? (row?.blocked_action_codes || row?.evidence?.blocked_action_codes).filter(Boolean).join('、')
+            : String(row?.blocked_action_codes || row?.evidence?.blocked_action_codes || ''),
+        blockedActionCodesText: Array.isArray(row?.blocked_action_codes || row?.evidence?.blocked_action_codes)
+            ? (row?.blocked_action_codes || row?.evidence?.blocked_action_codes).map(phase1EmployeeActionCodeText).filter(Boolean).join('、')
+            : String(row?.blocked_action_codes || row?.evidence?.blocked_action_codes || '').split('、').map(phase1EmployeeActionCodeText).filter(Boolean).join('、'),
+        linkedActionCount: Number(row?.evidence?.linked_action_count || 0),
+    });
 
     const phase1EmployeeCollectionDataTypeText = (type) => {
         const raw = String(type || '').toLowerCase();
@@ -2540,6 +3953,471 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             policyText: String(source.policy || '').trim(),
             policyRawText: `platform=${platform || 'platform_missing'}`,
         };
+    };
+    const phase1EmployeeBackendRows = (backendQuestionSource = {}) => {
+        if (Array.isArray(backendQuestionSource?.rows)) return backendQuestionSource.rows;
+        if (Array.isArray(backendQuestionSource?.questions)) return backendQuestionSource.questions;
+        return [];
+    };
+    const phase1EmployeeBackendQuestion = (backendQuestionSource = {}, key = '') => (
+        phase1EmployeeBackendRows(backendQuestionSource).find(row => String(row?.key || '') === key) || {}
+    );
+    const buildPhase1EmployeeCollectionSourceRows = ({ backendQuestionSource = {}, collectionReliability = {}, dashboardDataSources = {} } = {}) => {
+        const summaryRows = Array.isArray(backendQuestionSource?.collection_source_summary)
+            ? backendQuestionSource.collection_source_summary
+            : (Array.isArray(collectionReliability?.collection_source_summary)
+                ? collectionReliability.collection_source_summary
+                : (Array.isArray(dashboardDataSources?.collection_source_summary) ? dashboardDataSources.collection_source_summary : []));
+        if (summaryRows.length) {
+            return summaryRows.map(normalizePhase1CollectionSourceSummaryRow).filter(row => row.platform);
+        }
+        const sourceDateEvidence = collectionReliability?.source_date_evidence || dashboardDataSources?.source_date_evidence || {};
+        return (Array.isArray(sourceDateEvidence?.platforms) ? sourceDateEvidence.platforms : [])
+            .map(row => {
+                const latest = row?.latest_available && typeof row.latest_available === 'object' ? row.latest_available : null;
+                const relation = String(row?.date_relation || latest?.date_relation || 'none');
+                return normalizePhase1CollectionSourceSummaryRow({
+                    platform: row?.platform,
+                    storage_table: 'online_daily_data',
+                    source_policy: 'read_existing_online_daily_data_only',
+                    target_date_rows: row?.target_date_rows,
+                    target_date_data_types: row?.target_date_data_types,
+                    latest_available: latest ? { ...latest, date_relation: relation } : null,
+                    latest_available_reference_only: relation !== 'target_date',
+                });
+            })
+            .filter(row => row.platform);
+    };
+    const buildPhase1EmployeeFieldTrustRows = ({ backendQuestionSource = {}, collectionReliability = {}, dashboardDataSources = {} } = {}) => {
+        const trustedQuestion = phase1EmployeeBackendQuestion(backendQuestionSource, 'trusted_fields');
+        const trustRows = Array.isArray(trustedQuestion?.evidence?.platform_field_trust)
+            ? trustedQuestion.evidence.platform_field_trust
+            : [];
+        if (trustRows.length) {
+            return trustRows.map(normalizePhase1EmployeeFieldTrustRow).filter(row => row.platform);
+        }
+        const sourceDateEvidence = collectionReliability?.source_date_evidence || dashboardDataSources?.source_date_evidence || {};
+        return (Array.isArray(sourceDateEvidence?.platforms) ? sourceDateEvidence.platforms : [])
+            .map(row => normalizePhase1EmployeeFieldTrustRow({
+                platform: row?.platform,
+                target_date_rows: row?.target_date_rows,
+                metric_status: 'unknown',
+                field_trust_status: Number(row?.target_date_rows || 0) > 0 ? 'target_date_metric_inputs_missing' : 'target_date_source_missing',
+                metric_trust_key_count: 0,
+                metric_trust_keys: [],
+                reason_codes: Number(row?.target_date_rows || 0) > 0 ? ['metric_trust_not_loaded'] : ['target_date_source_rows_missing'],
+                source_policy: 'target_date_rows_plus_metric_trust_required',
+            }))
+            .filter(row => row.platform);
+    };
+    const buildPhase1EmployeeMissingFieldRows = ({ backendQuestionSource = {}, collectionHealthQuality = {}, otaDiagnosisDataGaps = [] } = {}) => {
+        const missingQuestion = phase1EmployeeBackendQuestion(backendQuestionSource, 'missing_fields');
+        const evidence = missingQuestion?.evidence && typeof missingQuestion.evidence === 'object' ? missingQuestion.evidence : {};
+        const summaryRows = Array.isArray(evidence.missing_field_summary)
+            ? evidence.missing_field_summary.map(normalizePhase1EmployeeMissingFieldSummaryRow).filter(row => row.code || row.label)
+            : [];
+        if (summaryRows.length) return summaryRows;
+        const rows = [];
+        const seen = new Set();
+        const appendCodes = (codes, source) => {
+            (Array.isArray(codes) ? codes : []).forEach((code) => {
+                const normalizedCode = String(code || '').trim();
+                if (!normalizedCode || seen.has(normalizedCode)) return;
+                seen.add(normalizedCode);
+                rows.push(normalizePhase1EmployeeMissingFieldRow(normalizedCode, source));
+            });
+        };
+        appendCodes(evidence.data_gap_codes, 'data_gaps');
+        appendCodes(evidence.missing_field_codes, 'missing_field_codes');
+        if (rows.length) return rows;
+        const quality = collectionHealthQuality && typeof collectionHealthQuality === 'object' ? collectionHealthQuality : {};
+        appendCodes(quality.missing_field_codes, 'missing_field_codes');
+        appendCodes(quality.missing_fields, 'missing_field_codes');
+        appendCodes(quality.field_missing_codes, 'missing_field_codes');
+        appendCodes((Array.isArray(otaDiagnosisDataGaps) ? otaDiagnosisDataGaps : []).map(item => item?.code || item?.field || item?.metric_key), 'data_gaps');
+        return rows;
+    };
+    const buildPhase1EmployeeMetricDomainRows = ({ backendQuestionSource = {}, collectionReliability = {}, dashboardDataSources = {} } = {}) => {
+        const revenueQuestion = phase1EmployeeBackendQuestion(backendQuestionSource, 'revenue_traffic_conversion');
+        const summaryRows = Array.isArray(revenueQuestion?.evidence?.metric_domain_summary)
+            ? revenueQuestion.evidence.metric_domain_summary
+            : [];
+        if (summaryRows.length) {
+            return summaryRows.map(normalizePhase1EmployeeMetricDomainSummaryRow).filter(row => row.platform);
+        }
+        const readinessRows = Array.isArray(revenueQuestion?.evidence?.metric_domain_readiness)
+            ? revenueQuestion.evidence.metric_domain_readiness
+            : [];
+        if (readinessRows.length) {
+            return readinessRows.map(normalizePhase1EmployeeMetricDomainRow).filter(row => row.platform);
+        }
+        const sourceDateEvidence = collectionReliability?.source_date_evidence || dashboardDataSources?.source_date_evidence || {};
+        return (Array.isArray(sourceDateEvidence?.platforms) ? sourceDateEvidence.platforms : [])
+            .map(row => {
+                const platform = String(row?.platform || '').toLowerCase();
+                const targetRows = Math.max(0, Number(row?.target_date_rows || 0));
+                const targetTypes = Array.isArray(row?.target_date_data_types)
+                    ? row.target_date_data_types.map(item => String(item || '').toLowerCase()).filter(Boolean)
+                    : [];
+                const hasType = (needles) => targetTypes.some(type => needles.some(needle => type.includes(needle)));
+                const revenueReady = targetRows > 0 && hasType(['business', 'order', 'orders', 'revenue']);
+                const trafficReady = targetRows > 0 && hasType(['traffic', 'flow', 'flow_data']);
+                const missingDomains = [];
+                if (!revenueReady) missingDomains.push('revenue');
+                if (!trafficReady) missingDomains.push('traffic');
+                if (!trafficReady) missingDomains.push('conversion');
+                return normalizePhase1EmployeeMetricDomainRow({
+                    platform,
+                    target_date_rows: targetRows,
+                    target_date_data_types: targetTypes,
+                    revenue_status: revenueReady ? 'ready' : 'missing',
+                    traffic_status: trafficReady ? 'ready' : 'missing',
+                    conversion_status: trafficReady ? 'ready' : 'missing',
+                    missing_domains: missingDomains,
+                });
+            })
+            .filter(row => row.platform);
+    };
+    const buildPhase1EmployeeQuestionRows = ({
+        latestLog = {},
+        historyReplay = [],
+        onlineAnalysisPagination = {},
+        analysisData = {},
+        collectionReliability = {},
+        dashboardDataSources = {},
+        collectionHealthQuality = {},
+        collectionHealthFieldRows = [],
+        collectionHealthPendingActions = [],
+        otaDiagnosisDataGaps = [],
+        aiDiagnosisEvidence = {},
+        operationEvidence = {},
+    } = {}) => {
+        const currentLatestLog = latestLog && typeof latestLog === 'object' ? latestLog : {};
+        const latestLogStatus = String(currentLatestLog.status || '').toLowerCase();
+        const latestSavedCount = Number(currentLatestLog.saved_count || currentLatestLog.total_saved_count || 0);
+        const replaySavedCount = (Array.isArray(historyReplay) ? historyReplay : []).reduce((sum, row) => sum + Number(row?.saved_count || row?.row_count || 0), 0);
+        const analysisRows = Number(onlineAnalysisPagination?.total || analysisData?.summary?.total_record_count || 0);
+        const hasStoredOtaRows = latestSavedCount > 0 || replaySavedCount > 0 || analysisRows > 0;
+        const sourceDateEvidence = collectionReliability?.source_date_evidence || dashboardDataSources?.source_date_evidence || {};
+        const sourceDatePlatformRows = Array.isArray(sourceDateEvidence?.platforms) ? sourceDateEvidence.platforms : [];
+        const sourceDateEvidenceAvailable = sourceDatePlatformRows.length > 0;
+        const sourceDateMissingPlatforms = sourceDatePlatformRows
+            .filter(row => Number(row?.target_date_rows || 0) <= 0)
+            .map(row => String(row?.platform || '').toUpperCase())
+            .filter(Boolean);
+        const sourceDateMissingPlatformText = sourceDateMissingPlatforms.map(phase1EmployeePlatformText).join('、');
+        const targetDateSourceRows = sourceDatePlatformRows.reduce((sum, row) => sum + Number(row?.target_date_rows || 0), 0);
+        const targetDateCoverageStatus = sourceDateEvidenceAvailable
+            ? (sourceDateMissingPlatforms.length === 0 ? 'complete' : (targetDateSourceRows > 0 ? 'partial' : 'missing'))
+            : (hasStoredOtaRows ? 'unknown' : 'missing');
+        const sourceDateEvidenceStatus = targetDateCoverageStatus === 'complete'
+            ? 'target_date_complete'
+            : (targetDateCoverageStatus === 'partial' ? 'target_date_partial' : 'target_date_missing');
+        const sourceDateEvidenceLegacyStatus = targetDateSourceRows > 0 ? 'target_date_present' : 'target_date_missing';
+        const hasCompleteTargetDateCoverage = sourceDateEvidenceAvailable && targetDateCoverageStatus === 'complete';
+        const hasPartialTargetDateCoverage = sourceDateEvidenceAvailable && targetDateCoverageStatus === 'partial';
+        const referenceRowCount = latestSavedCount || replaySavedCount || analysisRows;
+        const targetDateCoverageEvidence = sourceDateEvidenceAvailable
+            ? `目标日 ${targetDateSourceRows} 行${sourceDateMissingPlatformText ? `；缺失平台 ${sourceDateMissingPlatformText}` : ''}`
+            : (hasStoredOtaRows ? `入库/回放/分析参考 ${referenceRowCount} 条；缺少目标日来源证据` : '');
+        const targetDatePlatformCoverageEvidence = sourceDateEvidenceAvailable
+            ? {
+                status: targetDateCoverageStatus,
+                source_date_evidence_status: sourceDateEvidenceStatus,
+                legacy_status: sourceDateEvidenceLegacyStatus,
+                coverage_status: sourceDateEvidenceStatus,
+                missing_platforms: sourceDateMissingPlatforms,
+                platform_count: sourceDatePlatformRows.length,
+                covered_platform_count: sourceDatePlatformRows.length - sourceDateMissingPlatforms.length,
+                source_date_evidence_available: true,
+            }
+            : {
+                status: targetDateCoverageStatus,
+                source_date_evidence_status: sourceDateEvidenceStatus,
+                legacy_status: sourceDateEvidenceLegacyStatus,
+                coverage_status: sourceDateEvidenceStatus,
+                source_date_evidence_available: false,
+                source_date_evidence_missing: true,
+                reference_saved_count: latestSavedCount,
+                reference_replay_count: replaySavedCount,
+                analysis_rows_reference_only: analysisRows,
+                reference_rows: referenceRowCount,
+            };
+        const targetDateBlockingMissingCodes = hasCompleteTargetDateCoverage
+            ? []
+            : (sourceDateEvidenceAvailable
+                ? (sourceDateMissingPlatforms.length
+                    ? sourceDateMissingPlatforms.map(platform => `${String(platform || '').toLowerCase()}_target_date_rows_missing`).filter(Boolean)
+                    : ['target_date_rows_missing'])
+                : ['source_date_evidence_missing']);
+        const quality = collectionHealthQuality && typeof collectionHealthQuality === 'object' ? collectionHealthQuality : {};
+        const qualityStatus = String(quality.status || '').toLowerCase();
+        const missingFieldCount = Number(quality.missing_count || 0);
+        const fieldRows = Array.isArray(collectionHealthFieldRows) ? collectionHealthFieldRows : [];
+        const pendingActions = Array.isArray(collectionHealthPendingActions) ? collectionHealthPendingActions : [];
+        const dataGaps = Array.isArray(otaDiagnosisDataGaps) ? otaDiagnosisDataGaps : [];
+        const fieldDefinitionCount = fieldRows.length;
+        const pendingFieldActions = pendingActions.filter(item => String(item?.type || '').includes('field') || String(item?.action_code || '').includes('field'));
+        const normalizePhase1EvidenceKey = (value) => String(value || '').trim();
+        const fieldDefinitionKeys = fieldRows
+            .map(row => normalizePhase1EvidenceKey(row?.key || [row?.source || row?.platform, row?.module || row?.section || row?.data_type, row?.field || row?.id || row?.name].filter(Boolean).join('.')))
+            .filter(Boolean)
+            .slice(0, 40);
+        const fieldPendingActionCodes = pendingFieldActions
+            .map(item => normalizePhase1EvidenceKey(item?.action_code || item?.code))
+            .filter(Boolean);
+        const missingFieldCodes = [
+            ...(Array.isArray(quality.missing_field_codes) ? quality.missing_field_codes : []),
+            ...(Array.isArray(quality.missing_fields) ? quality.missing_fields : []),
+            ...(Array.isArray(quality.field_missing_codes) ? quality.field_missing_codes : []),
+        ].map(normalizePhase1EvidenceKey).filter(Boolean);
+        const diagnosisDataGapCodes = dataGaps
+            .map(item => normalizePhase1EvidenceKey(item?.code || item?.field || item?.metric_key))
+            .filter(Boolean);
+        const phase1RevenueMetricEvidence = collectionReliability?.phase1_employee_questions?.revenue_metric_evidence
+            || collectionReliability?.revenue_metric_evidence
+            || dashboardDataSources?.phase1_employee_questions?.revenue_metric_evidence
+            || dashboardDataSources?.revenue_metric_evidence
+            || {};
+        const metricTrustKeys = Array.isArray(phase1RevenueMetricEvidence.metric_trust_keys)
+            ? phase1RevenueMetricEvidence.metric_trust_keys.map(normalizePhase1EvidenceKey).filter(Boolean)
+            : [];
+        const revenueMetricDataGapCodes = Array.isArray(phase1RevenueMetricEvidence.data_gap_codes)
+            ? phase1RevenueMetricEvidence.data_gap_codes.map(normalizePhase1EvidenceKey).filter(Boolean)
+            : [];
+        const fieldTrustProved = hasCompleteTargetDateCoverage
+            && fieldDefinitionCount > 0
+            && qualityStatus === 'ok'
+            && metricTrustKeys.length > 0
+            && missingFieldCount === 0
+            && pendingFieldActions.length === 0;
+        const fieldTrustPartial = fieldDefinitionCount > 0 || targetDateSourceRows > 0;
+        const safeAiDiagnosisEvidence = aiDiagnosisEvidence && typeof aiDiagnosisEvidence === 'object' ? aiDiagnosisEvidence : {};
+        const safeOperationEvidence = operationEvidence && typeof operationEvidence === 'object' ? operationEvidence : {};
+        const aiActionItemsReady = safeAiDiagnosisEvidence.status === 'proved' && Number(safeAiDiagnosisEvidence.actionable_action_item_count || 0) > 0;
+        const operationProofReady = aiActionItemsReady && safeOperationEvidence.operation_evidence_status === 'proved';
+        const operationHasPendingInput = Number(safeAiDiagnosisEvidence.actionable_action_item_count || 0) > 0 || pendingActions.length > 0;
+        const operationQuestionStatus = operationProofReady
+            ? 'proved'
+            : (safeOperationEvidence.operation_evidence_status !== 'missing' || operationHasPendingInput ? 'warning' : 'missing');
+        const operationBlockingCodes = operationQuestionStatus === 'proved'
+            ? []
+            : Array.from(new Set([
+                ...(Array.isArray(safeOperationEvidence.blocking_missing_codes) ? safeOperationEvidence.blocking_missing_codes : []),
+                ...(aiActionItemsReady ? [] : (Array.isArray(safeAiDiagnosisEvidence.blocking_missing_codes) ? safeAiDiagnosisEvidence.blocking_missing_codes : [])),
+            ]));
+        const {
+            metricDomainReadiness,
+            revenueReadyPlatforms,
+            trafficReadyPlatforms,
+            conversionReadyPlatforms,
+            revenueMissingPlatforms,
+            trafficMissingPlatforms,
+            conversionMissingPlatforms,
+            metricDomainGapCodes,
+            platformFieldTrust,
+            allMetricDomainsReady,
+        } = buildPhase1MetricDomainReadiness({
+            sourceDatePlatformRows,
+            metricTrustKeys,
+            hasCompleteTargetDateCoverage,
+        });
+        const metricProblemStatus = allMetricDomainsReady ? 'proved' : (targetDateSourceRows > 0 ? 'warning' : 'not_proved');
+        const revenueReadyText = revenueReadyPlatforms.map(item => String(item).toUpperCase()).join('、');
+
+        const localRows = [
+            {
+                key: 'today_ota_collected',
+                question: '今天 OTA 数据有没有采到',
+                status: hasCompleteTargetDateCoverage ? 'proved' : (hasPartialTargetDateCoverage || (!sourceDateEvidenceAvailable && hasStoredOtaRows) ? 'warning' : (latestLogStatus === 'failed' ? 'missing' : 'not_proved')),
+                detail: hasCompleteTargetDateCoverage
+                    ? '携程和美团目标日数据均有入库证据。'
+                    : (hasPartialTargetDateCoverage
+                        ? '目标日数据只覆盖部分平台，不能视为携程/美团均已完成。'
+                        : (!sourceDateEvidenceAvailable && hasStoredOtaRows
+                            ? '已有入库/回放/分析参考，但缺少目标日来源证据，不能证明目标日携程/美团均已采到。'
+                            : '未看到可证明目标日携程/美团均已入库的 OTA 数据证据。')),
+                evidence: {
+                    target_date_source_rows: targetDateSourceRows,
+                    target_date_platform_coverage: targetDatePlatformCoverageEvidence,
+                    source_date_evidence_status: sourceDateEvidenceStatus,
+                    legacy_status: sourceDateEvidenceLegacyStatus,
+                    coverage_status: sourceDateEvidenceStatus,
+                    source_date_evidence_available: sourceDateEvidenceAvailable,
+                    reference_saved_count: latestSavedCount,
+                    reference_replay_count: replaySavedCount,
+                    analysis_rows_reference_only: analysisRows,
+                    latest_log_message: currentLatestLog.message || '',
+                    period_end_date: collectionReliability?.period?.end_date || '',
+                    evidence_summary: targetDateCoverageEvidence,
+                    blocking_missing_codes: targetDateBlockingMissingCodes,
+                },
+                nextAction: hasCompleteTargetDateCoverage ? '继续检查字段可信度、收益指标和 AI 依据。' : '使用现有携程/美团手动或自动获取入口补齐缺失平台同日数据。',
+            },
+            {
+                key: 'trusted_fields',
+                question: '哪些字段可信',
+                status: fieldTrustProved ? 'proved' : (fieldTrustPartial ? 'warning' : 'not_proved'),
+                detail: fieldTrustProved
+                    ? '字段资产、目标日样例和数据质量状态均可用于判断字段可信度。'
+                    : (fieldDefinitionCount > 0
+                        ? '字段资产和口径已可查看，仍需结合目标日样例、指标可信证据和数据质量状态复核。'
+                        : '轻量模式或未加载字段资产时，不能判定字段可信。'),
+                evidence: {
+                    field_definition_count: fieldDefinitionCount,
+                    field_definition_keys: fieldDefinitionKeys,
+                    target_date_source_rows: targetDateSourceRows,
+                    target_date_platform_coverage: targetDatePlatformCoverageEvidence,
+                    platform_field_trust: platformFieldTrust,
+                    data_quality_status: qualityStatus || 'unknown',
+                    missing_field_count: missingFieldCount,
+                    field_pending_action_count: pendingFieldActions.length,
+                    field_pending_action_codes: fieldPendingActionCodes,
+                    revenue_metric_status: String(phase1RevenueMetricEvidence.status || 'unknown'),
+                    metric_trust_key_count: metricTrustKeys.length,
+                    metric_trust_keys: metricTrustKeys,
+                    data_gap_codes: revenueMetricDataGapCodes,
+                    revenue_metric_evidence_policy: String(phase1RevenueMetricEvidence.source_policy || 'read_existing_ota_standard_revenue_metrics_only'),
+                    metric_trust_required: true,
+                    field_trust_policy: 'requires_target_date_rows_field_definitions_metric_trust_and_data_quality',
+                    evidence_refs: [
+                        '/api/online-data/collection-reliability.field_definitions',
+                        '/api/online-data/collection-reliability.data_quality',
+                        '/api/ota-standard/revenue-metrics.metric_trust',
+                    ],
+                },
+                nextAction: fieldTrustProved
+                    ? '按字段资产、来源路径、指标可信证据和入库样例逐项复核。'
+                    : (hasCompleteTargetDateCoverage
+                        ? '打开收益指标的指标可信证据和数据质量缺口，逐项确认字段可信度。'
+                        : '先补齐携程/美团同日源数据，再按字段资产、指标可信证据和数据质量状态判断可信度。'),
+            },
+            {
+                key: 'missing_fields',
+                question: '哪些字段缺失',
+                status: missingFieldCount > 0 || pendingFieldActions.length > 0 || dataGaps.length > 0 ? 'proved' : (qualityStatus === 'ok' ? 'warning' : 'not_proved'),
+                detail: missingFieldCount > 0 || pendingFieldActions.length > 0 || dataGaps.length > 0 ? '字段缺口已显式暴露，不能用 0 或空值代替。' : '当前没有缺口样例；未加载完整诊断时不能等同于无缺口。',
+                evidence: {
+                    missing_field_count: missingFieldCount,
+                    missing_field_codes: missingFieldCodes,
+                    data_gap_codes: diagnosisDataGapCodes,
+                    field_pending_action_count: pendingFieldActions.length,
+                    field_pending_action_codes: fieldPendingActionCodes,
+                    data_quality_status: qualityStatus || 'unknown',
+                    evidence_refs: [
+                        '/api/online-data/collection-reliability.data_quality',
+                        '/api/agent/ota-diagnosis.data_gaps',
+                    ],
+                },
+                nextAction: '按数据缺口、字段资产和质量任务处理缺口。',
+            },
+            {
+                key: 'revenue_traffic_conversion',
+                question: '收入/流量/转化出了什么问题',
+                status: metricProblemStatus,
+                detail: allMetricDomainsReady
+                    ? '收益、流量、转化均有目标日事实，可进入经营诊断。'
+                    : (metricTrustKeys.length === 0 && targetDateSourceRows > 0
+                        ? '已有目标日 OTA 数据样本，但指标可信证据未输出时不能证明收益、流量或转化指标可信。'
+                        : (revenueReadyPlatforms.length
+                        ? `收益指标可先复核：${revenueReadyText || '部分平台'}；流量/转化事实不足时，不输出流量或转化确定结论。`
+                        : (targetDateSourceRows > 0
+                            ? '已有目标日 OTA 数据样本，但收益、流量、转化指标域尚未全部证明。'
+                            : '没有目标日入库样本时，不生成收入、流量或转化结论。'))),
+                evidence: {
+                    target_date_source_rows: targetDateSourceRows,
+                    target_date_platform_coverage: targetDatePlatformCoverageEvidence,
+                    metric_domain_readiness: metricDomainReadiness,
+                    revenue_ready_platforms: revenueReadyPlatforms,
+                    traffic_ready_platforms: trafficReadyPlatforms,
+                    conversion_ready_platforms: conversionReadyPlatforms,
+                    revenue_missing_platforms: revenueMissingPlatforms,
+                    traffic_missing_platforms: trafficMissingPlatforms,
+                    conversion_missing_platforms: conversionMissingPlatforms,
+                    metric_domain_gap_codes: metricDomainGapCodes,
+                    metric_trust_key_count: metricTrustKeys.length,
+                    metric_trust_keys: metricTrustKeys,
+                    data_gap_codes: revenueMetricDataGapCodes,
+                    revenue_metric_status: String(phase1RevenueMetricEvidence.status || 'unknown'),
+                    metric_domain_policy: 'read_target_date_online_daily_data_types_only',
+                    analysis_rows_reference_only: analysisRows,
+                },
+                nextAction: allMetricDomainsReady
+                    ? '进入经营诊断，逐项引用指标可信证据、数据缺口和目标日指标域证据。'
+                    : (metricTrustKeys.length === 0 && targetDateSourceRows > 0
+                        ? '打开收益指标，复核指标可信证据和数据缺口；未输出前不生成确定指标结论。'
+                        : (revenueReadyPlatforms.length
+                        ? '先复核收益指标；流量/转化结论必须等待目标日流量事实补齐。'
+                        : (targetDateSourceRows > 0
+                            ? '打开收益指标，复核收入汇总、流量事实、指标可信证据和数据缺口。'
+                            : '先补齐同日 OTA 源数据和标准事实层。'))),
+            },
+            {
+                key: 'ai_evidence',
+                question: 'AI 建议依据是什么',
+                status: safeAiDiagnosisEvidence.status,
+                detail: safeAiDiagnosisEvidence.status === 'proved'
+                    ? 'AI 诊断已带证据来源和可执行动作项。'
+                    : (safeAiDiagnosisEvidence.status === 'warning'
+                        ? 'AI 诊断已有部分证据，但动作项缺失或仍处于阻断状态。'
+                        : '尚未看到本范围的 AI 诊断证据。'),
+                evidence: safeAiDiagnosisEvidence,
+                nextAction: safeAiDiagnosisEvidence.status === 'proved'
+                    ? ''
+                    : (Number(safeAiDiagnosisEvidence.blocked_action_item_count || 0) > 0
+                        ? '先处理 AI 动作项阻断项，再重新生成可进入执行意图的动作。'
+                        : '生成 OTA 诊断，并确认返回证据来源、数据缺口和动作项。'),
+            },
+            {
+                key: 'next_operation_action',
+                question: '下一步该执行什么动作',
+                status: operationQuestionStatus,
+                detail: operationProofReady
+                    ? '可执行 AI 动作项与 OTA 诊断执行意图均已有审批、执行证据或复盘信号。'
+                    : (safeOperationEvidence.operation_evidence_status === 'warning'
+                        ? '已有执行意图或执行流记录，但缺少可执行 AI 动作项关联、审批通过、执行证据或复盘信号。'
+                        : '当前只有建议/待办时，不能视为运营执行闭环完成。'),
+                evidence: {
+                    ...safeOperationEvidence,
+                    ai_action_items_ready: aiActionItemsReady,
+                    operation_ai_action_link_required: true,
+                    blocking_missing_codes: operationBlockingCodes,
+                },
+                nextAction: operationProofReady
+                    ? '继续跟进执行结果和复盘状态。'
+                    : (safeOperationEvidence.operation_evidence_status === 'warning'
+                        ? '补齐可执行 AI 动作项关联、审批通过、执行证据或复盘状态；未补齐前不标记运营闭环完成。'
+                        : '从真实诊断动作创建执行意图，保留审批、执行证据和复盘。'),
+            },
+        ];
+        const normalizedLocalRows = localRows.map(normalizePhase1EmployeeQuestionRow);
+        const backendQuestionSource = collectionReliability?.phase1_employee_questions || dashboardDataSources?.phase1_employee_questions || {};
+        const backendRows = Array.isArray(backendQuestionSource?.rows)
+            ? backendQuestionSource.rows.map(normalizePhase1EmployeeQuestionRow)
+            : [];
+        if (!backendRows.length) return normalizedLocalRows;
+        const localByKey = new Map(normalizedLocalRows.map(row => [row.key, row]));
+        return backendRows.map(row => {
+            const local = localByKey.get(row.key);
+            if (!local) return row;
+            if (['today_ota_collected', 'trusted_fields', 'missing_fields'].includes(row.key)) return phase1EmployeeQuestionPresentationRow(row, local);
+            if (local.status === 'proved' && row.status !== 'proved') return mergePhase1EmployeeQuestionRow(row, local);
+            if (['ai_evidence', 'next_operation_action'].includes(row.key) && ['proved', 'warning'].includes(local.status)) {
+                return mergePhase1EmployeeQuestionRow(row, local);
+            }
+            return row;
+        });
+    };
+    const buildPhase1EmployeeRequiredActions = ({ backendQuestionSource = {}, rows = [] } = {}) => {
+        const actions = Array.isArray(backendQuestionSource?.next_required_actions)
+            ? backendQuestionSource.next_required_actions.map(normalizePhase1EmployeeRequiredAction)
+            : [];
+        const backendActions = actions.filter(item => item.actionCode && (item.action || item.actionText));
+        if (backendActions.length) return backendActions;
+        return (Array.isArray(rows) ? rows : [])
+            .filter(row => !['proved', 'no_gap_reported'].includes(String(row?.status || '')) && String(row?.nextActionText || row?.employeeNextActionText || row?.nextAction || '').trim())
+            .map(buildPhase1LocalRequiredAction)
+            .filter(item => item.actionCode && (item.action || item.actionText));
     };
 
     const onlineAnalysisSourceText = (source) => {
@@ -2773,6 +4651,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         onlineDataQualityScopeText,
         autoFetchRecordStatusClass,
         buildOnlineHistoryQueryParams,
+        isDirtyQuestionMarkText,
+        formatOnlineHistoryHotelOption,
+        formatOnlineHistoryRaw,
         buildHotelDataDashboardRequests,
         collectionHealthCookieLightClass,
         collectionHealthCookieLightText,
@@ -2824,6 +4705,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         collectionHealthCtripCatalogCodeListText,
         collectionHealthCtripSectionText,
         collectionHealthCtripCatalogActionReasonText,
+        collectionHealthCtripCatalogStatus,
+        collectionHealthCtripCatalogMessage,
+        collectionHealthCtripCatalogGateText,
         collectionHealthCtripModuleStatusText,
         collectionHealthCtripModuleStatusClass,
         collectionHealthCtripShortList,
@@ -2838,6 +4722,12 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         collectionHealthFieldAssetStatusText,
         collectionHealthFieldAssetStatusClass,
         collectionHealthFieldAssetListText,
+        buildCollectionHealthAuthorizationRowsReadable,
+        buildCollectionHealthFailureReasonRows,
+        buildCollectionHealthPendingActionRows,
+        buildCollectionHealthFieldAssetCards,
+        collectionHealthLifecycleStageStatus,
+        collectionHealthLifecycleReadyCount,
         buildCollectionHealthCtripCatalogCards,
         collectionHealthCtripCatalogDiagnosticScopeText,
         collectionHealthCtripCatalogAuthText,
@@ -2845,9 +4735,36 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         collectionHealthCtripCatalogPendingFieldText,
         buildCollectionHealthCtripCatalogVisibleNotes,
         collectionHealthCtripCatalogActionText,
+        buildCollectionHealthCtripCatalogDetailRows,
+        buildCollectionHealthCtripCatalogActionRows,
+        buildCollectionHealthCtripPersistedRows,
+        collectionHealthCtripIdentityBlocked,
+        collectionHealthCtripIdentityMessage,
         buildCollectionHealthCtripLatestCards,
+        buildCollectionHealthCtripOverviewAuthState,
         buildCollectionHealthCtripOverviewStatusCards,
         buildCtripOverviewFetchModuleCards,
+        collectionHealthCtripMetricPreviewValue,
+        collectionHealthCtripCalculatedValue,
+        collectionHealthCtripKeysForLabels,
+        collectionHealthCtripDataTypesForSections,
+        collectionHealthCtripActionForSections,
+        collectionHealthCtripModuleStats,
+        collectionHealthCtripRowsForContext,
+        collectionHealthCtripPreviewMetricKey,
+        collectionHealthCtripMetricKeyAliases,
+        collectionHealthCtripMetricKeyMatches,
+        collectionHealthCtripMissingDiagnosis,
+        collectionHealthCtripMissingMetric,
+        collectionHealthCtripMetricFromRows,
+        collectionHealthCtripMetricValue,
+        collectionHealthCtripOverviewMetric,
+        buildCollectionHealthCtripCoreSnapshotGroups,
+        buildCollectionHealthCtripOverviewRevenueMetrics,
+        buildCollectionHealthCtripOverviewTrafficMetrics,
+        buildCollectionHealthCtripOverviewFunnelRows,
+        buildCollectionHealthCtripOverviewPanels,
+        buildCollectionHealthCtripMissingActionRows,
         buildPhase1MetricDomainReadiness,
         buildPhase1TrafficP0NextText,
         phase1EmployeeQuestionStatusText,
@@ -2905,24 +4822,43 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         phase1EmployeeActionMetaText,
         phase1EmployeeActionProtectedBoundaryText,
         normalizePhase1EmployeeRequiredAction,
+        phase1LocalActionMeta,
+        buildPhase1LocalRequiredAction,
+        phase1DiagnosisActionItemStatus,
+        phase1DiagnosisActionItemText,
+        phase1DiagnosisActionItemBlocked,
+        buildPhase1AiDiagnosisEvidence,
         phase1EmployeeAiJudgementText,
         phase1EmployeeAiLimitText,
         phase1EmployeeOperationJudgementText,
         phase1EmployeeOperationLimitText,
+        buildPhase1EmployeeAiEvidenceSummary,
+        buildPhase1EmployeeOperationSummary,
+        buildPhase1EmployeeClosureSummary,
         phase1EmployeeEvidenceStatusText,
         phase1FieldTrustStatusText,
         phase1EmployeeEvidencePolicyText,
         phase1EmployeeStorageTableText,
         phase1EmployeeGapCodeText,
         phase1EmployeeActionCodeText,
+        phase1EmployeeSourceSnapshotText,
+        phase1EmployeeQuestionNextActionText,
+        phase1EmployeeQuestionEvidenceText,
+        normalizePhase1EmployeeQuestionRow,
+        buildPhase1EmployeeQuestionRows,
+        buildPhase1EmployeeRequiredActions,
         phase1EmployeeCollectionDataTypeText,
         normalizePhase1CollectionSourceSummaryRow,
+        buildPhase1EmployeeCollectionSourceRows,
         phase1FieldTrustStatusClass,
         normalizePhase1EmployeeFieldTrustRow,
+        buildPhase1EmployeeFieldTrustRows,
         normalizePhase1EmployeeMissingFieldRow,
         normalizePhase1EmployeeMissingFieldSummaryRow,
+        buildPhase1EmployeeMissingFieldRows,
         normalizePhase1EmployeeMetricDomainRow,
         normalizePhase1EmployeeMetricDomainSummaryRow,
+        buildPhase1EmployeeMetricDomainRows,
         onlineAnalysisFieldFactStatus,
         onlineAnalysisP0CaptureEvidenceStatus,
         onlineAnalysisP0CaptureEvidenceStatusText,
