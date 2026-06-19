@@ -4089,6 +4089,14 @@
                                                         class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs font-medium text-blue-700 hover:bg-blue-100">
                                                         账号
                                                     </button>
+                                                    <button v-if="user?.is_super_admin" type="button" @click="openHotelManualFetchConfig(hotel, 'ctrip')"
+                                                        class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-white text-xs text-blue-700 hover:bg-blue-50">
+                                                        携程配置
+                                                    </button>
+                                                    <button v-if="user?.is_super_admin" type="button" @click="openHotelManualFetchConfig(hotel, 'meituan')"
+                                                        class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-orange-100 bg-white text-xs text-orange-700 hover:bg-orange-50">
+                                                        美团配置
+                                                    </button>
                                                     <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">编辑</button>
                                                     <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
                                                     <button type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-red-100 bg-white text-xs text-red-600 hover:bg-red-50">删除</button>
@@ -4134,6 +4142,14 @@
                                             <button type="button" @click="openHotelModal(hotel, { expandOta: true })"
                                                 class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs font-medium text-blue-700 hover:bg-blue-100">
                                                 账号
+                                            </button>
+                                            <button v-if="user?.is_super_admin" type="button" @click="openHotelManualFetchConfig(hotel, 'ctrip')"
+                                                class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-white text-xs text-blue-700">
+                                                携程配置
+                                            </button>
+                                            <button v-if="user?.is_super_admin" type="button" @click="openHotelManualFetchConfig(hotel, 'meituan')"
+                                                class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-orange-100 bg-white text-xs text-orange-700">
+                                                美团配置
                                             </button>
                                             <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">编辑</button>
                                             <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
@@ -15335,10 +15351,10 @@
         </div>
 
         <!-- 酒店模态框 -->
-        <div v-if="showHotelModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" @click.self="showHotelModal = false">
-            <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 transform transition-all max-h-[90vh] overflow-y-auto">
+        <div v-if="showHotelModal" class="fixed inset-0 z-50 flex items-start sm:items-center justify-center modal-overlay overflow-y-auto px-3 py-4 sm:p-4" @click.self="showHotelModal = false">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl transform transition-all max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col">
                 <!-- 头部 -->
-                <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gradient-to-r from-blue-50 to-white">
+                <div class="px-4 sm:px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gradient-to-r from-blue-50 to-white shrink-0">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center">
                             <i class="fas fa-hotel text-white"></i>
@@ -15354,7 +15370,7 @@
                 </div>
 
                 <!-- 表单 -->
-                <form @submit.prevent="saveHotel" class="p-6">
+                <form @submit.prevent="saveHotel" class="p-4 sm:p-6 overflow-y-auto">
                     <!-- 基本信息 -->
                     <div class="space-y-4">
                         <div>
@@ -15403,7 +15419,7 @@
                             </div>
                         </div>
 
-                        <div class="pt-4 border-t border-gray-100">
+                        <div v-if="hotelForm.id" class="pt-4 border-t border-gray-100">
                             <button type="button" @click="showHotelOtaConfig = !showHotelOtaConfig"
                                 class="w-full flex items-center justify-between text-left rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:bg-gray-100 transition-colors">
                                 <span>
@@ -15414,18 +15430,11 @@
                                 </span>
                                 <i :class="showHotelOtaConfig ? 'fas fa-chevron-up text-gray-400' : 'fas fa-chevron-down text-gray-400'"></i>
                             </button>
-                            <div v-if="showHotelOtaConfig" class="mt-4 space-y-4 rounded-lg border border-gray-100 bg-gray-50 p-4">
-                                <div class="rounded-lg border border-blue-100 bg-white px-3 py-3 text-xs text-gray-600">
-                                    统一按当前门店维护平台账号。系统内部自动选择登录会话、授权信息或导入数据，不展示账号密码，不采集客人姓名、手机号、证件号。
-                                </div>
+                            <div v-if="showHotelOtaConfig" class="mt-4 space-y-3 rounded-lg border border-gray-100 bg-gray-50 p-3 sm:p-4">
                                 <div v-if="hotelOtaConfigLoading" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
                                     正在加载平台账号配置...
                                 </div>
-
-                                <div v-if="!hotelForm.id" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-3 text-xs text-amber-700">
-                                    先保存门店资料，再为该门店添加携程或美团账号。
-                                </div>
-                                <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <div v-for="account in hotelPlatformBindingRows(hotelFormAccountHotel())" :key="`modal-${hotelForm.id}-${account.platform}`"
                                         :class="['rounded-xl border p-4 min-w-0', hotelPlatformCardClass(account.platform)]">
                                         <div class="flex items-start justify-between gap-3">
@@ -15474,9 +15483,9 @@
                                                 class="px-2.5 py-1.5 rounded-lg border border-white bg-white text-xs text-gray-700 hover:border-blue-200 hover:text-blue-700">
                                                 {{ account.primaryActionText }}
                                             </button>
-                                            <button v-if="user?.is_super_admin" type="button" @click="showHotelModal = false; openHotelPlatformConsole(hotelFormAccountHotel(), account.platform)"
+                                            <button v-if="user?.is_super_admin" type="button" @click="showHotelModal = false; openHotelManualFetchConfig(hotelFormAccountHotel(), account.platform)"
                                                 class="px-2.5 py-1.5 rounded-lg border border-white bg-white text-xs text-gray-700 hover:border-blue-200 hover:text-blue-700">
-                                                高级设置
+                                                手动配置
                                             </button>
                                             <button v-if="user?.is_super_admin && account.canUnbind" type="button" @click="unbindHotelPlatformAccount(hotelFormAccountHotel(), account)"
                                                 :disabled="platformDataSourceDeletingId === account.deleteKey"
@@ -15487,76 +15496,6 @@
                                     </div>
                                 </div>
 
-                                <div class="rounded-lg border border-gray-200 bg-white px-3 py-3 text-xs text-gray-600">
-                                    平台门店与系统门店不一致时阻止入库；解绑只解除系统绑定，不删除历史采集数据。
-                                </div>
-
-                                <button v-if="user?.is_super_admin" type="button" @click="showHotelOtaAdvancedConfig = !showHotelOtaAdvancedConfig"
-                                    class="w-full flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">
-                                    <span>高级配置</span>
-                                    <i :class="showHotelOtaAdvancedConfig ? 'fas fa-chevron-up text-gray-400' : 'fas fa-chevron-down text-gray-400'"></i>
-                                </button>
-
-                                <div v-if="user?.is_super_admin && showHotelOtaAdvancedConfig" class="space-y-4 rounded-lg border border-gray-200 bg-white p-4">
-                                    <div class="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                                        仅用于维护历史授权信息、平台门店标识或异常补录；优先使用上方平台账号动作。
-                                    </div>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div class="space-y-3 rounded-xl border border-blue-100 bg-blue-50/40 p-4">
-                                            <div class="flex items-center gap-2 text-sm font-medium text-gray-800">
-                                                <i class="fas fa-plane-departure text-blue-500"></i>
-                                                <span>携程</span>
-                                            </div>
-                                            <div>
-                                                <label class="block text-xs text-gray-500 mb-1">携程授权信息（可选兜底）</label>
-                                                <textarea v-model="hotelOtaConfig.ctrip.cookies" rows="6"
-                                                    class="w-full h-36 resize-none overflow-auto px-3 py-2 border border-gray-200 rounded-lg font-mono text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                                                    placeholder="仅在平台账号无法自动刷新时维护"></textarea>
-                                            </div>
-                                            <div class="grid grid-cols-2 gap-3">
-                                                <div>
-                                                    <label class="block text-xs text-gray-500 mb-1">携程酒店 ID</label>
-                                                    <input v-model="hotelOtaConfig.ctrip.ctrip_hotel_id" type="text"
-                                                        class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                                                        placeholder="平台酒店 ID">
-                                                </div>
-                                                <div>
-                                                    <label class="block text-xs text-gray-500 mb-1">携程资源 ID</label>
-                                                    <input v-model="hotelOtaConfig.ctrip.node_id" type="text"
-                                                        class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                                                        placeholder="可选">
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="space-y-3 rounded-xl border border-orange-100 bg-orange-50/40 p-4">
-                                            <div class="flex items-center gap-2 text-sm font-medium text-gray-800">
-                                                <i class="fas fa-store text-orange-500"></i>
-                                                <span>美团</span>
-                                            </div>
-                                            <div>
-                                                <label class="block text-xs text-gray-500 mb-1">美团授权信息（可选兜底）</label>
-                                                <textarea v-model="hotelOtaConfig.meituan.cookies" rows="6"
-                                                    class="w-full h-36 resize-none overflow-auto px-3 py-2 border border-gray-200 rounded-lg font-mono text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
-                                                    placeholder="仅在平台账号无法自动刷新时维护"></textarea>
-                                            </div>
-                                            <div class="grid grid-cols-2 gap-3">
-                                                <div>
-                                                    <label class="block text-xs text-gray-500 mb-1">美团平台账号标识（partnerId / partner_id）</label>
-                                                    <input v-model="hotelOtaConfig.meituan.partner_id" type="text"
-                                                        class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
-                                                        placeholder="例如：detail?partnerId=4927325 中的 4927325">
-                                                </div>
-                                                <div>
-                                                    <label class="block text-xs text-gray-500 mb-1">美团平台门店标识（poiId / poi_id）</label>
-                                                    <input v-model="hotelOtaConfig.meituan.poi_id" type="text"
-                                                        class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
-                                                        placeholder="例如：detail?poiId=570866031 中的 570866031">
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <p class="text-xs text-gray-500">保存门店时会同步保存高级配置；未登录或登录失效时优先通过平台账号重新登录。</p>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -23724,7 +23663,6 @@
             const hotelBackgroundProfileForm = ref(getEmptyHotelBackgroundProfile());
             const hotelForm = ref({ id: null, name: '', code: '', address: '', contact_person: '', contact_phone: '', status: 1, description: '' });
             const showHotelOtaConfig = ref(false);
-            const showHotelOtaAdvancedConfig = ref(false);
             const hotelOtaConfigLoading = ref(false);
             const hotelOtaConfig = ref({
                 ctrip: {
@@ -27753,6 +27691,39 @@
                         applySelectedConfig: false,
                     }));
                 }
+            };
+
+            const openHotelManualFetchConfig = async (hotel, platform = 'ctrip') => {
+                const targetPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
+                const hotelId = await prepareHotelPlatformAccountContext(hotel, targetPlatform);
+                if (!hotelId) return;
+                const hotelName = hotel?.name || getHotelNameById(hotelId) || '门店';
+
+                if (targetPlatform === 'meituan') {
+                    meituanConfigForm.value = {
+                        id: null,
+                        name: `${hotelName}美团数据源`,
+                        hotel_id: hotelId,
+                        partner_id: '',
+                        poi_id: '',
+                        cookies: '',
+                        hotel_room_count: '',
+                        competitor_room_count: '',
+                    };
+                    currentPage.value = 'meituan-ebooking';
+                    await nextTick();
+                    openMeituanManualTab('meituan-config');
+                    return;
+                }
+
+                ctripConfigForm.value = createCtripConfigForm({
+                    id: null,
+                    name: `${hotelName}携程数据源`,
+                    hotel_id: hotelId,
+                });
+                currentPage.value = 'ctrip-ebooking';
+                await nextTick();
+                openCtripManualTab('ctrip-config');
             };
 
             const openHotelPlatformAccountAction = async (hotel, account) => {
@@ -33134,9 +33105,7 @@
                     showToast('请先选择要归属数据的酒店', 'warning');
                     return;
                 }
-                currentPage.value = 'hotels';
-                await nextTick();
-                openHotelModal(hotel, { expandOta: true });
+                await openHotelManualFetchConfig(hotel, 'meituan');
             };
 
             const buildHotelOtaConfig = (hotelId, hotelName = '') => {
@@ -33233,9 +33202,7 @@
                     showToast('请先选择要归属数据的酒店', 'warning');
                     return;
                 }
-                currentPage.value = 'hotels';
-                await nextTick();
-                openHotelModal(hotel, { expandOta: true });
+                await openHotelManualFetchConfig(hotel, 'ctrip');
             };
 
             const MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS = 15000;
@@ -34370,7 +34337,6 @@
                     hotelOtaConfigLoading.value = false;
                 }
                 showHotelOtaConfig.value = !!options.expandOta;
-                showHotelOtaAdvancedConfig.value = !!options.expandOtaAdvanced;
                 showHotelModal.value = true;
                 if (hotel) {
                     const modalHotelId = String(hotel.id || '');
@@ -34405,12 +34371,6 @@
                     showToast('门店名称不能为空', 'error');
                     return;
                 }
-                if (!validateHotelOtaConfig()) {
-                    showHotelOtaConfig.value = true;
-                    showHotelOtaAdvancedConfig.value = true;
-                    return;
-                }
-
                 const isEdit = !!hotelForm.value.id;
                 const url = isEdit ? `/hotels/${hotelForm.value.id}` : '/hotels';
                 const method = isEdit ? 'PUT' : 'POST';
@@ -34440,8 +34400,7 @@
                     if (res.code === 200) {
                         const savedHotel = res.data || {};
                         const savedHotelId = savedHotel.id || hotelForm.value.id;
-                        const savedOta = await saveHotelOtaConfig(savedHotelId, payload.name);
-                        showToast(savedOta ? '门店资料和平台账号配置已保存' : (isEdit ? '门店资料更新成功' : '门店创建成功'), 'success');
+                        showToast(isEdit ? '门店资料更新成功' : '门店创建成功', 'success');
                         showHotelModal.value = false;
                         await loadHotels();
                         if (selectedCtripHotelId.value && String(selectedCtripHotelId.value) === String(savedHotelId)) {
@@ -36671,7 +36630,7 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, getHotelNameById, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, getHotelNameById, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
@@ -36700,7 +36659,7 @@
                 showDataConfigModal, currentDataConfigType, dataConfigTitle, dataConfigMeta, testingConfig, savingConfig, dataConfigForm,
                 showDataConfigSpidertoken, showDataConfigCookie, showDataConfigPayload,
                 openDataConfigModal, saveDataConfig, testDataConfig,
-                showHotelModal, showHotelDeleteModal, hotelDeleteTarget, hotelDeleteLoading, hotelDeleteError, hotelDeleteReferences, hotelDeleteCanForce, showUserModal, showPermissionModal, showHotelOtaConfig, showHotelOtaAdvancedConfig,
+                showHotelModal, showHotelDeleteModal, hotelDeleteTarget, hotelDeleteLoading, hotelDeleteError, hotelDeleteReferences, hotelDeleteCanForce, showUserModal, showPermissionModal, showHotelOtaConfig,
                 hotelForm, hotelBackgroundProfileForm, hotelCodeErrorText, hotelOtaConfig, hotelOtaConfigLoading, hotelOtaConfigStatusText, userForm,
                 getEmptyHotelBackgroundProfile, parseHotelDescriptionPayload, buildHotelDescriptionPayload, getHotelDescriptionProfileRows, hotelFormAccountHotel,
                 filteredHotels, filteredUsers,
