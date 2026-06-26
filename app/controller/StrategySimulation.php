@@ -6,6 +6,8 @@ namespace app\controller;
 use app\model\StrategyDataSnapshot;
 use app\model\StrategySimulationRecord;
 use app\service\LlmClient;
+use app\service\OperationManagementService;
+use app\service\SimulationExecutionBridgeService;
 use app\service\SimulationExecutionReadinessService;
 use think\exception\ValidateException;
 use think\facade\Db;
@@ -79,8 +81,15 @@ class StrategySimulation extends Base
             }
 
             $rows = $query->order('id', 'desc')->limit(30)->select()->toArray();
+            $list = array_values(array_map(fn(array $row): array => $this->formatRecord($row, false), $rows));
+            $list = (new SimulationExecutionBridgeService())->attachToRecords(
+                $list,
+                'strategy_simulation',
+                $this->executionBridgeHotelIds()
+            );
+
             return $this->success([
-                'list' => array_values(array_map(fn(array $row): array => $this->formatRecord($row, false), $rows)),
+                'list' => $list,
             ]);
         } catch (\Throwable $e) {
             return $this->error('获取战略推演记录失败: ' . $e->getMessage(), 400);
@@ -105,9 +114,68 @@ class StrategySimulation extends Base
                 return $this->error('战略推演记录不存在或无权访问', 404);
             }
 
-            return $this->success($this->formatRecord($row->toArray(), true));
+            $record = $this->formatRecord($row->toArray(), true);
+            $record = (new SimulationExecutionBridgeService())->attachToRecord(
+                $record,
+                'strategy_simulation',
+                $this->executionBridgeHotelIds()
+            );
+
+            return $this->success($record);
         } catch (\Throwable $e) {
             return $this->error('获取战略推演详情失败: ' . $e->getMessage(), 400);
+        }
+    }
+
+    public function createExecutionIntent(int $id): Response
+    {
+        try {
+            $this->ensureLogin();
+            if ($id <= 0) {
+                return $this->error('strategy simulation record id is invalid', 422);
+            }
+
+            $data = $this->requestData();
+            [$hotelIds, $hotelId] = $this->resolveExecutionHotelScope((int)($data['hotel_id'] ?? $this->request->param('hotel_id', 0)));
+            $existingId = $this->existingExecutionIntentId('strategy_simulation', $id, $hotelIds);
+            if ($existingId > 0) {
+                return $this->error('strategy simulation record already linked to execution intent', 409);
+            }
+
+            $query = StrategySimulationRecord::where('id', $id)->whereNull('deleted_at');
+            $this->applyTenantScope($query);
+            if (!$this->currentUser->isSuperAdmin()) {
+                $query->where('created_by', (int)($this->currentUser->id ?? 0));
+            }
+
+            $row = $query->find();
+            if (!$row) {
+                return $this->error('strategy simulation record not found or not permitted', 404);
+            }
+
+            $record = $this->formatRecord($row->toArray(), true);
+            $input = (new SimulationExecutionReadinessService())->buildStrategyExecutionIntentInput($record, [
+                'hotel_id' => $hotelId,
+                'date_start' => (string)($data['date_start'] ?? $this->request->param('date_start', '')),
+                'date_end' => (string)($data['date_end'] ?? $this->request->param('date_end', '')),
+            ]);
+            $intent = (new OperationManagementService())->createExecutionIntent(
+                $hotelIds,
+                $hotelId,
+                $input,
+                (int)($this->currentUser->id ?? 0)
+            );
+
+            return $this->success([
+                'execution_intent' => $intent,
+                'record' => array_merge($record, ['execution_intent_id' => (int)($intent['id'] ?? 0)]),
+                'source_module' => 'strategy_simulation',
+                'metric_scope' => 'investment_decision',
+            ], 'execution intent created');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            return $this->error('create strategy execution intent failed: ' . $e->getMessage(), 500);
         }
     }
 
@@ -811,6 +879,68 @@ class StrategySimulation extends Base
         }
 
         $query->where('tenant_id', $tenantId);
+    }
+
+    private function ensureLogin(): void
+    {
+        if (!$this->currentUser) {
+            throw new \RuntimeException('please login first');
+        }
+    }
+
+    /**
+     * @return array{0:array<int, int>, 1:int}
+     */
+    private function resolveExecutionHotelScope(int $inputHotelId = 0): array
+    {
+        if (!$this->currentUser) {
+            throw new \RuntimeException('not logged in');
+        }
+
+        $permitted = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+        if (empty($permitted)) {
+            throw new \RuntimeException('no permitted hotel');
+        }
+
+        if ($inputHotelId > 0) {
+            if (!in_array($inputHotelId, $permitted, true)) {
+                throw new \InvalidArgumentException('hotel_id is not permitted');
+            }
+            return [[$inputHotelId], $inputHotelId];
+        }
+
+        if (count($permitted) === 1) {
+            return [$permitted, $permitted[0]];
+        }
+
+        throw new \InvalidArgumentException('hotel_id is required for strategy execution intent');
+    }
+
+    private function existingExecutionIntentId(string $sourceModule, int $sourceRecordId, array $hotelIds): int
+    {
+        try {
+            return (int)(Db::name('operation_execution_intents')
+                ->where('source_module', $sourceModule)
+                ->where('source_record_id', $sourceRecordId)
+                ->whereIn('hotel_id', $hotelIds)
+                ->whereNull('deleted_at')
+                ->order('id', 'desc')
+                ->value('id') ?: 0);
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
+    private function executionBridgeHotelIds(): array
+    {
+        if (!$this->currentUser) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(array_map(
+            'intval',
+            $this->currentUser->getPermittedHotelIds()
+        ))));
     }
 
     private function tenantIdForCurrentUser(): ?int

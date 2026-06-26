@@ -47,6 +47,13 @@ if (!profileId) {
 
 const loginOnly = booleanArg(args.loginOnly) || booleanArg(args.authOnly);
 const rawRequestedSections = normalizeSections(args.sections || args.captureSections || args.only || 'default');
+const notApplicableSections = normalizeOptionalSections(
+  args.notApplicableSections
+    || args.not_applicable_sections
+    || args.excludedSections
+    || args.excluded_sections
+    || '',
+);
 const hotelId = stringValue(args.hotelId || '').trim();
 const defaultDataDate = stringValue(args.dataDate || '').trim();
 const storageDir = resolve(args.profileDir || join('storage', `ctrip_profile_${safeName(profileId)}`));
@@ -95,6 +102,7 @@ const payload = {
   captured_at: capturedAt,
   page_urls: PAGE_URLS,
   requested_sections: requestedSections,
+  not_applicable_sections: notApplicableSections,
   catalog: CATALOG_SUMMARY,
   approved_mappings: {
     configured: Boolean(approvedMappingsPath),
@@ -264,6 +272,7 @@ async function finalizePayload() {
   const audit = buildCtripCaptureAudit([{ path: outputPath, payload }], {
     generatedAt: capturedAt,
     allowedFieldKeys: profileFieldConfig.allowedFieldKeys ? [...profileFieldConfig.allowedFieldKeys] : null,
+    notApplicableSections,
   });
   payload.capture_gate = evaluateCtripCaptureAuditGate(audit, captureGateOptions());
   payload.capture_gap_report = audit.capture_gap_report;
@@ -1575,6 +1584,11 @@ function normalizeSections(value) {
   return normalizeCtripCaptureSections(value);
 }
 
+function normalizeOptionalSections(value) {
+  const raw = Array.isArray(value) ? value.join(',') : stringValue(value || '').trim();
+  return raw ? normalizeCtripCaptureSections(raw) : [];
+}
+
 function normalizeProfileFieldConfig(value) {
   if (!value || typeof value !== 'object') {
     return { configured: false, allowedFieldKeys: null, allowedSections: null, fieldCount: 0 };
@@ -1850,6 +1864,7 @@ function compactCaptureAudit(audit) {
   return {
     generated_at: audit.generated_at,
     summary: audit.summary,
+    not_applicable_sections: audit.not_applicable_sections || [],
     auth_status: audit.auth_status,
     endpoint_coverage: audit.endpoint_coverage?.summary || null,
     field_coverage: audit.field_coverage?.summary || null,

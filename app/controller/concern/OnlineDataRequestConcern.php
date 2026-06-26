@@ -81,7 +81,7 @@ trait OnlineDataRequestConcern
 
         $loginOnly = $this->isCtripLoginOnlyRequest($requestData);
 
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs';
         if (!is_file($scriptPath)) {
             return $this->error('未找到美团浏览器抓取脚本');
@@ -342,7 +342,7 @@ trait OnlineDataRequestConcern
         $profileId = BrowserProfileCaptureRequestService::resolveCtripProfileId($requestData, (int)$systemHotelId, $hotelId);
         $loginOnly = $this->isCtripLoginOnlyRequest($requestData);
 
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs';
         if (!is_file($scriptPath)) {
             return $this->error('未找到携程浏览器 Profile 采集脚本');
@@ -583,7 +583,7 @@ trait OnlineDataRequestConcern
         $this->checkActionPermission('can_fetch_online_data');
 
         try {
-            $projectRoot = dirname(__DIR__, 2);
+            $projectRoot = dirname(__DIR__, 3);
             $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'validate_ctrip_endpoint_evidence.mjs';
             if (!is_file($scriptPath)) {
                 return $this->error('未找到携程接口证据校验脚本');
@@ -989,7 +989,7 @@ trait OnlineDataRequestConcern
         $cookies = $this->readCtripCookieHeaderFromRequest($requestData);
 
         try {
-            $projectRoot = dirname(__DIR__, 2);
+            $projectRoot = dirname(__DIR__, 3);
             $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_cookie_api_capture.mjs';
             if (!is_file($scriptPath)) {
                 return $this->error('未找到携程 Cookie API 采集脚本', 500);
@@ -1514,7 +1514,7 @@ trait OnlineDataRequestConcern
             ));
             $captureOptions = $this->buildCtripProfileCaptureConfigOptions($requestData, $originalConfig);
             if ($captureOptions['approved_mappings_path'] !== '') {
-                $mappingCheck = $this->resolveCtripApprovedMappingsPath(['approved_mappings_path' => $captureOptions['approved_mappings_path']], dirname(__DIR__, 2));
+                $mappingCheck = $this->resolveCtripApprovedMappingsPath(['approved_mappings_path' => $captureOptions['approved_mappings_path']], dirname(__DIR__, 3));
                 if ($mappingCheck['path'] === '') {
                     return $this->error((string)$mappingCheck['error'], 400);
                 }

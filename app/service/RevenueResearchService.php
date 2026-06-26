@@ -155,6 +155,196 @@ class RevenueResearchService
     }
 
     /**
+     * @param array<string, mixed> $research
+     * @param array<string, mixed> $overrides
+     * @return array<string, mixed>
+     */
+    public function buildExecutionIntentInput(array $research, array $overrides = []): array
+    {
+        $productKey = mb_substr(trim((string)($research['product_key'] ?? $overrides['product_key'] ?? '')), 0, 120);
+        if ($productKey === '') {
+            throw new RuntimeException('product_key is required for revenue research execution intent', 422);
+        }
+
+        $result = is_array($research['result'] ?? null) ? $research['result'] : [];
+        $readiness = is_array($research['readiness'] ?? null) ? $research['readiness'] : [];
+        $gaps = array_values(array_filter((array)($research['gaps'] ?? []), 'is_array'));
+        $hotelScope = is_array($research['hotel_scope'] ?? null) ? $research['hotel_scope'] : [];
+        $hotelId = (int)($overrides['hotel_id'] ?? $hotelScope['hotel_id'] ?? 0);
+        $sourceRecordId = (int)($overrides['source_record_id'] ?? 0);
+        if ($sourceRecordId <= 0) {
+            $unsignedCrc = (int)sprintf('%u', crc32($productKey . '|' . $hotelId . '|' . (string)($result['next_review_date'] ?? '')));
+            $sourceRecordId = $unsignedCrc % 2147483647;
+            if ($sourceRecordId <= 0) {
+                $sourceRecordId = 1;
+            }
+        }
+
+        $recommendedActions = $this->stringList($result['recommended_actions'] ?? []);
+        $actionText = trim((string)($overrides['action_text'] ?? ($recommendedActions[0] ?? '')));
+        if ($actionText === '') {
+            $actionText = '复核收益研究结论并创建运营动作';
+        }
+
+        $dataGaps = $this->executionDataGapCodes($gaps, $result);
+        $readinessStage = trim((string)($readiness['stage'] ?? ''));
+        $executionReady = (bool)($readiness['execution_ready'] ?? false);
+        $executionDates = $this->executionIntentDates($overrides);
+        $platform = strtolower(trim((string)($overrides['platform'] ?? 'ota')));
+        if ($platform === '') {
+            $platform = 'ota';
+        }
+
+        return [
+            'source_module' => 'revenue_research',
+            'source_record_id' => $sourceRecordId,
+            'hotel_id' => $hotelId,
+            'platform' => $platform,
+            'object_type' => 'revenue_research',
+            'action_type' => $productKey,
+            'date_start' => $executionDates['date_start'],
+            'date_end' => $executionDates['date_end'],
+            'current_value' => [
+                'research_status' => (string)($research['status'] ?? ''),
+                'readiness_stage' => $readinessStage,
+                'generation_mode' => (string)($research['generation_mode'] ?? ''),
+            ],
+            'target_value' => [
+                'research_product' => $productKey,
+                'action_text' => $actionText,
+                'tracking_status' => $executionReady ? 'pending_revenue_research_execution' : 'blocked_by_research_data_gaps',
+                'target_metric' => 'revenue_research_closure',
+                'target_module' => (string)($readiness['target_module'] ?? $result['module'] ?? ''),
+                'next_review_date' => (string)($result['next_review_date'] ?? ''),
+                'recommended_actions' => $recommendedActions,
+            ],
+            'evidence' => [
+                'evidence_refs' => [
+                    'revenue_research#' . $productKey . '#' . $sourceRecordId,
+                    '/api/revenue-research/run',
+                ],
+                'data_gaps' => $dataGaps,
+                'source_policy' => 'revenue_research_output_to_operation_execution_intent',
+                'protected_boundary' => 'Execution intent records manual review of revenue research output; it does not write OTA prices, inventory, campaigns, or platform data.',
+                'research_readiness_stage' => $readinessStage,
+                'execution_ready' => $executionReady,
+                'metric_scope' => 'ota_channel',
+                'model_key' => (string)($research['model_key'] ?? ''),
+                'generation_mode' => (string)($research['generation_mode'] ?? ''),
+                'summary' => mb_substr(trim((string)($result['summary'] ?? '')), 0, 500),
+            ],
+            'expected_metric' => 'revenue_research_closure',
+            'expected_delta' => 0,
+            'risk_level' => $dataGaps === [] ? 'medium' : 'high',
+            'status' => 'pending_approval',
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $research
+     * @param array<string, mixed> $overrides
+     * @return array<string, mixed>
+     */
+    public function buildReadyExecutionIntentInput(array $research, array $overrides = []): array
+    {
+        $this->assertResearchReadyForExecution($research);
+
+        return $this->buildExecutionIntentInput($research, $overrides);
+    }
+
+    /**
+     * @param array<string, mixed> $intentInput
+     * @param array<int, array<string, mixed>> $existingRows
+     */
+    public function assertNoDuplicateExecutionIntent(array $intentInput, array $existingRows): void
+    {
+        $sourceModule = trim((string)($intentInput['source_module'] ?? ''));
+        $sourceRecordId = (int)($intentInput['source_record_id'] ?? 0);
+        $hotelId = (int)($intentInput['hotel_id'] ?? 0);
+        if ($sourceModule === '' || $sourceRecordId <= 0 || $hotelId <= 0) {
+            return;
+        }
+
+        foreach ($existingRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            if (trim((string)($row['deleted_at'] ?? '')) !== '') {
+                continue;
+            }
+            if (
+                trim((string)($row['source_module'] ?? '')) !== $sourceModule
+                || (int)($row['source_record_id'] ?? 0) !== $sourceRecordId
+                || (int)($row['hotel_id'] ?? 0) !== $hotelId
+            ) {
+                continue;
+            }
+
+            $existingId = (int)($row['id'] ?? 0);
+            $suffix = $existingId > 0 ? ': ' . $existingId : '';
+            throw new RuntimeException('revenue research result already linked to execution intent' . $suffix, 409);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $research
+     */
+    private function assertResearchReadyForExecution(array $research): void
+    {
+        $readiness = is_array($research['readiness'] ?? null) ? $research['readiness'] : [];
+        $stage = trim((string)($readiness['stage'] ?? 'unknown'));
+        $executionReady = (bool)($readiness['execution_ready'] ?? false);
+        $researchStatus = trim((string)($research['status'] ?? ''));
+        $result = is_array($research['result'] ?? null) ? $research['result'] : [];
+        $gaps = array_values(array_filter((array)($research['gaps'] ?? []), 'is_array'));
+        $dataGapCodes = $this->executionDataGapCodes($gaps, $result);
+        if ($executionReady && $researchStatus === 'done' && $dataGapCodes === []) {
+            return;
+        }
+
+        $missing = array_values(array_filter((array)($readiness['missing_evidence'] ?? []), 'is_array'));
+        $missingCodes = array_values(array_filter(array_map(
+            static fn(array $item): string => trim((string)($item['code'] ?? $item['label'] ?? '')),
+            $missing
+        )));
+        if ($researchStatus !== 'done') {
+            $missingCodes[] = 'research_status_' . ($researchStatus !== '' ? $researchStatus : 'missing');
+        }
+        foreach ($dataGapCodes as $gapCode) {
+            $missingCodes[] = 'data_gap_' . $gapCode;
+        }
+        $missingCodes = array_values(array_unique($missingCodes));
+        $suffix = $missingCodes === [] ? '' : '; missing=' . implode(',', array_slice($missingCodes, 0, 6));
+        $blockingStage = $executionReady && $researchStatus !== 'done'
+            ? ($researchStatus !== '' ? $researchStatus : $stage)
+            : $stage;
+
+        throw new RuntimeException('revenue research is not ready for execution: ' . $blockingStage . $suffix, 422);
+    }
+
+    /**
+     * @param array<string, mixed> $overrides
+     * @return array{date_start:string, date_end:string}
+     */
+    private function executionIntentDates(array $overrides): array
+    {
+        $dateStart = trim((string)($overrides['date_start'] ?? ''));
+        if ($dateStart === '') {
+            $dateStart = date('Y-m-d');
+        }
+
+        $dateEnd = trim((string)($overrides['date_end'] ?? ''));
+        if ($dateEnd === '') {
+            $dateEnd = $dateStart;
+        }
+
+        return [
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+        ];
+    }
+
+    /**
      * @param array<int, array<string, string>> $missingEvidence
      * @return array<string, mixed>
      */
@@ -201,6 +391,26 @@ class RevenueResearchService
         $readiness['notice'] = '仍缺：' . implode('、', array_slice($labels, 0, 4));
 
         return $readiness;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $gaps
+     * @param array<string, mixed> $result
+     * @return array<int, string>
+     */
+    private function executionDataGapCodes(array $gaps, array $result): array
+    {
+        $codes = [];
+        foreach ($gaps as $gap) {
+            $code = trim((string)($gap['code'] ?? $gap['table'] ?? $gap['label'] ?? $gap['reason'] ?? ''));
+            if ($code !== '') {
+                $codes[] = $code;
+            }
+        }
+        foreach ($this->stringList($result['data_gaps'] ?? []) as $gapText) {
+            $codes[] = $gapText;
+        }
+        return array_values(array_unique($codes));
     }
 
     /**

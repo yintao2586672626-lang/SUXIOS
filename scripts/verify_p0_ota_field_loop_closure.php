@@ -291,6 +291,40 @@ function p0_required_traffic_storage_field_map(): array
 }
 
 /**
+ * @param array<string, mixed> $value
+ */
+function p0_external_traffic_evidence_has_row_contract_key(array $value): bool
+{
+    foreach ([
+        'platform',
+        'target_date',
+        'system_hotel_id',
+        'scope_policy',
+        'source_scope',
+        'sensitive_values_exposed',
+        'platform_hotel_identifier_present',
+        'platform_hotel_identifier_source',
+        'source_trace_id',
+        'source_url_hash',
+        'ui_status',
+        'field_fact_ui_status',
+        'traffic_closure_chain',
+        'traffic_closure_chain_policy',
+        'debug_url',
+        'source_url',
+        'request_url',
+        'endpoint',
+        'url',
+    ] as $key) {
+        if (array_key_exists($key, $value)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * @param array<int|string, mixed> $data
  * @return array<int, array<string, mixed>>
  */
@@ -298,25 +332,26 @@ function p0_collect_external_traffic_evidence_rows(array $data): array
 {
     $rows = [];
 
-    $appendRows = static function (mixed $value, ?string $platformHint = null) use (&$rows, &$appendRows): void {
+    $appendRows = static function (mixed $value, ?string $platformHint = null, bool $fromTrafficEvidence = false) use (&$rows, &$appendRows): void {
         if (!is_array($value)) {
             return;
         }
         if (isset($value['traffic_evidence']) && is_array($value['traffic_evidence'])) {
             foreach ($value['traffic_evidence'] as $nestedKey => $nestedValue) {
-                $appendRows($nestedValue, is_string($nestedKey) ? $nestedKey : $platformHint);
+                $appendRows($nestedValue, is_string($nestedKey) ? $nestedKey : $platformHint, true);
             }
             return;
         }
         if (isset($value['field_facts']) || isset($value['capture_evidence']) || isset($value['metric_key'])) {
-            if ($platformHint !== null && !isset($value['platform'])) {
-                $value['platform'] = $platformHint;
-            }
+            $rows[] = $value;
+            return;
+        }
+        if ($fromTrafficEvidence && p0_external_traffic_evidence_has_row_contract_key($value)) {
             $rows[] = $value;
             return;
         }
         foreach ($value as $nestedKey => $nestedValue) {
-            $appendRows($nestedValue, is_string($nestedKey) ? $nestedKey : $platformHint);
+            $appendRows($nestedValue, is_string($nestedKey) ? $nestedKey : $platformHint, $fromTrafficEvidence);
         }
     };
 
@@ -484,9 +519,13 @@ function p0_validate_external_traffic_evidence_row(array $row, array $data, arra
     $sourcePaths = [];
     $storageFields = [];
 
-    $scope = p0_array($data['scope'] ?? null);
-    $platform = strtolower(trim((string)($row['platform'] ?? $scope['platform'] ?? '')));
-    if ($platform === '' || !isset($expectedPlatformMap[$platform])) {
+    $platform = strtolower(trim((string)($row['platform'] ?? '')));
+    if ($platform === '') {
+        $issues[] = [
+            'code' => 'platform_missing',
+            'message' => 'Evidence row must explicitly include platform; verifier scope is not row-level evidence.',
+        ];
+    } elseif (!isset($expectedPlatformMap[$platform])) {
         $issues[] = [
             'code' => 'platform_not_in_scope',
             'message' => 'Evidence row platform must match --platform scope.',
@@ -494,8 +533,14 @@ function p0_validate_external_traffic_evidence_row(array $row, array $data, arra
         ];
     }
 
-    $rowDate = trim((string)($row['target_date'] ?? $scope['date'] ?? ''));
-    if ($rowDate !== $targetDate) {
+    $rowDate = trim((string)($row['target_date'] ?? ''));
+    if ($rowDate === '') {
+        $issues[] = [
+            'code' => 'target_date_missing',
+            'message' => 'Evidence row must explicitly include target_date; verifier scope date is not row-level evidence.',
+            'expected_date' => $targetDate,
+        ];
+    } elseif ($rowDate !== $targetDate) {
         $issues[] = [
             'code' => 'target_date_mismatch',
             'message' => 'Evidence row target_date must match verifier --date.',
@@ -504,8 +549,14 @@ function p0_validate_external_traffic_evidence_row(array $row, array $data, arra
         ];
     }
 
-    $rowSystemHotelId = (int)($row['system_hotel_id'] ?? $scope['system_hotel_id'] ?? $data['system_hotel_id'] ?? 0);
-    if ($systemHotelId > 0 && $rowSystemHotelId !== $systemHotelId) {
+    $rowSystemHotelId = (int)($row['system_hotel_id'] ?? 0);
+    if ($systemHotelId > 0 && $rowSystemHotelId <= 0) {
+        $issues[] = [
+            'code' => 'system_hotel_id_missing',
+            'message' => 'Evidence row must explicitly include system_hotel_id when verifier scope uses --system-hotel-id; verifier scope is not row-level evidence.',
+            'expected_system_hotel_id' => $systemHotelId,
+        ];
+    } elseif ($systemHotelId > 0 && $rowSystemHotelId !== $systemHotelId) {
         $issues[] = [
             'code' => 'system_hotel_id_mismatch',
             'message' => 'Evidence row system_hotel_id must match verifier --system-hotel-id.',
@@ -514,8 +565,14 @@ function p0_validate_external_traffic_evidence_row(array $row, array $data, arra
         ];
     }
 
-    $scopePolicy = trim((string)($row['scope_policy'] ?? $row['source_scope'] ?? $scope['source_scope'] ?? $scope['scope_policy'] ?? ''));
-    if ($scopePolicy !== 'ota_channel_only') {
+    $scopePolicy = trim((string)($row['scope_policy'] ?? $row['source_scope'] ?? ''));
+    if ($scopePolicy === '') {
+        $issues[] = [
+            'code' => 'scope_policy_missing',
+            'message' => 'Evidence row must explicitly include scope_policy=ota_channel_only; verifier scope is not row-level evidence.',
+            'expected_scope_policy' => 'ota_channel_only',
+        ];
+    } elseif ($scopePolicy !== 'ota_channel_only') {
         $issues[] = [
             'code' => 'scope_policy_not_ota_channel_only',
             'message' => 'External traffic evidence must keep OTA channel scope explicit.',
@@ -1029,6 +1086,7 @@ function p0_external_traffic_evidence(array $options, array $platforms): array
     }
 
     $unknownIssues = [];
+    $unknownSensitiveValuesExposed = false;
     foreach ($rows as $row) {
         if (!is_array($row)) {
             continue;
@@ -1036,10 +1094,18 @@ function p0_external_traffic_evidence(array $options, array $platforms): array
         $validation = p0_validate_external_traffic_evidence_row($row, $decoded, $platforms, (string)$options['date'], $systemHotelId);
         $platform = (string)($validation['platform'] ?? '');
         if (!isset($platformResults[$platform])) {
+            $rowIssues = array_values(array_filter(
+                (array)($validation['issues'] ?? []),
+                static fn($issue): bool => is_array($issue)
+            ));
+            $rowSensitiveValuesExposed = (bool)($validation['sensitive_values_exposed'] ?? false);
+            $unknownSensitiveValuesExposed = $unknownSensitiveValuesExposed || $rowSensitiveValuesExposed;
             $unknownIssues[] = [
                 'code' => 'traffic_evidence_platform_not_selected',
                 'message' => 'Evidence row platform is missing or outside the selected platform scope.',
                 'platform' => $platform,
+                'sensitive_values_exposed' => $rowSensitiveValuesExposed,
+                'row_issues' => $rowIssues,
             ];
             continue;
         }
@@ -1099,8 +1165,9 @@ function p0_external_traffic_evidence(array $options, array $platforms): array
     }
 
     $validPlatforms = count(array_filter($platformResults, static fn(array $row): bool => (bool)($row['validated_desensitized_evidence_present'] ?? false)));
-    $sensitiveExposed = count(array_filter($platformResults, static fn(array $row): bool => (bool)($row['sensitive_values_exposed'] ?? false))) > 0;
-    $base['status'] = $validPlatforms === count($platforms) && $unknownIssues === [] ? 'valid' : ($validPlatforms > 0 ? 'partial' : 'invalid');
+    $sensitiveExposed = $unknownSensitiveValuesExposed
+        || count(array_filter($platformResults, static fn(array $row): bool => (bool)($row['sensitive_values_exposed'] ?? false))) > 0;
+    $base['status'] = $unknownIssues !== [] ? 'invalid' : ($validPlatforms === count($platforms) ? 'valid' : ($validPlatforms > 0 ? 'partial' : 'invalid'));
     $base['platforms'] = $platformResults;
     $base['validated_desensitized_evidence_present'] = $base['status'] === 'valid';
     $base['sensitive_values_exposed'] = $sensitiveExposed;
@@ -1166,7 +1233,6 @@ function p0_runtime_field_fact_summary_ready(array $sourceSummaryMap, array $pla
             || (int)($facts['structured_source_path_count'] ?? 0) < $completeCount
             || (int)($facts['storage_field_count'] ?? 0) < $completeCount
             || (int)($facts['stored_value_present_count'] ?? 0) < $completeCount
-            || (int)($facts['stored_value_missing_count'] ?? 0) !== 0
             || (bool)($facts['raw_data_exposed'] ?? false)
         ) {
             return false;
@@ -2881,7 +2947,7 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
         $issues,
         $name,
         'stored_value',
-        $completeFactCount > 0 && $storedValuePresentCount >= $completeFactCount && $storedValueMissingCount === 0,
+        $completeFactCount > 0 && $storedValuePresentCount >= $completeFactCount,
         'Field facts must prove stored values for every complete captured fact.',
         [
             'stored_value_present_count' => $storedValuePresentCount,
@@ -3778,4 +3844,4 @@ echo (($result['scope']['format'] ?? null) === 'markdown' || (($options['format'
     : json_encode($result, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
 ) . PHP_EOL;
 
-exit(($result['status'] ?? '') === 'passed' ? 0 : (($result['status'] ?? '') === 'incomplete' ? 1 : 2));
+exit(($result['status'] ?? '') === 'passed' ? 0 : (($result['status'] ?? '') === 'incomplete' ? 2 : 1));

@@ -116,6 +116,59 @@ final class LlmClientTest extends TestCase
         self::assertStringContainsString('"summary"', $prompt);
     }
 
+    public function testOpenAiPayloadUsesStrictNativeJsonSchemaResponseFormat(): void
+    {
+        $client = new LlmClient();
+        $schema = [
+            'x-governance' => ['prompt_version' => 'agent.ota_diagnosis.v1'],
+            'type' => 'object',
+            'properties' => ['summary' => ['type' => 'string']],
+            'required' => ['summary'],
+        ];
+
+        $payload = $this->invokeNonPublic($client, 'chatPayload', [
+            [
+                'provider' => 'openai',
+                'model' => 'gpt-5-mini',
+            ],
+            'Return JSON only.',
+            [
+                'temperature' => 0.1,
+                'json_schema' => $schema,
+                'json_schema_name' => 'ota diagnosis v1',
+            ],
+        ]);
+
+        self::assertSame('gpt-5-mini', $payload['model']);
+        self::assertSame('json_schema', $payload['response_format']['type']);
+        self::assertSame('ota_diagnosis_v1', $payload['response_format']['json_schema']['name']);
+        self::assertTrue($payload['response_format']['json_schema']['strict']);
+        self::assertSame(['summary'], $payload['response_format']['json_schema']['schema']['required']);
+        self::assertArrayNotHasKey('x-governance', $payload['response_format']['json_schema']['schema']);
+    }
+
+    public function testNonOpenAiPayloadDoesNotSendNativeJsonSchemaResponseFormat(): void
+    {
+        $client = new LlmClient();
+
+        $payload = $this->invokeNonPublic($client, 'chatPayload', [
+            [
+                'provider' => 'deepseek',
+                'model' => 'deepseek-chat',
+            ],
+            'Return JSON only.',
+            [
+                'temperature' => 0.1,
+                'json_schema' => [
+                    'type' => 'object',
+                    'properties' => ['summary' => ['type' => 'string']],
+                ],
+            ],
+        ]);
+
+        self::assertArrayNotHasKey('response_format', $payload);
+    }
+
     public function testNormalizeKnowledgeSourcesAcceptsStringLists(): void
     {
         $client = new LlmClient();

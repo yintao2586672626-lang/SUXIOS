@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
+use app\model\SystemConfig;
 use app\model\SystemNotification;
 use app\service\BrowserProfileCaptureRequestService;
 use app\service\ManualOnlineFetchTaskService;
@@ -194,7 +195,7 @@ trait AutoFetchConcern
             return [];
         }
 
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $phpBinary = $this->resolvePhpCliBinary();
         $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
         if ($phpBinary === '' || !is_file($thinkPath)) {
@@ -244,7 +245,7 @@ trait AutoFetchConcern
 
     private function launchAutoFetchBackgroundTask(array $task): bool
     {
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $phpBinary = $this->resolvePhpCliBinary();
         $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
         $inputPath = (string)($task['input'] ?? '');
@@ -905,6 +906,40 @@ trait AutoFetchConcern
         return $this->listEnabledBrowserProfileDataSources($hotelId, 'ctrip');
     }
 
+    private function listCollectableBrowserProfileDataSources(int $hotelId, string $platform = ''): array
+    {
+        return $this->filterCollectableBrowserProfileDataSources(
+            $this->listEnabledBrowserProfileDataSources($hotelId, $platform),
+            $platform
+        );
+    }
+
+    private function listCollectableCtripBrowserProfileDataSources(int $hotelId): array
+    {
+        return $this->listCollectableBrowserProfileDataSources($hotelId, 'ctrip');
+    }
+
+    private function filterCollectableBrowserProfileDataSources(array $sources, string $platform = ''): array
+    {
+        $platform = strtolower(trim($platform));
+        return array_values(array_filter($sources, static function ($source) use ($platform): bool {
+            if (!is_array($source)) {
+                return false;
+            }
+            if ((int)($source['enabled'] ?? 1) !== 1) {
+                return false;
+            }
+            if ($platform !== '' && strtolower(trim((string)($source['platform'] ?? ''))) !== $platform) {
+                return false;
+            }
+            if (strtolower(trim((string)($source['ingestion_method'] ?? ''))) !== 'browser_profile') {
+                return false;
+            }
+            $status = strtolower(trim((string)($source['status'] ?? '')));
+            return in_array($status, ['ready', 'success', 'partial_success'], true);
+        }));
+    }
+
     private function ctripBrowserProfileSourcesHaveProfile(array $sources, int $hotelId): bool
     {
         foreach ($sources as $source) {
@@ -1002,7 +1037,7 @@ trait AutoFetchConcern
 
     private function createPlatformProfileLoginTask(string $platform, int $hotelId, string $profileKey, array $requestData): array
     {
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'platform_profile_login';
         if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
             throw new \RuntimeException('无法创建平台登录任务目录');
@@ -1052,7 +1087,7 @@ trait AutoFetchConcern
 
     private function launchPlatformProfileLoginTask(array $task): bool
     {
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $phpBinary = $this->resolvePhpCliBinary();
         $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
         $inputPath = (string)($task['input'] ?? '');
@@ -1403,7 +1438,7 @@ trait AutoFetchConcern
         $safeKey = $profileKey !== '' ? BrowserProfileCaptureRequestService::safeFilePart($profileKey) : '';
         $profilePrefix = $isCtrip ? 'ctrip_profile_' : 'meituan_profile_';
         $relativeDir = $safeKey !== '' ? 'storage/' . $profilePrefix . $safeKey : '';
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $profileDir = $relativeDir !== '' ? $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir) : '';
         $exists = $profileDir !== '' && is_dir($profileDir);
         $cache = $profileKey !== '' ? $this->readPlatformProfileStatusCache($platform, $hotelId, $profileKey) : [];
@@ -1771,7 +1806,7 @@ trait AutoFetchConcern
 
     private function acquirePlatformProfileCaptureLock(string $platform, string $profileKey)
     {
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'locks';
         if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
             return null;
@@ -1810,9 +1845,9 @@ trait AutoFetchConcern
         $meituanConfig = $this->resolveMeituanFetchConfigForHotel($hotelId);
         $savedConfigs = $this->getAutoFetchSavedDataConfigs();
         $runMode = $this->resolveAutoFetchRunMode($hotelId);
-        $ctripBrowserProfileSources = $this->listEnabledCtripBrowserProfileDataSources($hotelId);
+        $ctripBrowserProfileSources = $this->listCollectableCtripBrowserProfileDataSources($hotelId);
         $ctripBrowserProfileSourceCount = count($ctripBrowserProfileSources);
-        $meituanBrowserProfileSources = $this->listEnabledBrowserProfileDataSources($hotelId, 'meituan');
+        $meituanBrowserProfileSources = $this->listCollectableBrowserProfileDataSources($hotelId, 'meituan');
         $meituanBrowserProfileSourceCount = count($meituanBrowserProfileSources);
         $ctripHasProfile = $this->ctripProfileExistsForConfig($ctripConfig, $hotelId)
             || $this->ctripBrowserProfileSourcesHaveProfile($ctripBrowserProfileSources, $hotelId);
@@ -1887,8 +1922,8 @@ trait AutoFetchConcern
     {
         $ctripConfig = $this->resolveCtripFetchConfigForHotelLight($hotelId);
         $meituanConfig = $this->resolveMeituanFetchConfigForHotelLight($hotelId);
-        $ctripBrowserProfileSources = $this->listEnabledCtripBrowserProfileDataSources($hotelId);
-        $meituanBrowserProfileSources = $this->listEnabledBrowserProfileDataSources($hotelId, 'meituan');
+        $ctripBrowserProfileSources = $this->listCollectableCtripBrowserProfileDataSources($hotelId);
+        $meituanBrowserProfileSources = $this->listCollectableBrowserProfileDataSources($hotelId, 'meituan');
         $modeOptions = [
             'auto_fetch_mode' => $status['auto_fetch_mode'] ?? 'hybrid_auto',
             'ctrip_auto_fetch_mode' => $status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode'] ?? 'hybrid_auto',
@@ -3604,6 +3639,25 @@ trait AutoFetchConcern
         return false;
     }
 
+    private function shouldRunCtripProfileBrowser(string $mode, array $browserProfileSources): bool
+    {
+        $mode = $this->normalizeAutoFetchMode($mode);
+        if ($mode === 'profile_browser') {
+            return true;
+        }
+
+        return $mode === 'hybrid_auto' && $browserProfileSources !== [];
+    }
+
+    private function shouldRunCtripProfileBrowserForCost(string $mode, int $savedCount, array $browserProfileSources): bool
+    {
+        if ($this->normalizeAutoFetchMode($mode) === 'profile_browser') {
+            return true;
+        }
+
+        return $this->shouldRunCtripProfileBrowser($mode, $browserProfileSources);
+    }
+
     private function autoFetchStatusCode(array $result): string
     {
         if (!empty($result['success'])) {
@@ -3939,8 +3993,8 @@ trait AutoFetchConcern
         $cookies = trim((string)($fetchConfig['cookies'] ?? $fetchConfig['cookie'] ?? ''));
         $mode = $this->resolvePlatformAutoFetchMode($fetchConfig, $options, 'ctrip');
         $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);
-        $runProfileBrowser = $this->shouldRunProfileBrowser($mode);
-        $browserProfileSources = $this->listEnabledCtripBrowserProfileDataSources($hotelId);
+        $browserProfileSources = $this->listCollectableCtripBrowserProfileDataSources($hotelId);
+        $runProfileBrowser = $this->shouldRunCtripProfileBrowser($mode, $browserProfileSources);
         $taskPlanForConfig = $this->buildAutoFetchConfigTaskPlan($hotelId, $dataDate, $fetchConfig, [], $this->getAutoFetchSavedDataConfigs());
         $hasConfiguredTask = (bool)array_filter($taskPlanForConfig, static fn(array $task): bool => ($task['platform'] ?? '') === 'ctrip');
         $hasProfile = $this->ctripProfileExistsForConfig($fetchConfig, $hotelId);
@@ -4030,7 +4084,7 @@ trait AutoFetchConcern
         }
 
         if ($runProfileBrowser) {
-            $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
+            $runProfileByCost = $this->shouldRunCtripProfileBrowserForCost($mode, $savedCount, $browserProfileSources);
             if ($runProfileByCost) {
                 $browserResult = $this->syncCtripBrowserProfileDataSourcesForAutoFetch(
                     $hotelId,
@@ -4136,7 +4190,7 @@ trait AutoFetchConcern
             ? true
             : $this->isTruthyRequestValue($requestData['auto_save'] ?? $requestData['autoSave'] ?? false);
         $cookies = $this->readCtripCookieHeaderFromRequest($requestData);
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_cookie_api_capture.mjs';
         if (!is_file($scriptPath)) {
             return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'missing Ctrip API capture script'];
@@ -4343,7 +4397,7 @@ trait AutoFetchConcern
             return ['success' => false, 'skipped' => true, 'message' => "未找到 storage/ctrip_profile_{$profileId}", 'saved_count' => 0];
         }
 
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs';
         if (!is_file($scriptPath)) {
             return ['success' => false, 'skipped' => true, 'message' => '未找到携程浏览器采集脚本', 'saved_count' => 0];
@@ -5482,7 +5536,7 @@ trait AutoFetchConcern
             return ['success' => false, 'skipped' => true, 'message' => '未发现本地美团浏览器 Profile，跳过浏览器采集', 'saved_count' => 0];
         }
 
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs';
         if (!is_file($scriptPath)) {
             return ['success' => false, 'skipped' => true, 'message' => '未找到美团浏览器抓取脚本', 'saved_count' => 0];

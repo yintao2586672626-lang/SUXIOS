@@ -62,4 +62,15 @@ Updated: 2026-06-12
 npm.cmd run verify:phase1-gap-explanations
 ```
 
+## Field Fact Closure Gaps
+
+These rows document live `missing_requirements` codes that come from target-date OTA rows whose field evidence chain is not closed. They are evidence gaps only: they do not change Ctrip/Meituan acquisition logic, requested fields, field mapping, or `online_daily_data` storage.
+
+| gap code | employee-visible explanation | limited conclusions | still usable metrics | next action |
+|---|---|---|---|---|
+| `ctrip_field_facts_missing` | Ctrip target-date rows exist, but field facts do not yet prove metric key, source path, and storage field closure. | Ctrip field trust, AI input evidence, revenue decision evidence. | Target-date source rows and ETL status remain visible for separate review. | Verify existing target-date rows and complete field facts metadata without changing OTA acquisition logic. |
+| `ctrip_field_fact_closure_incomplete` | Ctrip field facts exist, but the capture evidence, metric key, source path, or storage field chain is incomplete. | Ctrip field trust, AI input evidence, revenue decision evidence. | Explicit field gaps can still be used as the evidence backlog. | Complete field fact closure across capture evidence, metric key, source path, and storage field. |
+| `meituan_field_facts_missing` | Meituan target-date rows exist, but field facts do not yet prove metric key, source path, and storage field closure. | Meituan field trust, AI input evidence, revenue decision evidence. | Target-date source rows and ETL status remain visible for separate review. | Verify existing target-date rows and complete field facts metadata without changing OTA acquisition logic. |
+| `meituan_field_fact_closure_incomplete` | Meituan field facts exist, but the capture evidence, metric key, source path, or storage field chain is incomplete. | Meituan field trust, AI input evidence, revenue decision evidence. | Explicit field gaps can still be used as the evidence backlog. | Complete field fact closure across capture evidence, metric key, source path, and storage field. |
+
 该命令只做结构化只读检查，不访问外部平台，不启动采集，不写数据库。

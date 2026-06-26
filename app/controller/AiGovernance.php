@@ -7,6 +7,7 @@ use app\model\AiEvaluationCase;
 use app\model\AiModelCallLog;
 use app\model\AiPromptVersion;
 use app\model\OperationLog;
+use app\service\AiEvaluationBatchReplayService;
 use think\exception\HttpException;
 use think\Response;
 
@@ -267,6 +268,60 @@ class AiGovernance extends Base
         return $this->success($row->toArray(), '评估集用例已保存');
     }
 
+    public function replayEvaluationCases(): Response
+    {
+        $this->checkSuperAdmin();
+        $data = $this->requestData();
+
+        $evaluationSet = mb_substr(trim((string)($data['evaluation_set'] ?? $this->request->param('evaluation_set', ''))), 0, 120);
+        if ($evaluationSet === '') {
+            return $this->error('evaluation_set 必填，用于区分本次批量评估归属', 422);
+        }
+
+        $query = AiEvaluationCase::where('status', 'active');
+        $scenario = mb_substr(trim((string)($data['scenario'] ?? $this->request->param('scenario', ''))), 0, 120);
+        if ($scenario !== '') {
+            $query->where('scenario', $scenario);
+        }
+        $promptVersion = mb_substr(trim((string)($data['prompt_version'] ?? $this->request->param('prompt_version', ''))), 0, 120);
+        if ($promptVersion !== '') {
+            $query->where('prompt_version', $promptVersion);
+        }
+        $caseKeys = $this->normalizeStringList($data['case_keys'] ?? $data['case_key'] ?? $this->request->param('case_keys', []));
+        if (!empty($caseKeys)) {
+            $query->whereIn('case_key', $caseKeys);
+        }
+
+        $limit = max(1, min(100, (int)($data['limit'] ?? $this->request->param('limit', 50))));
+        $dryRun = $this->normalizeReplayBool($data['dry_run'] ?? $this->request->param('dry_run', null), true);
+        if (array_key_exists('execute', $data) || $this->request->param('execute', null) !== null) {
+            $dryRun = !$this->normalizeReplayBool($data['execute'] ?? $this->request->param('execute', null), false);
+        }
+        $allowExternalModelCall = $this->normalizeReplayBool(
+            $data['allow_external_model_call'] ?? $this->request->param('allow_external_model_call', null),
+            false
+        );
+        $modelKey = mb_substr(trim((string)($data['model_key'] ?? $this->request->param('model_key', 'deepseek_v4_default'))), 0, 100);
+
+        $rows = $query->order('id', 'asc')
+            ->limit($limit)
+            ->select()
+            ->toArray();
+
+        $result = (new AiEvaluationBatchReplayService())->run($rows, [
+            'evaluation_set' => $evaluationSet,
+            'model_key' => $modelKey,
+            'dry_run' => $dryRun,
+            'allow_external_model_call' => $allowExternalModelCall,
+        ]);
+
+        if (!$dryRun && !$allowExternalModelCall) {
+            return $this->success($result, '评估集回放已阻断：未授权外部模型调用');
+        }
+
+        return $this->success($result, $dryRun ? '评估集回放计划已生成' : '评估集回放已执行');
+    }
+
     public function archiveEvaluationCase(int $id): Response
     {
         $this->checkSuperAdmin();
@@ -354,5 +409,44 @@ class AiGovernance extends Base
             return 'active';
         }
         return in_array($status, ['active', 'archived'], true) ? $status : '';
+    }
+
+    private function normalizeReplayBool(mixed $value, bool $default): bool
+    {
+        if ($value === null || $value === '') {
+            return $default;
+        }
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return (int)$value === 1;
+        }
+        $text = strtolower(trim((string)$value));
+        if (in_array($text, ['1', 'true', 'yes', 'on'], true)) {
+            return true;
+        }
+        if (in_array($text, ['0', 'false', 'no', 'off'], true)) {
+            return false;
+        }
+        return $default;
+    }
+
+    private function normalizeStringList(mixed $value): array
+    {
+        if (is_string($value)) {
+            $value = preg_split('/[\s,]+/', $value) ?: [];
+        }
+        if (!is_array($value)) {
+            return [];
+        }
+        $items = [];
+        foreach ($value as $item) {
+            $text = mb_substr(trim((string)$item), 0, 120);
+            if ($text !== '') {
+                $items[] = $text;
+            }
+        }
+        return array_values(array_unique($items));
     }
 }

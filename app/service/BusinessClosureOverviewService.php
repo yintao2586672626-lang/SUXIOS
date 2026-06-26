@@ -166,12 +166,20 @@ class BusinessClosureOverviewService
 
         $total = count($modules);
         $closed = 0;
+        $processClosed = 0;
+        $roiReadyModules = 0;
         $blocked = 0;
         $recordOnly = 0;
         $scoreSum = 0;
         foreach ($modules as $module) {
             if (($module['closed_loop'] ?? false) === true) {
                 $closed++;
+            }
+            if (($module['process_closed_loop'] ?? false) === true) {
+                $processClosed++;
+            }
+            if (($module['roi_ready'] ?? false) === true) {
+                $roiReadyModules++;
             }
             if (($module['status'] ?? '') === 'not_loaded' || ($module['status'] ?? '') === 'blocked') {
                 $blocked++;
@@ -182,8 +190,11 @@ class BusinessClosureOverviewService
             $scoreSum += (int)($module['maturity_score'] ?? 0);
         }
 
-        $weakModules = array_values(array_filter($modules, static function (array $module): bool {
-            return ($module['closed_loop'] ?? false) !== true;
+        $processWeakModules = array_values(array_filter($modules, static function (array $module): bool {
+            return ($module['process_closed_loop'] ?? false) !== true;
+        }));
+        $roiWeakModules = array_values(array_filter($modules, static function (array $module): bool {
+            return ($module['roi_ready'] ?? false) !== true;
         }));
 
         return [
@@ -191,6 +202,11 @@ class BusinessClosureOverviewService
                 'module_count' => $total,
                 'closed_loop_count' => $closed,
                 'not_closed_count' => max(0, $total - $closed),
+                'process_closed_count' => $processClosed,
+                'not_process_closed_count' => max(0, $total - $processClosed),
+                'roi_ready_module_count' => $roiReadyModules,
+                'process_status' => $processClosed === $total && $total > 0 ? 'closed' : 'not_closed',
+                'roi_status' => $roiReadyModules === $total && $total > 0 ? 'closed' : 'not_closed',
                 'blocked_count' => $blocked,
                 'record_only_count' => $recordOnly,
                 'avg_maturity_score' => $total > 0 ? round($scoreSum / $total, 1) : null,
@@ -199,7 +215,9 @@ class BusinessClosureOverviewService
                 'status' => $closed === $total && $total > 0 ? 'closed' : 'not_closed',
             ],
             'modules' => $modules,
-            'weak_modules' => array_slice($weakModules, 0, 5),
+            'weak_modules' => array_slice($roiWeakModules, 0, 5),
+            'process_weak_modules' => array_slice($processWeakModules, 0, 5),
+            'roi_weak_modules' => array_slice($roiWeakModules, 0, 5),
             'data_status' => empty($dataGaps) ? 'ok' : 'data_gap',
             'data_gaps' => $dataGaps,
             'source_scope' => 'post_ota_closure_only',
@@ -274,6 +292,10 @@ class BusinessClosureOverviewService
                 'message' => 'Source records exist, but no operation execution intent/evidence/ROI is linked.',
             ];
         }
+        $processClosed = $reviewed > 0 || $roiReady > 0;
+        $roiReadyFlag = $roiReady > 0;
+        $processStatus = $processClosed ? 'closed' : 'not_closed';
+        $roiStatus = $roiReadyFlag ? 'ready' : 'not_ready';
 
         return [
             'key' => (string)($signal['key'] ?? ''),
@@ -289,6 +311,10 @@ class BusinessClosureOverviewService
             'status' => $status,
             'status_label' => $this->statusLabel($status),
             'closed_loop' => $status === 'roi_ready',
+            'process_closed_loop' => $processClosed,
+            'process_status' => $processStatus,
+            'roi_ready' => $roiReadyFlag,
+            'roi_status' => $roiStatus,
             'maturity_score' => $score,
             'next_action' => $nextAction,
             'next_action_label' => $this->nextActionLabel($nextAction),

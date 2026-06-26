@@ -26,13 +26,7 @@ class LlmClient
             return $this->finishWithGovernance($config, $governance, $config, $prompt, '', 'failed', 'config_error', (string)($config['message'] ?? ''), 0, 0, $startedAt, false);
         }
 
-        $payload = [
-            'model' => $config['model'],
-            'messages' => [
-                ['role' => 'user', 'content' => $prompt],
-            ],
-            'temperature' => isset($options['temperature']) ? (float)$options['temperature'] : 0.2,
-        ];
+        $payload = $this->chatPayload($config, $prompt, $options);
         $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
         if ($payloadJson === false) {
             return $this->finishWithGovernance([
@@ -127,7 +121,12 @@ class LlmClient
         $governanceMeta = $this->schemaGovernanceMeta($schema);
         $schemaForPrompt = $this->schemaWithoutGovernance($schema);
         $prompt = $this->messagesToPrompt($messages, $schemaForPrompt);
-        $result = $this->chat($prompt, $modelKey, array_merge($governanceMeta, ['prompt_length' => mb_strlen($prompt)]), ['temperature' => 0.1, 'timeout' => 60]);
+        $result = $this->chat($prompt, $modelKey, array_merge($governanceMeta, ['prompt_length' => mb_strlen($prompt)]), [
+            'temperature' => 0.1,
+            'timeout' => 60,
+            'json_schema' => $schemaForPrompt,
+            'json_schema_name' => $this->schemaResponseName((string)($governanceMeta['scenario'] ?? $governanceMeta['prompt_version'] ?? 'structured_response')),
+        ]);
         if (($result['ok'] ?? false) !== true) {
             throw new RuntimeException((string)($result['message'] ?? 'LLM request failed'));
         }
@@ -302,6 +301,56 @@ class LlmClient
             $parts[] = strtoupper($role) . ': ' . $content;
         }
         return implode("\n\n", $parts);
+    }
+
+    private function chatPayload(array $config, string $prompt, array $options): array
+    {
+        $payload = [
+            'model' => $config['model'],
+            'messages' => [
+                ['role' => 'user', 'content' => $prompt],
+            ],
+            'temperature' => isset($options['temperature']) ? (float)$options['temperature'] : 0.2,
+        ];
+
+        $responseFormat = $this->nativeJsonSchemaResponseFormat($config, $options);
+        if ($responseFormat !== []) {
+            $payload['response_format'] = $responseFormat;
+        }
+
+        return $payload;
+    }
+
+    private function nativeJsonSchemaResponseFormat(array $config, array $options): array
+    {
+        $provider = strtolower(trim((string)($config['provider'] ?? '')));
+        if ($provider !== 'openai') {
+            return [];
+        }
+
+        $schema = $options['json_schema'] ?? null;
+        if (!is_array($schema) || $schema === []) {
+            return [];
+        }
+
+        return [
+            'type' => 'json_schema',
+            'json_schema' => [
+                'name' => $this->schemaResponseName((string)($options['json_schema_name'] ?? 'structured_response')),
+                'strict' => true,
+                'schema' => $this->schemaWithoutGovernance($schema),
+            ],
+        ];
+    }
+
+    private function schemaResponseName(string $value): string
+    {
+        $name = preg_replace('/[^A-Za-z0-9_-]+/', '_', trim($value)) ?? '';
+        $name = trim($name, '_-');
+        if ($name === '') {
+            $name = 'structured_response';
+        }
+        return substr($name, 0, 64);
     }
 
     private function extractJsonText(string $text): string

@@ -4126,6 +4126,17 @@ final class OnlineDataTest extends TestCase
         self::assertFalse($this->invokeNonPublic($controller, 'shouldRunProfileBrowserForCost', ['hybrid_auto', 0]));
     }
 
+    public function testCtripHybridAutoRunsProfileWhenBrowserDataSourceExists(): void
+    {
+        $controller = $this->controller();
+        $sources = [['id' => 13, 'platform' => 'ctrip', 'ingestion_method' => 'browser_profile']];
+
+        self::assertFalse($this->invokeNonPublic($controller, 'shouldRunCtripProfileBrowser', ['cookie_config', $sources]));
+        self::assertFalse($this->invokeNonPublic($controller, 'shouldRunCtripProfileBrowser', ['hybrid_auto', []]));
+        self::assertTrue($this->invokeNonPublic($controller, 'shouldRunCtripProfileBrowser', ['hybrid_auto', $sources]));
+        self::assertTrue($this->invokeNonPublic($controller, 'shouldRunCtripProfileBrowserForCost', ['hybrid_auto', 26, $sources]));
+    }
+
     public function testAutoFetchResultMetaKeepsFailureActionExplicit(): void
     {
         $controller = $this->controller();
@@ -6433,6 +6444,23 @@ final class OnlineDataTest extends TestCase
 
         self::assertCount(1, $selected);
         self::assertSame(10, $selected[0]['id']);
+    }
+
+    public function testAutoFetchIgnoresWaitingBrowserProfileSourcesForCollection(): void
+    {
+        $controller = $this->controller();
+
+        $sources = [
+            ['id' => 14, 'platform' => 'ctrip', 'ingestion_method' => 'browser_profile', 'status' => 'waiting_config', 'enabled' => 1],
+            ['id' => 13, 'platform' => 'ctrip', 'ingestion_method' => 'browser_profile', 'status' => 'success', 'enabled' => 1],
+            ['id' => 12, 'platform' => 'ctrip', 'ingestion_method' => 'browser_profile', 'status' => 'ready', 'enabled' => 1],
+            ['id' => 11, 'platform' => 'ctrip', 'ingestion_method' => 'browser_profile', 'status' => 'disabled', 'enabled' => 0],
+            ['id' => 10, 'platform' => 'meituan', 'ingestion_method' => 'browser_profile', 'status' => 'success', 'enabled' => 1],
+        ];
+
+        $filtered = $this->invokeNonPublic($controller, 'filterCollectableBrowserProfileDataSources', [$sources, 'ctrip']);
+
+        self::assertSame([13, 12], array_column($filtered, 'id'));
     }
 
     public function testCtripSoftCoverageGateFailureCanContinueWithWarning(): void

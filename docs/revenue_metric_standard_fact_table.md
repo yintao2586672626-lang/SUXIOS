@@ -37,7 +37,14 @@
 ## 接口输出
 
 - `/api/ota-standard/etl`：返回 `fact_ota_daily` 明细事实行。
-- `/api/ota-standard/revenue-metrics`：返回 `totals`、`channel_contribution`、`by_platform`、`by_hotel`、`metric_definitions`、`metric_trust` 和 `data_gaps`。
+- `/api/ota-standard/revenue-metrics`：返回 `totals`、`channel_contribution`、`by_platform`、`by_hotel`、`metric_definitions`、`metric_trust`、`data_gaps` 和 `credibility_gate`。
 - 分母缺失时返回 `null` 与 `data_gaps`，不返回 0 伪装为真实指标。
 - 可售间夜、净收入、佣金字段只覆盖部分事实行时，只使用字段完整的对齐行计算 RevPAR、Net RevPAR、佣金率，并在 `data_gaps` 返回 `*_partial`。
 - 佣金率、取消率只接受 0-100 的有效百分比；负提前期不进入平均提前期。
+
+## 数据可信闸门
+
+- `credibility_gate.status` 只使用现有 `data_quality`、`data_gaps` 和 `metric_trust` 判定，不反推缺失数据。
+- 默认关键指标为 `totals.revenue`、`totals.room_nights`、`totals.adr`；关键指标缺失或 `saved_success=false` 时返回 `blocked`。
+- 有接受行且关键指标可信，但存在非关键 `data_gaps` 或 rejected rows 时返回 `warning`，用于提示 AI/运营建议进入人工复核。
+- `metric_scope` 固定为 `ota_channel`；没有全酒店/PMS/CRS 证据时，`investment_decision` 必须保持 `blocked_scope`。

@@ -105,6 +105,91 @@ test('summarizes Ctrip capture output and groups pending endpoint evidence', () 
   assert.equal(markdown.includes('collect_p3_devtools_evidence'), true);
 });
 
+test('excludes configured not-applicable Ctrip sections from coverage gaps', () => {
+  const payload = {
+    captured_at: '2026-06-26T08:00:00.000Z',
+    requested_sections: ['business_overview', 'ads_pyramid'],
+    not_applicable_sections: ['ads_pyramid'],
+    responses: [
+      { url: 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData', section: 'business_overview', endpoint_id: 'business_realtime' },
+    ],
+    catalog_facts: [
+      { metric_key: 'order_count', section: 'business_overview', endpoint_id: 'business_realtime' },
+    ],
+    standard_rows: [
+      { data_type: 'business', dimension: 'catalog:business_overview:business_realtime:order_count:root' },
+    ],
+  };
+
+  const audit = buildCtripCaptureAudit([{ path: 'capture.json', payload }], {
+    generatedAt: '2026-06-26T08:10:00.000Z',
+  });
+
+  assert.deepEqual(audit.not_applicable_sections, ['ads_pyramid']);
+  assert.equal(audit.summary.requested_section_total_count, 2);
+  assert.equal(audit.summary.requested_section_count, 1);
+  assert.equal(audit.summary.not_applicable_section_count, 1);
+  assert.equal(audit.endpoint_coverage.sections.ads_pyramid, undefined);
+  assert.equal(audit.field_coverage.sections.ads_pyramid, undefined);
+  assert.equal(
+    audit.capture_gap_report.missing_formal_endpoints.some((item) => item.section === 'ads_pyramid' || item.id === 'ads_interpretation'),
+    false,
+  );
+  assert.deepEqual(audit.capture_gap_report.not_applicable_sections, ['ads_pyramid']);
+
+  const markdown = renderCtripCaptureAuditMarkdown(audit);
+  assert.equal(markdown.includes('不适用模块：ads_pyramid'), true);
+});
+
+test('does not fail the capture gate for missing supporting Ctrip endpoints', () => {
+  const trafficRequiredEndpoints = [
+    'traffic_scan_flow',
+    'traffic_hotel_seq',
+    'traffic_flow_transform',
+    'traffic_order_overview',
+    'traffic_order_trend',
+    'traffic_flow_source',
+    'traffic_city_keywords',
+    'traffic_search_details',
+    'traffic_hotel_min_price',
+    'traffic_picture_quality',
+    'traffic_comment_score_summary',
+  ];
+  const payload = {
+    captured_at: '2026-06-26T08:20:00.000Z',
+    requested_sections: ['traffic_report'],
+    pages: [
+      { name: 'traffic_report', url: 'https://ebooking.ctrip.com/home/mainland' },
+    ],
+    responses: trafficRequiredEndpoints.map((endpoint_id) => ({
+      url: `https://ebooking.ctrip.com/datacenter/api/${endpoint_id}`,
+      section: 'traffic_report',
+      endpoint_id,
+    })),
+    catalog_facts: trafficRequiredEndpoints.map((endpoint_id) => ({
+      metric_key: endpoint_id,
+      section: 'traffic_report',
+      endpoint_id,
+    })),
+    standard_rows: [
+      { data_type: 'traffic', dimension: 'catalog:traffic_report:traffic_scan_flow:list_exposure:root' },
+    ],
+  };
+
+  const audit = buildCtripCaptureAudit([{ path: 'traffic_capture.json', payload }], {
+    generatedAt: '2026-06-26T08:30:00.000Z',
+  });
+  const gate = evaluateCtripCaptureAuditGate(audit);
+
+  assert.equal(audit.summary.missing_catalog_endpoint_count > 0, true);
+  assert.equal(audit.summary.missing_required_endpoint_count, 0);
+  assert.equal(
+    audit.capture_gap_report.missing_formal_endpoints.some((item) => item.id === 'traffic_flow_source_popups'),
+    true,
+  );
+  assert.equal(gate.status, 'pass');
+});
+
 test('summarizes Ctrip P3 evidence drafts and renders coverage status', () => {
   const payload = {
     captured_at: '2026-05-31T09:00:00.000Z',
@@ -223,7 +308,7 @@ test('fails the capture gate for login pages, empty responses, and missing forma
     'endpoint_coverage',
   ]);
   const endpointCoverage = gate.checks.find((check) => check.id === 'endpoint_coverage');
-  assert.equal(endpointCoverage.actual, `0/${audit.summary.expected_endpoint_count}`);
+  assert.equal(endpointCoverage.actual, `0/${audit.summary.required_endpoint_count}`);
   assert.equal(audit.summary.expected_endpoint_count > 0, true);
   assert.equal(audit.capture_gap_report.status, 'blocked_auth');
   assert.equal(audit.capture_gap_report.blockers.includes('auth_session'), true);

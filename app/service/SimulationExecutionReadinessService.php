@@ -64,6 +64,136 @@ class SimulationExecutionReadinessService
         );
     }
 
+    public function buildStrategyExecutionIntentInput(array $record, array $overrides = []): array
+    {
+        $input = is_array($record['input'] ?? null) ? $record['input'] : [];
+        $input = $this->withTopLevelExecutionBridge($input, $record);
+        $scores = is_array($record['scores'] ?? null) ? $record['scores'] : [];
+        if (!array_key_exists('total_score', $scores)) {
+            $scores = [
+                'total_score' => (int)($record['total_score'] ?? 0),
+                'items' => $scores,
+            ];
+        }
+        $recommendation = is_array($record['recommendation'] ?? null) ? $record['recommendation'] : [];
+        $risk = is_array($record['risk'] ?? null) ? $record['risk'] : [];
+        $dataSnapshot = is_array($record['data_snapshot'] ?? null) ? $record['data_snapshot'] : [];
+        $readiness = $this->buildStrategyReadiness($input, $scores, $recommendation, $risk, $dataSnapshot);
+        $readyForIntent = $this->canCreateSimulationExecutionIntent($readiness);
+        $recordId = (int)($record['id'] ?? $record['record_id'] ?? 0);
+        $projectName = trim((string)($record['project_name'] ?? $input['project_name'] ?? ''));
+        $executionDates = $this->executionIntentDates($overrides);
+
+        return [
+            'source_module' => 'strategy_simulation',
+            'source_record_id' => $recordId,
+            'hotel_id' => (int)($overrides['hotel_id'] ?? 0),
+            'platform' => 'investment',
+            'object_type' => 'investment',
+            'action_type' => 'strategy_review',
+            'date_start' => $executionDates['date_start'],
+            'date_end' => $executionDates['date_end'],
+            'current_value' => [
+                'total_score' => (int)($scores['total_score'] ?? 0),
+                'risk_level' => (string)($risk['risk_level'] ?? $record['risk_level'] ?? ''),
+                'readiness_stage' => (string)($readiness['stage'] ?? ''),
+            ],
+            'target_value' => [
+                'project_name' => $projectName,
+                'tracking_status' => $readyForIntent ? 'pending_strategy_execution_review' : 'blocked_by_simulation_readiness',
+                'target_metric' => 'strategy_simulation_closure',
+                'decision' => (string)($recommendation['decision'] ?? $record['decision'] ?? ''),
+                'action_text' => $this->strategyActionText($recommendation),
+            ],
+            'evidence' => $this->simulationExecutionEvidence('strategy_simulation', $recordId, $readiness, $readyForIntent, [
+                'source_scope' => 'strategy_simulation_records',
+                'data_snapshot_sources' => array_values(array_filter((array)($dataSnapshot['source_summary'] ?? []), 'is_scalar')),
+            ]),
+            'expected_metric' => 'strategy_simulation_closure',
+            'expected_delta' => 0,
+            'risk_level' => $this->executionRiskLevel((string)($risk['risk_level'] ?? $record['risk_level'] ?? ''), $readyForIntent),
+            'status' => 'pending_approval',
+        ];
+    }
+
+    public function buildQuantExecutionIntentInput(array $record, array $overrides = []): array
+    {
+        $input = is_array($record['input'] ?? null) ? $record['input'] : [];
+        $input = $this->withTopLevelExecutionBridge($input, $record);
+        $result = is_array($record['result'] ?? null) ? $record['result'] : [];
+        $scenarios = is_array($record['scenarios'] ?? null) ? $record['scenarios'] : [];
+        $riskHints = is_array($record['risk_hints'] ?? null) ? $record['risk_hints'] : [];
+        $readiness = $this->buildQuantReadiness($input, $result, $scenarios, $riskHints);
+        $readyForIntent = $this->canCreateSimulationExecutionIntent($readiness);
+        $recordId = (int)($record['id'] ?? $record['record_id'] ?? 0);
+        $projectName = trim((string)($record['project_name'] ?? $input['projectName'] ?? $input['project_name'] ?? ''));
+        $executionDates = $this->executionIntentDates($overrides);
+
+        return [
+            'source_module' => 'quant_simulation',
+            'source_record_id' => $recordId,
+            'hotel_id' => (int)($overrides['hotel_id'] ?? 0),
+            'platform' => 'investment',
+            'object_type' => 'investment',
+            'action_type' => 'quant_review',
+            'date_start' => $executionDates['date_start'],
+            'date_end' => $executionDates['date_end'],
+            'current_value' => [
+                'monthly_net_cashflow' => (float)($result['monthlyNetCashflow'] ?? $record['monthly_net_cashflow'] ?? 0),
+                'payback_months' => $result['paybackMonths'] ?? $record['payback_months'] ?? null,
+                'risk_level' => (string)($result['riskLevel'] ?? $record['risk_level'] ?? ''),
+                'readiness_stage' => (string)($readiness['stage'] ?? ''),
+            ],
+            'target_value' => [
+                'project_name' => $projectName,
+                'tracking_status' => $readyForIntent ? 'pending_quant_execution_review' : 'blocked_by_simulation_readiness',
+                'target_metric' => 'quant_simulation_closure',
+                'action_text' => $this->quantActionText($result),
+            ],
+            'evidence' => $this->simulationExecutionEvidence('quant_simulation', $recordId, $readiness, $readyForIntent, [
+                'source_scope' => 'quant_simulation_records',
+                'scenario_count' => count($scenarios),
+            ]),
+            'expected_metric' => 'quant_simulation_closure',
+            'expected_delta' => 0,
+            'risk_level' => $this->executionRiskLevel((string)($result['riskLevel'] ?? $record['risk_level'] ?? ''), $readyForIntent),
+            'status' => 'pending_approval',
+        ];
+    }
+
+    private function executionIntentDates(array $overrides): array
+    {
+        $dateStart = trim((string)($overrides['date_start'] ?? ''));
+        if ($dateStart === '') {
+            $dateStart = date('Y-m-d');
+        }
+
+        $dateEnd = trim((string)($overrides['date_end'] ?? ''));
+        if ($dateEnd === '') {
+            $dateEnd = $dateStart;
+        }
+
+        return [
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+        ];
+    }
+
+    private function withTopLevelExecutionBridge(array $input, array $record): array
+    {
+        foreach (['operation_execution_intent_id', 'execution_intent_id', 'execution_task_id', 'opening_project_id', 'tracking_record_id', 'post_decision_tracking_id'] as $key) {
+            if ((int)($input[$key] ?? 0) <= 0 && (int)($record[$key] ?? 0) > 0) {
+                $input[$key] = (int)$record[$key];
+            }
+        }
+
+        if (!array_key_exists('post_decision_tracking', $input) && array_key_exists('post_decision_tracking', $record)) {
+            $input['post_decision_tracking'] = $record['post_decision_tracking'];
+        }
+
+        return $input;
+    }
+
     public function readinessSummaryFromRows(array $strategyRows, array $quantRows): array
     {
         $summary = [
@@ -81,8 +211,9 @@ class SimulationExecutionReadinessService
             if (!is_array($row)) {
                 continue;
             }
+            $input = $this->withTopLevelExecutionBridge($this->decodeJson($row['input_json'] ?? []), $row);
             $readiness = $this->buildStrategyReadiness(
-                $this->decodeJson($row['input_json'] ?? []),
+                $input,
                 $this->decodeJson($row['score_json'] ?? []),
                 $this->decodeJson($row['recommendation_json'] ?? []),
                 $this->decodeJson($row['risk_json'] ?? []),
@@ -95,8 +226,9 @@ class SimulationExecutionReadinessService
             if (!is_array($row)) {
                 continue;
             }
+            $input = $this->withTopLevelExecutionBridge($this->decodeJson($row['input_json'] ?? []), $row);
             $readiness = $this->buildQuantReadiness(
-                $this->decodeJson($row['input_json'] ?? []),
+                $input,
                 $this->decodeJson($row['result_json'] ?? []),
                 $this->decodeJson($row['scenarios_json'] ?? []),
                 $this->decodeJson($row['risk_hints_json'] ?? [])
@@ -135,6 +267,75 @@ class SimulationExecutionReadinessService
             'next_action' => $missingEvidence[0]['next_action'] ?? '进入人工复核，并保留执行和效果证据。',
             'notice' => $this->stageNotice($stage),
         ];
+    }
+
+    private function canCreateSimulationExecutionIntent(array $readiness): bool
+    {
+        return in_array((string)($readiness['stage'] ?? ''), ['review_ready', 'approved_pending_execution', 'execution_ready'], true);
+    }
+
+    private function simulationExecutionEvidence(string $sourceModule, int $recordId, array $readiness, bool $readyForIntent, array $extra = []): array
+    {
+        $missingEvidence = array_values(array_filter((array)($readiness['missing_evidence'] ?? []), 'is_array'));
+        $dataGaps = [];
+        if (!$readyForIntent) {
+            $dataGaps = array_values(array_unique(array_map(
+                static fn(array $gap): string => (string)($gap['code'] ?? $gap['label'] ?? 'simulation_readiness_gap'),
+                $missingEvidence
+            )));
+        }
+
+        return array_merge([
+            'evidence_refs' => [
+                $sourceModule . '#' . $recordId,
+                $sourceModule === 'strategy_simulation' ? '/api/strategy/records/' . $recordId : '/api/simulation/records/' . $recordId,
+            ],
+            'readiness_stage' => (string)($readiness['stage'] ?? ''),
+            'readiness_score' => (int)($readiness['score'] ?? 0),
+            'readiness_missing_evidence' => $missingEvidence,
+            'data_gaps' => $dataGaps,
+            'source_policy' => $sourceModule . '_record_to_operation_execution_intent',
+            'protected_boundary' => 'Execution intent records manual review and tracking for simulation output; it does not assert investment closure or OTA execution.',
+            'metric_scope' => 'investment_decision',
+        ], $extra);
+    }
+
+    private function strategyActionText(array $recommendation): string
+    {
+        foreach (['decision_direction', 'decision'] as $field) {
+            $text = trim((string)($recommendation[$field] ?? ''));
+            if ($text !== '') {
+                return mb_substr($text, 0, 300);
+            }
+        }
+
+        return '复核战略推演结论并建立投决执行跟踪';
+    }
+
+    private function quantActionText(array $result): string
+    {
+        $analysis = is_array($result['modelAnalysis'] ?? null) ? $result['modelAnalysis'] : [];
+        $decision = trim((string)($analysis['decision'] ?? ''));
+        if ($decision !== '') {
+            return mb_substr($decision, 0, 300);
+        }
+
+        return '复核量化测算结论并建立投决执行跟踪';
+    }
+
+    private function executionRiskLevel(string $riskLevel, bool $readyForIntent): string
+    {
+        if (!$readyForIntent) {
+            return 'high';
+        }
+        if (str_contains($riskLevel, '高') || str_contains(strtolower($riskLevel), 'high')) {
+            return 'high';
+        }
+        if (str_contains($riskLevel, '中') || str_contains(strtolower($riskLevel), 'medium')) {
+            return 'medium';
+        }
+
+        return 'low';
     }
 
     private function appendSummary(array &$summary, array $readiness): void

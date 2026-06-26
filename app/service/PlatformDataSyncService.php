@@ -1262,7 +1262,7 @@ final class PlatformDataSyncService
                 $secret[$key === 'cookie' ? 'cookies' : $key] = (string)$payload[$key];
             }
         }
-        foreach (['url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency', 'allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
+        foreach (['url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency', 'not_applicable_sections', 'notApplicableSections', 'excluded_sections', 'excludedSections', 'allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
             if (array_key_exists($key, $payload) && $payload[$key] !== '') {
                 $config[$key] = $payload[$key];
             }

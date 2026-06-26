@@ -4,6 +4,10 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $controllerDir = $root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'controller';
 $routeFile = $root . DIRECTORY_SEPARATOR . 'route' . DIRECTORY_SEPARATOR . 'app.php';
+$autoloadFile = $root . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
+if (is_file($autoloadFile)) {
+    require_once $autoloadFile;
+}
 
 $ignoredControllers = [
     'app\\controller\\Base' => 'abstract base controller',
@@ -69,12 +73,16 @@ function collectControllerActions(string $controllerDir, array $ignoredControlle
         }
 
         $path = $file->getPathname();
+        if (isPathUnder($path, $controllerDir . DIRECTORY_SEPARATOR . 'concern')) {
+            continue;
+        }
+
         $controller = controllerClassFromFile($controllerDir, $path);
         if (isset($ignoredControllers[$controller])) {
             continue;
         }
 
-        foreach (publicMethodsInFile($path) as $method) {
+        foreach (publicControllerMethods($controllerDir, $path, $controller) as $method) {
             $actions[actionKey($controller, $method['name'])] = [
                 'controller' => $controller,
                 'method' => $method['name'],
@@ -123,7 +131,54 @@ function collectRouteActions(string $routeFile): array
 }
 
 /**
- * @return array<int, array{name:string, line:int}>
+ * @return array<int, array{name:string, line:int, file:string}>
+ */
+function publicControllerMethods(string $controllerDir, string $path, string $controller): array
+{
+    if (class_exists($controller)) {
+        return publicMethodsInControllerClass($controllerDir, $path, $controller);
+    }
+
+    return publicMethodsInFile($path);
+}
+
+/**
+ * @return array<int, array{name:string, line:int, file:string}>
+ */
+function publicMethodsInControllerClass(string $controllerDir, string $path, string $controller): array
+{
+    $reflection = new ReflectionClass($controller);
+    $methods = [];
+
+    foreach ($reflection->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
+        $name = $method->getName();
+        if ($method->isConstructor() || str_starts_with($name, '__')) {
+            continue;
+        }
+
+        $methodFile = $method->getFileName();
+        if (!is_string($methodFile)) {
+            continue;
+        }
+
+        if (!isSamePath($methodFile, $path) && !isPathUnder($methodFile, $controllerDir . DIRECTORY_SEPARATOR . 'concern')) {
+            continue;
+        }
+
+        $methods[] = [
+            'name' => $name,
+            'line' => $method->getStartLine(),
+            'file' => $methodFile,
+        ];
+    }
+
+    usort($methods, static fn(array $a, array $b): int => [$a['file'], $a['line'], $a['name']] <=> [$b['file'], $b['line'], $b['name']]);
+
+    return $methods;
+}
+
+/**
+ * @return array<int, array{name:string, line:int, file:string}>
  */
 function publicMethodsInFile(string $path): array
 {
@@ -157,6 +212,7 @@ function publicMethodsInFile(string $path): array
         $methods[] = [
             'name' => $name,
             'line' => $nameToken[2],
+            'file' => $path,
         ];
     }
 
@@ -216,4 +272,27 @@ function actionKey(string $controller, string $method): string
 function relativePath(string $root, string $path): string
 {
     return str_replace('\\', '/', substr($path, strlen($root) + 1));
+}
+
+function isPathUnder(string $path, string $directory): bool
+{
+    $path = normalizedPath($path);
+    $directory = rtrim(normalizedPath($directory), '/') . '/';
+
+    return str_starts_with($path, $directory);
+}
+
+function isSamePath(string $left, string $right): bool
+{
+    return normalizedPath($left) === normalizedPath($right);
+}
+
+function normalizedPath(string $path): string
+{
+    $real = realpath($path);
+    if (is_string($real)) {
+        $path = $real;
+    }
+
+    return strtolower(str_replace('\\', '/', $path));
 }

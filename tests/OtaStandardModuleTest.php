@@ -112,6 +112,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'business',
                 'data_date' => '2026-05-27',
+                'update_time' => '2026-05-27 10:00:00',
                 'amount' => 1200,
                 'quantity' => 6,
                 'book_order_num' => 4,
@@ -125,6 +126,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'advertising',
                 'data_date' => '2026-05-27',
+                'update_time' => '2026-05-27 10:05:00',
                 'amount' => 256.75,
                 'quantity' => 23,
                 'book_order_num' => 16,
@@ -142,6 +144,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'quality',
                 'data_date' => '2026-05-27',
+                'update_time' => '2026-05-27 10:10:00',
                 'data_value' => 88.6,
                 'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
             ],
@@ -176,6 +179,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'business',
                 'data_date' => '2026-05-27',
+                'update_time' => '2026-05-27 10:00:00',
                 'amount' => 1200,
                 'quantity' => 6,
                 'book_order_num' => 4,
@@ -271,6 +275,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'business',
                 'data_date' => '2026-05-27',
+                'update_time' => '2026-05-27 10:00:00',
                 'amount' => 1200,
                 'quantity' => 6,
                 'book_order_num' => 4,
@@ -284,6 +289,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'advertising',
                 'data_date' => '2026-05-27',
+                'update_time' => '2026-05-27 10:05:00',
                 'amount' => 256.75,
                 'quantity' => 23,
                 'book_order_num' => 16,
@@ -301,6 +307,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'quality',
                 'data_date' => '2026-05-27',
+                'update_time' => '2026-05-27 10:10:00',
                 'data_value' => 88.6,
                 'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
             ],
@@ -651,6 +658,44 @@ final class OtaStandardModuleTest extends TestCase
         self::assertSame('watch', $analysis['modules'][5]['status']);
     }
 
+    public function testInsightAnalysisDoesNotPromoteBlockedCredibilityGateToReady(): void
+    {
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset([
+            'status' => 'failed',
+            'data_quality' => [
+                'input_rows' => 1,
+                'accepted_rows' => 1,
+                'rejected_rows' => [],
+            ],
+            'fact_ota_daily' => [[
+                'id' => 701,
+                'platform_key' => 'ctrip',
+                'hotel_key' => 'system:7',
+                'revenue' => 1200.0,
+                'room_revenue' => 1200.0,
+                'room_nights' => 6.0,
+                'available_room_nights' => 10.0,
+                'order_count' => 4,
+                'source_trace' => [
+                    'saved_success' => true,
+                    'failure_reasons' => [],
+                ],
+            ]],
+        ]);
+
+        $analysis = (new OtaInsightAnalysisService())->analyzeMetrics($metrics);
+
+        self::assertSame('blocked_by_data_credibility', $analysis['status']);
+        self::assertSame('blocked', $analysis['credibility_gate']['status']);
+        self::assertContains('ota_dataset_failed', $analysis['credibility_gate']['reason_codes']);
+        self::assertTrue($analysis['human_review_required']);
+        foreach ($analysis['modules'] as $module) {
+            self::assertSame('blocked_by_data_credibility', $module['status']);
+            self::assertFalse($module['actionable']);
+            self::assertContains('ota_dataset_failed', $module['blocking_reason_codes']);
+        }
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -665,6 +710,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'business',
                 'data_date' => '2026-05-18',
+                'update_time' => '2026-05-18 10:00:00',
                 'amount' => 1200,
                 'quantity' => 6,
                 'book_order_num' => 4,
@@ -689,6 +735,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'traffic',
                 'data_date' => '2026-05-18',
+                'update_time' => '2026-05-18 10:05:00',
                 'list_exposure' => 1000,
                 'detail_exposure' => 200,
                 'flow_rate' => 20,

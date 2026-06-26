@@ -16,6 +16,15 @@ class OtaInsightAnalysisService
         $price = (array)($metrics['competitor_price'] ?? []);
         $advertising = (array)($metrics['advertising'] ?? []);
         $quality = (array)($metrics['quality'] ?? []);
+        $credibilityGate = is_array($metrics['credibility_gate'] ?? null) ? $metrics['credibility_gate'] : [];
+        $metricStatus = (string)($metrics['status'] ?? '');
+        $gateStatus = (string)($credibilityGate['status'] ?? '');
+        $status = $metricStatus === 'ready' ? 'ready' : 'insufficient_data';
+        if ($gateStatus === 'blocked') {
+            $status = 'blocked_by_data_credibility';
+        } elseif ($gateStatus === 'warning') {
+            $status = 'ready_with_data_warnings';
+        }
 
         $modules = [
             $this->adrModule($totals),
@@ -33,9 +42,12 @@ class OtaInsightAnalysisService
                 $modules[] = $optionalModule;
             }
         }
+        if ($gateStatus === 'blocked') {
+            $modules = $this->blockModulesByCredibilityGate($modules, $credibilityGate);
+        }
 
         return [
-            'status' => ($metrics['status'] ?? '') === 'ready' ? 'ready' : 'insufficient_data',
+            'status' => $status,
             'generated_at' => date('Y-m-d H:i:s'),
             'model_policy' => [
                 'model_type' => 'deterministic_rules',
@@ -44,6 +56,8 @@ class OtaInsightAnalysisService
             ],
             'modules' => $modules,
             'data_gaps' => $metrics['data_gaps'] ?? [],
+            'credibility_gate' => $credibilityGate,
+            'human_review_required' => $status !== 'ready',
         ];
     }
 
@@ -325,5 +339,29 @@ class OtaInsightAnalysisService
             'recommended_action' => $action,
             'metrics' => $metrics,
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $modules
+     * @param array<string, mixed> $credibilityGate
+     * @return array<int, array<string, mixed>>
+     */
+    private function blockModulesByCredibilityGate(array $modules, array $credibilityGate): array
+    {
+        $reasonCodes = array_values(array_filter(array_map(
+            static fn(mixed $code): string => trim((string)$code),
+            (array)($credibilityGate['reason_codes'] ?? [])
+        )));
+
+        foreach ($modules as &$module) {
+            $module['original_status'] = (string)($module['status'] ?? '');
+            $module['status'] = 'blocked_by_data_credibility';
+            $module['actionable'] = false;
+            $module['blocking_reason_codes'] = $reasonCodes;
+            $module['recommended_action'] = 'Resolve OTA data credibility gate before using this insight for revenue analysis or AI decisions.';
+        }
+        unset($module);
+
+        return $modules;
     }
 }

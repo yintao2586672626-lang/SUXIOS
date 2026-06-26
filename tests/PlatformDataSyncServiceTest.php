@@ -1016,6 +1016,62 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testCtripBrowserProfileAdapterHonorsConfiguredSectionsWithWideFieldConfig(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        $capturedArgs = [];
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', static function (array $args) use (&$capturedArgs): array {
+                $capturedArgs[] = $args;
+                $outputPath = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                    }
+                }
+                if ($outputPath !== '') {
+                    file_put_contents($outputPath, json_encode([
+                        'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                        'capture_gate' => ['status' => 'pass'],
+                        'standard_rows' => [
+                            [
+                                'hotel_id' => '24588',
+                                'hotel_name' => 'Ctrip Demo Hotel',
+                                'data_date' => '2026-05-31',
+                                'data_type' => 'business',
+                                'amount' => 100,
+                                'source_trace_id' => 'configured-sections-row',
+                            ],
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                }
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+
+            $source = $this->ctripBrowserProfileSource();
+            $source['config']['capture_sections'] = 'default';
+
+            $result = $adapter->fetch($source, [
+                'interactive_browser' => false,
+                'profile_field_config' => [
+                    'fields' => [
+                        ['id' => 'business_amount', 'field_key' => 'amount', 'section' => 'business_overview', 'enabled' => true],
+                        ['id' => 'traffic_detail', 'field_key' => 'detail_visitor', 'section' => 'traffic_report', 'enabled' => true],
+                        ['id' => 'ads_cost', 'field_key' => 'cost', 'section' => 'ads_pyramid', 'enabled' => true],
+                    ],
+                ],
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertCount(1, $capturedArgs);
+            $sectionArg = current(array_filter($capturedArgs[0], static fn($arg): bool => str_starts_with((string)$arg, '--sections=')));
+            self::assertSame('business_overview,traffic_report', substr((string)$sectionArg, strlen('--sections=')));
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testCtripBrowserProfileAdapterRunsEnabledSectionsInParallelByDefault(): void
     {
         $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
@@ -1083,6 +1139,66 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('business_weekly_overview,traffic_report', substr((string)$sectionArg, strlen('--sections=')));
             self::assertContains('--section-concurrency=3', $capturedArgs[0]);
             self::assertSame('parallel_pages', $result['payload']['capture_execution']['mode']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripBrowserProfileAdapterPassesNotApplicableSectionsAndSkipsCapture(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        $capturedArgs = [];
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', static function (array $args) use (&$capturedArgs): array {
+                $capturedArgs[] = $args;
+                $outputPath = '';
+                $sections = '';
+                $notApplicableSections = [];
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                    }
+                    if (str_starts_with((string)$arg, '--sections=')) {
+                        $sections = substr((string)$arg, strlen('--sections='));
+                    }
+                    if (str_starts_with((string)$arg, '--not-applicable-sections=')) {
+                        $notApplicableSections = array_values(array_filter(explode(',', substr((string)$arg, strlen('--not-applicable-sections=')))));
+                    }
+                }
+                if ($outputPath !== '') {
+                    file_put_contents($outputPath, json_encode([
+                        'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                        'capture_gate' => ['status' => 'pass'],
+                        'not_applicable_sections' => $notApplicableSections,
+                        'standard_rows' => [
+                            [
+                                'hotel_id' => '24588',
+                                'hotel_name' => 'Ctrip Demo Hotel',
+                                'data_date' => '2026-05-31',
+                                'data_type' => 'business',
+                                'amount' => 100,
+                                'source_trace_id' => 'not-applicable-row',
+                            ],
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                }
+                return ['success' => true, 'message' => 'ok', 'stdout' => $sections, 'stderr' => ''];
+            });
+
+            $source = $this->ctripBrowserProfileSource();
+            $source['config']['capture_sections'] = 'business_overview,ads_pyramid,traffic_report';
+            $source['config']['not_applicable_sections'] = 'ads';
+
+            $result = $adapter->fetch($source, ['interactive_browser' => false]);
+
+            self::assertSame('success', $result['status']);
+            self::assertCount(1, $capturedArgs);
+            $sectionArg = current(array_filter($capturedArgs[0], static fn($arg): bool => str_starts_with((string)$arg, '--sections=')));
+            $notApplicableArg = current(array_filter($capturedArgs[0], static fn($arg): bool => str_starts_with((string)$arg, '--not-applicable-sections=')));
+            self::assertSame('business_overview,traffic_report', substr((string)$sectionArg, strlen('--sections=')));
+            self::assertSame('ads_pyramid', substr((string)$notApplicableArg, strlen('--not-applicable-sections=')));
+            self::assertSame(['ads_pyramid'], $result['payload']['data_source_capture']['not_applicable_sections']);
         } finally {
             $this->removeDirectory($root);
         }

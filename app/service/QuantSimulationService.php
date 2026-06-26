@@ -65,7 +65,9 @@ class QuantSimulationService
         }
 
         $rows = $query->order('id', 'desc')->limit(30)->select()->toArray();
-        return array_values(array_map(fn(array $row): array => $this->formatRecord($row, false), $rows));
+        $list = array_values(array_map(fn(array $row): array => $this->formatRecord($row, false), $rows));
+
+        return (new SimulationExecutionBridgeService())->attachToRecords($list, 'quant_simulation');
     }
 
     public function detail(int $id, int $userId, bool $isSuperAdmin): array
@@ -83,7 +85,9 @@ class QuantSimulationService
             throw new \RuntimeException('量化模拟记录不存在或无权访问');
         }
 
-        return $this->formatRecord($row, true);
+        $record = $this->formatRecord($row, true);
+
+        return (new SimulationExecutionBridgeService())->attachToRecord($record, 'quant_simulation');
     }
 
     public function archive(int $id, int $userId, bool $isSuperAdmin): bool

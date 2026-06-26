@@ -175,7 +175,7 @@ class OtaRevenueMetricService
         $metricTrust['quality.avg_psi_score'] = $this->trust($quality, 'avg(fact_ota_quality.psi_score)');
         $metricTrust['quality.avg_service_score'] = $this->trust($quality, 'avg(fact_ota_quality.service_score)');
 
-        return [
+        $result = [
             'status' => $daily || $traffic || $advertising || $quality || $searchKeywords || $comments ? 'ready' : 'empty',
             'generated_at' => date('Y-m-d H:i:s'),
             'fact_table' => [
@@ -229,6 +229,10 @@ class OtaRevenueMetricService
             'etl_quality' => $dataset['data_quality'] ?? [],
             'metric_trust' => $metricTrust,
         ];
+
+        $result['credibility_gate'] = (new OtaDataCredibilityGateService())->evaluate($dataset, $result);
+
+        return $result;
     }
 
     /**

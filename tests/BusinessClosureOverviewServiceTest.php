@@ -59,6 +59,53 @@ final class BusinessClosureOverviewServiceTest extends TestCase
         self::assertTrue($closed['closed_loop']);
     }
 
+    public function testOverviewSeparatesProcessClosureFromRoiReadiness(): void
+    {
+        $service = new BusinessClosureOverviewService();
+
+        $overview = $service->buildOverviewFromSignals([
+            [
+                'key' => 'revenue_pricing',
+                'label' => '收益调价建议',
+                'record_count' => 2,
+                'linked_execution_count' => 2,
+                'approved_count' => 2,
+                'executed_count' => 2,
+                'evidence_ready_count' => 2,
+                'reviewed_count' => 1,
+                'roi_ready_count' => 0,
+            ],
+            [
+                'key' => 'operation_execution',
+                'label' => '运营执行闭环',
+                'record_count' => 1,
+                'linked_execution_count' => 1,
+                'approved_count' => 1,
+                'executed_count' => 1,
+                'evidence_ready_count' => 1,
+                'reviewed_count' => 1,
+                'roi_ready_count' => 1,
+            ],
+        ]);
+
+        $modules = array_column($overview['modules'], null, 'key');
+
+        self::assertTrue($modules['revenue_pricing']['process_closed_loop']);
+        self::assertSame('closed', $modules['revenue_pricing']['process_status']);
+        self::assertFalse($modules['revenue_pricing']['roi_ready']);
+        self::assertSame('not_ready', $modules['revenue_pricing']['roi_status']);
+        self::assertFalse($modules['revenue_pricing']['closed_loop']);
+        self::assertTrue($modules['operation_execution']['process_closed_loop']);
+        self::assertSame('closed', $modules['operation_execution']['process_status']);
+        self::assertTrue($modules['operation_execution']['roi_ready']);
+        self::assertSame('ready', $modules['operation_execution']['roi_status']);
+        self::assertSame(2, $overview['summary']['process_closed_count']);
+        self::assertSame('closed', $overview['summary']['process_status']);
+        self::assertSame(1, $overview['summary']['roi_ready_module_count']);
+        self::assertSame('not_closed', $overview['summary']['roi_status']);
+        self::assertSame(1, $overview['summary']['closed_loop_count']);
+    }
+
     public function testOverviewSummaryKeepsWeakModulesVisible(): void
     {
         $service = new BusinessClosureOverviewService();
@@ -98,6 +145,45 @@ final class BusinessClosureOverviewServiceTest extends TestCase
         self::assertSame('not_closed', $overview['summary']['status']);
         self::assertSame('opening', $overview['weak_modules'][0]['key']);
         self::assertSame('feasibility_report', $overview['weak_modules'][1]['key']);
+    }
+
+    public function testOverviewSeparatesProcessWeakModulesFromRoiWeakModules(): void
+    {
+        $service = new BusinessClosureOverviewService();
+
+        $overview = $service->buildOverviewFromSignals([
+            [
+                'key' => 'revenue_pricing',
+                'label' => '收益调价建议',
+                'record_count' => 2,
+                'linked_execution_count' => 2,
+                'approved_count' => 2,
+                'executed_count' => 2,
+                'evidence_ready_count' => 2,
+                'reviewed_count' => 1,
+                'roi_ready_count' => 0,
+            ],
+            [
+                'key' => 'opening',
+                'label' => '开业管理',
+                'record_count' => 1,
+                'linked_execution_count' => 0,
+            ],
+            [
+                'key' => 'operation_execution',
+                'label' => '运营执行闭环',
+                'record_count' => 1,
+                'linked_execution_count' => 1,
+                'reviewed_count' => 1,
+                'roi_ready_count' => 1,
+            ],
+        ]);
+
+        self::assertArrayHasKey('process_weak_modules', $overview);
+        self::assertArrayHasKey('roi_weak_modules', $overview);
+        self::assertSame(['opening'], array_column($overview['process_weak_modules'], 'key'));
+        self::assertSame(['revenue_pricing', 'opening'], array_column($overview['roi_weak_modules'], 'key'));
+        self::assertSame(['revenue_pricing', 'opening'], array_column($overview['weak_modules'], 'key'));
     }
 
     public function testOverviewIncludesStaffAndAssetClosureModulesInOrder(): void

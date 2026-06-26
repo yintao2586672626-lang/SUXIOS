@@ -25,11 +25,15 @@ function excludesAll(file, label, source, needles) {
 
 const service = read('app/service/Phase3OperationEffectLoopService.php');
 const controller = read('app/controller/OnlineData.php');
+const operationWorkbenchConcern = read('app/controller/concern/OperationWorkbenchConcern.php');
 const route = read('route/app.php');
 const docs = read('docs/phase3_operation_effect_loop_acceptance.md');
 const runtimeVerifier = read('scripts/verify_phase3_operation_effect_loop_runtime.php');
 const packageJson = read('package.json');
 const frontend = read('public/index.html');
+const dataHealthStatic = read('public/data-health-static.js');
+const onlineDataControllerSurface = `${controller}\n${operationWorkbenchConcern}`;
+const frontendSurface = `${frontend}\n${dataHealthStatic}`;
 
 includesAll('app/service/Phase3OperationEffectLoopService.php', 'phase3 service exposes six-stage loop contract', service, [
   'final class Phase3OperationEffectLoopService',
@@ -103,7 +107,9 @@ excludesAll('app/service/Phase3OperationEffectLoopService.php', 'phase3 service 
   'spidertoken',
 ]);
 
-includesAll('app/controller/OnlineData.php', 'phase3 endpoint is registered in OnlineData as read-only GET handler', controller, [
+includesAll('app/controller/OnlineData.php + app/controller/concern/OperationWorkbenchConcern.php', 'phase3 endpoint is registered in OnlineData as read-only GET handler', onlineDataControllerSurface, [
+  'use app\\controller\\concern\\OperationWorkbenchConcern;',
+  'use OperationWorkbenchConcern;',
   'use app\\service\\Phase3OperationEffectLoopService;',
   'public function phase3OperationEffectLoop(): Response',
   'public function phase3OperationEffectLoopLedger(): Response',
@@ -157,7 +163,7 @@ includesAll('package.json', 'phase3 verifier is exposed through npm', packageJso
   '"verify:phase3-operation-effect-loop": "node scripts/verify_phase3_operation_effect_loop_contract.mjs && C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_phase3_operation_effect_loop_runtime.php"',
 ]);
 
-includesAll('public/index.html', 'phase3 operation effect loop is visible in the employee workbench UI', frontend, [
+includesAll('public/index.html + public/data-health-static.js', 'phase3 operation effect loop is visible in the employee workbench UI', frontendSurface, [
   'data-testid="phase3-operation-effect-loop"',
   '第三阶段运营闭环',
   'phase3OperationEffectLoop',
@@ -188,7 +194,7 @@ includesAll('public/index.html', 'phase3 operation effect loop is visible in the
   '生成计划',
 ]);
 
-includesAll('public/index.html', 'phase3 frontend keeps missing states and OTA boundary visible', frontend, [
+includesAll('public/index.html + public/data-health-static.js', 'phase3 frontend keeps missing states and OTA boundary visible', frontendSurface, [
   '缺执行',
   '缺任务证据',
   '待复盘',

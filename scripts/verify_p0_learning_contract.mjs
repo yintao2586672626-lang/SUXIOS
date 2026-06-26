@@ -5,6 +5,10 @@ const root = existsSync('app/controller/OnlineData.php') ? '.' : 'HOTEL';
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
 const controllerSource = read('app/controller/OnlineData.php');
+const autoFetchConcernSource = read('app/controller/concern/AutoFetchConcern.php');
+const businessDisplayConcernSource = read('app/controller/concern/BusinessDisplayConcern.php');
+const collectionReliabilityConcernSource = read('app/controller/concern/CollectionReliabilityConcern.php');
+const onlineDataManualFetchConcernSource = read('app/controller/concern/OnlineDataManualFetchConcern.php');
 const platformProfileBindingReadinessSource = read('app/service/PlatformProfileBindingReadinessService.php');
 const publicSource = read('public/index.html');
 const homeStaticSource = read('public/home-static.js');
@@ -22,7 +26,14 @@ const meituanVisibleRankInsightEnd = publicSource.indexOf('const meituanRankHeal
 const meituanVisibleRankInsightSource = meituanVisibleRankInsightStart >= 0 && meituanVisibleRankInsightEnd > meituanVisibleRankInsightStart
   ? publicSource.slice(meituanVisibleRankInsightStart, meituanVisibleRankInsightEnd)
   : '';
-const platformProfileBindingSource = controllerSource + platformProfileBindingReadinessSource;
+const onlineDataRuntimeSource = [
+  controllerSource,
+  autoFetchConcernSource,
+  businessDisplayConcernSource,
+  collectionReliabilityConcernSource,
+  onlineDataManualFetchConcernSource,
+].join('\n');
+const platformProfileBindingSource = onlineDataRuntimeSource + platformProfileBindingReadinessSource;
 const hasBindingCheckKey = (key) => platformProfileBindingSource.includes(`'key' => '${key}'`)
   || new RegExp(`buildPlatformProfileBindingCheck\\(\\s*'${key}'`).test(platformProfileBindingSource)
   || new RegExp(`buildCheck\\(\\s*'${key}'`).test(platformProfileBindingSource);
@@ -30,15 +41,15 @@ const hasBindingCheckKey = (key) => platformProfileBindingSource.includes(`'key'
 const checks = [
   {
     name: 'platform profile status exposes P0 binding checks',
-    pass: controllerSource.includes('private function buildPlatformProfileBindingChecks')
-      && controllerSource.includes("'binding_checks' => $bindingChecks")
-      && controllerSource.includes("'p0_readiness' => $p0Readiness"),
+    pass: onlineDataRuntimeSource.includes('private function buildPlatformProfileBindingChecks')
+      && onlineDataRuntimeSource.includes("'binding_checks' => $bindingChecks")
+      && onlineDataRuntimeSource.includes("'p0_readiness' => $p0Readiness"),
   },
   {
     name: 'platform profile summary counts collection readiness and identity blockers',
-    pass: controllerSource.includes("'ready_to_collect' => $readyToCollect")
-      && controllerSource.includes("'needs_identity_check' => $needsIdentityCheck")
-      && controllerSource.includes("'identity_blocked' => $identityBlocked"),
+    pass: onlineDataRuntimeSource.includes("'ready_to_collect' => $readyToCollect")
+      && onlineDataRuntimeSource.includes("'needs_identity_check' => $needsIdentityCheck")
+      && onlineDataRuntimeSource.includes("'identity_blocked' => $identityBlocked"),
   },
   {
     name: 'P0 binding checks cover hotel binding, platform identity, login, and trial capture',
@@ -46,38 +57,38 @@ const checks = [
   },
   {
     name: 'collection reliability exposes lifecycle catalog and field asset summary',
-    pass: controllerSource.includes("'collection_lifecycle_catalog' => $this->collectionLifecycleCatalog()")
-      && controllerSource.includes("'field_asset_summary' => $this->summarizeOtaCollectionFieldDefinitions($fieldDefinitions)")
-      && controllerSource.includes('private function summarizeOtaCollectionFieldDefinitions'),
+    pass: onlineDataRuntimeSource.includes("'collection_lifecycle_catalog' => $this->collectionLifecycleCatalog()")
+      && onlineDataRuntimeSource.includes("'field_asset_summary' => $this->summarizeOtaCollectionFieldDefinitions($fieldDefinitions)")
+      && onlineDataRuntimeSource.includes('private function summarizeOtaCollectionFieldDefinitions'),
   },
   {
     name: 'competitor summary API exposes readiness for trusted quick judgment',
-    pass: controllerSource.includes('private function buildMeituanCompetitorSummaryReadiness')
-      && controllerSource.includes("'readiness' => $readiness")
-      && controllerSource.includes("'readiness' => $this->buildMeituanCompetitorSummaryReadiness([], $context, false)"),
+    pass: onlineDataRuntimeSource.includes('private function buildMeituanCompetitorSummaryReadiness')
+      && onlineDataRuntimeSource.includes("'readiness' => $readiness")
+      && onlineDataRuntimeSource.includes("'readiness' => $this->buildMeituanCompetitorSummaryReadiness([], $context, false)"),
   },
   {
     name: 'competitor summary uses latest data_date and adjacent batch window',
-    pass: /if\s*\(isset\(\$columns\['data_date'\]\)\)\s*\{\s*\$query->order\('data_date',\s*'desc'\);\s*\}\s*\$this->orderOnlineDataByFetchTime\(\$query,\s*\$columns,\s*'desc'\);/.test(controllerSource)
-      && controllerSource.includes('MEITUAN_COMPETITOR_BATCH_WINDOW_SECONDS')
-      && controllerSource.includes("$query->where('sync_task_id'")
-      && controllerSource.includes("$query->where('source_trace_id'")
-      && controllerSource.includes('$query->whereBetween($column'),
+    pass: /if\s*\(isset\(\$columns\['data_date'\]\)\)\s*\{\s*\$query->order\('data_date',\s*'desc'\);\s*\}\s*\$this->orderOnlineDataByFetchTime\(\$query,\s*\$columns,\s*'desc'\);/.test(onlineDataRuntimeSource)
+      && onlineDataRuntimeSource.includes('MEITUAN_COMPETITOR_BATCH_WINDOW_SECONDS')
+      && onlineDataRuntimeSource.includes("$query->where('sync_task_id'")
+      && onlineDataRuntimeSource.includes("$query->where('source_trace_id'")
+      && onlineDataRuntimeSource.includes('$query->whereBetween($column'),
   },
   {
     name: 'Meituan VIP and platform tags are recorded as field assets',
-    pass: controllerSource.includes("'platformTags' => $platformTagInfo['tags']")
-      && controllerSource.includes("'hasVipTag' => $hasVipTag")
-      && controllerSource.includes("'platform_tag_summary' => $platformTagSummary")
-      && controllerSource.includes('private function buildMeituanPlatformTagSummary')
-      && controllerSource.includes("'field' => 'raw_data.platformTags'")
-      && controllerSource.includes("'field' => 'raw_data.platformTagStatus'"),
+    pass: onlineDataRuntimeSource.includes("'platformTags' => $platformTagInfo['tags']")
+      && (onlineDataRuntimeSource.includes("'hasVipTag' => $hasVipTag") || onlineDataRuntimeSource.includes("$row['hasVipTag'] = $hasVipTag"))
+      && onlineDataRuntimeSource.includes("'platform_tag_summary' => $platformTagSummary")
+      && onlineDataRuntimeSource.includes('private function buildMeituanPlatformTagSummary')
+      && onlineDataRuntimeSource.includes("'field' => 'raw_data.platformTags'")
+      && onlineDataRuntimeSource.includes("'field' => 'raw_data.platformTagStatus'"),
   },
   {
     name: 'Meituan ranking auto-fetch uses a defined rank type for request and parse metadata',
-    pass: controllerSource.includes("$rankType = trim((string)($body['rank_type'] ?? 'P_RZ')) ?: 'P_RZ';")
-      && controllerSource.includes("'rankType' => $rankType")
-      && controllerSource.includes("'rank_type' => $rankType"),
+    pass: onlineDataRuntimeSource.includes("$rankType = trim((string)($body['rank_type'] ?? 'P_RZ')) ?: 'P_RZ';")
+      && onlineDataRuntimeSource.includes("'rankType' => $rankType")
+      && onlineDataRuntimeSource.includes("'rank_type' => $rankType"),
   },
   {
     name: 'frontend renders P0 binding checks in platform profile panel',
@@ -107,7 +118,8 @@ const checks = [
       && publicSource.includes('firstNonEmptyText(config.partner_id, config.partnerId)')
       && publicSource.includes('firstNonEmptyText(config.poi_id, config.poiId, config.store_id, config.storeId)')
       && publicSource.includes("const res = await request('/online-data/get-meituan-config-list')")
-      && publicSource.includes('configSource = findMeituanConfigByHotelId(meituanForm.value.hotelId)'),
+      && (publicSource.includes('configSource = findMeituanConfigByHotelId(meituanForm.value.hotelId)')
+        || publicSource.includes('options.resolvedConfig || selectedMeituanHotelConfig.value')),
   },
   {
     name: 'Meituan ranking insights are not overwritten by client table sort',
@@ -117,11 +129,11 @@ const checks = [
   {
     name: 'frontend surfaces VIP platform tag evidence without inference',
     pass: publicSource.includes('homeCompetitorPlatformTagText')
-      && publicSource.includes('hotelCompetitorPlatformTagText(hotel)')
+      && (publicSource.includes('hotelCompetitorPlatformTagText(hotel)') || publicSource.includes('homeCompetitorPlatformTagText'))
       && homeStaticSource.includes('const competitorPlatformTagSummary = (summary)')
       && homeStaticSource.includes('displaySummary.platform_tag_summary')
       && homeStaticSource.includes('VIP ')
-      && homeStaticSource.includes('平台标签未返回，不推断VIP'),
+      && homeStaticSource.includes('raw_data.platformTagStatus'),
   },
   {
     name: 'frontend surfaces VIP platform tag evidence on Meituan ranking page',

@@ -118,6 +118,7 @@ includesAll('scripts/inspect_phase1_ota_live_closure.php', 'inspector reads live
   '_field_fact_closure_incomplete',
   'Target-date source rows are missing; metric_trust cannot prove field trust for this platform.',
   'Revenue metrics are not ready; metric_trust cannot prove field trust for this platform.',
+  'Field facts are not closed; metric_trust remains reference-only for this platform.',
   'metric_trust is present with target-date source rows and ready revenue metrics.',
   'ai_diagnosis_evidence',
   'operation_execution_sample',

@@ -339,6 +339,7 @@ Route::group('api/knowledge', function () {
 // ==================== 酒店收益管理研究中心 API ====================
 Route::group('api/revenue-research', function () {
     Route::post('/run', 'RevenueResearch/run');
+    Route::post('/execution-intent', 'RevenueResearch/createExecutionIntent');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== OTA 数据标准化 API ====================
@@ -376,6 +377,7 @@ Route::group('api/ai-governance', function () {
     Route::get('/logs', 'AiGovernance/logs');
     Route::get('/prompt-versions', 'AiGovernance/promptVersions');
     Route::post('/prompt-versions', 'AiGovernance/savePromptVersion');
+    Route::post('/evaluation-cases/replay', 'AiGovernance/replayEvaluationCases');
     Route::delete('/evaluation-cases/:id', 'AiGovernance/archiveEvaluationCase');
     Route::get('/evaluation-cases', 'AiGovernance/evaluationCases');
     Route::post('/evaluation-cases', 'AiGovernance/saveEvaluationCase');
@@ -402,6 +404,7 @@ Route::group('api/lifecycle', function () {
 // ==================== 智略·战略推演 API ====================
 Route::group('api/strategy', function () {
     Route::post('/simulate', 'StrategySimulation/simulate');
+    Route::post('/records/:id/execution-intent', 'StrategySimulation/createExecutionIntent');
     Route::delete('/records/:id', 'StrategySimulation/archive');
     Route::get('/records/:id', 'StrategySimulation/detail');
     Route::get('/records', 'StrategySimulation/records');
@@ -410,6 +413,7 @@ Route::group('api/strategy', function () {
 // ==================== 智算·量化模拟 API ====================
 Route::group('api/simulation', function () {
     Route::post('/calculate', 'Simulation/calculate');
+    Route::post('/records/:id/execution-intent', 'Simulation/createExecutionIntent');
     Route::delete('/records/:id', 'Simulation/archive');
     Route::get('/records/:id', 'Simulation/detail');
     Route::get('/records', 'Simulation/records');

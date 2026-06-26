@@ -138,8 +138,11 @@ export function buildCtripCaptureAudit(inputs = [], options = {}) {
   const pendingCandidateSectionCount = Object.values(groupedCandidates).filter((group) => group.count > 0).length;
   const generatedAt = options.generatedAt || new Date().toISOString();
   const p3EvidenceMatrix = buildCtripEndpointEvidenceMatrix(p3EvidenceDrafts, { generatedAt });
-  const endpointCoverage = buildEndpointCoverage([...requestedSections], capturedEndpoints);
-  const fieldCoverage = buildFieldCoverage([...requestedSections], capturedFieldsBySection, {
+  const notApplicableSections = collectNotApplicableSections(normalizedInputs, options);
+  const auditableRequestedSections = [...requestedSections]
+    .filter((section) => !notApplicableSections.has(section));
+  const endpointCoverage = buildEndpointCoverage(auditableRequestedSections, capturedEndpoints);
+  const fieldCoverage = buildFieldCoverage(auditableRequestedSections, capturedFieldsBySection, {
     allowedFieldKeys: normalizeAllowedFieldKeys(options.allowedFieldKeys || options.allowed_field_keys),
   });
   const authStatus = buildAuthStatus({
@@ -163,6 +166,9 @@ export function buildCtripCaptureAudit(inputs = [], options = {}) {
     expected_endpoint_count: endpointCoverage.summary.expected_endpoint_count,
     captured_catalog_endpoint_count: endpointCoverage.summary.captured_endpoint_count,
     missing_catalog_endpoint_count: endpointCoverage.summary.missing_endpoint_count,
+    required_endpoint_count: endpointCoverage.summary.required_endpoint_count,
+    captured_required_endpoint_count: endpointCoverage.summary.captured_required_endpoint_count,
+    missing_required_endpoint_count: endpointCoverage.summary.missing_required_endpoint_count,
     expected_field_count: fieldCoverage.summary.expected_field_count,
     captured_catalog_field_count: fieldCoverage.summary.captured_field_count,
     missing_catalog_field_count: fieldCoverage.summary.missing_field_count,
@@ -173,6 +179,9 @@ export function buildCtripCaptureAudit(inputs = [], options = {}) {
     interaction_skipped_count: interactionSkippedCount,
     interaction_error_count: interactionErrorCount,
     interaction_section_count: Object.keys(interactionsBySection).length,
+    requested_section_total_count: requestedSections.size,
+    not_applicable_section_count: notApplicableSections.size,
+    not_applicable_sections: [...notApplicableSections].sort(),
     p3_evidence_draft_count: p3EvidenceMatrix.summary.total_bundles,
     p3_evidence_ready_count: p3EvidenceMatrix.summary.ready_bundle_count,
     p3_evidence_incomplete_count: p3EvidenceMatrix.summary.incomplete_bundle_count,
@@ -188,6 +197,7 @@ export function buildCtripCaptureAudit(inputs = [], options = {}) {
     interactions_by_section: finalizeInteractionStats(interactionsBySection),
     endpoint_coverage: endpointCoverage,
     field_coverage: fieldCoverage,
+    not_applicable_sections: [...notApplicableSections].sort(),
     auth_status: authStatus,
     captured_endpoint_ids: [...capturedEndpoints].sort(),
     metric_keys: [...uniqueMetrics].sort(),
@@ -200,6 +210,7 @@ export function buildCtripCaptureAudit(inputs = [], options = {}) {
       fieldCoverage,
       endpointCandidates: groupedCandidates,
       p3EvidenceMatrix,
+      notApplicableSections,
     }),
     next_evidence_required: candidateCount > 0 ? [...CTRIP_CAPTURE_AUDIT_EVIDENCE] : [],
   };
@@ -257,9 +268,9 @@ export function evaluateCtripCaptureAuditGate(audit = {}, options = {}) {
   });
 
   if (thresholds.require_endpoint_coverage) {
-    const expectedEndpointCount = numberValue(coverage.expected_endpoint_count ?? summary.expected_endpoint_count);
-    const capturedEndpointCount = numberValue(coverage.captured_endpoint_count ?? summary.captured_catalog_endpoint_count);
-    const missingEndpointCount = numberValue(coverage.missing_endpoint_count ?? summary.missing_catalog_endpoint_count);
+    const expectedEndpointCount = numberValue(coverage.required_endpoint_count ?? coverage.expected_endpoint_count ?? summary.expected_endpoint_count);
+    const capturedEndpointCount = numberValue(coverage.captured_required_endpoint_count ?? coverage.captured_endpoint_count ?? summary.captured_catalog_endpoint_count);
+    const missingEndpointCount = numberValue(coverage.missing_required_endpoint_count ?? coverage.missing_endpoint_count ?? summary.missing_catalog_endpoint_count);
     const hasExpectedEndpoints = !thresholds.require_expected_endpoints || expectedEndpointCount > 0;
     addGateCheck(checks, {
       id: 'endpoint_coverage',
@@ -323,6 +334,7 @@ export function renderCtripCaptureAuditMarkdown(audit) {
     `- 可入库标准行数：${summary.standard_row_count ?? 0}`,
     `- 正式接口覆盖：${summary.captured_catalog_endpoint_count ?? 0}/${summary.expected_endpoint_count ?? 0}`,
     `- 字段覆盖：${summary.captured_catalog_field_count ?? 0}/${summary.expected_field_count ?? 0}`,
+    `- 不适用模块：${(audit.not_applicable_sections || summary.not_applicable_sections || []).join(', ') || '-'}`,
     `- 登录状态：${audit.auth_status?.status || 'unknown'}`,
     `- 未归档接口候选数：${summary.endpoint_candidate_count ?? 0}`,
     `- 页面交互触发：${summary.interaction_clicked_count ?? 0}/${summary.interaction_planned_count ?? 0}`,
@@ -357,6 +369,7 @@ export function renderCtripCaptureAuditMarkdown(audit) {
     lines.push('');
     lines.push(`- Status: ${report.status || 'unknown'}`);
     lines.push(`- Blockers: ${(report.blockers || []).join(', ') || '-'}`);
+    lines.push(`- Not applicable sections: ${(report.not_applicable_sections || []).join(', ') || '-'}`);
     lines.push(`- Missing formal endpoints: ${(report.missing_formal_endpoints || []).length}`);
     lines.push(`- P3 candidate sections: ${Object.keys(report.p3_candidate_sections || {}).join(', ') || '-'}`);
     lines.push('');
@@ -524,6 +537,9 @@ function expandRequestedSections(value) {
     return [];
   }
   const raw = Array.isArray(value) ? value.join(',') : String(value);
+  if (raw.trim() === '') {
+    return [];
+  }
   try {
     return normalizeCtripCaptureSections(raw);
   } catch {
@@ -531,6 +547,29 @@ function expandRequestedSections(value) {
       .map((item) => sectionFromValue(item))
       .filter((item) => item && item !== 'unknown');
   }
+}
+
+function collectNotApplicableSections(inputs, options = {}) {
+  const sections = new Set();
+  const addSections = (value) => {
+    for (const section of expandRequestedSections(value)) {
+      sections.add(section);
+    }
+  };
+
+  addSections(options.notApplicableSections);
+  addSections(options.not_applicable_sections);
+  addSections(options.excludedSections);
+  addSections(options.excluded_sections);
+  for (const input of inputs || []) {
+    const payload = input?.payload || {};
+    addSections(payload.not_applicable_sections);
+    addSections(payload.notApplicableSections);
+    addSections(payload.excluded_sections);
+    addSections(payload.excludedSections);
+  }
+
+  return sections;
 }
 
 function buildEndpointCoverage(requestedSections, capturedEndpoints) {
@@ -541,10 +580,16 @@ function buildEndpointCoverage(requestedSections, capturedEndpoints) {
     const expectedForSection = expected.filter((endpoint) => endpoint.section === section);
     const capturedForSection = expectedForSection.filter((endpoint) => capturedEndpoints.has(endpoint.id));
     const missingForSection = expectedForSection.filter((endpoint) => !capturedEndpoints.has(endpoint.id));
+    const requiredForSection = expectedForSection.filter(isGateRequiredEndpoint);
+    const capturedRequiredForSection = requiredForSection.filter((endpoint) => capturedEndpoints.has(endpoint.id));
+    const missingRequiredForSection = requiredForSection.filter((endpoint) => !capturedEndpoints.has(endpoint.id));
     sections[section] = {
       expected_endpoint_count: expectedForSection.length,
       captured_endpoint_count: capturedForSection.length,
       missing_endpoint_count: missingForSection.length,
+      required_endpoint_count: requiredForSection.length,
+      captured_required_endpoint_count: capturedRequiredForSection.length,
+      missing_required_endpoint_count: missingRequiredForSection.length,
       captured_endpoint_ids: capturedForSection.map((endpoint) => endpoint.id).sort(),
       missing_endpoint_ids: missingForSection.map((endpoint) => endpoint.id).sort(),
       missing_endpoints: missingForSection.map((endpoint) => ({
@@ -556,17 +601,28 @@ function buildEndpointCoverage(requestedSections, capturedEndpoints) {
     };
   }
   const capturedExpected = expected.filter((endpoint) => capturedEndpoints.has(endpoint.id));
+  const requiredExpected = expected.filter(isGateRequiredEndpoint);
+  const capturedRequired = requiredExpected.filter((endpoint) => capturedEndpoints.has(endpoint.id));
   return {
     summary: {
       requested_section_count: selectedSections.length,
       expected_endpoint_count: expected.length,
       captured_endpoint_count: capturedExpected.length,
       missing_endpoint_count: Math.max(0, expected.length - capturedExpected.length),
+      required_endpoint_count: requiredExpected.length,
+      captured_required_endpoint_count: capturedRequired.length,
+      missing_required_endpoint_count: Math.max(0, requiredExpected.length - capturedRequired.length),
       coverage_rate: expected.length > 0 ? Math.round((capturedExpected.length / expected.length) * 10000) / 100 : null,
+      required_coverage_rate: requiredExpected.length > 0 ? Math.round((capturedRequired.length / requiredExpected.length) * 10000) / 100 : null,
     },
     requested_sections: selectedSections,
     sections,
   };
+}
+
+function isGateRequiredEndpoint(endpoint) {
+  const status = String(endpoint?.status || '').trim().toLowerCase();
+  return !['supporting', 'screenshot_only'].includes(status);
 }
 
 function buildFieldCoverage(requestedSections, capturedFieldsBySection, options = {}) {
@@ -662,6 +718,7 @@ function buildCaptureGapReport({
   fieldCoverage = {},
   endpointCandidates = {},
   p3EvidenceMatrix = {},
+  notApplicableSections = new Set(),
 } = {}) {
   const blockers = [];
   const nextActions = [];
@@ -791,6 +848,7 @@ function buildCaptureGapReport({
   return {
     status,
     blockers: uniqueSorted(blockers),
+    not_applicable_sections: [...notApplicableSections].sort(),
     missing_formal_endpoint_count: missingFormalEndpoints.length,
     missing_formal_endpoints: missingFormalEndpoints,
     missing_fields_by_section: missingFieldsBySection,

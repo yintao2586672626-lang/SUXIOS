@@ -1458,6 +1458,18 @@ class OperationManagementService
                     $reasons[] = $field . ' missing';
                 }
             }
+            $sourceModule = trim((string)($input['source_module'] ?? ''));
+            if (in_array($sourceModule, ['strategy_simulation', 'quant_simulation'], true)) {
+                $readinessStage = trim((string)($evidence['readiness_stage'] ?? ''));
+                if ($readinessStage === '') {
+                    $reasons[] = 'simulation_readiness_stage missing';
+                } elseif (!in_array($readinessStage, ['review_ready', 'approved_pending_execution', 'execution_ready'], true)) {
+                    $reasons[] = $readinessStage;
+                }
+                if (!empty($evidence['data_gaps'])) {
+                    $reasons[] = 'simulation_readiness_gaps_pending';
+                }
+            }
         } elseif ($objectType === 'opening') {
             foreach (['project_name', 'tracking_status', 'target_metric'] as $field) {
                 if (trim((string)($targetValue[$field] ?? '')) === '') {
@@ -1469,6 +1481,21 @@ class OperationManagementService
                 if (trim((string)($targetValue[$field] ?? '')) === '') {
                     $reasons[] = $field . ' missing';
                 }
+            }
+        } elseif ($objectType === 'revenue_research') {
+            foreach (['research_product', 'action_text', 'target_metric'] as $field) {
+                if (trim((string)($targetValue[$field] ?? '')) === '') {
+                    $reasons[] = $field . ' missing';
+                }
+            }
+            $readinessStage = trim((string)($evidence['research_readiness_stage'] ?? ''));
+            if ($readinessStage === '') {
+                $reasons[] = 'research_readiness_stage missing';
+            } elseif ($readinessStage !== 'research_ready_for_execution') {
+                $reasons[] = $readinessStage;
+            }
+            if (!empty($evidence['data_gaps'])) {
+                $reasons[] = 'research_data_gaps_pending';
             }
         } elseif ($objectType !== '') {
             $reasons[] = 'object_type not supported';

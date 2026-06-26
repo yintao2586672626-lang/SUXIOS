@@ -57,6 +57,33 @@ final class ControllerRouteContractTest extends TestCase
         self::assertLessThan($collectionClear, $singleArchive, 'Single-record archive route must be checked before collection clear route');
     }
 
+    public function testRevenueResearchCanCreateExecutionIntentRoute(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+
+        self::assertStringContainsString(
+            "Route::post('/execution-intent', 'RevenueResearch/createExecutionIntent')",
+            $source,
+            'Revenue research must expose a canonical execution-intent bridge route'
+        );
+    }
+
+    public function testStrategyAndQuantRecordsCanCreateExecutionIntentRoutes(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+
+        self::assertStringContainsString(
+            "Route::post('/records/:id/execution-intent', 'StrategySimulation/createExecutionIntent')",
+            $source,
+            'Strategy records must expose execution-intent bridge route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/records/:id/execution-intent', 'Simulation/createExecutionIntent')",
+            $source,
+            'Quant simulation records must expose execution-intent bridge route'
+        );
+    }
+
     /**
      * @return array<int, array{0:string, 1:string}>
      */

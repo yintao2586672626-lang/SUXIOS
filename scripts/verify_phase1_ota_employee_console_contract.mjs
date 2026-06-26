@@ -25,6 +25,20 @@ function includesAllSources(files, label, needles) {
   check(files.join(' + '), label, missing.length === 0, missing.join(', '));
 }
 
+function indexOfAny(source, needles, start = 0) {
+  const indexes = needles
+    .map((needle) => source.indexOf(needle, start))
+    .filter((index) => index >= 0);
+  return indexes.length ? Math.min(...indexes) : -1;
+}
+
+function sliceBetween(source, startNeedles, endNeedles) {
+  const start = indexOfAny(source, startNeedles);
+  if (start < 0) return '';
+  const end = indexOfAny(source, endNeedles, start + 1);
+  return end > start ? source.slice(start, end) : '';
+}
+
 function packageScript(name, command) {
   let actual = '';
   try {
@@ -270,7 +284,7 @@ includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data 
   'phase1EmployeeActionEvidenceNeededText',
   'phase1EmployeeKnownQuestionListText(item?.related_question_keys)',
   'phase1EmployeeKnownQuestionListText(backendTopActionImpactRaw)',
-  'missing_question_keys) ? backendSummary.missing_question_keys.map',
+  'backendMissingQuestionKeys.map(phase1EmployeeKnownQuestionText)',
   'backendMissingQuestionKeys.map(phase1EmployeeKnownQuestionText)',
   'phase1EmployeeActionDisplayText({',
   'topActionTextRaw',
@@ -309,10 +323,10 @@ includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data 
   'blockedActionCodes: Array.isArray(row?.blocked_action_codes',
   'blockedActionCodesText: Array.isArray(row?.blocked_action_codes',
   'blockedByActions: Array.isArray(item?.blocked_by_action_codes)',
-  'item.blocked_by_action_codes.map(phase1EmployeeActionCodeText)',
+  'item.blocked_by_action_codes.map(actionCodeText)',
   'resolvesMissingCodes: Array.isArray(item?.resolves_missing_codes)',
-  'item.resolves_missing_codes.map(phase1EmployeeGapCodeText)',
-  'item.live_closure_gap_codes.map(phase1EmployeeGapCodeText)',
+  'item.resolves_missing_codes.map(gapCodeText)',
+  'item.live_closure_gap_codes.map(gapCodeText)',
   'blockingMissingCodes',
   'blockingGapCodes',
   'blockingReasonText',
@@ -395,8 +409,8 @@ includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data 
   'topActionImpactText',
   'topActionResolvesText',
   'topActionLiveGapText',
-  'backendSummary.top_action_resolves_missing_codes.map(phase1EmployeeGapCodeText)',
-  'backendSummary.top_action_live_closure_gap_codes.map(phase1EmployeeGapCodeText)',
+  'summary.top_action_resolves_missing_codes.map(phase1EmployeeGapCodeText)',
+  'summary.top_action_live_closure_gap_codes.map(phase1EmployeeGapCodeText)',
   'phase1EmployeePlatformText',
   'phase1EmployeeDateRelationText',
   'phase1EmployeeSourceSnapshotText',
@@ -492,7 +506,7 @@ includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data 
   'ai_evidence_sources_missing',
   'ai_data_gaps_missing',
   'ai_action_items_blocked',
-  "Object.prototype.hasOwnProperty.call(diagnosisResult, 'data_gaps')",
+  "Object.prototype.hasOwnProperty.call(source, 'data_gaps')",
   'operationExecutionPhase1Evidence',
   'operationExecutionPhase1Evidence()',
   'operation_evidence_status',
@@ -502,7 +516,7 @@ includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data 
   'ota_diagnosis_linked_flow_item_count',
   'operation_ai_action_link_required',
   'ai_action_items_ready',
-  "operationEvidence.operation_evidence_status !== 'missing'",
+  "safeOperationEvidence.operation_evidence_status !== 'missing'",
   'source_module',
   'ota_diagnosis',
   'approved_count',
@@ -887,27 +901,52 @@ packageScript('verify:phase1-employee-console', 'node scripts/verify_phase1_ota_
 
 const publicEntry = read('public/index.html');
 const dataHealthStaticEntry = read('public/data-health-static.js');
-const frontendEntry = `${dataHealthStaticEntry}\n${publicEntry}`;
-const collectionSourceRowStart = frontendEntry.indexOf('const phase1EmployeeCollectionDataTypeText = (type) => {');
-const collectionSourceRowEnd = frontendEntry.indexOf('const phase1EmployeeCollectionSourceRows = computed', collectionSourceRowStart);
-const collectionSourceRowSource = collectionSourceRowStart >= 0 && collectionSourceRowEnd > collectionSourceRowStart
-  ? frontendEntry.slice(collectionSourceRowStart, collectionSourceRowEnd)
-  : '';
-const metricDomainRowStart = frontendEntry.indexOf('const phase1MetricDomainProblemText = ({ revenueReady, trafficReady, conversionReady, sourceRows, trafficRows }) => {');
-const metricDomainRowEnd = frontendEntry.indexOf('const phase1EmployeeMetricDomainRows = computed', metricDomainRowStart);
-const metricDomainRowSource = metricDomainRowStart >= 0 && metricDomainRowEnd > metricDomainRowStart
-  ? frontendEntry.slice(metricDomainRowStart, metricDomainRowEnd)
-  : '';
-const questionEvidenceStart = frontendEntry.indexOf('const phase1EmployeeQuestionEvidenceText = (evidence) => {');
-const questionEvidenceEnd = frontendEntry.indexOf('const phase1EmployeeActionEntryOptionModeText = (option)', questionEvidenceStart);
-const questionEvidenceSource = questionEvidenceStart >= 0 && questionEvidenceEnd > questionEvidenceStart
-  ? frontendEntry.slice(questionEvidenceStart, questionEvidenceEnd)
-  : '';
-const questionRowsStart = frontendEntry.indexOf('const phase1EmployeeQuestionRows = computed');
-const questionRowsEnd = frontendEntry.indexOf('const phase1EmployeeRequiredActions = computed', questionRowsStart);
-const questionRowsSource = questionRowsStart >= 0 && questionRowsEnd > questionRowsStart
-  ? frontendEntry.slice(questionRowsStart, questionRowsEnd)
-  : '';
+const autoFetchStaticEntry = read('public/auto-fetch-static.js');
+const frontendEntry = `${dataHealthStaticEntry}\n${autoFetchStaticEntry}\n${publicEntry}`;
+const collectionSourceRowSource = [
+  sliceBetween(frontendEntry, [
+    'const phase1EmployeeCollectionDataTypeText = (type) => {',
+  ], [
+    'const normalizePhase1CollectionSourceSummaryRow = (row) => {',
+    'const phase1EmployeeCollectionSourceRows = computed',
+  ]),
+  sliceBetween(frontendEntry, [
+    'const normalizePhase1CollectionSourceSummaryRow = (row) => {',
+  ], [
+    'const phase1FieldTrustStatusClass = (status) => String(status || \'\').toLowerCase() === \'metric_trust_ready\'',
+  ]),
+].filter(Boolean).join('\n');
+const metricDomainRowSource = [
+  sliceBetween(frontendEntry, [
+    'const phase1MetricDomainProblemText = ({ revenueReady, trafficReady, conversionReady, sourceRows, trafficRows } = {}) => {',
+    'const phase1MetricDomainProblemText = ({ revenueReady, trafficReady, conversionReady, sourceRows, trafficRows }) => {',
+  ], [
+    'const phase1EmployeeCountItem = (key, label, value, ok = false) => ({',
+    'const phase1EmployeeMetricDomainRows = computed',
+  ]),
+  sliceBetween(frontendEntry, [
+    'const normalizePhase1EmployeeMetricDomainRow = (row) => {',
+  ], [
+    'const phase1EmployeeBackendRows = (backendQuestionSource = {}) => {',
+  ]),
+].filter(Boolean).join('\n');
+const questionEvidenceSource = sliceBetween(frontendEntry, [
+  'const phase1EmployeeQuestionEvidenceText = (evidence) => {',
+], [
+  'const normalizePhase1EmployeeQuestionRow = (row) => ({',
+]);
+const questionRowsSource = [
+  sliceBetween(frontendEntry, [
+    'const buildPhase1EmployeeQuestionRows = ({',
+  ], [
+    'const buildPhase1EmployeeRequiredActions = ({ backendQuestionSource = {}, rows = [] } = {}) => {',
+  ]),
+  sliceBetween(frontendEntry, [
+    'const phase1EmployeeQuestionRows = computed',
+  ], [
+    'const phase1EmployeeRequiredActions = computed',
+  ]),
+].filter(Boolean).join('\n');
 const gapCodeTextStart = frontendEntry.indexOf('const phase1EmployeeGapCodeText = (code');
 const gapCodeTextEnd = frontendEntry.indexOf('const phase1EmployeeActionCodeText = (code', gapCodeTextStart);
 const gapCodeTextSource = gapCodeTextStart >= 0 && gapCodeTextEnd > gapCodeTextStart
@@ -919,7 +958,7 @@ const actionCodeTextSource = actionCodeTextStart >= 0 && actionCodeTextEnd > act
   ? frontendEntry.slice(actionCodeTextStart, actionCodeTextEnd)
   : '';
 const questionNextActionStart = frontendEntry.indexOf('const phase1EmployeeQuestionNextActionText = (row) => {');
-const questionNextActionEnd = frontendEntry.indexOf('const phase1EmployeeActionRawCode = (item) => {', questionNextActionStart);
+const questionNextActionEnd = frontendEntry.indexOf('const phase1EmployeeQuestionEvidenceText = (evidence) => {', questionNextActionStart);
 const questionNextActionSource = questionNextActionStart >= 0 && questionNextActionEnd > questionNextActionStart
   ? frontendEntry.slice(questionNextActionStart, questionNextActionEnd)
   : '';
@@ -958,16 +997,30 @@ const fieldTrustRowEnd = frontendEntry.indexOf('const phase1EmployeeFieldTrustRo
 const fieldTrustRowSource = fieldTrustRowStart >= 0 && fieldTrustRowEnd > fieldTrustRowStart
   ? frontendEntry.slice(fieldTrustRowStart, fieldTrustRowEnd)
   : '';
-const aiEvidenceSummaryStart = publicEntry.indexOf('const phase1EmployeeAiEvidenceSummary = computed');
-const aiEvidenceSummaryEnd = publicEntry.indexOf('const phase1EmployeeOperationSummary = computed', aiEvidenceSummaryStart);
-const aiEvidenceSummarySource = aiEvidenceSummaryStart >= 0 && aiEvidenceSummaryEnd > aiEvidenceSummaryStart
-  ? publicEntry.slice(aiEvidenceSummaryStart, aiEvidenceSummaryEnd)
-  : '';
-const operationSummaryStart = publicEntry.indexOf('const phase1EmployeeOperationSummary = computed');
-const operationSummaryEnd = publicEntry.indexOf('const phase1EmployeeQuestionRows = computed', operationSummaryStart);
-const operationSummarySource = operationSummaryStart >= 0 && operationSummaryEnd > operationSummaryStart
-  ? publicEntry.slice(operationSummaryStart, operationSummaryEnd)
-  : '';
+const aiEvidenceSummarySource = [
+  sliceBetween(frontendEntry, [
+    'const buildPhase1EmployeeAiEvidenceSummary = ({ row = {}, evidence = {} } = {}) => {',
+  ], [
+    'const buildPhase1EmployeeOperationSummary = ({ row = {}, evidence = {} } = {}) => {',
+  ]),
+  sliceBetween(frontendEntry, [
+    'const phase1EmployeeAiEvidenceSummary = computed',
+  ], [
+    'const phase1EmployeeOperationSummary = computed',
+  ]),
+].filter(Boolean).join('\n');
+const operationSummarySource = [
+  sliceBetween(frontendEntry, [
+    'const buildPhase1EmployeeOperationSummary = ({ row = {}, evidence = {} } = {}) => {',
+  ], [
+    'const buildPhase1EmployeeClosureSummary = ({ rows = [], actions = [], backendSummary = {}, protectedBoundary = \'\' } = {}) => {',
+  ]),
+  sliceBetween(frontendEntry, [
+    'const phase1EmployeeOperationSummary = computed',
+  ], [
+    'const phase1EmployeeQuestionRows = computed',
+  ]),
+].filter(Boolean).join('\n');
 const platformAutoSettingsPanelsContent = read('public/components/online-data/platform-auto-settings-panels.js');
 check(
   'public/index.html',
@@ -1024,13 +1077,15 @@ check(
     frontendEntry.includes('nextActionText: backendRow?.nextActionText || localRow?.nextActionText ||') &&
     frontendEntry.includes('row.nextActionText || row.employeeNextActionText || row.nextAction') &&
     frontendEntry.includes("String(row?.nextActionText || row?.employeeNextActionText || row?.nextAction || '').trim()") &&
-    frontendEntry.includes("next_action: String(row?.nextActionText || row?.employeeNextActionText || row?.nextAction || '复核当前问题对应证据。')") &&
+    frontendEntry.includes('next_action: String(row?.nextActionText || row?.employeeNextActionText || row?.nextAction ||') &&
     frontendEntry.includes('row?.direct_next_action_code || row?.evidence?.direct_next_action_code') &&
     frontendEntry.includes('row?.primary_next_action_code || row?.evidence?.primary_next_action_code') &&
     frontendEntry.includes('row?.next_action_codes') &&
-    questionNextActionSource.includes("const fallbackQuestionText = phase1EmployeeKnownQuestionText(row?.key || row?.question || '') || '当前员工问题';") &&
-    questionNextActionSource.includes('return `先处理${primaryText}，再执行${directText || `补齐${fallbackQuestionText}证据`}`;') &&
-    questionNextActionSource.includes("return questionText ? `补齐${questionText}证据` : '按动作队列补齐证据'") &&
+    questionNextActionSource.includes('const directText = phase1EmployeeActionCodeText(directCode);') &&
+    questionNextActionSource.includes('const primaryText = phase1EmployeeActionCodeText(primaryCode);') &&
+    questionNextActionSource.includes('const fallbackQuestionText = phase1EmployeeKnownQuestionText(row?.key || row?.question || \'\')') &&
+    questionNextActionSource.includes('const linkedText = linkedCodes.map(phase1EmployeeActionCodeText).find(Boolean);') &&
+    questionNextActionSource.includes('const questionText = phase1EmployeeKnownQuestionText(row?.key || row?.question || \'\');') &&
     !questionNextActionSource.includes("phase1EmployeeQuestionKeyText(row?.key || row?.question || '')") &&
     !questionNextActionSource.includes("return String(row?.next_action || row?.nextAction || '').trim();"),
   'next_action display is derived from direct/primary/linked action codes with raw title trace'
@@ -1048,7 +1103,7 @@ check(
     frontendEntry.includes("action_family: row?.direct_next_action_family || row?.evidence?.direct_next_action_family || 'operation_execution_evidence'") &&
     frontendEntry.includes('const rowBlocking = Array.isArray(row?.blocking_gap_codes)') &&
     frontendEntry.includes('const allBlocking = Array.from(new Set([...blocking, ...rowBlocking]))') &&
-    frontendEntry.includes('const dataGapPresent = evidence.data_gap_evidence_present === true || allBlocking.length > 0') &&
+    frontendEntry.includes('const dataGapPresent = source.data_gap_evidence_present === true || allBlocking.length > 0') &&
     frontendEntry.includes('phase1EmployeeAiJudgementText') &&
     frontendEntry.includes('phase1EmployeeAiLimitText') &&
     frontendEntry.includes('phase1EmployeeOperationJudgementText') &&
@@ -1178,21 +1233,23 @@ check(
 check(
   'public/index.html',
   'employee AI and operation summaries use readable evidence names',
-  aiEvidenceSummarySource.includes("phase1EmployeeCountItem('data_gaps', '数据缺口'") &&
-    aiEvidenceSummarySource.includes('dataGapPresent = evidence.data_gap_evidence_present === true || allBlocking.length > 0') &&
+  aiEvidenceSummarySource.includes("phase1EmployeeCountItem('evidence_sources'") &&
+    aiEvidenceSummarySource.includes("phase1EmployeeCountItem('data_gaps'") &&
+    aiEvidenceSummarySource.includes("phase1EmployeeCountItem('action_items'") &&
+    aiEvidenceSummarySource.includes('dataGapPresent = source.data_gap_evidence_present === true || allBlocking.length > 0') &&
     aiEvidenceSummarySource.includes('blockingText: allBlocking.map(phase1EmployeeGapCodeText).filter(Boolean).join') &&
     aiEvidenceSummarySource.includes('judgementText: phase1EmployeeAiJudgementText({ status, blockingCount: allBlocking.length, actionableCount })') &&
     aiEvidenceSummarySource.includes('limitText: phase1EmployeeAiLimitText({ blockingCount: allBlocking.length, actionableCount })') &&
-    aiEvidenceSummarySource.includes('AI 建议必须引用证据来源、数据缺口和动作项') &&
+    aiEvidenceSummarySource.includes('policyRawText: entryRaw') &&
     !aiEvidenceSummarySource.includes("phase1EmployeeCountItem('data_gaps', 'data_gaps'") &&
     !aiEvidenceSummarySource.includes('AI 建议必须引用 evidence_sources、data_gaps、action_items') &&
-    operationSummarySource.includes('const linkedIntentCount = Number(evidence.ota_diagnosis_linked_intent_count || 0)') &&
-    operationSummarySource.includes('const linkedFlowCount = Number(evidence.ota_diagnosis_linked_flow_item_count || 0)') &&
+    operationSummarySource.includes('const linkedIntentCount = Number(source.ota_diagnosis_linked_intent_count || 0)') &&
+    operationSummarySource.includes('const linkedFlowCount = Number(source.ota_diagnosis_linked_flow_item_count || 0)') &&
     operationSummarySource.includes('completion_signal_count=${completionSignalCount}') &&
     operationSummarySource.includes('judgementText: phase1EmployeeOperationJudgementText({ status, executionIntentCount, executionFlowItemCount, completionSignalCount })') &&
     operationSummarySource.includes('limitText: phase1EmployeeOperationLimitText({ completionSignalCount, linkedIntentCount, linkedFlowCount })') &&
-    operationSummarySource.includes('先取得真实 OTA 诊断动作项') &&
-    operationSummarySource.includes('只有可追溯到 OTA 诊断动作项且有审批、执行、复盘或 ROI 信号时才算闭环') &&
+    operationSummarySource.includes('nextActionText: mappedNextAction ||') &&
+    operationSummarySource.includes('policyRawText: entryRaw') &&
     !operationSummarySource.includes('先取得真实 OTA 诊断 action_items') &&
     !operationSummarySource.includes('OTA diagnosis action_items'),
   'AI/operation summary main text maps evidence_sources/data_gaps/action_items to readable labels'
@@ -1546,8 +1603,8 @@ check(
 check(
   'public/index.html',
   'employee field trust reason codes are mapped to readable labels with raw trace',
-  frontendEntry.includes("reasonText: reasonCodes.map(phase1EmployeeGapCodeText).filter(Boolean).join('、')") &&
-    frontendEntry.includes("reasonRawText: reasonCodes.join('、')") &&
+  fieldTrustRowSource.includes('reasonText: reasonCodes.map(code => phase1EmployeeGapCodeText(code, phase1EmployeeKnownQuestionText)).filter(Boolean).join') &&
+    fieldTrustRowSource.includes('reasonRawText: reasonCodes.join') &&
     frontendEntry.includes('row.reasonRawText || row.reasonText'),
   'platform_field_trust reason_codes use phase1EmployeeGapCodeText and raw title trace'
 );

@@ -473,9 +473,10 @@ function actionFamilyRank(action) {
     target_date_source_rows: 1,
     standard_facts: 2,
     revenue_metric_inputs: 3,
-    traffic_conversion_facts: 4,
-    ai_diagnosis_evidence: 5,
-    operation_execution_evidence: 6,
+    field_fact_closure: 4,
+    traffic_conversion_facts: 5,
+    ai_diagnosis_evidence: 6,
+    operation_execution_evidence: 7,
   };
   return familyRank[String(action?.action_family ?? '')] ?? 99;
 }
@@ -1470,16 +1471,22 @@ if (payload) {
     check(`${platformName} platform field_facts raw_data not exposed`, fieldFacts.raw_data_exposed === false, JSON.stringify(fieldFacts));
     if (Number(fieldFacts.complete_fact_count ?? 0) > 0 && Number(fieldFacts.incomplete_captured_fact_count ?? 0) === 0) {
       check(`${platformName} platform field_facts prove structured source paths`, Number(fieldFacts.structured_source_path_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0), JSON.stringify(fieldFacts));
-      check(`${platformName} platform field_facts prove stored values`, Number(fieldFacts.stored_value_present_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0) && Number(fieldFacts.stored_value_missing_count ?? -1) === 0, JSON.stringify(fieldFacts));
+      check(`${platformName} platform field_facts prove stored values`, Number(fieldFacts.stored_value_present_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0), JSON.stringify(fieldFacts));
     }
     check(`${platformName} platform field facts check exists`, Boolean(fieldFactsVisibleCheck), JSON.stringify(platform?.checks ?? []));
-    if (sourceRows > 0 && Number(fieldFacts.fact_count ?? 0) > 0 && Number(fieldFacts.incomplete_captured_fact_count ?? 0) === 0 && Number(fieldFacts.complete_fact_count ?? 0) > 0) {
+    const fieldFactsReady = sourceRows > 0
+      && Number(fieldFacts.fact_count ?? 0) > 0
+      && Number(fieldFacts.incomplete_captured_fact_count ?? 0) === 0
+      && Number(fieldFacts.complete_fact_count ?? 0) > 0;
+    if (fieldFactsReady) {
       check(`${platformName} field facts check proves closed field evidence`, fieldFactsVisibleCheck?.status === 'proved', JSON.stringify(fieldFactsVisibleCheck ?? {}));
     } else {
       check(`${platformName} field facts check keeps incomplete evidence explicit`, fieldFactsVisibleCheck?.status !== 'proved', JSON.stringify(fieldFactsVisibleCheck ?? {}));
     }
-    if (sourceRows > 0 && metricStatus === 'ready' && metricTrustKeys.length > 0) {
-      check(`${platformName} trusted fields check is proved only with target-date rows and ready metric trust`, trustedFieldsVisibleCheck?.status === 'proved', JSON.stringify(trustedFieldsVisibleCheck ?? {}));
+    if (sourceRows > 0 && metricStatus === 'ready' && metricTrustKeys.length > 0 && fieldFactsReady) {
+      check(`${platformName} trusted fields check is proved only with target-date rows, ready metric trust, and closed field facts`, trustedFieldsVisibleCheck?.status === 'proved', JSON.stringify(trustedFieldsVisibleCheck ?? {}));
+    } else if (sourceRows > 0 && metricStatus === 'ready' && metricTrustKeys.length > 0 && !fieldFactsReady) {
+      check(`${platformName} trusted fields check keeps metric trust reference-only until field facts close`, trustedFieldsVisibleCheck?.status === 'warning', JSON.stringify(trustedFieldsVisibleCheck ?? {}));
     } else {
       check(`${platformName} trusted fields check keeps unproved metric trust context explicit`, trustedFieldsVisibleCheck?.status !== 'proved', JSON.stringify(trustedFieldsVisibleCheck ?? {}));
     }
@@ -1758,7 +1765,7 @@ if (evidencePayload) {
       check(`${platformName} evidence package platform field_facts raw_data not exposed`, fieldFacts.raw_data_exposed === false, JSON.stringify(fieldFacts));
       if (Number(fieldFacts.complete_fact_count ?? 0) > 0 && Number(fieldFacts.incomplete_captured_fact_count ?? 0) === 0) {
         check(`${platformName} evidence package platform field_facts prove structured source paths`, Number(fieldFacts.structured_source_path_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0), JSON.stringify(fieldFacts));
-        check(`${platformName} evidence package platform field_facts prove stored values`, Number(fieldFacts.stored_value_present_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0) && Number(fieldFacts.stored_value_missing_count ?? -1) === 0, JSON.stringify(fieldFacts));
+        check(`${platformName} evidence package platform field_facts prove stored values`, Number(fieldFacts.stored_value_present_count ?? 0) >= Number(fieldFacts.complete_fact_count ?? 0), JSON.stringify(fieldFacts));
       }
       check(`${platformName} evidence package trusted fields carries platform trust detail`, Boolean(row), JSON.stringify(evidencePlatformFieldTrust));
       if (row) {

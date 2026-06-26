@@ -102,8 +102,9 @@ for (const [needle, label] of routeChecks) {
 }
 
 const codeChecks = [
-  ['app/controller/OnlineData.php', "'ota_channel_supplement' =>", 'OTA supplement summary output'],
-  ['app/controller/OnlineData.php', "'scope' => 'ota_channel'", 'OTA channel scope marker'],
+  ['app/controller/OnlineData.php', 'use OnlineDataSummaryConcern;', 'online data summary concern wiring'],
+  ['app/controller/concern/OnlineDataSummaryConcern.php', "'ota_channel_supplement' =>", 'OTA supplement summary output'],
+  ['app/controller/concern/OnlineDataSummaryConcern.php', "'scope' => 'ota_channel'", 'OTA channel scope marker'],
   ['scripts/lib/ota_data_validator.mjs', 'validateMetricFormulas', 'OTA metric formula validator'],
   ['app/service/LlmClient.php', 'decision_impact', 'AI decision impact governance'],
   ['app/service/LlmClient.php', 'human_confirmation_required', 'AI human confirmation governance'],

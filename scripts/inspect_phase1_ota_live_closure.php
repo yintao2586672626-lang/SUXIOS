@@ -218,39 +218,6 @@ function missing_requirement_employee_explanation(string $code, array $details =
         ];
     }
 
-    if (str_ends_with($code, '_field_facts_missing')) {
-        return [
-            'action_code' => $code . '_verify_capture_evidence',
-            'owner' => 'Product/Engineering',
-            'action' => 'Verify existing ' . $platformLabel . ' target-date rows and write field_facts metadata without changing acquisition logic.',
-            'evidence_needed' => [
-                'raw_data.field_facts or raw_data.facts',
-                'capture_evidence',
-                'metric_key',
-                'source_path',
-                'storage_field',
-            ],
-            'protected_boundary' => 'Read existing online_daily_data only; do not expose raw_data values or invent fallback mappings.',
-        ];
-    }
-
-    if (str_ends_with($code, '_field_fact_closure_incomplete')) {
-        return [
-            'action_code' => $code . '_complete_mapping',
-            'owner' => 'Product/Engineering',
-            'action' => 'Complete ' . $platformLabel . ' field fact closure across capture_evidence, metric_key, source_path, and storage_field.',
-            'evidence_needed' => [
-                'field_fact_closure_summary',
-                'capture_evidence_count',
-                'source_path_count',
-                'structured_source_path_count',
-                'storage_field_count',
-                'incomplete_metric_keys',
-            ],
-            'protected_boundary' => 'Keep missing fields explicit; do not use empty values, zero, or success status to hide gaps.',
-        ];
-    }
-
     if (str_ends_with($code, '_field_facts_missing') || str_ends_with($code, '_field_fact_closure_incomplete')) {
         return [
             'employee_explanation' => $platformLabel . ' field facts do not yet prove metric_key -> source_path -> storage_field closure.',
@@ -526,6 +493,39 @@ function next_action_for_missing_requirement(string $code, array $details = []):
                 'order_filling_num 或 order_submit_num',
             ],
             'protected_boundary' => '不从只有收益的数据行推断流量或转化问题。',
+        ];
+    }
+
+    if (str_ends_with($code, '_field_facts_missing')) {
+        return [
+            'action_code' => $code . '_verify_capture_evidence',
+            'owner' => 'Product/Engineering',
+            'action' => 'Verify existing ' . $platformLabel . ' target-date rows and write field_facts metadata without changing acquisition logic.',
+            'evidence_needed' => [
+                'raw_data.field_facts or raw_data.facts',
+                'capture_evidence',
+                'metric_key',
+                'source_path',
+                'storage_field',
+            ],
+            'protected_boundary' => 'Read existing online_daily_data only; do not expose raw_data values or invent fallback mappings.',
+        ];
+    }
+
+    if (str_ends_with($code, '_field_fact_closure_incomplete')) {
+        return [
+            'action_code' => $code . '_complete_mapping',
+            'owner' => 'Product/Engineering',
+            'action' => 'Complete ' . $platformLabel . ' field fact closure across capture_evidence, metric_key, source_path, and storage_field.',
+            'evidence_needed' => [
+                'field_fact_closure_summary',
+                'capture_evidence_count',
+                'source_path_count',
+                'structured_source_path_count',
+                'storage_field_count',
+                'incomplete_metric_keys',
+            ],
+            'protected_boundary' => 'Keep missing fields explicit; do not use empty values, zero, or success status to hide gaps.',
         ];
     }
 
@@ -905,7 +905,7 @@ function inspection_next_action_employee_verification_steps(array $action): arra
         'field_fact_closure' => [
             'Refresh the field trust question.',
             'Confirm the platform field evidence chain is complete.',
-            'Confirm AI evidence is not blocked by field evidence gaps.',
+            'Confirm the AI basis keeps the field evidence gap explicit.',
         ],
         'ai_diagnosis_evidence' => [
             '重新运行现有 OTA 诊断。',
@@ -1396,6 +1396,19 @@ function inspection_traffic_entry_options_with_readiness(string $platform, array
 
 function inspection_next_action_entry_options(string $code): array
 {
+    if (str_contains($code, 'field_facts_missing') || str_contains($code, 'field_fact_closure_incomplete')) {
+        $platform = str_starts_with($code, 'meituan_') ? 'meituan' : 'ctrip';
+        return inspection_entry_options_with_readiness($platform, [
+            [
+                'mode' => 'status_check',
+                'label' => 'Field evidence status',
+                'entry' => '/api/online-data/collection-reliability',
+                'use_when' => 'Verify target-date row metadata, field fact status, and explicit missing reasons.',
+                'requires' => 'Read existing collection reliability and online_daily_data metadata.',
+                'boundary' => 'Read-only; does not write OTA data, expose raw values, or alter field mappings.',
+            ],
+        ]);
+    }
     if (str_contains($code, 'traffic_facts_missing')) {
         if (str_starts_with($code, 'ctrip_')) {
             return inspection_traffic_entry_options_with_readiness('ctrip', [
@@ -2100,7 +2113,12 @@ function field_fact_closure_summary(array $rows): array
                 $summary['stored_value_missing_count']++;
             }
 
-            $explicitMissing = in_array($status, ['missing', 'not_loaded', 'failed', 'error'], true) || $missingState !== '';
+            $explicitMissing = in_array($status, ['missing', 'not_loaded', 'failed', 'error'], true)
+                || (
+                    $missingState !== ''
+                    && !$storedValuePresent
+                    && !in_array($status, ['captured', 'ready', 'ok'], true)
+                );
             $complete = !$explicitMissing && !$storedValueMissing && $hasCaptureEvidence && $metricKey !== '' && $sourcePathStructured && $storageField !== '';
             if ($complete) {
                 $summary['captured_fact_count']++;
@@ -2613,16 +2631,26 @@ function inspect_platform(string $platform, array $columns, array $options, arra
     $metricTrust = is_array($metrics['metric_trust'] ?? null) ? $metrics['metric_trust'] : [];
     $reportedMetricTrustKeys = array_keys($metricTrust);
     $trustedMetricTrustKeys = inspection_trusted_metric_trust_keys($metricTrust);
+    $fieldFactsReady = $rows !== []
+        && (int)($fieldFacts['fact_count'] ?? 0) > 0
+        && (int)($fieldFacts['incomplete_captured_fact_count'] ?? 0) === 0
+        && (int)($fieldFacts['complete_fact_count'] ?? 0) > 0;
     $metricTrustContext = [
         'source_rows' => count($rows),
         'metric_status' => $metrics['status'] ?? null,
         'metric_trust_key_count' => count($trustedMetricTrustKeys),
         'reported_metric_trust_key_count' => count($reportedMetricTrustKeys),
+        'field_fact_status' => (string)($fieldFacts['status'] ?? 'not_loaded'),
+        'field_fact_count' => (int)($fieldFacts['fact_count'] ?? 0),
+        'field_fact_complete_count' => (int)($fieldFacts['complete_fact_count'] ?? 0),
+        'field_fact_incomplete_captured_count' => (int)($fieldFacts['incomplete_captured_fact_count'] ?? 0),
     ];
     if ($rows === []) {
         add_check($checks, 'trusted_fields_visible', 'missing', 'Target-date source rows are missing; metric_trust cannot prove field trust for this platform.', $metricTrustContext);
     } elseif (($metrics['status'] ?? '') !== 'ready') {
         add_check($checks, 'trusted_fields_visible', 'missing', 'Revenue metrics are not ready; metric_trust cannot prove field trust for this platform.', $metricTrustContext);
+    } elseif ($trustedMetricTrustKeys !== [] && !$fieldFactsReady) {
+        add_check($checks, 'trusted_fields_visible', 'warning', 'Field facts are not closed; metric_trust remains reference-only for this platform.', $metricTrustContext);
     } elseif ($trustedMetricTrustKeys !== []) {
         add_check($checks, 'trusted_fields_visible', 'proved', 'metric_trust is present with target-date source rows and ready revenue metrics.');
     } else {
@@ -3780,6 +3808,12 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
     ksort($base['p0_payload_candidate_status_counts']);
     ksort($base['p0_payload_candidate_gate_status_counts']);
     ksort($base['p0_payload_candidate_auth_status_counts']);
+    if ($base['p0_payload_candidate_gate_status_counts'] === []) {
+        $base['p0_payload_candidate_gate_status_counts'] = (object)[];
+    }
+    if ($base['p0_payload_candidate_auth_status_counts'] === []) {
+        $base['p0_payload_candidate_auth_status_counts'] = (object)[];
+    }
     $base['p0_payload_candidate_paths'] = array_values(array_unique($base['p0_payload_candidate_paths']));
     $base['p0_payload_candidate_issue_codes'] = array_values(array_unique($base['p0_payload_candidate_issue_codes']));
     $base['p0_payload_candidate_gate_failed_check_ids'] = array_values(array_unique($base['p0_payload_candidate_gate_failed_check_ids']));
@@ -4528,6 +4562,13 @@ function build_inspection_employee_questions(array $result): array
     $operationQuestionStatus = $operationEvidenceStatus === 'missing' && $operationBlockingCodes !== []
         ? 'warning'
         : $operationEvidenceStatus;
+    $fieldFactGapCodes = array_values(array_filter(
+        $missingCodes,
+        static fn(string $code): bool => str_contains($code, 'field_facts_missing') || str_contains($code, 'field_fact_closure_incomplete')
+    ));
+    $trustedFieldsStatus = $fieldFactGapCodes !== []
+        ? 'warning'
+        : ($sourceCoverageStatus === 'complete' && count($metricTrustKeys) > 0 ? 'proved' : ($sourceRows > 0 && count($metricTrustKeys) > 0 ? 'warning' : 'not_proved_no_source_rows'));
     $revenueReadyPlatforms = array_values(array_map(
         static fn(array $row): string => (string)$row['platform'],
         array_filter($metricDomainReadiness, static fn(array $row): bool => ($row['revenue_status'] ?? '') === 'ready')
@@ -4594,7 +4635,7 @@ function build_inspection_employee_questions(array $result): array
         [
             'key' => 'trusted_fields',
             'question' => '哪些字段可信',
-            'status' => $sourceCoverageStatus === 'complete' && count($metricTrustKeys) > 0 ? 'proved' : ($sourceRows > 0 && count($metricTrustKeys) > 0 ? 'warning' : 'not_proved_no_source_rows'),
+            'status' => $trustedFieldsStatus,
             'evidence' => [
                 'metric_trust_key_count' => count($metricTrustKeys),
                 'metric_trust_keys' => $metricTrustKeyList,
@@ -4602,6 +4643,7 @@ function build_inspection_employee_questions(array $result): array
                 'coverage_status' => $sourceCoverageStatus,
                 'missing_platforms' => $missingSourcePlatforms,
                 'platform_field_trust' => $platformFieldTrust,
+                'field_fact_gap_codes' => $fieldFactGapCodes,
             ],
             'next_action' => $sourceCoverageStatus === 'complete'
                 ? ''
@@ -4783,6 +4825,69 @@ function inspection_closure_top_action(array $questions): array
 }
 
 /**
+ * @param array<string, mixed> $action
+ * @param array<int, array<string, mixed>> $questions
+ * @param array<string, mixed> $fallback
+ * @return array<string, mixed>
+ */
+function inspection_closure_top_action_from_next_action(array $action, array $questions = [], array $fallback = []): array
+{
+    $code = (string)($action['action_code'] ?? '');
+    if ($code === '') {
+        return $fallback;
+    }
+
+    $questionKey = '';
+    $questionText = '';
+    foreach ($questions as $question) {
+        $codes = array_values(array_filter(array_map('strval', array_merge(
+            (array)($question['next_action_codes'] ?? []),
+            [
+                $question['direct_next_action_code'] ?? '',
+                $question['primary_next_action_code'] ?? '',
+            ]
+        ))));
+        if (!in_array($code, $codes, true)) {
+            continue;
+        }
+        $questionKey = (string)($question['key'] ?? '');
+        $questionText = (string)($question['question'] ?? '');
+        break;
+    }
+
+    $platform = strtolower(trim((string)($action['platform'] ?? '')));
+    if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+        if (str_contains($code, 'ctrip')) {
+            $platform = 'ctrip';
+        } elseif (str_contains($code, 'meituan')) {
+            $platform = 'meituan';
+        } else {
+            $platform = '';
+        }
+    }
+
+    return [
+        'top_action_code' => $code,
+        'top_action_platform' => $platform,
+        'top_action_family' => (string)($action['action_family'] ?? ''),
+        'top_action_entry' => (string)($action['entry'] ?? ''),
+        'top_action_entry_options' => array_values(array_filter(
+            (array)($action['entry_options'] ?? []),
+            static fn($option): bool => is_array($option) && (string)($option['entry'] ?? '') !== ''
+        )),
+        'top_action_success_criteria' => (string)($action['success_criteria'] ?? ''),
+        'top_action_status' => (string)($action['status'] ?? ''),
+        'top_action_related_question_keys' => array_values(array_unique(array_filter(array_map('strval', (array)($action['related_question_keys'] ?? []))))),
+        'top_action_resolves_missing_codes' => array_values(array_unique(array_filter(array_map('strval', (array)($action['resolves_missing_codes'] ?? []))))),
+        'top_action_live_closure_gap_codes' => array_values(array_unique(array_filter(array_map('strval', (array)($action['live_closure_gap_codes'] ?? []))))),
+        'top_action' => (string)($action['action'] ?? ''),
+        'top_action_employee_text' => (string)($action['employee_action'] ?? $action['action'] ?? ''),
+        'top_question_key' => $questionKey,
+        'top_question' => $questionText,
+    ];
+}
+
+/**
  * @param array<string, mixed> $topAction
  * @param array<int, array<string, mixed>> $collectionSourceSummary
  * @return array<string, mixed>
@@ -4841,10 +4946,13 @@ function inspection_top_action_source_snapshot(array $topAction, array $collecti
  * @param array<int, array<string, mixed>> $collectionSourceSummary
  * @return array<string, mixed>
  */
-function build_inspection_closure_summary(array $questions, array $collectionSourceSummary = []): array
+function build_inspection_closure_summary(array $questions, array $collectionSourceSummary = [], array $nextActions = []): array
 {
     $missing = array_values(array_filter($questions, static fn(array $item): bool => !in_array((string)($item['status'] ?? ''), ['proved', 'no_gap_reported'], true)));
     $topAction = inspection_closure_top_action($missing);
+    if (is_array($nextActions[0] ?? null)) {
+        $topAction = inspection_closure_top_action_from_next_action($nextActions[0], $questions, $topAction);
+    }
     return array_merge([
         'status' => $missing === [] ? 'passed' : 'incomplete',
         'metric_scope' => 'ota_channel',
@@ -5359,7 +5467,7 @@ try {
     $result['next_actions'] = finalize_inspection_next_actions($result);
     $result['employee_questions'] = build_inspection_employee_questions($result);
     $result['employee_questions'] = with_inspection_employee_question_action_codes($result['employee_questions'], $result['next_actions']);
-    $result['closure_summary'] = build_inspection_closure_summary($result['employee_questions'], $result['collection_source_summary'] ?? []);
+    $result['closure_summary'] = build_inspection_closure_summary($result['employee_questions'], $result['collection_source_summary'] ?? [], $result['next_actions'] ?? []);
     $result['status'] = $result['missing_requirements'] === [] ? 'passed' : 'incomplete';
 } catch (Throwable $e) {
     $result = $result ?? [

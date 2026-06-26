@@ -67,6 +67,49 @@ POST /api/agent/price-suggestions/{id}/execution-intent?platform=ctrip
 
 This creates an execution intent in `operation_execution_intents`. It does not write to OTA automatically; missing platform room/rate mappings keep the intent blocked with an explicit reason.
 
+## Revenue research execution bridge
+
+```http
+POST /api/revenue-research/execution-intent
+Content-Type: application/json
+
+{
+  "hotel_id": 7,
+  "research": {
+    "product_key": "demand-forecast",
+    "status": "done",
+    "readiness": {
+      "stage": "research_ready_for_execution",
+      "execution_ready": true
+    },
+    "result": {
+      "recommended_actions": ["Review next 7-day pricing strategy"],
+      "data_gaps": []
+    }
+  }
+}
+```
+
+This converts a `/api/revenue-research/run` result into a standard `operation_execution_intents` row with `source_module=revenue_research` and `object_type=revenue_research`. It is still manual-review-only: the endpoint does not write OTA prices, inventory, campaigns, or platform data. Research outputs with `readiness.stage` other than `research_ready_for_execution` or non-empty `data_gaps` remain blocked with explicit reasons.
+
+## Simulation record execution bridge
+
+```http
+POST /api/strategy/records/{id}/execution-intent
+POST /api/simulation/records/{id}/execution-intent
+Content-Type: application/json
+
+{
+  "hotel_id": 7,
+  "date_start": "2026-06-25",
+  "date_end": "2026-06-25"
+}
+```
+
+These endpoints convert saved strategy and quant simulation records into standard `operation_execution_intents` rows with `object_type=investment`, `metric_scope=investment_decision`, and source modules `strategy_simulation` / `quant_simulation`. They are investment-decision execution bridges only: they do not prove OTA execution, whole-hotel operating closure, or investment closure.
+
+Records with `readiness.stage` in `review_ready`, `approved_pending_execution`, or `execution_ready` create pending manual-review intents. Records that still lack source evidence, manual review, or execution linkage create blocked intents with explicit simulation readiness gaps instead of being treated as closed.
+
 ## Execution lifecycle
 
 ```http
@@ -78,7 +121,7 @@ POST /api/operation/execution-tasks/{id}/evidence
 POST /api/operation/execution-tasks/{id}/review
 ```
 
-Supported `object_type`: `price`, `inventory`, `campaign`.
+Supported `object_type`: `price`, `inventory`, `campaign`, `data_collection`, `investment`, `opening`, `expansion`, `revenue_research`.
 
 ## Review effect
 

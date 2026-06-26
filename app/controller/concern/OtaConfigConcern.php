@@ -352,7 +352,7 @@ trait OtaConfigConcern
             return false;
         }
 
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . BrowserProfileCaptureRequestService::safeFilePart($profileId);
         return is_dir($profileDir);
     }
@@ -369,7 +369,7 @@ trait OtaConfigConcern
             return false;
         }
 
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . BrowserProfileCaptureRequestService::safeFilePart($storeId);
         return is_dir($profileDir);
     }

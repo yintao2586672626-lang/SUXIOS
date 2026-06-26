@@ -182,7 +182,7 @@ class AutoFetchOnlineData extends Command
         try {
             $sources = Db::name('platform_data_sources')
                 ->where('enabled', 1)
-                ->where('status', '<>', 'disabled')
+                ->whereIn('status', ['ready', 'success', 'partial_success'])
                 ->where('system_hotel_id', $hotelId)
                 ->whereIn('platform', ['ctrip', 'meituan'])
                 ->where('ingestion_method', 'browser_profile')
