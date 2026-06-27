@@ -8,6 +8,8 @@
     "start:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_local_stack.ps1",
     "verify:local-start": "node scripts/verify_local_start_contract.mjs",
     "verify:investment-decision": "node scripts/verify_investment_decision_support_contract.mjs",
+    "report:business-chain": "C:\\xampp\\php\\php.exe scripts\\report_business_chain_status.php",
+    "verify:business-chain-report": "node scripts/verify_business_chain_report_contract.mjs",
     "verify:p0-guards": "node scripts/verify_worktree_guard.mjs && node scripts/verify_public_entry_guard.mjs && npm run verify:core-scope && npm run verify:revenue-ai-static && npm run verify:revenue-ai-closure && node scripts/verify_production_entry_hygiene.mjs && node scripts/verify_frontend_display_boundary.mjs && node scripts/verify_protected_core_contract.mjs",
     "verify:p0-learning": "node scripts/verify_p0_learning_contract.mjs",
     "verify:protected-core": "node scripts/verify_protected_core_contract.mjs",
