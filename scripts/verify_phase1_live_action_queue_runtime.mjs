@@ -165,6 +165,16 @@ function trafficSourceReadinessDigest(questionOrEvidence) {
       traffic_waiting_config_count: Number(row?.traffic_waiting_config_count ?? 0),
       traffic_managed_count: Number(row?.traffic_managed_count ?? 0),
       traffic_secret_configured_count: Number(row?.traffic_secret_configured_count ?? 0),
+      traffic_latest_sync_task_count: Number(row?.traffic_latest_sync_task_count ?? 0),
+      traffic_latest_sync_task_status_counts: Object.fromEntries(Object.entries(row?.traffic_latest_sync_task_status_counts ?? {})
+        .map(([key, value]) => [String(key), Number(value ?? 0)])
+        .sort(([left], [right]) => left.localeCompare(right))),
+      traffic_latest_sync_task_message_code_counts: Object.fromEntries(Object.entries(row?.traffic_latest_sync_task_message_code_counts ?? {})
+        .map(([key, value]) => [String(key), Number(value ?? 0)])
+        .sort(([left], [right]) => left.localeCompare(right))),
+      traffic_latest_sync_task_saved_count: Number(row?.traffic_latest_sync_task_saved_count ?? 0),
+      traffic_latest_sync_task_normalized_count: Number(row?.traffic_latest_sync_task_normalized_count ?? 0),
+      traffic_latest_sync_task_sensitive_values_exposed: Boolean(row?.traffic_latest_sync_task_sensitive_values_exposed),
       required_next_inputs: asArray(row?.required_next_inputs).map((item) => String(item)),
       recommended_collection_mode: String(row?.recommended_collection_mode ?? ''),
       action_entry: String(row?.action_entry ?? ''),
@@ -242,6 +252,21 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
     for (const field of ['target_date_rows', 'target_date_traffic_rows', 'traffic_source_count', 'traffic_enabled_count', 'traffic_ready_count', 'traffic_waiting_config_count', 'traffic_managed_count', 'traffic_secret_configured_count']) {
       check(`${prefix} ${field} is numeric`, Number.isFinite(Number(sourceRow?.[field])), JSON.stringify(sourceRow ?? {}));
     }
+    for (const field of ['traffic_latest_sync_task_count', 'traffic_latest_sync_task_saved_count', 'traffic_latest_sync_task_normalized_count']) {
+      check(`${prefix} ${field} is numeric`, Number.isFinite(Number(sourceRow?.[field])), JSON.stringify(sourceRow ?? {}));
+    }
+    const latestSyncStatusCounts = sourceRow?.traffic_latest_sync_task_status_counts && typeof sourceRow.traffic_latest_sync_task_status_counts === 'object' && !Array.isArray(sourceRow.traffic_latest_sync_task_status_counts)
+      ? sourceRow.traffic_latest_sync_task_status_counts
+      : {};
+    const latestSyncCodeCounts = sourceRow?.traffic_latest_sync_task_message_code_counts && typeof sourceRow.traffic_latest_sync_task_message_code_counts === 'object' && !Array.isArray(sourceRow.traffic_latest_sync_task_message_code_counts)
+      ? sourceRow.traffic_latest_sync_task_message_code_counts
+      : {};
+    const latestSyncAllowedCodes = ['task_status_missing', 'sync_running', 'sync_reported_saved_rows_requires_target_date_verifier', 'sync_normalized_without_saved_rows', 'sync_completed_without_saved_rows', 'login_or_profile_not_ready', 'waiting_config', 'browser_dependency_missing', 'no_rows_parsed', 'capture_failed', 'unknown'];
+    check(`${prefix} latest sync task status counts are explicit object`, sourceRow?.traffic_latest_sync_task_status_counts && typeof sourceRow.traffic_latest_sync_task_status_counts === 'object' && !Array.isArray(sourceRow.traffic_latest_sync_task_status_counts), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} latest sync task message code counts are explicit object`, sourceRow?.traffic_latest_sync_task_message_code_counts && typeof sourceRow.traffic_latest_sync_task_message_code_counts === 'object' && !Array.isArray(sourceRow.traffic_latest_sync_task_message_code_counts), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} latest sync task message codes stay known`, Object.keys(latestSyncCodeCounts).every((code) => latestSyncAllowedCodes.includes(code)), JSON.stringify(latestSyncCodeCounts));
+    check(`${prefix} latest sync task diagnostics are desensitized`, sourceRow?.traffic_latest_sync_task_sensitive_values_exposed === false, JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} latest sync task statuses expose no sensitive values`, Object.keys(latestSyncStatusCounts).every((status) => !status.includes('://') && !status.toLowerCase().includes('cookie') && !status.toLowerCase().includes('token') && !status.toLowerCase().includes('profile')), JSON.stringify(latestSyncStatusCounts));
     check(`${prefix} required next inputs are explicit array`, Array.isArray(sourceRow?.required_next_inputs), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} recommended collection mode is explicit`, ['manual_cookie_api', 'browser_profile', 'status_check'].includes(String(sourceRow?.recommended_collection_mode ?? '')), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} action entry is explicit`, String(sourceRow?.action_entry ?? '').startsWith('/api/online-data/'), JSON.stringify(sourceRow ?? {}));
@@ -400,7 +425,7 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
       check(`${prefix} waiting_config keeps platform hotel identity unloaded`, String(sourceRow?.p0_platform_hotel_identifier_status ?? '') === 'no_target_date_traffic_rows', JSON.stringify(sourceRow ?? {}));
       check(`${prefix} waiting_config keeps field-loop matrix unloaded`, fieldLoopMatrix.every((item) => String(item?.status ?? '') === 'no_target_date_traffic_rows' && Number(item?.row_count || 0) === 0 && Number(item?.complete_row_count || 0) === 0 && Boolean(item?.capture_evidence_present) === false && Boolean(item?.desensitized_capture_evidence_present) === false && Boolean(item?.capture_evidence_matches_row) === false && Boolean(item?.source_path_structured) === false && Boolean(item?.storage_field_matches_expected) === false && Boolean(item?.stored_value_present) === false && Boolean(item?.ui_status_ready) === false), JSON.stringify(fieldLoopMatrix));
       check(`${prefix} waiting_config cannot be rendered as ready`, status === 'registered_waiting_config', JSON.stringify(sourceRow ?? {}));
-      check(`${prefix} waiting_config exposes authorization inputs`, asArray(sourceRow?.required_next_inputs).some((item) => String(item).startsWith('authorized_')) && asArray(sourceRow?.required_next_inputs).includes('traffic_payload_or_query_params'), JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} waiting_config exposes Profile authorization inputs`, asArray(sourceRow?.required_next_inputs).some((item) => String(item).startsWith('authorized_')) && asArray(sourceRow?.required_next_inputs).includes('traffic_response_listener'), JSON.stringify(sourceRow ?? {}));
       check(`${prefix} waiting_config requires manual login state evidence`, asArray(sourceRow?.required_next_inputs).includes('manual_login_state_verified'), JSON.stringify(sourceRow ?? {}));
     } else if (readyCount > 0) {
       check(`${prefix} marks P0 traffic gate missing without rows`, String(sourceRow?.p0_traffic_gate_status ?? '') === 'missing_target_date_traffic_rows', JSON.stringify(sourceRow ?? {}));
@@ -422,8 +447,8 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
       check(`${prefix} Meituan missing target-date traffic uses browser capture entry`, String(sourceRow?.action_entry ?? '') === '/api/online-data/capture-meituan-browser' && String(sourceRow?.p0_next_action_entry ?? '') === '/api/online-data/capture-meituan-browser', JSON.stringify(sourceRow ?? {}));
     }
     if (targetTrafficRows <= 0 && sourceCount > 0 && platform === 'ctrip') {
-      check(`${prefix} Ctrip missing target-date traffic recommends manual Cookie/API`, String(sourceRow?.recommended_collection_mode ?? '') === 'manual_cookie_api' && String(sourceRow?.p0_next_action_mode ?? '') === 'manual_cookie_api', JSON.stringify(sourceRow ?? {}));
-      check(`${prefix} Ctrip missing target-date traffic uses manual traffic entry`, String(sourceRow?.action_entry ?? '') === '/api/online-data/fetch-ctrip-traffic' && String(sourceRow?.p0_next_action_entry ?? '') === '/api/online-data/fetch-ctrip-traffic', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} Ctrip missing target-date traffic recommends browser profile`, String(sourceRow?.recommended_collection_mode ?? '') === 'browser_profile' && String(sourceRow?.p0_next_action_mode ?? '') === 'browser_profile', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} Ctrip missing target-date traffic uses browser capture entry`, String(sourceRow?.action_entry ?? '') === '/api/online-data/capture-ctrip-browser' && String(sourceRow?.p0_next_action_entry ?? '') === '/api/online-data/capture-ctrip-browser', JSON.stringify(sourceRow ?? {}));
     }
   }
 }
@@ -688,8 +713,8 @@ function trustedMetricTrustKeys(metricTrust) {
 
 function expectedTrafficActionEntry(action) {
   const actionCode = String(action?.action_code ?? '');
-  if (actionCode.includes('meituan')) return '/api/online-data/fetch-meituan-traffic';
-  if (actionCode.includes('ctrip')) return '/api/online-data/fetch-ctrip-traffic';
+  if (actionCode.includes('meituan')) return '/api/online-data/capture-meituan-browser';
+  if (actionCode.includes('ctrip')) return '/api/online-data/capture-ctrip-browser';
   return '';
 }
 
@@ -697,7 +722,7 @@ function expectedTrafficActionEntries(action) {
   const actionCode = String(action?.action_code ?? '');
   if (actionCode.includes('meituan')) {
     return {
-      primary: '/api/online-data/fetch-meituan-traffic',
+      primary: '/api/online-data/capture-meituan-browser',
       manual: '/api/online-data/fetch-meituan-traffic',
       profile: '/api/online-data/capture-meituan-browser',
       status: '/api/online-data/collection-reliability',
@@ -705,7 +730,7 @@ function expectedTrafficActionEntries(action) {
   }
   if (actionCode.includes('ctrip')) {
     return {
-      primary: '/api/online-data/fetch-ctrip-traffic',
+      primary: '/api/online-data/capture-ctrip-browser',
       manual: '/api/online-data/fetch-ctrip-traffic',
       profile: '/api/online-data/capture-ctrip-browser',
       status: '/api/online-data/collection-reliability',
@@ -718,6 +743,7 @@ function expectedSourceRowsActionEntries(action) {
   const actionCode = String(action?.action_code ?? '');
   if (actionCode.includes('meituan')) {
     return {
+      primary: '/api/online-data/capture-meituan-browser',
       manual: '/api/online-data/fetch-meituan',
       profile: '/api/online-data/capture-meituan-browser',
       status: '/api/online-data/collection-reliability',
@@ -725,6 +751,7 @@ function expectedSourceRowsActionEntries(action) {
   }
   if (actionCode.includes('ctrip')) {
     return {
+      primary: '/api/online-data/capture-ctrip-browser',
       manual: '/api/online-data/fetch-ctrip-overview',
       profile: '/api/online-data/capture-ctrip-browser',
       status: '/api/online-data/collection-reliability',
@@ -1607,7 +1634,7 @@ if (payload) {
       const expectedEntries = expectedSourceRowsActionEntries(action);
       if (expectedEntries) {
         const optionEntries = actionEntryOptionEntries(action);
-        check(`${prefix} source row action uses manual collection entry`, action.entry === expectedEntries.manual, JSON.stringify(action));
+        check(`${prefix} source row action uses browser Profile collection entry`, action.entry === expectedEntries.primary, JSON.stringify(action));
         check(`${prefix} source row action exposes manual entry option`, optionEntries.includes(expectedEntries.manual), JSON.stringify(action));
         check(`${prefix} source row action exposes browser profile entry option`, optionEntries.includes(expectedEntries.profile), JSON.stringify(action));
         check(`${prefix} source row action keeps status check entry option`, optionEntries.includes(expectedEntries.status), JSON.stringify(action));
@@ -1831,7 +1858,7 @@ if (evidencePayload) {
       const expectedEntries = expectedSourceRowsActionEntries(action);
       if (expectedEntries) {
         const optionEntries = actionEntryOptionEntries(action);
-        check(`${prefix} source row action uses manual collection entry`, action.entry === expectedEntries.manual, JSON.stringify(action));
+        check(`${prefix} source row action uses browser Profile collection entry`, action.entry === expectedEntries.primary, JSON.stringify(action));
         check(`${prefix} source row action exposes manual entry option`, optionEntries.includes(expectedEntries.manual), JSON.stringify(action));
         check(`${prefix} source row action exposes browser profile entry option`, optionEntries.includes(expectedEntries.profile), JSON.stringify(action));
         check(`${prefix} source row action keeps status check entry option`, optionEntries.includes(expectedEntries.status), JSON.stringify(action));

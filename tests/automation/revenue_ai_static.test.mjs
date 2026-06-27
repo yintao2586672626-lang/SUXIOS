@@ -9,6 +9,7 @@ vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context,
 });
 
 const helpers = context.window.SUXI_REVENUE_AI_STATIC;
+const html = readFileSync('public/index.html', 'utf8');
 
 test('Revenue AI static helper exposes the required display contract', () => {
   assert.equal(typeof helpers, 'object');
@@ -21,6 +22,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'resolveRevenueAiBusinessDate',
     'resolveRevenueAiOverviewRequest',
     'resolveRevenueAiOverviewResponse',
+    'buildRevenueAiBusinessClosure',
     'buildRevenueAiMetricCards',
     'buildRevenueAiGapRows',
     'buildRevenueAiGapSummary',
@@ -60,6 +62,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
   assert.equal(helpers.revenueAiStatusLabel('ok'), '正常');
   assert.equal(helpers.revenueAiStatusLabel('not_loaded'), '未接入');
   assert.equal(helpers.revenueAiStatusLabel('not_calculable'), '不可计算');
+  assert.equal(helpers.revenueAiStatusLabel('unverified'), '未验证');
   assert.equal(helpers.revenueAiStatusLabel('missing'), '缺失');
   assert.equal(helpers.revenueAiStatusLabel('warning'), '需复核');
   assert.match(helpers.revenueAiStatusClass('missing'), /amber/);
@@ -73,6 +76,11 @@ test('Revenue AI static helper exposes the required display contract', () => {
   assert.match(helpers.revenueAiReasonText('operation_roi_missing'), /ROI/);
   assert.match(helpers.revenueAiReasonText('demand_forecasts_high_demand'), /高需求/);
   assert.match(helpers.revenueAiReasonText('holiday_event_nearby'), /节假日窗口/);
+});
+
+test('Revenue AI entry cache-busts the business closure helper contract', () => {
+  assert.match(html, /<script src="revenue-ai-static\.js\?v=20260627-business-closure-cache-fix"><\/script>/);
+  assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
 });
 
 test('Revenue AI overview endpoint builder keeps query scope explicit', () => {
@@ -105,7 +113,15 @@ test('Revenue AI overview endpoint builder keeps query scope explicit', () => {
   assert.equal(request.shouldLoad, true);
   assert.equal(request.endpoint, '/revenue-ai/overview?business_date=2026-06-25&hotel_id=58');
   assert.equal(helpers.resolveRevenueAiOverviewRequest({ hasToken: false, currentPage: 'compass' }).reason, 'token_missing');
-  assert.equal(helpers.resolveRevenueAiOverviewRequest({ hasToken: true, currentPage: 'online-data' }).reason, 'not_compass_page');
+  const agentCenterRequest = helpers.resolveRevenueAiOverviewRequest({
+    hasToken: true,
+    currentPage: 'agent-center',
+    businessDate: '2026-06-25',
+    hotelId: '58',
+  });
+  assert.equal(agentCenterRequest.shouldLoad, true);
+  assert.equal(agentCenterRequest.endpoint, '/revenue-ai/overview?business_date=2026-06-25&hotel_id=58');
+  assert.equal(helpers.resolveRevenueAiOverviewRequest({ hasToken: true, currentPage: 'online-data' }).reason, 'not_revenue_ai_surface');
   const success = helpers.resolveRevenueAiOverviewResponse({ response: { code: 200, data: { data_status: 'ok' } } });
   assert.equal(success.ok, true);
   assert.equal(success.overview.data_status, 'ok');
@@ -118,6 +134,79 @@ test('Revenue AI overview endpoint builder keeps query scope explicit', () => {
   assert.equal(emptyFailed.errorMessage, 'Revenue AI 总览接口返回失败');
   const thrown = helpers.resolveRevenueAiOverviewResponse({ error: new Error('网络异常') });
   assert.equal(thrown.errorMessage, '网络异常');
+});
+
+test('Revenue AI business closure preserves OTA scope and P1 metric split', () => {
+  const closure = helpers.buildRevenueAiBusinessClosure({
+    overview: {
+      scope: 'ota',
+      data_status: 'warning',
+      metric_summary: {
+        credibility_gate: {
+          decision_use: {
+            ai_decision_support: { allowed: true, status: 'allowed_with_governance' },
+            investment_decision: { allowed: false, status: 'blocked_scope' },
+          },
+        },
+      },
+      p1_revenue_closure: {
+        status: 'warning',
+        scope: 'ota_channel',
+        scope_statement: 'P1 只使用已验证 OTA 渠道事实，不代表全酒店经营口径。',
+        calculation_allowed: true,
+        sections: {
+          revenue: { value: 1200, unit: 'CNY', status: 'ok' },
+          orders: { value: 4, unit: 'orders', status: 'ok' },
+          room_nights: { value: 6, unit: 'room_nights', status: 'ok' },
+          adr_conversion: {
+            metrics: {
+              adr: { value: 200, unit: 'CNY', status: 'ok' },
+              flow_rate: { value: null, unit: '%', status: 'not_calculable', failure_reasons: ['source_rows_missing'] },
+              submit_rate: { value: null, unit: '%', status: 'not_calculable', failure_reasons: ['source_rows_missing'] },
+            },
+          },
+        },
+        missing_items: {
+          items: [{
+            code: 'traffic.avg_flow_rate:source_rows_missing',
+            message: 'source_rows_missing',
+            affected_metrics: ['flow_rate'],
+          }],
+        },
+        anomaly_judgment: {
+          items: [{
+            code: 'data_gaps_present',
+            message: 'Revenue analysis is allowed only with the warning visible.',
+            severity: 'medium',
+          }],
+        },
+        whole_hotel_guard: { allowed: false, reason: 'whole_hotel_scope_not_proved' },
+      },
+      execution_summary: { status: 'not_loaded', reason: 'operation_execution_not_loaded' },
+    },
+  });
+
+  assert.equal(closure.scopeText, 'OTA渠道口径');
+  assert.equal(closure.calculationAllowed, true);
+  assert.equal(closure.summaryChips.length, 4);
+  assert.match(closure.nextAction, /异常判断|缺失项/);
+  assert.equal(
+    JSON.stringify(Array.from(closure.rows, (row) => row.stage)),
+    JSON.stringify(['OTA数据', '收益分析', 'AI决策', '运营执行', '投决边界']),
+  );
+  const revenueRow = closure.rows[1];
+  assert.equal(revenueRow.title, '收入 / 订单 / 间夜 / ADR / 转化');
+  assert.equal(revenueRow.statusLabel, '部分可用');
+  assert.equal(revenueRow.metrics.length, 6);
+  assert.equal(revenueRow.metrics[0].value, '¥1200.00');
+  assert.equal(revenueRow.metrics[1].value, '4单');
+  assert.equal(revenueRow.metrics[2].value, '6.00间夜');
+  assert.equal(revenueRow.metrics[3].value, '¥200.00');
+  assert.equal(revenueRow.metrics[4].statusLabel, '不可计算');
+  assert.match(closure.rows[4].primary, /不进入全酒店投决/);
+  assert.equal(closure.missingRows.length, 1);
+  assert.match(closure.missingRows[0].code, /traffic\.avg_flow_rate/);
+  assert.equal(closure.anomalyRows.length, 1);
 });
 
 test('Revenue AI gap target resolver defaults to the existing data health entry', () => {

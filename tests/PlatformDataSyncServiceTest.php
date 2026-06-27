@@ -72,7 +72,7 @@ final class PlatformDataSyncServiceTest extends TestCase
 
         $resources = array_column($service->collectionResourceDefinitions(), null, 'resource');
 
-        foreach (['businessData', 'peerRank', 'flowData', 'searchKeywords', 'reviewData', 'roomTypes'] as $resource) {
+        foreach (['businessData', 'peerRank', 'flowData', 'trafficForecast', 'flowAnalysis', 'searchKeywords', 'reviewData', 'roomTypes'] as $resource) {
             self::assertArrayHasKey($resource, $resources);
             self::assertNotEmpty($resources[$resource]['fields']);
             self::assertNotEmpty($resources[$resource]['aliases']);
@@ -81,9 +81,13 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('business', $resources['businessData']['data_type']);
         self::assertSame('peer_rank', $resources['peerRank']['data_type']);
         self::assertSame('traffic', $resources['flowData']['data_type']);
+        self::assertSame('traffic_forecast', $resources['trafficForecast']['data_type']);
+        self::assertSame('traffic_analysis', $resources['flowAnalysis']['data_type']);
         self::assertSame('search_keyword', $resources['searchKeywords']['data_type']);
         self::assertSame('review', $resources['reviewData']['data_type']);
         self::assertSame('room_type', $resources['roomTypes']['data_type']);
+        self::assertFalse($resources['trafficForecast']['default_enabled']);
+        self::assertFalse($resources['flowAnalysis']['default_enabled']);
         self::assertFalse($resources['reviewData']['default_enabled']);
         self::assertTrue($resources['reviewData']['requires_explicit_authorization']);
         self::assertSame('room_type_catalog_only_no_room_status_or_mapping', $resources['roomTypes']['privacy_boundary']);
@@ -96,6 +100,8 @@ final class PlatformDataSyncServiceTest extends TestCase
             'businessData' => 'business',
             'peerRank' => 'peer_rank',
             'flowData' => 'traffic',
+            'trafficForecast' => 'traffic_forecast',
+            'flowAnalysis' => 'traffic_analysis',
             'searchKeywords' => 'search_keyword',
             'roomTypes' => 'room_type',
             'reviewData' => 'review',

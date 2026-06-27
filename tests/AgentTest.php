@@ -63,10 +63,46 @@ final class AgentTest extends TestCase
 
         self::assertSame('source_summary', $sources[0]['ref']);
         self::assertCount(3, $items);
-        foreach ($items as $item) {
-            self::assertSame('pending_manual_review', $item['status']);
-            self::assertNotEmpty($item['evidence_refs']);
-        }
+        self::assertSame('pending_manual_review', $items[0]['status']);
+        self::assertTrue($items[0]['execution_ready']);
+        self::assertSame('pending', $items[0]['human_confirmation_status']);
+        self::assertNotEmpty($items[0]['evidence_refs']);
+        self::assertSame('pending_manual_review', $items[1]['status']);
+        self::assertTrue($items[1]['execution_ready']);
+        self::assertContains('competitor', $items[1]['required_evidence']);
+        self::assertSame('blocked_by_data_gap', $items[2]['status']);
+        self::assertFalse($items[2]['execution_ready']);
+        self::assertSame('blocked', $items[2]['human_confirmation_status']);
+        self::assertNotEmpty($items[2]['missing_evidence']);
+    }
+
+    public function testOtaDiagnosisActionBlocksWhenRequiredEvidenceIsMissing(): void
+    {
+        $controller = $this->controller();
+        $sources = $this->invokeNonPublic($controller, 'buildOtaDiagnosisEvidenceSources', [[
+            'online_rows' => [[
+                'id' => 11,
+                'source' => 'ctrip',
+                'data_type' => 'traffic',
+                'compare_type' => 'self',
+                'data_date' => '2026-05-24',
+                'list_exposure' => 1000,
+                'detail_visitors' => 40,
+            ]],
+        ], [
+            'list_exposure' => 1000,
+            'detail_visitors' => 40,
+        ]]);
+
+        $items = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActionItems', [[
+            '复核OTA广告投放词、出价和落地房型。',
+        ], $sources]);
+
+        self::assertSame('blocked_by_insufficient_evidence', $items[0]['status']);
+        self::assertFalse($items[0]['execution_ready']);
+        self::assertContains('advertising', $items[0]['required_evidence']);
+        self::assertSame('missing_advertising_evidence', $items[0]['missing_evidence'][0]['code']);
+        self::assertSame('blocked', $items[0]['human_confirmation_status']);
     }
 
     public function testOtaDiagnosisUsesAdvertisingAndQualityWithoutCommentDependency(): void
@@ -249,6 +285,10 @@ final class AgentTest extends TestCase
         self::assertSame($result['data_gaps'], $result['evidence_report']['data_gaps']);
         self::assertSame('low', $result['ai_governance']['confidence_level']);
         self::assertTrue($result['ai_governance']['human_confirmation_required']);
+        self::assertSame('blocked', $result['decision_closure']['status']);
+        self::assertFalse($result['decision_closure']['data_evidence_input']['enough_for_executable_actions']);
+        self::assertSame(1, $result['decision_closure']['suggested_actions']['blocked_count']);
+        self::assertSame('blocked', $result['evidence_report']['decision_closure']['status']);
         self::assertStringContainsString('不能生成可信经营诊断', $result['core_conclusion']);
     }
 
@@ -283,6 +323,11 @@ final class AgentTest extends TestCase
         $report = $this->invokeNonPublic($controller, 'buildOtaEvidenceReport', [$result]);
         self::assertSame('database_only_latest_available_reference_not_execution_ready', $report['source_policy']);
         self::assertSame($result['data_gaps'], $report['data_gaps']);
+
+        $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [$result]);
+        self::assertSame('blocked', $closure['status']);
+        self::assertFalse($closure['data_evidence_input']['enough_for_executable_actions']);
+        self::assertSame('missing_target_date_ota_evidence', $closure['suggested_actions']['items'][0]['missing_evidence'][0]['code']);
     }
 
     public function testNormalizeRequestedModelKeyCoversDefaultAliasesAndFallback(): void

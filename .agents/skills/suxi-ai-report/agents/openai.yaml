@@ -1,6 +1,6 @@
 interface:
   display_name: "宿析 AI 报告"
   short_description: "经营诊断、日报月报和AI建议生成规则"
-  default_prompt: "Use $suxi-ai-report to adjust an AI business report or operating diagnosis in宿析OS."
+  default_prompt: "使用 $suxi-ai-report 调整宿析OS AI经营报告或运营诊断。"
 policy:
   allow_implicit_invocation: true

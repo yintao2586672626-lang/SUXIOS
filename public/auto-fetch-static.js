@@ -218,6 +218,10 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         const statusText = String(task.status_text || '').trim();
         const status = String(task.status || '').trim().toLowerCase();
         const message = String(task.message || '').trim();
+        const sync = task.after_login_sync || null;
+        if (status === 'syncing_after_login' || sync?.status === 'running') return '登录已完成，正在同步目标日 OTA 数据';
+        if (sync?.status === 'success' && Number(sync?.saved_count || 0) > 0) return `登录后同步完成，目标日已入库 ${Number(sync.saved_count || 0)} 条`;
+        if (sync?.status && sync.status !== 'success' && sync.status !== 'skipped') return `登录已完成，但目标日同步未闭环：${String(sync.message || sync.status).trim()}`;
         const combined = `${statusText} ${status} ${message}`;
         if (/success|done|logged|完成|成功|已登录/i.test(combined)) return '登录任务已完成，请刷新状态并运行现有采集';
         if (/running|pending|wait|启动|等待|处理中|进行中/i.test(combined)) return '登录任务进行中，请在打开的浏览器内完成平台验证';

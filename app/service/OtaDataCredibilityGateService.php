@@ -87,12 +87,27 @@ class OtaDataCredibilityGateService
             $warnings[] = 'whole_hotel_scope_not_proved';
         }
 
+        $p0DownstreamGate = $this->p0DownstreamGate(
+            $options['p0_downstream_gate']
+            ?? $dataset['p0_downstream_gate']
+            ?? $metrics['downstream_gate']
+            ?? null
+        );
+        $p0Blocked = ($p0DownstreamGate['status'] ?? '') === 'blocked_by_p0_ota_gate';
+        if ($p0Blocked) {
+            $reasonCodes[] = 'p0_ota_gate_not_ready';
+            foreach ($this->stringList($p0DownstreamGate['blocking_missing_inputs'] ?? []) as $missingInput) {
+                $reasonCodes[] = 'p0_ota_gate_missing:' . $missingInput;
+            }
+        }
+
         $reasonCodes = array_values(array_unique($reasonCodes));
         $warnings = array_values(array_unique($warnings));
         $status = $reasonCodes !== []
             ? 'blocked'
             : ($this->hasOperationalWarnings($warnings) ? 'warning' : 'ready');
         $dataUsable = $status !== 'blocked';
+        $blockedDecisionStatus = $p0Blocked ? 'blocked_by_p0_ota_gate' : 'blocked';
 
         return [
             'status' => $status,
@@ -103,19 +118,19 @@ class OtaDataCredibilityGateService
             'decision_use' => [
                 'revenue_analysis' => [
                     'allowed' => $dataUsable,
-                    'status' => $dataUsable ? ($status === 'warning' ? 'allowed_with_data_warnings' : 'allowed') : 'blocked',
+                    'status' => $dataUsable ? ($status === 'warning' ? 'allowed_with_data_warnings' : 'allowed') : $blockedDecisionStatus,
                 ],
                 'ai_decision_support' => [
                     'allowed' => $dataUsable,
-                    'status' => $dataUsable ? ($status === 'warning' ? 'allowed_with_human_review' : 'allowed_with_governance') : 'blocked',
+                    'status' => $dataUsable ? ($status === 'warning' ? 'allowed_with_human_review' : 'allowed_with_governance') : $blockedDecisionStatus,
                 ],
                 'operation_management' => [
                     'allowed' => $dataUsable,
-                    'status' => $dataUsable ? 'manual_review_required_before_execution' : 'blocked',
+                    'status' => $dataUsable ? 'manual_review_required_before_execution' : $blockedDecisionStatus,
                 ],
                 'investment_decision' => [
                     'allowed' => $dataUsable && $wholeHotelEvidence,
-                    'status' => $dataUsable && $wholeHotelEvidence ? 'allowed_with_whole_hotel_evidence' : 'blocked_scope',
+                    'status' => $dataUsable && $wholeHotelEvidence ? 'allowed_with_whole_hotel_evidence' : ($p0Blocked ? 'blocked_by_p0_ota_gate' : 'blocked_scope'),
                 ],
             ],
             'evidence' => [
@@ -129,6 +144,7 @@ class OtaDataCredibilityGateService
                 'data_gap_codes' => $dataGapCodes,
                 'critical_metrics' => $criticalMetrics,
                 'failed_critical_metrics' => $failedCriticalMetrics,
+                'p0_downstream_gate' => $p0DownstreamGate,
             ],
         ];
     }
@@ -145,6 +161,9 @@ class OtaDataCredibilityGateService
             'fact_ota_advertising',
             'fact_ota_quality',
             'fact_ota_search_keyword',
+            'fact_ota_peer_rank',
+            'fact_ota_traffic_analysis',
+            'fact_ota_traffic_forecast',
             'fact_ota_comment',
         ] as $key) {
             $count += count($this->list($dataset[$key] ?? []));
@@ -198,5 +217,26 @@ class OtaDataCredibilityGateService
             return (int)$value === 1;
         }
         return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function p0DownstreamGate(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        return [
+            'status' => trim((string)($value['status'] ?? '')),
+            'current_upstream_status' => trim((string)($value['current_upstream_status'] ?? '')),
+            'required_upstream_status' => trim((string)($value['required_upstream_status'] ?? '')),
+            'required_gate_command' => trim((string)($value['required_gate_command'] ?? '')),
+            'scope_policy' => trim((string)($value['scope_policy'] ?? '')),
+            'blocking_missing_inputs' => $this->stringList($value['blocking_missing_inputs'] ?? []),
+            'blocked_stage_keys' => $this->stringList($value['blocked_stage_keys'] ?? []),
+            'allowed_claims' => $this->stringList($value['allowed_claims'] ?? []),
+        ];
     }
 }

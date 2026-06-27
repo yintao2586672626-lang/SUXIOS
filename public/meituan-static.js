@@ -201,6 +201,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         cookies: '',
         payloadJson: '',
         extraParams: '',
+        csvText: '',
     });
 
     const createMeituanAdsForm = () => ({
@@ -225,6 +226,75 @@ window.SUXI_MEITUAN_STATIC = (() => {
         payloadJson: '',
     });
 
+    const getMeituanBrowserCaptureSupplementModules = () => ([
+        { key: 'peer_rank', label: '同行排名', endpoint: 'peer/rank/data/detail' },
+        { key: 'traffic_analysis', label: '流量分析', endpoint: 'flowConversion / flowTrend / flowTrendDetail' },
+        { key: 'search_keywords', label: '搜索关键词', endpoint: 'searchKeyWords' },
+        { key: 'traffic_forecast', label: '未来30天预测', endpoint: 'flowForecast' },
+    ]);
+
+    const meituanBrowserCaptureCountValue = (value) => {
+        if (Array.isArray(value)) return value.length;
+        const numeric = Number(value);
+        return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+    };
+
+    const firstMeituanBrowserCaptureCount = (sources, keys) => {
+        for (const source of sources) {
+            if (!source || typeof source !== 'object') continue;
+            for (const key of keys) {
+                if (Object.prototype.hasOwnProperty.call(source, key)) {
+                    const count = meituanBrowserCaptureCountValue(source[key]);
+                    if (count > 0) return count;
+                }
+            }
+        }
+        return 0;
+    };
+
+    const buildMeituanBrowserCaptureSupplementCounts = (result = {}) => {
+        const payload = result?.payload && typeof result.payload === 'object' ? result.payload : {};
+        const sources = [
+            result?.payload_counts,
+            result?.payloadCounts,
+            result?.counts,
+            result?.sync_summary,
+            result?.syncSummary,
+            payload?.payload_counts,
+            payload?.counts,
+            payload?.sync_summary,
+            payload,
+            result,
+        ];
+        return [
+            {
+                key: 'peer_rank',
+                label: '同行排名',
+                count: firstMeituanBrowserCaptureCount(sources, ['peer_rank', 'peerRank', 'peer_rank_count', 'peerRankCount']),
+            },
+            {
+                key: 'traffic_analysis',
+                label: '流量分析',
+                count: firstMeituanBrowserCaptureCount(sources, ['traffic_analysis', 'flowAnalysis', 'flow_analysis', 'flow_analysis_count', 'traffic_analysis_count']),
+            },
+            {
+                key: 'search_keywords',
+                label: '搜索关键词',
+                count: firstMeituanBrowserCaptureCount(sources, ['search_keywords', 'searchKeywords', 'search_keyword', 'search_keyword_count']),
+            },
+            {
+                key: 'traffic_forecast',
+                label: '未来30天预测',
+                count: firstMeituanBrowserCaptureCount(sources, ['traffic_forecast', 'trafficForecast', 'flowForecast', 'traffic_forecast_count']),
+            },
+            {
+                key: 'responses',
+                label: '监听响应',
+                count: firstMeituanBrowserCaptureCount(sources, ['responses', 'response_count', 'responseCount']),
+            },
+        ];
+    };
+
     const normalizeMeituanCaptureSections = (sections) => {
         const aliases = {
             review: 'reviews',
@@ -233,6 +303,27 @@ window.SUXI_MEITUAN_STATIC = (() => {
             comments: 'reviews',
             traffic: 'traffic',
             flow: 'traffic',
+            peer_rank: 'traffic',
+            peerrank: 'traffic',
+            peer: 'traffic',
+            competitor_rank: 'traffic',
+            competitorrank: 'traffic',
+            ranking: 'traffic',
+            flowanalysis: 'traffic',
+            flow_analysis: 'traffic',
+            traffic_analysis: 'traffic',
+            trafficanalysis: 'traffic',
+            flowconversion: 'traffic',
+            flowtrend: 'traffic',
+            flowtrenddetail: 'traffic',
+            flowforecast: 'traffic',
+            flow_forecast: 'traffic',
+            trafficforecast: 'traffic',
+            traffic_forecast: 'traffic',
+            searchkeyword: 'traffic',
+            searchkeywords: 'traffic',
+            search_keyword: 'traffic',
+            search_keywords: 'traffic',
             ads: 'ads',
             ad: 'ads',
             advertising: 'ads',
@@ -846,6 +937,332 @@ window.SUXI_MEITUAN_STATIC = (() => {
         hotel_name: hotelName,
     });
 
+    const buildMeituanOrderDomCollectorScript = () => String.raw`// ==UserScript==
+// @name         SUXIOS 美团订单页 CSV 导出
+// @namespace    suxios.hotel.ota
+// @version      1.0.0
+// @description  在已授权登录的美团 eBooking 订单页导出订单号、房型、入住日期、离店日期、购买时间、底价 CSV，用于宿析OS临时补录。
+// @match        https://eb.meituan.com/ebooking/order-eb/*
+// @match        https://me.meituan.com/ebooking/merchant/ebIframe*
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
+
+(function () {
+  'use strict';
+
+  var PANEL_ID = 'suxi-meituan-order-dom-panel';
+  var rows = [];
+
+  function status(text) {
+    var el = document.querySelector('#' + PANEL_ID + ' [data-role="status"]');
+    if (el) el.textContent = text;
+  }
+
+  function currentYearDate(mmdd) {
+    if (!/^\d{2}-\d{2}$/.test(mmdd || '')) return mmdd || '';
+    return new Date().getFullYear() + '-' + mmdd;
+  }
+
+  function nearestOrderContainer(anchor) {
+    var node = anchor;
+    for (var i = 0; i < 12 && node && node.parentElement; i++) {
+      node = node.parentElement;
+      var text = node.innerText || '';
+      if (/订单号/.test(text) && /购买时间/.test(text) && /底价/.test(text)) return node;
+    }
+    return anchor;
+  }
+
+  function roomTypeFrom(container) {
+    var roomEl = container.querySelector('.order-room-info-wrapper');
+    if (!roomEl) return '';
+    for (var i = 0; i < roomEl.childNodes.length; i++) {
+      var child = roomEl.childNodes[i];
+      if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
+        return child.textContent.trim().split('+')[0].trim();
+      }
+    }
+    return (roomEl.innerText || '').split('+')[0].split('\n')[0].trim();
+  }
+
+  function extractPageRows() {
+    var result = [];
+    var seen = new Set();
+    var dateNodes = Array.prototype.slice.call(document.querySelectorAll('.order-date-wrapper'));
+    dateNodes.forEach(function (dateEl) {
+      var dateText = dateEl.innerText || '';
+      var dateMatch = dateText.match(/(\d{2}-\d{2})\s+至\s+(\d{2}-\d{2})/);
+      var container = nearestOrderContainer(dateEl);
+      var text = container.innerText || '';
+      var orderMatch = text.match(/订单号[：:]\s*(\d{10,30})/);
+      var orderNo = orderMatch ? orderMatch[1] : '';
+      if (!orderNo || seen.has(orderNo)) return;
+      seen.add(orderNo);
+      var priceMatch = text.match(/底价[：:]\s*([0-9.]+)/);
+      var buyMatch = text.match(/购买时间[：:]\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+      result.push({
+        orderNo: orderNo,
+        roomType: roomTypeFrom(container),
+        checkIn: dateMatch ? currentYearDate(dateMatch[1]) : '',
+        checkOut: dateMatch ? currentYearDate(dateMatch[2]) : '',
+        buyTime: buyMatch ? buyMatch[1] : '',
+        bottomPrice: priceMatch ? priceMatch[1] : ''
+      });
+    });
+    return result;
+  }
+
+  function csvEscape(value) {
+    return '"' + String(value || '').replace(/"/g, '""') + '"';
+  }
+
+  function exportCsv(data) {
+    var headers = ['订单号', '房型', '入住日期', '离店日期', '购买时间', '底价(元)'];
+    var body = data.map(function (row) {
+      return [row.orderNo, row.roomType, row.checkIn, row.checkOut, row.buyTime, row.bottomPrice].map(csvEscape).join(',');
+    });
+    var csv = '\uFEFF' + headers.join(',') + '\n' + body.join('\n');
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '美团订单_订单页导出_' + new Date().toISOString().slice(0, 10) + '_共' + data.length + '条.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
+
+  function collectCurrentPage() {
+    var pageRows = extractPageRows();
+    var known = new Set(rows.map(function (row) { return row.orderNo; }));
+    pageRows.forEach(function (row) {
+      if (!known.has(row.orderNo)) rows.push(row);
+    });
+    status(pageRows.length > 0 ? '当前页解析 ' + pageRows.length + ' 条，累计 ' + rows.length + ' 条' : '当前页未找到可解析订单，请确认在美团订单列表页');
+  }
+
+  function mountPanel() {
+    if (document.getElementById(PANEL_ID)) return;
+    var panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.style.cssText = 'position:fixed;right:16px;top:72px;z-index:2147483647;width:300px;padding:14px;background:#fff;border:2px solid #10b981;border-radius:10px;box-shadow:0 8px 28px rgba(16,185,129,.18);font:13px/1.5 Arial,Microsoft YaHei,sans-serif;color:#1f2937;';
+    panel.innerHTML = '<div style="font-weight:700;color:#047857;margin-bottom:8px">SUXIOS 美团订单 CSV 导出</div>' +
+      '<div style="font-size:12px;color:#4b5563;margin-bottom:10px">仅读取当前已授权订单页可见内容，导出后回宿析OS导入。</div>' +
+      '<button data-role="collect" style="width:100%;padding:8px 0;margin-bottom:8px;border:0;border-radius:7px;background:#10b981;color:#fff;cursor:pointer">采集当前页</button>' +
+      '<button data-role="export" style="width:100%;padding:8px 0;margin-bottom:8px;border:1px solid #10b981;border-radius:7px;background:#ecfdf5;color:#047857;cursor:pointer">导出 CSV</button>' +
+      '<button data-role="clear" style="width:100%;padding:7px 0;margin-bottom:8px;border:1px solid #e5e7eb;border-radius:7px;background:#f9fafb;color:#4b5563;cursor:pointer">清空累计</button>' +
+      '<div data-role="status" style="font-size:12px;color:#047857;word-break:break-all">就绪：先采集当前页，再翻页重复采集。</div>';
+    document.body.appendChild(panel);
+    panel.querySelector('[data-role="collect"]').onclick = collectCurrentPage;
+    panel.querySelector('[data-role="export"]').onclick = function () {
+      if (!rows.length) {
+        status('暂无数据，请先采集当前页');
+        return;
+      }
+      exportCsv(rows);
+    };
+    panel.querySelector('[data-role="clear"]').onclick = function () {
+      rows = [];
+      status('已清空累计数据');
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(mountPanel, 800); });
+  } else {
+    setTimeout(mountPanel, 800);
+  }
+})();`;
+
+    const parseCsvTextRows = (text = '') => {
+        const rows = [];
+        let row = [];
+        let cell = '';
+        let inQuotes = false;
+        const source = String(text || '').replace(/^\uFEFF/, '');
+        for (let i = 0; i < source.length; i++) {
+            const ch = source[i];
+            if (ch === '"') {
+                if (inQuotes && source[i + 1] === '"') {
+                    cell += '"';
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+                continue;
+            }
+            if (ch === ',' && !inQuotes) {
+                row.push(cell);
+                cell = '';
+                continue;
+            }
+            if ((ch === '\n' || ch === '\r') && !inQuotes) {
+                if (ch === '\r' && source[i + 1] === '\n') {
+                    i++;
+                }
+                row.push(cell);
+                if (row.some(value => String(value || '').trim() !== '')) {
+                    rows.push(row);
+                }
+                row = [];
+                cell = '';
+                continue;
+            }
+            cell += ch;
+        }
+        row.push(cell);
+        if (row.some(value => String(value || '').trim() !== '')) {
+            rows.push(row);
+        }
+        return rows;
+    };
+
+    const normalizeMeituanOrderCsvHeader = (value) => String(value || '')
+        .replace(/^\uFEFF/, '')
+        .replace(/\s+/g, '')
+        .replace(/[（）()]/g, '')
+        .toLowerCase();
+
+    const buildMeituanOrderCsvIndex = (headers = []) => {
+        const index = new Map();
+        headers.forEach((header, position) => {
+            const key = normalizeMeituanOrderCsvHeader(header);
+            if (key && !index.has(key)) {
+                index.set(key, position);
+            }
+        });
+        return index;
+    };
+
+    const readMeituanOrderCsvValue = (row = [], index, aliases = []) => {
+        for (const alias of aliases) {
+            const position = index.get(normalizeMeituanOrderCsvHeader(alias));
+            if (position === undefined) {
+                continue;
+            }
+            const value = String(row[position] ?? '').trim();
+            if (value !== '') {
+                return value;
+            }
+        }
+        return '';
+    };
+
+    const parseMeituanOrderCsvText = (csvText = '') => {
+        const rows = parseCsvTextRows(csvText);
+        if (rows.length <= 1) {
+            return [];
+        }
+        const index = buildMeituanOrderCsvIndex(rows[0]);
+        return rows.slice(1).map((row, rowIndex) => {
+            const orderNo = readMeituanOrderCsvValue(row, index, ['订单号', 'orderNo', 'order_no', 'orderId', 'order_id']);
+            const roomType = readMeituanOrderCsvValue(row, index, ['房型', 'roomType', 'room_type', 'roomName', 'room_name']);
+            const checkIn = readMeituanOrderCsvValue(row, index, ['入住日期', 'checkIn', 'check_in', 'checkInDate', 'check_in_date']);
+            const checkOut = readMeituanOrderCsvValue(row, index, ['离店日期', 'checkOut', 'check_out', 'checkOutDate', 'check_out_date']);
+            const buyTime = readMeituanOrderCsvValue(row, index, ['购买时间', 'buyTime', 'buy_time', 'purchaseTime', 'purchase_time', 'createTime']);
+            const bottomPrice = readMeituanOrderCsvValue(row, index, ['底价元', '底价', '底价(元)', 'basePrice', 'base_price', 'bottomPrice', 'bottom_price', 'price']);
+            if (!orderNo && !roomType && !checkIn && !checkOut && !buyTime && !bottomPrice) {
+                return null;
+            }
+            return {
+                orderNo,
+                roomType,
+                checkIn,
+                checkOut,
+                buyTime,
+                bottomPrice,
+                _ingestion_method: 'manual_dom_csv',
+                _source_path: `manual_dom_csv.orders.${rowIndex}`,
+            };
+        }).filter(Boolean);
+    };
+
+    const buildMeituanOrderCsvImportRequestBody = ({
+        csvText = '',
+        form = {},
+        systemHotelId = null,
+        hotelName = '',
+    } = {}) => {
+        const orders = parseMeituanOrderCsvText(csvText);
+        const poiId = String(form.poiId || '').trim();
+        return {
+            system_hotel_id: systemHotelId,
+            hotel_id: systemHotelId,
+            payload: {
+                store_id: poiId,
+                poi_id: poiId,
+                poi_name: hotelName,
+                system_hotel_id: systemHotelId,
+                default_data_date: form.endDate || form.startDate || new Date().toISOString().slice(0, 10),
+                data_period: 'manual_dom_csv',
+                orders,
+            },
+            parsed_count: orders.length,
+        };
+    };
+
+    const runMeituanOrderCsvImportFlow = async ({
+        getForm = () => ({}),
+        getSystemHotelId = () => null,
+        getHotelNameById = () => '',
+        notify = () => {},
+        setFetching = () => {},
+        setOrderResult = () => {},
+        setOnlineDataResult = () => {},
+        requestSave = async () => ({}),
+        refreshOnlineHistory = async () => {},
+    } = {}) => {
+        const form = normalizeMeituanOrderFetchForm(getForm() || {});
+        const csvText = String(form.csvText || '').trim();
+        const systemHotelId = getSystemHotelId();
+        if (!systemHotelId) {
+            notify('请选择目标酒店后再导入 CSV', 'error');
+            return { status: 'missing_system_hotel_id', form };
+        }
+        if (!csvText) {
+            notify('请先粘贴美团订单 CSV 内容', 'error');
+            return { status: 'missing_csv_text', form };
+        }
+        const requestBody = buildMeituanOrderCsvImportRequestBody({
+            csvText,
+            form,
+            systemHotelId,
+            hotelName: getHotelNameById(systemHotelId),
+        });
+        if ((requestBody.parsed_count || 0) <= 0) {
+            notify('未解析到可导入的美团订单 CSV 行', 'warning');
+            return { status: 'empty_csv_rows', requestBody };
+        }
+
+        setFetching(true);
+        setOrderResult(null);
+        setOnlineDataResult(null);
+        try {
+            const res = await requestSave(requestBody);
+            if (res.code === 200) {
+                const data = { ...(res.data || {}), import_row_count: requestBody.parsed_count };
+                setOrderResult(data);
+                setOnlineDataResult(data);
+                const savedCount = data.saved_count || 0;
+                notify(
+                    savedCount > 0 ? `CSV订单导入成功，已入库 ${savedCount} 条` : 'CSV已解析，但未形成可入库订单行',
+                    savedCount > 0 ? 'success' : 'warning'
+                );
+                runPostFetchRefresh(refreshOnlineHistory);
+                return { status: 'success', response: res, requestBody, data, savedCount };
+            }
+            notify(res.message || 'CSV订单导入失败', 'error');
+            return { status: 'failed', response: res, requestBody };
+        } catch (error) {
+            notify('CSV订单导入失败: ' + error.message, 'error');
+            return { status: 'exception', error, requestBody };
+        } finally {
+            setFetching(false);
+        }
+    };
+
     const runMeituanOrderFetchFlow = async ({
         getForm = () => ({}),
         getSystemHotelId = () => null,
@@ -1363,6 +1780,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         createMeituanOrderForm,
         createMeituanAdsForm,
         createMeituanBrowserCaptureForm,
+        getMeituanBrowserCaptureSupplementModules,
+        buildMeituanBrowserCaptureSupplementCounts,
         normalizeMeituanCaptureSections,
         buildMeituanBrowserCaptureRequestContext,
         runMeituanBrowserCaptureFlow,
@@ -1382,6 +1801,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         normalizeMeituanOrderFetchForm,
         validateMeituanOrderFetchInput,
         buildMeituanOrderFetchRequestBody,
+        buildMeituanOrderDomCollectorScript,
+        parseMeituanOrderCsvText,
+        buildMeituanOrderCsvImportRequestBody,
+        runMeituanOrderCsvImportFlow,
         runMeituanOrderFetchFlow,
         normalizeMeituanAdsFetchForm,
         validateMeituanAdsFetchInput,

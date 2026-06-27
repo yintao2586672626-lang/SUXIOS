@@ -101,6 +101,156 @@ final class OtaStandardModuleTest extends TestCase
         self::assertContains('cancellation_fields_partial', array_column($partialCancel['data_gaps'], 'code'));
     }
 
+    public function testP1RevenueClosureUsesVerifiedOtaMetricsOnly(): void
+    {
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset([
+            'status' => 'ready',
+            'data_quality' => [
+                'input_rows' => 2,
+                'accepted_rows' => 2,
+                'rejected_rows' => [],
+            ],
+            'fact_ota_daily' => [[
+                'platform_key' => 'ctrip',
+                'hotel_key' => 'system:7',
+                'data_type' => 'business',
+                'revenue' => 1200.0,
+                'gross_revenue' => 1200.0,
+                'room_revenue' => 1200.0,
+                'net_revenue' => 1020.0,
+                'commission_amount' => 180.0,
+                'room_nights' => 6.0,
+                'available_room_nights' => 10.0,
+                'occupied_room_nights' => 6.0,
+                'order_count' => 4,
+                'cancel_order_num' => 0,
+                'cancel_room_nights' => 0,
+                'lead_time_days' => 2,
+                'our_price' => 200.0,
+                'competitor_price' => 210.0,
+                'price_gap' => -10.0,
+                'price_gap_rate' => -4.76,
+                'source_trace' => $this->trace(9001, 'ctrip', 'business', '2026-06-25'),
+            ]],
+            'fact_ota_traffic' => [[
+                'platform_key' => 'ctrip',
+                'hotel_key' => 'system:7',
+                'resource' => 'traffic',
+                'flow_rate' => 20.0,
+                'submit_rate' => 33.33,
+                'source_trace' => $this->trace(9002, 'ctrip', 'traffic', '2026-06-25'),
+            ]],
+            'fact_ota_advertising' => [],
+            'fact_ota_quality' => [],
+            'fact_ota_search_keyword' => [],
+            'fact_ota_comment' => [],
+        ]);
+
+        $closure = $metrics['p1_revenue_closure'];
+
+        self::assertSame('ready', $closure['status']);
+        self::assertSame('ota_channel', $closure['scope']);
+        self::assertTrue($closure['calculation_allowed']);
+        self::assertSame(1200.0, $closure['sections']['revenue']['value']);
+        self::assertSame(4.0, $closure['sections']['orders']['value']);
+        self::assertSame(6.0, $closure['sections']['room_nights']['value']);
+        self::assertSame(200.0, $closure['sections']['adr_conversion']['metrics']['adr']['value']);
+        self::assertSame(20.0, $closure['sections']['adr_conversion']['metrics']['flow_rate']['value']);
+        self::assertSame(33.33, $closure['sections']['adr_conversion']['metrics']['submit_rate']['value']);
+        self::assertSame('ok', $closure['missing_items']['status']);
+        self::assertSame('ok', $closure['anomaly_judgment']['status']);
+        self::assertFalse($closure['whole_hotel_guard']['allowed']);
+        self::assertSame('whole_hotel_scope_not_proved', $closure['whole_hotel_guard']['reason']);
+    }
+
+    public function testP1RevenueClosureBlocksValuesWhenCredibilityGateBlocksDataset(): void
+    {
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset([
+            'status' => 'failed',
+            'data_quality' => [
+                'input_rows' => 1,
+                'accepted_rows' => 1,
+                'rejected_rows' => [],
+            ],
+            'fact_ota_daily' => [[
+                'platform_key' => 'ctrip',
+                'hotel_key' => 'system:7',
+                'data_type' => 'business',
+                'revenue' => 1200.0,
+                'room_revenue' => 1200.0,
+                'net_revenue' => 1020.0,
+                'commission_amount' => 180.0,
+                'room_nights' => 6.0,
+                'available_room_nights' => 10.0,
+                'occupied_room_nights' => 6.0,
+                'order_count' => 4,
+                'cancel_order_num' => 0,
+                'cancel_room_nights' => 0,
+                'lead_time_days' => 2,
+                'our_price' => 200.0,
+                'competitor_price' => 210.0,
+                'source_trace' => $this->trace(9011, 'ctrip', 'business', '2026-06-25'),
+            ]],
+            'fact_ota_traffic' => [[
+                'platform_key' => 'ctrip',
+                'hotel_key' => 'system:7',
+                'flow_rate' => 20.0,
+                'submit_rate' => 33.33,
+                'source_trace' => $this->trace(9012, 'ctrip', 'traffic', '2026-06-25'),
+            ]],
+        ]);
+
+        $closure = $metrics['p1_revenue_closure'];
+
+        self::assertSame('blocked', $closure['status']);
+        self::assertFalse($closure['calculation_allowed']);
+        self::assertNull($closure['sections']['revenue']['value']);
+        self::assertSame('blocked', $closure['sections']['revenue']['status']);
+        self::assertContains('blocked_by_data_credibility', $closure['sections']['revenue']['failure_reasons']);
+        self::assertContains('ota_dataset_failed', array_column($closure['anomaly_judgment']['items'], 'code'));
+    }
+
+    public function testP1RevenueClosureExplainsMissingAdrAndConversionInputs(): void
+    {
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset([
+            'status' => 'ready',
+            'data_quality' => [
+                'input_rows' => 1,
+                'accepted_rows' => 1,
+                'rejected_rows' => [],
+            ],
+            'fact_ota_daily' => [[
+                'platform_key' => 'ctrip',
+                'hotel_key' => 'system:7',
+                'data_type' => 'business',
+                'revenue' => 1200.0,
+                'room_revenue' => 1200.0,
+                'net_revenue' => 1020.0,
+                'commission_amount' => 180.0,
+                'room_nights' => 0.0,
+                'available_room_nights' => 10.0,
+                'occupied_room_nights' => 0.0,
+                'order_count' => 4,
+                'cancel_order_num' => 0,
+                'cancel_room_nights' => 0,
+                'lead_time_days' => 2,
+                'our_price' => 200.0,
+                'competitor_price' => 210.0,
+                'source_trace' => $this->trace(9021, 'ctrip', 'business', '2026-06-25'),
+            ]],
+            'fact_ota_traffic' => [],
+        ]);
+
+        $closure = $metrics['p1_revenue_closure'];
+        $missingCodes = array_column($closure['missing_items']['items'], 'code');
+
+        self::assertSame('blocked', $closure['status']);
+        self::assertNull($closure['sections']['adr_conversion']['metrics']['adr']['value']);
+        self::assertContains('totals.adr:adr_denominator_zero', $missingCodes);
+        self::assertContains('traffic.avg_flow_rate:source_rows_missing', $missingCodes);
+        self::assertContains('traffic.avg_submit_rate:source_rows_missing', $missingCodes);
+    }
+
     public function testAdvertisingAndQualityFactsDoNotPolluteRevenueMetrics(): void
     {
         $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
@@ -238,9 +388,68 @@ final class OtaStandardModuleTest extends TestCase
                 'update_time' => '2026-05-27 10:15:00',
                 'raw_data' => json_encode(['keyword' => 'family hotel', 'rank' => 2], JSON_UNESCAPED_UNICODE),
             ],
+            [
+                'id' => 75,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'meituan-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'meituan',
+                'data_type' => 'peer_rank',
+                'dimension' => 'peer_rank:P_RZ:入住间夜',
+                'data_date' => '2026-05-27',
+                'data_value' => 3,
+                'compare_type' => 'competitor',
+                'source_trace_id' => 'trace-peer-rank-75',
+                'update_time' => '2026-05-27 10:20:00',
+                'raw_data' => json_encode(['rankType' => 'P_RZ', 'rank' => 3, 'percent' => 0.12], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 76,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'meituan-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'meituan',
+                'data_type' => 'traffic_analysis',
+                'dimension' => 'traffic_analysis:flow_conversion',
+                'data_date' => '2026-05-27',
+                'data_value' => 18.5,
+                'list_exposure' => 800,
+                'detail_exposure' => 160,
+                'flow_rate' => 20,
+                'order_filling_num' => 40,
+                'order_submit_num' => 8,
+                'source_trace_id' => 'trace-traffic-analysis-76',
+                'update_time' => '2026-05-27 10:25:00',
+                'raw_data' => json_encode(['analysis_type' => 'conversion_funnel', 'flowRate' => 20], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 77,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'meituan-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'meituan',
+                'data_type' => 'traffic_forecast',
+                'dimension' => 'traffic_forecast:detail_uv',
+                'data_date' => '2026-05-27',
+                'data_value' => 260,
+                'compare_type' => 'forecast',
+                'source_trace_id' => 'trace-traffic-forecast-77',
+                'update_time' => '2026-05-27 10:30:00',
+                'raw_data' => json_encode(['forecastType' => 'detail_uv', 'current' => 260, 'peerAvg' => 310], JSON_UNESCAPED_UNICODE),
+            ],
         ]);
 
         self::assertCount(1, $dataset['fact_ota_search_keyword']);
+        self::assertCount(1, $dataset['fact_ota_peer_rank']);
+        self::assertCount(1, $dataset['fact_ota_traffic_analysis']);
+        self::assertCount(1, $dataset['fact_ota_traffic_forecast']);
+        self::assertSame('peer_rank:P_RZ:入住间夜', $dataset['fact_ota_peer_rank'][0]['dimension']);
+        self::assertSame(3.0, $dataset['fact_ota_peer_rank'][0]['rank']);
+        self::assertSame(12.0, $dataset['fact_ota_peer_rank'][0]['rank_percent']);
+        self::assertSame('traffic_analysis:flow_conversion', $dataset['fact_ota_traffic_analysis'][0]['dimension']);
+        self::assertSame(20.0, $dataset['fact_ota_traffic_analysis'][0]['submit_rate']);
+        self::assertSame('traffic_forecast:detail_uv', $dataset['fact_ota_traffic_forecast'][0]['dimension']);
+        self::assertSame(310.0, $dataset['fact_ota_traffic_forecast'][0]['peer_avg']);
 
         $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
 
@@ -262,6 +471,21 @@ final class OtaStandardModuleTest extends TestCase
         $keywordRank = $this->channelMetric($metrics['channel_metrics'], 'search_keyword:family hotel', 'rank');
         self::assertSame(2.0, $keywordRank['value']);
         self::assertSame('trace-keyword-74', $keywordRank['source_trace_id']);
+
+        $peerRank = $this->channelMetric($metrics['channel_metrics'], 'peer_rank:P_RZ:入住间夜', 'rank');
+        self::assertSame(3.0, $peerRank['value']);
+        self::assertSame('trace-peer-rank-75', $peerRank['source_trace_id']);
+
+        $trafficAnalysis = $this->channelMetric($metrics['channel_metrics'], 'traffic_analysis:flow_conversion', 'order_submit_num');
+        self::assertSame(8.0, $trafficAnalysis['value']);
+        self::assertSame(40.0, $trafficAnalysis['denominator']);
+        self::assertSame('trace-traffic-analysis-76', $trafficAnalysis['source_trace_id']);
+
+        $trafficForecast = $this->channelMetric($metrics['channel_metrics'], 'traffic_forecast:detail_uv', 'forecast_value');
+        self::assertSame(260.0, $trafficForecast['value']);
+        self::assertSame('trace-traffic-forecast-77', $trafficForecast['source_trace_id']);
+        self::assertArrayHasKey('peer_rank_signal', $metrics['metric_definitions']['metrics']);
+        self::assertArrayHasKey('traffic_forecast_signal', $metrics['metric_definitions']['metrics']);
     }
 
     public function testInsightAnalysisIncludesAdvertisingEfficiencyAndServiceQualityModules(): void

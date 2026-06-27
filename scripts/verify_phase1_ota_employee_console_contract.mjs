@@ -130,15 +130,46 @@ includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data 
   'traffic_source_text',
   'traffic_source_next_action',
   'traffic_source_policy',
+  'traffic_latest_sync_task_count',
+  'traffic_latest_sync_task_status_counts',
+  'traffic_latest_sync_task_message_code_counts',
+  'traffic_latest_sync_task_saved_count',
+  'traffic_latest_sync_task_normalized_count',
+  'traffic_latest_sync_task_sensitive_values_exposed',
+  'buildPhase1TrafficLatestSyncTaskText',
+  'login_or_profile_not_ready',
+  'sync_completed_without_saved_rows',
   'p0_traffic_gate_status',
   'p0_next_action_mode',
   'p0_next_action_entry',
   'p0_next_step_count',
   'next_command_policy',
+  'p0_profile_login_trigger_policy',
+  'p0_profile_login_trigger_available_count',
+  'p0_profile_login_trigger_unavailable_count',
+  'p0_after_login_sync_available_count',
+  'p0_manual_login_state_verified_count',
+  '登录触发入口',
+  '登录后同步',
+  '入口不展示平台原始ID',
   'p0_external_evidence_status',
   'p0_pre_import_evidence_status',
   'p0_pre_import_evidence_policy',
   'p0_traffic_field_fact_status',
+  'p0_standard_fact_policy',
+  'p0_standard_fact_status',
+  'p0_standard_fact_raw_data_policy',
+  'p0_standard_fact_required_metric_count',
+  'p0_standard_fact_complete_metric_count',
+  'p0_standard_fact_missing_metric_count',
+  'p0_standard_fact_incomplete_metric_count',
+  'p0_standard_fact_storage_field_count',
+  'p0_standard_fact_status_counts',
+  'p0_standard_fact_complete_metric_keys',
+  'p0_standard_fact_missing_metric_keys',
+  'p0_standard_fact_incomplete_metric_keys',
+  'standard_fact_ota_channel_only',
+  'raw_data_payload_not_returned',
   'phase1TrafficPayloadCandidateLabel',
   'p0_payload_candidate_policy',
   'p0_payload_candidate_payload_policy',
@@ -149,6 +180,19 @@ includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data 
   'p0_payload_candidate_unverified_count',
   'p0_payload_candidate_paths',
   'p0_payload_candidate_issue_codes',
+  'p0_payload_candidate_target_date_rows',
+  'p0_payload_candidate_traffic_evidence_rows',
+  'p0_payload_candidate_evidence_source_path_rows',
+  'p0_payload_candidate_evidence_structured_source_path_rows',
+  'p0_payload_candidate_evidence_raw_data_field_facts_rows',
+  'p0_payload_candidate_evidence_raw_data_exposed_rows',
+  'p0_payload_candidate_evidence_sensitive_value_rows',
+  'p0_payload_candidate_evidence_metric_keys',
+  'p0_payload_candidate_evidence_missing_metric_keys',
+  'Payload阻断',
+  'Payload source_path',
+  'Payload字段事实',
+  'Payload缺指标',
   'missing_expected_payload',
   'expected_payload_present_unverified',
   'ui_metadata_only_no_import',
@@ -158,6 +202,21 @@ includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data 
   'p0_required_storage_fields',
   'p0_required_field_fact_keys',
   'p0_missing_metric_keys',
+  'p0_standard_fact_policy',
+  'p0_standard_fact_status',
+  'p0_standard_fact_raw_data_policy',
+  'p0_standard_fact_required_metric_count',
+  'p0_standard_fact_complete_metric_count',
+  'p0_standard_fact_missing_metric_count',
+  'p0_standard_fact_incomplete_metric_count',
+  'p0_standard_fact_storage_field_count',
+  'p0_standard_fact_status_counts',
+  'p0_standard_fact_complete_metric_keys',
+  'p0_standard_fact_missing_metric_keys',
+  'p0_standard_fact_incomplete_metric_keys',
+  'phase1P0StandardFactSummary',
+  'derived_from_p0_field_loop_matrix_ota_channel_only',
+  'raw_data_field_facts_only_raw_payload_not_returned',
   'p0_traffic_closure_chain',
   'p0_traffic_closure_chain_policy',
   'p0_target_traffic_data_types',
@@ -509,6 +568,7 @@ includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data 
   "Object.prototype.hasOwnProperty.call(source, 'data_gaps')",
   'operationExecutionPhase1Evidence',
   'operationExecutionPhase1Evidence()',
+  "String(item?.roi?.status || '') === 'ready'",
   'operation_evidence_status',
   'operation_execution_evidence_incomplete',
   'operation_execution_ai_action_link_missing',
@@ -552,11 +612,24 @@ includesAll('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'employee
   'traffic_source_policy',
   'read_platform_data_sources_metadata_only',
   'sensitive_values_exposed',
+  'traffic_latest_sync_task_count',
+  'traffic_latest_sync_task_status_counts',
+  'traffic_latest_sync_task_message_code_counts',
+  'traffic_latest_sync_task_saved_count',
+  'traffic_latest_sync_task_normalized_count',
+  'traffic_latest_sync_task_sensitive_values_exposed',
   'p0_traffic_gate_status',
   'p0_next_action_mode',
   'p0_next_action_entry',
   'p0_next_step_count',
   'next_command_policy',
+  'p0_profile_login_trigger_policy',
+  'p0_profile_login_trigger_available_count',
+  'p0_profile_login_trigger_unavailable_count',
+  'p0_after_login_sync_available_count',
+  'p0_manual_login_state_verified_count',
+  'phase1P0ProfileLoginTriggerAction',
+  'metadata_only_backend_resolves_platform_identity',
   'p0_external_evidence_status',
   'p0_pre_import_evidence_status',
   'p0_pre_import_evidence_policy',
@@ -572,6 +645,16 @@ includesAll('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'employee
   'p0_payload_candidate_unverified_count',
   'p0_payload_candidate_paths',
   'p0_payload_candidate_issue_codes',
+  'p0_payload_candidate_target_date_rows',
+  'p0_payload_candidate_traffic_evidence_rows',
+  'p0_payload_candidate_evidence_source_path_rows',
+  'p0_payload_candidate_evidence_structured_source_path_rows',
+  'p0_payload_candidate_evidence_raw_data_field_facts_rows',
+  'p0_payload_candidate_evidence_raw_data_exposed_rows',
+  'p0_payload_candidate_evidence_sensitive_value_rows',
+  'p0_payload_candidate_evidence_metric_keys',
+  'p0_payload_candidate_evidence_missing_metric_keys',
+  'requires_cli_or_verifier_importer_dry_run',
   'missing_expected_payload',
   'expected_payload_present_unverified',
   'expected_payload_file_missing',
@@ -593,6 +676,20 @@ includesAll('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'employee
   'p0_required_storage_fields',
   'p0_required_field_fact_keys',
   'p0_missing_metric_keys',
+  'p0_standard_fact_policy',
+  'p0_standard_fact_status',
+  'p0_standard_fact_raw_data_policy',
+  'p0_standard_fact_required_metric_count',
+  'p0_standard_fact_complete_metric_count',
+  'p0_standard_fact_missing_metric_count',
+  'p0_standard_fact_incomplete_metric_count',
+  'p0_standard_fact_storage_field_count',
+  'p0_standard_fact_status_counts',
+  'p0_standard_fact_complete_metric_keys',
+  'p0_standard_fact_missing_metric_keys',
+  'p0_standard_fact_incomplete_metric_keys',
+  'traffic_source_p0_standard_fact_summary',
+  'inspection_traffic_source_p0_standard_fact_summary',
   'p0_traffic_closure_chain',
   'p0_traffic_closure_chain_policy',
   'p0_target_traffic_data_types',
@@ -608,6 +705,53 @@ includesAll('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'employee
   '/api/online-data/capture-meituan-browser',
   'registered_waiting_config',
   'registered_ready_without_target_date_traffic',
+]);
+
+includesAll('package.json', 'P0 Profile next-step report command is registered', [
+  'report:p0-profile-next-steps',
+  'scripts/report_p0_profile_next_steps.mjs',
+]);
+
+includesAll('scripts/report_p0_profile_next_steps.mjs', 'P0 Profile next-step report is read-only and sanitized', [
+  'verify_p0_ota_field_loop_closure.php',
+  'metadata_only_no_cookie_token_profile_path_or_raw_payload',
+  'profile_login_trigger',
+  'after_login_sync',
+  'p0_verifier_command',
+  'manual_login_state_verified',
+  'operator_sequence',
+  'completion_gate',
+  'collection_policy',
+  "mainline_mode: 'browser_profile'",
+  "temporary_mode: 'manual_cookie_api'",
+  "temporary_mode_policy: 'temporary_only'",
+  'manual_cookie_api_as_default_mainline',
+  'sync_task_success_as_p0_closure',
+  'downstream_gate',
+  'blocked_by_p0_ota_gate',
+  'no_whole_hotel_or_downstream_closure_claim',
+  'manual_login_state_verified=true',
+  'Profile 目录存在不等于登录态已验证',
+]);
+
+includesAll('tests/automation/p0_profile_next_steps_report.test.mjs', 'P0 Profile next-step report has redaction coverage', [
+  'SECRET_COOKIE_VALUE',
+  'SECRET_TOKEN_VALUE',
+  'doesNotMatch',
+  'raw_cookie',
+  'profile-login-trigger',
+  'data-sources/14/sync',
+  'operator_sequence',
+  'completion_gate',
+  'collection_policy',
+  'mainline_mode',
+  'temporary_mode_policy',
+  'manual_cookie_api_as_default_mainline',
+  'sync_task_success_as_p0_closure',
+  'downstream_gate',
+  'blocked_by_p0_ota_gate',
+  'no_whole_hotel_or_downstream_closure_claim',
+  'single_scope_verifier',
 ]);
 
 includesAllSources([
@@ -637,6 +781,27 @@ includesAllSources([
   'p0_payload_candidate_unverified_count',
   'p0_payload_candidate_paths',
   'p0_payload_candidate_issue_codes',
+  'traffic_source_profile_login_trigger_action',
+  'inspection_traffic_source_profile_login_trigger_action',
+  'p0_profile_login_trigger_policy',
+  'p0_profile_login_trigger_available_count',
+  'p0_profile_login_trigger_unavailable_count',
+  'p0_after_login_sync_available_count',
+  'p0_manual_login_state_verified_count',
+  'traffic_source_p0_payload_importer_dry_run',
+  'traffic_source_p0_payload_evidence_diagnostics',
+  'inspection_traffic_source_p0_payload_importer_dry_run',
+  'inspection_traffic_source_p0_payload_evidence_diagnostics',
+  'p0_payload_candidate_target_date_rows',
+  'p0_payload_candidate_traffic_evidence_rows',
+  'p0_payload_candidate_evidence_source_path_rows',
+  'p0_payload_candidate_evidence_structured_source_path_rows',
+  'p0_payload_candidate_evidence_raw_data_field_facts_rows',
+  'p0_payload_candidate_evidence_raw_data_exposed_rows',
+  'p0_payload_candidate_evidence_sensitive_value_rows',
+  'p0_payload_candidate_evidence_metric_keys',
+  'p0_payload_candidate_evidence_missing_metric_keys',
+  'importer_dry_run_only_no_storage_write',
   'ui_metadata_only_no_import',
   'path_metadata_only_no_payload_content',
   'does_not_write_online_daily_data',
@@ -1312,6 +1477,7 @@ check(
   'employee traffic source summary exposes P0 gate metadata without raw commands',
   frontendEntry.includes('phase1TrafficActionModeLabel') &&
     frontendEntry.includes('buildPhase1TrafficP0NextText') &&
+    frontendEntry.includes('buildPhase1TrafficLatestSyncTaskText') &&
     frontendEntry.includes('p0_next_action_mode') &&
     frontendEntry.includes('p0_next_step_count') &&
     frontendEntry.includes('p0_pre_import_evidence_status') &&
@@ -1321,6 +1487,13 @@ check(
     frontendEntry.includes('p0_traffic_field_fact_status') &&
     frontendEntry.includes('p0_required_metric_keys') &&
     frontendEntry.includes('p0_required_storage_fields') &&
+    frontendEntry.includes('p0_standard_fact_status') &&
+    frontendEntry.includes('p0_standard_fact_required_metric_count') &&
+    frontendEntry.includes('p0_standard_fact_complete_metric_count') &&
+    frontendEntry.includes('p0_standard_fact_missing_metric_count') &&
+    frontendEntry.includes('p0_standard_fact_incomplete_metric_count') &&
+    frontendEntry.includes('standard_fact_ota_channel_only') &&
+    frontendEntry.includes('raw_data_payload_not_returned') &&
     frontendEntry.includes('p0_field_loop_matrix') &&
     frontendEntry.includes('p0_traffic_closure_chain') &&
     frontendEntry.includes('closureChainNoTargetCount') &&
@@ -1354,6 +1527,11 @@ check(
     frontendEntry.includes('not_provided') &&
     frontendEntry.includes('manual_login_state_verified') &&
     frontendEntry.includes('browser_profile') &&
+    frontendEntry.includes('traffic_latest_sync_task_message_code_counts') &&
+    frontendEntry.includes('traffic_latest_sync_task_sensitive_values_exposed') &&
+    frontendEntry.includes('latestSyncTaskText') &&
+    frontendEntry.includes('登录/Profile未就绪') &&
+    frontendEntry.includes('同步诊断已脱敏') &&
     frontendEntry.includes('metadata_only_no_sensitive_commands'),
   'phase1TrafficActionModeLabel / buildPhase1TrafficP0NextText / P0 next metadata'
 );
@@ -1884,6 +2062,10 @@ check(
     acceptanceDoc.includes('p0_next_action_mode') &&
     acceptanceDoc.includes('p0_next_action_entry') &&
     acceptanceDoc.includes('p0_next_step_count') &&
+    acceptanceDoc.includes('p0_profile_login_trigger_policy') &&
+    acceptanceDoc.includes('p0_profile_login_trigger_available_count') &&
+    acceptanceDoc.includes('p0_after_login_sync_available_count') &&
+    acceptanceDoc.includes('p0_manual_login_state_verified_count') &&
     acceptanceDoc.includes('p0_external_evidence_status') &&
     acceptanceDoc.includes('p0_pre_import_evidence_status') &&
     acceptanceDoc.includes('p0_pre_import_evidence_policy') &&
@@ -1892,11 +2074,29 @@ check(
     acceptanceDoc.includes('p0_payload_candidate_missing_count') &&
     acceptanceDoc.includes('p0_payload_candidate_unverified_count') &&
     acceptanceDoc.includes('p0_payload_candidate_paths') &&
+    acceptanceDoc.includes('p0_payload_candidate_target_date_rows') &&
+    acceptanceDoc.includes('p0_payload_candidate_traffic_evidence_rows') &&
+    acceptanceDoc.includes('p0_payload_candidate_evidence_source_path_rows') &&
+    acceptanceDoc.includes('p0_payload_candidate_evidence_structured_source_path_rows') &&
+    acceptanceDoc.includes('p0_payload_candidate_evidence_raw_data_field_facts_rows') &&
+    acceptanceDoc.includes('p0_payload_candidate_evidence_raw_data_exposed_rows') &&
+    acceptanceDoc.includes('p0_payload_candidate_evidence_sensitive_value_rows') &&
+    acceptanceDoc.includes('p0_payload_candidate_evidence_metric_keys') &&
+    acceptanceDoc.includes('p0_payload_candidate_evidence_missing_metric_keys') &&
     acceptanceDoc.includes('missing_expected_payload') &&
     acceptanceDoc.includes('expected_payload_present_unverified') &&
     acceptanceDoc.includes('ui_metadata_only_no_import') &&
     acceptanceDoc.includes('path_metadata_only_no_payload_content') &&
     acceptanceDoc.includes('no_target_date_traffic_rows') &&
+    acceptanceDoc.includes('p0_standard_fact_policy') &&
+    acceptanceDoc.includes('p0_standard_fact_status') &&
+    acceptanceDoc.includes('p0_standard_fact_required_metric_count') &&
+    acceptanceDoc.includes('p0_standard_fact_complete_metric_count') &&
+    acceptanceDoc.includes('p0_standard_fact_missing_metric_count') &&
+    acceptanceDoc.includes('p0_standard_fact_incomplete_metric_count') &&
+    acceptanceDoc.includes('p0_standard_fact_storage_field_count') &&
+    acceptanceDoc.includes('derived_from_p0_field_loop_matrix_ota_channel_only') &&
+    acceptanceDoc.includes('raw_data_field_facts_only_raw_payload_not_returned') &&
     acceptanceDoc.includes('p0_field_loop_matrix') &&
     acceptanceDoc.includes('p0_traffic_closure_chain') &&
     acceptanceDoc.includes('p0_traffic_closure_chain_policy') &&
@@ -1920,7 +2120,17 @@ check(
     acceptanceDoc.includes('reference_only_non_traffic_source_rows') &&
     acceptanceDoc.includes('next_command_policy=metadata_only_no_sensitive_commands') &&
     acceptanceDoc.includes('manual_login_state_verified') &&
-    acceptanceDoc.includes('browser_profile'),
+    acceptanceDoc.includes('browser_profile') &&
+    acceptanceDoc.includes('traffic_latest_sync_task_count') &&
+    acceptanceDoc.includes('traffic_latest_sync_task_message_code_counts') &&
+    acceptanceDoc.includes('traffic_latest_sync_task_sensitive_values_exposed') &&
+    acceptanceDoc.includes('login_or_profile_not_ready') &&
+    acceptanceDoc.includes('sync_completed_without_saved_rows') &&
+    acceptanceDoc.includes('sync_normalized_without_saved_rows') &&
+    acceptanceDoc.includes('browser_dependency_missing') &&
+    acceptanceDoc.includes('no_rows_parsed') &&
+    acceptanceDoc.includes('登录/Profile未就绪') &&
+    acceptanceDoc.includes('不得展示原始同步任务'),
   'P0 gate metadata / next action mode / manual login state evidence'
 );
 check(

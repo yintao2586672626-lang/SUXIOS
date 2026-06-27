@@ -4,7 +4,7 @@
     const revenueAiStatusTone = (status) => {
         const value = String(status || '').toLowerCase();
         if (['ok', 'success', 'ready', 'reviewed'].includes(value)) return 'ok';
-        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'pending_review', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi'].includes(value)) return 'warning';
+        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'unverified', 'pending_review', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi'].includes(value)) return 'warning';
         if (['failed', 'unauthorized', 'blocked', 'error'].includes(value)) return 'blocked';
         return 'unknown';
     };
@@ -36,6 +36,7 @@
         unknown: '状态未知',
         empty: '无数据',
         missing: '缺失',
+        unverified: '未验证',
         not_loaded: '未接入',
         not_calculable: '不可计算',
         blocked: '待补数据',
@@ -103,6 +104,8 @@
         agent_logs_warning_present: '收益管理 Agent 存在警告日志。',
         agent_logs_error_present: '收益管理 Agent 存在错误日志。',
         operation_execution_not_loaded: '运营执行闭环尚未读取。',
+        allowed_with_governance: '已通过可信度门禁，可作为 AI 输入但仍需保留治理边界。',
+        blocked_scope: '当前仅为 OTA 渠道口径，不能进入全酒店投决。',
         operation_execution_intents_missing: '执行意图表不存在。',
         operation_execution_tasks_missing: '执行任务表不存在。',
         operation_execution_evidence_missing: '执行证据表不存在或缺少执行证据。',
@@ -121,12 +124,20 @@
         operation_roi_missing: '调价复盘缺少 ROI 或增量收入证据。',
         overview_not_loaded: 'Revenue AI 总览接口尚未返回。',
         overview_request_failed: 'Revenue AI 总览接口请求失败。',
+        blocked_by_data_credibility: 'OTA 数据可信门未通过，收益计算被阻断。',
+        source_rows_missing: '缺少可追溯的 OTA 来源行。',
+        source_update_time_missing: '缺少 OTA 来源更新时间。',
+        metric_value_missing: '指标值缺失。',
+        whole_hotel_scope_not_proved: '尚未证明全酒店口径，只能保留 OTA 渠道边界。',
+        revenue_positive_orders_zero: 'OTA 收入大于 0 但订单数为 0，需复核来源字段。',
+        revenue_positive_room_nights_zero: 'OTA 收入大于 0 但间夜为 0，需复核来源字段。',
         data_not_complete: '当前数据未达到完整口径。',
         ZERO_CONFIRMED: '渠道明确确认目标经营日期无数据。',
     }[String(reason || '')] || String(reason || '数据缺口待确认。'));
 
     const revenueAiScopeLabel = (scope) => ({
         ota: 'OTA渠道口径',
+        ota_channel: 'OTA渠道口径',
         hotel: '全酒店口径',
         hotel_required: '需全酒店口径',
     }[String(scope || '')] || '口径待确认');
@@ -204,8 +215,8 @@
         if (hasToken !== true) {
             return { shouldLoad: false, endpoint: '', reason: 'token_missing' };
         }
-        if (String(currentPage || '') !== 'compass') {
-            return { shouldLoad: false, endpoint: '', reason: 'not_compass_page' };
+        if (!['compass', 'agent-center'].includes(String(currentPage || ''))) {
+            return { shouldLoad: false, endpoint: '', reason: 'not_revenue_ai_surface' };
         }
         return {
             shouldLoad: true,
@@ -244,6 +255,238 @@
             return String(metric.value);
         }
         return '--';
+    };
+
+    const revenueAiClosureValueText = (metric = {}) => {
+        const value = metric?.value;
+        if (value === undefined || value === null || value === '') return '--';
+        const unit = String(metric?.unit || '').toLowerCase();
+        const number = Number(value);
+        if (!Number.isFinite(number)) return String(value);
+        if (unit === 'cny') return `¥${number.toFixed(2)}`;
+        if (unit === '%') return `${number.toFixed(2)}%`;
+        if (unit === 'orders') return `${number.toFixed(0)}单`;
+        if (unit === 'room_nights') return `${number.toFixed(2)}间夜`;
+        return String(value);
+    };
+
+    const revenueAiClosureMetric = (closure = {}, path = []) => {
+        let current = closure;
+        for (const key of path) {
+            if (!current || typeof current !== 'object') return {};
+            current = current[key];
+        }
+        return current && typeof current === 'object' ? current : {};
+    };
+
+    const revenueAiClosureIssueRows = (items = [], fallbackType = 'missing') => {
+        const rows = Array.isArray(items) ? items : [];
+        return rows.slice(0, 6).map((item, index) => {
+            const code = String(item?.code || item?.reason || `${fallbackType}_${index}`);
+            const affected = Array.isArray(item?.affected_metrics) ? item.affected_metrics.filter(Boolean).join(' / ') : '';
+            return {
+                key: `${fallbackType}_${code}_${index}`,
+                code,
+                label: fallbackType === 'anomaly' ? '异常判断' : '缺失项说明',
+                detail: item?.message || revenueAiReasonText(code.split(':').pop()),
+                affected,
+                severity: item?.severity || (fallbackType === 'anomaly' ? 'medium' : 'low'),
+            };
+        });
+    };
+
+    const revenueAiClosureMetricChip = (metric = {}, label = '', key = '') => {
+        const status = metric?.status || 'unknown';
+        const reasons = Array.isArray(metric?.failure_reasons) ? metric.failure_reasons.filter(Boolean) : [];
+        const reason = metric?.reason || reasons[0] || (status !== 'ok' ? status : '');
+        return {
+            key: key || metric?.key || label,
+            label,
+            value: revenueAiClosureValueText(metric),
+            status,
+            statusLabel: revenueAiStatusLabel(status),
+            className: revenueAiStatusClass(status),
+            reasonText: reason ? revenueAiReasonText(reason) : '',
+        };
+    };
+
+    const revenueAiClosureGroupStatus = (chips = []) => {
+        const statuses = chips.map((chip) => String(chip?.status || 'unknown')).filter(Boolean);
+        if (statuses.length === 0) return 'unknown';
+        if (statuses.some((status) => ['blocked', 'failed', 'unauthorized', 'error'].includes(status))) return 'blocked';
+        if (statuses.some((status) => ['warning', 'partial', 'stale', 'not_calculable', 'missing', 'unverified', 'unknown'].includes(status))) {
+            return statuses.includes('ok') ? 'partial' : 'warning';
+        }
+        return statuses.every((status) => status === 'ok') ? 'ok' : 'unknown';
+    };
+
+    const revenueAiClosureSummaryChip = (key, label, value, status, detail = '') => ({
+        key,
+        label,
+        value,
+        status,
+        statusLabel: revenueAiStatusLabel(status),
+        className: revenueAiStatusClass(status),
+        detail,
+    });
+
+    const revenueAiClosureNextAction = ({ calculationAllowed, missingRows, anomalyRows, operationStatus, investmentAllowed }) => {
+        if (!calculationAllowed) return '先补齐已验证 OTA 数据，当前不输出收益计算结论。';
+        if (anomalyRows.length > 0) return '先复核异常判断，再进入人工审核和执行证据闭环。';
+        if (missingRows.length > 0) return '收益计算可用，但缺失项需保留可见并继续补齐。';
+        if (!['ok', 'ready', 'reviewed'].includes(String(operationStatus || ''))) return '可进入 AI 建议输入，下一步补人工执行和效果复盘证据。';
+        return investmentAllowed ? '可作为受控输入继续流转。' : '可进入运营闭环；全酒店投决仍需独立口径证明。';
+    };
+
+    const buildRevenueAiBusinessClosure = ({ overview = null, overviewError = '', overviewLoading = false } = {}) => {
+        if (overviewError) {
+            return {
+                status: 'failed',
+                statusLabel: revenueAiStatusLabel('failed'),
+                className: revenueAiStatusClass('failed'),
+                scopeText: 'OTA渠道口径',
+                summary: overviewError,
+                rows: [{
+                    key: 'overview-failed',
+                    stage: '接口',
+                    title: 'Revenue AI 总览接口',
+                    primary: '请求失败',
+                    secondary: overviewError,
+                    statusLabel: revenueAiStatusLabel('failed'),
+                    className: revenueAiStatusClass('failed'),
+                }],
+                missingRows: [],
+                anomalyRows: [{
+                    key: 'overview_request_failed',
+                    code: 'overview_request_failed',
+                    label: '异常判断',
+                    detail: overviewError,
+                    severity: 'high',
+                }],
+                summaryChips: [],
+                nextAction: '先恢复 Revenue AI 总览接口，再判断收益分析闭环。',
+            };
+        }
+
+        if (!overview) {
+            const status = overviewLoading ? 'not_loaded' : 'unknown';
+            return {
+                status,
+                statusLabel: revenueAiStatusLabel(status),
+                className: revenueAiStatusClass(status),
+                scopeText: 'OTA渠道口径',
+                summary: revenueAiReasonText('overview_not_loaded'),
+                rows: [{
+                    key: 'overview-not-loaded',
+                    stage: '接口',
+                    title: '等待 Revenue AI 总览',
+                    primary: overviewLoading ? '加载中' : '未接入',
+                    secondary: revenueAiReasonText('overview_not_loaded'),
+                    statusLabel: revenueAiStatusLabel(status),
+                    className: revenueAiStatusClass(status),
+                }],
+                missingRows: [],
+                anomalyRows: [],
+                summaryChips: [],
+                nextAction: overviewLoading ? '等待 Revenue AI 总览加载完成。' : '先加载 Revenue AI 总览，再判断 P1 收益闭环。',
+            };
+        }
+
+        const closure = overview.p1_revenue_closure || overview.metric_summary?.p1_revenue_closure || {};
+        const gate = overview.metric_summary?.credibility_gate || {};
+        const decisionUse = gate.decision_use || {};
+        const revenueUse = closure.decision_use || decisionUse.revenue_analysis || {};
+        const revenueMetric = revenueAiClosureMetric(closure, ['sections', 'revenue']);
+        const orderMetric = revenueAiClosureMetric(closure, ['sections', 'orders']);
+        const roomNightMetric = revenueAiClosureMetric(closure, ['sections', 'room_nights']);
+        const adrMetric = revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'adr']);
+        const flowMetric = revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'flow_rate']);
+        const submitMetric = revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'submit_rate']);
+        const missingRows = revenueAiClosureIssueRows(closure.missing_items?.items, 'missing');
+        const anomalyRows = revenueAiClosureIssueRows(closure.anomaly_judgment?.items, 'anomaly');
+        const execution = overview.execution_summary || {};
+        const operationStatus = execution.status || 'not_loaded';
+        const aiDecision = decisionUse.ai_decision_support || {};
+        const investmentDecision = decisionUse.investment_decision || {};
+        const closureStatus = closure.status || overview.data_status || 'unknown';
+        const calculationAllowed = closure.calculation_allowed === true;
+        const metricChips = [
+            revenueAiClosureMetricChip(revenueMetric, '收入', 'revenue'),
+            revenueAiClosureMetricChip(orderMetric, '订单', 'orders'),
+            revenueAiClosureMetricChip(roomNightMetric, '间夜', 'room_nights'),
+            revenueAiClosureMetricChip(adrMetric, 'ADR', 'adr'),
+            revenueAiClosureMetricChip(flowMetric, '流量转化', 'flow_rate'),
+            revenueAiClosureMetricChip(submitMetric, '提交转化', 'submit_rate'),
+        ];
+        const revenueAnalysisStatus = revenueAiClosureGroupStatus(metricChips);
+        const investmentAllowed = investmentDecision.allowed === true && closure.whole_hotel_guard?.allowed === true;
+        const summaryChips = [
+            revenueAiClosureSummaryChip('calculation', '收益计算', calculationAllowed ? '允许' : '阻断', calculationAllowed ? 'ok' : 'blocked', revenueAiReasonText(revenueUse.status || (calculationAllowed ? '' : 'blocked_by_data_credibility'))),
+            revenueAiClosureSummaryChip('missing', '缺失项', `${missingRows.length}项`, missingRows.length > 0 ? 'warning' : 'ok', missingRows.length > 0 ? '继续补齐缺失项' : '关键缺失项未返回'),
+            revenueAiClosureSummaryChip('anomaly', '异常判断', `${anomalyRows.length}项`, anomalyRows.length > 0 ? 'warning' : 'ok', anomalyRows.length > 0 ? '需人工复核' : '未命中异常'),
+            revenueAiClosureSummaryChip('investment', '投决边界', investmentAllowed ? '可用' : '阻断', investmentAllowed ? 'ready' : 'blocked', revenueAiReasonText(closure.whole_hotel_guard?.reason || investmentDecision.status || 'whole_hotel_scope_not_proved')),
+        ];
+
+        return {
+            status: closureStatus,
+            statusLabel: revenueAiStatusLabel(closureStatus),
+            className: revenueAiStatusClass(closureStatus),
+            scopeText: revenueAiScopeLabel(closure.scope || overview.scope || 'ota'),
+            summary: closure.scope_statement || '仅基于已验证 OTA 渠道数据，不代表全酒店经营口径。',
+            calculationAllowed,
+            summaryChips,
+            nextAction: revenueAiClosureNextAction({ calculationAllowed, missingRows, anomalyRows, operationStatus, investmentAllowed }),
+            rows: [
+                {
+                    key: 'ota-data',
+                    stage: 'OTA数据',
+                    title: '已验证数据准入',
+                    primary: calculationAllowed ? '可进入收益计算' : '阻断收益计算',
+                    secondary: closure.scope_statement || '只读取 OTA 渠道事实和 metric_trust。',
+                    statusLabel: revenueAiStatusLabel(closureStatus),
+                    className: revenueAiStatusClass(closureStatus),
+                },
+                {
+                    key: 'revenue-analysis',
+                    stage: '收益分析',
+                    title: '收入 / 订单 / 间夜 / ADR / 转化',
+                    primary: `${revenueAiClosureValueText(revenueMetric)} · ${revenueAiClosureValueText(orderMetric)} · ${revenueAiClosureValueText(roomNightMetric)}`,
+                    secondary: `ADR ${revenueAiClosureValueText(adrMetric)} · 流量 ${revenueAiClosureValueText(flowMetric)} · 提交 ${revenueAiClosureValueText(submitMetric)}`,
+                    metrics: metricChips,
+                    statusLabel: revenueAiStatusLabel(revenueAnalysisStatus),
+                    className: revenueAiStatusClass(revenueAnalysisStatus),
+                },
+                {
+                    key: 'ai-decision',
+                    stage: 'AI决策',
+                    title: '只读建议输入',
+                    primary: aiDecision.allowed === true ? '可作为 AI 输入' : 'AI 输入阻断',
+                    secondary: revenueAiReasonText(aiDecision.status || (aiDecision.allowed === true ? '' : 'blocked_by_data_credibility')),
+                    statusLabel: revenueAiStatusLabel(aiDecision.allowed === true ? 'ready' : 'blocked'),
+                    className: revenueAiStatusClass(aiDecision.allowed === true ? 'ready' : 'blocked'),
+                },
+                {
+                    key: 'operation-execution',
+                    stage: '运营执行',
+                    title: '人工执行闭环',
+                    primary: execution.display || revenueAiStatusLabel(operationStatus),
+                    secondary: execution.reason ? revenueAiReasonText(execution.reason) : '建议需人工审核、执行证据和效果复盘。',
+                    statusLabel: revenueAiStatusLabel(operationStatus),
+                    className: revenueAiStatusClass(operationStatus),
+                },
+                {
+                    key: 'investment-boundary',
+                    stage: '投决边界',
+                    title: '全酒店口径阻断',
+                    primary: investmentAllowed ? '投决输入可用' : '不进入全酒店投决',
+                    secondary: revenueAiReasonText(closure.whole_hotel_guard?.reason || investmentDecision.status || 'whole_hotel_scope_not_proved'),
+                    statusLabel: revenueAiStatusLabel(investmentAllowed ? 'ready' : 'blocked'),
+                    className: revenueAiStatusClass(investmentAllowed ? 'ready' : 'blocked'),
+                },
+            ],
+            missingRows,
+            anomalyRows,
+        };
     };
 
     const buildRevenueAiMetricCards = ({ overview = null, overviewError = '' } = {}) => {
@@ -1326,6 +1569,7 @@
         resolveRevenueAiBusinessDate,
         resolveRevenueAiOverviewRequest,
         resolveRevenueAiOverviewResponse,
+        buildRevenueAiBusinessClosure,
         buildRevenueAiMetricCards,
         buildRevenueAiGapRows,
         buildRevenueAiGapSummary,

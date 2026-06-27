@@ -277,6 +277,55 @@ function isAllowedCandidateFile(filePath) {
   return !(name === 'ctrip_capture_catalog.json' || name.startsWith('ctrip_capture_target_') || name.startsWith('ctrip_browser_capture_'));
 }
 
+function summarizeTrafficEvidenceDiagnostics(trafficEvidence, summary = {}) {
+  const rows = Array.isArray(trafficEvidence) ? trafficEvidence : [];
+  let sourcePathRows = 0;
+  let structuredSourcePathRows = 0;
+  let rawDataFieldFactsRows = 0;
+  let rawDataExposedRows = 0;
+  let sensitiveRows = 0;
+  const metricKeys = new Set();
+  const missingMetricKeys = Array.isArray(summary?.missing_metric_keys)
+    ? summary.missing_metric_keys.map(String).filter(Boolean)
+    : [];
+
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') {
+      continue;
+    }
+    if (typeof row.source_path === 'string' && row.source_path.trim() !== '') {
+      sourcePathRows += 1;
+    }
+    if (row.source_path_structured === true) {
+      structuredSourcePathRows += 1;
+    }
+    if (row.raw_data_field_facts_present === true) {
+      rawDataFieldFactsRows += 1;
+    }
+    if (row.raw_data_exposed === true) {
+      rawDataExposedRows += 1;
+    }
+    if (row.sensitive_values_exposed === true) {
+      sensitiveRows += 1;
+    }
+    for (const fact of Array.isArray(row.field_facts) ? row.field_facts : []) {
+      if (fact && typeof fact === 'object' && typeof fact.metric_key === 'string' && fact.metric_key.trim() !== '') {
+        metricKeys.add(fact.metric_key.trim());
+      }
+    }
+  }
+
+  return {
+    evidence_source_path_rows: sourcePathRows,
+    evidence_structured_source_path_rows: structuredSourcePathRows,
+    evidence_raw_data_field_facts_rows: rawDataFieldFactsRows,
+    evidence_raw_data_exposed_rows: rawDataExposedRows,
+    evidence_sensitive_value_rows: sensitiveRows,
+    evidence_metric_keys: [...metricKeys].sort((left, right) => left.localeCompare(right)),
+    evidence_missing_metric_keys: missingMetricKeys.sort((left, right) => left.localeCompare(right)),
+  };
+}
+
 function runImporterDryRun(target, scanOptions) {
   const child = spawnSync(phpBinary, [
     importer,
@@ -309,6 +358,7 @@ function runImporterDryRun(target, scanOptions) {
   const issues = Array.isArray(parsed.issues) ? parsed.issues : [];
   const issueCodes = issues.map((issue) => String(issue.code || '')).filter(Boolean);
   const trafficEvidence = Array.isArray(parsed.traffic_evidence) ? parsed.traffic_evidence : [];
+  const evidenceDiagnostics = summarizeTrafficEvidenceDiagnostics(trafficEvidence, parsed.summary || {});
   return {
     platform: target.platform,
     system_hotel_id: target.systemHotelId,
@@ -317,6 +367,7 @@ function runImporterDryRun(target, scanOptions) {
     exit_code: Number(child.status ?? 0),
     target_date_rows: Number(parsed.summary?.target_date_rows || 0),
     traffic_evidence_rows: trafficEvidence.length,
+    ...evidenceDiagnostics,
     p0_completion_status: String(parsed.p0_completion_status || ''),
     issue_codes: issueCodes,
     required_fixes: issueCodes.map(requiredFixForIssue),
@@ -423,11 +474,11 @@ function renderMarkdown(data) {
     `- missing candidates: \`${data.summary.missing_candidate_count}\``,
     `- ready candidates: \`${data.summary.ready_candidate_count}\``,
     '',
-    '| platform | system hotel | payload | status | target rows | evidence rows | issues |',
-    '| --- | ---: | --- | --- | ---: | ---: | --- |',
+    '| platform | system hotel | payload | status | target rows | evidence rows | source_path rows | raw_data facts rows | issues |',
+    '| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | --- |',
   ];
   for (const row of [...data.ready_candidates, ...data.blocked_candidates]) {
-    lines.push(`| ${row.platform} | ${row.system_hotel_id} | ${row.payload} | ${row.status} | ${row.target_date_rows ?? 0} | ${row.traffic_evidence_rows ?? 0} | ${(row.issue_codes || []).join(',')} |`);
+    lines.push(`| ${row.platform} | ${row.system_hotel_id} | ${row.payload} | ${row.status} | ${row.target_date_rows ?? 0} | ${row.traffic_evidence_rows ?? 0} | ${row.evidence_structured_source_path_rows ?? 0}/${row.evidence_source_path_rows ?? 0} | ${row.evidence_raw_data_field_facts_rows ?? 0} | ${(row.issue_codes || []).join(',')} |`);
   }
   const missingPayloads = Array.isArray(data.next_actions?.[0]?.missing_payloads)
     ? data.next_actions[0].missing_payloads

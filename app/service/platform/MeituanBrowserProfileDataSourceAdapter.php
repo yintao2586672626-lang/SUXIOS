@@ -200,7 +200,9 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'row_count' => count($rows),
             'business_count' => $this->countPayloadSections($payload, ['businessData', 'business_data', 'business', 'overview']),
             'peer_rank_count' => $this->countPayloadSections($payload, ['peerRank', 'peer_rank', 'rankings', 'competitorRank']),
+            'flow_analysis_count' => $this->countPayloadSections($payload, ['flowAnalysis', 'flow_analysis', 'trafficAnalysis', 'traffic_analysis']),
             'search_keyword_count' => $this->countPayloadSections($payload, ['searchKeywords', 'search_keywords', 'keywords']),
+            'traffic_forecast_count' => $this->countPayloadSections($payload, ['trafficForecast', 'traffic_forecast', 'flowForecast', 'flow_forecast']),
             'room_type_count' => $this->countPayloadSections($payload, ['roomTypes', 'room_types', 'products']),
             'traffic_count' => count(is_array($payload['traffic'] ?? null) ? $payload['traffic'] : []),
             'order_count' => count(is_array($payload['orders'] ?? null) ? $payload['orders'] : []),
@@ -224,8 +226,10 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $sectionGroups = [
             ['data_type' => 'business', 'keys' => ['businessData', 'business_data', 'business', 'overview']],
             ['data_type' => 'peer_rank', 'keys' => ['peerRank', 'peer_rank', 'competitorRank', 'rankings', 'ranking']],
+            ['data_type' => 'traffic_analysis', 'keys' => ['flowAnalysis', 'flow_analysis', 'trafficAnalysis', 'traffic_analysis']],
             ['data_type' => 'traffic', 'keys' => ['flowData', 'flow_data', 'traffic', 'flow']],
             ['data_type' => 'search_keyword', 'keys' => ['searchKeywords', 'search_keywords', 'searchKeyWords', 'keywords']],
+            ['data_type' => 'traffic_forecast', 'keys' => ['trafficForecast', 'traffic_forecast', 'flowForecast', 'flow_forecast']],
             ['data_type' => 'room_type', 'keys' => ['roomTypes', 'room_types', 'products', 'roomType']],
             ['data_type' => 'order', 'keys' => ['orders']],
             ['data_type' => 'advertising', 'keys' => ['ads']],
@@ -335,6 +339,12 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if (in_array($value, ['flow_data', 'flowdata', 'flow', 'traffic', 'traffic_data', 'trafficdata'], true)) {
             return 'traffic';
+        }
+        if (in_array($value, ['traffic_analysis', 'trafficanalysis', 'flow_analysis', 'flowanalysis'], true)) {
+            return 'traffic_analysis';
+        }
+        if (in_array($value, ['traffic_forecast', 'trafficforecast', 'flow_forecast', 'flowforecast', 'forecast'], true)) {
+            return 'traffic_forecast';
         }
         if (in_array($value, ['search_keyword', 'search_keywords', 'searchkeyword', 'searchkeywords', 'search_key_word', 'search_key_words', 'keyword', 'keywords'], true)) {
             return 'search_keyword';

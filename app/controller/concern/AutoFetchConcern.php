@@ -964,6 +964,131 @@ trait AutoFetchConcern
         return is_array($config) ? $config : [];
     }
 
+    private function applyPlatformProfileLoginDataSourceRequest(string $platform, array $requestData): array
+    {
+        $sourceId = (int)($requestData['data_source_id'] ?? $requestData['source_id'] ?? 0);
+        if ($sourceId <= 0) {
+            return $requestData;
+        }
+
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        if (!$source || !is_array($source)) {
+            throw new \RuntimeException('未找到平台 Profile 数据源，请先检查数据源配置');
+        }
+
+        return $this->buildPlatformProfileLoginRequestFromDataSource($platform, $requestData, $source);
+    }
+
+    private function buildPlatformProfileLoginRequestFromDataSource(string $platform, array $requestData, array $source): array
+    {
+        $platform = strtolower(trim($platform));
+        $sourcePlatform = strtolower(trim((string)($source['platform'] ?? '')));
+        if ($sourcePlatform !== $platform) {
+            throw new \RuntimeException('平台 Profile 数据源与当前登录平台不匹配');
+        }
+
+        $method = strtolower(trim((string)($source['ingestion_method'] ?? '')));
+        if (!in_array($method, ['browser_profile', 'profile_browser'], true)) {
+            throw new \RuntimeException('该数据源不是浏览器 Profile 采集入口');
+        }
+        if ((int)($source['enabled'] ?? 1) !== 1 || strtolower(trim((string)($source['status'] ?? ''))) === 'disabled') {
+            throw new \RuntimeException('该平台 Profile 数据源已停用');
+        }
+
+        $sourceHotelId = (int)($source['system_hotel_id'] ?? 0);
+        if ($sourceHotelId <= 0) {
+            throw new \RuntimeException('平台 Profile 数据源缺少系统酒店绑定');
+        }
+        $requestedHotelId = (int)($requestData['system_hotel_id'] ?? $requestData['systemHotelId'] ?? $requestData['hotel_id'] ?? $requestData['hotelId'] ?? 0);
+        if ($requestedHotelId > 0 && $requestedHotelId !== $sourceHotelId) {
+            throw new \RuntimeException('平台 Profile 数据源与当前酒店不匹配');
+        }
+        if ($this->currentUser
+            && method_exists($this->currentUser, 'isSuperAdmin')
+            && !$this->currentUser->isSuperAdmin()
+            && (!method_exists($this->currentUser, 'hasHotelPermission')
+                || !$this->currentUser->hasHotelPermission($sourceHotelId, 'can_fetch_online_data'))
+        ) {
+            throw new \RuntimeException('无权触发该门店的平台登录');
+        }
+
+        $config = $this->decodeBrowserProfileSourceConfig($source);
+        $merged = $requestData;
+        $merged['data_source_id'] = (int)($source['id'] ?? 0);
+        $merged['source_id'] = (int)($source['id'] ?? 0);
+        $merged['system_hotel_id'] = $sourceHotelId;
+        $merged['bind_data_source'] = $requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? true;
+        $merged['capture_sections'] = $this->platformProfileLoginSourceCaptureSections($platform, $requestData, $config, (string)($source['data_type'] ?? ''));
+
+        if ($platform === 'ctrip') {
+            $profileId = $this->platformProfileLoginFirstString($config, ['profile_id', 'profileId', 'browser_profile_id', 'browserProfileId']);
+            $hotelId = $this->platformProfileLoginFirstString($config, ['hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'ota_hotel_id', 'otaHotelId', 'external_hotel_id']);
+            if ($profileId === '') {
+                $profileId = $hotelId !== '' ? $hotelId : 'system_' . $sourceHotelId;
+            }
+            $merged['profile_id'] = $profileId;
+            $merged['hotel_id'] = $hotelId;
+            if ($hotelId !== '') {
+                $merged['ctrip_hotel_id'] = $hotelId;
+            }
+            $merged['hotel_name'] = $this->platformProfileLoginFirstString($config, ['hotel_name', 'hotelName', 'name'], (string)($source['name'] ?? ''));
+            return $merged;
+        }
+
+        $storeId = $this->platformProfileLoginFirstString($config, ['store_id', 'storeId', 'poi_id', 'poiId']);
+        if ($storeId === '') {
+            throw new \RuntimeException('美团 Profile 数据源缺少 Store ID / POI ID');
+        }
+        $poiId = $this->platformProfileLoginFirstString($config, ['poi_id', 'poiId'], $storeId);
+        $merged['store_id'] = $storeId;
+        $merged['poi_id'] = $poiId;
+        $merged['poi_name'] = $this->platformProfileLoginFirstString($config, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'name'], (string)($source['name'] ?? ''));
+        $partnerId = $this->platformProfileLoginFirstString($config, ['partner_id', 'partnerId']);
+        if ($partnerId !== '') {
+            $merged['partner_id'] = $partnerId;
+        }
+        return $merged;
+    }
+
+    private function platformProfileLoginFirstString(array $data, array $keys, string $default = ''): string
+    {
+        foreach ($keys as $key) {
+            $value = trim((string)($data[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return $default;
+    }
+
+    private function platformProfileLoginSourceCaptureSections(string $platform, array $requestData, array $config, string $dataType): string
+    {
+        $value = $requestData['capture_sections']
+            ?? $requestData['captureSections']
+            ?? $requestData['sections']
+            ?? $config['capture_sections']
+            ?? $config['captureSections']
+            ?? $config['sections']
+            ?? $config['profile_sections']
+            ?? null;
+        if (is_array($value)) {
+            $sections = array_values(array_filter(array_map(static fn($item): string => trim((string)$item), $value)));
+            if ($sections !== []) {
+                return implode(',', $sections);
+            }
+        } elseif ($value !== null && trim((string)$value) !== '') {
+            return trim((string)$value);
+        }
+
+        $dataType = strtolower(trim($dataType));
+        if (in_array($dataType, ['traffic', 'flow', 'conversion'], true)) {
+            return 'traffic';
+        }
+
+        return $platform === 'meituan' ? 'traffic,orders' : 'default';
+    }
+
     private function resolveExistingCtripBrowserProfileKey(int $hotelId): string
     {
         foreach ($this->listEnabledCtripBrowserProfileDataSources($hotelId) as $source) {
@@ -1373,6 +1498,7 @@ trait AutoFetchConcern
             'queued' => '登录任务已提交',
             'browser_opened' => '浏览器已打开，等待人工登录',
             'running' => '正在检测登录状态',
+            'syncing_after_login' => '登录已完成，正在同步目标日数据',
             'logged_in' => '已登录',
             'failed' => '登录失败',
             default => '等待处理',

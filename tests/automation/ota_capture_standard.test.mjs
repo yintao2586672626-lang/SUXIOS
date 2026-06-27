@@ -19,6 +19,10 @@ test('normalizes OTA capture sections per platform', () => {
     normalizeCaptureSections('meituan', 'businessData,peerRank,flowData,searchKeywords,roomTypes'),
     ['traffic'],
   );
+  assert.deepEqual(
+    normalizeCaptureSections('meituan', 'flowAnalysis,trafficForecast,flowForecast,flowConversion'),
+    ['traffic'],
+  );
   assert.deepEqual(normalizeCaptureSections('ctrip', 'business,traffic'), ['business', 'traffic']);
   assert.deepEqual(normalizeCaptureSections('meituan', ''), ['traffic', 'orders']);
   assert.throws(() => normalizeCaptureSections('meituan', 'comment'), /Comment\/review capture is disabled/);
@@ -91,6 +95,22 @@ test('classifies OTA JSON responses by platform and section', () => {
   });
   assert.equal(meituanPeerRank.capture, true);
   assert.equal(meituanPeerRank.section, 'traffic');
+
+  for (const url of [
+    'https://eb.meituan.com/api/v1/ebooking/business/flowConversion?dateRange=1',
+    'https://eb.meituan.com/api/v1/ebooking/business/flowTrend?dateRange=7',
+    'https://eb.meituan.com/api/v1/ebooking/business/flowTrendDetail?dateRange=30',
+    'https://eb.meituan.com/api/v1/ebooking/business/flowForecast?type=2',
+    'https://eb.meituan.com/api/v1/ebooking/business/searchKeyWords',
+  ]) {
+    const classified = classifyOtaResponse('meituan', url, {
+      status: 200,
+      resourceType: 'xhr',
+      contentType: 'application/json',
+    });
+    assert.equal(classified.capture, true, url);
+    assert.equal(classified.section, 'traffic', url);
+  }
 
   const asset = classifyOtaResponse('meituan', 'https://p0.meituan.net/assets/logo.png', {
     status: 200,

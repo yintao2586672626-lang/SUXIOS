@@ -56,11 +56,18 @@ class PlatformProfileLogin extends Command
             return 1;
         }
 
+        $exitCode = 1;
         try {
-            return $this->runLoginTask($taskId, $task, $request, $output);
+            $exitCode = $this->runLoginTask($taskId, $task, $request, $output);
         } finally {
             $this->releaseLock($lock);
         }
+
+        if ($exitCode === 0 && $this->shouldSyncDataSourceAfterProfileLogin($request)) {
+            $this->runPostLoginDataSourceSync($taskId, $platform, $hotelId, $request);
+        }
+
+        return $exitCode;
     }
 
     private function runLoginTask(string $taskId, array $task, array $request, Output $output): int
@@ -137,6 +144,169 @@ class PlatformProfileLogin extends Command
         ]);
 
         return 0;
+    }
+
+    private function runPostLoginDataSourceSync(string $taskId, string $platform, int $hotelId, array $request): void
+    {
+        $sourceId = (int)($request['data_source_id'] ?? $request['source_id'] ?? 0);
+        $startedAt = date('Y-m-d H:i:s');
+        if ($sourceId <= 0) {
+            $this->writeTask($taskId, [
+                'after_login_sync' => [
+                    'status' => 'skipped',
+                    'message' => '登录后同步需要 data_source_id',
+                    'sensitive_values_exposed' => false,
+                ],
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            return;
+        }
+
+        $this->writeTask($taskId, [
+            'status' => 'syncing_after_login',
+            'status_text' => '登录已完成，正在同步目标日 OTA 数据',
+            'message' => '平台账号已登录，正在按数据源同步目标日 OTA 数据',
+            'after_login_sync' => [
+                'status' => 'running',
+                'data_source_id' => $sourceId,
+                'target_date' => $this->profileLoginSyncTargetDate($request),
+                'started_at' => $startedAt,
+                'sensitive_values_exposed' => false,
+            ],
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        try {
+            $result = $this->syncDataSourceAfterProfileLogin($sourceId, $platform, $hotelId, $request);
+            $this->writeTask($taskId, [
+                'status' => 'logged_in',
+                'status_text' => '已登录',
+                'message' => $this->profileLoginSyncTaskMessage($platform, $result),
+                'after_login_sync' => $result,
+                'finished_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            $this->writeTask($taskId, [
+                'status' => 'logged_in',
+                'status_text' => '已登录',
+                'message' => ($platform === 'ctrip' ? '携程' : '美团') . '平台账号已登录，但登录后同步未完成',
+                'after_login_sync' => [
+                    'status' => 'failed',
+                    'data_source_id' => $sourceId,
+                    'target_date' => $this->profileLoginSyncTargetDate($request),
+                    'message' => mb_substr($e->getMessage(), 0, 300),
+                    'finished_at' => date('Y-m-d H:i:s'),
+                    'sensitive_values_exposed' => false,
+                ],
+                'finished_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+    }
+
+    private function syncDataSourceAfterProfileLogin(int $sourceId, string $platform, int $hotelId, array $request): array
+    {
+        $row = $this->loadProfileLoginDataSourceForSync($sourceId, $platform, $hotelId);
+        $options = $this->buildProfileLoginSyncOptions((string)($row['platform'] ?? $platform), $request);
+        $result = (new PlatformDataSyncService())->syncDataSource($this->systemSyncUser(), $sourceId, $options);
+        return $this->compactProfileLoginSyncResult($result, $sourceId, $options);
+    }
+
+    private function loadProfileLoginDataSourceForSync(int $sourceId, string $platform, int $hotelId): array
+    {
+        $row = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        if (!$row || !is_array($row)) {
+            throw new \RuntimeException('Data source not found.');
+        }
+        if (strtolower(trim((string)($row['platform'] ?? ''))) !== $platform) {
+            throw new \RuntimeException('Data source platform mismatch.');
+        }
+        if ((int)($row['system_hotel_id'] ?? 0) !== $hotelId) {
+            throw new \RuntimeException('Data source hotel scope mismatch.');
+        }
+        $method = strtolower(trim((string)($row['ingestion_method'] ?? '')));
+        if (!in_array($method, ['browser_profile', 'profile_browser'], true)) {
+            throw new \RuntimeException('Data source is not a browser Profile source.');
+        }
+        if ((int)($row['enabled'] ?? 1) !== 1 || strtolower(trim((string)($row['status'] ?? ''))) === 'disabled') {
+            throw new \RuntimeException('Data source is disabled.');
+        }
+        return $row;
+    }
+
+    private function buildProfileLoginSyncOptions(string $platform, array $request): array
+    {
+        $sections = $this->safeSections(
+            $request['capture_sections']
+                ?? $request['captureSections']
+                ?? $request['sections']
+                ?? ($platform === 'meituan' ? 'traffic,orders' : 'traffic'),
+            'traffic'
+        );
+        $sectionList = array_values(array_filter(explode(',', $sections), static fn(string $item): bool => trim($item) !== ''));
+        if ($sectionList === []) {
+            $sectionList = ['traffic'];
+            $sections = 'traffic';
+        }
+
+        return [
+            'trigger_type' => 'profile_login_after_login',
+            'data_date' => $this->profileLoginSyncTargetDate($request),
+            'capture_sections' => $sections,
+            'sections' => $sectionList,
+            'data_period' => trim((string)($request['data_period'] ?? $request['dataPeriod'] ?? 'historical_daily')) ?: 'historical_daily',
+            'snapshot_time' => trim((string)($request['snapshot_time'] ?? $request['snapshotTime'] ?? '')) ?: date('Y-m-d H:i:s'),
+            'interactive_browser' => false,
+        ];
+    }
+
+    private function compactProfileLoginSyncResult(array $result, int $sourceId, array $options): array
+    {
+        return [
+            'status' => (string)($result['status'] ?? 'unknown'),
+            'data_source_id' => $sourceId,
+            'task_id' => (int)($result['task_id'] ?? 0),
+            'target_date' => (string)($options['data_date'] ?? ''),
+            'capture_sections' => (string)($options['capture_sections'] ?? ''),
+            'normalized_count' => (int)($result['normalized_count'] ?? 0),
+            'saved_count' => (int)($result['saved_count'] ?? 0),
+            'message' => mb_substr((string)($result['message'] ?? ''), 0, 300),
+            'finished_at' => date('Y-m-d H:i:s'),
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    private function profileLoginSyncTaskMessage(string $platform, array $result): string
+    {
+        $name = $platform === 'ctrip' ? '携程' : '美团';
+        $saved = (int)($result['saved_count'] ?? 0);
+        if ((string)($result['status'] ?? '') === 'success' && $saved > 0) {
+            return $name . '平台账号已登录，目标日 OTA 数据已同步入库 ' . $saved . ' 条';
+        }
+        return $name . '平台账号已登录，登录后同步已执行但目标日入库行仍未闭环';
+    }
+
+    private function profileLoginSyncTargetDate(array $request): string
+    {
+        foreach (['data_date', 'dataDate', 'target_date', 'targetDate', 'date'] as $key) {
+            $value = trim((string)($request[$key] ?? ''));
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+                return $value;
+            }
+        }
+        return date('Y-m-d');
+    }
+
+    private function shouldSyncDataSourceAfterProfileLogin(array $request): bool
+    {
+        return $this->truthy(
+            $request['sync_after_login']
+            ?? $request['syncAfterLogin']
+            ?? $request['after_login_sync']
+            ?? $request['afterLoginSync']
+            ?? false
+        );
     }
 
     private function buildCaptureArgs(string $platform, array $request, string $projectRoot, string $outputPath): array
@@ -261,6 +431,11 @@ class PlatformProfileLogin extends Command
 
     private function bindDataSource(string $platform, int $hotelId, string $profileKey, array $request, array $payload): ?array
     {
+        $requestedSourceId = (int)($request['data_source_id'] ?? $request['source_id'] ?? 0);
+        if ($requestedSourceId > 0) {
+            return $this->markDataSourceProfileLoginVerified($requestedSourceId, $platform, $hotelId, $profileKey, $request, $payload);
+        }
+
         $isCtrip = $platform === 'ctrip';
         $config = $isCtrip
             ? [
@@ -299,15 +474,180 @@ class PlatformProfileLogin extends Command
             $payloadForSave['secret'] = ['cookies' => $cookies];
         }
 
-        $systemUser = new class {
+        return (new PlatformDataSyncService())->saveDataSource($this->systemSyncUser(), $payloadForSave);
+    }
+
+    private function markDataSourceProfileLoginVerified(int $sourceId, string $platform, int $hotelId, string $profileKey, array $request, array $payload): array
+    {
+        $row = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        if (!$row || !is_array($row)) {
+            throw new \RuntimeException('Data source not found.');
+        }
+
+        $sourcePlatform = strtolower(trim((string)($row['platform'] ?? '')));
+        if ($sourcePlatform !== $platform) {
+            throw new \RuntimeException('Data source platform mismatch.');
+        }
+        if ((int)($row['system_hotel_id'] ?? 0) !== $hotelId) {
+            throw new \RuntimeException('Data source hotel scope mismatch.');
+        }
+        $method = strtolower(trim((string)($row['ingestion_method'] ?? '')));
+        if (!in_array($method, ['browser_profile', 'profile_browser'], true)) {
+            throw new \RuntimeException('Data source is not a browser Profile source.');
+        }
+        if ((int)($row['enabled'] ?? 1) !== 1 || strtolower(trim((string)($row['status'] ?? ''))) === 'disabled') {
+            throw new \RuntimeException('Data source is disabled.');
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $config = json_decode((string)($row['config_json'] ?? ''), true);
+        $config = is_array($config) ? $config : [];
+        $config = $this->buildProfileLoginVerifiedConfig($config, $platform, $profileKey, $request, $payload, $now);
+        $clearStaleLoginError = $this->isStaleProfileLoginError((string)($row['last_error'] ?? ''));
+
+        $update = [
+            'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'status' => $this->dataSourceStatusAfterProfileLogin($row),
+            'last_error' => $clearStaleLoginError ? null : ($row['last_error'] ?? null),
+            'update_time' => $now,
+        ];
+        if ($clearStaleLoginError && in_array(strtolower(trim((string)($row['last_sync_status'] ?? ''))), ['waiting_config', 'failed', 'capture_failed'], true)) {
+            $update['last_sync_status'] = null;
+        }
+
+        Db::name('platform_data_sources')->where('id', $sourceId)->update($update);
+
+        return [
+            'id' => $sourceId,
+            'system_hotel_id' => $hotelId,
+            'platform' => $platform,
+            'data_type' => (string)($row['data_type'] ?? ''),
+            'ingestion_method' => $method,
+            'status' => (string)$update['status'],
+            'manual_login_state_verified' => true,
+            'login_state_verified' => true,
+            'profile_login_verified' => true,
+            'last_login_verified_at' => $now,
+            'stale_login_error_cleared' => $clearStaleLoginError,
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    private function buildProfileLoginVerifiedConfig(array $config, string $platform, string $profileKey, array $request, array $payload, string $now): array
+    {
+        $config['manual_login_state_verified'] = true;
+        $config['login_state_verified'] = true;
+        $config['profile_login_verified'] = true;
+        $config['profile_status'] = 'logged_in';
+        $config['login_status'] = 'logged_in';
+        $config['last_profile_login_at'] = $now;
+        $config['last_login_verified_at'] = $now;
+        $config['profile_login_verified_at'] = $now;
+        $config['profile_login_verified_by'] = 'platform_profile_login_task';
+        $config['profile_login_verification_scope'] = 'browser_profile_session_only';
+
+        if ($platform === 'ctrip' && trim((string)($config['profile_id'] ?? $config['profileId'] ?? '')) === '') {
+            $config['profile_id'] = $profileKey;
+        }
+        if ($platform === 'meituan' && trim((string)($config['store_id'] ?? $config['storeId'] ?? '')) === '') {
+            $config['store_id'] = $profileKey;
+        }
+
+        $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        $config['auth_status'] = $this->compactProfileLoginAuthStatus($authStatus);
+        $captureGate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
+        if ($captureGate !== []) {
+            $config['profile_login_capture_gate'] = $this->compactProfileLoginCaptureGate($captureGate);
+        }
+
+        $sections = $request['capture_sections'] ?? $request['sections'] ?? null;
+        if ($sections !== null && trim($this->safeSections($sections, '')) !== '') {
+            $config['capture_sections'] = $this->safeSections($sections, (string)($config['capture_sections'] ?? ''));
+        }
+
+        return $config;
+    }
+
+    private function compactProfileLoginAuthStatus(array $authStatus): array
+    {
+        $compact = [
+            'ok' => (bool)($authStatus['ok'] ?? true),
+            'status' => trim((string)($authStatus['status'] ?? 'logged_in')) ?: 'logged_in',
+        ];
+        if (array_key_exists('message', $authStatus)) {
+            $compact['message'] = mb_substr(trim((string)$authStatus['message']), 0, 200);
+        }
+        if (array_key_exists('timeout_ms', $authStatus) && is_numeric($authStatus['timeout_ms'])) {
+            $compact['timeout_ms'] = max(0, (int)$authStatus['timeout_ms']);
+        }
+        return $compact;
+    }
+
+    private function compactProfileLoginCaptureGate(array $gate): array
+    {
+        $compact = [];
+        foreach (['status', 'mode', 'reason'] as $key) {
+            if (array_key_exists($key, $gate) && trim((string)$gate[$key]) !== '') {
+                $compact[$key] = mb_substr(trim((string)$gate[$key]), 0, 120);
+            }
+        }
+        if (is_array($gate['failed_check_ids'] ?? null)) {
+            $compact['failed_check_ids'] = array_values(array_slice(array_map('strval', $gate['failed_check_ids']), 0, 20));
+        }
+        if (is_array($gate['checks'] ?? null)) {
+            $compact['checks'] = array_values(array_slice(array_map(static function ($check): array {
+                $check = is_array($check) ? $check : [];
+                return [
+                    'id' => mb_substr(trim((string)($check['id'] ?? '')), 0, 80),
+                    'status' => mb_substr(trim((string)($check['status'] ?? '')), 0, 40),
+                    'message' => mb_substr(trim((string)($check['message'] ?? '')), 0, 160),
+                ];
+            }, $gate['checks']), 0, 20));
+        }
+        return $compact;
+    }
+
+    private function dataSourceStatusAfterProfileLogin(array $source): string
+    {
+        $status = strtolower(trim((string)($source['status'] ?? '')));
+        if (in_array($status, ['success', 'partial_success'], true)) {
+            return $status;
+        }
+        return 'ready';
+    }
+
+    private function isStaleProfileLoginError(string $message): bool
+    {
+        $message = strtolower(trim($message));
+        if ($message === '') {
+            return false;
+        }
+        foreach ([
+            'profile is not prepared',
+            'profile_not_prepared',
+            'profile directory',
+            'login session is not ready',
+            're-login',
+            'login_required',
+            'login expired',
+            '登录',
+        ] as $needle) {
+            if (str_contains($message, $needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function systemSyncUser(): object
+    {
+        return new class {
             public int $id = 1;
             public function isSuperAdmin(): bool
             {
                 return true;
             }
         };
-
-        return (new PlatformDataSyncService())->saveDataSource($systemUser, $payloadForSave);
     }
 
     private function findBrowserProfileDataSourceId(int $hotelId, string $platform, string $profileKey): int

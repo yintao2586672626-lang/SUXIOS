@@ -106,6 +106,54 @@ final class BusinessClosureOverviewServiceTest extends TestCase
         self::assertSame(1, $overview['summary']['closed_loop_count']);
     }
 
+    public function testP0DownstreamGateBlocksDownstreamClosureClaims(): void
+    {
+        $service = new BusinessClosureOverviewService();
+
+        $overview = $service->buildOverviewFromSignals([
+            [
+                'key' => 'ai_daily_report',
+                'label' => 'AI经营日报 / AI决策',
+                'record_count' => 2,
+                'linked_execution_count' => 2,
+                'reviewed_count' => 2,
+                'roi_ready_count' => 1,
+            ],
+            [
+                'key' => 'revenue_pricing',
+                'label' => '收益调价建议',
+                'record_count' => 2,
+                'linked_execution_count' => 2,
+                'reviewed_count' => 2,
+                'roi_ready_count' => 1,
+            ],
+            [
+                'key' => 'operation_execution',
+                'label' => '运营执行闭环',
+                'record_count' => 2,
+                'linked_execution_count' => 2,
+                'reviewed_count' => 2,
+                'roi_ready_count' => 1,
+            ],
+        ], ['total' => 2, 'roi_ready' => 1], [], [
+            'status' => 'blocked_by_p0_ota_gate',
+            'current_upstream_status' => 'incomplete',
+            'blocking_missing_inputs' => ['p0_field_loop_verifier_ready'],
+        ]);
+
+        $modules = array_column($overview['modules'], null, 'key');
+        self::assertSame('blocked_by_p0_ota_gate', $overview['p0_downstream_gate']['status']);
+        self::assertSame('blocked_by_p0_ota_gate', $overview['summary']['status']);
+        self::assertSame(0, $overview['summary']['closed_loop_count']);
+        self::assertSame(3, $overview['summary']['blocked_count']);
+        self::assertSame('blocked_by_p0_ota_gate', $modules['revenue_pricing']['status']);
+        self::assertSame('blocked_by_p0_ota_gate', $modules['ai_daily_report']['status']);
+        self::assertSame('blocked_by_p0_ota_gate', $modules['operation_execution']['status']);
+        self::assertFalse($modules['operation_execution']['closed_loop']);
+        self::assertContains('p0_ota_gate_not_ready', array_column($modules['operation_execution']['data_gaps'], 'code'));
+        self::assertContains('p0_ota_gate_not_ready', array_column($overview['data_gaps'], 'code'));
+    }
+
     public function testOverviewSummaryKeepsWeakModulesVisible(): void
     {
         $service = new BusinessClosureOverviewService();

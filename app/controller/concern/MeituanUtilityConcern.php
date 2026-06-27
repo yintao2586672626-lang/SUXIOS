@@ -222,8 +222,8 @@ trait MeituanUtilityConcern
 
     private function calculateMeituanOrderNights(array $item): int
     {
-        $checkIn = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['check_in_date', 'checkInDate'], ''));
-        $checkOut = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['check_out_date', 'checkOutDate'], ''));
+        $checkIn = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['check_in_date', 'checkInDate', 'checkIn', 'check_in', 'arrivalDate', '入住日期'], ''));
+        $checkOut = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['check_out_date', 'checkOutDate', 'checkOut', 'check_out', 'departureDate', '离店日期'], ''));
         if ($checkIn === '' || $checkOut === '') {
             return 0;
         }

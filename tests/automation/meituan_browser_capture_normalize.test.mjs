@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isImportableMeituanTrafficRow,
+  normalizeMeituanFlowAnalysisRows,
+  normalizeMeituanPeerRankRows,
+  normalizeMeituanSearchKeywordRows,
   normalizeMeituanTrafficCardRows,
+  normalizeMeituanTrafficForecastRows,
 } from '../../scripts/lib/meituan_browser_capture_normalize.mjs';
 
 test('Meituan traffic card response maps to P0 traffic fields', () => {
@@ -72,4 +76,98 @@ test('Meituan traffic importability requires every P0 field group', () => {
     orderFillingNum: 10,
     orderSubmitNum: 3,
   }), true);
+});
+
+test('Meituan peer rank response expands peerRankData round rows', () => {
+  const rows = normalizeMeituanPeerRankRows({
+    data: {
+      peerRankData: [
+        {
+          dimName: '入住间夜',
+          aiMetricName: 'checkin room nights',
+          roundRanks: [
+            { poiId: '1001', poiName: 'Peer A', rank: 1, percent: '35.5' },
+          ],
+        },
+      ],
+    },
+  }, {
+    defaultDataDate: '2026-06-26',
+    dateRange: '1',
+    rankType: 'P_RZ',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'peer_rank');
+  assert.equal(rows[0].dimension, '入住间夜');
+  assert.equal(rows[0].rankType, 'P_RZ');
+  assert.equal(rows[0].dataDate, '2026-06-26');
+  assert.equal(rows[0]._source_path, 'data.peerRankData.0.roundRanks.0');
+});
+
+test('Meituan search keyword cards expand to search_keyword rows', () => {
+  const rows = normalizeMeituanSearchKeywordRows({
+    data: {
+      cards: [
+        {
+          title: '热门搜索',
+          itemList: [
+            { name: '机场酒店', value: 320 },
+          ],
+        },
+      ],
+    },
+  }, {
+    defaultDataDate: '2026-06-26',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'search_keyword');
+  assert.equal(rows[0].keyword, '机场酒店');
+  assert.equal(rows[0].dimension, '机场酒店');
+  assert.equal(rows[0].data_value, 320);
+});
+
+test('Meituan flow forecast keeps forecast rows separate from actual traffic', () => {
+  const rows = normalizeMeituanTrafficForecastRows({
+    data: {
+      detail: [
+        { dateTime: '20260701', current: 88, peerAvg: 120 },
+      ],
+    },
+  }, {
+    forecastType: '2',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'traffic_forecast');
+  assert.equal(rows[0].forecast_type, '2');
+  assert.equal(rows[0].dataDate, '2026-07-01');
+  assert.equal(rows[0].data_value, 88);
+  assert.equal(rows[0].peer_avg, 120);
+  assert.equal(isImportableMeituanTrafficRow(rows[0]), false);
+});
+
+test('Meituan flow conversion becomes traffic_analysis supplemental data', () => {
+  const rows = normalizeMeituanFlowAnalysisRows({
+    data: {
+      exposeCount: '1000',
+      visitCount: '200',
+      orderCount: '20',
+      exposeVisitRate: '20',
+      visitOrderRate: '10',
+    },
+  }, {
+    analysisType: 'conversion',
+    defaultDataDate: '2026-06-26',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'traffic_analysis');
+  assert.equal(rows[0].analysis_type, 'conversion_funnel');
+  assert.equal(rows[0].listExposure, 1000);
+  assert.equal(rows[0].detailExposure, 200);
+  assert.equal(rows[0].orderSubmitNum, 20);
+  assert.equal(rows[0].flowRate, 10);
+  assert.notEqual(rows[0].data_type, 'traffic');
 });

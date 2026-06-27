@@ -124,6 +124,13 @@ class BusinessClosureOverviewService
         'feasibility_report',
     ];
 
+    private const P0_BLOCKED_MODULE_KEYS = [
+        'ai_daily_report',
+        'revenue_pricing',
+        'operation_execution',
+        'transfer_investment',
+    ];
+
     public function overview(array $hotelIds, ?int $hotelId, int $userId = 0, bool $isSuperAdmin = false): array
     {
         $operationService = new OperationManagementService();
@@ -145,10 +152,16 @@ class BusinessClosureOverviewService
             $this->feasibilityReportSignal($userId, $isSuperAdmin, $executionStats),
         ];
 
-        return $this->buildOverviewFromSignals($modules, $executionSummary, $dataGaps);
+        $p0DownstreamGate = (new P0OtaDownstreamGateService())->normalize([
+            'status' => 'blocked_by_p0_ota_gate',
+            'current_upstream_status' => 'not_verified',
+            'blocking_missing_inputs' => ['p0_field_loop_verifier_ready'],
+        ], '', $hotelId);
+
+        return $this->buildOverviewFromSignals($modules, $executionSummary, $dataGaps, $p0DownstreamGate);
     }
 
-    public function buildOverviewFromSignals(array $signals, array $executionSummary = [], array $dataGaps = []): array
+    public function buildOverviewFromSignals(array $signals, array $executionSummary = [], array $dataGaps = [], array $p0DownstreamGate = []): array
     {
         $modules = [];
         foreach ($signals as $signal) {
@@ -156,6 +169,16 @@ class BusinessClosureOverviewService
                 continue;
             }
             $modules[] = $this->summarizeModuleClosure($signal);
+        }
+
+        $p0Gate = $this->normalizeP0DownstreamGate($p0DownstreamGate);
+        $p0Blocked = (string)($p0Gate['status'] ?? '') === 'blocked_by_p0_ota_gate';
+        if ($p0Blocked) {
+            $modules = $this->applyP0GateToModules($modules, $p0Gate);
+            $dataGaps[] = [
+                'code' => 'p0_ota_gate_not_ready',
+                'message' => 'P0 OTA field-loop verifier is not ready; downstream revenue, AI, operation and investment closure claims remain blocked.',
+            ];
         }
 
         usort($modules, static function (array $a, array $b): int {
@@ -181,7 +204,7 @@ class BusinessClosureOverviewService
             if (($module['roi_ready'] ?? false) === true) {
                 $roiReadyModules++;
             }
-            if (($module['status'] ?? '') === 'not_loaded' || ($module['status'] ?? '') === 'blocked') {
+            if (in_array((string)($module['status'] ?? ''), ['not_loaded', 'blocked', 'blocked_by_p0_ota_gate'], true)) {
                 $blocked++;
             }
             if (($module['status'] ?? '') === 'record_only') {
@@ -212,7 +235,7 @@ class BusinessClosureOverviewService
                 'avg_maturity_score' => $total > 0 ? round($scoreSum / $total, 1) : null,
                 'operation_execution_total' => (int)($executionSummary['total'] ?? 0),
                 'operation_roi_ready' => (int)($executionSummary['roi_ready'] ?? 0),
-                'status' => $closed === $total && $total > 0 ? 'closed' : 'not_closed',
+                'status' => $p0Blocked ? 'blocked_by_p0_ota_gate' : ($closed === $total && $total > 0 ? 'closed' : 'not_closed'),
             ],
             'modules' => $modules,
             'weak_modules' => array_slice($roiWeakModules, 0, 5),
@@ -222,7 +245,45 @@ class BusinessClosureOverviewService
             'data_gaps' => $dataGaps,
             'source_scope' => 'post_ota_closure_only',
             'protected_scope' => 'online data collection and OTA standardization are read-only for this overview',
+            'p0_downstream_gate' => $p0Gate,
         ];
+    }
+
+    private function normalizeP0DownstreamGate(array $gate): array
+    {
+        if ($gate === []) {
+            return [];
+        }
+
+        return (new P0OtaDownstreamGateService())->normalize($gate);
+    }
+
+    private function applyP0GateToModules(array $modules, array $p0Gate): array
+    {
+        return array_map(function (array $module) use ($p0Gate): array {
+            if (!in_array((string)($module['key'] ?? ''), self::P0_BLOCKED_MODULE_KEYS, true)) {
+                return $module;
+            }
+
+            $module['pre_p0_status'] = (string)($module['status'] ?? '');
+            $module['status'] = 'blocked_by_p0_ota_gate';
+            $module['status_label'] = $this->statusLabel('blocked_by_p0_ota_gate');
+            $module['closed_loop'] = false;
+            $module['process_closed_loop'] = false;
+            $module['process_status'] = 'not_closed';
+            $module['roi_ready'] = false;
+            $module['roi_status'] = 'not_ready';
+            $module['maturity_score'] = min((int)($module['maturity_score'] ?? 0), 40);
+            $module['next_action'] = 'verify_p0_ota_gate';
+            $module['next_action_label'] = $this->nextActionLabel('verify_p0_ota_gate');
+            $module['p0_downstream_gate'] = $p0Gate;
+            $module['data_gaps'][] = [
+                'code' => 'p0_ota_gate_not_ready',
+                'message' => 'P0 OTA field-loop verifier is not ready; this module cannot be claimed as a downstream closed loop.',
+            ];
+
+            return $module;
+        }, $modules);
     }
 
     public function summarizeModuleClosure(array $signal): array
@@ -1061,6 +1122,7 @@ class BusinessClosureOverviewService
             'evidence_ready' => '待复盘',
             'reviewed_no_roi' => '已复盘缺效果证据',
             'roi_ready' => '已闭环',
+            'blocked_by_p0_ota_gate' => 'P0未就绪',
             'blocked' => '阻塞',
             'rejected' => '已驳回',
         ][$status] ?? $status;
@@ -1079,6 +1141,7 @@ class BusinessClosureOverviewService
             'review_execution_result' => '复盘执行结果',
             'add_roi_evidence' => '补效果/ROI证据',
             'keep_reviewing' => '持续复盘',
+            'verify_p0_ota_gate' => '复验P0 OTA门禁',
             'fix_blocked_reason' => '处理阻塞原因',
             'rework_or_archive' => '重做或归档',
         ][$nextAction] ?? $nextAction;

@@ -14,7 +14,11 @@ import {
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
 import {
   isImportableMeituanTrafficRow,
+  normalizeMeituanFlowAnalysisRows,
+  normalizeMeituanPeerRankRows,
+  normalizeMeituanSearchKeywordRows,
   normalizeMeituanTrafficCardRows,
+  normalizeMeituanTrafficForecastRows,
 } from './lib/meituan_browser_capture_normalize.mjs';
 import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
 
@@ -60,6 +64,10 @@ const payload = {
   responses: [],
   reviews: [],
   traffic: [],
+  flowAnalysis: [],
+  peerRank: [],
+  searchKeywords: [],
+  trafficForecast: [],
   ads: [],
   orders: [],
   screenshots: [],
@@ -264,28 +272,42 @@ async function capturePage(page, name, url) {
 }
 
 async function runMeituanTrafficInteractionPlan(page) {
-  const steps = [
-    ['\u6d41\u91cf\u5206\u6790', 'open traffic analysis tab'],
-    ['\u6628\u65e5', 'select yesterday traffic period'],
-  ];
   const results = [];
-  for (const [text, reason] of steps) {
-    await dismissMeituanOverlays(page);
-    const result = await clickMeituanTextIfVisible(page, text);
-    results.push({
-      action: 'click_text',
-      text,
-      reason,
-      clicked: result.clicked,
-      skipped: result.skipped || '',
-      ...(result.error ? { error: result.error } : {}),
-    });
-    if (result.clicked) {
-      await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => null);
-      await page.waitForTimeout(1200);
+
+  await clickMeituanTrafficStep(page, results, '\u540c\u884c\u5206\u6790', 'open peer ranking tab');
+  for (const period of ['\u4eca\u65e5\u5b9e\u65f6', '\u6628\u65e5', '\u8fd17\u5929', '\u8fd130\u5929']) {
+    await clickMeituanTrafficStep(page, results, period, `select peer period ${period}`);
+    for (const tab of ['\u5165\u4f4f\u699c', '\u9500\u552e\u699c', '\u6d41\u91cf\u699c', '\u8f6c\u5316\u699c']) {
+      await clickMeituanTrafficStep(page, results, tab, `select peer rank ${tab}`);
     }
   }
+
+  await clickMeituanTrafficStep(page, results, '\u6d41\u91cf\u5206\u6790', 'open traffic analysis tab');
+  for (const period of ['\u4eca\u65e5\u5b9e\u65f6', '\u6628\u65e5', '\u8fd17\u5929', '\u8fd130\u5929']) {
+    await clickMeituanTrafficStep(page, results, period, `select traffic period ${period}`, 1800);
+  }
+  for (const tab of ['\u8be6\u60c5\u9875\u6d4f\u89c8\u4eba\u6570\uff08PV\uff09', '\u8be6\u60c5\u9875\u6d4f\u89c8\u4eba\u6570\uff08UV\uff09', '\u63d0\u524d\u8ba2\u8ba2\u5355\u91cf']) {
+    await clickMeituanTrafficStep(page, results, tab, `select traffic forecast ${tab}`, 1500);
+  }
+
   return results;
+}
+
+async function clickMeituanTrafficStep(page, results, text, reason, waitMs = 1200) {
+  await dismissMeituanOverlays(page);
+  const result = await clickMeituanTextIfVisible(page, text);
+  results.push({
+    action: 'click_text',
+    text,
+    reason,
+    clicked: result.clicked,
+    skipped: result.skipped || '',
+    ...(result.error ? { error: result.error } : {}),
+  });
+  if (result.clicked) {
+    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => null);
+    await page.waitForTimeout(waitMs);
+  }
 }
 
 async function clickMeituanTextIfVisible(page, text) {
@@ -375,13 +397,28 @@ function registerResponseCapture(page, target) {
     }
 
     const safeBody = sanitizeOtaPayloadForStorage(body, section);
+    const supplementalMeta = meituanSupplementalResponseMeta(url, requestDateEvidence);
+    const targetPayloadKey = meituanPayloadKeyForResponse(url, safeBody, section);
     const normalizedRows = normalizeCapturedList(safeBody, section, '', requestDateEvidence);
-    const rows = section === 'traffic'
-      ? normalizedRows.filter(row => isImportableMeituanTrafficRow(row))
-      : normalizedRows;
+    const rows = meituanRowsForPayloadKey(targetPayloadKey, safeBody, normalizedRows, supplementalMeta);
     const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource: `xhr:${section}` });
-    target.responses.push({ url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section, status, row_count: rows.length, request_date_source: requestDateEvidence.date_source || '', data: safeBody });
-    target[section].push(...rows.map(row => {
+    target.responses.push({
+      url_hash: responseEvidence.source_url_hash || '',
+      source_trace_id: responseEvidence.source_trace_id || '',
+      section,
+      payload_key: targetPayloadKey,
+      status,
+      row_count: rows.length,
+      request_date_source: requestDateEvidence.date_source || '',
+      date_range: supplementalMeta.dateRange,
+      rank_type: supplementalMeta.rankType,
+      forecast_type: supplementalMeta.forecastType,
+      data: safeBody,
+    });
+    if (!Array.isArray(target[targetPayloadKey])) {
+      target[targetPayloadKey] = [];
+    }
+    target[targetPayloadKey].push(...rows.map(row => {
       row = withMeituanPlatformIdentifier(row);
       return attachOtaCaptureEvidence(row, 'meituan', {
         url,
@@ -417,6 +454,94 @@ function withMeituanPlatformIdentifier(row) {
     next.store_id = storeId;
   }
   return next;
+}
+
+function meituanRowsForPayloadKey(payloadKey, safeBody, normalizedRows, meta) {
+  if (payloadKey === 'peerRank') {
+    return normalizeMeituanPeerRankRows(safeBody, meta);
+  }
+  if (payloadKey === 'searchKeywords') {
+    return normalizeMeituanSearchKeywordRows(safeBody, meta);
+  }
+  if (payloadKey === 'trafficForecast') {
+    return normalizeMeituanTrafficForecastRows(safeBody, meta);
+  }
+  if (payloadKey === 'flowAnalysis') {
+    return normalizeMeituanFlowAnalysisRows(safeBody, meta);
+  }
+  if (payloadKey === 'traffic') {
+    return normalizedRows.filter(row => isImportableMeituanTrafficRow(row));
+  }
+  return normalizedRows;
+}
+
+function meituanPayloadKeyForResponse(url, body, section) {
+  if (section !== 'traffic') {
+    return section;
+  }
+  const value = String(url || '').toLowerCase();
+  if (value.includes('/business/peer/rank/data/detail') || bodyHasPath(body, ['data', 'peerRankData']) || bodyHasPath(body, ['peerRankData'])) {
+    return 'peerRank';
+  }
+  if (value.includes('flowconversion') || value.includes('flowtrenddetail') || value.includes('flowtrend')) {
+    return 'flowAnalysis';
+  }
+  if (value.includes('searchkeywords') || bodyHasSearchKeywordCards(body) || bodyHasPath(body, ['data', 'searchKeywords']) || bodyHasPath(body, ['data', 'searchKeyWords'])) {
+    return 'searchKeywords';
+  }
+  if (value.includes('flowforecast')) {
+    return 'trafficForecast';
+  }
+  return 'traffic';
+}
+
+function meituanSupplementalResponseMeta(url, requestDateEvidence = {}) {
+  const query = urlQueryParams(url);
+  return {
+    requestDateEvidence,
+    defaultDataDate,
+    capturedAt,
+    dateRange: query.get('dateRange') || '',
+    rankType: query.get('rankType') || '',
+    forecastType: query.get('type') || '',
+    analysisType: meituanFlowAnalysisType(url),
+  };
+}
+
+function meituanFlowAnalysisType(url) {
+  const value = String(url || '').toLowerCase();
+  if (value.includes('flowconversion')) {
+    return 'conversion';
+  }
+  if (value.includes('flowtrenddetail')) {
+    return 'source';
+  }
+  if (value.includes('flowtrend')) {
+    return 'trend';
+  }
+  return '';
+}
+
+function urlQueryParams(url) {
+  try {
+    return new URL(String(url || ''), 'https://eb.meituan.com').searchParams;
+  } catch {
+    return new URLSearchParams();
+  }
+}
+
+function bodyHasPath(value, path) {
+  return readPath(value, path) !== undefined;
+}
+
+function bodyHasSearchKeywordCards(value) {
+  const cards = readPath(value, ['data', 'cards']) || readPath(value, ['data', 'data', 'cards']) || readPath(value, ['cards']);
+  return Array.isArray(cards) && cards.some(card => {
+    if (!card || typeof card !== 'object' || Array.isArray(card)) {
+      return false;
+    }
+    return Array.isArray(card.itemList || card.items || card.keywords);
+  });
 }
 
 function parseResponseBody(text, contentType) {
@@ -840,6 +965,10 @@ function summarize(data) {
   return {
     reviews: data.reviews.length,
     traffic: data.traffic.length,
+    flowAnalysis: data.flowAnalysis.length,
+    peerRank: data.peerRank.length,
+    searchKeywords: data.searchKeywords.length,
+    trafficForecast: data.trafficForecast.length,
     ads: data.ads.length,
     orders: data.orders.length,
     responses: data.responses.length,

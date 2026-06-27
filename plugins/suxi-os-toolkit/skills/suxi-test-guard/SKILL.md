@@ -1,9 +1,13 @@
 ---
 name: suxi-test-guard
-description: Guard宿析OS bug fixes and validation. Use when the request includes 报错、bug、修复、验证、测试、复现、回归、接口测试、健康检查、curl、Postman、test-api.ps1、test-login.ps1、public/index.html保护、不要构建、Vite覆盖、最小修复。
+description: 用于宿析OS问题修复和验证守卫，触发场景包括 报错、bug、修复、验证、测试、复现、回归、接口测试、健康检查、curl、Postman、test-api.ps1、test-login.ps1、public/index.html保护、不要构建、Vite覆盖和最小修复。
 ---
 
 # Suxi Test Guard
+
+## Plugin Priority
+
+Use `suxi-plugin-priority-router` when verification benefits from an installed plugin: Browser for local web checks, Chrome for the user's existing browser session, GitHub for CI/PR evidence, Sentry for production issue traces, and Computer Use for Windows desktop operations.
 
 ## Rules
 

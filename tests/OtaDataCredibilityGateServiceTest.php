@@ -192,4 +192,50 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
         self::assertFalse($gate['evidence']['data_quality_present']);
         self::assertSame(1, $gate['evidence']['fact_rows']);
     }
+
+    public function testP0DownstreamGateBlocksDownstreamDecisionUseEvenWhenMetricsLookReady(): void
+    {
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset([
+            'status' => 'ready',
+            'p0_downstream_gate' => [
+                'status' => 'blocked_by_p0_ota_gate',
+                'current_upstream_status' => 'incomplete',
+                'required_upstream_status' => 'ready',
+                'scope_policy' => 'ota_channel_gate_before_downstream_claims',
+                'blocking_missing_inputs' => ['manual_login_state_verified', 'target_date_traffic_rows'],
+                'blocked_stage_keys' => ['revenue_analysis', 'ai_decision_advice', 'operation_closure', 'investment_judgment'],
+                'allowed_claims' => ['structure_ready_or_reference_only', 'no_whole_hotel_or_downstream_closure_claim'],
+            ],
+            'data_quality' => [
+                'input_rows' => 1,
+                'accepted_rows' => 1,
+                'rejected_rows' => [],
+            ],
+            'fact_ota_daily' => [[
+                'id' => 802,
+                'platform_key' => 'ctrip',
+                'hotel_key' => 'system:7',
+                'revenue' => 1600.0,
+                'room_revenue' => 1600.0,
+                'room_nights' => 8.0,
+                'source_trace' => [
+                    'saved_success' => true,
+                    'failure_reasons' => [],
+                ],
+            ]],
+        ]);
+
+        $gate = $metrics['credibility_gate'];
+        self::assertSame('blocked', $gate['status']);
+        self::assertContains('p0_ota_gate_not_ready', $gate['reason_codes']);
+        self::assertContains('p0_ota_gate_missing:manual_login_state_verified', $gate['reason_codes']);
+        self::assertFalse($gate['decision_use']['revenue_analysis']['allowed']);
+        self::assertSame('blocked_by_p0_ota_gate', $gate['decision_use']['revenue_analysis']['status']);
+        self::assertSame('blocked_by_p0_ota_gate', $gate['decision_use']['ai_decision_support']['status']);
+        self::assertSame('blocked_by_p0_ota_gate', $gate['decision_use']['operation_management']['status']);
+        self::assertSame('blocked_by_p0_ota_gate', $gate['decision_use']['investment_decision']['status']);
+        self::assertSame('blocked_by_p0_ota_gate', $gate['evidence']['p0_downstream_gate']['status']);
+        self::assertFalse($metrics['p1_revenue_closure']['calculation_allowed']);
+        self::assertSame('blocked_by_p0_ota_gate', $metrics['p1_revenue_closure']['decision_use']['status']);
+    }
 }

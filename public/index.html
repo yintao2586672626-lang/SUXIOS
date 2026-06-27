@@ -29,7 +29,7 @@
         })();
     </script>
     <link href="tailwind.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260611-perf-bg-avif">
+    <link rel="stylesheet" href="style.css?v=20260628-mobile-shell">
     <link rel="stylesheet" href="ai-custom.css?v=20260603-lifecycle-footer">
     <script>
         (() => {
@@ -56,9 +56,9 @@
     <script src="vue.global.prod.js?v=20260611-open-fix"></script>
     <script src="shared-components.js?v=20260611-open-fix"></script>
     <script src="ctrip-static.js?v=20260617-profile-verification-cache-fix"></script>
-    <script src="meituan-static.js?v=20260617-metric-cache-fix"></script>
+    <script src="meituan-static.js?v=20260627-order-csv-import"></script>
     <script src="data-health-static.js?v=20260616-history-raw-helper"></script>
-    <script src="revenue-ai-static.js?v=20260627-business-date-cache-fix"></script>
+    <script src="revenue-ai-static.js?v=20260627-business-closure-cache-fix"></script>
     <script src="system-static.js?v=20260616-hotel-config-helpers"></script>
     <script src="compass-static.js?v=20260613-daily-workbench"></script>
     <script src="home-static.js?v=20260616-home-helpers"></script>
@@ -3678,7 +3678,7 @@
                                         </div>
                                         <span :class="operationClosureStatusClass(module.status)" class="shrink-0 rounded-full border px-2 py-1 text-xs">{{ module.status_label }}</span>
                                     </div>
-                                    <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
+                                    <div class="mt-3 grid grid-cols-4 gap-2 text-xs">
                                         <div>
                                             <div class="text-gray-400">记录</div>
                                             <div class="font-semibold text-gray-800">{{ module.record_count || 0 }}</div>
@@ -3688,7 +3688,11 @@
                                             <div class="font-semibold text-gray-800">{{ module.linked_execution_count || 0 }}</div>
                                         </div>
                                         <div>
-                                            <div class="text-gray-400">复盘/ROI</div>
+                                            <div class="text-gray-400">复盘</div>
+                                            <div class="font-semibold text-gray-800">{{ module.reviewed_count || 0 }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-gray-400">ROI</div>
                                             <div class="font-semibold text-gray-800">{{ module.roi_ready_count || 0 }}</div>
                                         </div>
                                     </div>
@@ -4971,6 +4975,85 @@
                                         </div>
                                         <div class="mt-2 line-clamp-2 text-xs leading-5 text-slate-500" :title="card.reasonText">{{ card.reasonText }}</div>
                                     </button>
+                                </div>
+                                <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="revenue-ai-business-closure">
+                                    <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                        <div>
+                                            <div class="text-sm font-semibold text-slate-900">P1 收益分析闭环</div>
+                                            <div class="mt-1 text-xs text-slate-500">{{ revenueAiBusinessClosure.summary }}</div>
+                                        </div>
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">{{ revenueAiBusinessClosure.scopeText }}</span>
+                                            <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiBusinessClosure.className]">{{ revenueAiBusinessClosure.statusLabel }}</span>
+                                        </div>
+                                    </div>
+                                    <div v-if="revenueAiBusinessClosure.summaryChips.length" class="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                                        <div v-for="chip in revenueAiBusinessClosure.summaryChips" :key="chip.key" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="truncate text-[11px] font-semibold text-slate-500" :title="chip.label">{{ chip.label }}</span>
+                                                <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', chip.className]">{{ chip.statusLabel }}</span>
+                                            </div>
+                                            <div class="mt-1 truncate text-sm font-semibold text-slate-900" :title="chip.value">{{ chip.value }}</div>
+                                            <div class="mt-0.5 line-clamp-1 text-[11px] text-slate-500" :title="chip.detail">{{ chip.detail }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 gap-2 md:grid-cols-5">
+                                        <div v-for="row in revenueAiBusinessClosure.rows" :key="row.key" class="min-h-[124px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                                            <div class="flex items-start justify-between gap-2">
+                                                <div class="min-w-0">
+                                                    <div class="text-[11px] font-semibold text-slate-400">{{ row.stage }}</div>
+                                                    <div class="mt-1 truncate text-sm font-semibold text-slate-900" :title="row.title">{{ row.title }}</div>
+                                                </div>
+                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.statusLabel }}</span>
+                                            </div>
+                                            <div v-if="row.metrics?.length" class="mt-2 grid grid-cols-2 gap-1.5">
+                                                <div v-for="metric in row.metrics" :key="metric.key" class="min-w-0 rounded-lg border border-white bg-white/80 px-2 py-1.5">
+                                                    <div class="flex items-center justify-between gap-1">
+                                                        <span class="truncate text-[11px] text-slate-500" :title="metric.label">{{ metric.label }}</span>
+                                                        <span :class="['h-1.5 w-1.5 shrink-0 rounded-full border', metric.className]"></span>
+                                                    </div>
+                                                    <div class="mt-0.5 truncate text-sm font-semibold text-slate-900" :title="metric.value">{{ metric.value }}</div>
+                                                    <div v-if="metric.reasonText" class="mt-0.5 line-clamp-1 text-[10px] text-slate-500" :title="metric.reasonText">{{ metric.reasonText }}</div>
+                                                </div>
+                                            </div>
+                                            <template v-else>
+                                                <div class="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-slate-800" :title="row.primary">{{ row.primary }}</div>
+                                                <div class="mt-1 line-clamp-3 text-xs leading-5 text-slate-500" :title="row.secondary">{{ row.secondary }}</div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
+                                        <span class="font-semibold">下一步：</span>{{ revenueAiBusinessClosure.nextAction }}
+                                    </div>
+                                    <div class="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                                        <div class="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="text-xs font-semibold text-amber-800">缺失项说明</span>
+                                                <span class="text-[11px] text-amber-700">{{ revenueAiBusinessClosure.missingRows.length }}项</span>
+                                            </div>
+                                            <div v-if="revenueAiBusinessClosure.missingRows.length" class="mt-2 space-y-1.5">
+                                                <div v-for="item in revenueAiBusinessClosure.missingRows" :key="item.key" class="rounded-lg bg-white/70 px-2 py-1.5">
+                                                    <div class="truncate text-xs font-semibold text-amber-900" :title="item.code">{{ item.code }}</div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-amber-700" :title="item.detail">{{ item.detail }}</div>
+                                                    <div v-if="item.affected" class="mt-0.5 text-[11px] text-amber-600">影响 {{ item.affected }}</div>
+                                                </div>
+                                            </div>
+                                            <div v-else class="mt-2 text-xs text-amber-700">当前 P1 收益闭环未返回关键缺失项。</div>
+                                        </div>
+                                        <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="text-xs font-semibold text-slate-700">异常判断</span>
+                                                <span class="text-[11px] text-slate-500">{{ revenueAiBusinessClosure.anomalyRows.length }}项</span>
+                                            </div>
+                                            <div v-if="revenueAiBusinessClosure.anomalyRows.length" class="mt-2 space-y-1.5">
+                                                <div v-for="item in revenueAiBusinessClosure.anomalyRows" :key="item.key" class="rounded-lg bg-white px-2 py-1.5">
+                                                    <div class="truncate text-xs font-semibold text-slate-800" :title="item.code">{{ item.code }}</div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="item.detail">{{ item.detail }}</div>
+                                                </div>
+                                            </div>
+                                            <div v-else class="mt-2 text-xs text-slate-500">当前未命中收益计算异常；投决仍受全酒店口径边界限制。</div>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="revenue-ai-gap-closure">
                                     <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
@@ -6413,7 +6496,7 @@
                                         </h4>
                                         <p class="text-sm text-blue-700">
                                             从携程 eBooking 后台获取竞争圈经营数据（预订销售额、在店间夜、预订订单量、点评分等）。
-                                            请先在"酒店管理"中维护该酒店的数据源配置，或手动输入平台授权内容。
+                                            请先在"酒店管理"中维护该酒店的数据源配置；日常默认使用浏览器 Profile 登录态，手动平台授权只用于临时补数或排障。
                                         </p>
                                         <div class="mt-3 inline-flex items-center px-3 py-1 rounded-full bg-white border border-blue-200 text-xs text-blue-700">
                                             <i class="fas fa-key mr-2"></i>采集方式：只需平台授权；接口地址和平台节点使用已保存配置或后端默认值
@@ -8960,8 +9043,8 @@
                                                     <div>经营、权重流量、流量、竞对趋势</div>
                                                 </div>
                                                 <div class="bg-white/70 border border-yellow-100 rounded px-3 py-2">
-                                                    <div class="font-medium text-yellow-800">系统抓取</div>
-                                                    <div>填写下方字段后发起流量采集</div>
+                                                    <div class="font-medium text-yellow-800">临时排障抓取</div>
+                                                    <div>仅在已取得真实接口上下文时发起流量补抓</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -8969,7 +9052,7 @@
 
                                     <div class="bg-white border border-gray-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-gray-800 mb-3">
-                                            <i class="fas fa-plug text-gray-500 mr-2"></i>手动抓包接口抓取
+                                            <i class="fas fa-plug text-gray-500 mr-2"></i>临时排障：手动接口抓取
                                         </h4>
                                         <p class="text-sm text-gray-500 mb-4">接口地址仅用于高级排障，应填写平台后台真实请求地址，不是页面地址。</p>
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -9049,14 +9132,45 @@
                                                 <div>/orders/list / /order/unhandled/count</div>
                                             </div>
                                             <div class="bg-white/70 border border-blue-100 rounded px-3 py-2">
-                                                <div class="font-medium text-blue-800">系统抓取</div>
-                                                <div>填写下方字段后调用 /fetch-meituan-orders</div>
+                                                <div class="font-medium text-blue-800">临时排障抓取</div>
+                                                <div>仅在已取得真实订单接口上下文时补抓</div>
                                             </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white border border-emerald-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-gray-800 mb-3">
+                                            <i class="fas fa-file-csv text-emerald-600 mr-2"></i>临时补录：美团订单 CSV 导入
+                                        </h4>
+                                        <p class="text-sm text-gray-500 mb-4">用于导入授权订单页导出的 CSV。订单号入库前只保存 hash；底价作为导入参考价，不写成已确认销售收入。</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
+                                                <select v-model="meituanForm.hotelId" @change="syncMeituanOrderConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识（可选）</label>
+                                                <input v-model="meituanOrderForm.poiId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="用于标记来源门店">
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">CSV 内容</label>
+                                                <textarea v-model="meituanOrderForm.csvText" rows="6" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="订单号,房型,入住日期,离店日期,购买时间,底价(元)"></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="flex flex-wrap gap-3">
+                                            <button type="button" @click="copyMeituanOrderCollectorScript" class="px-4 py-2 bg-white text-emerald-700 border border-emerald-300 rounded-lg hover:bg-emerald-50">
+                                                <i class="fas fa-copy mr-2"></i>复制采集脚本
+                                            </button>
+                                            <button type="button" @click="importMeituanOrderCsvData" :disabled="fetchingData" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:bg-gray-400">
+                                                <i class="fas fa-file-import mr-2"></i>{{ fetchingData ? '导入中...' : '导入 CSV 订单' }}
+                                            </button>
                                         </div>
                                     </div>
                                     <div class="bg-white border border-blue-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-gray-800 mb-3">
-                                            <i class="fas fa-plug text-gray-500 mr-2"></i>手动抓包接口抓取
+                                            <i class="fas fa-plug text-gray-500 mr-2"></i>临时排障：手动接口抓取
                                         </h4>
                                         <p class="text-sm text-gray-500 mb-4">接口地址应填写平台后台订单列表的真实请求地址，不是订单页面地址。</p>
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -9147,7 +9261,7 @@
                                     </div>
                                     <div class="bg-white border border-red-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-gray-800 mb-3">
-                                            <i class="fas fa-plug text-gray-500 mr-2"></i>手动抓包接口抓取
+                                            <i class="fas fa-plug text-gray-500 mr-2"></i>临时排障：手动接口抓取
                                         </h4>
                                         <p class="text-sm text-gray-500 mb-4">接口地址仅用于高级排障，应填写平台后台真实请求地址，不是推广通入口页面地址。</p>
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -10191,22 +10305,58 @@
                                                             去同步数据
                                                         </button>
                                                     </div>
-                                                    <div v-if="otaDiagnosisDataGaps.length || otaDiagnosisActionItems.length" class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                                        <div v-if="otaDiagnosisDataGaps.length" class="rounded-lg border border-amber-100 bg-white p-3">
-                                                            <div class="text-xs font-semibold text-amber-800 mb-2">数据缺口</div>
-                                                            <div v-for="gap in otaDiagnosisDataGaps.slice(0, 3)" :key="gap.code || gap.message" class="text-xs text-gray-600 mb-2 last:mb-0">
-                                                                <div class="font-medium text-gray-800">{{ gap.code || 'data_gap' }}</div>
-                                                                <div>{{ gap.message || '-' }}</div>
-                                                                <div v-if="gap.next_action" class="text-blue-700 mt-1">{{ gap.next_action }}</div>
+                                                    <div v-if="otaDiagnosisBusinessLoopSteps.length || otaDiagnosisDecisionClosureCards.length || otaDiagnosisDataGapRows.length || otaDiagnosisActionRows.length" class="mt-4 space-y-3">
+                                                        <div v-if="otaDiagnosisBusinessLoopSteps.length" class="rounded-lg border border-slate-100 bg-white p-3">
+                                                            <div class="mb-2 flex items-center justify-between gap-3">
+                                                                <div class="text-xs font-semibold text-slate-800">业务闭环拆解</div>
+                                                                <span class="text-[11px] text-slate-400">证据不足时保持 blocked</span>
+                                                            </div>
+                                                            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2">
+                                                                <div v-for="step in otaDiagnosisBusinessLoopSteps" :key="step.key" class="rounded-lg border border-gray-100 bg-gray-50 p-2.5">
+                                                                    <div class="flex items-start justify-between gap-2">
+                                                                        <div class="text-xs font-medium text-gray-800">{{ step.title }}</div>
+                                                                        <span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="otaDiagnosisDecisionStatusClassFor(step.status)">{{ otaDiagnosisDecisionStatusTextFor(step.status) }}</span>
+                                                                    </div>
+                                                                    <div class="mt-1.5 text-[11px] text-gray-500 leading-relaxed">{{ step.detail }}</div>
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                        <div v-if="otaDiagnosisActionItems.length" class="rounded-lg border border-blue-100 bg-white p-3">
-                                                            <div class="text-xs font-semibold text-blue-800 mb-2">下一步动作</div>
-                                                            <div v-for="item in otaDiagnosisActionItems.slice(0, 3)" :key="item.id || item.action" class="text-xs text-gray-600 mb-2 last:mb-0">
-                                                                <div class="font-medium text-gray-800">{{ item.action || '-' }}</div>
-                                                                <div v-if="item.status" class="mt-1">状态：{{ item.status }}</div>
-                                                                <div v-if="Array.isArray(item.evidence_refs) && item.evidence_refs.length" class="mt-1">证据：{{ item.evidence_refs.join('、') }}</div>
-                                                                <div v-if="item.protected_boundary" class="text-amber-700 mt-1">边界：{{ item.protected_boundary }}</div>
+                                                        <div v-if="otaDiagnosisDecisionClosureCards.length" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2">
+                                                            <div v-for="card in otaDiagnosisDecisionClosureCards" :key="card.key" class="rounded-lg border border-gray-100 bg-white p-3">
+                                                                <div class="flex items-start justify-between gap-2">
+                                                                    <div class="text-xs font-medium text-gray-500">{{ card.title }}</div>
+                                                                    <span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="otaDiagnosisDecisionStatusClassFor(card.status)">{{ otaDiagnosisDecisionStatusTextFor(card.status) }}</span>
+                                                                </div>
+                                                                <div class="mt-2 text-sm font-semibold text-gray-900 truncate">{{ card.value }}</div>
+                                                                <div class="mt-1 text-xs text-gray-400 leading-relaxed line-clamp-2" :title="card.detail">{{ card.detail }}</div>
+                                                            </div>
+                                                        </div>
+                                                        <div v-if="otaDiagnosisDataGapRows.length || otaDiagnosisActionRows.length" class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                                            <div v-if="otaDiagnosisDataGapRows.length" class="rounded-lg border border-amber-100 bg-white p-3">
+                                                                <div class="text-xs font-semibold text-amber-800 mb-2">证据缺口</div>
+                                                                <div v-for="gap in otaDiagnosisDataGapRows.slice(0, 4)" :key="gap.id" class="border-t border-amber-50 py-2 first:border-t-0 first:pt-0 last:pb-0">
+                                                                    <div class="flex items-start justify-between gap-2">
+                                                                        <div class="text-xs font-medium text-gray-800">{{ gap.label }}</div>
+                                                                        <span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="gap.statusClass">{{ gap.statusText }}</span>
+                                                                    </div>
+                                                                    <div class="mt-1 text-xs text-gray-600 leading-relaxed">{{ gap.message }}</div>
+                                                                    <div class="mt-1 text-[11px] text-gray-400">口径：{{ gap.scope }} · 下一步：{{ gap.nextAction }}</div>
+                                                                </div>
+                                                            </div>
+                                                            <div v-if="otaDiagnosisActionRows.length" class="rounded-lg border border-blue-100 bg-white p-3">
+                                                                <div class="text-xs font-semibold text-blue-800 mb-2">建议动作与阻断状态</div>
+                                                                <div v-for="row in otaDiagnosisActionRows.slice(0, 4)" :key="row.id" class="border-t border-blue-50 py-2 first:border-t-0 first:pt-0 last:pb-0">
+                                                                    <div class="flex items-start justify-between gap-2">
+                                                                        <div class="text-xs font-medium text-gray-800 leading-relaxed">{{ row.action }}</div>
+                                                                        <span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="row.statusClass">{{ row.statusText }}</span>
+                                                                    </div>
+                                                                    <div class="mt-1 text-[11px] text-gray-500">证据：{{ row.evidenceText }} · 确认：{{ row.confirmationText }}</div>
+                                                                    <div v-if="row.missingText || row.blockedReason" class="mt-1 text-[11px] text-amber-700">
+                                                                        <span v-if="row.missingText">缺：{{ row.missingText }}</span>
+                                                                        <span v-if="row.missingText && row.blockedReason">；</span>
+                                                                        <span v-if="row.blockedReason">{{ row.blockedReason }}</span>
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -10220,6 +10370,31 @@
                                                             </span>
                                                         </div>
                                                         <p class="text-sm text-blue-800 leading-relaxed">{{ otaDiagnosisResult.diagnosis?.summary || otaDiagnosisResult.core_conclusion || '-' }}</p>
+                                                    </div>
+                                                    <div v-if="otaDiagnosisBusinessLoopSteps.length" class="rounded-xl border border-slate-100 bg-white p-4">
+                                                        <div class="flex items-center justify-between gap-3 mb-3">
+                                                            <div class="font-semibold text-gray-900">业务闭环拆解</div>
+                                                            <span class="text-xs text-gray-400">OTA数据 → 收益分析 → AI决策 → 运营管理 → 投资决策</span>
+                                                        </div>
+                                                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2">
+                                                            <div v-for="step in otaDiagnosisBusinessLoopSteps" :key="step.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                                <div class="flex items-start justify-between gap-2">
+                                                                    <div class="text-sm font-medium text-gray-800">{{ step.title }}</div>
+                                                                    <span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="otaDiagnosisDecisionStatusClassFor(step.status)">{{ otaDiagnosisDecisionStatusTextFor(step.status) }}</span>
+                                                                </div>
+                                                                <div class="mt-2 text-xs text-gray-500 leading-relaxed">{{ step.detail }}</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div v-if="otaDiagnosisDecisionClosureCards.length" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+                                                        <div v-for="card in otaDiagnosisDecisionClosureCards" :key="card.key" class="rounded-lg border border-gray-100 bg-white p-3">
+                                                            <div class="flex items-start justify-between gap-2">
+                                                                <div class="text-xs font-medium text-gray-500">{{ card.title }}</div>
+                                                                <span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="otaDiagnosisDecisionStatusClassFor(card.status)">{{ otaDiagnosisDecisionStatusTextFor(card.status) }}</span>
+                                                            </div>
+                                                            <div class="mt-2 text-base font-semibold text-gray-900 truncate">{{ card.value }}</div>
+                                                            <div class="mt-1 text-xs text-gray-400 leading-relaxed line-clamp-2" :title="card.detail">{{ card.detail }}</div>
+                                                        </div>
                                                     </div>
                                                     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
                                                         <div v-for="metric in otaDiagnosisMetricCards" :key="metric.label" class="rounded-lg border border-gray-100 bg-white p-3">
@@ -10241,6 +10416,50 @@
                                                                     <i class="fas fa-circle text-[6px] text-gray-300 mt-2"></i><span>{{ item }}</span>
                                                                 </li>
                                                             </ul>
+                                                        </div>
+                                                    </div>
+                                                    <div v-if="otaDiagnosisDataGapRows.length" class="rounded-xl border border-amber-100 bg-amber-50 p-4">
+                                                        <div class="flex items-center justify-between gap-3 mb-3">
+                                                            <div class="font-semibold text-amber-900">证据缺口</div>
+                                                            <span class="text-xs text-amber-700">缺口未补齐前，不进入可执行建议</span>
+                                                        </div>
+                                                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                                            <div v-for="gap in otaDiagnosisDataGapRows" :key="gap.id" class="rounded-lg border border-amber-100 bg-white p-3">
+                                                                <div class="flex items-start justify-between gap-2">
+                                                                    <div class="min-w-0">
+                                                                        <div class="text-sm font-medium text-gray-900 truncate">{{ gap.label }}</div>
+                                                                        <div class="mt-1 text-xs text-gray-600 leading-relaxed">{{ gap.message }}</div>
+                                                                    </div>
+                                                                    <span class="self-start rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="gap.statusClass">{{ gap.statusText }}</span>
+                                                                </div>
+                                                                <div class="mt-2 text-[11px] text-gray-400">口径：{{ gap.scope }} · 下一步：{{ gap.nextAction }}</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div v-if="otaDiagnosisActionRows.length" class="rounded-xl border border-gray-100 bg-white p-4">
+                                                        <div class="flex items-center justify-between gap-3 mb-3">
+                                                            <div class="font-semibold text-gray-900">建议动作与阻断状态</div>
+                                                            <span class="text-xs text-gray-400">人工确认后才进入运营执行</span>
+                                                        </div>
+                                                        <div class="space-y-3">
+                                                            <div v-for="row in otaDiagnosisActionRows" :key="row.id" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                                <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
+                                                                    <div class="min-w-0">
+                                                                        <div class="text-sm font-medium text-gray-900 leading-relaxed">{{ row.action }}</div>
+                                                                        <div class="mt-1 flex flex-wrap gap-2 text-[11px] text-gray-500">
+                                                                            <span>证据：{{ row.evidenceText }}</span>
+                                                                            <span>所需：{{ row.requiredText }}</span>
+                                                                            <span>确认：{{ row.confirmationText }}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <span class="self-start rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="row.statusClass">{{ row.statusText }}</span>
+                                                                </div>
+                                                                <div v-if="row.missingText || row.blockedReason" class="mt-2 text-xs text-amber-700 leading-relaxed">
+                                                                    <span v-if="row.missingText">缺：{{ row.missingText }}</span>
+                                                                    <span v-if="row.missingText && row.blockedReason">；</span>
+                                                                    <span v-if="row.blockedReason">{{ row.blockedReason }}</span>
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                     <div v-if="otaDiagnosisResult.raw_text" class="rounded-lg border border-gray-100 bg-white p-4">
@@ -10795,6 +11014,83 @@
 
                                         <div class="rounded-lg border border-amber-100 bg-amber-50 text-amber-700 px-4 py-3 text-sm">
                                             {{ revenueAnalysisDataNotice }}
+                                        </div>
+
+                                        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="agent-revenue-business-closure">
+                                            <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                                <div>
+                                                    <h3 class="font-semibold text-gray-900">P1 收益分析闭环</h3>
+                                                    <p class="mt-1 text-sm text-gray-500">{{ revenueAiBusinessClosure.summary }}</p>
+                                                </div>
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">{{ revenueAiBusinessClosure.scopeText }}</span>
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiBusinessClosure.className]">{{ revenueAiBusinessClosure.statusLabel }}</span>
+                                                </div>
+                                            </div>
+                                            <div v-if="revenueAiBusinessClosure.summaryChips.length" class="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                                                <div v-for="chip in revenueAiBusinessClosure.summaryChips" :key="chip.key" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-slate-500" :title="chip.label">{{ chip.label }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', chip.className]">{{ chip.statusLabel }}</span>
+                                                    </div>
+                                                    <div class="mt-1 truncate text-sm font-semibold text-slate-900" :title="chip.value">{{ chip.value }}</div>
+                                                    <div class="mt-0.5 line-clamp-1 text-[11px] text-slate-500" :title="chip.detail">{{ chip.detail }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 gap-2 md:grid-cols-5">
+                                                <div v-for="row in revenueAiBusinessClosure.rows" :key="row.key" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                                                    <div class="flex items-start justify-between gap-2">
+                                                        <div class="min-w-0">
+                                                            <div class="text-[11px] font-semibold text-slate-400">{{ row.stage }}</div>
+                                                            <div class="mt-1 truncate text-sm font-semibold text-slate-900" :title="row.title">{{ row.title }}</div>
+                                                        </div>
+                                                        <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.statusLabel }}</span>
+                                                    </div>
+                                                    <div v-if="row.metrics?.length" class="mt-2 grid grid-cols-2 gap-1.5">
+                                                        <div v-for="metric in row.metrics" :key="metric.key" class="min-w-0 rounded-md border border-white bg-white/80 px-2 py-1.5">
+                                                            <div class="flex items-center justify-between gap-1">
+                                                                <span class="truncate text-[11px] text-slate-500" :title="metric.label">{{ metric.label }}</span>
+                                                                <span :class="['h-1.5 w-1.5 shrink-0 rounded-full border', metric.className]"></span>
+                                                            </div>
+                                                            <div class="mt-0.5 truncate text-sm font-semibold text-slate-900" :title="metric.value">{{ metric.value }}</div>
+                                                            <div v-if="metric.reasonText" class="mt-0.5 line-clamp-1 text-[10px] text-slate-500" :title="metric.reasonText">{{ metric.reasonText }}</div>
+                                                        </div>
+                                                    </div>
+                                                    <template v-else>
+                                                        <div class="mt-2 line-clamp-2 text-sm font-semibold text-slate-800" :title="row.primary">{{ row.primary }}</div>
+                                                        <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500" :title="row.secondary">{{ row.secondary }}</div>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                            <div class="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
+                                                <span class="font-semibold">下一步：</span>{{ revenueAiBusinessClosure.nextAction }}
+                                            </div>
+                                            <div class="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                                                <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                                                    <div class="flex items-center justify-between text-xs">
+                                                        <span class="font-semibold text-amber-800">缺失项说明</span>
+                                                        <span class="text-amber-700">{{ revenueAiBusinessClosure.missingRows.length }}项</span>
+                                                    </div>
+                                                    <div v-if="revenueAiBusinessClosure.missingRows.length" class="mt-2 space-y-1">
+                                                        <div v-for="item in revenueAiBusinessClosure.missingRows" :key="item.key" class="truncate text-xs text-amber-800" :title="`${item.code}：${item.detail}`">
+                                                            {{ item.code }} · {{ item.detail }}
+                                                        </div>
+                                                    </div>
+                                                    <div v-else class="mt-2 text-xs text-amber-700">当前 P1 收益闭环未返回关键缺失项。</div>
+                                                </div>
+                                                <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                                                    <div class="flex items-center justify-between text-xs">
+                                                        <span class="font-semibold text-slate-700">异常判断</span>
+                                                        <span class="text-slate-500">{{ revenueAiBusinessClosure.anomalyRows.length }}项</span>
+                                                    </div>
+                                                    <div v-if="revenueAiBusinessClosure.anomalyRows.length" class="mt-2 space-y-1">
+                                                        <div v-for="item in revenueAiBusinessClosure.anomalyRows" :key="item.key" class="truncate text-xs text-slate-600" :title="`${item.code}：${item.detail}`">
+                                                            {{ item.code }} · {{ item.detail }}
+                                                        </div>
+                                                    </div>
+                                                    <div v-else class="mt-2 text-xs text-slate-500">当前未命中收益计算异常；投决仍受全酒店口径边界限制。</div>
+                                                </div>
+                                            </div>
                                         </div>
 
                                         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -11396,6 +11692,300 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- P4 投资决策辅助视图 -->
+                    <div v-if="currentPage === 'investment-decision'" class="max-w-7xl mx-auto space-y-5">
+                        <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                                <div class="min-w-0">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium" :class="investmentDecisionStatusClass(investmentDecisionOverview?.summary?.status)">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
+                                            {{ investmentDecisionStatusText(investmentDecisionOverview?.summary?.status || 'not_ready') }}
+                                        </span>
+                                        <span class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                                            <i class="fas fa-shield-alt"></i>
+                                            已闭合经营数据
+                                        </span>
+                                    </div>
+                                    <h2 class="mt-3 text-xl md:text-2xl font-bold text-gray-900">P4 投资决策辅助</h2>
+                                    <p class="mt-2 text-sm text-gray-500 max-w-3xl">单店经营质量、竞对比较、投资测算、风险提示和决策记录统一读取已闭合经营证据；未达准入时只展示缺口，不输出扩张、转让或投资判断。</p>
+                                    <div class="mt-3 text-xs text-gray-400">最近更新：{{ investmentDecisionOverview?.generated_at || '-' }}</div>
+                                </div>
+                                <button @click="loadInvestmentDecisionOverview" :disabled="investmentDecisionLoading" class="btn-primary w-full sm:w-auto inline-flex items-center justify-center disabled:opacity-60">
+                                    <i :class="investmentDecisionLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ investmentDecisionLoading ? '加载中' : '刷新数据' }}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div v-if="investmentDecisionLoading" class="bg-white rounded-2xl border border-gray-100 p-8 text-center text-gray-400 shadow-sm">正在读取 P4 投决辅助数据...</div>
+                        <div v-else-if="!investmentDecisionOverview" class="bg-white rounded-2xl border border-gray-100 p-8 text-center text-gray-400 shadow-sm">暂无 P4 投决辅助数据</div>
+                        <template v-else>
+                            <div class="grid sm:grid-cols-2 xl:grid-cols-5 gap-3">
+                                <div v-for="card in investmentDecisionSummaryCards" :key="card.key" class="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div class="text-sm text-gray-500">{{ card.label }}</div>
+                                        <span class="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionStatusClass(card.status)">{{ investmentDecisionStatusText(card.status) }}</span>
+                                    </div>
+                                    <div class="mt-3 text-2xl font-bold text-gray-900">{{ card.value }}</div>
+                                    <div class="mt-1 text-xs text-gray-400">{{ card.note }}</div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                                    <div class="min-w-0">
+                                        <h3 class="font-semibold text-gray-900">业务闭环拆解</h3>
+                                        <p class="mt-1 text-sm text-gray-500">{{ investmentDecisionOverview?.business_closure_chain?.source_policy || '-' }}</p>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium" :class="investmentDecisionStatusClass(investmentDecisionOverview?.business_closure_chain?.status)">
+                                            {{ investmentDecisionStatusText(investmentDecisionOverview?.business_closure_chain?.status) }}
+                                        </span>
+                                        <span class="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                                            {{ investmentDecisionOverview?.business_closure_chain?.closed_stage_count || 0 }} / {{ investmentDecisionOverview?.business_closure_chain?.stage_count || 0 }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="mt-4 grid md:grid-cols-2 xl:grid-cols-5 gap-3">
+                                    <div v-for="stage in investmentDecisionBusinessChainRows" :key="stage.key" class="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div>
+                                                <div class="text-[11px] text-gray-400">{{ stage.role }}</div>
+                                                <div class="mt-1 font-semibold text-gray-900 text-sm">{{ stage.title }}</div>
+                                            </div>
+                                            <span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="investmentDecisionStatusClass(stage.status)">
+                                                {{ investmentDecisionStatusText(stage.status) }}
+                                            </span>
+                                        </div>
+                                        <div class="mt-3 space-y-2 text-xs">
+                                            <div v-for="metric in stage.metrics" :key="metric.label" class="flex items-center justify-between gap-2 rounded-lg bg-white px-2 py-1.5">
+                                                <span class="text-gray-500">{{ metric.label }}</span>
+                                                <span class="font-semibold text-gray-800">{{ metric.value }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-gray-500 line-clamp-3">{{ stage.evidence_policy }}</div>
+                                        <div v-if="stage.missing_evidence?.length" class="mt-2 text-[11px]" :class="stage.blocking ? 'text-red-600' : 'text-amber-600'">
+                                            缺口：{{ stage.missing_evidence[0].label || stage.missing_evidence[0].code || stage.missing_evidence[0].message || '-' }}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-3 text-xs text-gray-400">准入门槛：{{ investmentDecisionOverview?.business_closure_chain?.judgement_gate || '-' }}</div>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+                                    <div class="min-w-0">
+                                        <h3 class="font-semibold text-gray-900">下一步动作队列</h3>
+                                        <p class="mt-1 text-sm text-gray-500">{{ investmentDecisionOverview?.action_queue?.source_policy || '-' }}</p>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium" :class="investmentDecisionStatusClass(investmentDecisionOverview?.action_queue?.status)">
+                                            {{ investmentDecisionStatusText(investmentDecisionOverview?.action_queue?.status || 'clear') }}
+                                        </span>
+                                        <span class="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-3 py-1 text-xs text-red-700">
+                                            阻断 {{ investmentDecisionOverview?.action_queue?.blocking_count || 0 }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div v-if="investmentDecisionActionQueueRows.length" class="overflow-x-auto">
+                                    <table class="min-w-full text-sm">
+                                        <thead class="text-xs text-gray-400">
+                                            <tr>
+                                                <th class="text-left py-2 pr-3">优先级</th>
+                                                <th class="text-left py-2 pr-3">阶段 / 板块</th>
+                                                <th class="text-left py-2 pr-3">缺口</th>
+                                                <th class="text-left py-2 pr-3">下一步</th>
+                                                <th class="text-left py-2">状态</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <tr v-for="item in investmentDecisionActionQueueRows" :key="item.key">
+                                                <td class="py-3 pr-3 whitespace-nowrap">
+                                                    <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionPriorityClass(item.priority || item.severity)">
+                                                        {{ item.priority_label || item.priority || investmentDecisionSeverityText(item.severity) }}
+                                                    </span>
+                                                </td>
+                                                <td class="py-3 pr-3 min-w-[8rem]">
+                                                    <div class="font-medium text-gray-900">{{ item.stage_title || item.stageTitle || '-' }}</div>
+                                                    <div class="mt-1 text-xs text-gray-400">{{ item.section_title || item.sourceLabel || '-' }}</div>
+                                                </td>
+                                                <td class="py-3 pr-3 min-w-[10rem]">
+                                                    <div class="font-medium text-gray-900">{{ item.title || '-' }}</div>
+                                                    <div class="mt-1 text-xs text-gray-400">{{ item.evidence_code || item.source || '-' }}</div>
+                                                </td>
+                                                <td class="py-3 pr-3 min-w-[18rem] text-gray-600">{{ item.next_action || item.nextAction || '-' }}</td>
+                                                <td class="py-3 whitespace-nowrap">
+                                                    <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="item.blocking ? 'bg-red-50 text-red-700 border-red-100' : 'bg-amber-50 text-amber-700 border-amber-100'">
+                                                        {{ item.blocking ? '投决阻断' : '补证任务' }}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div v-else class="py-8 text-center text-gray-400">暂无待处理动作</div>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+                                    <div class="min-w-0">
+                                        <h3 class="font-semibold text-gray-900">补证优先级</h3>
+                                        <p class="mt-1 text-sm text-gray-500">汇总业务闭环、经营准入和风险提示中的缺口；高优先级项会阻断投决判断。</p>
+                                    </div>
+                                    <span class="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                                        待处理 {{ investmentDecisionActionQueueRows.length }}
+                                    </span>
+                                </div>
+                                <div v-if="investmentDecisionActionQueueRows.length" class="overflow-x-auto">
+                                    <table class="min-w-full text-sm">
+                                        <thead class="text-xs text-gray-400">
+                                            <tr>
+                                                <th class="text-left py-2 pr-3">优先级</th>
+                                                <th class="text-left py-2 pr-3">来源阶段</th>
+                                                <th class="text-left py-2 pr-3">缺口</th>
+                                                <th class="text-left py-2 pr-3">下一步</th>
+                                                <th class="text-left py-2">状态</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <tr v-for="item in investmentDecisionActionQueueRows" :key="item.key">
+                                                <td class="py-3 pr-3 whitespace-nowrap">
+                                                    <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionSeverityClass(item.severity)">{{ investmentDecisionSeverityText(item.severity) }}</span>
+                                                </td>
+                                                <td class="py-3 pr-3 whitespace-nowrap text-gray-600">{{ item.stageTitle }}</td>
+                                                <td class="py-3 pr-3">
+                                                    <div class="font-medium text-gray-900">{{ item.title }}</div>
+                                                    <div class="mt-1 text-xs text-gray-400">{{ item.sourceLabel }}</div>
+                                                </td>
+                                                <td class="py-3 pr-3 text-gray-600">{{ item.nextAction || '-' }}</td>
+                                                <td class="py-3 whitespace-nowrap">
+                                                    <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionStatusClass(item.status)">{{ investmentDecisionStatusText(item.status) }}</span>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div v-else class="py-6 text-center text-gray-400">暂无阻断补证项</div>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                    <div class="min-w-0">
+                                        <h3 class="font-semibold text-gray-900">经营数据准入</h3>
+                                        <p class="mt-1 text-sm text-gray-500">{{ investmentDecisionOverview?.operating_data_gate?.source_scope || '-' }}</p>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium" :class="investmentDecisionStatusClass(investmentDecisionOverview?.operating_data_gate?.status)">
+                                            {{ investmentDecisionStatusText(investmentDecisionOverview?.operating_data_gate?.status) }}
+                                        </span>
+                                        <span class="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-500">
+                                            {{ investmentDecisionOverview?.operating_data_gate?.required_gate || '-' }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="mt-4 grid md:grid-cols-3 gap-3">
+                                    <div v-for="signal in investmentDecisionOverview?.operating_data_gate?.signals || []" :key="signal.key" class="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                        <div class="flex items-start justify-between gap-2">
+                                            <div class="font-medium text-gray-800 text-sm">{{ signal.label }}</div>
+                                            <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionStatusClass(signal.status)">{{ investmentDecisionStatusText(signal.status) }}</span>
+                                        </div>
+                                        <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-500">
+                                            <div>记录 <span class="font-semibold text-gray-800">{{ signal.record_count || 0 }}</span></div>
+                                            <div>ROI <span class="font-semibold text-gray-800">{{ signal.roi_ready_count || 0 }}</span></div>
+                                            <div>过程 <span class="font-semibold text-gray-800">{{ signal.process_closed_loop ? '已闭环' : '未闭合' }}</span></div>
+                                            <div>范围 <span class="font-semibold text-gray-800">{{ signal.source_scope || '-' }}</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid lg:grid-cols-5 gap-3">
+                                <div v-for="section in investmentDecisionSectionRows" :key="section.key" class="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div>
+                                            <div class="text-xs text-gray-400">{{ section.index }}</div>
+                                            <h3 class="mt-1 font-semibold text-gray-900">{{ section.title }}</h3>
+                                        </div>
+                                        <span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="investmentDecisionStatusClass(section.status)">{{ investmentDecisionStatusText(section.status) }}</span>
+                                    </div>
+                                    <div class="mt-4 space-y-2 text-sm">
+                                        <div v-for="metric in section.metrics" :key="metric.label" class="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2">
+                                            <span class="text-gray-500">{{ metric.label }}</span>
+                                            <span class="font-semibold text-gray-900">{{ metric.value }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 text-xs text-gray-400 line-clamp-2">{{ section.note }}</div>
+                                </div>
+                            </div>
+
+                            <div class="grid lg:grid-cols-2 gap-4">
+                                <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h3 class="font-semibold text-gray-900">风险提示</h3>
+                                        <span class="text-xs text-gray-400">阻断 {{ investmentDecisionOverview?.sections?.risk_alerts?.blocking_count || 0 }}</span>
+                                    </div>
+                                    <div v-if="investmentDecisionRiskRows.length" class="space-y-3">
+                                        <div v-for="risk in investmentDecisionRiskRows" :key="risk.code + risk.title" class="rounded-xl border border-gray-100 p-3">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="font-medium text-gray-900 text-sm">{{ risk.title }}</div>
+                                                <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionSeverityClass(risk.severity)">{{ investmentDecisionSeverityText(risk.severity) }}</span>
+                                            </div>
+                                            <div class="mt-2 text-xs text-gray-500">{{ risk.next_action || '-' }}</div>
+                                            <div class="mt-2 text-[11px]" :class="risk.blocking ? 'text-red-600' : 'text-amber-600'">{{ risk.blocking ? '投决阻断' : '需补充证据' }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else class="py-8 text-center text-gray-400">暂无风险提示</div>
+                                </div>
+
+                                <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h3 class="font-semibold text-gray-900">决策记录</h3>
+                                        <span class="text-xs text-gray-400">可复核 {{ investmentDecisionOverview?.sections?.decision_records?.eligible_count || 0 }} / {{ investmentDecisionOverview?.sections?.decision_records?.record_count || 0 }}</span>
+                                    </div>
+                                    <div v-if="investmentDecisionRecordRows.length" class="overflow-x-auto">
+                                        <table class="min-w-full text-sm">
+                                            <thead class="text-xs text-gray-400">
+                                                <tr>
+                                                    <th class="text-left py-2 pr-3">来源</th>
+                                                    <th class="text-left py-2 pr-3">记录</th>
+                                                    <th class="text-left py-2 pr-3">状态</th>
+                                                    <th class="text-left py-2">更新时间</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-100">
+                                                <tr v-for="record in investmentDecisionRecordRows" :key="record.source_module + '-' + record.id">
+                                                    <td class="py-3 pr-3 text-gray-500 whitespace-nowrap">{{ investmentDecisionSourceLabel(record.source_module) }}</td>
+                                                    <td class="py-3 pr-3">
+                                                        <div class="font-medium text-gray-900">{{ record.title || '-' }}</div>
+                                                        <div class="mt-1 text-xs text-gray-400">{{ record.decision || record.decision_policy || '-' }}</div>
+                                                    </td>
+                                                    <td class="py-3 pr-3 whitespace-nowrap">
+                                                        <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="record.judgement_allowed ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'">{{ record.judgement_allowed ? '可投决复核' : '仅展示缺口' }}</span>
+                                                    </td>
+                                                    <td class="py-3 text-gray-500 whitespace-nowrap">{{ record.updated_at || '-' }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div v-else class="py-8 text-center text-gray-400">暂无扩张、转让或可行性决策记录</div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                <div class="flex items-center justify-between gap-3 mb-4">
+                                    <h3 class="font-semibold text-gray-900">投资测算公式清单</h3>
+                                    <span class="text-xs text-gray-400">只展示已登记公式</span>
+                                </div>
+                                <div class="grid md:grid-cols-2 gap-3">
+                                    <div v-for="formula in investmentDecisionFormulaRows" :key="formula.scope" class="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                        <div class="text-xs text-gray-400">{{ formula.scope }}</div>
+                                        <div class="mt-1 font-mono text-sm text-gray-800 break-words">{{ formula.formula }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
                     </div>
 
                     <!-- 全生命周期辅助视图 -->
@@ -12983,6 +13573,7 @@
                                                         <td class="px-3 py-3 min-w-[11rem]">
                                                             <div class="font-medium text-gray-900 truncate" :title="row.hotelName">{{ row.hotelName }}</div>
                                                             <div class="mt-1 text-[11px] text-gray-500">{{ row.targetDate }} · {{ row.provedText }}</div>
+                                                            <div v-if="row.workflowChainText" class="mt-1 max-w-[18rem] truncate text-[11px] text-slate-500" :title="row.workflowChainRawText">{{ row.workflowChainText }}</div>
                                                         </td>
                                                         <td class="px-3 py-3 whitespace-nowrap">
                                                             <span :class="['rounded-md border px-2 py-0.5 text-[11px]', dailyWorkbenchStatusClass(row.statuses.today_ota_collected)]">{{ dailyWorkbenchStatusText(row.statuses.today_ota_collected) }}</span>
@@ -13978,6 +14569,10 @@
                                                     <option value="business">经营</option>
                                                     <option value="traffic">流量</option>
                                                     <option value="rank">排名</option>
+                                                    <option value="peer_rank">竞对榜单</option>
+                                                    <option value="search_keyword">搜索词</option>
+                                                    <option value="traffic_analysis">流量分析</option>
+                                                    <option value="traffic_forecast">未来预测</option>
                                                     <option value="advertising">广告</option>
                                                     <option value="review">点评</option>
                                                     <option value="quality">服务质量</option>
@@ -14581,10 +15176,10 @@
                                     <!-- 方法四：书签一键获取（最简单） -->
                                     <div class="bg-gradient-to-r from-indigo-50 to-purple-50 border-2 border-indigo-300 rounded-lg p-6 mb-6">
                                         <h4 class="text-lg font-medium text-indigo-800 mb-4">
-                                            <i class="fas fa-bookmark mr-2"></i>方法四：书签一键获取（最推荐⭐）
+                                            <i class="fas fa-bookmark mr-2"></i>方法四：Cookie 书签临时补数
                                         </h4>
                                         <p class="text-indigo-700 mb-4">
-                                            拖拽下方按钮到浏览器书签栏，登录携程后点击书签即可自动保存Cookie！
+                                            拖拽下方按钮到浏览器书签栏，登录携程后点击书签可临时保存 Cookie，用于补数或排障；日常采集默认走门店浏览器 Profile。
                                         </p>
 
                                         <div class="bg-white rounded-lg p-4">
@@ -14592,7 +15187,7 @@
                                                 <a :href="bookmarkletCode"
                                                    class="inline-block px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-move text-lg font-medium"
                                                    onclick="alert('请拖拽此按钮到浏览器书签栏'); return false;">
-                                                    <i class="fas fa-bookmark mr-2"></i>📂 保存Cookie书签
+                                                    <i class="fas fa-bookmark mr-2"></i>保存临时 Cookie
                                                 </a>
                                             </div>
 
@@ -14601,13 +15196,13 @@
                                                 <ol class="list-decimal list-inside mt-2 space-y-1">
                                                     <li><strong>拖拽</strong>上方按钮到浏览器书签栏（按Ctrl+Shift+B显示书签栏）</li>
                                                     <li>打开携程ebooking并<strong>登录账号</strong></li>
-                                                    <li><strong>点击书签栏</strong>中的"保存Cookie书签"</li>
-                                                    <li>输入配置名称，Cookie将自动保存到系统！</li>
+                                                    <li><strong>点击书签栏</strong>中的"保存临时 Cookie"</li>
+                                                    <li>输入配置名称，Cookie 仅作为临时补数或排障上下文保存。</li>
                                                 </ol>
                                             </div>
 
                                             <div class="mt-3 p-3 bg-green-100 rounded text-sm">
-                                                <strong>✅ 优点：</strong>无需手动复制粘贴，一键完成！书签可重复使用，每次登录后点一下即可更新Cookie。
+                                                <strong>适用场景：</strong>不依赖人工复制粘贴，适合首次接入、临时补数或 Profile 失效排障；不作为日常采集主线。
                                             </div>
                                         </div>
                                     </div>
@@ -14972,6 +15567,10 @@
                                                 <option value="business">经营</option>
                                                 <option value="traffic">流量</option>
                                                 <option value="ranking">排名</option>
+                                                <option value="peer_rank">竞对榜单</option>
+                                                <option value="search_keyword">搜索词</option>
+                                                <option value="traffic_analysis">流量分析</option>
+                                                <option value="traffic_forecast">未来预测</option>
                                                 <option value="advertising">广告</option>
                                                 <option value="quality">服务质量</option>
                                                 <option value="review">点评</option>
@@ -17153,6 +17752,8 @@
             const currentPage = ref('compass');
             const lifecycleLoading = ref(false);
             const lifecycleOverview = ref(null);
+            const investmentDecisionLoading = ref(false);
+            const investmentDecisionOverview = ref(null);
             const showPassword = ref(false);
             const persistSidebarCollapsedPreference = () => {
                 persistSidebarCollapsedPreferenceStatic(sidebarCollapsed.value, localStorage);
@@ -17680,6 +18281,8 @@
             const createMeituanOrderForm = requireMeituanStatic('createMeituanOrderForm');
             const createMeituanAdsForm = requireMeituanStatic('createMeituanAdsForm');
             const createMeituanBrowserCaptureForm = requireMeituanStatic('createMeituanBrowserCaptureForm');
+            const getMeituanBrowserCaptureSupplementModules = requireMeituanStatic('getMeituanBrowserCaptureSupplementModules');
+            const buildMeituanBrowserCaptureSupplementCounts = requireMeituanStatic('buildMeituanBrowserCaptureSupplementCounts');
             const normalizeMeituanCaptureSections = requireMeituanStatic('normalizeMeituanCaptureSections');
             const getMeituanExposureMetric = requireMeituanStatic('getMeituanExposureMetric');
             const getMeituanClickMetric = requireMeituanStatic('getMeituanClickMetric');
@@ -17690,6 +18293,8 @@
             const isMeituanOrderDataRow = requireMeituanStatic('isMeituanOrderDataRow');
             const isMeituanAdsDataRow = requireMeituanStatic('isMeituanAdsDataRow');
             const buildMeituanDownloadData = requireMeituanStatic('buildMeituanDownloadData');
+            const buildMeituanOrderDomCollectorScript = requireMeituanStatic('buildMeituanOrderDomCollectorScript');
+            const runMeituanOrderCsvImportFlow = requireMeituanStatic('runMeituanOrderCsvImportFlow');
             const meituanForm = ref(createMeituanRankingForm());
             const meituanTrafficForm = ref(createMeituanTrafficForm());
             const meituanOrderForm = ref(createMeituanOrderForm());
@@ -17700,6 +18305,8 @@
             const meituanBrowserCaptureForm = ref(createMeituanBrowserCaptureForm());
             const meituanBrowserCaptureResult = ref(null);
             const meituanBrowserCaptureRunning = ref(false);
+            const meituanBrowserCaptureSupplementModules = getMeituanBrowserCaptureSupplementModules();
+            const meituanBrowserCaptureSupplementCounts = computed(() => buildMeituanBrowserCaptureSupplementCounts(meituanBrowserCaptureResult.value || {}));
             const meituanBrowserCaptureCommand = computed(() => {
                 const storeId = String(meituanBrowserCaptureForm.value.storeId || meituanForm.value.poiId || '').trim();
                 const hotelId = String(meituanForm.value.hotelId || user.value?.hotel_id || '').trim();
@@ -19301,6 +19908,7 @@
             const revenueAiResolveBusinessDate = requireRevenueAiStatic('resolveRevenueAiBusinessDate');
             const revenueAiResolveOverviewRequest = requireRevenueAiStatic('resolveRevenueAiOverviewRequest');
             const revenueAiResolveOverviewResponse = requireRevenueAiStatic('resolveRevenueAiOverviewResponse');
+            const revenueAiBuildBusinessClosure = requireRevenueAiStatic('buildRevenueAiBusinessClosure');
             const revenueAiBuildMetricCards = requireRevenueAiStatic('buildRevenueAiMetricCards');
             const revenueAiBuildGapRows = requireRevenueAiStatic('buildRevenueAiGapRows');
             const revenueAiBuildGapSummary = requireRevenueAiStatic('buildRevenueAiGapSummary');
@@ -19319,6 +19927,11 @@
             const revenueAiMetricCards = computed(() => revenueAiBuildMetricCards({
                 overview: revenueAiOverview.value,
                 overviewError: revenueAiOverviewError.value,
+            }));
+            const revenueAiBusinessClosure = computed(() => revenueAiBuildBusinessClosure({
+                overview: revenueAiOverview.value,
+                overviewError: revenueAiOverviewError.value,
+                overviewLoading: revenueAiOverviewLoading.value,
             }));
             const revenueAiGapRows = computed(() => revenueAiBuildGapRows({
                 overview: revenueAiOverview.value,
@@ -22053,6 +22666,9 @@
             const buildPlatformProfileLoginPayload = (platform, item = null) => {
                 const hotelId = getAutoFetchHotelId();
                 if (!hotelId) return null;
+                const dataSourceId = Number(item?.data_source_id || item?.dataSourceId || 0);
+                const syncAfterLogin = !!(item?.sync_after_login || item?.syncAfterLogin);
+                const loginTargetDate = String(item?.data_date || item?.dataDate || item?.target_date || item?.targetDate || '').trim();
                 if (platform === 'ctrip') {
                     const form = ctripBrowserCaptureForm.value;
                     const binding = item?.binding || {};
@@ -22068,18 +22684,22 @@
                     const sections = sectionSource.map(item => String(item || '').trim()).filter(Boolean);
                     return {
                         system_hotel_id: hotelId,
+                        data_source_id: dataSourceId || undefined,
                         profile_id: profileId,
                         hotel_id: hotelIdValue,
                         hotel_name: getHotelNameById(hotelId),
                         sections: sections.length ? sections : ['default'],
                         bind_data_source: true,
+                        sync_after_login: syncAfterLogin || undefined,
+                        data_date: loginTargetDate || undefined,
                     };
                 }
 
                 const sections = normalizeMeituanCaptureSections(meituanBrowserCaptureForm.value.captureSections);
-                const storeId = String(meituanBrowserCaptureForm.value.storeId || meituanBrowserCaptureForm.value.poiId || meituanForm.value.poiId || '').trim();
+                const storeId = String(meituanBrowserCaptureForm.value.storeId || meituanBrowserCaptureForm.value.poiId || (dataSourceId ? '' : meituanForm.value.poiId) || '').trim();
                 return {
                     system_hotel_id: hotelId,
+                    data_source_id: dataSourceId || undefined,
                     store_id: storeId,
                     poi_id: meituanBrowserCaptureForm.value.poiId || storeId,
                     poi_name: meituanBrowserCaptureForm.value.poiName || getHotelNameById(hotelId),
@@ -22087,6 +22707,8 @@
                     ads_url: sections.includes('ads') ? (meituanBrowserCaptureForm.value.adsUrl || '') : '',
                     sections,
                     bind_data_source: true,
+                    sync_after_login: syncAfterLogin || undefined,
+                    data_date: loginTargetDate || undefined,
                 };
             };
 
@@ -22146,12 +22768,13 @@
                     showToast('请先选择酒店', 'error');
                     return;
                 }
-                if (platform === 'ctrip' && !payload.profile_id) {
+                const hasDataSourceId = Number(payload.data_source_id || payload.source_id || 0) > 0;
+                if (platform === 'ctrip' && !payload.profile_id && !hasDataSourceId) {
                     showToast('请填写携程登录会话标识，或先绑定携程登录会话数据源', 'error');
                     return;
                 }
-                if (platform === 'meituan' && !payload.store_id) {
-                    showToast('请填写美团门店标识', 'error');
+                if (platform === 'meituan' && !payload.store_id && !hasDataSourceId) {
+                    showToast('请填写美团门店标识，或先绑定美团登录会话数据源', 'error');
                     return;
                 }
 
@@ -22245,9 +22868,10 @@
                     return;
                 }
                 if (item?.platform === 'meituan') {
+                    const dataSourceId = Number(item?.data_source_id || item?.dataSourceId || 0);
                     meituanForm.value.hotelId = meituanForm.value.hotelId || String(getAutoFetchHotelId() || '');
-                    meituanBrowserCaptureForm.value.storeId = binding.store_id || item.profile_key || meituanBrowserCaptureForm.value.storeId || meituanForm.value.poiId || '';
-                    meituanBrowserCaptureForm.value.poiId = binding.poi_id || meituanBrowserCaptureForm.value.poiId || meituanBrowserCaptureForm.value.storeId;
+                    meituanBrowserCaptureForm.value.storeId = binding.store_id || item.profile_key || (dataSourceId ? '' : (meituanBrowserCaptureForm.value.storeId || meituanForm.value.poiId || ''));
+                    meituanBrowserCaptureForm.value.poiId = binding.poi_id || meituanBrowserCaptureForm.value.storeId || (dataSourceId ? '' : meituanBrowserCaptureForm.value.poiId);
                     meituanBrowserCaptureForm.value.poiName = meituanBrowserCaptureForm.value.poiName || getHotelNameById(getAutoFetchHotelId()) || '';
                     meituanForm.value.poiId = meituanForm.value.poiId || meituanBrowserCaptureForm.value.poiId;
                     return;
@@ -23524,6 +24148,9 @@
                         await ensureOperationStaticReady();
                         return loadLifecycleOverview();
                     });
+                }
+                if (newPage === 'investment-decision') {
+                    runPageLoadOnce(newPage, 'main', () => loadInvestmentDecisionOverview());
                 }
                 if (newPage === 'ai-strategy') {
                     runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
@@ -25700,6 +26327,296 @@
                     lifecycleLoading.value = false;
                 }
             };
+            const investmentDecisionSections = computed(() => investmentDecisionOverview.value?.sections || {});
+            const investmentDecisionStatusText = (status) => {
+                const labels = {
+                    decision_ready: '可复核',
+                    not_ready: '未准入',
+                    usable: '可读取',
+                    blocked: '未准入',
+                    blocked_by_p0_ota_gate: 'P0未就绪',
+                    blocked_by_operating_closure: '经营未闭合',
+                    blocked_by_operation_closure: '经营未闭合',
+                    closed_operating_data_ready: '经营已闭合',
+                    process_closed_missing_roi: '缺ROI',
+                    calculation_ready: '测算可复核',
+                    readiness_gap: '测算缺口',
+                    supporting_only: '仅作辅助',
+                    data_gap: '证据缺口',
+                    evidence_available: '有证据',
+                    process_closed: '过程闭环',
+                    record_only: '仅有记录',
+                    records_visible: '记录可见',
+                    not_started: '暂无记录',
+                    not_closed: '未闭合',
+                    clear: '无阻断',
+                    has_risk: '有风险',
+                    has_action: '待处理',
+                    roi_ready: 'ROI已闭合',
+                    reviewed_no_roi: '缺ROI证据',
+                    closed: '已闭环',
+                    active: '已联动',
+                    not_loaded: '未读取',
+                };
+                return labels[status] || status || '-';
+            };
+            const investmentDecisionStatusClass = (status) => {
+                if (['decision_ready', 'usable', 'calculation_ready', 'clear', 'closed_operating_data_ready', 'records_visible', 'roi_ready', 'closed', 'active'].includes(status)) {
+                    return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+                }
+                if (['blocked', 'blocked_by_p0_ota_gate', 'blocked_by_operating_closure', 'blocked_by_operation_closure', 'not_ready'].includes(status)) {
+                    return 'bg-red-50 text-red-700 border-red-100';
+                }
+                if (['supporting_only', 'records_visible'].includes(status)) {
+                    return 'bg-blue-50 text-blue-700 border-blue-100';
+                }
+                if (['readiness_gap', 'data_gap', 'has_risk', 'process_closed_missing_roi', 'reviewed_no_roi'].includes(status)) {
+                    return 'bg-amber-50 text-amber-700 border-amber-100';
+                }
+                if (['evidence_available', 'process_closed', 'record_only', 'not_closed'].includes(status)) {
+                    return 'bg-slate-50 text-slate-600 border-slate-200';
+                }
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+            const investmentDecisionSeverityText = (severity) => {
+                const labels = { high: '高', medium: '中', low: '低' };
+                return labels[severity] || severity || '-';
+            };
+            const investmentDecisionSeverityClass = (severity) => {
+                if (severity === 'high') return 'bg-red-50 text-red-700 border-red-100';
+                if (severity === 'medium') return 'bg-amber-50 text-amber-700 border-amber-100';
+                return 'bg-blue-50 text-blue-700 border-blue-100';
+            };
+            const investmentDecisionSourceLabel = (source) => {
+                const labels = {
+                    expansion: '扩张',
+                    transfer: '转让',
+                    feasibility_report: '可行性',
+                };
+                return labels[source] || source || '-';
+            };
+            const investmentDecisionSummaryCards = computed(() => {
+                const summary = investmentDecisionOverview.value?.summary || {};
+                const sections = investmentDecisionSections.value;
+                const gate = investmentDecisionOverview.value?.operating_data_gate || {};
+                return [
+                    {
+                        key: 'closed_operating_data',
+                        label: '经营数据准入',
+                        value: summary.closed_operating_data_ready ? '已闭合' : '未准入',
+                        status: gate.status || 'not_ready',
+                        note: gate.required_gate || 'operation_execution.roi_ready',
+                    },
+                    {
+                        key: 'decision_records',
+                        label: '决策记录',
+                        value: `${summary.eligible_decision_record_count || 0}/${summary.decision_record_count || 0}`,
+                        status: sections.decision_records?.status || 'not_started',
+                        note: '可复核 / 全部记录',
+                    },
+                    {
+                        key: 'investment_calculation',
+                        label: '投资测算',
+                        value: sections.investment_calculation?.ready_record_count || 0,
+                        status: summary.investment_calculation_status || sections.investment_calculation?.status || 'readiness_gap',
+                        note: `总记录 ${sections.investment_calculation?.record_count || 0}`,
+                    },
+                    {
+                        key: 'risk_alerts',
+                        label: '风险提示',
+                        value: summary.risk_blocking_count || 0,
+                        status: sections.risk_alerts?.status || 'clear',
+                        note: '阻断风险数',
+                    },
+                    {
+                        key: 'action_queue',
+                        label: '待处理动作',
+                        value: summary.action_queue_count || 0,
+                        status: investmentDecisionOverview.value?.action_queue?.status || 'clear',
+                        note: `阻断 ${summary.action_queue_blocking_count || 0}`,
+                    },
+                ];
+            });
+            const investmentDecisionSectionRows = computed(() => {
+                const sections = investmentDecisionSections.value;
+                const singleStore = sections.single_store_quality || {};
+                const competitor = sections.competitor_comparison || {};
+                const calculation = sections.investment_calculation || {};
+                const risks = sections.risk_alerts || {};
+                const records = sections.decision_records || {};
+                return [
+                    {
+                        key: 'single_store_quality',
+                        index: '01',
+                        title: singleStore.title || '单店经营质量',
+                        status: singleStore.status || 'blocked',
+                        metrics: (singleStore.metrics || []).map((metric) => ({ label: metric.label || metric.key, value: metric.value ?? '-' })),
+                        note: singleStore.data_policy || '',
+                    },
+                    {
+                        key: 'competitor_comparison',
+                        index: '02',
+                        title: competitor.title || '竞对比较',
+                        status: competitor.status || 'data_gap',
+                        metrics: [
+                            { label: '样本数', value: competitor.sample_count || 0 },
+                            { label: '来源表', value: (competitor.data_sources || []).length },
+                            { label: '最新时间', value: competitor.latest_at || '-' },
+                        ],
+                        note: competitor.source_scope || '',
+                    },
+                    {
+                        key: 'investment_calculation',
+                        index: '03',
+                        title: calculation.title || '投资测算',
+                        status: calculation.status || 'readiness_gap',
+                        metrics: [
+                            { label: '测算记录', value: calculation.record_count || 0 },
+                            { label: '可复核', value: calculation.ready_record_count || 0 },
+                            { label: '公式', value: (calculation.formula_inventory || []).length },
+                        ],
+                        note: '扩张、转让、可行性报告统一进入准入门控。',
+                    },
+                    {
+                        key: 'risk_alerts',
+                        index: '04',
+                        title: risks.title || '风险提示',
+                        status: risks.status || 'clear',
+                        metrics: [
+                            { label: '风险数', value: (risks.items || []).length },
+                            { label: '阻断', value: risks.blocking_count || 0 },
+                        ],
+                        note: '高风险阻断投决判断，中低风险保留为补证任务。',
+                    },
+                    {
+                        key: 'decision_records',
+                        index: '05',
+                        title: records.title || '决策记录',
+                        status: records.status || 'not_started',
+                        metrics: [
+                            { label: '记录', value: records.record_count || 0 },
+                            { label: '可复核', value: records.eligible_count || 0 },
+                        ],
+                        note: '仅展示扩张、转让、可行性报告中的已保存记录。',
+                    },
+                ];
+            });
+            const investmentDecisionRiskRows = computed(() => investmentDecisionSections.value.risk_alerts?.items || []);
+            const investmentDecisionRecordRows = computed(() => investmentDecisionSections.value.decision_records?.records || []);
+            const investmentDecisionFormulaRows = computed(() => investmentDecisionSections.value.investment_calculation?.formula_inventory || []);
+            const investmentDecisionBusinessChainRows = computed(() => investmentDecisionOverview.value?.business_closure_chain?.stages || []);
+            const investmentDecisionGapTitle = (gap) => String(gap?.label || gap?.title || gap?.code || gap?.message || '证据缺口');
+            const investmentDecisionGapAction = (gap) => String(gap?.next_action || gap?.message || '');
+            const investmentDecisionActionQueueRows = computed(() => {
+                const backendRows = Array.isArray(investmentDecisionOverview.value?.action_queue?.items)
+                    ? investmentDecisionOverview.value.action_queue.items
+                    : [];
+                if (backendRows.length) {
+                    return backendRows.map((row, index) => ({
+                        key: row.key || `backend-action:${index}`,
+                        priority: row.priority || 4,
+                        priority_label: row.priority_label || '',
+                        severity: row.severity || (row.blocking ? 'high' : 'medium'),
+                        sourceLabel: row.section_title || row.source || '动作队列',
+                        stageTitle: row.stage_title || row.stage_key || '-',
+                        title: row.title || row.evidence_code || '证据缺口',
+                        nextAction: row.next_action || '',
+                        next_action: row.next_action || '',
+                        status: row.blocking ? 'blocked' : (row.status || 'has_action'),
+                        blocking: row.blocking === true,
+                        evidence_code: row.evidence_code || '',
+                    }));
+                }
+
+                const rows = [];
+                const addRow = (row) => {
+                    const title = String(row.title || '').trim();
+                    const nextAction = String(row.nextAction || '').trim();
+                    if (!title && !nextAction) return;
+                    rows.push({
+                        key: row.key || `${row.sourceLabel || 'gap'}:${title}:${nextAction}`,
+                        severity: row.severity || 'medium',
+                        sourceLabel: row.sourceLabel || '业务闭环',
+                        stageTitle: row.stageTitle || '-',
+                        title: title || '证据缺口',
+                        nextAction,
+                        next_action: nextAction,
+                        status: row.status || 'data_gap',
+                        blocking: row.blocking === true,
+                        priority: row.severity === 'high' ? 1 : (row.severity === 'medium' ? 3 : 4),
+                        priority_label: row.severity === 'high' ? '先处理' : '补证',
+                        evidence_code: row.evidenceCode || '',
+                    });
+                };
+
+                investmentDecisionBusinessChainRows.value.forEach((stage) => {
+                    const gaps = Array.isArray(stage?.missing_evidence) ? stage.missing_evidence : [];
+                    gaps.forEach((gap, index) => addRow({
+                        key: `chain:${stage.key || 'stage'}:${gap?.code || index}`,
+                        severity: stage?.blocking ? 'high' : 'medium',
+                        sourceLabel: '业务闭环',
+                        stageTitle: stage?.title || stage?.key || '-',
+                        title: investmentDecisionGapTitle(gap),
+                        nextAction: investmentDecisionGapAction(gap),
+                        status: stage?.status || 'data_gap',
+                        blocking: stage?.blocking === true,
+                    }));
+                });
+
+                (investmentDecisionOverview.value?.operating_data_gate?.missing_evidence || []).forEach((gap, index) => addRow({
+                    key: `gate:${gap?.code || index}`,
+                    severity: 'high',
+                    sourceLabel: '经营准入',
+                    stageTitle: '运营管理',
+                    title: investmentDecisionGapTitle(gap),
+                    nextAction: investmentDecisionGapAction(gap),
+                    status: investmentDecisionOverview.value?.operating_data_gate?.status || 'not_ready',
+                    blocking: true,
+                }));
+
+                investmentDecisionRiskRows.value.forEach((risk, index) => addRow({
+                    key: `risk:${risk?.code || index}:${risk?.title || ''}`,
+                    severity: risk?.severity || (risk?.blocking ? 'high' : 'medium'),
+                    sourceLabel: '风险提示',
+                    stageTitle: risk?.blocking ? '投决阻断' : '补证任务',
+                    title: risk?.title || risk?.code || '风险提示',
+                    nextAction: risk?.next_action || '',
+                    status: risk?.blocking ? 'blocked' : 'has_risk',
+                    blocking: risk?.blocking === true,
+                }));
+
+                const unique = new Map();
+                rows.forEach((row) => {
+                    const key = `${row.title}|${row.nextAction}|${row.stageTitle}`;
+                    if (!unique.has(key)) unique.set(key, row);
+                });
+                return Array.from(unique.values()).sort((left, right) => {
+                    const priority = { high: 0, medium: 1, low: 2 };
+                    return (priority[left.severity] ?? 3) - (priority[right.severity] ?? 3);
+                }).slice(0, 10);
+            });
+            const investmentDecisionPriorityClass = (priority) => {
+                const value = String(priority || '').toLowerCase();
+                if (value === '1' || value === 'high') return 'bg-red-50 text-red-700 border-red-100';
+                if (value === '2' || value === 'medium') return 'bg-amber-50 text-amber-700 border-amber-100';
+                if (value === '3') return 'bg-blue-50 text-blue-700 border-blue-100';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+            const loadInvestmentDecisionOverview = async () => {
+                investmentDecisionLoading.value = true;
+                try {
+                    const res = await request('/investment-decision/overview');
+                    if (res.code === 200) {
+                        investmentDecisionOverview.value = res.data || null;
+                    } else {
+                        showToast(res.message || 'P4投决辅助数据加载失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('P4投决辅助数据加载失败: ' + e.message, 'error');
+                } finally {
+                    investmentDecisionLoading.value = false;
+                }
+            };
 
             const operationToday = new Date().toISOString().split('T')[0];
             const operationYesterday = formatDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
@@ -26123,7 +27040,7 @@
                 const evidenceReady = countItems(linkedItems, item => Number(item?.evidence?.count || 0) > 0);
                 const executionEvidenceCount = linkedItems.reduce((sum, item) => sum + Math.max(0, Number(item?.evidence?.count || 0)), 0);
                 const reviewed = countItems(linkedItems, item => String(item?.stage || '') === 'reviewed' || ['success', 'near_success', 'failed'].includes(String(item?.review?.status || '')));
-                const roiReady = countItems(linkedItems, item => item?.roi && item.roi.status && String(item.roi.status || '') !== 'no_roi');
+                const roiReady = countItems(linkedItems, item => String(item?.roi?.status || '') === 'ready');
                 const blocked = Math.max(
                     Number(stageCounts.blocked || 0) + Number(stageCounts.rejected || 0) + Number(stageCounts.failed || 0),
                     countItems(items, item => ['blocked', 'rejected', 'failed'].includes(String(item?.stage || ''))
@@ -28523,9 +29440,10 @@
                 }
                 if (platform === 'meituan') {
                     const storeId = firstNonEmptyText(loginItem.binding?.store_id, loginItem.binding?.poi_id);
-                    if (storeId) {
+                    const dataSourceId = Number(loginItem?.data_source_id || loginItem?.dataSourceId || 0);
+                    if (storeId || dataSourceId) {
                         meituanBrowserCaptureForm.value.storeId = storeId;
-                        meituanBrowserCaptureForm.value.poiId = loginItem.binding?.poi_id || storeId;
+                        meituanBrowserCaptureForm.value.poiId = loginItem.binding?.poi_id || storeId || (dataSourceId ? '' : meituanBrowserCaptureForm.value.poiId || '');
                         meituanBrowserCaptureForm.value.poiName = loginItem.binding?.poi_name || hotel?.name || '';
                         await triggerPlatformProfileLogin('meituan', loginItem);
                         return;
@@ -29606,7 +30524,7 @@
                 otaDiagnosisHotelKeyword.value = '';
                 otaDiagnosisError.value = '';
             };
-            const otaDiagnosisStaticScript = 'ota-diagnosis-static.js?v=20260613-agent-lazy';
+            const otaDiagnosisStaticScript = 'ota-diagnosis-static.js?v=20260627-decision-closure-v2';
             const otaDiagnosisStaticVersion = ref(0);
             let otaDiagnosisStaticLoadPromise = null;
             const getOtaDiagnosisStatic = () => {
@@ -29738,7 +30656,42 @@
                     ];
                 }
             )(otaDiagnosisResult.value || {}));
-            const otaDiagnosisDataGaps = computed(() => Array.isArray(otaDiagnosisResult.value?.data_gaps) ? otaDiagnosisResult.value.data_gaps : []);
+            const otaDiagnosisDecisionStatusTextFor = (status) => getOtaDiagnosisStaticFunction(
+                'otaDiagnosisDecisionStatusText',
+                value => value || '-'
+            )(status);
+            const otaDiagnosisDecisionStatusClassFor = (status) => getOtaDiagnosisStaticFunction(
+                'otaDiagnosisDecisionStatusClass',
+                value => String(value || '').startsWith('blocked') ? 'bg-red-50 text-red-700 border-red-100' : 'bg-gray-50 text-gray-600 border-gray-200'
+            )(status);
+            const otaDiagnosisDecisionClosureCards = computed(() => getOtaDiagnosisStaticFunction(
+                'buildOtaDiagnosisDecisionClosureCards',
+                () => []
+            )(otaDiagnosisResult.value || {}));
+            const otaDiagnosisBusinessLoopSteps = computed(() => getOtaDiagnosisStaticFunction(
+                'buildOtaDiagnosisBusinessLoopSteps',
+                () => []
+            )(otaDiagnosisResult.value || {}));
+            const otaDiagnosisActionRows = computed(() => getOtaDiagnosisStaticFunction(
+                'buildOtaDiagnosisActionRows',
+                () => []
+            )(otaDiagnosisResult.value || {}));
+            const otaDiagnosisDataGapRows = computed(() => getOtaDiagnosisStaticFunction(
+                'buildOtaDiagnosisDataGapRows',
+                () => []
+            )(otaDiagnosisResult.value || {}));
+            const otaDiagnosisDataGaps = computed(() => {
+                if (Array.isArray(otaDiagnosisResult.value?.data_gaps) && otaDiagnosisResult.value.data_gaps.length > 0) {
+                    return otaDiagnosisResult.value.data_gaps;
+                }
+                return otaDiagnosisDataGapRows.value.map(row => ({
+                    code: row.code,
+                    message: row.message,
+                    next_action: row.nextAction,
+                    scope: row.scope,
+                    status: row.status,
+                }));
+            });
             const otaDiagnosisActionItems = computed(() => Array.isArray(otaDiagnosisResult.value?.action_items) ? otaDiagnosisResult.value.action_items : []);
             const dailyWorkbenchSummary = computed(() => {
                 const summary = dailyWorkbench.value?.summary && typeof dailyWorkbench.value.summary === 'object'
@@ -29832,6 +30785,25 @@
                     questionKey: String(safeAction.question_key || ''),
                 };
             };
+            const normalizeDailyWorkbenchWorkflowStage = (stage) => {
+                const safeStage = stage && typeof stage === 'object' ? stage : {};
+                const status = String(safeStage.status || 'unknown');
+                const blockingCodes = Array.isArray(safeStage.blocking_gap_codes)
+                    ? safeStage.blocking_gap_codes.map(item => String(item)).filter(Boolean)
+                    : [];
+                const action = normalizeDailyWorkbenchAction(safeStage.next_action, safeStage.next_action || {});
+                return {
+                    key: String(safeStage.key || ''),
+                    label: String(safeStage.label || safeStage.key || '链路阶段'),
+                    questionKey: String(safeStage.question_key || ''),
+                    status,
+                    statusText: dailyWorkbenchStatusText(status),
+                    blockingText: blockingCodes.length ? blockingCodes.slice(0, 2).join('、') : '',
+                    sourcePolicyText: phase1EmployeeEvidencePolicyText(String(safeStage.source_policy || safeStage.evidence?.source_policy || '')),
+                    actionText: action.actionText,
+                    rawText: JSON.stringify(safeStage),
+                };
+            };
             const normalizeDailyWorkbenchRow = (row) => {
                 const safeRow = row && typeof row === 'object' ? row : {};
                 const statuses = safeRow.employee_questions?.statuses && typeof safeRow.employee_questions.statuses === 'object'
@@ -29857,6 +30829,9 @@
                 const nextAction = normalizeDailyWorkbenchAction(safeRow.next_action, safeRow);
                 const provedCount = Number(safeRow.employee_questions?.proved_count || 0);
                 const questionCount = Number(safeRow.employee_questions?.count || 0);
+                const workflowChain = Array.isArray(safeRow.workflow_chain)
+                    ? safeRow.workflow_chain.map(normalizeDailyWorkbenchWorkflowStage).filter(stage => stage.key)
+                    : [];
                 return {
                     hotelId: Number(safeRow.hotel_id || 0),
                     hotelName: String(safeRow.hotel_name || `Hotel ID ${safeRow.hotel_id || '-'}`),
@@ -29891,6 +30866,12 @@
                     nextActionRawText: nextAction.actionRawText,
                     nextActionMetaText: [nextAction.actionCode, nextAction.entry].filter(Boolean).join(' · '),
                     nextActionMetaRawText: [nextAction.actionCode, nextAction.entry, nextAction.status].filter(Boolean).join(' · '),
+                    workflowChain,
+                    workflowChainText: workflowChain.map(stage => `${stage.label}:${stage.statusText}`).join(' -> '),
+                    workflowChainRawText: workflowChain.map(stage => {
+                        const blocker = stage.blockingText ? `；阻断：${stage.blockingText}` : '';
+                        return `${stage.label}: ${stage.statusText}${blocker}`;
+                    }).join(' -> '),
                     nextAction,
                 };
             };
@@ -31582,6 +32563,7 @@
 
             const loadRevenueAnalysisBundle = async () => {
                 await Promise.allSettled([
+                    loadRevenueAiOverview(),
                     loadRevenueAnalysis(),
                     loadRevenueDashboard(),
                     loadDemandForecasts(),
@@ -33078,6 +34060,25 @@
                 refreshOnlineHistory: scheduleOnlineHistoryRefresh,
             });
 
+            const importMeituanOrderCsvData = async () => runMeituanOrderCsvImportFlow({
+                getForm: () => meituanOrderForm.value,
+                getSystemHotelId: () => meituanForm.value.hotelId || user.value?.hotel_id || null,
+                getHotelNameById,
+                notify: showToast,
+                setFetching: value => { fetchingData.value = value; },
+                setOrderResult: value => { meituanOrderResult.value = value; },
+                setOnlineDataResult: value => { onlineDataResult.value = value; },
+                requestSave: body => request('/online-data/save-meituan-captured-data', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
+            });
+
+            const copyMeituanOrderCollectorScript = () => {
+                copyToClipboard(buildMeituanOrderDomCollectorScript());
+            };
+
             const fetchMeituanAdsData = async () => runMeituanAdsFetchFlow({
                 getForm: () => meituanAdsForm.value,
                 getSystemHotelId: () => meituanForm.value.hotelId || user.value?.hotel_id || null,
@@ -33856,6 +34857,18 @@
             const runMeituanBrowserCaptureForSections = async (sections = []) => {
                 meituanBrowserCaptureForm.value.captureSections = normalizeMeituanCaptureSections(sections);
                 await runMeituanBrowserCapture();
+            };
+
+            const runMeituanBrowserSupplementCapture = async () => {
+                const hotelId = String(autoFetchHotelId.value || meituanForm.value.hotelId || user.value?.hotel_id || '').trim();
+                if (!hotelId) {
+                    showToast('请先选择酒店', 'error');
+                    return;
+                }
+                meituanForm.value.hotelId = hotelId;
+                await loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS });
+                await syncMeituanBrowserCaptureFromSelectedConfig(false);
+                await runMeituanBrowserCaptureForSections(['traffic']);
             };
 
             const copyMeituanBrowserCaptureCommand = () => {
@@ -37418,7 +38431,7 @@
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
-                revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
+                revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
                 macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
                 compassHotelOptions, compassLoading, compassLastSyncedAt, compassDataReadiness, homeSecondaryPanelsReady, homeClosedLoopStages, homeAiTraceRows, refreshCompassDashboard,
@@ -37428,6 +38441,7 @@
                 homeQuickEntries, hiddenHomeQuickEntries, homeQuickLayoutEditing, homeQuickLayoutSaving, homeQuickLayoutSaveHint, homeQuickDragKey, homeQuickDragOverKey, startHomeQuickDrag, enterHomeQuickDrag, dropHomeQuickDrag, endHomeQuickDrag, toggleHomeQuickEntry, resetHomeQuickLayout, saveHomeQuickLayout, openHomeQuickEntry,
                 homeCompetitorReadiness, homeCompetitorPlatformTagText, homeCompetitorPlatformTagClass, competitorSummaryReadinessClass,
                 lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusClass, loadLifecycleOverview,
+                investmentDecisionLoading, investmentDecisionOverview, investmentDecisionSummaryCards, investmentDecisionBusinessChainRows, investmentDecisionActionQueueRows, investmentDecisionSectionRows, investmentDecisionRiskRows, investmentDecisionRecordRows, investmentDecisionFormulaRows, investmentDecisionStatusText, investmentDecisionStatusClass, investmentDecisionSeverityText, investmentDecisionSeverityClass, investmentDecisionPriorityClass, investmentDecisionSourceLabel, loadInvestmentDecisionOverview,
                 isLoggedIn, loading, loginError, registerMode, registerLoading, registerError, registerSuccess, registerForm, user, token, userHasPermission, canManageOwnHotels, currentLocale, languageOptions, switchLocale, currentTime, currentPage, showPassword,
                 directorEntryVisible, directorEntryAnswer, directorEntryError,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
@@ -37481,7 +38495,7 @@
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
                 openOnlineDataTab,
-                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldConfigPanelReady, ctripProfileFieldConfigPanelBody, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
@@ -37526,7 +38540,7 @@
                 getMeituanExposureMetric, getMeituanClickMetric, getMeituanVisitorMetric, getMeituanSubmitMetric, getMeituanFlowRateMetric, isMeituanTrafficDataRow, isMeituanOrderDataRow, isMeituanAdsDataRow,
                 editOnlineDataItem, deleteOnlineDataItem, showOnlineDataEditModal, onlineDataEditForm, saveOnlineDataEdit,
                 toNumber, toFixedSafe, safeDivide, formatNumber, calculateHhi, revenueConcentration, visitConcentration, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
-                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, fillCtripCookieApiCorePreset, fillDataConfigCtripCookieApiCorePreset, checkCtripProfileStatus, runCtripCookieApiCapture, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
+                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, fillCtripCookieApiCorePreset, fillDataConfigCtripCookieApiCorePreset, checkCtripProfileStatus, runCtripCookieApiCapture, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, importMeituanOrderCsvData, copyMeituanOrderCollectorScript, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, runMeituanBrowserSupplementCapture, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
                 // 携程配置管理
                 ctripConfigForm, ctripConfigList, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig, canFetchCtripManualData,
                 ctripOverviewFetchActionLoading, ctripOverviewCoreFetchRunning,
@@ -37581,7 +38595,7 @@
                 otaDiagnosisHotelOptions, otaDiagnosisSelectedHotel, otaDiagnosisHotelPickerOpen, otaDiagnosisHotelKeyword,
                 otaDiagnosisFilteredHotelOptions, otaDiagnosisHotelSourceText, toggleOtaDiagnosisHotelPicker, selectOtaDiagnosisHotel,
                 otaDiagnosisPlatformText, otaDiagnosisDateRangeText,
-                otaDiagnosisPriorityClass, otaDiagnosisPriorityText, otaDiagnosisMetricCards, otaDiagnosisResultSections, otaDiagnosisDataGaps, otaDiagnosisActionItems,
+                otaDiagnosisPriorityClass, otaDiagnosisPriorityText, otaDiagnosisMetricCards, otaDiagnosisResultSections, otaDiagnosisDecisionClosureCards, otaDiagnosisBusinessLoopSteps, otaDiagnosisActionRows, otaDiagnosisDataGapRows, otaDiagnosisDecisionStatusTextFor, otaDiagnosisDecisionStatusClassFor, otaDiagnosisDataGaps, otaDiagnosisActionItems,
                 setOtaDiagnosisRange, normalizeOtaDiagnosisList, generateOtaDiagnosis, switchAgentTab,
                 staffAgentTab, knowledgeList, knowledgeCategories, knowledgeFilter,
                 revenueAgentTab, priceSuggestions, priceSuggestionFilter, priceSuggestionGenerating, priceSuggestionReview,

@@ -1,9 +1,13 @@
 ---
 name: suxi-ai-report
-description: Handle宿析OS AI报告、经营诊断、日报、月报、数据分析和LLM建议任务。Use when the request includes AI报告、经营诊断、日报、月报、周报、数据分析、经营建议、收益建议、异常归因、Agent.php、DailyReport、LLM、提示词、报告模板、管理层摘要、驾驶舱解读。
+description: 用于宿析OS AI报告、经营诊断、日报、月报、周报、数据分析、经营建议、收益建议、异常归因、Agent.php、DailyReport、LLM、提示词、报告模板、管理层摘要和驾驶舱解读任务。
 ---
 
 # Suxi AI Report
+
+## Plugin Priority
+
+When the requested report artifact matches an installed plugin, use `suxi-plugin-priority-router` first: Data Analytics for source-backed analysis, Documents for formal reports, Presentations for decks, and Spreadsheets for metric workbooks.
 
 ## Rules
 

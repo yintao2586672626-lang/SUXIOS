@@ -20,6 +20,34 @@ trait MeituanCapturedDataConcern
             }
         }
 
+        foreach ($this->extractMeituanCapturedSection($payload, 'peer_rank') as $item) {
+            $row = $this->normalizeMeituanCapturedPeerRankRow($item, $context);
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+
+        foreach ($this->extractMeituanCapturedSection($payload, 'traffic_analysis') as $item) {
+            $row = $this->normalizeMeituanCapturedTrafficAnalysisRow($item, $context);
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+
+        foreach ($this->extractMeituanCapturedSection($payload, 'search_keyword') as $item) {
+            $row = $this->normalizeMeituanCapturedSearchKeywordRow($item, $context);
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+
+        foreach ($this->extractMeituanCapturedSection($payload, 'traffic_forecast') as $item) {
+            $row = $this->normalizeMeituanCapturedTrafficForecastRow($item, $context);
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+
         foreach ($this->extractMeituanCapturedSection($payload, 'ads') as $item) {
             $row = $this->normalizeMeituanCapturedAdsRow($item, $context);
             if ($row !== null) {
@@ -78,6 +106,10 @@ trait MeituanCapturedDataConcern
         return match ($section) {
             'reviews' => ['reviews', 'review', 'comments', 'commentList', 'commentsInfo'],
             'traffic' => ['traffic', 'businessData', 'business_data', 'weightTraffic', 'weight_traffic', 'peerTrends', 'peer_trends'],
+            'peer_rank' => ['peerRank', 'peer_rank', 'competitorRank', 'competitor_rank', 'rankings', 'ranking'],
+            'traffic_analysis' => ['flowAnalysis', 'flow_analysis', 'trafficAnalysis', 'traffic_analysis', 'flowConversion', 'flowTrend', 'flowTrendDetail'],
+            'search_keyword' => ['searchKeywords', 'searchKeyWords', 'search_keywords', 'keywords', 'search_keyword'],
+            'traffic_forecast' => ['trafficForecast', 'traffic_forecast', 'flowForecast', 'flow_forecast'],
             'ads' => ['ads', 'advertising', 'adData', 'cureShops', 'cure_shops'],
             'orders' => ['orders', 'orderList', 'order_list'],
             default => [$section],
@@ -99,6 +131,10 @@ trait MeituanCapturedDataConcern
         $needles = match ($section) {
             'reviews' => ['querygeneralcommentinfo', 'commentsinfo', 'comments/statistics'],
             'traffic' => ['businessdata', 'weighttraffic', 'traffic', 'peertrends'],
+            'peer_rank' => ['peer/rank', 'peerrank', 'competitorrank'],
+            'traffic_analysis' => ['flowconversion', 'flowtrend', 'flowtrenddetail'],
+            'search_keyword' => ['searchkeyword', 'search-keyword', 'searchkeywords'],
+            'traffic_forecast' => ['flowforecast', 'trafficforecast'],
             'ads' => ['cureshops'],
             'orders' => ['/orders/list', '/order/unhandled/count'],
             default => [],
@@ -164,6 +200,47 @@ trait MeituanCapturedDataConcern
                 ['rows'],
                 ['data'],
             ],
+            'peer_rank' => [
+                ['data', 'peerRankData'],
+                ['data', 'data', 'peerRankData'],
+                ['data', 'rankings'],
+                ['data', 'list'],
+                ['peerRankData'],
+                ['rankings'],
+                ['list'],
+                ['data'],
+            ],
+            'traffic_analysis' => [
+                ['data', 'list'],
+                ['data', 'rows'],
+                ['data', 'detail'],
+                ['data', 'data', 'list'],
+                ['list'],
+                ['rows'],
+                ['detail'],
+                ['data'],
+            ],
+            'search_keyword' => [
+                ['data', 'searchKeywords'],
+                ['data', 'searchKeyWords'],
+                ['data', 'keywords'],
+                ['data', 'cards'],
+                ['data', 'list'],
+                ['searchKeywords'],
+                ['searchKeyWords'],
+                ['keywords'],
+                ['cards'],
+                ['list'],
+                ['data'],
+            ],
+            'traffic_forecast' => [
+                ['data', 'detail'],
+                ['data', 'data', 'detail'],
+                ['data', 'list'],
+                ['detail'],
+                ['list'],
+                ['data'],
+            ],
             'ads' => [
                 ['data', 'cureShops'],
                 ['data', 'list'],
@@ -191,8 +268,12 @@ trait MeituanCapturedDataConcern
         $keys = match ($section) {
             'reviews' => ['review_id', 'reviewId', 'commentId', 'comment', 'content', 'commentContent'],
             'traffic' => ['exposure_count', 'exposureCount', 'page_views', 'pageViews', 'unique_visitors', 'businessData', 'weightTraffic'],
+            'peer_rank' => ['rank', 'rankType', 'rank_type', 'peerRankData', 'roundRanks'],
+            'traffic_analysis' => ['analysis_type', 'analysisType', 'listExposure', 'detailExposure', 'flowRate', 'exposeCount', 'visitCount'],
+            'search_keyword' => ['keyword', 'searchKeyword', 'searchWord', 'itemList', 'keywords'],
+            'traffic_forecast' => ['forecast_type', 'forecastType', 'current', 'peerAvg', 'dateTime'],
             'ads' => ['cureShops', 'exposure_count', 'click_count', 'adId', 'campaignId'],
-            'orders' => ['order_id', 'orderId', 'orderStatus', 'order_status', 'total_amount', 'totalAmount'],
+            'orders' => ['order_id', 'orderId', 'orderNo', 'order_no', 'orderStatus', 'order_status', 'total_amount', 'totalAmount', 'buyTime', 'checkIn', 'checkOut', 'basePrice', 'bottomPrice'],
             default => [],
         };
         foreach ($keys as $key) {
@@ -267,6 +348,138 @@ trait MeituanCapturedDataConcern
         ]);
     }
 
+    private function normalizeMeituanCapturedPeerRankRow(array $item, array $context): ?array
+    {
+        $rank = (int)$this->meituanNumber($item, ['rank', 'rank_no', 'rankNo', 'currentRank', 'sort'], 0);
+        $dataValue = $this->meituanNumber($item, ['data_value', 'dataValue', 'value', 'metric_value'], 0.0);
+        if ($dataValue <= 0 && $rank > 0) {
+            $dataValue = (float)$rank;
+        }
+        $percent = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['percent', 'ratio', 'rank_percent', 'rankPercent'], null));
+        if ($dataValue <= 0 && $percent === null) {
+            return null;
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
+            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        $rankType = trim((string)$this->firstMeituanValue($item, ['rank_type', 'rankType', 'type', 'rankListType'], ''));
+        $metric = trim((string)$this->firstMeituanValue($item, ['dimension', 'dimName', '_dimName', 'metricName', 'aiMetricName'], 'peer_rank'));
+        $compareType = $this->meituanBool($this->firstMeituanValue($item, ['is_self', 'isSelf', 'self'], false)) ? 'self' : 'competitor';
+
+        return $this->baseMeituanCapturedRow($item, $context, [
+            'data_date' => $dataDate,
+            'amount' => 0,
+            'quantity' => 0,
+            'book_order_num' => 0,
+            'comment_score' => 0,
+            'data_value' => $dataValue,
+            'data_type' => 'peer_rank',
+            'dimension' => 'peer_rank:' . ($rankType !== '' ? $rankType : 'unknown') . ':' . $metric,
+            'platform' => 'Meituan',
+            'compare_type' => $compareType,
+        ]);
+    }
+
+    private function normalizeMeituanCapturedTrafficAnalysisRow(array $item, array $context): ?array
+    {
+        $listExposure = (int)$this->meituanNumber($item, ['list_exposure', 'listExposure', 'exposeCount', 'exposureCount', 'exposure'], 0);
+        $detailExposure = (int)$this->meituanNumber($item, ['detail_exposure', 'detailExposure', 'visitCount', 'visitorCount', 'uv', 'pv', 'views'], 0);
+        $orderSubmit = (int)$this->meituanNumber($item, ['order_submit_num', 'orderSubmitNum', 'orderCount', 'payOrderCount', 'orders'], 0);
+        $orderFilling = (int)$this->meituanNumber($item, ['order_filling_num', 'orderFillingNum', 'clickCount', 'clicks'], 0);
+        $flowRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['flow_rate', 'flowRate', 'visitOrderRate', 'conversionRate', 'orderConversionRate'], null));
+        $dataValue = $this->meituanNumber($item, ['data_value', 'dataValue', 'value', 'metric_value'], 0.0);
+        if ($dataValue <= 0 && $flowRate !== null) {
+            $dataValue = $flowRate;
+        } elseif ($dataValue <= 0 && $detailExposure > 0) {
+            $dataValue = (float)$detailExposure;
+        }
+        if ($dataValue <= 0 && $listExposure <= 0 && $detailExposure <= 0 && $orderSubmit <= 0 && $orderFilling <= 0) {
+            return null;
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
+            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        $analysisType = trim((string)$this->firstMeituanValue($item, ['analysis_type', 'analysisType', 'type'], 'flow_analysis'));
+        $dimension = trim((string)$this->firstMeituanValue($item, ['dimension', 'name'], $analysisType));
+
+        return $this->baseMeituanCapturedRow($item, $context, [
+            'data_date' => $dataDate,
+            'amount' => 0,
+            'quantity' => 0,
+            'book_order_num' => 0,
+            'comment_score' => 0,
+            'data_value' => $dataValue,
+            'data_type' => 'traffic_analysis',
+            'dimension' => 'traffic_analysis:' . ($dimension !== '' ? $dimension : $analysisType),
+            'platform' => 'Meituan',
+            'compare_type' => 'self',
+            'list_exposure' => $listExposure,
+            'detail_exposure' => $detailExposure,
+            'flow_rate' => $flowRate ?? 0.0,
+            'order_filling_num' => $orderFilling,
+            'order_submit_num' => $orderSubmit,
+        ]);
+    }
+
+    private function normalizeMeituanCapturedSearchKeywordRow(array $item, array $context): ?array
+    {
+        $keyword = trim((string)$this->firstMeituanValue($item, ['keyword', 'searchKeyword', 'searchWord', 'name', 'dimension'], ''));
+        $dataValue = $this->meituanNumber($item, ['data_value', 'dataValue', 'value', 'heat', 'rank'], 0.0);
+        $impressions = (int)$this->meituanNumber($item, ['impressions', 'exposure', 'exposure_count', 'exposureCount', 'listExposure'], 0);
+        $clicks = (int)$this->meituanNumber($item, ['clicks', 'click_count', 'clickCount', 'detailExposure'], 0);
+        if ($keyword === '' && $dataValue <= 0 && $impressions <= 0 && $clicks <= 0) {
+            return null;
+        }
+        if ($dataValue <= 0 && $impressions > 0) {
+            $dataValue = (float)$impressions;
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
+            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+
+        return $this->baseMeituanCapturedRow($item, $context, [
+            'data_date' => $dataDate,
+            'amount' => 0,
+            'quantity' => 0,
+            'book_order_num' => 0,
+            'comment_score' => 0,
+            'data_value' => $dataValue,
+            'data_type' => 'search_keyword',
+            'dimension' => $keyword !== '' ? $keyword : 'search_keyword',
+            'platform' => 'Meituan',
+            'compare_type' => 'self',
+            'list_exposure' => $impressions,
+            'detail_exposure' => $clicks,
+        ]);
+    }
+
+    private function normalizeMeituanCapturedTrafficForecastRow(array $item, array $context): ?array
+    {
+        $current = $this->meituanNumber($item, ['current', 'data_value', 'dataValue', 'value', 'metric_value'], 0.0);
+        $peerAvg = $this->meituanNumber($item, ['peer_avg', 'peerAvg', 'competitor_avg', 'competitorAvg'], 0.0);
+        if ($current <= 0 && $peerAvg <= 0) {
+            return null;
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'dateTime', 'statDate', 'stat_date'], ''))
+            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        $forecastType = trim((string)$this->firstMeituanValue($item, ['forecast_type', 'forecastType', 'type'], 'flow_forecast'));
+        $dimension = trim((string)$this->firstMeituanValue($item, ['dimension', 'name'], $forecastType));
+
+        return $this->baseMeituanCapturedRow($item, $context, [
+            'data_date' => $dataDate,
+            'amount' => 0,
+            'quantity' => 0,
+            'book_order_num' => 0,
+            'comment_score' => 0,
+            'data_value' => $current,
+            'data_type' => 'traffic_forecast',
+            'dimension' => 'traffic_forecast:' . ($dimension !== '' ? $dimension : $forecastType),
+            'platform' => 'Meituan',
+            'compare_type' => 'forecast',
+        ]);
+    }
+
     private function normalizeMeituanCapturedAdsRow(array $item, array $context): ?array
     {
         $exposure = (int)$this->meituanNumber($item, ['exposure_count', 'exposureCount', 'impression', 'impressions', 'exposure'], 0);
@@ -304,9 +517,10 @@ trait MeituanCapturedDataConcern
 
     private function normalizeMeituanCapturedOrderRow(array $item, array $context): ?array
     {
-        $orderId = (string)$this->firstMeituanValue($item, ['order_id', 'orderId', 'id'], '');
+        $orderId = (string)$this->firstMeituanValue($item, ['order_id', 'orderId', 'orderNo', 'order_no', 'orderNumber', 'order_number', 'bookingNo', 'booking_no', 'bookingNumber', 'id'], '');
         $status = (string)$this->firstMeituanValue($item, ['order_status', 'orderStatus', 'status'], 'unknown');
         $amount = $this->meituanNumber($item, ['total_amount', 'totalAmount', 'amount', 'payAmount', 'pay_amount'], 0.0);
+        $basePrice = $this->meituanNumber($item, ['base_price', 'basePrice', 'bottom_price', 'bottomPrice', 'price', '底价', '底价(元)'], 0.0);
         $roomCount = (int)$this->meituanNumber($item, ['room_count', 'roomCount', 'rooms'], 1.0);
         $nights = (int)$this->meituanNumber($item, ['nights', 'night_count', 'nightCount'], 0.0);
         if ($nights <= 0) {
@@ -319,11 +533,17 @@ trait MeituanCapturedDataConcern
             return null;
         }
 
-        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['order_time', 'orderTime', 'createTime', 'check_in_date', 'checkInDate'], ''))
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['order_time', 'orderTime', 'createTime', 'buyTime', 'purchase_time', 'purchaseTime', '购买时间', 'check_in_date', 'checkInDate', 'checkIn'], ''))
             ?: ($context['default_data_date'] ?? date('Y-m-d'));
         $identity = $orderId !== ''
             ? $this->hashOnlineOrderIdentifier($orderId)
             : hash('sha256', 'ota_order_fallback|' . json_encode($item, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+        $avgPrice = $this->meituanNumber($item, ['avg_price', 'avgPrice'], 0.0);
+        if ($avgPrice <= 0 && $basePrice > 0) {
+            $avgPrice = $basePrice;
+        } elseif ($avgPrice <= 0 && $amount > 0) {
+            $avgPrice = round($amount / ($roomCount * $nights), 2);
+        }
 
         return $this->baseMeituanCapturedRow($item, $context, [
             'data_date' => $dataDate,
@@ -331,7 +551,7 @@ trait MeituanCapturedDataConcern
             'quantity' => $roomCount * $nights,
             'book_order_num' => (int)$this->meituanNumber($item, ['order_count', 'orderCount'], 1.0),
             'comment_score' => 0,
-            'data_value' => $this->meituanNumber($item, ['avg_price', 'avgPrice'], $amount > 0 ? round($amount / ($roomCount * $nights), 2) : 0.0),
+            'data_value' => $avgPrice,
             'data_type' => 'order',
             'dimension' => 'order:' . $status . ':' . $identity,
             'platform' => 'Meituan',

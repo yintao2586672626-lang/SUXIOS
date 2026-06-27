@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\OnlineData;
+use app\command\PlatformProfileLogin;
 use app\service\CtripTrafficDisplayService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
@@ -17,6 +18,12 @@ final class OnlineDataTest extends TestCase
     private function controller(): OnlineData
     {
         $reflection = new ReflectionClass(OnlineData::class);
+        return $reflection->newInstanceWithoutConstructor();
+    }
+
+    private function profileLoginCommand(): PlatformProfileLogin
+    {
+        $reflection = new ReflectionClass(PlatformProfileLogin::class);
         return $reflection->newInstanceWithoutConstructor();
     }
 
@@ -405,6 +412,113 @@ final class OnlineDataTest extends TestCase
         self::assertSame('*******9000', $decodedOrderRaw['mobile_masked'] ?? null);
         self::assertArrayNotHasKey('idCardNo', $decodedOrderRaw);
         self::assertArrayNotHasKey('customerRemark', $decodedOrderRaw);
+    }
+
+    public function testMeituanDomCsvOrderRowsKeepBottomPriceOutOfRevenueAmount(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-1',
+            'poiId' => 'poi-1',
+            'poiName' => 'Meituan Hotel',
+            'data_period' => 'manual_dom_csv',
+            'orders' => [[
+                'orderNo' => '123456789012345',
+                'roomType' => '阳光双床房',
+                'checkIn' => '2026-05-29',
+                'checkOut' => '2026-05-30',
+                'buyTime' => '2026-05-28 20:30',
+                'bottomPrice' => '188.50',
+                '_ingestion_method' => 'manual_dom_csv',
+            ]],
+        ], 7]);
+
+        self::assertCount(1, $rows);
+        $row = $rows[0];
+        self::assertSame('order', $row['data_type']);
+        self::assertSame('2026-05-28', $row['data_date']);
+        self::assertSame(0.0, $row['amount']);
+        self::assertSame(1, $row['quantity']);
+        self::assertSame(1, $row['book_order_num']);
+        self::assertSame(188.5, $row['data_value']);
+        self::assertSame('manual_dom_csv', $row['data_period']);
+        self::assertStringNotContainsString('123456789012345', (string)$row['dimension']);
+
+        $decodedOrderRaw = json_decode((string)$row['raw_data'], true);
+        self::assertIsArray($decodedOrderRaw);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string)($decodedOrderRaw['order_id_hash'] ?? ''));
+        self::assertSame('阳光双床房', $decodedOrderRaw['roomType'] ?? null);
+        self::assertSame('188.50', $decodedOrderRaw['bottomPrice'] ?? null);
+        self::assertStringNotContainsString('123456789012345', (string)$row['raw_data']);
+    }
+
+    public function testMeituanBrowserSupplementRowsMapIntoOnlineDailyData(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-1',
+            'poiId' => 'poi-1',
+            'poiName' => 'Meituan Hotel',
+            'defaultDataDate' => '2026-06-26',
+            'peerRank' => [[
+                'poiId' => 'peer-1',
+                'poiName' => 'Peer Hotel',
+                'dataDate' => '2026-06-26',
+                'rankType' => 'P_RZ',
+                'dimension' => '入住间夜',
+                'rank' => 2,
+                'percent' => '35.5',
+            ]],
+            'flowAnalysis' => [[
+                'dataDate' => '2026-06-26',
+                'analysis_type' => 'conversion_funnel',
+                'dimension' => 'flow_conversion',
+                'listExposure' => 1000,
+                'detailExposure' => 200,
+                'orderSubmitNum' => 20,
+                'flowRate' => 10,
+            ]],
+            'searchKeywords' => [[
+                'dataDate' => '2026-06-26',
+                'keyword' => '机场酒店',
+                'data_value' => 320,
+                'impressions' => 500,
+                'clicks' => 40,
+            ]],
+            'trafficForecast' => [[
+                'dataDate' => '2026-07-01',
+                'forecast_type' => '2',
+                'current' => 88,
+                'peerAvg' => 120,
+            ]],
+        ], 7]);
+
+        self::assertCount(4, $rows);
+        self::assertSame(['peer_rank', 'traffic_analysis', 'search_keyword', 'traffic_forecast'], array_column($rows, 'data_type'));
+
+        self::assertSame('peer-1', $rows[0]['hotel_id']);
+        self::assertSame('Peer Hotel', $rows[0]['hotel_name']);
+        self::assertSame(2.0, $rows[0]['data_value']);
+        self::assertSame('peer_rank:P_RZ:入住间夜', $rows[0]['dimension']);
+        self::assertSame('competitor', $rows[0]['compare_type']);
+
+        self::assertSame(1000, $rows[1]['list_exposure']);
+        self::assertSame(200, $rows[1]['detail_exposure']);
+        self::assertSame(20, $rows[1]['order_submit_num']);
+        self::assertSame(10.0, $rows[1]['flow_rate']);
+
+        self::assertSame('机场酒店', $rows[2]['dimension']);
+        self::assertSame(320.0, $rows[2]['data_value']);
+        self::assertSame(500, $rows[2]['list_exposure']);
+        self::assertSame(40, $rows[2]['detail_exposure']);
+
+        self::assertSame('2026-07-01', $rows[3]['data_date']);
+        self::assertSame(88.0, $rows[3]['data_value']);
+        self::assertSame('forecast', $rows[3]['compare_type']);
+        self::assertSame(7, $rows[3]['system_hotel_id']);
+        self::assertStringContainsString('"peerAvg":120', (string)$rows[3]['raw_data']);
     }
 
     public function testDailyOtaSupplementSummaryExcludesReviews(): void
@@ -1822,7 +1936,8 @@ final class OnlineDataTest extends TestCase
         self::assertSame('collection_gap', $actions[0]['type']);
         self::assertSame('not_collected', $actions[0]['status']);
         self::assertSame('ota_same_period_source_rows_missing', $actions[0]['action_code']);
-        self::assertStringContainsString('现有携程/美团手动或自动获取入口', $actions[0]['action']);
+        self::assertStringContainsString('浏览器 Profile 采集入口', $actions[0]['action']);
+        self::assertStringContainsString('手动 Cookie/API 仅作临时补数或排障', $actions[0]['action']);
         self::assertSame($actions[0]['action'], $actions[0]['next_action']);
         self::assertContains('online_daily_data 同日期源数据行', $actions[0]['evidence_needed']);
         self::assertStringContainsString('不改变采集字段', $actions[0]['protected_boundary']);
@@ -1866,6 +1981,441 @@ final class OnlineDataTest extends TestCase
         self::assertGreaterThanOrEqual(3, $questions['summary']['next_action_count']);
         self::assertContains('phase1_confirm_source_date_evidence', array_column($questions['next_required_actions'], 'action_code'));
         self::assertContains('phase1_collect_ai_diagnosis_evidence', array_column($questions['next_required_actions'], 'action_code'));
+    }
+
+    public function testSourceDateEvidenceSummaryKeepsRawProofAndFieldTrustExplicit(): void
+    {
+        $controller = $this->controller();
+        $raw = [
+            'source_trace_id' => 'ctrip:test-trace',
+            'field_facts' => [
+                [
+                    'metric_key' => 'list_exposure',
+                    'source_path' => 'data.rows[0].listExposure',
+                    'storage_table' => 'online_daily_data',
+                    'storage_field' => 'online_daily_data.list_exposure',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                    'capture_evidence' => [
+                        'source_trace_id' => 'ctrip:test-trace',
+                        'source_url_hash' => 'hash-list',
+                    ],
+                ],
+                [
+                    'metric_key' => 'detail_exposure',
+                    'source_path' => '',
+                    'storage_table' => 'online_daily_data',
+                    'storage_field' => 'online_daily_data.detail_exposure',
+                    'status' => 'missing',
+                    'missing_state' => 'field_missing',
+                    'stored_value_present' => false,
+                ],
+            ],
+        ];
+
+        $summary = $this->invokeNonPublic($controller, 'summarizeCollectionTargetDateEvidenceRows', [[
+            [
+                'id' => 10,
+                'source' => 'ctrip',
+                'data_date' => '2026-06-12',
+                'data_type' => 'traffic',
+                'source_trace_id' => 'ctrip:test-trace',
+                'list_exposure' => 120,
+                'detail_exposure' => null,
+                'raw_data' => json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+        ]]);
+
+        self::assertSame('partial', $summary['credibility_status']);
+        self::assertSame(1, $summary['target_date_rows_sampled']);
+        self::assertSame(1, $summary['raw_data_present_count']);
+        self::assertSame(false, $summary['raw_data_exposed']);
+        self::assertSame(['ctrip:test-trace'], $summary['source_trace_id_samples']);
+        self::assertSame(1, $summary['source_trace_id_present_count']);
+        self::assertSame(1, $summary['source_path_count']);
+        self::assertSame(1, $summary['structured_source_path_count']);
+        self::assertSame(['list_exposure'], $summary['trusted_metric_keys']);
+        self::assertSame(['detail_exposure'], $summary['missing_metric_keys']);
+        self::assertSame('list_exposure', $summary['field_mapping_samples'][0]['metric_key']);
+        self::assertSame('data.rows[0].listExposure', $summary['field_mapping_samples'][0]['source_path']);
+        self::assertTrue($summary['field_mapping_samples'][0]['source_trace_id_present']);
+        self::assertTrue($summary['field_mapping_samples'][0]['source_url_hash_present']);
+        self::assertStringNotContainsString('raw_data', json_encode($summary['field_mapping_samples'], JSON_UNESCAPED_UNICODE));
+    }
+
+    public function testTrafficSourceIssueCodeClassifiesCaptureEntryBlockersWithoutRawErrorExposure(): void
+    {
+        $controller = $this->controller();
+
+        $profileMissing = $this->invokeNonPublic($controller, 'phase1TrafficSourceIssueCode', [[
+            'enabled' => 1,
+            'status' => 'waiting_config',
+            'last_sync_status' => 'waiting_config',
+            'last_error' => 'Ctrip browser Profile is not prepared: storage/ctrip_profile_system_60',
+            'ingestion_method' => 'browser_profile',
+        ], [
+            'profile_id' => 'system_60',
+            'hotel_id' => 'redacted',
+        ]]);
+        $loginMissing = $this->invokeNonPublic($controller, 'phase1TrafficSourceIssueCode', [[
+            'enabled' => 1,
+            'status' => 'waiting_config',
+            'last_sync_status' => 'waiting_config',
+            'last_error' => 'Meituan login session is not ready. Re-login with a visible browser Profile before scheduled sync.',
+            'ingestion_method' => 'browser_profile',
+        ], [
+            'store_id' => 'redacted',
+        ]]);
+        $dependencyMissing = $this->invokeNonPublic($controller, 'phase1TrafficSourceIssueCode', [[
+            'enabled' => 1,
+            'status' => 'failed',
+            'last_sync_status' => 'failed',
+            'last_error' => "Cannot find package 'cloakbrowser' imported from D:\\project\\scripts\\lib\\cloakbrowser_launcher.mjs",
+            'ingestion_method' => 'browser_profile',
+        ], []]);
+        $verifiedLoginWithStaleError = $this->invokeNonPublic($controller, 'phase1TrafficSourceIssueCode', [[
+            'enabled' => 1,
+            'status' => 'ready',
+            'last_sync_status' => 'waiting_config',
+            'last_error' => 'Meituan login session is not ready. Re-login with a visible browser Profile before scheduled sync.',
+            'ingestion_method' => 'browser_profile',
+        ], [
+            'store_id' => 'redacted',
+            'manual_login_state_verified' => true,
+            'login_status' => 'logged_in',
+        ]]);
+
+        self::assertSame('profile_not_prepared', $profileMissing);
+        self::assertSame('login_session_not_ready', $loginMissing);
+        self::assertSame('browser_dependency_missing', $dependencyMissing);
+        self::assertSame('no_target_date_rows_after_success', $verifiedLoginWithStaleError);
+    }
+
+    public function testPlatformProfileLoginVerifiedConfigMarksTrafficSourceWithoutSensitiveValues(): void
+    {
+        $command = $this->profileLoginCommand();
+
+        $config = $this->invokeNonPublic($command, 'buildProfileLoginVerifiedConfig', [[
+            'registered_by' => 'p0_ota_field_loop',
+            'capture_sections' => 'traffic',
+            'profile_id' => 'system_60',
+            'hotel_id' => 'ctrip-60',
+            'profile_status' => 'expired',
+            'auth_status' => ['ok' => false, 'status' => 'login_required'],
+        ], 'ctrip', 'system_60', [
+            'data_source_id' => 14,
+            'capture_sections' => 'traffic',
+        ], [
+            'auth_status' => [
+                'ok' => true,
+                'status' => 'logged_in',
+                'url' => 'https://ebooking.ctrip.com/path?token=secret-token',
+                'message' => 'Ctrip profile is logged in.',
+            ],
+            'capture_gate' => [
+                'status' => 'pass',
+                'mode' => 'login_only',
+                'failed_check_ids' => [],
+                'checks' => [[
+                    'id' => 'auth_session',
+                    'status' => 'pass',
+                    'message' => 'ready',
+                    'raw_token' => 'must-not-store',
+                ]],
+            ],
+        ], '2026-06-27 09:00:00']);
+
+        self::assertTrue($config['manual_login_state_verified']);
+        self::assertTrue($config['login_state_verified']);
+        self::assertTrue($config['profile_login_verified']);
+        self::assertSame('logged_in', $config['profile_status']);
+        self::assertSame('logged_in', $config['login_status']);
+        self::assertSame('2026-06-27 09:00:00', $config['last_login_verified_at']);
+        self::assertSame('traffic', $config['capture_sections']);
+        self::assertSame('p0_ota_field_loop', $config['registered_by']);
+        self::assertSame('ctrip-60', $config['hotel_id']);
+        self::assertSame(['ok' => true, 'status' => 'logged_in', 'message' => 'Ctrip profile is logged in.'], $config['auth_status']);
+        self::assertSame('pass', $config['profile_login_capture_gate']['status']);
+
+        $encoded = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        self::assertStringNotContainsString('secret-token', $encoded);
+        self::assertStringNotContainsString('must-not-store', $encoded);
+        self::assertStringNotContainsString('ebooking.ctrip.com/path', $encoded);
+        self::assertArrayNotHasKey('data_type', $config);
+    }
+
+    public function testPlatformProfileLoginDataSourceStatusClearsOnlyStaleLoginErrors(): void
+    {
+        $command = $this->profileLoginCommand();
+
+        self::assertSame('ready', $this->invokeNonPublic($command, 'dataSourceStatusAfterProfileLogin', [[
+            'status' => 'waiting_config',
+            'data_type' => 'traffic',
+        ]]));
+        self::assertSame('success', $this->invokeNonPublic($command, 'dataSourceStatusAfterProfileLogin', [[
+            'status' => 'success',
+            'data_type' => 'traffic',
+        ]]));
+        self::assertTrue($this->invokeNonPublic($command, 'isStaleProfileLoginError', [
+            'Meituan login session is not ready. Re-login with a visible browser Profile before scheduled sync.',
+        ]));
+        self::assertFalse($this->invokeNonPublic($command, 'isStaleProfileLoginError', [
+            'Ctrip browser capture completed but no business rows were parsed.',
+        ]));
+    }
+
+    public function testPlatformProfileLoginBuildsTargetDateTrafficSyncOptions(): void
+    {
+        $command = $this->profileLoginCommand();
+
+        $options = $this->invokeNonPublic($command, 'buildProfileLoginSyncOptions', ['ctrip', [
+            'sync_after_login' => true,
+            'target_date' => '2026-06-27',
+            'capture_sections' => ['traffic', 'orders'],
+            'data_period' => 'historical_daily',
+            'snapshot_time' => '2026-06-27 10:00:00',
+        ]]);
+        $compact = $this->invokeNonPublic($command, 'compactProfileLoginSyncResult', [[
+            'task_id' => 91,
+            'status' => 'success',
+            'message' => 'Platform data synchronized.',
+            'normalized_count' => 5,
+            'saved_count' => 5,
+            'payload' => ['token' => 'must-not-copy'],
+        ], 14, $options]);
+
+        self::assertTrue($this->invokeNonPublic($command, 'shouldSyncDataSourceAfterProfileLogin', [[
+            'sync_after_login' => true,
+        ]]));
+        self::assertFalse($this->invokeNonPublic($command, 'shouldSyncDataSourceAfterProfileLogin', [[
+            'sync_after_login' => false,
+        ]]));
+        self::assertSame('profile_login_after_login', $options['trigger_type']);
+        self::assertSame('2026-06-27', $options['data_date']);
+        self::assertSame('traffic,orders', $options['capture_sections']);
+        self::assertSame(['traffic', 'orders'], $options['sections']);
+        self::assertSame('historical_daily', $options['data_period']);
+        self::assertFalse($options['interactive_browser']);
+        self::assertSame('success', $compact['status']);
+        self::assertSame(14, $compact['data_source_id']);
+        self::assertSame(91, $compact['task_id']);
+        self::assertSame(5, $compact['saved_count']);
+        self::assertFalse($compact['sensitive_values_exposed']);
+        self::assertStringNotContainsString('must-not-copy', json_encode($compact, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    public function testPlatformProfileLoginRequestResolvesMeituanDataSourceServerSide(): void
+    {
+        $controller = $this->controller();
+
+        $request = $this->invokeNonPublic($controller, 'buildPlatformProfileLoginRequestFromDataSource', [
+            'meituan',
+            [
+                'data_source_id' => 18,
+                'system_hotel_id' => 58,
+                'bind_data_source' => true,
+            ],
+            [
+                'id' => 18,
+                'platform' => 'meituan',
+                'ingestion_method' => 'browser_profile',
+                'enabled' => 1,
+                'status' => 'waiting_config',
+                'system_hotel_id' => 58,
+                'data_type' => 'traffic',
+                'name' => '天成美团流量源',
+                'config' => [
+                    'store_id' => 'mt-store-58',
+                    'poi_id' => 'mt-poi-58',
+                    'partner_id' => 'partner-58',
+                    'capture_sections' => ['traffic', 'orders'],
+                ],
+                'secret_json' => json_encode(['cookies' => 'must-not-merge'], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+
+        self::assertSame(18, $request['data_source_id']);
+        self::assertSame(58, $request['system_hotel_id']);
+        self::assertSame('mt-store-58', $request['store_id']);
+        self::assertSame('mt-poi-58', $request['poi_id']);
+        self::assertSame('partner-58', $request['partner_id']);
+        self::assertSame('traffic,orders', $request['capture_sections']);
+        self::assertArrayNotHasKey('secret_json', $request);
+        self::assertArrayNotHasKey('cookies', $request);
+    }
+
+    public function testPlatformProfileLoginRequestRejectsMismatchedDataSourceScope(): void
+    {
+        $controller = $this->controller();
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('平台 Profile 数据源与当前酒店不匹配');
+
+        $this->invokeNonPublic($controller, 'buildPlatformProfileLoginRequestFromDataSource', [
+            'ctrip',
+            [
+                'data_source_id' => 14,
+                'system_hotel_id' => 60,
+            ],
+            [
+                'id' => 14,
+                'platform' => 'ctrip',
+                'ingestion_method' => 'browser_profile',
+                'enabled' => 1,
+                'status' => 'waiting_config',
+                'system_hotel_id' => 58,
+                'data_type' => 'traffic',
+                'config' => [
+                    'profile_id' => 'system_58',
+                    'hotel_id' => 'ctrip-58',
+                ],
+            ],
+        ]);
+    }
+
+    public function testP0ProfileLoginTriggerActionUsesDataSourceIdWithoutRawPlatformIdentifiers(): void
+    {
+        $controller = $this->controller();
+
+        $action = $this->invokeNonPublic($controller, 'phase1P0ProfileLoginTriggerAction', [
+            'ctrip',
+            14,
+            58,
+            '2026-06-27',
+        ]);
+
+        self::assertSame('available', $action['status']);
+        self::assertSame('/api/online-data/profile-login-trigger/ctrip', $action['entry']);
+        self::assertSame(14, $action['request_body']['data_source_id']);
+        self::assertSame(58, $action['request_body']['system_hotel_id']);
+        self::assertSame('2026-06-27', $action['request_body']['data_date']);
+        self::assertTrue($action['request_body']['sync_after_login']);
+        self::assertSame('/api/online-data/data-sources/14/sync', $action['after_login_sync']['entry']);
+        self::assertFalse($action['sensitive_values_exposed']);
+
+        $encoded = json_encode($action, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        self::assertStringNotContainsString('profile_id', $encoded);
+        self::assertStringNotContainsString('store_id', $encoded);
+        self::assertStringNotContainsString('poi_id', $encoded);
+        self::assertStringNotContainsString('cookie', strtolower((string)$encoded));
+    }
+
+    public function testP0SyncTaskMessageCodeClassifiesWithoutRawErrorExposure(): void
+    {
+        $controller = $this->controller();
+
+        $saved = $this->invokeNonPublic($controller, 'phase1P0SyncTaskMessageCode', [[
+            'status' => 'success',
+            'message' => 'Platform data synchronized.',
+        ], [
+            'saved_count' => 3,
+            'normalized_count' => 3,
+        ]]);
+        $zeroSaved = $this->invokeNonPublic($controller, 'phase1P0SyncTaskMessageCode', [[
+            'status' => 'partial_success',
+            'message' => 'Ctrip browser capture completed but no business rows were parsed.',
+        ], [
+            'saved_count' => 0,
+            'normalized_count' => 0,
+        ]]);
+        $login = $this->invokeNonPublic($controller, 'phase1P0SyncTaskMessageCode', [[
+            'status' => 'waiting_config',
+            'message' => 'Ctrip browser Profile is not prepared: storage/ctrip_profile_system_60',
+        ], []]);
+        $dependency = $this->invokeNonPublic($controller, 'phase1P0SyncTaskMessageCode', [[
+            'status' => 'failed',
+            'message' => "Cannot find package 'cloakbrowser' imported from D:\\project\\capture.mjs",
+        ], []]);
+
+        self::assertSame('sync_reported_saved_rows_requires_target_date_verifier', $saved);
+        self::assertSame('sync_completed_without_saved_rows', $zeroSaved);
+        self::assertSame('login_or_profile_not_ready', $login);
+        self::assertSame('browser_dependency_missing', $dependency);
+
+        $encoded = json_encode([$saved, $zeroSaved, $login, $dependency], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        self::assertStringNotContainsString('storage/ctrip_profile_system_60', (string)$encoded);
+        self::assertStringNotContainsString('cloakbrowser', strtolower((string)$encoded));
+    }
+
+    public function testDailyWorkbenchWorkflowChainFollowsOtaToExecutionOrder(): void
+    {
+        $controller = $this->controller();
+
+        $reliability = $this->invokeNonPublic($controller, 'withPhase1EmployeeQuestions', [[
+            'mode' => 'full',
+            'period' => ['start_date' => '2026-06-12', 'end_date' => '2026-06-12', 'days' => 1],
+            'hotel_id' => 1,
+            'collection_logs' => [
+                ['status' => 'success', 'saved_count' => 4, 'run_time' => '2026-06-12 09:00:00'],
+            ],
+            'history_replay' => [],
+            'source_date_evidence' => [
+                'status' => 'target_date_missing',
+                'target_date' => '2026-06-12',
+                'source_policy' => 'read_online_daily_data_aggregate_only',
+                'platforms' => [
+                    [
+                        'platform' => 'ctrip',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 0,
+                        'target_date_data_types' => [],
+                        'latest_available' => ['date' => '2026-06-11', 'rows' => 4, 'data_types' => ['business']],
+                        'date_relation' => 'stale_before_target',
+                    ],
+                    [
+                        'platform' => 'meituan',
+                        'target_date' => '2026-06-12',
+                        'target_date_rows' => 0,
+                        'target_date_data_types' => [],
+                        'latest_available' => ['date' => '2026-06-10', 'rows' => 2, 'data_types' => ['business']],
+                        'date_relation' => 'stale_before_target',
+                    ],
+                ],
+            ],
+            'data_quality' => ['status' => 'warning', 'checked_records' => 4, 'missing_count' => 1, 'missing_fields' => ['quantity']],
+            'revenue_metric_evidence' => [
+                'status' => 'empty',
+                'metric_trust_keys' => [],
+                'data_gap_codes' => ['available_room_nights_missing'],
+                'source_policy' => 'read_existing_ota_standard_revenue_metrics_only',
+            ],
+            'field_definitions' => [
+                ['source' => 'ctrip', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+                ['source' => 'meituan', 'module' => 'business', 'fields' => [['field' => 'amount']]],
+            ],
+            'pending_actions' => [],
+            'failure_reasons' => [],
+        ]]);
+
+        $row = $this->invokeNonPublic($controller, 'buildDailyWorkbenchRow', [
+            ['id' => 1, 'name' => 'Workflow Fixture Hotel'],
+            $reliability,
+            '2026-06-12',
+        ]);
+
+        $chain = $row['workflow_chain'];
+        self::assertCount(5, $chain);
+        self::assertSame([
+            'today_ota_data',
+            'field_trust_and_gaps',
+            'revenue_metrics',
+            'ai_diagnosis',
+            'operation_action',
+        ], array_column($chain, 'key'));
+        self::assertSame('携程/美团今日数据', $chain[0]['label']);
+        self::assertSame('today_ota_collected', $chain[0]['question_key']);
+        self::assertSame('read_existing_online_daily_data_only', $chain[0]['source_policy']);
+        self::assertSame(0, $chain[0]['evidence']['target_date_source_rows']);
+        self::assertContains('ctrip_target_date_source_rows_missing', $chain[0]['blocking_gap_codes']);
+        self::assertSame('字段可信/缺失', $chain[1]['label']);
+        self::assertSame('收益指标', $chain[2]['label']);
+        self::assertSame('read_existing_ota_standard_revenue_metrics_only', $chain[2]['source_policy']);
+        self::assertContains('available_room_nights_missing', $chain[2]['evidence']['data_gap_codes']);
+        self::assertSame('AI诊断', $chain[3]['label']);
+        self::assertSame('read_existing_ota_gap_evidence_only', $chain[3]['source_policy']);
+        self::assertSame('执行动作', $chain[4]['label']);
+        self::assertSame('read_existing_operation_execution_state_only', $chain[4]['source_policy']);
+        self::assertStringContainsString('Read-only workflow decomposition', $chain[4]['protected_boundary']);
     }
 
     public function testPhase1EmployeeQuestionsExposeEvidenceButKeepAiAndExecutionOpen(): void
@@ -2033,25 +2583,26 @@ final class OnlineDataTest extends TestCase
         foreach ($payload['phase1_employee_questions']['next_required_actions'] as $action) {
             $sourceActionByCode[$action['action_code']] = $action;
         }
-        self::assertSame('/api/online-data/fetch-ctrip-overview', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry']);
+        self::assertSame('/api/online-data/capture-ctrip-browser', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry']);
         self::assertContains('/api/online-data/capture-ctrip-browser', array_column($sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'], 'entry'));
-        self::assertContains('手动 Cookie/API', array_column($sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'], 'label'));
-        self::assertStringContainsString('已取得携程 Cookie', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['use_when']);
-        self::assertStringContainsString('不改变采集字段', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['boundary']);
-        self::assertSame('requires_user_context', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['readiness']['status']);
-        self::assertFalse($sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['readiness']['can_run_now']);
-        self::assertContains($sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['readiness']['status'], ['profile_missing', 'profile_found_login_unverified']);
-        self::assertArrayHasKey('profile_count', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['readiness']);
-        self::assertSame('/api/online-data/fetch-meituan', $sourceActionByCode['phase1_collect_meituan_target_date_source_rows']['entry']);
+        self::assertContains('临时 Cookie/API', array_column($sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'], 'label'));
+        self::assertContains($sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['readiness']['status'], ['profile_missing', 'profile_found_login_unverified']);
+        self::assertArrayHasKey('profile_count', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['readiness']);
+        self::assertStringContainsString('已取得携程 Cookie', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['use_when']);
+        self::assertStringContainsString('不改变采集字段', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['boundary']);
+        self::assertSame('requires_user_context', $sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['readiness']['status']);
+        self::assertFalse($sourceActionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['readiness']['can_run_now']);
+        self::assertSame('/api/online-data/capture-meituan-browser', $sourceActionByCode['phase1_collect_meituan_target_date_source_rows']['entry']);
         self::assertContains('/api/online-data/capture-meituan-browser', array_column($sourceActionByCode['phase1_collect_meituan_target_date_source_rows']['entry_options'], 'entry'));
-        self::assertStringContainsString('已取得美团 Cookie', $sourceActionByCode['phase1_collect_meituan_target_date_source_rows']['entry_options'][0]['use_when']);
-        self::assertSame('requires_user_context', $sourceActionByCode['phase1_collect_meituan_target_date_source_rows']['entry_options'][0]['readiness']['status']);
+        self::assertStringContainsString('已取得美团 Cookie', $sourceActionByCode['phase1_collect_meituan_target_date_source_rows']['entry_options'][1]['use_when']);
+        self::assertSame('requires_user_context', $sourceActionByCode['phase1_collect_meituan_target_date_source_rows']['entry_options'][1]['readiness']['status']);
         self::assertSame('incomplete', $payload['phase1_employee_questions']['summary']['status']);
         self::assertSame('phase1_collect_ctrip_target_date_source_rows', $payload['phase1_employee_questions']['closure_summary']['top_action_code']);
         self::assertContains('/api/online-data/fetch-ctrip-overview', array_column($payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'], 'entry'));
         self::assertContains('/api/online-data/capture-ctrip-browser', array_column($payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'], 'entry'));
         self::assertContains('/api/online-data/collection-reliability', array_column($payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'], 'entry'));
-        self::assertStringContainsString('用户提供授权上下文', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][0]['requires']);
+        self::assertStringContainsString('本地 Profile 存在', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][0]['requires']);
+        self::assertStringContainsString('用户提供授权上下文', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][1]['requires']);
         self::assertStringContainsString('只读状态', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][2]['boundary']);
         self::assertSame('ready', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][2]['readiness']['status']);
         self::assertTrue($payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][2]['readiness']['can_run_now']);
@@ -2198,14 +2749,14 @@ final class OnlineDataTest extends TestCase
         }
         self::assertSame('high', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['priority']);
         self::assertSame('target_date_source_rows', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['action_family']);
-        self::assertSame('/api/online-data/fetch-ctrip-overview', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry']);
+        self::assertSame('/api/online-data/capture-ctrip-browser', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry']);
         self::assertContains('/api/online-data/capture-ctrip-browser', array_column($actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'], 'entry'));
         self::assertContains('/api/online-data/collection-reliability', array_column($actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'], 'entry'));
-        self::assertStringContainsString('本地 Profile 存在', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['requires']);
+        self::assertStringContainsString('本地 Profile 存在', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['requires']);
         self::assertStringContainsString('只核对目标日', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][2]['use_when']);
-        self::assertSame('requires_user_context', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['readiness']['status']);
-        self::assertContains($actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['readiness']['status'], ['profile_missing', 'profile_found_login_unverified']);
-        self::assertSame('read_local_profile_directory_names_only', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['readiness']['source_policy']);
+        self::assertContains($actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['readiness']['status'], ['profile_missing', 'profile_found_login_unverified']);
+        self::assertSame('read_local_profile_directory_names_only', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][0]['readiness']['source_policy']);
+        self::assertSame('requires_user_context', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][1]['readiness']['status']);
         self::assertSame('ready', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['entry_options'][2]['readiness']['status']);
         self::assertStringContainsString('target_date_rows', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['success_criteria']);
         self::assertSame(['ctrip_target_date_source_rows_missing'], $actionByCode['phase1_collect_ctrip_target_date_source_rows']['resolves_missing_codes']);
@@ -2214,7 +2765,7 @@ final class OnlineDataTest extends TestCase
         self::assertContains('trusted_fields', $actionByCode['phase1_collect_ctrip_target_date_source_rows']['related_question_keys']);
         self::assertContains('phase1_collect_ctrip_target_date_source_rows', $rowsByKey['trusted_fields']['next_action_codes']);
         self::assertSame('traffic_conversion_facts', $actionByCode['phase1_confirm_meituan_traffic_conversion_facts']['action_family']);
-        self::assertSame('/api/online-data/fetch-meituan-traffic', $actionByCode['phase1_confirm_meituan_traffic_conversion_facts']['entry']);
+        self::assertSame('/api/online-data/capture-meituan-browser', $actionByCode['phase1_confirm_meituan_traffic_conversion_facts']['entry']);
         self::assertNotSame('/api/ota-standard/revenue-metrics', $actionByCode['phase1_confirm_meituan_traffic_conversion_facts']['entry']);
         self::assertSame('ai_diagnosis_evidence', $actionByCode['phase1_collect_ai_diagnosis_evidence']['action_family']);
         self::assertSame('operation_execution_evidence', $actionByCode['phase1_create_operation_execution_evidence']['action_family']);

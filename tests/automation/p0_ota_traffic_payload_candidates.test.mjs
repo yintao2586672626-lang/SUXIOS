@@ -96,6 +96,19 @@ test('P0 OTA traffic payload scanner finds ready dry-run candidates without expo
     assert.equal(json.ready_candidates[0].status, 'ready_to_import');
     assert.equal(json.ready_candidates[0].target_date_rows, 1);
     assert.equal(json.ready_candidates[0].traffic_evidence_rows, 1);
+    assert.equal(json.ready_candidates[0].evidence_source_path_rows, 1);
+    assert.equal(json.ready_candidates[0].evidence_structured_source_path_rows, 1);
+    assert.equal(json.ready_candidates[0].evidence_raw_data_field_facts_rows, 1);
+    assert.equal(json.ready_candidates[0].evidence_raw_data_exposed_rows, 0);
+    assert.equal(json.ready_candidates[0].evidence_sensitive_value_rows, 0);
+    assert.deepEqual(json.ready_candidates[0].evidence_missing_metric_keys, []);
+    assert.deepEqual(json.ready_candidates[0].evidence_metric_keys, [
+      'detail_exposure',
+      'flow_rate',
+      'list_exposure',
+      'order_filling_num',
+      'order_submit_num',
+    ]);
     assert.match(json.next_actions[0].command, /import:p0-ota-traffic-payload:execute/);
     assert.match(json.next_actions[0].verification, /verify:p0-ota-field-loop/);
     assert.match(json.ready_candidates[0].next_verifier_command, /--platform=ctrip/);

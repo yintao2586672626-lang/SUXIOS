@@ -89,6 +89,227 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
             { title: '数据缺失提示', icon: 'fas fa-clipboard-check', iconClass: 'text-slate-500', items: normalizeOtaDiagnosisList(result.missing_sections || result.data_anomalies_needing_confirmation) },
         ];
     };
+
+    const normalizeOtaDiagnosisArray = (value) => Array.isArray(value) ? value.filter(Boolean) : [];
+
+    const otaDiagnosisDecisionStatusText = (status) => {
+        const value = String(status || '').toLowerCase();
+        const labels = {
+            ready: '证据充分',
+            pending: '待确认',
+            pending_human_confirmation: '待人工确认',
+            partial_ready: '部分可执行',
+            blocked: '证据阻断',
+            blocked_by_missing_ota_data: '缺OTA数据',
+            blocked_by_non_target_date_data: '非目标日数据',
+            blocked_by_insufficient_evidence: '证据不足',
+            blocked_by_data_gap: '数据缺口',
+            blocked_by_operation_closure: '待运营复盘',
+            not_required: '无需确认',
+            confirmed: '已确认',
+            rejected: '已驳回',
+            high: '高置信',
+            medium: '中置信',
+            low: '低置信',
+            unknown: '待核验',
+        };
+        return labels[value] || status || '-';
+    };
+
+    const otaDiagnosisDecisionStatusClass = (status) => {
+        const value = String(status || '').toLowerCase();
+        if (['ready', 'confirmed'].includes(value)) return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+        if (['pending', 'pending_human_confirmation', 'partial_ready'].includes(value)) return 'bg-amber-50 text-amber-700 border-amber-100';
+        if (value.startsWith('blocked') || ['rejected'].includes(value)) return 'bg-red-50 text-red-700 border-red-100';
+        if (['not_required'].includes(value)) return 'bg-slate-50 text-slate-600 border-slate-200';
+        return 'bg-gray-50 text-gray-600 border-gray-200';
+    };
+
+    const otaDiagnosisDecisionClosure = (result = {}) => {
+        const closure = result?.decision_closure || result?.evidence_report?.decision_closure || {};
+        return closure && typeof closure === 'object' ? closure : {};
+    };
+
+    const otaDiagnosisActionItems = (result = {}) => {
+        const closureItems = otaDiagnosisDecisionClosure(result)?.suggested_actions?.items;
+        if (Array.isArray(closureItems)) return closureItems.filter(item => item && typeof item === 'object');
+        return normalizeOtaDiagnosisArray(result?.action_items).filter(item => item && typeof item === 'object');
+    };
+
+    const otaDiagnosisReadyActionCount = (result = {}) => {
+        const closureCount = Number(otaDiagnosisDecisionClosure(result)?.suggested_actions?.ready_count);
+        if (Number.isFinite(closureCount) && closureCount > 0) return closureCount;
+        return otaDiagnosisActionItems(result).filter(item => item.execution_ready === true).length;
+    };
+
+    const otaDiagnosisBlockedActionCount = (result = {}) => {
+        const closureCount = Number(otaDiagnosisDecisionClosure(result)?.suggested_actions?.blocked_count);
+        if (Number.isFinite(closureCount) && closureCount > 0) return closureCount;
+        return otaDiagnosisActionItems(result).filter(item => String(item.status || '').startsWith('blocked') || item.execution_ready === false).length;
+    };
+
+    const buildOtaDiagnosisDecisionClosureCards = (result = {}) => {
+        const closure = otaDiagnosisDecisionClosure(result);
+        const evidence = closure.data_evidence_input || {};
+        const conclusion = closure.diagnostic_conclusion || {};
+        const suggested = closure.suggested_actions || {};
+        const blocked = closure.blocked_state || {};
+        const human = closure.human_confirmation || {};
+        const evidenceRefs = normalizeOtaDiagnosisArray(evidence.evidence_refs);
+        const dataGaps = normalizeOtaDiagnosisArray(evidence.data_gaps || result.data_gaps);
+        const readyCount = otaDiagnosisReadyActionCount(result);
+        const blockedCount = otaDiagnosisBlockedActionCount(result);
+        const enough = evidence.enough_for_executable_actions === true || readyCount > 0;
+
+        return [
+            {
+                key: 'data_evidence_input',
+                title: '数据证据输入',
+                status: enough ? 'ready' : 'blocked',
+                value: `${evidenceRefs.length}项证据`,
+                detail: dataGaps.length ? `缺口 ${dataGaps.length} 项` : (evidence.source_policy || 'database_only'),
+            },
+            {
+                key: 'diagnostic_conclusion',
+                title: '诊断结论',
+                status: conclusion.summary ? 'ready' : 'unknown',
+                value: conclusion.confidence_level ? otaDiagnosisDecisionStatusText(conclusion.confidence_level) : '已生成',
+                detail: conclusion.summary || result?.core_conclusion || result?.diagnosis?.summary || '-',
+            },
+            {
+                key: 'suggested_actions',
+                title: '建议动作',
+                status: readyCount > 0 ? 'pending_human_confirmation' : 'blocked',
+                value: `${readyCount}可执行 / ${blockedCount}阻断`,
+                detail: `${normalizeOtaDiagnosisArray(suggested.items || result.action_items).length} 项动作`,
+            },
+            {
+                key: 'blocked_state',
+                title: 'blocked 状态',
+                status: blocked.is_blocked ? 'blocked' : 'ready',
+                value: blocked.is_blocked ? '有阻断' : '无阻断',
+                detail: normalizeOtaDiagnosisArray(blocked.blocked_reasons).slice(0, 2).join('、') || '-',
+            },
+            {
+                key: 'human_confirmation',
+                title: '人工确认',
+                status: human.status || (readyCount > 0 ? 'pending' : 'blocked'),
+                value: human.required === false ? '无需确认' : otaDiagnosisDecisionStatusText(human.status || (readyCount > 0 ? 'pending' : 'blocked')),
+                detail: human.reason || 'manual confirmation required before operation execution',
+            },
+        ];
+    };
+
+    const buildOtaDiagnosisBusinessLoopSteps = (result = {}) => {
+        const closure = otaDiagnosisDecisionClosure(result);
+        const readyCount = otaDiagnosisReadyActionCount(result);
+        const blockedCount = otaDiagnosisBlockedActionCount(result);
+        const evidence = closure.data_evidence_input || {};
+        const conclusion = closure.diagnostic_conclusion || {};
+        const enough = evidence.enough_for_executable_actions === true || readyCount > 0;
+        return [
+            {
+                key: 'ota_data',
+                title: 'OTA数据',
+                status: enough ? 'ready' : 'blocked',
+                detail: enough ? '已形成动作证据' : '需补目标日期证据',
+            },
+            {
+                key: 'revenue_analysis',
+                title: '收益分析',
+                status: conclusion.summary || result?.diagnosis?.summary ? 'ready' : 'unknown',
+                detail: conclusion.confidence_level || '按入库指标诊断',
+            },
+            {
+                key: 'ai_decision',
+                title: 'AI决策',
+                status: readyCount > 0 ? 'pending_human_confirmation' : 'blocked',
+                detail: `${readyCount}项可执行，${blockedCount}项阻断`,
+            },
+            {
+                key: 'operation_management',
+                title: '运营管理',
+                status: readyCount > 0 ? 'pending' : 'blocked',
+                detail: readyCount > 0 ? '待确认后进入执行' : '不能创建执行动作',
+            },
+            {
+                key: 'investment_decision',
+                title: '投资决策',
+                status: 'blocked_by_operation_closure',
+                detail: '等待运营执行与ROI复盘',
+            },
+        ];
+    };
+
+    const buildOtaDiagnosisActionRows = (result = {}) => otaDiagnosisActionItems(result).map((item, index) => {
+        const missingEvidence = normalizeOtaDiagnosisArray(item.missing_evidence);
+        const evidenceRefs = normalizeOtaDiagnosisArray(item.evidence_refs);
+        const requiredEvidence = normalizeOtaDiagnosisArray(item.required_evidence);
+        return {
+            id: item.id || `ota_action_${index + 1}`,
+            action: item.action || item.title || '-',
+            status: item.status || (item.execution_ready ? 'pending_human_confirmation' : 'blocked'),
+            statusText: otaDiagnosisDecisionStatusText(item.status || (item.execution_ready ? 'pending_human_confirmation' : 'blocked')),
+            statusClass: otaDiagnosisDecisionStatusClass(item.status || (item.execution_ready ? 'pending_human_confirmation' : 'blocked')),
+            executionReady: item.execution_ready === true,
+            evidenceText: evidenceRefs.length ? evidenceRefs.slice(0, 3).join('、') : '-',
+            requiredText: requiredEvidence.length ? requiredEvidence.join('、') : '-',
+            missingText: missingEvidence.map(evidence => evidence.label || evidence.code || '').filter(Boolean).slice(0, 3).join('、') || '',
+            blockedReason: item.blocked_reason || '',
+            confirmationText: otaDiagnosisDecisionStatusText(item.human_confirmation_status || (item.execution_ready ? 'pending' : 'blocked')),
+        };
+    });
+
+    const normalizeOtaDiagnosisGapSource = (value) => {
+        if (Array.isArray(value)) return value.filter(Boolean);
+        if (value && typeof value === 'object') return [value];
+        if (typeof value === 'string' && value.trim() !== '') return [value.trim()];
+        return [];
+    };
+
+    const otaDiagnosisDataGapItems = (result = {}) => {
+        const closureGaps = normalizeOtaDiagnosisGapSource(otaDiagnosisDecisionClosure(result)?.data_evidence_input?.data_gaps);
+        const resultGaps = normalizeOtaDiagnosisGapSource(result?.data_gaps);
+        const missingSections = normalizeOtaDiagnosisGapSource(result?.missing_sections).map(item => (
+            item && typeof item === 'object' ? item : {
+                code: 'missing_section',
+                message: String(item || '').trim(),
+            }
+        ));
+        const seen = new Set();
+        return [...closureGaps, ...resultGaps, ...missingSections].filter(item => {
+            const source = item && typeof item === 'object' ? item : { code: String(item || '').trim() };
+            const key = [
+                source.code || source.key || '',
+                source.message || source.label || source.title || source.detail || '',
+            ].join('|').trim();
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    };
+
+    const buildOtaDiagnosisDataGapRows = (result = {}) => otaDiagnosisDataGapItems(result).map((gap, index) => {
+        const source = gap && typeof gap === 'object' ? gap : { code: String(gap || '').trim() };
+        const code = String(source.code || source.key || `data_gap_${index + 1}`).trim();
+        const label = String(source.label || source.title || code || '证据缺口').trim();
+        const message = String(source.message || source.description || source.detail || source.reason || '').trim();
+        const nextAction = String(source.next_action || source.nextAction || source.required_action || source.action || '').trim();
+        const scope = String(source.scope || source.source_scope || source.platform_scope || source.platform || 'OTA渠道口径').trim();
+        const status = source.status || source.blocked_status || 'blocked_by_data_gap';
+        return {
+            id: code || `data_gap_${index + 1}`,
+            code: code || 'data_gap',
+            label,
+            message: message || '-',
+            nextAction: nextAction || '-',
+            scope,
+            status,
+            statusText: otaDiagnosisDecisionStatusText(status),
+            statusClass: otaDiagnosisDecisionStatusClass(status),
+        };
+    });
+
     const firstOtaDiagnosisValue = (...values) => {
         const value = values.find(item => item !== undefined && item !== null && item !== '');
         return value === undefined ? '' : value;
@@ -615,6 +836,12 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         otaDiagnosisPriorityText,
         buildOtaDiagnosisMetricCards,
         buildOtaDiagnosisResultSections,
+        otaDiagnosisDecisionStatusText,
+        otaDiagnosisDecisionStatusClass,
+        buildOtaDiagnosisDecisionClosureCards,
+        buildOtaDiagnosisBusinessLoopSteps,
+        buildOtaDiagnosisActionRows,
+        buildOtaDiagnosisDataGapRows,
         buildOtaDiagnosisFetchContext,
         buildOtaDiagnosisFetchTasks,
         runOtaDiagnosisHotelFetchFlow,

@@ -13,6 +13,7 @@
 | 知识来源引用 | `knowledge_sources_json` | 记录参与生成的表、知识库、输入摘要或外部数据口径。 |
 | 低置信度提示 | `confidence_score`、`low_confidence` | 支持模型或调用方传入置信度；低于阈值写入低置信度标记。 |
 | 人工确认 | `human_confirmation_required/status`、`POST /api/ai-governance/logs/:id/confirm` | 运营/投决类调用默认进入待确认状态，支持人工确认或驳回。 |
+| AI 决策闭环 | `Agent/otaDiagnosis` `decision_closure`、`action_items.execution_ready/status` | 输出固定拆成数据证据输入、诊断结论、建议动作、blocked 状态和人工确认；证据不足的动作只能进入 blocked，不能作为可执行运营建议。 |
 | 评估集 | `ai_evaluation_cases`、`ai_model_call_logs.evaluation_set/eval_case_id` | 保存评估用例、输入、期望结果和指标；调用日志区分评估集标识和具体用例ID。 |
 | 批量评估回放 | `AiEvaluationBatchReplayService`、`POST /api/ai-governance/evaluation-cases/replay` | 按活跃评估用例生成 dry-run 计划，显式标记缺 `messages/schema/expected_json` 等不可执行原因；执行模式调用模型并按 `expected_json` 子集评分。 |
 | 原生结构化输出 | `LlmClient::createJsonResponse` | `provider=openai` 时在 Chat Completions 请求体中发送 `response_format=json_schema` 且 `strict=true`；非 OpenAI 供应商继续使用 prompt schema + 显式 JSON 解析校验。 |
@@ -21,6 +22,7 @@
 ## 治理判定规则
 
 - 运营、投决类调用缺少置信度、知识来源或评估集标识时，强制标记为低置信度并进入待人工确认。
+- OTA AI 诊断动作必须绑定非派生证据引用；缺少目标日期、广告、服务质量、流量、订单、价格或竞对证据时，动作状态为 `blocked_*`，只允许提示补证据或人工复核。
 - 评估集标识使用 `evaluation_set`，具体回归样本或人工抽检用例使用 `eval_case_id`，两者不再混用。
 - Prompt 版本登记必须提供 `content` 或 64 位 `content_hash`；非法 `status` 不做静默纠正。
 

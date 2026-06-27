@@ -17,6 +17,7 @@ const html = readFileSync('public/index.html', 'utf8');
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
+const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
 const ctripProfileFieldConfigPanel = readFileSync('public/components/online-data/ctrip-profile-field-config-panel.js', 'utf8')
   .replace(/\\"/g, '"');
 const dataHealthOverviewSource = `${html}\n${dataHealthStatic}`;
@@ -427,10 +428,19 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
   assert.match(configApplier, /const ctripHotelId = String\(config\.ota_hotel_id \|\| config\.ctrip_hotel_id \|\| config\.ctripHotelId \|\| ''\)/);
   assert.doesNotMatch(configApplier, /const ctripHotelId = String\([\s\S]*node_id|const ctripHotelId = String\([\s\S]*nodeId/);
   assert.match(html, /const defaultCtripBrowserProfileId = \(hotelId = getAutoFetchHotelId\(\)\) =>/);
+  assert.match(profileLoginPayload, /const dataSourceId = Number\(item\?\.data_source_id \|\| item\?\.dataSourceId \|\| 0\)/);
+  assert.match(profileLoginPayload, /const syncAfterLogin = !!\(item\?\.sync_after_login \|\| item\?\.syncAfterLogin\)/);
+  assert.match(profileLoginPayload, /const loginTargetDate = String\(item\?\.data_date \|\| item\?\.dataDate \|\| item\?\.target_date \|\| item\?\.targetDate \|\| ''\)\.trim\(\)/);
   assert.match(profileLoginPayload, /const profileId = resolveCtripBrowserProfileId\(\{ item, hotelId, allowDefault: true \}\)/);
   assert.match(profileLoginPayload, /form\.profileId = profileId/);
+  assert.match(profileLoginPayload, /data_source_id: dataSourceId \|\| undefined/);
+  assert.match(profileLoginPayload, /sync_after_login: syncAfterLogin \|\| undefined/);
+  assert.match(profileLoginPayload, /data_date: loginTargetDate \|\| undefined/);
+  assert.match(profileLoginPayload, /\(dataSourceId \? '' : meituanForm\.value\.poiId\)/);
   assert.match(profileLoginTrigger, /buildPlatformProfileLoginPayload\(platform, item\)/);
-  assert.match(profileLoginTrigger, /platform === 'ctrip' && !payload\.profile_id/);
+  assert.match(profileLoginTrigger, /const hasDataSourceId = Number\(payload\.data_source_id \|\| payload\.source_id \|\| 0\) > 0/);
+  assert.match(profileLoginTrigger, /platform === 'ctrip' && !payload\.profile_id && !hasDataSourceId/);
+  assert.match(profileLoginTrigger, /platform === 'meituan' && !payload\.store_id && !hasDataSourceId/);
   assert.doesNotMatch(profileLoginPayload, /form\.profileId \|\| hotelIdValue \|\| hotelId/);
   assert.match(profileCapture, /resolveProfileId:\s*activeConfig => resolveCtripBrowserProfileId\(\{\s*activeConfig\s*\}\)/);
   assert.doesNotMatch(profileCapture, /form\.profileId \|\| hotelId \|\| systemHotelId/);
@@ -466,6 +476,9 @@ test('Platform account badge treats browser profile login timeout as login expir
   assert.match(loginExpiredDetector, /需重新登录/);
   assert.match(loginExpiredDetector, /login\\s\*timeout/);
   assert.match(accountRowBuilder, /const loginExpired = isPlatformSourceLoginExpired\(source, config\)/);
+  assert.match(systemStatic, /data_source_id: profileSource\?\.id \|\| source\?\.id \|\| undefined/);
+  assert.match(autoFetchStatic, /status === 'syncing_after_login' \|\| sync\?\.status === 'running'/);
+  assert.match(autoFetchStatic, /登录后同步完成，目标日已入库/);
   assert.match(accountRowBuilder, /loginExpired \? 'login_expired'/);
   assert.match(accountRowBuilder, /effectiveReady \? 'logged_in'/);
   assert.match(accountRowWrapper, /buildHotelPlatformBindingRowsStatic/);

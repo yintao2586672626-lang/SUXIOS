@@ -318,7 +318,7 @@ includesAll('scripts/verify_phase1_live_action_queue_runtime.mjs', 'runtime acti
   'cross-output collection source summary matches',
   'action entry is explicit',
   'required next inputs are explicit array',
-  'waiting_config exposes authorization inputs',
+  'waiting_config exposes Profile authorization inputs',
   'evidence package collection coverage is explicit',
   'evidence package does not mark partial collection as proved',
   'evidence package revenue metric status is platform-aware',

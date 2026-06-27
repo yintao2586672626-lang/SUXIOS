@@ -289,6 +289,10 @@ trait OnlineDataRequestConcern
             'payload_counts' => [
                 'reviews' => $this->countMeituanPayloadSection($payload, 'reviews'),
                 'traffic' => $this->countMeituanPayloadSection($payload, 'traffic'),
+                'peer_rank' => $this->countMeituanPayloadSection($payload, 'peerRank'),
+                'traffic_analysis' => $this->countMeituanPayloadSection($payload, 'flowAnalysis'),
+                'search_keywords' => $this->countMeituanPayloadSection($payload, 'searchKeywords'),
+                'traffic_forecast' => $this->countMeituanPayloadSection($payload, 'trafficForecast'),
                 'ads' => $this->countMeituanPayloadSection($payload, 'ads'),
                 'orders' => $this->countMeituanPayloadSection($payload, 'orders'),
                 'responses' => $this->countMeituanPayloadSection($payload, 'responses'),
@@ -858,6 +862,11 @@ trait OnlineDataRequestConcern
         }
 
         $requestData = $this->requestData();
+        try {
+            $requestData = $this->applyPlatformProfileLoginDataSourceRequest($platform, $requestData);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 400);
+        }
         $systemHotelId = $this->resolveOnlineDataSystemHotelId(
             $requestData['system_hotel_id']
             ?? $requestData['systemHotelId']

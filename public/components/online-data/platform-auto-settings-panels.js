@@ -134,6 +134,30 @@
                         <div v-if="ctx.meituanPlatformProfileLoginTask" class="mt-2 text-xs text-orange-800" :title="ctx.platformProfileLoginTaskRawText(ctx.meituanPlatformProfileLoginTask)">
                             {{ ctx.platformProfileLoginTaskText(ctx.meituanPlatformProfileLoginTask) }}
                         </div>
+                        <div data-testid="meituan-browser-supplement-capture" class="mt-3 border-t border-orange-100 pt-3">
+                            <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3">
+                                <div>
+                                    <div class="text-sm font-semibold text-slate-900">竞对补充采集</div>
+                                    <div class="mt-1 text-xs text-slate-500">复用美团 Profile，补充同行排名、流量分析、搜索词和未来30天预测；仅作为 OTA 渠道补充信号。</div>
+                                </div>
+                                <button type="button"
+                                    @click="ctx.runMeituanBrowserSupplementCapture"
+                                    :disabled="ctx.meituanBrowserCaptureRunning || ctx.fetchingData || !ctx.autoFetchHotelId"
+                                    class="shrink-0 inline-flex items-center justify-center rounded-md bg-orange-600 px-3 py-2 text-xs text-white hover:bg-orange-700 disabled:bg-gray-200 disabled:text-gray-500">
+                                    <i :class="ctx.meituanBrowserCaptureRunning ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-chart-line mr-1.5'"></i>{{ ctx.meituanBrowserCaptureRunning ? '采集中' : '采集补充板块' }}
+                                </button>
+                            </div>
+                            <div class="mt-2 flex flex-wrap gap-1.5">
+                                <span v-for="module in ctx.meituanBrowserCaptureSupplementModules" :key="'meituan-supplement-' + module.key" class="rounded border border-orange-100 bg-orange-50 px-2 py-1 text-[11px] text-orange-800" :title="module.endpoint">
+                                    {{ module.label }}
+                                </span>
+                            </div>
+                            <div v-if="ctx.meituanBrowserCaptureResult" class="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                                <span v-for="row in ctx.meituanBrowserCaptureSupplementCounts" :key="'meituan-supplement-count-' + row.key" class="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">
+                                    {{ row.label }} {{ row.count }}
+                                </span>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="rounded-lg border bg-white px-4 py-3 shadow-sm">

@@ -234,6 +234,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
                     permissions: [],
                     children: [
                         { name: '辅助总览', path: 'lifecycle', icon: 'fas fa-route' },
+                        { name: 'P4·投决辅助', path: 'investment-decision', icon: 'fas fa-balance-scale' },
                         { name: '筹建·战略推演', path: 'ai-strategy', icon: 'fas fa-chess' },
                         { name: '筹建·量化模拟', path: 'ai-simulation', icon: 'fas fa-calculator' },
                         { name: '筹建·可行性报告', path: 'ai-feasibility', icon: 'fas fa-file-contract' },
@@ -313,6 +314,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         '运营执行': 'operation-execution',
         '全生命周期服务': 'lifecycle',
         '全生命周期辅助': 'lifecycle',
+        'P4·投决辅助': 'investment-decision',
         '线上数据手动获取': 'online-data',
         '团队管理': 'team',
         '智能知识中枢': 'knowledge-center',
@@ -1405,6 +1407,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             loginItem: {
                 platform,
                 platform_name: label,
+                data_source_id: profileSource?.id || source?.id || undefined,
                 profile_key: firstNonEmptyText(loginBinding.profile_id, loginBinding.store_id, loginBinding.poi_id),
                 binding: loginBinding,
             },
@@ -1601,6 +1604,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         not_started: 'bg-gray-50 text-gray-500 border-gray-200',
         not_loaded: 'bg-red-50 text-red-700 border-red-100',
         blocked: 'bg-red-50 text-red-700 border-red-100',
+        blocked_by_p0_ota_gate: 'bg-red-50 text-red-700 border-red-100',
         rejected: 'bg-gray-100 text-gray-500 border-gray-200',
     }[status] || 'bg-gray-50 text-gray-500 border-gray-200');
     const operationClosureScoreClass = (score) => {

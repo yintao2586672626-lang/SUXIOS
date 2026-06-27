@@ -141,7 +141,7 @@ npm.cmd run build:phase1-live-evidence -- --date=2026-06-12 --output=reports/pha
 
 | 缺失项 | 下一步动作 |
 |---|---|
-| `*_source_rows_missing` | 使用现有携程/美团手动或自动获取入口补同日数据，再复跑巡检 |
+| `*_source_rows_missing` | 默认使用携程/美团浏览器 Profile 采集入口补同日数据，再复跑巡检；手动 Cookie/API 仅作临时补数或排障 |
 | `*_etl_not_ready` | 已有源数据后，检查标准事实层 accepted/rejected、`validation_flags` 和 `data_type` |
 | `*_revenue_metrics_not_ready` | 检查收入、间夜、订单等最小指标输入，缺失时保留 `data_gaps` |
 | `*_traffic_facts_missing` | 确认同日流量字段是否采到；未采到时流量/转化诊断必须标记不可用 |

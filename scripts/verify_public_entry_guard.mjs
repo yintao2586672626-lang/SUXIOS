@@ -135,7 +135,7 @@ if (!fs.existsSync(indexPath)) {
   }
 
   if (!content.includes('ctrip-static.js?v=20260617-profile-verification-cache-fix')
-    || !content.includes('meituan-static.js?v=20260617-metric-cache-fix')) {
+    || !content.includes('meituan-static.js?v=20260627-order-csv-import')) {
     failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance/metric exports change.');
   }
   if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';")
@@ -273,8 +273,9 @@ if (!fs.existsSync(indexPath)) {
   } catch (error) {
     failures.push(`public/system-static.js navigation guard could not evaluate menu definitions: ${error.message}`);
   }
-  if (!content.includes('revenue-ai-static.js?v=20260627-business-date-cache-fix')
+  if (!content.includes('revenue-ai-static.js?v=20260627-business-closure-cache-fix')
     || !revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
+    || !revenueAiStaticContent.includes('buildRevenueAiBusinessClosure')
     || !revenueAiStaticContent.includes('buildRevenueAiGapRows')
     || !revenueAiStaticContent.includes('buildRevenueAiMetricCards')
     || !revenueAiStaticContent.includes('buildRevenueAiOverviewEndpoint')
@@ -1273,6 +1274,8 @@ if (!fs.existsSync(indexPath)) {
     || !platformAutoTemplateSource.includes('<platform-auto-secondary-panels')
     || !content.includes('data-testid="platform-auto-secondary-panels-loading"')
     || !platformAutoSettingsPanelsContent.includes('data-testid="platform-auto-secondary-panels"')
+    || !platformAutoSettingsPanelsContent.includes('data-testid="meituan-browser-supplement-capture"')
+    || !platformAutoSettingsPanelsContent.includes('ctx.runMeituanBrowserSupplementCapture')
     || !platformAutoSettingsPanelsContent.includes('ctx.autoFetchCollectionBlueprintRows')
     || !platformAutoSettingsPanelsContent.includes('ctx.meituanPlatformProfileStatusRow')
     || !platformAutoSettingsPanelsContent.includes('ctx.autoFetchPlatformResultRows')
@@ -1914,6 +1917,9 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!dataHealthStaticContent.includes('const buildPhase1TrafficP0NextText = (row = {}) => {')
     || !dataHealthStaticContent.includes('buildPhase1TrafficP0NextText,')
+    || !dataHealthStaticContent.includes('const buildPhase1TrafficLatestSyncTaskText = (row = {}) => {')
+    || !dataHealthStaticContent.includes('buildPhase1TrafficLatestSyncTaskText,')
+    || !dataHealthStaticContent.includes('traffic_latest_sync_task_message_code_counts')
     || !dataHealthStaticContent.includes('const p0NextText = buildPhase1TrafficP0NextText(row);')
     || content.includes("const buildPhase1TrafficP0NextText = requireDataHealthStatic('buildPhase1TrafficP0NextText');")
     || content.includes('const trafficP0NextText = (row) => {')) {

@@ -665,6 +665,14 @@ trait OperationWorkbenchConcern
             : [];
         $aiQuestionStatus = $this->dailyWorkbenchQuestionStatus($questionsByKey, 'ai_evidence');
         $aiExplanation = $this->dailyWorkbenchAiExplanation($aiEvidence, $aiQuestionStatus);
+        $workflowChain = $this->dailyWorkbenchWorkflowChain(
+            $questionsByKey,
+            $collectionSourceSummary,
+            $revenueEvidence,
+            $aiEvidence,
+            $operationEvidence,
+            $actions
+        );
 
         return [
             'hotel_id' => (int)($hotel['id'] ?? 0),
@@ -723,6 +731,7 @@ trait OperationWorkbenchConcern
                 'blocking_missing_codes' => array_values(array_filter(array_map('strval', (array)($operationEvidence['blocking_missing_codes'] ?? [])))),
                 'source_policy' => (string)($operationEvidence['source_policy'] ?? 'read_existing_operation_execution_state_only'),
             ],
+            'workflow_chain' => $workflowChain,
             'next_action' => $topAction,
             'next_action_count' => count($actions),
             'high_priority_action_count' => count(array_filter($actions, static fn(array $row): bool => (string)($row['priority'] ?? '') === 'high')),
@@ -782,6 +791,7 @@ trait OperationWorkbenchConcern
                 ],
             ],
             'operation_execution' => ['status' => 'request_failed'],
+            'workflow_chain' => $this->dailyWorkbenchErrorWorkflowChain(),
             'next_action' => [
                 'action_code' => 'phase2_workbench_row_query_failed',
                 'priority' => 'high',
@@ -795,6 +805,203 @@ trait OperationWorkbenchConcern
             'source_policy' => 'read_existing_collection_reliability_only',
             'protected_boundary' => 'Failure is exposed as request_failed; no fallback success is generated.',
         ];
+    }
+
+    private function dailyWorkbenchWorkflowChain(
+        array $questionsByKey,
+        array $collectionSourceSummary,
+        array $revenueEvidence,
+        array $aiEvidence,
+        array $operationEvidence,
+        array $actions
+    ): array {
+        $collectionEvidence = $this->dailyWorkbenchQuestionEvidence($questionsByKey, 'today_ota_collected');
+        $fieldEvidence = $this->dailyWorkbenchQuestionEvidence($questionsByKey, 'trusted_fields');
+        $missingEvidence = $this->dailyWorkbenchQuestionEvidence($questionsByKey, 'missing_fields');
+        $metricEvidence = $this->dailyWorkbenchQuestionEvidence($questionsByKey, 'revenue_traffic_conversion');
+        $operationQuestionEvidence = $this->dailyWorkbenchQuestionEvidence($questionsByKey, 'next_operation_action');
+
+        return [
+            $this->dailyWorkbenchWorkflowStage(
+                'today_ota_data',
+                '携程/美团今日数据',
+                'today_ota_collected',
+                $this->dailyWorkbenchQuestionStatus($questionsByKey, 'today_ota_collected'),
+                [
+                    'target_date_source_rows' => $this->dailyWorkbenchTargetDateRows($collectionSourceSummary),
+                    'platform_count' => count($collectionSourceSummary),
+                    'missing_platforms' => array_values(array_filter(array_map('strval', (array)($collectionEvidence['missing_platforms'] ?? [])))),
+                    'storage_table' => 'online_daily_data',
+                    'source_policy' => 'read_existing_online_daily_data_only',
+                ],
+                $this->dailyWorkbenchQuestionBlockingCodes($questionsByKey, 'today_ota_collected'),
+                $actions
+            ),
+            $this->dailyWorkbenchWorkflowStage(
+                'field_trust_and_gaps',
+                '字段可信/缺失',
+                'trusted_fields',
+                $this->dailyWorkbenchFieldWorkflowStatus(
+                    $this->dailyWorkbenchQuestionStatus($questionsByKey, 'trusted_fields'),
+                    $this->dailyWorkbenchQuestionStatus($questionsByKey, 'missing_fields')
+                ),
+                [
+                    'field_trust_status' => $this->dailyWorkbenchQuestionStatus($questionsByKey, 'trusted_fields'),
+                    'missing_field_status' => $this->dailyWorkbenchQuestionStatus($questionsByKey, 'missing_fields'),
+                    'field_definition_count' => (int)($fieldEvidence['field_definition_count'] ?? 0),
+                    'metric_trust_key_count' => (int)($fieldEvidence['metric_trust_key_count'] ?? 0),
+                    'missing_field_codes' => array_values(array_filter(array_map('strval', (array)($missingEvidence['missing_field_codes'] ?? [])))),
+                    'data_gap_codes' => array_values(array_filter(array_map('strval', (array)($missingEvidence['data_gap_codes'] ?? [])))),
+                    'source_policy' => 'read_existing_field_definitions_and_data_quality_only',
+                ],
+                array_values(array_unique(array_merge(
+                    $this->dailyWorkbenchQuestionBlockingCodes($questionsByKey, 'trusted_fields'),
+                    $this->dailyWorkbenchQuestionBlockingCodes($questionsByKey, 'missing_fields')
+                ))),
+                $actions
+            ),
+            $this->dailyWorkbenchWorkflowStage(
+                'revenue_metrics',
+                '收益指标',
+                'revenue_traffic_conversion',
+                $this->dailyWorkbenchQuestionStatus($questionsByKey, 'revenue_traffic_conversion'),
+                [
+                    'revenue_metric_status' => (string)($revenueEvidence['status'] ?? 'unknown'),
+                    'metric_trust_key_count' => count((array)($revenueEvidence['metric_trust_keys'] ?? [])),
+                    'traffic_rows' => (int)($revenueEvidence['traffic_rows'] ?? 0),
+                    'data_gap_codes' => array_values(array_unique(array_filter(array_map('strval', array_merge(
+                        (array)($metricEvidence['metric_domain_gap_codes'] ?? []),
+                        (array)($revenueEvidence['data_gap_codes'] ?? [])
+                    ))))),
+                    'source_policy' => (string)($revenueEvidence['source_policy'] ?? 'read_existing_ota_standard_revenue_metrics_only'),
+                ],
+                $this->dailyWorkbenchQuestionBlockingCodes($questionsByKey, 'revenue_traffic_conversion'),
+                $actions
+            ),
+            $this->dailyWorkbenchWorkflowStage(
+                'ai_diagnosis',
+                'AI诊断',
+                'ai_evidence',
+                $this->dailyWorkbenchQuestionStatus($questionsByKey, 'ai_evidence'),
+                [
+                    'diagnosis_status' => (string)($aiEvidence['diagnosis_status'] ?? 'unknown'),
+                    'action_item_status' => (string)($aiEvidence['action_item_status'] ?? 'unknown'),
+                    'source_policy' => (string)($aiEvidence['source_policy'] ?? 'missing_real_ota_diagnosis_response'),
+                ],
+                $this->dailyWorkbenchQuestionBlockingCodes($questionsByKey, 'ai_evidence'),
+                $actions
+            ),
+            $this->dailyWorkbenchWorkflowStage(
+                'operation_action',
+                '执行动作',
+                'next_operation_action',
+                $this->dailyWorkbenchQuestionStatus($questionsByKey, 'next_operation_action'),
+                [
+                    'operation_evidence_status' => (string)($operationEvidence['operation_evidence_status'] ?? 'unknown'),
+                    'execution_intent_count' => (int)($operationEvidence['execution_intent_count'] ?? 0),
+                    'execution_flow_item_count' => (int)($operationEvidence['execution_flow_item_count'] ?? 0),
+                    'completion_signal_count' => (int)($operationEvidence['completion_signal_count'] ?? 0),
+                    'source_policy' => (string)($operationEvidence['source_policy'] ?? 'read_existing_operation_execution_state_only'),
+                ],
+                array_values(array_unique(array_merge(
+                    $this->dailyWorkbenchQuestionBlockingCodes($questionsByKey, 'next_operation_action'),
+                    array_values(array_filter(array_map('strval', (array)($operationQuestionEvidence['operation_blocking_missing_codes'] ?? []))))
+                ))),
+                $actions
+            ),
+        ];
+    }
+
+    private function dailyWorkbenchWorkflowStage(
+        string $key,
+        string $label,
+        string $questionKey,
+        string $status,
+        array $evidence,
+        array $blockingCodes,
+        array $actions
+    ): array {
+        $action = $this->dailyWorkbenchWorkflowAction($actions, $questionKey);
+        return [
+            'key' => $key,
+            'label' => $label,
+            'question_key' => $questionKey,
+            'status' => $status,
+            'evidence' => $evidence,
+            'blocking_gap_codes' => array_values(array_unique(array_filter(array_map('strval', $blockingCodes)))),
+            'next_action' => $action,
+            'source_policy' => (string)($evidence['source_policy'] ?? 'read_existing_phase1_employee_question_rows_only'),
+            'protected_boundary' => 'Read-only workflow decomposition; it does not trigger Ctrip or Meituan collection and does not convert missing evidence into success.',
+        ];
+    }
+
+    private function dailyWorkbenchQuestionEvidence(array $questionsByKey, string $key): array
+    {
+        return is_array($questionsByKey[$key]['evidence'] ?? null) ? $questionsByKey[$key]['evidence'] : [];
+    }
+
+    private function dailyWorkbenchQuestionBlockingCodes(array $questionsByKey, string $key): array
+    {
+        if (!isset($questionsByKey[$key]) || !is_array($questionsByKey[$key])) {
+            return [];
+        }
+        $row = $questionsByKey[$key];
+        $evidence = is_array($row['evidence'] ?? null) ? $row['evidence'] : [];
+        return array_values(array_unique(array_filter(array_map('strval', array_merge(
+            (array)($row['blocking_gap_codes'] ?? []),
+            (array)($evidence['blocking_missing_codes'] ?? []),
+            (array)($evidence['blocking_gap_codes'] ?? [])
+        )))));
+    }
+
+    private function dailyWorkbenchFieldWorkflowStatus(string $fieldTrustStatus, string $missingFieldStatus): string
+    {
+        if ($fieldTrustStatus === 'proved' && $missingFieldStatus === 'proved') {
+            return 'proved';
+        }
+        if ($fieldTrustStatus === 'request_failed' || $missingFieldStatus === 'request_failed') {
+            return 'request_failed';
+        }
+        if ($fieldTrustStatus !== 'proved') {
+            return $fieldTrustStatus;
+        }
+        return $missingFieldStatus !== '' ? $missingFieldStatus : 'unknown';
+    }
+
+    private function dailyWorkbenchWorkflowAction(array $actions, string $questionKey): ?array
+    {
+        foreach ($actions as $action) {
+            if (!is_array($action) || (string)($action['question_key'] ?? '') !== $questionKey) {
+                continue;
+            }
+            return $this->dailyWorkbenchCompactAction($action);
+        }
+        return null;
+    }
+
+    private function dailyWorkbenchErrorWorkflowChain(): array
+    {
+        $stages = [
+            ['today_ota_data', '携程/美团今日数据', 'today_ota_collected'],
+            ['field_trust_and_gaps', '字段可信/缺失', 'trusted_fields'],
+            ['revenue_metrics', '收益指标', 'revenue_traffic_conversion'],
+            ['ai_diagnosis', 'AI诊断', 'ai_evidence'],
+            ['operation_action', '执行动作', 'next_operation_action'],
+        ];
+
+        return array_map(static function (array $stage): array {
+            return [
+                'key' => $stage[0],
+                'label' => $stage[1],
+                'question_key' => $stage[2],
+                'status' => 'request_failed',
+                'evidence' => ['source_policy' => 'read_existing_collection_reliability_only'],
+                'blocking_gap_codes' => ['workbench_row_query_failed'],
+                'next_action' => null,
+                'source_policy' => 'read_existing_collection_reliability_only',
+                'protected_boundary' => 'Failure is exposed as request_failed; no fallback success is generated.',
+            ];
+        }, $stages);
     }
 
     private function dailyWorkbenchQuestionsByKey(array $questions): array

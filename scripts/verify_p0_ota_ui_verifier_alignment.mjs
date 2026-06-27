@@ -108,7 +108,22 @@ function p0PayloadSummary(p0Result, platform) {
   const counts = {};
   const paths = [];
   const issueCodes = [];
+  const diagnostics = {
+    targetDateRows: 0,
+    trafficEvidenceRows: 0,
+    sourcePathRows: 0,
+    structuredSourcePathRows: 0,
+    rawDataFieldFactsRows: 0,
+    rawDataExposedRows: 0,
+    sensitiveValueRows: 0,
+    metricKeys: [],
+    missingMetricKeys: [],
+  };
   let readyCount = 0;
+  let profileLoginTriggerAvailableCount = 0;
+  let profileLoginTriggerUnavailableCount = 0;
+  let afterLoginSyncAvailableCount = 0;
+  let manualLoginStateVerifiedCount = 0;
 
   for (const step of steps) {
     const status = String(step?.payload_candidate_status ?? '').trim();
@@ -120,7 +135,27 @@ function p0PayloadSummary(p0Result, platform) {
       const normalized = String(issueCode ?? '').trim();
       if (normalized !== '') issueCodes.push(normalized);
     }
+    diagnostics.targetDateRows += Number(step?.payload_candidate_target_date_rows ?? 0);
+    diagnostics.trafficEvidenceRows += Number(step?.payload_candidate_traffic_evidence_rows ?? 0);
+    diagnostics.sourcePathRows += Number(step?.payload_candidate_evidence_source_path_rows ?? 0);
+    diagnostics.structuredSourcePathRows += Number(step?.payload_candidate_evidence_structured_source_path_rows ?? 0);
+    diagnostics.rawDataFieldFactsRows += Number(step?.payload_candidate_evidence_raw_data_field_facts_rows ?? 0);
+    diagnostics.rawDataExposedRows += Number(step?.payload_candidate_evidence_raw_data_exposed_rows ?? 0);
+    diagnostics.sensitiveValueRows += Number(step?.payload_candidate_evidence_sensitive_value_rows ?? 0);
+    diagnostics.metricKeys.push(...sortedStrings(step?.payload_candidate_evidence_metric_keys));
+    diagnostics.missingMetricKeys.push(...sortedStrings(step?.payload_candidate_evidence_missing_metric_keys));
+    const trigger = isObject(step?.profile_login_trigger) ? step.profile_login_trigger : {};
+    if (String(trigger.status ?? '') === 'available') {
+      profileLoginTriggerAvailableCount++;
+    } else {
+      profileLoginTriggerUnavailableCount++;
+    }
+    const afterLoginSync = isObject(trigger.after_login_sync) ? trigger.after_login_sync : {};
+    if (String(afterLoginSync.entry ?? '').trim() !== '') afterLoginSyncAvailableCount++;
+    if (step?.manual_login_state_verified === true) manualLoginStateVerifiedCount++;
   }
+  diagnostics.metricKeys = sortedStrings([...new Set(diagnostics.metricKeys)]);
+  diagnostics.missingMetricKeys = sortedStrings([...new Set(diagnostics.missingMetricKeys)]);
 
   return {
     platformResult,
@@ -132,6 +167,27 @@ function p0PayloadSummary(p0Result, platform) {
     readyCount,
     missingCount: Number(counts.missing_expected_payload ?? 0),
     unverifiedCount: Number(counts.expected_payload_present_unverified ?? 0),
+    diagnostics,
+    entryDiagnostics: {
+      profileLoginTriggerAvailableCount,
+      profileLoginTriggerUnavailableCount,
+      afterLoginSyncAvailableCount,
+      manualLoginStateVerifiedCount,
+    },
+    standardFact: {
+      policy: String(gate?.p0_standard_fact_policy ?? ''),
+      status: String(gate?.p0_standard_fact_status ?? ''),
+      rawDataPolicy: String(gate?.p0_standard_fact_raw_data_policy ?? ''),
+      requiredMetricCount: Number(gate?.p0_standard_fact_required_metric_count ?? 0),
+      completeMetricCount: Number(gate?.p0_standard_fact_complete_metric_count ?? 0),
+      missingMetricCount: Number(gate?.p0_standard_fact_missing_metric_count ?? 0),
+      incompleteMetricCount: Number(gate?.p0_standard_fact_incomplete_metric_count ?? 0),
+      storageFieldCount: Number(gate?.p0_standard_fact_storage_field_count ?? 0),
+      statusCounts: normalizeCounts(gate?.p0_standard_fact_status_counts),
+      completeMetricKeys: sortedStrings(gate?.p0_standard_fact_complete_metric_keys),
+      missingMetricKeys: sortedStrings(gate?.p0_standard_fact_missing_metric_keys),
+      incompleteMetricKeys: sortedStrings(gate?.p0_standard_fact_incomplete_metric_keys),
+    },
   };
 }
 
@@ -156,6 +212,37 @@ function uiPayloadSummary(inspection, platform) {
     readyCount: Number(row?.p0_payload_candidate_ready_count ?? 0),
     missingCount: Number(row?.p0_payload_candidate_missing_count ?? 0),
     unverifiedCount: Number(row?.p0_payload_candidate_unverified_count ?? 0),
+    diagnostics: {
+      targetDateRows: Number(row?.p0_payload_candidate_target_date_rows ?? 0),
+      trafficEvidenceRows: Number(row?.p0_payload_candidate_traffic_evidence_rows ?? 0),
+      sourcePathRows: Number(row?.p0_payload_candidate_evidence_source_path_rows ?? 0),
+      structuredSourcePathRows: Number(row?.p0_payload_candidate_evidence_structured_source_path_rows ?? 0),
+      rawDataFieldFactsRows: Number(row?.p0_payload_candidate_evidence_raw_data_field_facts_rows ?? 0),
+      rawDataExposedRows: Number(row?.p0_payload_candidate_evidence_raw_data_exposed_rows ?? 0),
+      sensitiveValueRows: Number(row?.p0_payload_candidate_evidence_sensitive_value_rows ?? 0),
+      metricKeys: sortedStrings(row?.p0_payload_candidate_evidence_metric_keys),
+      missingMetricKeys: sortedStrings(row?.p0_payload_candidate_evidence_missing_metric_keys),
+    },
+    entryDiagnostics: {
+      profileLoginTriggerAvailableCount: Number(row?.p0_profile_login_trigger_available_count ?? 0),
+      profileLoginTriggerUnavailableCount: Number(row?.p0_profile_login_trigger_unavailable_count ?? 0),
+      afterLoginSyncAvailableCount: Number(row?.p0_after_login_sync_available_count ?? 0),
+      manualLoginStateVerifiedCount: Number(row?.p0_manual_login_state_verified_count ?? 0),
+    },
+    standardFact: {
+      policy: String(row?.p0_standard_fact_policy ?? ''),
+      status: String(row?.p0_standard_fact_status ?? ''),
+      rawDataPolicy: String(row?.p0_standard_fact_raw_data_policy ?? ''),
+      requiredMetricCount: Number(row?.p0_standard_fact_required_metric_count ?? 0),
+      completeMetricCount: Number(row?.p0_standard_fact_complete_metric_count ?? 0),
+      missingMetricCount: Number(row?.p0_standard_fact_missing_metric_count ?? 0),
+      incompleteMetricCount: Number(row?.p0_standard_fact_incomplete_metric_count ?? 0),
+      storageFieldCount: Number(row?.p0_standard_fact_storage_field_count ?? 0),
+      statusCounts: normalizeCounts(row?.p0_standard_fact_status_counts),
+      completeMetricKeys: sortedStrings(row?.p0_standard_fact_complete_metric_keys),
+      missingMetricKeys: sortedStrings(row?.p0_standard_fact_missing_metric_keys),
+      incompleteMetricKeys: sortedStrings(row?.p0_standard_fact_incomplete_metric_keys),
+    },
   };
 }
 
@@ -186,14 +273,46 @@ function validatePlatform(platform, p0Result, inspection) {
   check(`${prefix} ready count matches P0 ready_to_execute`, ui.readyCount === p0.readyCount, JSON.stringify({ ui: ui.readyCount, p0: p0.readyCount }));
   check(`${prefix} path set matches P0 verifier`, sameJson(ui.paths, p0.paths), JSON.stringify({ ui: ui.paths, p0: p0.paths }));
   check(`${prefix} issue code set matches P0 verifier`, sameJson(ui.issueCodes, p0.issueCodes), JSON.stringify({ ui: ui.issueCodes, p0: p0.issueCodes }));
+  check(`${prefix} payload dry-run evidence diagnostics match P0 verifier`, sameJson(ui.diagnostics, p0.diagnostics), JSON.stringify({ ui: ui.diagnostics, p0: p0.diagnostics }));
+  check(`${prefix} profile login entry diagnostics match P0 verifier`, sameJson(ui.entryDiagnostics, p0.entryDiagnostics), JSON.stringify({ ui: ui.entryDiagnostics, p0: p0.entryDiagnostics }));
+  check(`${prefix} standard fact diagnostics match P0 verifier`, sameJson(ui.standardFact, p0.standardFact), JSON.stringify({ ui: ui.standardFact, p0: p0.standardFact }));
 
   check(`${prefix} UI next step count matches P0 hotel scoped steps`, Number(ui.row.p0_next_step_count ?? 0) === p0.steps.length, JSON.stringify({ ui: ui.row.p0_next_step_count, p0: p0.steps.length }));
   check(`${prefix} UI managed source count matches P0 hotel scoped steps`, Number(ui.row.traffic_managed_count ?? 0) === p0.steps.length, JSON.stringify({ ui: ui.row.traffic_managed_count, p0: p0.steps.length }));
   check(`${prefix} UI gate status matches P0 gate`, String(ui.row.p0_traffic_gate_status ?? '') === String(p0.gate.status ?? ''), JSON.stringify({ ui: ui.row.p0_traffic_gate_status, p0: p0.gate.status }));
   check(`${prefix} UI target traffic rows match P0 gate`, Number(ui.row.target_date_traffic_rows ?? 0) === Number(p0.gate.traffic_rows ?? 0), JSON.stringify({ ui: ui.row.target_date_traffic_rows, p0: p0.gate.traffic_rows }));
+  const requiredPayloadDiagnosticKeys = [
+    'payload_candidate_target_date_rows',
+    'payload_candidate_traffic_evidence_rows',
+    'payload_candidate_evidence_source_path_rows',
+    'payload_candidate_evidence_structured_source_path_rows',
+    'payload_candidate_evidence_raw_data_field_facts_rows',
+    'payload_candidate_evidence_raw_data_exposed_rows',
+    'payload_candidate_evidence_sensitive_value_rows',
+    'payload_candidate_evidence_metric_keys',
+    'payload_candidate_evidence_missing_metric_keys',
+  ];
+  check(`${prefix} P0 next steps expose payload dry-run evidence diagnostics`, p0.steps.every((step) => requiredPayloadDiagnosticKeys.every((key) => Object.hasOwn(step, key))), JSON.stringify(p0.steps));
+  check(`${prefix} P0 next step metric diagnostics are arrays`, p0.steps.every((step) => Array.isArray(step.payload_candidate_evidence_metric_keys) && Array.isArray(step.payload_candidate_evidence_missing_metric_keys)), JSON.stringify(p0.steps));
 
-  const allowedStatuses = ['missing_expected_payload', 'expected_payload_present_unverified', 'system_hotel_id_missing'];
-  const allowedIssueCodes = ['expected_payload_file_missing', 'payload_file_present_requires_importer_dry_run', 'system_hotel_id_missing'];
+  const allowedStatuses = ['missing_expected_payload', 'expected_payload_present_unverified', 'ready_to_import', 'blocked', 'importer_invalid_json', 'system_hotel_id_missing'];
+  const allowedIssueCodes = [
+    'expected_payload_file_missing',
+    'payload_file_present_requires_importer_dry_run',
+    'system_hotel_id_missing',
+    'importer_invalid_json',
+    'browser_capture_gate_not_pass',
+    'target_date_explicit_row_date_missing',
+    'browser_capture_row_date_source_missing',
+    'target_date_source_path_missing',
+    'required_traffic_metric_keys_missing',
+    'traffic_field_fact_preview_rows_incomplete',
+    'browser_capture_response_evidence_missing',
+    'desensitized_capture_evidence_missing',
+    'target_date_platform_hotel_identifier_missing',
+    'system_hotel_id_mismatch',
+    'sensitive_payload_keys_detected',
+  ];
   check(`${prefix} statuses stay known`, Object.keys(ui.counts).every((status) => allowedStatuses.includes(status)), JSON.stringify(ui.counts));
   check(`${prefix} issue codes stay known`, ui.issueCodes.every((code) => allowedIssueCodes.includes(code)), JSON.stringify(ui.issueCodes));
   check(`${prefix} paths are metadata only`, ui.paths.every(isPayloadCandidatePathSafe), JSON.stringify(ui.paths));

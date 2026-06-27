@@ -39,6 +39,14 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame(100.0, $overview['metrics']['ota_contribution_revpar']['value']);
         self::assertSame('hotel', $overview['metrics']['ota_contribution_revpar']['scope']);
         self::assertSame('', $overview['metrics']['ota_contribution_revpar']['reason']);
+        self::assertSame('warning', $overview['p1_revenue_closure']['status']);
+        self::assertSame('ota_channel', $overview['p1_revenue_closure']['scope']);
+        self::assertSame(2000.0, $overview['p1_revenue_closure']['sections']['revenue']['value']);
+        self::assertSame(10.0, $overview['p1_revenue_closure']['sections']['room_nights']['value']);
+        self::assertSame(200.0, $overview['p1_revenue_closure']['sections']['adr_conversion']['metrics']['adr']['value']);
+        self::assertContains('traffic.avg_flow_rate:source_rows_missing', array_column($overview['p1_revenue_closure']['missing_items']['items'], 'code'));
+        self::assertFalse($overview['p1_revenue_closure']['whole_hotel_guard']['allowed']);
+        self::assertSame($overview['p1_revenue_closure'], $overview['metric_summary']['p1_revenue_closure']);
         self::assertSame('本店低于竞对 ¥10.00', $overview['signals']['competitor_price_warning']['value']);
         self::assertSame('partial', $overview['signals']['competitor_price_warning']['status']);
         self::assertSame('competitor_price_below_competitor_review_required', $overview['signals']['competitor_price_warning']['reason']);
@@ -123,6 +131,69 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('blocked', $overview['pricing_readiness']['overall_status']);
         self::assertContains('floor_price_missing', $overview['pricing_readiness']['blocking_reasons']);
         self::assertFalse($overview['actions'][0]['auto_write_ota']);
+    }
+
+    public function testP0DownstreamGateBlocksRevenueAiClosureClaimsFromContext(): void
+    {
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $this->dataset([
+                $this->dailyFact('ctrip', 1200, 6, 10),
+            ]),
+            ['ctrip' => $this->dataset([$this->dailyFact('ctrip', 1200, 6, 10)])],
+            [
+                'ctrip' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-06-25 08:00:00'],
+            ],
+            [
+                'business_date' => '2026-06-25',
+                'hotel_id' => 7,
+                'p0_downstream_gate' => [
+                    'status' => 'blocked_by_p0_ota_gate',
+                    'current_upstream_status' => 'incomplete',
+                    'required_upstream_status' => 'ready',
+                    'scope_policy' => 'ota_channel_gate_before_downstream_claims',
+                    'blocking_missing_inputs' => ['manual_login_state_verified', 'target_date_traffic_rows'],
+                    'blocked_stage_keys' => ['revenue_analysis', 'ai_decision_advice', 'operation_closure', 'investment_judgment'],
+                    'allowed_claims' => ['structure_ready_or_reference_only', 'no_whole_hotel_or_downstream_closure_claim'],
+                ],
+            ]
+        );
+
+        $gate = $overview['metric_summary']['credibility_gate'];
+        self::assertSame('blocked', $gate['status']);
+        self::assertContains('p0_ota_gate_not_ready', $gate['reason_codes']);
+        self::assertSame('blocked_by_p0_ota_gate', $gate['decision_use']['revenue_analysis']['status']);
+        self::assertSame('blocked_by_p0_ota_gate', $overview['p1_revenue_closure']['decision_use']['status']);
+        self::assertFalse($overview['p1_revenue_closure']['calculation_allowed']);
+        self::assertSame('blocked_by_p0_ota_gate', $gate['evidence']['p0_downstream_gate']['status']);
+        self::assertContains('investment_judgment', $gate['evidence']['p0_downstream_gate']['blocked_stage_keys']);
+    }
+
+    public function testRequiredP0DownstreamGateBlocksRevenueAiClosureWithoutVerifierEvidence(): void
+    {
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $this->dataset([
+                $this->dailyFact('ctrip', 1200, 6, 10),
+            ]),
+            ['ctrip' => $this->dataset([$this->dailyFact('ctrip', 1200, 6, 10)])],
+            [
+                'ctrip' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-06-25 08:00:00'],
+            ],
+            [
+                'business_date' => '2026-06-27',
+                'hotel_id' => 7,
+                'require_p0_downstream_gate' => true,
+            ]
+        );
+
+        $gate = $overview['metric_summary']['credibility_gate'];
+        self::assertSame('blocked', $gate['status']);
+        self::assertContains('p0_ota_gate_not_ready', $gate['reason_codes']);
+        self::assertContains('p0_ota_gate_missing:p0_field_loop_verifier_ready', $gate['reason_codes']);
+        self::assertContains('p0_ota_gate_missing:target_date_traffic_rows', $gate['reason_codes']);
+        self::assertSame('blocked_by_p0_ota_gate', $overview['p1_revenue_closure']['decision_use']['status']);
+        self::assertFalse($overview['p1_revenue_closure']['calculation_allowed']);
+        self::assertSame('blocked_by_p0_ota_gate', $overview['p0_downstream_gate']['status']);
+        self::assertSame('npm.cmd run verify:p0-ota-field-loop -- --date=2026-06-27 --system-hotel-id=7', $overview['p0_downstream_gate']['required_gate_command']);
     }
 
     public function testPricingReadinessBlocksWhenQualityIssuesAreBlocking(): void

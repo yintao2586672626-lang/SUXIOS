@@ -16,6 +16,9 @@ class OtaRevenueMetricService
         $advertising = $this->list($dataset['fact_ota_advertising'] ?? []);
         $quality = $this->list($dataset['fact_ota_quality'] ?? []);
         $searchKeywords = $this->list($dataset['fact_ota_search_keyword'] ?? []);
+        $peerRanks = $this->list($dataset['fact_ota_peer_rank'] ?? []);
+        $trafficAnalysis = $this->list($dataset['fact_ota_traffic_analysis'] ?? []);
+        $trafficForecast = $this->list($dataset['fact_ota_traffic_forecast'] ?? []);
         $comments = $this->list($dataset['fact_ota_comment'] ?? []);
         $dataGaps = [];
 
@@ -174,9 +177,12 @@ class OtaRevenueMetricService
         $metricTrust['advertising.roas'] = $this->trust($advertising, 'sum(fact_ota_advertising.order_amount) / sum(fact_ota_advertising.spend)');
         $metricTrust['quality.avg_psi_score'] = $this->trust($quality, 'avg(fact_ota_quality.psi_score)');
         $metricTrust['quality.avg_service_score'] = $this->trust($quality, 'avg(fact_ota_quality.service_score)');
+        $metricTrust['peer_rank.rows'] = $this->trust($peerRanks, 'count(fact_ota_peer_rank)');
+        $metricTrust['traffic_analysis.rows'] = $this->trust($trafficAnalysis, 'count(fact_ota_traffic_analysis)');
+        $metricTrust['traffic_forecast.rows'] = $this->trust($trafficForecast, 'count(fact_ota_traffic_forecast)');
 
         $result = [
-            'status' => $daily || $traffic || $advertising || $quality || $searchKeywords || $comments ? 'ready' : 'empty',
+            'status' => $daily || $traffic || $advertising || $quality || $searchKeywords || $peerRanks || $trafficAnalysis || $trafficForecast || $comments ? 'ready' : 'empty',
             'generated_at' => date('Y-m-d H:i:s'),
             'fact_table' => [
                 'name' => 'fact_ota_daily',
@@ -224,15 +230,305 @@ class OtaRevenueMetricService
             'channel_contribution' => $this->channelContribution($daily, $revenue, $netRevenue),
             'by_platform' => $this->groupDailyBy($daily, 'platform_key', $revenue, $netRevenue),
             'by_hotel' => $this->groupDailyBy($daily, 'hotel_key', $revenue, $netRevenue),
-            'channel_metrics' => $this->channelMetrics($daily, $traffic, $advertising, $quality, $searchKeywords, $comments),
+            'channel_metrics' => $this->channelMetrics($daily, $traffic, $advertising, $quality, $searchKeywords, $peerRanks, $trafficAnalysis, $trafficForecast, $comments),
             'data_gaps' => $dataGaps,
             'etl_quality' => $dataset['data_quality'] ?? [],
             'metric_trust' => $metricTrust,
         ];
 
         $result['credibility_gate'] = (new OtaDataCredibilityGateService())->evaluate($dataset, $result);
+        $result['p1_revenue_closure'] = $this->p1RevenueClosure($result);
 
         return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $metrics
+     * @return array<string, mixed>
+     */
+    private function p1RevenueClosure(array $metrics): array
+    {
+        $gate = is_array($metrics['credibility_gate'] ?? null) ? $metrics['credibility_gate'] : [];
+        $revenueUse = is_array($gate['decision_use']['revenue_analysis'] ?? null) ? $gate['decision_use']['revenue_analysis'] : [];
+        $calculationAllowed = ($revenueUse['allowed'] ?? false) === true;
+
+        $sections = [
+            'revenue' => $this->closureMetric($metrics, 'revenue', 'OTA room revenue', 'totals.room_revenue', $metrics['totals']['room_revenue'] ?? null, 'CNY', $calculationAllowed),
+            'orders' => $this->closureMetric($metrics, 'orders', 'OTA orders', 'totals.order_count', $metrics['totals']['order_count'] ?? null, 'orders', $calculationAllowed),
+            'room_nights' => $this->closureMetric($metrics, 'room_nights', 'OTA room nights', 'totals.room_nights', $metrics['totals']['room_nights'] ?? null, 'room_nights', $calculationAllowed),
+            'adr_conversion' => [
+                'key' => 'adr_conversion',
+                'label' => 'ADR and conversion',
+                'scope' => 'ota_channel',
+                'metrics' => [
+                    'adr' => $this->closureMetric($metrics, 'adr', 'OTA ADR', 'totals.adr', $metrics['totals']['adr'] ?? null, 'CNY', $calculationAllowed),
+                    'flow_rate' => $this->closureMetric($metrics, 'flow_rate', 'OTA flow conversion', 'traffic.avg_flow_rate', $metrics['traffic']['avg_flow_rate'] ?? null, '%', $calculationAllowed),
+                    'submit_rate' => $this->closureMetric($metrics, 'submit_rate', 'OTA submit conversion', 'traffic.avg_submit_rate', $metrics['traffic']['avg_submit_rate'] ?? null, '%', $calculationAllowed),
+                ],
+            ],
+        ];
+        $sections['adr_conversion']['status'] = $this->combinedSectionStatus($sections['adr_conversion']['metrics']);
+
+        $missingItems = $this->p1MissingItems($metrics);
+        $anomalyItems = $this->p1AnomalyItems($metrics, $sections, $calculationAllowed);
+        $status = $this->p1ClosureStatus($gate, $missingItems, $anomalyItems);
+
+        return [
+            'status' => $status,
+            'scope' => 'ota_channel',
+            'scope_statement' => 'P1 uses verified OTA-channel facts only; it is not whole-hotel operating truth.',
+            'date_basis' => 'data_date',
+            'calculation_allowed' => $calculationAllowed,
+            'decision_use' => $revenueUse,
+            'sections' => $sections,
+            'missing_items' => [
+                'status' => $missingItems === [] ? 'ok' : 'warning',
+                'items' => $missingItems,
+            ],
+            'anomaly_judgment' => [
+                'status' => $anomalyItems === [] ? 'ok' : ($status === 'blocked' ? 'blocked' : 'warning'),
+                'items' => $anomalyItems,
+            ],
+            'whole_hotel_guard' => [
+                'allowed' => false,
+                'reason' => 'whole_hotel_scope_not_proved',
+                'blocked_metrics' => ['whole_hotel_revenue', 'whole_hotel_adr', 'whole_hotel_occ', 'whole_hotel_revpar'],
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $metrics
+     * @return array<string, mixed>
+     */
+    private function closureMetric(array $metrics, string $key, string $label, string $metricTrustKey, mixed $value, string $unit, bool $calculationAllowed): array
+    {
+        $trust = is_array($metrics['metric_trust'][$metricTrustKey] ?? null) ? $metrics['metric_trust'][$metricTrustKey] : [];
+        $failureReasons = $this->stringList($trust['failure_reasons'] ?? []);
+        if (!$calculationAllowed) {
+            $failureReasons[] = 'blocked_by_data_credibility';
+        }
+        $failureReasons = array_values(array_unique($failureReasons));
+        $trusted = $calculationAllowed && ($trust['saved_success'] ?? false) === true && $failureReasons === [];
+        $numericValue = $this->numericValue($value);
+
+        return [
+            'key' => $key,
+            'label' => $label,
+            'metric_key' => $metricTrustKey,
+            'value' => $trusted ? $numericValue : null,
+            'unit' => $unit,
+            'status' => $this->closureMetricStatus($trusted, $calculationAllowed, $numericValue, $failureReasons),
+            'reason' => $failureReasons[0] ?? ($numericValue === null ? 'metric_value_missing' : ''),
+            'scope' => 'ota_channel',
+            'caliber' => (string)($trust['caliber'] ?? ''),
+            'source' => is_array($trust['source'] ?? null) ? $trust['source'] : [],
+            'updated_at' => $trust['updated_at'] ?? null,
+            'failure_reasons' => $failureReasons,
+        ];
+    }
+
+    /**
+     * @param array<int|string, array<string, mixed>> $metrics
+     */
+    private function combinedSectionStatus(array $metrics): string
+    {
+        $statuses = array_values(array_map(static fn(array $metric): string => (string)($metric['status'] ?? 'unknown'), $metrics));
+        if (in_array('blocked', $statuses, true)) {
+            return 'blocked';
+        }
+        if (in_array('unverified', $statuses, true) || in_array('not_calculable', $statuses, true)) {
+            return in_array('ok', $statuses, true) ? 'partial' : 'warning';
+        }
+        return $statuses === [] ? 'unknown' : 'ok';
+    }
+
+    /**
+     * @param array<int, string> $failureReasons
+     */
+    private function closureMetricStatus(bool $trusted, bool $calculationAllowed, ?float $value, array $failureReasons): string
+    {
+        if (!$calculationAllowed || in_array('blocked_by_data_credibility', $failureReasons, true)) {
+            return 'blocked';
+        }
+        if ($value === null) {
+            return 'not_calculable';
+        }
+        if ($failureReasons !== []) {
+            return 'unverified';
+        }
+        return $trusted ? 'ok' : 'unverified';
+    }
+
+    private function numericValue(mixed $value): ?float
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return null;
+        }
+        return (float)$value;
+    }
+
+    /**
+     * @param array<string, mixed> $metrics
+     * @return array<int, array<string, mixed>>
+     */
+    private function p1MissingItems(array $metrics): array
+    {
+        $items = [];
+        foreach ($this->list($metrics['data_gaps'] ?? []) as $gap) {
+            $code = trim((string)($gap['code'] ?? ''));
+            if ($code === '') {
+                continue;
+            }
+            $affectedMetrics = $this->affectedP1Metrics($code);
+            if ($affectedMetrics === []) {
+                continue;
+            }
+            $items[] = [
+                'type' => 'data_gap',
+                'code' => $code,
+                'message' => (string)($gap['message'] ?? ''),
+                'affected_metrics' => $affectedMetrics,
+            ];
+        }
+
+        foreach ([
+            'totals.room_revenue' => ['revenue'],
+            'totals.order_count' => ['orders'],
+            'totals.room_nights' => ['room_nights', 'adr'],
+            'totals.adr' => ['adr'],
+            'traffic.avg_flow_rate' => ['flow_rate'],
+            'traffic.avg_submit_rate' => ['submit_rate'],
+        ] as $metricKey => $affectedMetrics) {
+            $trust = is_array($metrics['metric_trust'][$metricKey] ?? null) ? $metrics['metric_trust'][$metricKey] : [];
+            foreach ($this->stringList($trust['failure_reasons'] ?? []) as $reason) {
+                $items[] = [
+                    'type' => 'metric_trust',
+                    'code' => $metricKey . ':' . $reason,
+                    'message' => $reason,
+                    'affected_metrics' => $affectedMetrics,
+                ];
+            }
+        }
+
+        return $this->uniqueItemsByCode($items);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function affectedP1Metrics(string $code): array
+    {
+        if (str_starts_with($code, 'available_') || str_starts_with($code, 'occupied_')) {
+            return ['whole_hotel_guard'];
+        }
+        return [];
+    }
+
+    /**
+     * @param array<string, mixed> $metrics
+     * @param array<string, mixed> $sections
+     * @return array<int, array<string, mixed>>
+     */
+    private function p1AnomalyItems(array $metrics, array $sections, bool $calculationAllowed): array
+    {
+        $items = [];
+        $gate = is_array($metrics['credibility_gate'] ?? null) ? $metrics['credibility_gate'] : [];
+        foreach ($this->stringList($gate['reason_codes'] ?? []) as $code) {
+            $items[] = [
+                'type' => 'credibility_gate',
+                'code' => $code,
+                'severity' => 'high',
+                'message' => 'Revenue analysis is blocked until OTA evidence is trusted.',
+            ];
+        }
+        foreach ($this->stringList($gate['warnings'] ?? []) as $code) {
+            if ($code === 'whole_hotel_scope_not_proved') {
+                continue;
+            }
+            $items[] = [
+                'type' => 'credibility_gate_warning',
+                'code' => $code,
+                'severity' => 'medium',
+                'message' => 'Revenue analysis is allowed only with the warning visible.',
+            ];
+        }
+
+        $revenue = $sections['revenue']['value'] ?? null;
+        $orders = $sections['orders']['value'] ?? null;
+        $roomNights = $sections['room_nights']['value'] ?? null;
+        if ($calculationAllowed && is_numeric($revenue) && (float)$revenue > 0 && is_numeric($orders) && (float)$orders <= 0) {
+            $items[] = [
+                'type' => 'metric_consistency',
+                'code' => 'revenue_positive_orders_zero',
+                'severity' => 'medium',
+                'message' => 'OTA revenue is positive but verified OTA order count is zero.',
+            ];
+        }
+        if ($calculationAllowed && is_numeric($revenue) && (float)$revenue > 0 && is_numeric($roomNights) && (float)$roomNights <= 0) {
+            $items[] = [
+                'type' => 'metric_consistency',
+                'code' => 'revenue_positive_room_nights_zero',
+                'severity' => 'medium',
+                'message' => 'OTA revenue is positive but verified OTA room nights are zero.',
+            ];
+        }
+
+        return $this->uniqueItemsByCode($items);
+    }
+
+    /**
+     * @param array<string, mixed> $gate
+     * @param array<int, array<string, mixed>> $missingItems
+     * @param array<int, array<string, mixed>> $anomalyItems
+     */
+    private function p1ClosureStatus(array $gate, array $missingItems, array $anomalyItems): string
+    {
+        if (($gate['status'] ?? '') === 'blocked') {
+            return 'blocked';
+        }
+        return $missingItems === [] && $anomalyItems === [] ? 'ready' : 'warning';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function uniqueItemsByCode(array $items): array
+    {
+        $seen = [];
+        $unique = [];
+        foreach ($items as $item) {
+            $code = trim((string)($item['code'] ?? ''));
+            if ($code === '' || isset($seen[$code])) {
+                continue;
+            }
+            $seen[$code] = true;
+            $unique[] = $item;
+        }
+        return $unique;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function stringList(mixed $value): array
+    {
+        if (is_string($value)) {
+            $value = preg_split('/[\s,]+/', $value) ?: [];
+        }
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($value as $item) {
+            $text = trim((string)$item);
+            if ($text !== '') {
+                $items[] = $text;
+            }
+        }
+        return array_values(array_unique($items));
     }
 
     /**
@@ -475,10 +771,13 @@ class OtaRevenueMetricService
      * @param array<int, array<string, mixed>> $advertising
      * @param array<int, array<string, mixed>> $quality
      * @param array<int, array<string, mixed>> $searchKeywords
+     * @param array<int, array<string, mixed>> $peerRanks
+     * @param array<int, array<string, mixed>> $trafficAnalysis
+     * @param array<int, array<string, mixed>> $trafficForecast
      * @param array<int, array<string, mixed>> $comments
      * @return array<int, array<string, mixed>>
      */
-    private function channelMetrics(array $daily, array $traffic, array $advertising, array $quality, array $searchKeywords, array $comments): array
+    private function channelMetrics(array $daily, array $traffic, array $advertising, array $quality, array $searchKeywords, array $peerRanks, array $trafficAnalysis, array $trafficForecast, array $comments): array
     {
         $metrics = [];
 
@@ -521,6 +820,32 @@ class OtaRevenueMetricService
             $this->appendChannelMetric($metrics, $row, $resource, 'impressions', $row['impressions'] ?? null);
             $this->appendChannelMetric($metrics, $row, $resource, 'clicks', $row['clicks'] ?? null, $row['impressions'] ?? null);
             $this->appendChannelMetric($metrics, $row, $resource, 'order_contribution', $row['order_contribution'] ?? null, $row['clicks'] ?? null);
+        }
+
+        foreach ($peerRanks as $row) {
+            $resource = $this->channelResource($row, 'peer_rank');
+            $this->appendChannelMetric($metrics, $row, $resource, 'rank', $row['rank'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'rank_percent', $row['rank_percent'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'metric_value', $row['metric_value'] ?? null);
+        }
+
+        foreach ($trafficAnalysis as $row) {
+            $resource = $this->channelResource($row, 'traffic_analysis');
+            $this->appendChannelMetric($metrics, $row, $resource, 'list_exposure', $row['list_exposure'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'detail_exposure', $row['detail_exposure'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'flow_rate', $row['flow_rate'] ?? null, $row['list_exposure'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'order_filling_num', $row['order_filling_num'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'order_submit_num', $row['order_submit_num'] ?? null, $row['order_filling_num'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'submit_rate', $row['submit_rate'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'metric_value', $row['metric_value'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'peer_rank', $row['peer_rank'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'week_over_week', $row['week_over_week'] ?? null);
+        }
+
+        foreach ($trafficForecast as $row) {
+            $resource = $this->channelResource($row, 'traffic_forecast');
+            $this->appendChannelMetric($metrics, $row, $resource, 'forecast_value', $row['forecast_value'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'peer_avg', $row['peer_avg'] ?? null);
         }
 
         foreach ($comments as $row) {
@@ -575,7 +900,12 @@ class OtaRevenueMetricService
         }
 
         $dimension = trim((string)($row['dimension'] ?? ''));
-        return $dimension !== '' ? $default . ':' . $dimension : $default;
+        if ($dimension === '') {
+            return $default;
+        }
+        return $dimension === $default || str_starts_with($dimension, $default . ':')
+            ? $dimension
+            : $default . ':' . $dimension;
     }
 
     /**
@@ -838,6 +1168,18 @@ class OtaRevenueMetricService
                 'competitor_price_gap_rate' => [
                     'formula' => 'price_gap / competitor_price * 100',
                     'not_calculable_when' => 'price_gap is missing, or competitor_price is zero',
+                ],
+                'peer_rank_signal' => [
+                    'formula' => 'peer rank rows from OTA supplemental capture, exposed only as channel_metrics',
+                    'not_calculable_when' => 'peer_rank rows are missing; does not participate in revenue, ADR, OCC, or RevPAR',
+                ],
+                'traffic_analysis_signal' => [
+                    'formula' => 'traffic analysis rows from OTA supplemental capture, exposed only as channel_metrics',
+                    'not_calculable_when' => 'traffic_analysis rows are missing; does not participate in revenue, ADR, OCC, or RevPAR',
+                ],
+                'traffic_forecast_signal' => [
+                    'formula' => 'traffic forecast rows from OTA supplemental capture, exposed only as channel_metrics',
+                    'not_calculable_when' => 'traffic_forecast rows are missing; forecast is not actual revenue evidence',
                 ],
             ],
         ];

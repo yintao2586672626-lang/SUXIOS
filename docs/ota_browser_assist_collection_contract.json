@@ -1,0 +1,257 @@
+{
+  "status": "absorbed_as_contract_with_standardized_import_supplement_not_production_collection",
+  "product_chain": "authorized_ota_data -> revenue_analysis -> ai_decisions -> operations_management -> investment_decisions",
+  "scope_boundary": {
+    "scope": "OTA channel data only",
+    "not_scope": "whole-hotel operating truth",
+    "primary_collection_mode": "browser_profile_response",
+    "supplement_collection_mode": "browser_assist_dom",
+    "storage_default": "online_daily_data.raw_data"
+  },
+  "source_modes": [
+    {
+      "mode": "browser_profile_response",
+      "priority": 1,
+      "description": "Use an authorized per-store browser Profile and capture business JSON responses."
+    },
+    {
+      "mode": "browser_assist_dom",
+      "priority": 2,
+      "description": "Use visible DOM labels, tables, or chart text only when structured JSON is unavailable or for evidence labels."
+    }
+  ],
+  "current_system_entry": {
+    "backend_endpoint": "POST /api/online-data/browser-assist-import",
+    "backend_service": "app/service/OtaBrowserAssistImportService.php",
+    "controller_method": "OnlineData/importBrowserAssistCapture",
+    "normalizer": "scripts/normalize_ota_browser_assist_capture.mjs",
+    "normalizer_library": "scripts/lib/ota_browser_assist_normalize.mjs",
+    "import_endpoint": "/api/online-data/data-import",
+    "package_rule": "split by platform + data_type before import",
+    "test": "tests/automation/ota_browser_assist_normalize.test.mjs",
+    "backend_contract_verifier": "scripts/verify_ota_browser_assist_import_contract.php"
+  },
+  "modules": [
+    {
+      "platform": "meituan",
+      "module": "inventory",
+      "priority": "P1",
+      "source_url_alias": "meituan_product_inventory",
+      "fields": [
+        {
+          "metric_key": "room_inventory_remaining",
+          "raw_label": "剩余/剩",
+          "value_type": "integer",
+          "unit": "room_night",
+          "storage_target": "online_daily_data.raw_data.inventory[].days[].remain",
+          "missing_state": "inventory_remain_missing"
+        },
+        {
+          "metric_key": "room_inventory_reserved",
+          "raw_label": "预留",
+          "value_type": "integer",
+          "unit": "room_night",
+          "storage_target": "online_daily_data.raw_data.inventory[].days[].reserved",
+          "missing_state": "inventory_reserved_missing"
+        },
+        {
+          "metric_key": "room_inventory_sold",
+          "raw_label": "已售",
+          "value_type": "integer",
+          "unit": "room_night",
+          "storage_target": "online_daily_data.raw_data.inventory[].days[].sold",
+          "missing_state": "inventory_sold_missing"
+        },
+        {
+          "metric_key": "room_sale_status",
+          "raw_label": "开房/关房/停售",
+          "value_type": "text",
+          "unit": "status",
+          "storage_target": "online_daily_data.raw_data.inventory[].days[].state",
+          "missing_state": "inventory_status_missing"
+        }
+      ]
+    },
+    {
+      "platform": "meituan",
+      "module": "traffic_realtime",
+      "priority": "P0",
+      "source_url_alias": "meituan_data_center_realtime",
+      "fields": [
+        {
+          "metric_key": "meituan_exposure_users",
+          "raw_label": "曝光人数",
+          "value_type": "integer",
+          "unit": "people",
+          "storage_target": "online_daily_data.raw_data.metrics.exposure_users",
+          "missing_state": "traffic_exposure_missing"
+        },
+        {
+          "metric_key": "meituan_browse_users",
+          "raw_label": "浏览人数",
+          "value_type": "integer",
+          "unit": "people",
+          "storage_target": "online_daily_data.raw_data.metrics.browse_users",
+          "missing_state": "traffic_browse_missing"
+        },
+        {
+          "metric_key": "meituan_paid_orders",
+          "raw_label": "支付订单数",
+          "value_type": "integer",
+          "unit": "order",
+          "storage_target": "online_daily_data.raw_data.metrics.paid_orders",
+          "missing_state": "traffic_paid_orders_missing"
+        },
+        {
+          "metric_key": "meituan_exposure_browse_rate",
+          "raw_label": "曝光-浏览转化率",
+          "value_type": "percent",
+          "unit": "percent",
+          "storage_target": "online_daily_data.raw_data.metrics.exposure_browse_rate",
+          "missing_state": "traffic_rate_missing"
+        },
+        {
+          "metric_key": "meituan_browse_pay_rate",
+          "raw_label": "浏览-支付转化率",
+          "value_type": "percent",
+          "unit": "percent",
+          "storage_target": "online_daily_data.raw_data.metrics.browse_pay_rate",
+          "missing_state": "traffic_rate_missing"
+        }
+      ]
+    },
+    {
+      "platform": "ctrip",
+      "module": "inventory",
+      "priority": "P1",
+      "source_url_alias": "ctrip_inventory_calendar",
+      "fields": [
+        {
+          "metric_key": "room_inventory_remaining",
+          "raw_label": "剩余/可售/库存",
+          "value_type": "integer",
+          "unit": "room_night",
+          "storage_target": "online_daily_data.raw_data.inventory[].days[].remain",
+          "missing_state": "inventory_remain_missing"
+        },
+        {
+          "metric_key": "room_inventory_sold",
+          "raw_label": "已售/售出",
+          "value_type": "integer",
+          "unit": "room_night",
+          "storage_target": "online_daily_data.raw_data.inventory[].days[].sold",
+          "missing_state": "inventory_sold_missing"
+        },
+        {
+          "metric_key": "room_sale_status",
+          "raw_label": "开房/关房/满房/停售",
+          "value_type": "text",
+          "unit": "status",
+          "storage_target": "online_daily_data.raw_data.inventory[].days[].state",
+          "missing_state": "inventory_status_missing"
+        }
+      ]
+    },
+    {
+      "platform": "ctrip",
+      "module": "traffic_realtime",
+      "priority": "P0",
+      "source_url_alias": "ctrip_flowdata_realtime",
+      "fields": [
+        {
+          "metric_key": "ctrip_realtime_visitors",
+          "raw_label": "实时访客量",
+          "value_type": "integer",
+          "unit": "people",
+          "storage_target": "online_daily_data.raw_data.metrics.realtime_visitors",
+          "missing_state": "traffic_visitors_missing"
+        },
+        {
+          "metric_key": "ctrip_visitor_peer_avg",
+          "raw_label": "竞争圈平均",
+          "value_type": "number",
+          "unit": "people",
+          "storage_target": "online_daily_data.raw_data.metrics.visitor_peer_avg",
+          "missing_state": "traffic_peer_avg_missing"
+        },
+        {
+          "metric_key": "ctrip_order_conversion_rate",
+          "raw_label": "实时下单转化率",
+          "value_type": "percent",
+          "unit": "percent",
+          "storage_target": "online_daily_data.raw_data.metrics.order_conversion_rate",
+          "missing_state": "traffic_conversion_missing"
+        },
+        {
+          "metric_key": "ctrip_realtime_rank",
+          "raw_label": "实时排名",
+          "value_type": "integer",
+          "unit": "rank",
+          "storage_target": "online_daily_data.raw_data.rank_metrics.realtime_rank",
+          "missing_state": "rank_missing"
+        }
+      ]
+    },
+    {
+      "platform": "ctrip",
+      "channel": "qunar",
+      "module": "traffic_realtime",
+      "priority": "P0",
+      "source_url_alias": "ctrip_flowdata_qunar_tab",
+      "fields": [
+        {
+          "metric_key": "qunar_realtime_visitors",
+          "raw_label": "实时访客量",
+          "value_type": "integer",
+          "unit": "people",
+          "storage_target": "online_daily_data.raw_data.metrics.qunar_realtime_visitors",
+          "missing_state": "traffic_visitors_missing"
+        },
+        {
+          "metric_key": "qunar_visitor_peer_avg",
+          "raw_label": "竞争圈平均",
+          "value_type": "number",
+          "unit": "people",
+          "storage_target": "online_daily_data.raw_data.metrics.qunar_visitor_peer_avg",
+          "missing_state": "traffic_peer_avg_missing"
+        },
+        {
+          "metric_key": "qunar_order_conversion_rate",
+          "raw_label": "实时下单转化率",
+          "value_type": "percent",
+          "unit": "percent",
+          "storage_target": "online_daily_data.raw_data.metrics.qunar_order_conversion_rate",
+          "missing_state": "traffic_conversion_missing"
+        }
+      ]
+    }
+  ],
+  "required_evidence_fields": [
+    "platform",
+    "module",
+    "collection_mode",
+    "source_url_alias",
+    "source_path",
+    "metric_key",
+    "raw_label",
+    "value_type",
+    "unit",
+    "data_date",
+    "storage_target",
+    "missing_state"
+  ],
+  "forbidden_behaviors": [
+    "bypass_login_or_captcha",
+    "store_or_commit_cookie_token_profile",
+    "hide_empty_or_failed_collection",
+    "use_dom_when_business_json_is_available_without_reason",
+    "promote_ota_channel_data_to_whole_hotel_truth"
+  ],
+  "acceptance_checks": [
+    "P0 realtime traffic and rank fields have metric_key and missing_state.",
+    "DOM evidence is labeled as browser_assist_dom.",
+    "Default storage remains online_daily_data.raw_data.",
+    "Login expired, endpoint miss, selector miss, and empty value remain explicit states.",
+    "AI and revenue modules consume only data with visible quality state."
+  ]
+}

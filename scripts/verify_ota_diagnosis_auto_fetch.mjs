@@ -16,7 +16,9 @@ const otaDiagnosisStaticSource = existsSync('public/ota-diagnosis-static.js') ? 
 const autoFetchStaticSource = existsSync('public/auto-fetch-static.js') ? readFileSync('public/auto-fetch-static.js', 'utf8') : '';
 const platformAutoSettingsSource = existsSync('public/components/online-data/platform-auto-settings-panels.js') ? readFileSync('public/components/online-data/platform-auto-settings-panels.js', 'utf8') : '';
 const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
-const source = [indexSource, otaDiagnosisStaticSource, autoFetchStaticSource, platformAutoSettingsSource, ctripStaticSource].join('\n');
+const systemStaticSource = readFileSync('public/system-static.js', 'utf8');
+const meituanStaticSource = existsSync('public/meituan-static.js') ? readFileSync('public/meituan-static.js', 'utf8') : '';
+const source = [indexSource, otaDiagnosisStaticSource, autoFetchStaticSource, platformAutoSettingsSource, ctripStaticSource, systemStaticSource, meituanStaticSource].join('\n');
 const controllerSource = readBackendSource();
 const routeSource = readFileSync('route/app.php', 'utf8');
 const ctripBrowserScriptPath = 'scripts/ctrip_browser_capture.mjs';
@@ -48,7 +50,7 @@ const autoFetchTaskPlanBody = autoFetchTaskPlanMatch ? autoFetchTaskPlanMatch[0]
 
 const checks = [
   {
-    name: 'diagnosis auto-fetch helper exists',
+    name: 'diagnosis fallback fetch helper exists',
     pass: /const runOtaDiagnosisHotelFetch = async \(/.test(source),
   },
   {
@@ -58,15 +60,15 @@ const checks = [
       && generateBody.indexOf('fetchSummary = await runHotelFetch(selectedHotel, currentForm)') < generateBody.indexOf('const res = await requestDiagnosis(requestBody)'),
   },
   {
-    name: 'auto-fetch includes Ctrip business data',
+    name: 'diagnosis fallback fetch includes Ctrip business data',
     pass: source.includes("url: '/online-data/fetch-ctrip'"),
   },
   {
-    name: 'auto-fetch includes Ctrip traffic data',
+    name: 'diagnosis fallback fetch includes Ctrip traffic data',
     pass: source.includes("url: '/online-data/ctrip/traffic'"),
   },
   {
-    name: 'diagnosis auto-fetch includes Ctrip Cookie API request list',
+    name: 'diagnosis fallback fetch includes Ctrip Cookie API request list',
     pass: runFetchBody.includes("readSavedOtaDataConfig('ctrip-cookie-api')")
       && runFetchBody.includes("label: 'ctrip-cookie-api'")
       && runFetchBody.includes("url: '/online-data/fetch-ctrip-cookie-api'")
@@ -76,7 +78,7 @@ const checks = [
       && runFetchBody.includes('ctripCookieApiProfileId'),
   },
   {
-    name: 'diagnosis auto-fetch can use Ctrip core preset from Cookie or saved Profile',
+    name: 'diagnosis fallback fetch can use Ctrip core preset from Cookie or saved Profile',
     pass: runFetchBody.includes('useCtripCorePresetForDiagnosis')
       && runFetchBody.includes('getCtripCookieApiCorePresetJson()')
       && source.includes('/online-data/ctrip-profile-status')
@@ -94,7 +96,7 @@ const checks = [
       && source.includes('Request Headers'),
   },
   {
-    name: 'diagnosis auto-fetch can reuse hotel-scoped generic Cookie',
+    name: 'diagnosis fallback fetch can reuse hotel-scoped generic Cookie',
     pass: source.includes('readSavedGenericCookieForDiagnosis')
       && source.includes('/online-data/cookies-list?hotel_id=')
       && source.includes('loadCookieDetail(ctripLike)')
@@ -112,11 +114,11 @@ const checks = [
       && source.includes('携程 Cookie API 未达到诊断就绪'),
   },
   {
-    name: 'auto-fetch includes Meituan ranking data',
+    name: 'diagnosis fallback fetch includes Meituan ranking data',
     pass: source.includes("url: '/online-data/fetch-meituan'"),
   },
   {
-    name: 'auto-fetch includes Meituan traffic data',
+    name: 'diagnosis fallback fetch includes Meituan traffic data',
     pass: source.includes("url: '/online-data/fetch-meituan-traffic'"),
   },
   {

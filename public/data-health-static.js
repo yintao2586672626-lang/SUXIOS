@@ -770,6 +770,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         businessData: '经营核心',
         peerRank: '竞对榜单',
         flowData: '流量漏斗',
+        trafficForecast: '未来预测',
+        flowAnalysis: '流量分析',
         searchKeywords: '搜索词',
         reviewData: '点评摘要',
         roomTypes: '房型目录',
@@ -2035,6 +2037,69 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         no_target_date_traffic_rows: '目标日流量字段未加载',
         requires_p0_verifier: '需复验字段事实',
     }[String(status || '')] || '');
+    const phase1TrafficLatestSyncTaskCodeLabel = (code) => ({
+        login_or_profile_not_ready: '登录/Profile未就绪',
+        browser_dependency_missing: '浏览器依赖缺失',
+        sync_completed_without_saved_rows: '同步完成但未入库',
+        sync_normalized_without_saved_rows: '已标准化但未入库',
+        sync_reported_saved_rows_requires_target_date_verifier: '已报保存需复验',
+        no_rows_parsed: '未解析到业务行',
+        sync_running: '同步未完成',
+        waiting_config: '等待配置',
+        task_status_missing: '任务状态缺失',
+        capture_failed: '采集失败',
+        unknown: '未知原因',
+    }[String(code || '')] || String(code || ''));
+    const buildPhase1TrafficLatestSyncTaskText = (row = {}) => {
+        const taskCount = Number(row?.traffic_latest_sync_task_count || 0);
+        const statusCounts = row?.traffic_latest_sync_task_status_counts && typeof row.traffic_latest_sync_task_status_counts === 'object'
+            ? row.traffic_latest_sync_task_status_counts
+            : {};
+        const codeCounts = row?.traffic_latest_sync_task_message_code_counts && typeof row.traffic_latest_sync_task_message_code_counts === 'object'
+            ? row.traffic_latest_sync_task_message_code_counts
+            : {};
+        const savedCount = Number(row?.traffic_latest_sync_task_saved_count || 0);
+        const normalizedCount = Number(row?.traffic_latest_sync_task_normalized_count || 0);
+        const statusText = Object.entries(statusCounts)
+            .filter(([, value]) => Number(value || 0) > 0)
+            .map(([status, value]) => `${status}:${Number(value || 0)}`)
+            .join('/');
+        const codeText = Object.entries(codeCounts)
+            .filter(([, value]) => Number(value || 0) > 0)
+            .map(([code, value]) => `${phase1TrafficLatestSyncTaskCodeLabel(code)}:${Number(value || 0)}`)
+            .join('/');
+        const parts = [];
+        if (taskCount > 0) parts.push(`最近同步 ${taskCount} 项`);
+        if (statusText) parts.push(statusText);
+        if (codeText) parts.push(codeText);
+        if (normalizedCount > 0 || savedCount > 0) parts.push(`标准化${normalizedCount}行/入库${savedCount}行`);
+        if (row?.traffic_latest_sync_task_sensitive_values_exposed === false) parts.push('同步诊断已脱敏');
+        return parts.join('，');
+    };
+    const phase1P0StandardFactSummary = (row = {}) => {
+        const p0_standard_fact_status_counts = row?.p0_standard_fact_status_counts && typeof row.p0_standard_fact_status_counts === 'object'
+            ? row.p0_standard_fact_status_counts
+            : {};
+        const p0_standard_fact_complete_metric_keys = Array.isArray(row?.p0_standard_fact_complete_metric_keys)
+            ? row.p0_standard_fact_complete_metric_keys
+            : [];
+        const p0_standard_fact_missing_metric_keys = Array.isArray(row?.p0_standard_fact_missing_metric_keys)
+            ? row.p0_standard_fact_missing_metric_keys
+            : [];
+        const p0_standard_fact_incomplete_metric_keys = Array.isArray(row?.p0_standard_fact_incomplete_metric_keys)
+            ? row.p0_standard_fact_incomplete_metric_keys
+            : [];
+        const countText = Object.entries(p0_standard_fact_status_counts)
+            .filter(([, value]) => Number(value || 0) > 0)
+            .map(([status, value]) => `${status}:${Number(value || 0)}`)
+            .join('/');
+        const parts = [];
+        if (countText) parts.push(`standard_fact_counts ${countText}`);
+        if (p0_standard_fact_complete_metric_keys.length > 0) parts.push(`standard_fact_complete_keys ${p0_standard_fact_complete_metric_keys.slice(0, 5).join('/')}`);
+        if (p0_standard_fact_missing_metric_keys.length > 0) parts.push(`standard_fact_missing_keys ${p0_standard_fact_missing_metric_keys.slice(0, 5).join('/')}`);
+        if (p0_standard_fact_incomplete_metric_keys.length > 0) parts.push(`standard_fact_incomplete_keys ${p0_standard_fact_incomplete_metric_keys.slice(0, 5).join('/')}`);
+        return parts.join('，');
+    };
     const buildPhase1TrafficP0NextText = (row = {}) => {
         const gateLabel = phase1TrafficP0GateLabel(row?.p0_traffic_gate_status || '');
         const modeLabel = phase1TrafficActionModeLabel(row?.p0_next_action_mode || row?.recommended_collection_mode || '');
@@ -2045,6 +2110,11 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const preImportStatus = String(row?.p0_pre_import_evidence_status || row?.pre_import_evidence_status || 'not_provided');
         const preImportPolicy = String(row?.p0_pre_import_evidence_policy || '');
         const trafficFieldFactStatus = String(row?.p0_traffic_field_fact_status || '');
+        const profileLoginTriggerPolicy = String(row?.p0_profile_login_trigger_policy || '');
+        const profileLoginTriggerAvailableCount = Number(row?.p0_profile_login_trigger_available_count || 0);
+        const profileLoginTriggerUnavailableCount = Number(row?.p0_profile_login_trigger_unavailable_count || 0);
+        const afterLoginSyncAvailableCount = Number(row?.p0_after_login_sync_available_count || 0);
+        const manualLoginVerifiedCount = Number(row?.p0_manual_login_state_verified_count || 0);
         const sourceChainScope = String(row?.p0_source_chain_scope || '');
         const sourceChainPolicy = String(row?.p0_source_chain_policy || '');
         const targetTrafficDataTypeCount = Array.isArray(row?.p0_target_traffic_data_types) ? row.p0_target_traffic_data_types.length : 0;
@@ -2062,13 +2132,35 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const payloadCandidateMissingCount = Number(row?.p0_payload_candidate_missing_count || payloadCandidateCounts.missing_expected_payload || 0);
         const payloadCandidateUnverifiedCount = Number(row?.p0_payload_candidate_unverified_count || payloadCandidateCounts.expected_payload_present_unverified || 0);
         const payloadCandidateReadyCount = Number(row?.p0_payload_candidate_ready_count || 0);
+        const payloadCandidateBlockedCount = Number(payloadCandidateCounts.blocked || 0);
         const payloadCandidatePathCount = Array.isArray(row?.p0_payload_candidate_paths) ? row.p0_payload_candidate_paths.length : 0;
         const payloadCandidateIssueCount = Array.isArray(row?.p0_payload_candidate_issue_codes) ? row.p0_payload_candidate_issue_codes.length : 0;
+        const payloadCandidateTargetDateRows = Number(row?.p0_payload_candidate_target_date_rows || 0);
+        const payloadCandidateTrafficEvidenceRows = Number(row?.p0_payload_candidate_traffic_evidence_rows || 0);
+        const payloadCandidateSourcePathRows = Number(row?.p0_payload_candidate_evidence_source_path_rows || 0);
+        const payloadCandidateStructuredSourcePathRows = Number(row?.p0_payload_candidate_evidence_structured_source_path_rows || 0);
+        const payloadCandidateRawDataFieldFactsRows = Number(row?.p0_payload_candidate_evidence_raw_data_field_facts_rows || 0);
+        const payloadCandidateRawDataExposedRows = Number(row?.p0_payload_candidate_evidence_raw_data_exposed_rows || 0);
+        const payloadCandidateSensitiveValueRows = Number(row?.p0_payload_candidate_evidence_sensitive_value_rows || 0);
+        const payloadCandidateMissingMetricCount = Array.isArray(row?.p0_payload_candidate_evidence_missing_metric_keys)
+            ? row.p0_payload_candidate_evidence_missing_metric_keys.length
+            : 0;
+        const payloadCandidateMetricCount = Array.isArray(row?.p0_payload_candidate_evidence_metric_keys)
+            ? row.p0_payload_candidate_evidence_metric_keys.length
+            : 0;
         const requiredMetricCount = Array.isArray(row?.p0_required_metric_keys) ? row.p0_required_metric_keys.length : 0;
         const requiredStorageFieldCount = Array.isArray(row?.p0_required_storage_fields) ? row.p0_required_storage_fields.length : 0;
         const requiredFieldFactCount = Array.isArray(row?.p0_required_field_fact_keys) ? row.p0_required_field_fact_keys.length : 0;
         const missingMetricCount = Array.isArray(row?.p0_missing_metric_keys) ? row.p0_missing_metric_keys.length : 0;
         const fieldLoopMatrix = Array.isArray(row?.p0_field_loop_matrix) ? row.p0_field_loop_matrix : [];
+        const standardFactStatus = String(row?.p0_standard_fact_status || '');
+        const standardFactPolicy = String(row?.p0_standard_fact_policy || '');
+        const standardFactRawDataPolicy = String(row?.p0_standard_fact_raw_data_policy || '');
+        const standardFactRequiredMetricCount = Number(row?.p0_standard_fact_required_metric_count ?? requiredMetricCount);
+        const standardFactCompleteMetricCount = Number(row?.p0_standard_fact_complete_metric_count ?? 0);
+        const standardFactMissingMetricCount = Number(row?.p0_standard_fact_missing_metric_count ?? missingMetricCount);
+        const standardFactIncompleteMetricCount = Number(row?.p0_standard_fact_incomplete_metric_count ?? 0);
+        const standardFactStorageFieldCount = Number(row?.p0_standard_fact_storage_field_count ?? requiredStorageFieldCount);
         const unloadedFieldLoopCount = fieldLoopMatrix.filter(item => String(item?.status || '') === 'no_target_date_traffic_rows').length;
         const verifierFieldLoopCount = fieldLoopMatrix.filter(item => String(item?.status || '') === 'requires_p0_verifier').length;
         const completeFieldLoopCount = fieldLoopMatrix.filter(item => String(item?.status || '') === 'complete').length;
@@ -2085,6 +2177,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const platformHotelIdentifierStatus = String(row?.p0_platform_hotel_identifier_status || '');
         const platformHotelIdentifierSource = String(row?.p0_platform_hotel_identifier_source || '');
         const platformHotelIdentifierPolicy = String(row?.p0_platform_hotel_identifier_policy || '');
+        const latestSyncTaskText = buildPhase1TrafficLatestSyncTaskText(row);
+        const standardFactSummaryText = phase1P0StandardFactSummary(row);
         const preImportLabel = phase1TrafficPreImportEvidenceLabel(preImportStatus);
         const parts = [];
         if (gateLabel) parts.push(gateLabel);
@@ -2092,17 +2186,40 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         if (sourceChainReferenceOnly) parts.push('源证据仅参考');
         if (preImportLabel && (preImportStatus !== 'not_provided' || row?.p0_traffic_gate_status !== 'ready')) parts.push(preImportLabel);
         if (externalEvidenceStatus !== 'not_provided' && preImportPolicy.includes('source proof only')) parts.push('证据不等于闭环');
+        if (profileLoginTriggerAvailableCount > 0) parts.push(`登录触发入口 ${profileLoginTriggerAvailableCount} 项`);
+        if (afterLoginSyncAvailableCount > 0) parts.push(`登录后同步 ${afterLoginSyncAvailableCount} 项`);
+        if (profileLoginTriggerUnavailableCount > 0) parts.push(`登录入口缺口 ${profileLoginTriggerUnavailableCount} 项`);
+        if (manualLoginVerifiedCount > 0) parts.push(`登录态已确认 ${manualLoginVerifiedCount} 项`);
+        if (profileLoginTriggerPolicy === 'metadata_only_backend_resolves_platform_identity') parts.push('入口不展示平台原始ID');
         if (payloadCandidateMissingCount > 0) parts.push(`${phase1TrafficPayloadCandidateLabel('missing_expected_payload')} ${payloadCandidateMissingCount} 项`);
         if (payloadCandidateUnverifiedCount > 0) parts.push(`${phase1TrafficPayloadCandidateLabel('expected_payload_present_unverified')} ${payloadCandidateUnverifiedCount} 项`);
         if (payloadCandidateReadyCount > 0) parts.push(`Payload可执行 ${payloadCandidateReadyCount} 项`);
+        if (payloadCandidateBlockedCount > 0) parts.push(`Payload阻断 ${payloadCandidateBlockedCount} 项`);
         if (payloadCandidatePathCount > 0) parts.push(`预期路径 ${payloadCandidatePathCount} 项`);
         if (payloadCandidateIssueCount > 0) parts.push(`Payload缺口 ${payloadCandidateIssueCount} 类`);
+        if (payloadCandidateTargetDateRows > 0) parts.push(`Payload目标日 ${payloadCandidateTargetDateRows} 行`);
+        if (payloadCandidateTrafficEvidenceRows > 0) parts.push(`Payload证据 ${payloadCandidateTrafficEvidenceRows} 行`);
+        if (payloadCandidateSourcePathRows > 0) parts.push(`Payload source_path ${payloadCandidateStructuredSourcePathRows}/${payloadCandidateSourcePathRows} 行`);
+        if (payloadCandidateRawDataFieldFactsRows > 0) parts.push(`Payload字段事实 ${payloadCandidateRawDataFieldFactsRows} 行`);
+        if (payloadCandidateMetricCount > 0) parts.push(`Payload指标 ${payloadCandidateMetricCount} 项`);
+        if (payloadCandidateMissingMetricCount > 0) parts.push(`Payload缺指标 ${payloadCandidateMissingMetricCount} 项`);
+        if (payloadCandidateRawDataExposedRows > 0) parts.push(`Payload raw_data暴露 ${payloadCandidateRawDataExposedRows} 行`);
+        if (payloadCandidateSensitiveValueRows > 0) parts.push(`Payload敏感值暴露 ${payloadCandidateSensitiveValueRows} 行`);
         if (payloadCandidatePolicy === 'ui_metadata_only_no_import') parts.push('UI不导入Payload');
         if (payloadCandidatePayloadPolicy === 'path_metadata_only_no_payload_content') parts.push('不展示Payload内容');
         if (payloadCandidateStoragePolicy === 'does_not_write_online_daily_data') parts.push('不写入库表');
+        if (latestSyncTaskText) parts.push(latestSyncTaskText);
+        if (standardFactSummaryText) parts.push(standardFactSummaryText);
         if (requiredMetricCount > 0) parts.push(`需闭环指标 ${requiredMetricCount} 项`);
         if (requiredStorageFieldCount > 0) parts.push(`入库字段 ${requiredStorageFieldCount} 项`);
         if (requiredFieldFactCount > 0) parts.push(`字段事实 ${requiredFieldFactCount} 项`);
+        if (standardFactStatus) parts.push(`standard_fact:${standardFactStatus}`);
+        if (standardFactRequiredMetricCount > 0) parts.push(`standard_fact_metrics ${standardFactCompleteMetricCount}/${standardFactRequiredMetricCount}`);
+        if (standardFactMissingMetricCount > 0) parts.push(`standard_fact_missing ${standardFactMissingMetricCount}`);
+        if (standardFactIncompleteMetricCount > 0) parts.push(`standard_fact_incomplete ${standardFactIncompleteMetricCount}`);
+        if (standardFactStorageFieldCount > 0) parts.push(`standard_fact_storage ${standardFactStorageFieldCount}`);
+        if (standardFactPolicy === 'derived_from_p0_field_loop_matrix_ota_channel_only') parts.push('standard_fact_ota_channel_only');
+        if (standardFactRawDataPolicy === 'raw_data_field_facts_only_raw_payload_not_returned') parts.push('raw_data_payload_not_returned');
         if (fieldLoopMatrix.length > 0) parts.push(`字段矩阵 ${fieldLoopMatrix.length} 项`);
         if (closureChain.length > 0) parts.push(`闭环链 ${closureChain.length} 项`);
         if (closureChainPolicy.includes('OTA-channel evidence only')) parts.push('仅OTA渠道证据');
@@ -2801,7 +2918,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         if (rawCode === 'resolve_ai_diagnosis_blocked_action_items') return blockedText ? `先处理：${blockedText}；再重新生成 AI 诊断。` : '先补齐 OTA 证据，再重新生成 AI 诊断。';
         if (rawCode === 'phase1_create_operation_execution_evidence' || rawCode === 'collect_operation_execution_evidence' || family === 'operation_execution_evidence') return blockedText ? `先完成上游动作：${blockedText}；再创建或复核执行意图。` : '从真实 AI 动作项创建执行意图，并保留审批、执行证据和复盘。';
         if (rawCode === 'phase1_collect_ai_diagnosis_evidence' || rawCode === 'collect_ai_diagnosis_evidence' || family === 'ai_diagnosis_evidence') return '补齐 OTA 证据后重新生成诊断，确认返回证据来源、数据缺口和动作项。';
-        if (/^(?:phase1_collect_(ctrip|meituan)_target_date_source_rows|(ctrip|meituan)_source_rows_missing_collect_existing_path)$/.test(rawCode) || rawCode === 'phase1_confirm_source_date_evidence' || family === 'target_date_source_rows') return `通过现有${platformText}手动 Cookie/API 或浏览器 Profile 入口补齐目标日源数据。`;
+        if (/^(?:phase1_collect_(ctrip|meituan)_target_date_source_rows|(ctrip|meituan)_source_rows_missing_collect_existing_path)$/.test(rawCode) || rawCode === 'phase1_confirm_source_date_evidence' || family === 'target_date_source_rows') return `默认通过现有${platformText}浏览器 Profile 采集入口补齐目标日源数据；手动 Cookie/API 仅用于临时补数或排障。`;
         if (/^(ctrip|meituan)_etl_not_ready_check_standard_facts$/.test(rawCode) || family === 'standard_facts') return `复核${platformText}标准事实层验收行、校验标记和 data_type。`;
         if (/^(?:phase1_(?:check|confirm)_(ctrip|meituan)_revenue_metric_inputs|(ctrip|meituan)_revenue_metrics_not_ready_check_metric_inputs)$/.test(rawCode) || family === 'revenue_metric_inputs') return `复核${platformText}收益指标输入、指标可信证据和数据缺口。`;
         if (/^(?:phase1_confirm_(ctrip|meituan)_traffic_conversion_facts|(ctrip|meituan)_traffic_facts_missing_confirm_traffic_collection)$/.test(rawCode) || family === 'traffic_conversion_facts') return `补齐${platformText}流量/转化事实，再复跑收益指标和 AI 诊断。`;
@@ -2859,7 +2976,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const rawCode = phase1EmployeeActionRawCode(source);
         const family = String(source.action_family || source.actionFamily || '').trim();
         if (/^(?:phase1_collect_(ctrip|meituan)_target_date_source_rows|(ctrip|meituan)_source_rows_missing_collect_existing_path)$/.test(rawCode) || rawCode === 'phase1_confirm_source_date_evidence' || family === 'target_date_source_rows') {
-            return '只使用现有手动 Cookie/API、浏览器 Profile 或状态核对入口补证；不改变采集逻辑和字段。';
+            return '默认只使用现有浏览器 Profile 或状态核对入口补证；手动 Cookie/API 仅作临时补数或排障；不改变采集逻辑和字段。';
         }
         if (family === 'standard_facts' || /^(ctrip|meituan)_etl_not_ready_check_standard_facts$/.test(rawCode)) {
             return '只复核现有入库数据和标准事实状态；不新增采集字段或表结构。';
@@ -4252,7 +4369,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                     evidence_summary: targetDateCoverageEvidence,
                     blocking_missing_codes: targetDateBlockingMissingCodes,
                 },
-                nextAction: hasCompleteTargetDateCoverage ? '继续检查字段可信度、收益指标和 AI 依据。' : '使用现有携程/美团手动或自动获取入口补齐缺失平台同日数据。',
+                nextAction: hasCompleteTargetDateCoverage ? '继续检查字段可信度、收益指标和 AI 依据。' : '默认使用现有携程/美团浏览器 Profile 采集入口补齐缺失平台同日数据；手动 Cookie/API 仅作临时补数或排障。',
             },
             {
                 key: 'trusted_fields',
@@ -4430,6 +4547,11 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         business: '经营',
         traffic: '流量',
         rank: '排名',
+        ranking: '排名',
+        peer_rank: '竞对榜单',
+        search_keyword: '搜索词',
+        traffic_analysis: '流量分析',
+        traffic_forecast: '未来预测',
         advertising: '广告',
         review: '点评',
         quality: '服务质量',
@@ -4766,6 +4888,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         buildCollectionHealthCtripOverviewPanels,
         buildCollectionHealthCtripMissingActionRows,
         buildPhase1MetricDomainReadiness,
+        buildPhase1TrafficLatestSyncTaskText,
+        phase1P0StandardFactSummary,
         buildPhase1TrafficP0NextText,
         phase1EmployeeQuestionStatusText,
         phase1EmployeeQuestionStatusClass,

@@ -401,13 +401,14 @@ class Agent extends Base
             $result['data_anomalies_needing_confirmation'] = $result['missing_sections'];
             $result['priority'] = $result['diagnosis']['priority'] ?? $result['priority'];
             $result['evidence_sources'] = $this->buildOtaDiagnosisEvidenceSources($dataSet, $result['metrics'] ?? []);
-            $result['action_items'] = $this->buildOtaDiagnosisActionItems($result['recommended_actions'], $result['evidence_sources']);
+            $result['action_items'] = $this->buildOtaDiagnosisActionItems($result['recommended_actions'], $result['evidence_sources'], $result);
             if ($usedLatestAvailableData) {
                 $result = $this->blockOtaDiagnosisActionsForLatestAvailableData($result, $startDate, $endDate, $effectiveStartDate, $effectiveEndDate);
             }
             $result['diagnosis_sections'] = $this->buildOtaDiagnosisSections($result['diagnosis'] ?? [], $result['missing_sections'] ?? []);
-            $result['evidence_report'] = $this->buildOtaEvidenceReport($result);
             $result['ai_governance'] = $this->buildAiGovernancePayload('ota_diagnosis', $result, $llmResult);
+            $result['decision_closure'] = $this->buildAiDecisionClosure($result);
+            $result['evidence_report'] = $this->buildOtaEvidenceReport($result);
 
             return $this->success($result, 'success');
         } catch (\Throwable $e) {
@@ -1452,6 +1453,9 @@ class Agent extends Base
         if (($quality['is_reliable'] ?? true) === false) {
             return 'low';
         }
+        if (!empty($context['data_gaps']) || $this->hasBlockedAiActionItems($context)) {
+            return 'low';
+        }
 
         $missingSections = array_values(array_filter((array)($context['missing_sections'] ?? []), static fn($value): bool => trim((string)$value) !== ''));
         if (count($missingSections) >= 3) {
@@ -1508,6 +1512,9 @@ class Agent extends Base
 
     private function buildAiHumanConfirmationReason(string $scenario, string $confidenceLevel, array $context): string
     {
+        if ($this->hasBlockedAiActionItems($context)) {
+            return 'recommended actions are blocked until required evidence is repaired';
+        }
         foreach ((array)($context['action_items'] ?? []) as $item) {
             if (is_array($item) && ($item['status'] ?? '') === 'pending_manual_review') {
                 return 'recommended actions are pending manual review';
@@ -1517,6 +1524,21 @@ class Agent extends Base
             return 'confidence level ' . $confidenceLevel . ' requires operator review';
         }
         return $this->aiDecisionImpact($scenario) . ' decision requires operator confirmation';
+    }
+
+    private function hasBlockedAiActionItems(array $context): bool
+    {
+        foreach ((array)($context['action_items'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $status = (string)($item['status'] ?? '');
+            if (str_starts_with($status, 'blocked_') || ($item['execution_ready'] ?? true) === false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function aiDecisionImpact(string $scenario): string
@@ -2028,7 +2050,7 @@ class Agent extends Base
             'message' => '选定日期范围没有可用于 OTA 经营诊断的真实入库数据。',
             'scope' => 'ota_channel',
             'blocked_conclusions' => ['收入诊断', '流量诊断', '转化诊断', '价格/竞对诊断', '广告和服务质量诊断'],
-            'next_action' => '使用现有携程/美团手动或自动获取入口补齐同日 OTA 数据后重新诊断。',
+            'next_action' => '默认使用携程/美团浏览器 Profile 采集入口补齐同日 OTA 数据后重新诊断；手动 Cookie/API 仅作临时补数或排障。',
         ]];
         $evidenceSources = [[
             'ref' => 'ota_no_data_scope',
@@ -2042,12 +2064,23 @@ class Agent extends Base
                 'sync_logs' => $sourceCounts['sync_logs'],
             ],
         ]];
-        $actions = ['使用现有携程/美团手动或自动获取入口补齐同日 OTA 数据，再重新生成 AI 诊断和运营执行动作。'];
+        $actions = ['默认使用携程/美团浏览器 Profile 采集入口补齐同日 OTA 数据，再重新生成 AI 诊断和运营执行动作；手动 Cookie/API 仅作临时补数或排障。'];
         $actionItems = [[
             'id' => 'ota_action_collect_same_period_data',
             'action' => $actions[0],
             'status' => 'blocked_by_missing_ota_data',
             'evidence_refs' => ['ota_no_data_scope'],
+            'required_evidence' => ['same_period_ota_data'],
+            'missing_evidence' => [[
+                'code' => 'missing_same_period_ota_data',
+                'label' => '同日 OTA 入库数据',
+                'next_action' => '默认使用携程/美团浏览器 Profile 采集入口补齐同日 OTA 数据后重新诊断；手动 Cookie/API 仅作临时补数或排障。',
+            ]],
+            'execution_ready' => false,
+            'can_request_execution_intent' => false,
+            'human_confirmation_required' => true,
+            'human_confirmation_status' => 'blocked',
+            'blocked_reason' => 'missing same-period OTA evidence',
             'source_policy' => 'must collect same-period OTA evidence before diagnosis or execution',
             'owner' => '酒店运营人员',
             'protected_boundary' => '不改变采集字段、字段映射、携程/美团手动或自动获取逻辑。',
@@ -2096,7 +2129,6 @@ class Agent extends Base
             'priority' => 'none',
             'source_policy' => 'database_only_no_synthetic_conclusion',
         ];
-        $result['evidence_report'] = $this->buildOtaEvidenceReport($result);
         $result['ai_governance'] = $this->buildAiGovernancePayload('ota_diagnosis', $result, [
             'ok' => true,
             'data' => [
@@ -2106,6 +2138,8 @@ class Agent extends Base
                 ],
             ],
         ]);
+        $result['decision_closure'] = $this->buildAiDecisionClosure($result);
+        $result['evidence_report'] = $this->buildOtaEvidenceReport($result);
 
         return $result;
     }
@@ -2470,7 +2504,7 @@ class Agent extends Base
         return array_values(array_unique($normalized));
     }
 
-    private function buildOtaDiagnosisActionItems(array $actions, array $evidenceSources): array
+    private function buildOtaDiagnosisActionItems(array $actions, array $evidenceSources, array $context = []): array
     {
         $items = [];
         foreach ($actions as $index => $action) {
@@ -2479,14 +2513,166 @@ class Agent extends Base
                 continue;
             }
             $refs = $this->selectOtaEvidenceRefsForAction($actionText, $evidenceSources);
+            $requiredTags = $this->requiredOtaEvidenceTagsForAction($actionText);
+            $missingTags = $this->missingOtaEvidenceTags($requiredTags, $evidenceSources);
+            $isDataRepairAction = $this->isOtaDataRepairAction($actionText);
+            $hasExecutableRefs = $this->hasExecutableOtaEvidenceRefs($refs, $evidenceSources);
+            $executionReady = !$isDataRepairAction && empty($missingTags) && $hasExecutableRefs;
+            $status = $executionReady ? 'pending_manual_review' : 'blocked_by_insufficient_evidence';
+            $blockedReason = '';
+            $missingEvidence = $this->buildOtaMissingEvidenceItems($missingTags);
+
+            if ($isDataRepairAction) {
+                $status = 'blocked_by_data_gap';
+                $blockedReason = 'action is a data-repair prerequisite, not an executable operating recommendation';
+                if (empty($missingEvidence)) {
+                    $missingEvidence[] = [
+                        'code' => 'data_gap_requires_repair',
+                        'label' => '数据缺口修复',
+                        'next_action' => '先补齐对应 OTA 数据证据，再重新生成 AI 诊断。',
+                    ];
+                }
+            } elseif (!$hasExecutableRefs) {
+                $blockedReason = 'action has no non-derived OTA evidence reference';
+                if (empty($missingEvidence)) {
+                    $missingEvidence[] = [
+                        'code' => 'missing_non_derived_ota_evidence',
+                        'label' => '真实 OTA 证据引用',
+                        'next_action' => '补齐入库 OTA 行或已验证的经营证据后再生成可执行建议。',
+                    ];
+                }
+            } elseif (!empty($missingTags)) {
+                $blockedReason = 'missing required OTA evidence: ' . implode(', ', $missingTags);
+            }
+
             $items[] = [
                 'id' => 'ota_action_' . ($index + 1),
                 'action' => $actionText,
-                'status' => 'pending_manual_review',
+                'status' => $status,
                 'evidence_refs' => $refs,
-                'source_policy' => 'must cite evidence_refs before execution',
+                'required_evidence' => $requiredTags,
+                'missing_evidence' => $missingEvidence,
+                'execution_ready' => $executionReady,
+                'can_request_execution_intent' => $executionReady,
+                'human_confirmation_required' => true,
+                'human_confirmation_status' => $executionReady ? 'pending' : 'blocked',
+                'blocked_reason' => $blockedReason,
+                'source_policy' => $executionReady
+                    ? 'evidence_refs_required_manual_confirmation_before_execution'
+                    : 'blocked_until_required_ota_evidence_is_available',
+                'confirmation_policy' => 'manual_confirmation_required_before_operation_execution',
             ];
         }
+        return $items;
+    }
+
+    private function requiredOtaEvidenceTagsForAction(string $action): array
+    {
+        $tags = [];
+        if ($this->textContainsAny($action, ['广告', '投放', 'ROAS', 'roi', 'ad', 'ads', 'advertising', 'campaign'])) {
+            $tags[] = 'advertising';
+        }
+        if ($this->textContainsAny($action, ['服务质量', '服务分', 'PSI', 'psi', 'service', 'quality'])) {
+            $tags[] = 'service_quality';
+        }
+        if ($this->textContainsAny($action, ['曝光', '访问', '流量', '列表', '详情', 'traffic', 'exposure'])) {
+            $tags[] = 'traffic';
+        }
+        if ($this->textContainsAny($action, ['竞对', 'competitor'])) {
+            $tags[] = 'competitor';
+        }
+        if ($this->textContainsAny($action, ['价格', 'ADR', '房型', '促销', 'price'])) {
+            $tags[] = 'price';
+        }
+        if ($this->textContainsAny($action, ['订单', '下单', '转化', '间夜', 'order', 'conversion'])) {
+            $tags[] = 'traffic';
+            $tags[] = 'order';
+        }
+
+        return array_values(array_unique($tags));
+    }
+
+    private function missingOtaEvidenceTags(array $requiredTags, array $evidenceSources): array
+    {
+        $available = [];
+        foreach ($evidenceSources as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            if ((string)($source['table'] ?? '') === 'derived') {
+                continue;
+            }
+            foreach ((array)($source['tags'] ?? []) as $tag) {
+                $tag = trim((string)$tag);
+                if ($tag !== '') {
+                    $available[$tag] = true;
+                }
+            }
+        }
+
+        $missing = [];
+        foreach ($requiredTags as $tag) {
+            if (empty($available[$tag])) {
+                $missing[] = $tag;
+            }
+        }
+
+        return $missing;
+    }
+
+    private function hasExecutableOtaEvidenceRefs(array $refs, array $evidenceSources): bool
+    {
+        $sourceByRef = [];
+        foreach ($evidenceSources as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $ref = trim((string)($source['ref'] ?? ''));
+            if ($ref !== '') {
+                $sourceByRef[$ref] = $source;
+            }
+        }
+
+        foreach ($refs as $ref) {
+            $ref = trim((string)$ref);
+            $source = $sourceByRef[$ref] ?? null;
+            if (!is_array($source)) {
+                continue;
+            }
+            if ((string)($source['table'] ?? '') !== 'derived') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isOtaDataRepairAction(string $action): bool
+    {
+        return $this->textContainsAny($action, ['补齐', '缺失', '同步', '抓取', '采集', '获取入口', '重新诊断', '数据源', 'sync', 'missing']);
+    }
+
+    private function buildOtaMissingEvidenceItems(array $missingTags): array
+    {
+        $labels = [
+            'advertising' => ['label' => 'OTA 广告证据', 'next_action' => '补齐广告花费、归因金额、ROAS 或投放明细证据。'],
+            'service_quality' => ['label' => 'OTA 服务质量证据', 'next_action' => '补齐 PSI、服务评分或响应质量证据。'],
+            'traffic' => ['label' => 'OTA 流量证据', 'next_action' => '补齐曝光、访问、详情页或流量漏斗证据。'],
+            'competitor' => ['label' => '竞对证据', 'next_action' => '补齐同商圈竞对价格、排名或曝光对比证据。'],
+            'price' => ['label' => '价格/房型证据', 'next_action' => '补齐本店价格、房型、促销或 ADR 证据。'],
+            'order' => ['label' => '订单转化证据', 'next_action' => '补齐订单、间夜、提交用户或转化证据。'],
+        ];
+
+        $items = [];
+        foreach ($missingTags as $tag) {
+            $meta = $labels[$tag] ?? ['label' => $tag, 'next_action' => '补齐该证据后重新生成 AI 诊断。'];
+            $items[] = [
+                'code' => 'missing_' . $tag . '_evidence',
+                'label' => $meta['label'],
+                'next_action' => $meta['next_action'],
+            ];
+        }
+
         return $items;
     }
 
@@ -2499,7 +2685,7 @@ class Agent extends Base
             'requested_date_range' => ['start_date' => $requestedStartDate, 'end_date' => $requestedEndDate],
             'effective_date_range' => ['start_date' => $effectiveStartDate, 'end_date' => $effectiveEndDate],
             'blocked_conclusions' => ['target_date_ai_action', 'operation_execution'],
-            'next_action' => '使用现有携程/美团手动或自动获取入口补齐目标日期 OTA 数据后重新诊断。',
+            'next_action' => '默认使用携程/美团浏览器 Profile 采集入口补齐目标日期 OTA 数据后重新诊断；手动 Cookie/API 仅作临时补数或排障。',
         ];
     }
 
@@ -2547,8 +2733,17 @@ class Agent extends Base
             $item['original_status'] = (string)($item['status'] ?? '');
             $item['status'] = 'blocked_by_non_target_date_data';
             $item['evidence_refs'] = $refs;
+            $item['execution_ready'] = false;
+            $item['can_request_execution_intent'] = false;
+            $item['human_confirmation_required'] = true;
+            $item['human_confirmation_status'] = 'blocked';
             $item['source_policy'] = 'target-date OTA evidence required before execution';
             $item['blocked_reason'] = 'requested date has no same-period OTA rows; latest available data is reference only';
+            $item['missing_evidence'] = array_values(array_merge((array)($item['missing_evidence'] ?? []), [[
+                'code' => 'missing_target_date_ota_evidence',
+                'label' => '目标日期 OTA 证据',
+                'next_action' => '补齐目标日期 OTA 入库数据后重新生成 AI 诊断。',
+            ]]));
             $item['protected_boundary'] = '不改变采集字段、字段映射、携程/美团手动或自动获取逻辑。';
             $items[] = $item;
         }
@@ -2573,6 +2768,80 @@ class Agent extends Base
             'diagnosis_sections' => $result['diagnosis_sections'] ?? [],
             'evidence_sources' => $result['evidence_sources'] ?? [],
             'data_gaps' => $result['data_gaps'] ?? [],
+            'decision_closure' => $result['decision_closure'] ?? null,
+        ];
+    }
+
+    private function buildAiDecisionClosure(array $result): array
+    {
+        $actionItems = array_values(array_filter((array)($result['action_items'] ?? []), 'is_array'));
+        $readyItems = array_values(array_filter($actionItems, static fn(array $item): bool => ($item['execution_ready'] ?? false) === true));
+        $blockedItems = array_values(array_filter($actionItems, static function (array $item): bool {
+            $status = (string)($item['status'] ?? '');
+            return str_starts_with($status, 'blocked_') || ($item['execution_ready'] ?? true) === false;
+        }));
+        $dataGaps = array_values(array_filter((array)($result['data_gaps'] ?? []), 'is_array'));
+        $governance = is_array($result['ai_governance'] ?? null) ? $result['ai_governance'] : [];
+        $blockedReasons = [];
+        foreach ($blockedItems as $item) {
+            $reason = trim((string)($item['blocked_reason'] ?? ''));
+            if ($reason !== '') {
+                $blockedReasons[] = $reason;
+            }
+        }
+        foreach ($dataGaps as $gap) {
+            $code = trim((string)($gap['code'] ?? ''));
+            if ($code !== '') {
+                $blockedReasons[] = $code;
+            }
+        }
+        $blockedReasons = array_values(array_unique($blockedReasons));
+        $status = 'pending_human_confirmation';
+        if (empty($readyItems)) {
+            $status = 'blocked';
+        } elseif (!empty($blockedItems) || !empty($dataGaps)) {
+            $status = 'partial_ready';
+        }
+
+        return [
+            'status' => $status,
+            'scope' => 'ota_channel',
+            'chain' => 'OTA data -> revenue analysis -> AI decisions -> operations management -> investment decisions',
+            'data_evidence_input' => [
+                'source_policy' => (string)($result['source_policy'] ?? 'database_only'),
+                'source_counts' => $result['data_summary']['source_counts'] ?? [],
+                'evidence_refs' => $this->extractAiEvidenceRefs($result),
+                'data_gaps' => $dataGaps,
+                'enough_for_executable_actions' => !empty($readyItems),
+            ],
+            'diagnostic_conclusion' => [
+                'summary' => (string)($result['core_conclusion'] ?? $result['diagnosis']['summary'] ?? ''),
+                'main_problems' => $result['main_problems'] ?? [],
+                'possible_reasons' => $result['possible_reasons'] ?? [],
+                'confidence_level' => (string)($governance['confidence_level'] ?? ''),
+            ],
+            'suggested_actions' => [
+                'ready_count' => count($readyItems),
+                'blocked_count' => count($blockedItems),
+                'items' => $actionItems,
+            ],
+            'blocked_state' => [
+                'is_blocked' => empty($readyItems) || !empty($blockedItems) || !empty($dataGaps),
+                'blocked_reasons' => $blockedReasons,
+                'blocked_items' => array_map(static fn(array $item): array => [
+                    'id' => (string)($item['id'] ?? ''),
+                    'status' => (string)($item['status'] ?? ''),
+                    'blocked_reason' => (string)($item['blocked_reason'] ?? ''),
+                    'missing_evidence' => $item['missing_evidence'] ?? [],
+                ], $blockedItems),
+            ],
+            'human_confirmation' => [
+                'required' => true,
+                'status' => !empty($readyItems) ? 'pending' : 'blocked',
+                'reason' => (string)($governance['human_confirmation_reason'] ?? 'manual confirmation required before operation execution'),
+                'ready_action_ids' => array_values(array_map(static fn(array $item): string => (string)($item['id'] ?? ''), $readyItems)),
+                'confirm_before_execution' => true,
+            ],
         ];
     }
 
@@ -2592,6 +2861,14 @@ class Agent extends Base
         $isNonRevenueType = in_array($dataType, ['advertising', 'quality', 'review', 'ads', 'ad', 'campaign'], true);
         if (!$isNonRevenueType && ((float)($row['amount'] ?? 0) > 0 || (float)($row['quantity'] ?? 0) > 0 || (float)($row['book_order_num'] ?? 0) > 0)) {
             $tags[] = 'revenue';
+            $tags[] = 'order';
+        }
+        if (
+            (float)($row['order_visitors'] ?? 0) > 0
+            || (float)($row['submit_users'] ?? 0) > 0
+            || (float)($row['order_filling_num'] ?? 0) > 0
+            || (float)($row['order_submit_num'] ?? 0) > 0
+        ) {
             $tags[] = 'order';
         }
         if (in_array($dataType, ['advertising', 'ads', 'ad', 'campaign'], true)) {
@@ -3192,6 +3469,7 @@ class Agent extends Base
             . "必须返回 JSON，字段为 summary、data_overview、abnormal_metrics、traffic_analysis、exposure_analysis、visit_conversion_analysis、order_conversion_analysis、price_analysis、competitor_analysis、advertising_analysis、service_quality_analysis、actions、priority。\n"
             . "data_overview、abnormal_metrics、actions 必须是数组；priority 只能是 high、medium、low。\n"
             . "异常描述必须优先写成数据口径提示或需复核提示；除非历史日期多次同步仍异常，不输出严重异常、严重采集异常或违反基本漏斗逻辑。\n"
+            . "建议动作必须受证据约束：证据不足时只输出补数据、复核或blocked类动作，不输出调价、投放、运营执行等可执行建议。\n"
             . $knowledgeContext
             . "结构化摘要：\n"
             . json_encode($summary, JSON_UNESCAPED_UNICODE);

@@ -4,7 +4,10 @@ const read = (path) => readFileSync(path, 'utf8');
 const publicSource = read('public/index.html');
 const systemStaticSource = read('public/system-static.js');
 const packageSource = read('package.json');
-const controllerSource = read('app/controller/OnlineData.php');
+const controllerSource = [
+  read('app/controller/OnlineData.php'),
+  read('app/controller/concern/AutoFetchConcern.php'),
+].join('\n');
 
 const sliceBetween = (source, startNeedle, endNeedle) => {
   const start = source.indexOf(startNeedle);

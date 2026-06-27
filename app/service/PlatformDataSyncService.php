@@ -71,6 +71,40 @@ final class PlatformDataSyncService
             ],
         ],
         [
+            'resource' => 'trafficForecast',
+            'data_type' => 'traffic_forecast',
+            'priority' => 'P1',
+            'platforms' => ['meituan'],
+            'scope' => 'ota_channel_future_demand_signal',
+            'default_enabled' => false,
+            'requires_explicit_authorization' => false,
+            'privacy_boundary' => 'aggregate_forecast_only',
+            'aliases' => ['traffic_forecast', 'trafficForecast', 'flow_forecast', 'flowForecast', 'forecast'],
+            'periods' => ['next_30_days'],
+            'fields' => [
+                ['field' => 'forecast_type', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'field_missing'],
+                ['field' => 'current', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value/raw_data', 'missing_state' => 'optional_missing'],
+                ['field' => 'peer_avg', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
+            ],
+        ],
+        [
+            'resource' => 'flowAnalysis',
+            'data_type' => 'traffic_analysis',
+            'priority' => 'P1',
+            'platforms' => ['meituan'],
+            'scope' => 'ota_channel_traffic_analysis',
+            'default_enabled' => false,
+            'requires_explicit_authorization' => false,
+            'privacy_boundary' => 'aggregate_traffic_analysis_only',
+            'aliases' => ['flow_analysis', 'flowAnalysis', 'traffic_analysis', 'trafficAnalysis', 'flowConversion', 'flowTrend', 'flowTrendDetail'],
+            'periods' => ['realtime', 'yesterday', 'last_7_days', 'last_30_days'],
+            'fields' => [
+                ['field' => 'analysis_type', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'field_missing'],
+                ['field' => 'data_value', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value/raw_data', 'missing_state' => 'optional_missing'],
+                ['field' => 'peer_rank', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
+            ],
+        ],
+        [
             'resource' => 'searchKeywords',
             'data_type' => 'search_keyword',
             'priority' => 'P1',
@@ -1708,6 +1742,12 @@ final class PlatformDataSyncService
         }
         if (in_array($value, ['flow', 'flow_data', 'flowdata', 'traffic', 'traffic_data', 'trafficdata'], true)) {
             return 'traffic';
+        }
+        if (in_array($value, ['traffic_analysis', 'trafficanalysis', 'flow_analysis', 'flowanalysis'], true)) {
+            return 'traffic_analysis';
+        }
+        if (in_array($value, ['traffic_forecast', 'trafficforecast', 'flow_forecast', 'flowforecast', 'forecast'], true)) {
+            return 'traffic_forecast';
         }
         if (in_array($value, ['room_type', 'room_types', 'roomtype', 'roomtypes', 'product', 'products'], true)) {
             return 'room_type';

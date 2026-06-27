@@ -1,6 +1,6 @@
 # OTA 数据采集决策流程
 
-> 更新日期：2026-05-30
+> 更新日期：2026-06-27
 > 适用范围：携程 eBooking、美团 eBooking/TMC、宿析OS线上数据模块
 > 核心目标：OTA 数据 -> 收益分析 -> AI 决策 -> 运营管理 -> 投资决策
 
@@ -8,28 +8,29 @@
 
 | 优先级 | 路径 | 适用条件 | 项目内证据 | 不做什么 |
 | --- | --- | --- | --- | --- |
-| P0 | 已确认接口：后端直连 Cookie/API | 接口、Payload、Cookie/Token、参数和字段含义已确认，且能稳定返回 JSON | `OnlineData::fetchCtrip`、`fetchCtripTraffic`、`fetchMeituanTraffic`、`ApiDataSourceAdapter` | 不启动浏览器，不用 DOM 解析补假数据 |
-| P1 | 接口不确定：CDP 临时监听页面 | 页面接口、动态 token、Payload 或签名规则不确定，需要先定位真实请求 | `scripts/ctrip_browser_capture.mjs`、`scripts/meituan_browser_capture.mjs` 的 response 监听能力 | 不直接固化未知接口，不猜 token，不猜 Payload |
-| P2 | 必须真实打开页面：Profile + CDP 兜底 | 只有登录后页面真实加载才会触发数据；iframe/SPA/动态签名复杂；人工登录态需要复用 | `storage/ctrip_profile_{id}`、`storage/meituan_profile_{store_id}`、`capture-ctrip-browser`、`capture-meituan-browser` | 不作为默认路径，不绕过短信/滑块/人机验证 |
+| P0 | 浏览器 Profile 登录态采集 | 日常采集、同日补数、日报、巡检、预警；平台账号已授权且门店已绑定 | `storage/ctrip_profile_{id}`、`storage/meituan_profile_{store_id}`、`capture-ctrip-browser`、`capture-meituan-browser` | 不绕过短信/滑块/人机验证，不采集非授权门店 |
+| P1 | 手动 Cookie/API 或文件导入 | 临时补数、首次接入、平台改版排障、自动采集失效后的补录；用户已提供上下文或导出文件 | `OnlineData::fetchCtrip`、`fetchCtripTraffic`、`fetchMeituanTraffic`、`ApiDataSourceAdapter` | 不作为日常主线，不代登录 OTA，不猜 token/Payload |
+| P2 | 临时 CDP 接口定位 | 页面接口、动态 token、Payload 或签名规则不确定，需要先定位真实请求 | `scripts/ctrip_browser_capture.mjs`、`scripts/meituan_browser_capture.mjs` 的 response 监听能力 | 不直接固化未知接口，不保存敏感凭据，不把样例当实时数据 |
 
 默认判断规则：
 
 ```text
-已确认接口可稳定复用 -> 后端直连 Cookie/API
-接口还没确认或参数复杂 -> 用浏览器/CDP 临时监听，沉淀 URL、Payload、响应样本
-页面必须真实打开才有数据 -> 门店独立 Profile + CDP 监听，作为复杂页面兜底
+日常/同日 OTA 数据 -> 门店独立浏览器 Profile 登录态采集
+Profile 登录失效 -> 提示人工完成登录/验证后重试
+临时补数/首次接入/排障 -> 手动 Cookie/API 或文件导入
+接口还没确认或参数复杂 -> 临时 CDP 监听，沉淀脱敏 URL、Payload、响应样本
 ```
 
 ## 二、当前项目采集入口
 
 | 模块 | 已有入口 | 当前定位 |
 | --- | --- | --- |
-| 携程经营概况 | `POST /api/online-data/fetch-ctrip` | 已确认接口直连入口，默认接口含 `getDayReportCompeteHotelReport` |
-| 携程流量 | `POST /api/online-data/fetch-ctrip-traffic`、`POST /api/online-data/ctrip/traffic` | 已确认流量接口直连入口 |
-| 携程浏览器采集 | `POST /api/online-data/capture-ctrip-browser`、`scripts/ctrip_browser_capture.mjs` | Profile + response 监听，用于经营概况/流量复杂场景 |
-| 美团流量 | `POST /api/online-data/fetch-meituan-traffic` | Cookie/API 兼容入口 |
-| 美团订单/广告 | `POST /api/online-data/fetch-meituan-orders`、`fetch-meituan-ads` | Cookie/API 兼容入口，按模块确认参数后使用 |
-| 美团浏览器采集 | `POST /api/online-data/capture-meituan-browser`、`scripts/meituan_browser_capture.mjs` | Profile + response 监听，默认采集 `traffic,orders` |
+| 携程浏览器采集 | `POST /api/online-data/capture-ctrip-browser`、`scripts/ctrip_browser_capture.mjs` | 默认主线：Profile + response 监听，用于经营概况、流量、订单、房态房价 |
+| 美团浏览器采集 | `POST /api/online-data/capture-meituan-browser`、`scripts/meituan_browser_capture.mjs` | 默认主线：Profile + response 监听，默认采集 `traffic,orders` |
+| 携程经营概况 | `POST /api/online-data/fetch-ctrip` | 手动 Cookie/API 兼容入口，仅用于临时补数、首次接入或排障 |
+| 携程流量 | `POST /api/online-data/fetch-ctrip-traffic`、`POST /api/online-data/ctrip/traffic` | 手动 Cookie/API 兼容入口，仅用于临时补数、首次接入或排障 |
+| 美团流量 | `POST /api/online-data/fetch-meituan-traffic` | 手动 Cookie/API 兼容入口，仅用于临时补数、首次接入或排障 |
+| 美团订单/广告 | `POST /api/online-data/fetch-meituan-orders`、`fetch-meituan-ads` | 手动 Cookie/API 兼容入口，按模块确认参数后临时使用 |
 | 平台数据源同步 | `/api/online-data/data-sources`、`PlatformDataSyncService` | 统一管理 `manual`、`import_*`、`api` 类型数据源 |
 | 原始/任务追踪 | `platform_data_sources`、`platform_data_sync_tasks`、`platform_data_raw_records`、`platform_data_sync_logs` | 保存来源、状态、原始响应和同步日志 |
 
@@ -37,11 +38,11 @@
 
 | 资源 | 默认方法 | 监听方法 | 入库/标准化 |
 | --- | --- | --- | --- |
-| `businessData` 经营概况 | 携程直连接口优先；美团按已确认接口优先 | 未确认字段时监听经营概况页 response | `online_daily_data`，后续进入标准事实表 |
-| `tradeData` 交易/订单 | 已确认订单接口或导出文件优先 | 订单页必须加载才返回时使用 Profile + CDP | `data_type=order`，订单明细脱敏后进 `raw_data` |
-| `flowData` 流量 | 已确认流量概要接口优先 | 接口变化、iframe/SPA 复杂时监听页面 | `data_type=traffic`，PV/UV/曝光/转化口径分开 |
-| `searchKeyWords` 搜索词 | 已确认报表/API 优先 | 排名/关键词只在页面展示时监听或有限 DOM 补充 | 标注 OTA 搜索/广告行为，不代表全网需求 |
-| `peerRank` 竞品排名 | 已确认竞品接口优先 | 竞品页接口不稳定时监听 | 标注 OTA 竞品/渠道流量参考，不代表全市场 |
+| `businessData` 经营概况 | 浏览器 Profile 登录态采集 | 接口变化、iframe/SPA 复杂时临时 CDP 定位 | `online_daily_data`，后续进入标准事实表 |
+| `tradeData` 交易/订单 | 浏览器 Profile 登录态采集 | 订单页必须加载才返回时使用 Profile response 监听 | `data_type=order`，订单明细脱敏后进 `raw_data` |
+| `flowData` 流量 | 浏览器 Profile 登录态采集 | 接口变化、iframe/SPA 复杂时监听页面 | `data_type=traffic`，PV/UV/曝光/转化口径分开 |
+| `searchKeyWords` 搜索词 | 浏览器 Profile 登录态采集；手动报表仅临时补充 | 排名/关键词只在页面展示时监听或有限 DOM 补充 | 标注 OTA 搜索/广告行为，不代表全网需求 |
+| `peerRank` 竞品排名 | 浏览器 Profile 登录态采集；手动报表仅临时补充 | 竞品页接口不稳定时监听 | 标注 OTA 竞品/渠道流量参考，不代表全市场 |
 | `roomTypes` 房型/产品 | PMS/OTA 映射优先 | 页面展示的房型、价格、库存仅作补充 | 保留 `unmapped`、`matched`、`conflict`、`needs_review` 状态 |
 
 ## 四、采集状态与来源字段
@@ -71,14 +72,15 @@
 2. 开启 Network/CDP 监听，只记录 XHR/fetch、HTTP 200、JSON 或疑似 JSON 响应。
 3. 完成一次真实人工操作：切换日期、点击查询、展开 Tab、滚动触发加载。
 4. 记录命中接口：URL、method、headers 摘要、Payload、响应结构、业务字段。
-5. 判断是否可固化为后端直连：
-   - Cookie/API 可复用且参数稳定：沉淀到后端直连或 `ApiDataSourceAdapter`。
-   - 动态 token/签名依赖页面上下文：保留 Profile + CDP 路径。
+5. 判断是否进入主线或临时路径：
+   - 日常采集需要稳定复用：优先沉淀到浏览器 Profile 登录态采集路径。
+   - 用户只提供一次性上下文或补历史数据：保留为手动 Cookie/API 或导入兼容入口。
+   - 动态 token/签名依赖页面上下文：继续保留 Profile + CDP 路径。
 6. 保存脱敏样本和规则，不保存 Cookie、Token、手机号、订单号明文。
 
-## 六、Profile + CDP 兜底流程
+## 六、Profile 登录态主线流程
 
-适用于必须真实打开页面才有数据的复杂页面。
+适用于日常采集、同日补数、日报、巡检和预警。手动 Cookie/API 不替代该主线。
 
 | 环节 | 规则 |
 | --- | --- |
@@ -99,7 +101,7 @@
 
 ## 八、Agent 操作能力路由
 
-当前 Agent 已具备浏览器和桌面应用操作能力，但在宿析OS项目中必须按任务选择工具，不把操作能力等同于默认采集路径。
+当前 Agent 已具备浏览器和桌面应用操作能力，但在宿析OS项目中必须按任务选择工具。默认数据路径是授权门店的浏览器 Profile 登录态采集，工具选择不能用于绕过平台登录、安全验证或权限边界。
 
 | 能力 | 适用任务 | 在本项目中的用途 | 边界 |
 | --- | --- | --- | --- |
@@ -119,9 +121,9 @@ OpenAI API / Agent 能力 -> OpenAI Developers
 
 ## 九、后续整理顺序
 
-1. 先把已确认接口做成稳定直连接口清单。
+1. 先把浏览器 Profile 登录态采集做成日常主线清单。
 2. 对不确定接口建立 CDP 监听记录模板。
-3. 对复杂页面保留 Profile + CDP 兜底，不上升为默认方案。
+3. 手动 Cookie/API 和文件导入只作为临时补数、首次接入和排障路径保留。
 4. 统一采集任务模型：来源、方法、状态、失败原因、原始响应、标准化结果。
 5. 统一展示口径：所有 OTA-only 页面明确标注 `OTA 渠道口径`。
 6. 将稳定字段进入事实表和指标服务，再进入日报、诊断、AI 建议和投资测算。

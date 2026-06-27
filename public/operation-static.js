@@ -315,16 +315,25 @@ window.SUXI_OPERATION_STATIC = (() => {
             },
         ];
     };
-    const buildOperationClosureSummaryBadge = (summary = {}) => (
-        String(summary?.status || '') === 'closed'
-            ? { text: '全部闭环', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
-            : { text: '存在未闭环', className: 'bg-amber-50 text-amber-700 border-amber-100' }
-    );
+    const buildOperationClosureSummaryBadge = (summary = {}) => {
+        if (String(summary?.status || '') === 'blocked_by_p0_ota_gate') {
+            return { text: 'P0未就绪', className: 'bg-red-50 text-red-700 border-red-100' };
+        }
+        const processClosed = String(summary?.process_status || '') === 'closed';
+        const roiClosed = String(summary?.roi_status || '') === 'closed';
+        if (processClosed && roiClosed) {
+            return { text: '过程与ROI已闭环', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+        }
+        if (processClosed) {
+            return { text: '过程已闭环，ROI待补', className: 'bg-blue-50 text-blue-700 border-blue-100' };
+        }
+        return { text: '过程未闭环', className: 'bg-amber-50 text-amber-700 border-amber-100' };
+    };
     const buildOperationClosureSummaryCards = (summary = {}) => [
         { label: '板块数', value: summary.module_count ?? 0, hint: '收益分析之后的业务板块' },
-        { label: '真闭环', value: summary.closed_loop_count ?? 0, hint: '必须有复盘或效果证据' },
-        { label: '未闭环', value: summary.not_closed_count ?? 0, hint: '仍停在建议/记录/执行中' },
-        { label: '平均成熟度', value: summary.avg_maturity_score === null || summary.avg_maturity_score === undefined ? '-' : `${summary.avg_maturity_score}%`, hint: '只读成熟度评分' },
+        { label: '过程闭环', value: summary.process_closed_count ?? 0, hint: '已形成复盘或执行结果判断' },
+        { label: 'ROI就绪', value: summary.roi_ready_module_count ?? 0, hint: '具备收入/成本或增量收益证据' },
+        { label: '未过程闭环', value: summary.not_process_closed_count ?? 0, hint: '仍停在建议/审批/执行/证据阶段' },
     ];
     const operationClosureGapText = (module = {}) => {
         const gaps = Array.isArray(module?.data_gaps) ? module.data_gaps : [];

@@ -1,0 +1,354 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+
+const args = process.argv.slice(2);
+
+function argValue(name, fallback = '') {
+  const prefix = `--${name}=`;
+  const match = args.find((arg) => arg.startsWith(prefix));
+  if (match) return match.slice(prefix.length);
+  const index = args.indexOf(`--${name}`);
+  return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
+}
+
+function hasFlag(name) {
+  return args.includes(`--${name}`);
+}
+
+function extractJson(text) {
+  const source = String(text || '').trim();
+  const start = source.indexOf('{');
+  const end = source.lastIndexOf('}');
+  if (start < 0 || end <= start) {
+    throw new Error('No JSON object found in verifier output.');
+  }
+  return JSON.parse(source.slice(start, end + 1));
+}
+
+function readVerifierOutput() {
+  const input = argValue('input');
+  if (input) {
+    return {
+      source: input,
+      payload: extractJson(readFileSync(path.resolve(input), 'utf8')),
+    };
+  }
+
+  const date = argValue('date', new Date().toISOString().slice(0, 10));
+  const platform = argValue('platform');
+  const php = argValue('php', existsSync('C:\\xampp\\php\\php.exe') ? 'C:\\xampp\\php\\php.exe' : 'php');
+  const verifierArgs = ['scripts\\verify_p0_ota_field_loop_closure.php', `--date=${date}`];
+  if (platform) verifierArgs.push(`--platform=${platform}`);
+
+  const result = spawnSync(php, verifierArgs, {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+
+  if (!result.stdout && result.error) {
+    throw result.error;
+  }
+
+  return {
+    source: `${php} ${verifierArgs.join(' ')}`,
+    exitCode: result.status,
+    payload: extractJson(result.stdout || result.stderr || ''),
+  };
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function compactStep(platform, step) {
+  const trigger = step?.profile_login_trigger && typeof step.profile_login_trigger === 'object'
+    ? step.profile_login_trigger
+    : {};
+  const afterLoginSync = trigger.after_login_sync && typeof trigger.after_login_sync === 'object'
+    ? trigger.after_login_sync
+    : {};
+  return {
+    platform,
+    system_hotel_id: step?.system_hotel_id ?? null,
+    data_source_id: step?.data_source_id ?? null,
+    data_source_status: step?.data_source_status ?? '',
+    last_sync_status: step?.last_sync_status ?? '',
+    manual_login_state_verified: step?.manual_login_state_verified === true,
+    login_trigger_status: trigger.status ?? '',
+    login_trigger_entry: trigger.entry ?? '',
+    after_login_sync_entry: afterLoginSync.entry ?? '',
+    verifier_command: step?.p0_verifier_command ?? '',
+  };
+}
+
+function buildReport(verifier) {
+  const payload = verifier.payload;
+  const platforms = asArray(payload.platforms);
+  const rows = [];
+  const targetDate = payload.scope?.date || argValue('date', '');
+  const platformSummaries = platforms.map((platformPayload) => {
+    const platform = String(platformPayload?.platform || '');
+    const gate = platformPayload?.p0_traffic_gate && typeof platformPayload.p0_traffic_gate === 'object'
+      ? platformPayload.p0_traffic_gate
+      : {};
+    const steps = asArray(gate.hotel_scoped_next_steps).map((step) => compactStep(platform, step));
+    const derivedLoginTriggerCount = steps.filter((step) => step.login_trigger_entry).length;
+    const derivedAfterLoginSyncCount = steps.filter((step) => step.after_login_sync_entry).length;
+    rows.push(...steps);
+    return {
+      platform,
+      target_date_rows: Number(platformPayload?.target_date_rows || 0),
+      traffic_rows: Number(gate.traffic_rows || 0),
+      action_entry: gate.action_entry || '',
+      action_status: gate.action_status || '',
+      missing_inputs: asArray(gate.action_missing_inputs),
+      next_step_count: Number(gate.p0_next_step_count || steps.length),
+      manual_login_state_verified_count: Number(gate.p0_manual_login_state_verified_count || 0),
+      profile_login_trigger_available_count: Math.max(
+        Number(gate.p0_profile_login_trigger_available_count || 0),
+        derivedLoginTriggerCount,
+      ),
+      after_login_sync_available_count: Math.max(
+        Number(gate.p0_after_login_sync_available_count || 0),
+        derivedAfterLoginSyncCount,
+      ),
+    };
+  });
+  const completionGate = {
+    command: targetDate
+      ? `npm.cmd run verify:p0-ota-field-loop -- --date=${targetDate}`
+      : 'npm.cmd run verify:p0-ota-field-loop -- --date=<target-date>',
+    required_status: 'ready',
+    current_status: payload.status || '',
+    boundary: 'Completion requires target-date OTA rows and P0 field-loop evidence; this report is not completion proof.',
+  };
+
+  return {
+    generated_at: new Date().toISOString(),
+    source: verifier.source,
+    verifier_exit_code: verifier.exitCode ?? null,
+    status: payload.status || '',
+    inspector_status: payload.inspector_status || '',
+    scope: payload.scope || {},
+    summary: payload.summary || {},
+    sensitive_values_policy: 'metadata_only_no_cookie_token_profile_path_or_raw_payload',
+    collection_policy: buildCollectionPolicy(),
+    platform_summaries: platformSummaries,
+    next_steps: rows,
+    operator_sequence: buildOperatorSequence(rows),
+    completion_gate: completionGate,
+    downstream_gate: buildDownstreamGate(payload, completionGate),
+  };
+}
+
+function buildCollectionPolicy() {
+  return {
+    mainline_mode: 'browser_profile',
+    mainline_label: '浏览器 Profile 登录态采集',
+    temporary_mode: 'manual_cookie_api',
+    temporary_mode_policy: 'temporary_only',
+    temporary_mode_allowed_for: [
+      '临时补数',
+      '首次接入',
+      '平台改版排障',
+      '自动 Profile 采集失效后的补录',
+    ],
+    mainline_required_gates: [
+      'authorized_browser_profile',
+      'manual_login_state_verified',
+      'target_date_ota_rows',
+      'target_date_traffic_rows',
+      'p0_field_loop_verifier_ready',
+    ],
+    forbidden_claims_before_ready: [
+      'manual_cookie_api_as_default_mainline',
+      'profile_directory_as_login_verified',
+      'sync_task_success_as_p0_closure',
+      'historical_rows_as_target_date_closure',
+    ],
+  };
+}
+
+function buildOperatorSequence(rows) {
+  const sequence = [];
+  for (const step of rows) {
+    sequence.push({
+      type: 'manual_login',
+      platform: step.platform,
+      system_hotel_id: step.system_hotel_id,
+      data_source_id: step.data_source_id,
+      entry: step.login_trigger_entry,
+      status: step.login_trigger_status,
+      required_human_action: 'Complete authorized OTA login, captcha/SMS/human verification, and permission confirmation in the opened browser Profile.',
+      sensitive_values_policy: 'metadata_only_no_cookie_token_profile_path_or_raw_payload',
+    });
+    sequence.push({
+      type: 'after_login_sync',
+      platform: step.platform,
+      system_hotel_id: step.system_hotel_id,
+      data_source_id: step.data_source_id,
+      entry: step.after_login_sync_entry,
+      requires: 'manual_login_state_verified=true',
+      boundary: 'Run only after the human login step succeeds; does not bypass OTA controls.',
+    });
+    sequence.push({
+      type: 'single_scope_verifier',
+      platform: step.platform,
+      system_hotel_id: step.system_hotel_id,
+      data_source_id: step.data_source_id,
+      command: step.verifier_command,
+      required_result: 'status=ready for this platform/hotel traffic gate',
+      boundary: 'Verifier output is the evidence gate; sync task success alone is not closure.',
+    });
+  }
+  return sequence;
+}
+
+function buildDownstreamGate(payload, completionGate) {
+  const status = String(payload?.status || '');
+  const isReady = status === 'ready';
+  const blockingMissingInputs = new Set();
+  const stageDefinitions = [
+    ['revenue_analysis', '收益分析'],
+    ['ai_decision_advice', 'AI 决策建议'],
+    ['operation_closure', '运营闭环'],
+    ['investment_judgment', '投资判断'],
+  ];
+
+  for (const platformPayload of asArray(payload?.platforms)) {
+    const gate = platformPayload?.p0_traffic_gate && typeof platformPayload.p0_traffic_gate === 'object'
+      ? platformPayload.p0_traffic_gate
+      : {};
+    for (const item of asArray(gate.action_missing_inputs)) {
+      if (item) blockingMissingInputs.add(String(item));
+    }
+    if (Number(platformPayload?.target_date_rows || 0) <= 0) {
+      blockingMissingInputs.add('target_date_ota_rows');
+    }
+    if (Number(gate.traffic_rows || 0) <= 0) {
+      blockingMissingInputs.add('target_date_traffic_rows');
+    }
+  }
+
+  return {
+    status: isReady ? 'open' : 'blocked_by_p0_ota_gate',
+    current_upstream_status: status || 'unknown',
+    required_upstream_status: completionGate.required_status,
+    required_gate_command: completionGate.command,
+    scope_policy: 'ota_channel_gate_before_downstream_claims',
+    blocking_missing_inputs: isReady ? [] : Array.from(blockingMissingInputs).sort(),
+    blocked_stage_keys: isReady ? [] : stageDefinitions.map(([key]) => key),
+    stages: stageDefinitions.map(([key, label]) => ({
+      key,
+      label,
+      status: isReady ? 'open' : 'blocked_by_p0_ota_gate',
+      boundary: isReady
+        ? 'P0 OTA gate is ready; downstream still must keep OTA channel scope separate from whole-hotel scope.'
+        : 'Do not claim this downstream stage as truly closed until the P0 OTA field-loop verifier is ready.',
+    })),
+    allowed_claims: isReady
+      ? ['ota_channel_downstream_checks_may_continue_with_scope_boundary']
+      : ['structure_ready_or_reference_only', 'historical_rows_reference_only', 'no_whole_hotel_or_downstream_closure_claim'],
+  };
+}
+
+function platformLabel(platform) {
+  return platform === 'ctrip' ? '携程' : platform === 'meituan' ? '美团' : platform;
+}
+
+function renderMarkdown(report) {
+  const date = report.scope?.date || '';
+  const lines = [
+    '# P0 OTA Profile 下一步清单',
+    '',
+    `- 日期: ${date || 'unknown'}`,
+    `- P0 状态: ${report.status || 'unknown'}`,
+    `- 取证来源: ${report.source}`,
+    `- 脱敏策略: ${report.sensitive_values_policy}`,
+    `- 默认采集主线: ${report.collection_policy.mainline_label} (${report.collection_policy.mainline_mode})`,
+    `- 手动 Cookie/API: ${report.collection_policy.temporary_mode_policy}`,
+    '',
+    '## 平台状态',
+    '',
+    '| 平台 | 目标日行 | 流量行 | 主线入口 | 状态 | 缺口 | 登录入口数 | 登录后同步数 |',
+    '| --- | ---: | ---: | --- | --- | --- | ---: | ---: |',
+  ];
+
+  for (const item of report.platform_summaries) {
+    lines.push([
+      platformLabel(item.platform),
+      item.target_date_rows,
+      item.traffic_rows,
+      item.action_entry || '-',
+      item.action_status || '-',
+      item.missing_inputs.length ? item.missing_inputs.join(', ') : '-',
+      item.profile_login_trigger_available_count,
+      item.after_login_sync_available_count,
+    ].join(' | ').replace(/^/, '| ').replace(/$/, ' |'));
+  }
+
+  lines.push('', '## 酒店级执行顺序', '');
+
+  if (report.next_steps.length === 0) {
+    lines.push('- 当前 verifier 未暴露酒店级 Profile 步骤。');
+  } else {
+    report.next_steps.forEach((step, index) => {
+      lines.push(
+        `${index + 1}. ${platformLabel(step.platform)} system_hotel_id=${step.system_hotel_id} / data_source_id=${step.data_source_id}`,
+        `   - 当前状态: source=${step.data_source_status || '-'}, last_sync=${step.last_sync_status || '-'}, manual_login_state_verified=${step.manual_login_state_verified ? 'true' : 'false'}`,
+        `   - 登录触发: ${step.login_trigger_entry || '-'} (${step.login_trigger_status || '-'})`,
+        `   - 登录后同步: ${step.after_login_sync_entry || '-'}`,
+        `   - 复验命令: ${step.verifier_command || '-'}`,
+      );
+    });
+  }
+
+  lines.push('', '## 执行门禁', '');
+  for (const item of report.operator_sequence) {
+    if (item.type === 'manual_login') {
+      lines.push(`- 登录: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.entry || '-'} (${item.status || '-'})`);
+    } else if (item.type === 'after_login_sync') {
+      lines.push(`- 同步: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.entry || '-'}，前置=${item.requires}`);
+    } else if (item.type === 'single_scope_verifier') {
+      lines.push(`- 复验: ${item.command || '-'}`);
+    }
+  }
+  lines.push(
+    `- 全局完成门禁: ${report.completion_gate.command}`,
+    `- 当前状态: ${report.completion_gate.current_status || 'unknown'}；要求状态: ${report.completion_gate.required_status}`,
+  );
+
+  lines.push('', '## 下游推进门禁', '');
+  lines.push(
+    `- 状态: ${report.downstream_gate.status}`,
+    `- 要求上游门禁: ${report.downstream_gate.required_gate_command}`,
+    `- 阻断缺口: ${report.downstream_gate.blocking_missing_inputs.length ? report.downstream_gate.blocking_missing_inputs.join(', ') : '-'}`,
+    `- 受限阶段: ${report.downstream_gate.blocked_stage_keys.length ? report.downstream_gate.blocked_stage_keys.join(', ') : '-'}`,
+    `- 允许结论: ${report.downstream_gate.allowed_claims.join(', ')}`,
+  );
+
+  lines.push(
+    '',
+    '## 边界',
+    '',
+    '- 该报告只读取 P0 verifier 的脱敏元数据，不触发 OTA 登录、采集或入库。',
+    '- Profile 目录存在不等于登录态已验证；必须由人工完成平台登录/验证码/短信/权限确认。',
+    '- 手动 Cookie/API 只用于临时补数或排障，不作为默认运营主线。',
+  );
+
+  return `${lines.join('\n')}\n`;
+}
+
+try {
+  const report = buildReport(readVerifierOutput());
+  if (hasFlag('json')) {
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else {
+    process.stdout.write(renderMarkdown(report));
+  }
+} catch (error) {
+  console.error(`[report:p0-profile-next-steps] ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}

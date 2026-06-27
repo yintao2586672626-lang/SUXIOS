@@ -275,6 +275,7 @@ Route::group('api/online-data', function () {
     Route::post('/data-sources', 'OnlineData/saveDataSource');
     Route::delete('/data-sources/:id', 'OnlineData/deleteDataSource');
     Route::post('/data-import', 'OnlineData/importDataSourceRows');
+    Route::post('/browser-assist-import', 'OnlineData/importBrowserAssistCapture');
     Route::get('/sync-tasks', 'OnlineData/syncTaskList');
     Route::get('/sync-logs', 'OnlineData/syncLogList');
     Route::post('/save-daily-data', 'OnlineData/saveDailyData');
@@ -406,6 +407,11 @@ Route::group('api/macro-signals', function () {
 // ==================== 全生命周期真实数据 API ====================
 Route::group('api/lifecycle', function () {
     Route::get('/overview', 'Lifecycle/overview');
+})->middleware(\app\middleware\Auth::class);
+
+// ==================== P4 投资决策辅助 API ====================
+Route::group('api/investment-decision', function () {
+    Route::get('/overview', 'InvestmentDecision/overview');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== 智略·战略推演 API ====================

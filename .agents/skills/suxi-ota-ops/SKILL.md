@@ -1,6 +1,6 @@
 ---
 name: suxi-ota-ops
-description: Handle宿析OS OTA运营、携程/美团数据获取、手动采集、自动采集、Cookie/Profile、订单、房价、库存、流量、点评、竞品和渠道诊断任务。Use when the request includes OTA、携程、美团、ebooking、Trip Connect、TMC、browser capture、Profile、Cookie、订单抓取、在线数据、渠道、房价、库存、竞品、排名、转化率、曝光、点评、广告、OnlineData、cron_fetch、auto_fetch_online_data。
+description: 用于宿析OS OTA运营、携程/美团数据获取、手动采集、自动采集、Cookie/Profile、订单、房价、库存、流量、点评、竞品和渠道诊断任务，触发词包括 OTA、携程、美团、ebooking、Trip Connect、TMC、browser capture、Profile、Cookie、订单抓取、在线数据、渠道、房价、库存、竞品、排名、转化率、曝光、点评、广告、OnlineData、cron_fetch、auto_fetch_online_data。
 ---
 
 # Suxi OTA Ops
@@ -11,12 +11,12 @@ Use `suxi-plugin-priority-router` before manual OTA/browser work. Prefer Browser
 
 ## Business Goal
 
-宿析OS的目标不是把所有平台都套进同一种抓取方式，而是让携程和美团都具备两条清晰路径：
+宿析OS的目标不是把所有平台都套进同一种抓取方式，而是让携程和美团都具备一条日常主线和一条临时补充路径：
 
-1. 手动获取：用户已经拿到平台上下文、导出文件、Cookie/Payload 或接口参数，系统负责校验、抓取/导入、清洗和入库。
-2. 自动获取：系统复用每个门店独立浏览器 Profile，在授权账号下打开平台页面，监听真实业务 JSON，定时或按需采集。
+1. 自动获取（默认主线）：系统复用每个门店独立浏览器 Profile，在授权账号下打开平台页面，监听真实业务 JSON，定时或按需采集。
+2. 手动获取（临时路径）：用户已经拿到平台上下文、导出文件、Cookie/Payload 或接口参数，系统负责校验、抓取/导入、清洗和入库。
 
-两条路径不能混用概念：手动路径不要求系统登录 OTA 后台；自动路径不要求用户每次复制 Cookie/Payload。
+两条路径不能混用概念：自动路径是日常采集、日报、巡检和预警主线；手动 Cookie/API 只用于临时补数、首次接入、平台改版排障或自动采集失效时的补录，不作为默认运营主线。
 
 ## Global Rules
 
@@ -33,14 +33,14 @@ Use `suxi-plugin-priority-router` before manual OTA/browser work. Prefer Browser
 
 | 路径 | 适用场景 | 用户提供 | 系统动作 | 不做什么 |
 | --- | --- | --- | --- | --- |
-| 手动获取 | 临时补数、首次接入、平台改版排障、用户已导出报表或抓到请求上下文 | 平台、酒店、日期、数据模块、导出文件或 Cookie/Payload/必要 ID | 校验字段，调用现有接口或导入解析，清洗、脱敏、去重、入库 | 不自动登录 OTA，不启动 Profile，不要求全量页面自动化 |
 | 自动获取 | 日常稳定采集、日报、巡检、预警、无需每次人工复制上下文 | 平台账号已授权，门店和系统酒店已绑定 | 使用门店独立 Profile，失效时提示人工登录，监听业务 JSON，按模块入库 | 不绕过验证码/短信/权限，不采集非授权门店 |
+| 手动获取 | 临时补数、首次接入、平台改版排障、自动采集失效后补录、用户已导出报表或抓到请求上下文 | 平台、酒店、日期、数据模块、导出文件或 Cookie/Payload/必要 ID | 校验字段，调用现有接口或导入解析，清洗、脱敏、去重、入库 | 不作为日常主线，不自动登录 OTA，不启动 Profile，不要求全量页面自动化 |
 
 ## Ctrip Rules
 
 - 参考文档：`references/ctrip-browser-capture.md`。
-- 手动优先处理用户提交的 `Cookie`、`spidertoken`、`node_id` / 平台酒店 ID、Payload、日期范围、渠道 Tab，或携程后台/Trip Connect 可导出的内容、ARI、预订、点评、分析数据。
 - 自动使用 `storage/ctrip_profile_{store_id}`，按门店隔离 Profile；失效时打开携程登录页等待人工完成短信、滑块或人机验证。
+- 手动仅处理用户提交的 `Cookie`、`spidertoken`、`node_id` / 平台酒店 ID、Payload、日期范围、渠道 Tab，或携程后台/Trip Connect 可导出的内容、ARI、预订、点评、分析数据；用于临时补数或排障，不作为默认主线。
 - 自动模块优先级：经营概况、流量、订单、房态房价；广告、渠道评分、更多页面只在明确业务需要时加入；点评暂缓，不进入默认自动采集。
 - JSON 响应优先；DOM 只补页面已展示的排名、摘要或缺失指标，不抓导航、菜单、按钮文本作为业务数据。
 - 入库优先映射：
@@ -53,8 +53,8 @@ Use `suxi-plugin-priority-router` before manual OTA/browser work. Prefer Browser
 ## Meituan Rules
 
 - 参考文档：`references/meituan-browser-capture.md`。
-- 手动优先处理用户提交的 Cookie/Session、`partner_id`、`poi_id` / `store_id`、Payload、iframe URL、必要动态签名，或直连平台可导出的产品、订单日志、订单监控数据。
 - 自动优先走页面触发流程：`POST /api/online-data/capture-meituan-browser` starts `scripts/meituan_browser_capture.mjs`，复用 `storage/meituan_profile_{store_id}`。
+- 手动仅处理用户提交的 Cookie/Session、`partner_id`、`poi_id` / `store_id`、Payload、iframe URL、必要动态签名，或直连平台可导出的产品、订单日志、订单监控数据；用于临时补数或排障，不作为默认主线。
 - 自动模块优先级：流量/数据中心、订单/入住管理、价格库存/直连产品；广告只在已有广告账号、成本口径和复盘需求时加入；点评暂缓，不进入默认自动采集。
 - 美团页面 iframe、SPA、签名和登录态变化更频繁，自动路径应以浏览器响应监听为主；手动路径只校验用户已提供的上下文，不在后台代登录。
 - 入库优先映射：

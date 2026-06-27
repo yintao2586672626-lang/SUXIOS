@@ -1,9 +1,13 @@
 ---
 name: suxi-dashboard-ui
-description: Handle宿析OS SaaS dashboard UI tasks. Use when the request includes 数据驾驶舱、看板、仪表盘、SaaS界面、经营数据、图表、筛选器、表格、卡片、指标、趋势、收益分析UI、竞品分析UI、运营诊断UI、Tailwind、Vue 3 CDN、public/index.html、hotel-frontend。
+description: 用于宿析OS SaaS数据驾驶舱、看板、仪表盘、经营数据、图表、筛选器、表格、卡片、指标趋势、收益分析UI、竞品分析UI、运营诊断UI、Tailwind、Vue 3 CDN、public/index.html 或 hotel-frontend 相关任务。
 ---
 
 # Suxi Dashboard UI
+
+## Plugin Priority
+
+Use `suxi-plugin-priority-router` when the task can benefit from installed plugins: Figma/Product Design for mockups or design handoff, Browser for local UI verification, Chrome for the user's active browser state, and Data Analytics for report-backed dashboards.
 
 ## Rules
 

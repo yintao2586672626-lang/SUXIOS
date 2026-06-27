@@ -1,18 +1,22 @@
 ---
 name: suxi-ota-ops
-description: Handle宿析OS OTA运营、携程/美团数据获取、手动采集、自动采集、Cookie/Profile、订单、房价、库存、流量、点评、竞品和渠道诊断任务。Use when the request includes OTA、携程、美团、ebooking、Trip Connect、TMC、browser capture、Profile、Cookie、订单抓取、在线数据、渠道、房价、库存、竞品、排名、转化率、曝光、点评、广告、OnlineData、cron_fetch、auto_fetch_online_data。
+description: 用于宿析OS OTA运营、携程/美团数据获取、手动采集、自动采集、Cookie/Profile、订单、房价、库存、流量、点评、竞品和渠道诊断任务，触发词包括 OTA、携程、美团、ebooking、Trip Connect、TMC、browser capture、Profile、Cookie、订单抓取、在线数据、渠道、房价、库存、竞品、排名、转化率、曝光、点评、广告、OnlineData、cron_fetch、auto_fetch_online_data。
 ---
 
 # Suxi OTA Ops
 
+## Plugin Priority
+
+Use `suxi-plugin-priority-router` before manual OTA/browser work. Prefer Browser for local SUXIOS UI checks, Chrome only when the user's logged-in browser state is required, and Computer Use for desktop/XAMPP or non-web operations. Do not use plugins to bypass OTA login, captcha, SMS, authorization, or tenant boundaries.
+
 ## Business Goal
 
-宿析OS的目标不是把所有平台都套进同一种抓取方式，而是让携程和美团都具备两条清晰路径：
+宿析OS的目标不是把所有平台都套进同一种抓取方式，而是让携程和美团都具备一条日常主线和一条临时补充路径：
 
-1. 手动获取：用户已经拿到平台上下文、导出文件、Cookie/Payload 或接口参数，系统负责校验、抓取/导入、清洗和入库。
-2. 自动获取：系统复用每个门店独立浏览器 Profile，在授权账号下打开平台页面，监听真实业务 JSON，定时或按需采集。
+1. 自动获取（默认主线）：系统复用每个门店独立浏览器 Profile，在授权账号下打开平台页面，监听真实业务 JSON，定时或按需采集。
+2. 手动获取（临时路径）：用户已经拿到平台上下文、导出文件、Cookie/Payload 或接口参数，系统负责校验、抓取/导入、清洗和入库。
 
-两条路径不能混用概念：手动路径不要求系统登录 OTA 后台；自动路径不要求用户每次复制 Cookie/Payload。
+两条路径不能混用概念：自动路径是日常采集、日报、巡检和预警主线；手动 Cookie/API 只用于临时补数、首次接入、平台改版排障或自动采集失效时的补录，不作为默认运营主线。
 
 ## Global Rules
 
@@ -29,41 +33,14 @@ description: Handle宿析OS OTA运营、携程/美团数据获取、手动采集
 
 | 路径 | 适用场景 | 用户提供 | 系统动作 | 不做什么 |
 | --- | --- | --- | --- | --- |
-| 手动获取 | 临时补数、首次接入、平台改版排障、用户已导出报表或抓到请求上下文 | 平台、酒店、日期、数据模块、导出文件或 Cookie/Payload/必要 ID | 校验字段，调用现有接口或导入解析，清洗、脱敏、去重、入库 | 不自动登录 OTA，不启动 Profile，不要求全量页面自动化 |
 | 自动获取 | 日常稳定采集、日报、巡检、预警、无需每次人工复制上下文 | 平台账号已授权，门店和系统酒店已绑定 | 使用门店独立 Profile，失效时提示人工登录，监听业务 JSON，按模块入库 | 不绕过验证码/短信/权限，不采集非授权门店 |
-
-## Recommended Acquisition Order
-
-1. 已确认接口优先走后端直连 Cookie/API：例如携程 `getDayReportCompeteHotelReport`、携程/美团流量概要等已经确认 URL、Payload、Cookie/Token 和字段语义的接口。
-2. 接口不确定或参数复杂时，用 CDP 临时监听页面：目标是定位真实 URL、method、Payload、动态 token、响应结构和字段含义，确认后再决定是否固化到后端直连。
-3. 必须真实打开页面才有数据时，使用 Profile + CDP 兜底：仅用于 iframe、SPA、动态签名、页面上下文强依赖的复杂页面，不作为默认路径。
-
-判断规则：
-
-```text
-stable API evidence -> backend Cookie/API
-unknown API or payload -> temporary CDP network listening
-page-only data -> per-store Profile + CDP fallback
-```
-
-详细项目流程见 `docs/ota_acquisition_decision_playbook.md`。
-
-## Agent Tool Routing
-
-Use browser and desktop-control capabilities by task, not as a default data path:
-
-| Capability | Use for | Boundary |
-| --- | --- | --- |
-| Browser / Playwright | Local SUXIOS UI, localhost pages, frontend state, request verification | Do not use it to bypass OTA login or permission controls |
-| Chrome / CDP | Real OTA pages, authenticated browser sessions, Network inspection, URL/Payload/token discovery | Record only desensitized interface evidence |
-| Computer Use | Windows apps, XAMPP, native dialogs, file pickers, visible login windows | Use only when browser automation is insufficient |
-| OpenAI Developers | OpenAI API, Responses API, Agents SDK, ChatGPT Apps work | Does not replace OTA data acquisition paths |
+| 手动获取 | 临时补数、首次接入、平台改版排障、自动采集失效后补录、用户已导出报表或抓到请求上下文 | 平台、酒店、日期、数据模块、导出文件或 Cookie/Payload/必要 ID | 校验字段，调用现有接口或导入解析，清洗、脱敏、去重、入库 | 不作为日常主线，不自动登录 OTA，不启动 Profile，不要求全量页面自动化 |
 
 ## Ctrip Rules
 
 - 参考文档：`references/ctrip-browser-capture.md`。
-- 手动优先处理用户提交的 `Cookie`、`spidertoken`、`node_id` / 平台酒店 ID、Payload、日期范围、渠道 Tab，或携程后台/Trip Connect 可导出的内容、ARI、预订、点评、分析数据。
 - 自动使用 `storage/ctrip_profile_{store_id}`，按门店隔离 Profile；失效时打开携程登录页等待人工完成短信、滑块或人机验证。
+- 手动仅处理用户提交的 `Cookie`、`spidertoken`、`node_id` / 平台酒店 ID、Payload、日期范围、渠道 Tab，或携程后台/Trip Connect 可导出的内容、ARI、预订、点评、分析数据；用于临时补数或排障，不作为默认主线。
 - 自动模块优先级：经营概况、流量、订单、房态房价；广告、渠道评分、更多页面只在明确业务需要时加入；点评暂缓，不进入默认自动采集。
 - JSON 响应优先；DOM 只补页面已展示的排名、摘要或缺失指标，不抓导航、菜单、按钮文本作为业务数据。
 - 入库优先映射：
@@ -76,8 +53,8 @@ Use browser and desktop-control capabilities by task, not as a default data path
 ## Meituan Rules
 
 - 参考文档：`references/meituan-browser-capture.md`。
-- 手动优先处理用户提交的 Cookie/Session、`partner_id`、`poi_id` / `store_id`、Payload、iframe URL、必要动态签名，或直连平台可导出的产品、订单日志、订单监控数据。
 - 自动优先走页面触发流程：`POST /api/online-data/capture-meituan-browser` starts `scripts/meituan_browser_capture.mjs`，复用 `storage/meituan_profile_{store_id}`。
+- 手动仅处理用户提交的 Cookie/Session、`partner_id`、`poi_id` / `store_id`、Payload、iframe URL、必要动态签名，或直连平台可导出的产品、订单日志、订单监控数据；用于临时补数或排障，不作为默认主线。
 - 自动模块优先级：流量/数据中心、订单/入住管理、价格库存/直连产品；广告只在已有广告账号、成本口径和复盘需求时加入；点评暂缓，不进入默认自动采集。
 - 美团页面 iframe、SPA、签名和登录态变化更频繁，自动路径应以浏览器响应监听为主；手动路径只校验用户已提供的上下文，不在后台代登录。
 - 入库优先映射：

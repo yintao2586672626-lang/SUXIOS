@@ -24,7 +24,8 @@ function excludesAll(file, label, source, needles) {
 }
 
 const route = read('route/app.php');
-const controller = read('app/controller/OnlineData.php');
+const onlineDataController = read('app/controller/OnlineData.php');
+const controller = read('app/controller/concern/OperationWorkbenchConcern.php');
 const service = read('app/service/DailyWorkbenchPatrolService.php');
 const operationService = read('app/service/OperationManagementService.php');
 const patrolCommand = read('app/command/DailyWorkbenchPatrol.php');
@@ -37,8 +38,7 @@ const frontend = read('public/index.html');
 const compassStatic = read('public/compass-static.js');
 
 const dailyStart = controller.indexOf('public function dailyWorkbench(): Response');
-const dailyEnd = controller.indexOf('public function dashboardAccountOverview(): Response');
-const dailySlice = dailyStart >= 0 && dailyEnd > dailyStart ? controller.slice(dailyStart, dailyEnd) : '';
+const dailySlice = dailyStart >= 0 ? controller.slice(dailyStart) : '';
 
 const frontendPanelStart = frontend.indexOf('data-testid="phase2-daily-workbench"');
 const frontendPanelEnd = frontend.indexOf('data-testid="phase1-employee-six-question-summary"', frontendPanelStart);
@@ -62,16 +62,23 @@ includesAll('route/app.php', 'daily workbench and patrol routes exist', route, [
   "Route::get('api/online-data/daily-workbench-patrol-cron', 'OnlineData/dailyWorkbenchPatrolCron');",
 ]);
 
-includesAll('app/controller/OnlineData.php', 'daily workbench endpoint shape exists', controller, [
+includesAll('app/controller/OnlineData.php', 'OnlineData composes the split daily workbench concern', onlineDataController, [
+  'use app\\controller\\concern\\OperationWorkbenchConcern;',
+  'use OperationWorkbenchConcern;',
+]);
+
+includesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workbench endpoint shape exists', controller, [
   'public function dailyWorkbench(): Response',
   'private function buildDailyWorkbenchPayload(?int $hotelId, string $targetDate, ?int $limitOverride = null): array',
   'private function buildDailyWorkbenchRow(array $hotel, array $reliability, string $targetDate): array',
+  'private function dailyWorkbenchWorkflowChain(',
+  'private function dailyWorkbenchWorkflowStage(',
   'private function dailyWorkbenchAiExplanation(array $aiEvidence, string $questionStatus): array',
   'private function buildDailyWorkbenchSummary(array $rows): array',
   'private function buildDailyWorkbenchNextActions(array $rows): array',
 ]);
 
-includesAll('app/controller/OnlineData.php', 'daily workbench patrol endpoints exist', controller, [
+includesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workbench patrol endpoints exist', controller, [
   'public function dailyWorkbenchPatrols(): Response',
   'public function dailyWorkbenchPatrolReport(): Response',
   'public function runDailyWorkbenchPatrol(): Response',
@@ -152,7 +159,7 @@ includesAll('app/service/OperationManagementService.php', 'daily workbench patro
   'executeExecutionTask(',
 ]);
 
-includesAll('app/controller/OnlineData.php', 'daily workbench reuses phase1 evidence without changing acquisition', dailySlice, [
+includesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workbench reuses phase1 evidence without changing acquisition', dailySlice, [
   'buildCollectionReliabilityPayload($currentHotelId, $targetDate, $targetDate)',
   'withPhase1EmployeeQuestions',
   'loadDashboardHotels',
@@ -164,21 +171,28 @@ includesAll('app/controller/OnlineData.php', 'daily workbench reuses phase1 evid
   'Failure is exposed as request_failed; no fallback success is generated.',
 ]);
 
-includesAll('app/controller/OnlineData.php', 'daily workbench exposes employee-ready statuses', dailySlice, [
+includesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workbench exposes employee-ready statuses', dailySlice, [
   'today_ota_collected',
   'trusted_fields',
   'missing_fields',
   'revenue_traffic_conversion',
   'ai_evidence',
   'next_operation_action',
+  "'workflow_chain' => $workflowChain",
+  'today_ota_data',
+  'field_trust_and_gaps',
+  'revenue_metrics',
+  'ai_diagnosis',
+  'operation_action',
   'missing_question_keys',
   'target_date_source_rows',
   'high_priority_action_count',
   "'explanation' => $aiExplanation",
   'AI suggestions must cite OTA evidence and data gaps',
+  'Read-only workflow decomposition',
 ]);
 
-excludesAll('app/controller/OnlineData.php', 'daily workbench slice does not call OTA acquisition paths', dailySlice, [
+excludesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workbench slice does not call OTA acquisition paths', dailySlice, [
   'executeAutoFetch(',
   'executeCtripAutoFetch(',
   'executeMeituanAutoFetch(',
@@ -268,6 +282,9 @@ includesAll('public/index.html', 'daily workbench frontend panel and patrol UI e
   'data-testid="phase2-daily-workbench-patrol"',
   'dailyWorkbenchSummaryCards',
   'dailyWorkbenchRows',
+  'normalizeDailyWorkbenchWorkflowStage',
+  'workflowChainText',
+  'workflowChainRawText',
   'dailyWorkbenchNextActions',
   'dailyWorkbenchPatrolLatestText',
   'dailyWorkbenchPatrolHealthText',

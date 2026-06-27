@@ -45,6 +45,7 @@ class RevenueAiOverviewService
             [
                 'business_date' => $businessDate,
                 'hotel_id' => $hotelId,
+                'require_p0_downstream_gate' => true,
             ]
         );
     }
@@ -64,6 +65,9 @@ class RevenueAiOverviewService
             'fact_ota_advertising' => [],
             'fact_ota_quality' => [],
             'fact_ota_search_keyword' => [],
+            'fact_ota_peer_rank' => [],
+            'fact_ota_traffic_analysis' => [],
+            'fact_ota_traffic_forecast' => [],
             'fact_ota_comment' => [],
             'data_quality' => [
                 'input_rows' => 0,
@@ -95,6 +99,9 @@ class RevenueAiOverviewService
                 'fact_ota_advertising',
                 'fact_ota_quality',
                 'fact_ota_search_keyword',
+                'fact_ota_peer_rank',
+                'fact_ota_traffic_analysis',
+                'fact_ota_traffic_forecast',
                 'fact_ota_comment',
             ] as $factKey) {
                 $merged[$factKey] = array_merge($merged[$factKey], $this->list($dataset[$factKey] ?? []));
@@ -114,6 +121,9 @@ class RevenueAiOverviewService
             'fact_ota_advertising',
             'fact_ota_quality',
             'fact_ota_search_keyword',
+            'fact_ota_peer_rank',
+            'fact_ota_traffic_analysis',
+            'fact_ota_traffic_forecast',
             'fact_ota_comment',
         ] as $factKey) {
             $acceptedCount += count($merged[$factKey]);
@@ -135,6 +145,12 @@ class RevenueAiOverviewService
     {
         $businessDate = $this->businessDate($context['business_date'] ?? null);
         $hotelId = $this->hotelId($context['hotel_id'] ?? null);
+        $p0GateService = new P0OtaDownstreamGateService();
+        if (is_array($context['p0_downstream_gate'] ?? null)) {
+            $dataset['p0_downstream_gate'] = $p0GateService->normalize($context['p0_downstream_gate'], $businessDate, $hotelId);
+        } elseif ($this->boolValue($context['require_p0_downstream_gate'] ?? false)) {
+            $dataset['p0_downstream_gate'] = $p0GateService->blockedForDataset($businessDate, $hotelId, $dataset);
+        }
         $metricsSummary = (new OtaRevenueMetricService())->summarizeDataset($dataset);
         $dailyFacts = $this->list($dataset['fact_ota_daily'] ?? []);
         $sourceChannels = $this->sourceChannels($dataset, $channelDatasets);
@@ -235,7 +251,9 @@ class RevenueAiOverviewService
                 ),
             ],
             'signals' => $signals,
+            'p1_revenue_closure' => $metricsSummary['p1_revenue_closure'] ?? [],
             'pricing_readiness' => $pricingReadiness,
+            'p0_downstream_gate' => $metricsSummary['credibility_gate']['evidence']['p0_downstream_gate'] ?? [],
             'review_queue' => $reviewQueue,
             'agent_activity' => $agentActivity,
             'execution_summary' => $executionSummary,
@@ -243,6 +261,7 @@ class RevenueAiOverviewService
             'metric_summary' => [
                 'fact_table' => $metricsSummary['fact_table'] ?? [],
                 'credibility_gate' => $metricsSummary['credibility_gate'] ?? [],
+                'p1_revenue_closure' => $metricsSummary['p1_revenue_closure'] ?? [],
                 'data_gaps' => $metricsSummary['data_gaps'] ?? [],
             ],
             'generated_at' => date('Y-m-d H:i:s'),
@@ -299,6 +318,17 @@ class RevenueAiOverviewService
         return array_values(array_unique($ids));
     }
 
+    private function boolValue(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return (int)$value === 1;
+        }
+        return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on'], true);
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -342,6 +372,9 @@ class RevenueAiOverviewService
             'fact_ota_advertising',
             'fact_ota_quality',
             'fact_ota_search_keyword',
+            'fact_ota_peer_rank',
+            'fact_ota_traffic_analysis',
+            'fact_ota_traffic_forecast',
             'fact_ota_comment',
         ] as $factKey) {
             foreach ($this->list($dataset[$factKey] ?? []) as $row) {

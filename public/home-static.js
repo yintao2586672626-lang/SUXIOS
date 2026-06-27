@@ -77,8 +77,8 @@ window.SUXI_HOME_STATIC = (() => {
                 statusClass: snapshot ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-500 border-gray-200',
                 desc: '投资模块读取经营快照后再估值、判断时机和进入决策板，不用 OTA 渠道数据替代全酒店口径。',
                 evidence: snapshot ? `快照日期 ${snapshotDate}` : '先从投资模块获取经营快照',
-                actionLabel: snapshot ? '进入决策板' : '获取投资数据',
-                entry: snapshot ? { page: 'decision-board' } : { page: 'asset-pricing' },
+                actionLabel: '进入投决辅助',
+                entry: { page: 'investment-decision' },
                 icon: 'fas fa-balance-scale',
             },
         ];

@@ -30,6 +30,9 @@ class OtaStandardEtlService
         $advertisingFacts = [];
         $qualityFacts = [];
         $searchKeywordFacts = [];
+        $peerRankFacts = [];
+        $trafficAnalysisFacts = [];
+        $trafficForecastFacts = [];
         $commentFacts = [];
         $rejectedRows = [];
 
@@ -96,10 +99,30 @@ class OtaStandardEtlService
                 $searchKeywordFacts[] = $this->searchKeywordFact($row, $raw, $hotelKey, $source, $date);
                 continue;
             }
+            if ($dataType === 'peer_rank') {
+                $peerRankFacts[] = $this->peerRankFact($row, $raw, $hotelKey, $source, $date);
+                continue;
+            }
+            if ($dataType === 'traffic_analysis') {
+                $trafficAnalysisFacts[] = $this->trafficAnalysisFact($row, $raw, $hotelKey, $source, $date);
+                continue;
+            }
+            if ($dataType === 'traffic_forecast') {
+                $trafficForecastFacts[] = $this->trafficForecastFact($row, $raw, $hotelKey, $source, $date);
+                continue;
+            }
             $dailyFacts[] = $this->dailyFact($row, $raw, $hotelKey, $source, $date, $dataType);
         }
 
-        $acceptedCount = count($dailyFacts) + count($trafficFacts) + count($advertisingFacts) + count($qualityFacts) + count($searchKeywordFacts) + count($commentFacts);
+        $acceptedCount = count($dailyFacts)
+            + count($trafficFacts)
+            + count($advertisingFacts)
+            + count($qualityFacts)
+            + count($searchKeywordFacts)
+            + count($peerRankFacts)
+            + count($trafficAnalysisFacts)
+            + count($trafficForecastFacts)
+            + count($commentFacts);
         return [
             'status' => $acceptedCount > 0 ? 'ready' : 'empty',
             'dim_hotel' => array_values($hotels),
@@ -109,6 +132,9 @@ class OtaStandardEtlService
             'fact_ota_advertising' => $advertisingFacts,
             'fact_ota_quality' => $qualityFacts,
             'fact_ota_search_keyword' => $searchKeywordFacts,
+            'fact_ota_peer_rank' => $peerRankFacts,
+            'fact_ota_traffic_analysis' => $trafficAnalysisFacts,
+            'fact_ota_traffic_forecast' => $trafficForecastFacts,
             'fact_ota_comment' => $commentFacts,
             'data_quality' => [
                 'input_rows' => count($rows),
@@ -448,6 +474,106 @@ class OtaStandardEtlService
      * @param array<string, mixed> $raw
      * @return array<string, mixed>
      */
+    private function peerRankFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
+    {
+        $detail = $this->rawDetail($raw);
+        $dimension = $this->firstText($row, $detail, ['dimension', 'dimName', '_dimName', 'metricName', 'aiMetricName']);
+        $rankType = $this->firstText($row, $detail, ['rank_type', 'rankType', 'type', 'rankListType']);
+        if ($rankType === '' && preg_match('/^peer_rank:([^:]+)/', $dimension, $matches) === 1) {
+            $rankType = $matches[1];
+        }
+        if ($dimension === '') {
+            $dimension = $rankType !== '' ? 'peer_rank:' . $rankType : 'peer_rank';
+        }
+        $rank = $this->supplementalNumber($row, $detail, ['rank', 'rank_no', 'rankNo', 'currentRank', 'sort']);
+        $metricValue = $this->supplementalNumber($row, $detail, ['data_value', 'dataValue', 'value', 'metric_value']);
+
+        return [
+            'date_key' => $date,
+            'hotel_key' => $hotelKey,
+            'platform_key' => $source,
+            'dimension' => $dimension,
+            'rank_type' => $rankType,
+            'rank' => $rank ?? $metricValue,
+            'rank_percent' => $this->supplementalPercent($row, $detail, ['percent', 'ratio', 'rank_percent', 'rankPercent']),
+            'metric_value' => $metricValue,
+            'compare_type' => (string)($row['compare_type'] ?? $detail['compare_type'] ?? ''),
+            'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'peer_rank', $date),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function trafficAnalysisFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
+    {
+        $detail = $this->rawDetail($raw);
+        $analysisType = $this->firstText($row, $detail, ['analysis_type', 'analysisType', 'type']);
+        $dimension = $this->firstText($row, $detail, ['dimension', 'name']);
+        if ($dimension === '') {
+            $dimension = $analysisType !== '' ? 'traffic_analysis:' . $analysisType : 'traffic_analysis';
+        }
+        $orderFilling = $this->supplementalNumber($row, $detail, ['order_filling_num', 'orderFillingNum', 'clickCount', 'clicks']);
+        $orderSubmit = $this->supplementalNumber($row, $detail, ['order_submit_num', 'orderSubmitNum', 'orderCount', 'payOrderCount', 'orders']);
+
+        return [
+            'date_key' => $date,
+            'hotel_key' => $hotelKey,
+            'platform_key' => $source,
+            'dimension' => $dimension,
+            'analysis_type' => $analysisType,
+            'list_exposure' => $this->supplementalNumber($row, $detail, ['list_exposure', 'listExposure', 'exposeCount', 'exposureCount', 'exposure']),
+            'detail_exposure' => $this->supplementalNumber($row, $detail, ['detail_exposure', 'detailExposure', 'visitCount', 'visitorCount', 'uv', 'pv', 'views']),
+            'flow_rate' => $this->supplementalPercent($row, $detail, ['flow_rate', 'flowRate', 'visitOrderRate', 'conversionRate', 'orderConversionRate']),
+            'order_filling_num' => $orderFilling,
+            'order_submit_num' => $orderSubmit,
+            'submit_rate' => $orderFilling !== null && $orderFilling > 0 && $orderSubmit !== null
+                ? round($orderSubmit / $orderFilling * 100, 2)
+                : null,
+            'metric_value' => $this->supplementalNumber($row, $detail, ['data_value', 'dataValue', 'value', 'metric_value']),
+            'peer_rank' => $this->supplementalNumber($row, $detail, ['peer_rank', 'peerRank', 'rank']),
+            'week_over_week' => $this->supplementalNumber($row, $detail, ['week_over_week', 'weekOverWeek', 'wow']),
+            'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'traffic_analysis', $date),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function trafficForecastFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
+    {
+        $detail = $this->rawDetail($raw);
+        $forecastType = $this->firstText($row, $detail, ['forecast_type', 'forecastType', 'type']);
+        $dimension = $this->firstText($row, $detail, ['dimension', 'name']);
+        if ($dimension === '') {
+            $dimension = $forecastType !== '' ? 'traffic_forecast:' . $forecastType : 'traffic_forecast';
+        }
+
+        return [
+            'date_key' => $date,
+            'hotel_key' => $hotelKey,
+            'platform_key' => $source,
+            'dimension' => $dimension,
+            'forecast_type' => $forecastType,
+            'forecast_value' => $this->supplementalNumber($row, $detail, ['data_value', 'dataValue', 'current', 'value', 'metric_value']),
+            'peer_avg' => $this->supplementalNumber($row, $detail, ['peer_avg', 'peerAvg', 'competitor_avg', 'competitorAvg']),
+            'compare_type' => (string)($row['compare_type'] ?? $detail['compare_type'] ?? 'forecast'),
+            'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'traffic_forecast', $date),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
     private function commentFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
     {
         $score = $this->nullableNumber($row, $raw, ['comment_score', 'commentScore', 'score', 'data_value', 'dataValue']);
@@ -630,6 +756,15 @@ class OtaStandardEtlService
         if (in_array($value, ['search_keyword', 'search-keyword', 'search_keywords', 'search-keywords', 'keyword', 'keywords', 'search_word', 'search_words', 'hot_word', 'hot_words'], true)) {
             return 'search_keyword';
         }
+        if (in_array($value, ['peer_rank', 'peer-rank', 'peer_ranking', 'peer-ranking', 'competitor_rank', 'competitor-rank', 'rank', 'rankings'], true)) {
+            return 'peer_rank';
+        }
+        if (in_array($value, ['traffic_analysis', 'traffic-analysis', 'flow_analysis', 'flow-analysis', 'flow_conversion', 'flow-conversion', 'flow_trend', 'flow-trend', 'flowtrend', 'flowconversion'], true)) {
+            return 'traffic_analysis';
+        }
+        if (in_array($value, ['traffic_forecast', 'traffic-forecast', 'flow_forecast', 'flow-forecast', 'flowforecast'], true)) {
+            return 'traffic_forecast';
+        }
         if (in_array($value, ['review', 'reviews', 'comment', 'comments'], true)) {
             return 'review';
         }
@@ -705,6 +840,36 @@ class OtaStandardEtlService
         }
         $percent = $value > 0 && $value <= 1 ? $value * 100 : $value;
         return $percent <= 100 ? $percent : null;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @param array<int, string> $keys
+     */
+    private function supplementalNumber(array $row, array $raw, array $keys): ?float
+    {
+        $rawValue = $this->nullableNumber([], $raw, $keys);
+        if ($rawValue !== null) {
+            return $rawValue;
+        }
+        $rowValue = $this->nullableNumber($row, [], $keys);
+        return $rowValue !== null && $rowValue != 0.0 ? $rowValue : null;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @param array<int, string> $keys
+     */
+    private function supplementalPercent(array $row, array $raw, array $keys): ?float
+    {
+        $value = $this->supplementalNumber($row, $raw, $keys);
+        if ($value === null || $value < 0) {
+            return null;
+        }
+        $percent = $value > 0 && $value <= 1 ? $value * 100 : $value;
+        return $percent <= 100 ? round($percent, 2) : null;
     }
 
     /**

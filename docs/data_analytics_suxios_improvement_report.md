@@ -43,7 +43,7 @@
 | 19 | 定价建议更安全 | 收益 -> AI -> 运营 | 价格建议保持 advisory-only，受 min/max、信号数量、数据缺口和人工复核约束 | 已沉淀 | `RevenuePricingRecommendationServiceTest.php` |
 | 20 | AI 结论可追责 | AI -> 运营/投决 | 记录 prompt version、sources、confidence、human confirmation、evaluation set | 已沉淀 | `ai_governance_p2.md`、`LlmClientTest.php` |
 | 21 | 投资/转让测算可接入经营数据 | 收益 -> 投决 | 资产定价、转让时机、看板合并风险点与数据异常 | 已沉淀 | `TransferDecisionService.php`、`TransferDecisionServiceTest.php` |
-| 22 | 采集路径选择更稳 | OTA | API/Cookie、CDP 监听、Profile + CDP 分层，不把浏览器能力当默认采集 | 已沉淀 | `ota_acquisition_decision_playbook.md` |
+| 22 | 采集路径选择更稳 | OTA | 浏览器 Profile 登录态采集作为日常主线；手动 Cookie/API 与 CDP 仅用于临时补数、首次接入和排障分层 | 已沉淀 | `ota_acquisition_decision_playbook.md` |
 | 23 | 报告输出更稳定 | 全链路 | 每次分析可先读语义层，再生成口径一致的 Markdown/报告 | 本次已产出 | 本文件 |
 | 24 | 后续测试范围更明确 | 全链路 | 聚焦 ETL、收益指标、执行闭环、AI治理、投决服务最小验证集 | 已验证 | 本报告“验证结果” |
 

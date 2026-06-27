@@ -1193,6 +1193,19 @@ function p0_import_build_traffic_evidence(array $rows, string $platform, int $sy
         if ($fieldFacts === []) {
             continue;
         }
+        $sourcePath = p0_import_explicit_source_path($row);
+        $fieldFactSourcePathCount = 0;
+        $fieldFactStructuredSourcePathCount = 0;
+        foreach ($fieldFacts as $fieldFact) {
+            $fieldFactSourcePath = trim((string)($fieldFact['source_path'] ?? ''));
+            if ($fieldFactSourcePath === '') {
+                continue;
+            }
+            $fieldFactSourcePathCount++;
+            if (p0_import_source_path_is_structured($fieldFactSourcePath)) {
+                $fieldFactStructuredSourcePathCount++;
+            }
+        }
         $platformHotelIdentifier = p0_import_platform_hotel_identifier($row, $platform);
         $platformHotelIdentifierSource = $platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
         $uiStatus = p0_import_external_ui_status((array)($preview['ui_status'] ?? []));
@@ -1204,9 +1217,15 @@ function p0_import_build_traffic_evidence(array $rows, string $platform, int $sy
             'scope_policy' => 'ota_channel_only',
             'platform_hotel_identifier_present' => $platformHotelIdentifier !== '',
             'platform_hotel_identifier_source' => $platformHotelIdentifierSource,
+            'source_path' => $sourcePath,
+            'source_path_structured' => p0_import_source_path_is_structured($sourcePath),
             'source_trace_id' => (string)($captureEvidence['source_trace_id'] ?? ''),
             'capture_evidence' => $captureEvidence,
             'sensitive_values_exposed' => false,
+            'raw_data_field_facts_present' => $fieldFacts !== [],
+            'raw_data_exposed' => false,
+            'field_fact_source_path_count' => $fieldFactSourcePathCount,
+            'field_fact_structured_source_path_count' => $fieldFactStructuredSourcePathCount,
             'ui_status' => $uiStatus,
             'field_facts' => $fieldFacts,
             'traffic_closure_chain' => p0_import_traffic_closure_chain($fieldFacts, $uiStatus, $platformHotelIdentifier !== '', $platformHotelIdentifierSource),

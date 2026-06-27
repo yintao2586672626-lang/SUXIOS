@@ -87,8 +87,8 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
   assert.doesNotMatch(saveMeituanConfigItem, /请输入酒店房量/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入竞争圈总房量/);
   assert.match(html, /缺门店标识/);
-  assert.match(html, /美团平台账号标识（partnerId \/ partner_id）/);
-  assert.match(html, /美团平台门店标识（poiId \/ poi_id）/);
+  assert.match(html, /平台接口标识（Partner ID）/);
+  assert.match(html, /平台门店标识（POI ID）/);
   assert.match(html, /detail\?partnerId=4927325 中的 4927325/);
   assert.match(html, /detail\?poiId=570866031 中的 570866031/);
 });
@@ -122,7 +122,7 @@ test('OTA diagnosis helper does not block the online data shell', () => {
   const generateOtaDiagnosis = sliceFrom('const generateOtaDiagnosis = async () => {', '\n\n            // 加载Agent概览');
 
   assert.doesNotMatch(head, /<script src="ota-diagnosis-static\.js/);
-  assert.match(html, /const otaDiagnosisStaticScript = 'ota-diagnosis-static\.js\?v=20260613-agent-lazy';/);
+  assert.match(html, /const otaDiagnosisStaticScript = 'ota-diagnosis-static\.js\?v=20260627-decision-closure-v2';/);
   assert.match(html, /const ensureOtaDiagnosisStaticReady = async \(\) => loadOtaDiagnosisStatic\(\);/);
   assert.match(currentPageWatcher, /runPageLoadOnce\(newPage, 'ota-diagnosis-static', \(\) => new Promise\(resolve => setTimeout\(resolve, 420\)\)\s*\.then\(\(\) => currentPage\.value === 'agent-center' \? ensureOtaDiagnosisStaticReady\(\) : null\)\);/);
   assert.match(generateOtaDiagnosis, /const runOtaDiagnosisGenerateFlow = await getOtaDiagnosisGenerateFlow\(\);/);

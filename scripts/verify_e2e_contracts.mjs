@@ -118,7 +118,7 @@ requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'ope
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
 requireText('public/index.html', 'ctrip-static.js?v=20260617-profile-verification-cache-fix', 'entry bumps Ctrip static helper version for Profile verification cache fixes');
-requireText('public/index.html', 'meituan-static.js?v=20260617-metric-cache-fix', 'entry bumps Meituan static helper version for metric export cache fixes');
+requireText('public/index.html', 'meituan-static.js?v=20260627-order-csv-import', 'entry bumps Meituan static helper version for order CSV import');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -262,6 +262,8 @@ requireText('public/ctrip-static.js', 'const runCtripProfileRecheckFlow', 'Ctrip
 requireText('public/index.html', "requireMeituanStatic('runMeituanBatchFetchFlow')", 'entry uses extracted Meituan batch fetch flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanTrafficFetchFlow')", 'entry uses extracted Meituan traffic fetch flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanOrderFetchFlow')", 'entry uses extracted Meituan order fetch flow runner');
+requireText('public/index.html', "requireMeituanStatic('buildMeituanOrderDomCollectorScript')", 'entry uses extracted Meituan order DOM collector script builder');
+requireText('public/index.html', "requireMeituanStatic('runMeituanOrderCsvImportFlow')", 'entry uses extracted Meituan order CSV import flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanAdsFetchFlow')", 'entry uses extracted Meituan ads fetch flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanBrowserCaptureFlow')", 'entry uses extracted Meituan browser capture flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanCapturedPayloadSaveFlow')", 'entry uses extracted Meituan captured payload save flow runner');
@@ -288,15 +290,21 @@ requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 
 requireText('public/meituan-static.js', 'const runMeituanBatchFetchFlow', 'Meituan static runs batch fetch flow');
 requireText('public/meituan-static.js', 'const buildMeituanBrowserCaptureRequestContext', 'Meituan static builds browser capture request context');
 requireText('public/meituan-static.js', 'const runMeituanBrowserCaptureFlow', 'Meituan static runs browser capture flow');
+requireText('public/meituan-static.js', 'const getMeituanBrowserCaptureSupplementModules', 'Meituan static exposes browser capture supplemental modules');
+requireText('public/meituan-static.js', 'const buildMeituanBrowserCaptureSupplementCounts', 'Meituan static summarizes browser capture supplemental counts');
 requireText('public/meituan-static.js', 'const buildMeituanCapturedPayloadSaveContext', 'Meituan static builds captured payload save context');
 requireText('public/meituan-static.js', 'const runMeituanCapturedPayloadSaveFlow', 'Meituan static runs captured payload save flow');
 requireText('public/meituan-static.js', 'const buildMeituanTrafficFetchRequestBody', 'Meituan static builds traffic fetch request bodies');
 requireText('public/meituan-static.js', 'const runMeituanTrafficFetchFlow', 'Meituan static runs traffic fetch flow');
 requireText('public/meituan-static.js', 'const buildMeituanOrderFetchRequestBody', 'Meituan static builds order fetch request bodies');
 requireText('public/meituan-static.js', 'const runMeituanOrderFetchFlow', 'Meituan static runs order fetch flow');
+requireText('public/meituan-static.js', 'const buildMeituanOrderDomCollectorScript', 'Meituan static builds order DOM collector script');
+requireText('public/meituan-static.js', 'const parseMeituanOrderCsvText', 'Meituan static parses order CSV exports');
+requireText('public/meituan-static.js', 'const runMeituanOrderCsvImportFlow', 'Meituan static runs order CSV import flow');
 requireText('public/meituan-static.js', 'const buildMeituanAdsFetchRequestBody', 'Meituan static builds ads fetch request bodies');
 requireText('public/meituan-static.js', 'const runMeituanAdsFetchFlow', 'Meituan static runs ads fetch flow');
 requireText('public/meituan-static.js', 'const runMeituanManualTabSwitch = async', 'Meituan static runs manual tab switch orchestration');
+requireText('public/components/online-data/platform-auto-settings-panels.js', 'data-testid="meituan-browser-supplement-capture"', 'Platform auto panel exposes Meituan supplemental browser capture entry');
 requireNoText('public/index.html', '<script src="auto-fetch-static.js"></script>', 'frontend lazy-loads extracted auto-fetch static helper');
 requireText('public/index.html', "const autoFetchStaticScript = 'auto-fetch-static.js'", 'entry keeps auto-fetch static lazy script path');
 requireText('public/index.html', 'const ensureAutoFetchStaticReady = async () =>', 'entry keeps auto-fetch static ready guard');
@@ -1164,6 +1172,8 @@ requireText('public/data-health-static.js', 'const formatOnlineHistoryRaw', 'dat
 requireText('public/data-health-static.js', 'const buildHotelDataDashboardRequests', 'data-health static builds hotel data dashboard request URLs');
 requireText('public/data-health-static.js', 'const buildPhase1MetricDomainReadiness', 'data-health static builds Phase1 metric domain readiness');
 requireText('public/data-health-static.js', 'const buildPhase1TrafficP0NextText', 'data-health static builds Phase1 traffic P0 next text');
+requireText('public/data-health-static.js', 'const buildPhase1TrafficLatestSyncTaskText', 'data-health static builds Phase1 latest sync task diagnostics');
+requireText('public/data-health-static.js', 'traffic_latest_sync_task_message_code_counts', 'data-health static exposes latest sync task diagnosis codes');
 requireText('public/data-health-static.js', 'const phase1EmployeeEvidenceStatusText', 'data-health static maps Phase1 employee evidence status text');
 requireText('public/data-health-static.js', 'const phase1EmployeeGapCodeText', 'data-health static maps Phase1 employee gap code text');
 requireText('public/data-health-static.js', 'const phase1EmployeeActionCodeText', 'data-health static maps Phase1 employee action code text');
@@ -1384,6 +1394,12 @@ requireNoText('public/index.html', "text: '销售额(¥)'", 'analysis chart axis
     p0_traffic_field_fact_status: 'no_target_date_traffic_rows',
     p0_next_action_entry: '/api/online-data/ctrip/traffic',
     next_command_policy: 'metadata_only_no_sensitive_commands',
+    traffic_latest_sync_task_count: 2,
+    traffic_latest_sync_task_status_counts: { waiting_config: 2 },
+    traffic_latest_sync_task_message_code_counts: { login_or_profile_not_ready: 2 },
+    traffic_latest_sync_task_saved_count: 0,
+    traffic_latest_sync_task_normalized_count: 0,
+    traffic_latest_sync_task_sensitive_values_exposed: false,
   });
   const phase1EvidenceStatusText = context.window.SUXI_DATA_HEALTH_STATIC.phase1EmployeeEvidenceStatusText;
   const phase1GapCodeText = context.window.SUXI_DATA_HEALTH_STATIC.phase1EmployeeGapCodeText;
@@ -1444,6 +1460,9 @@ requireNoText('public/index.html', "text: '销售额(¥)'", 'analysis chart axis
     ok: trafficP0NextText.includes('P0缺目标日流量')
       && trafficP0NextText.includes('外部证据未入库')
       && trafficP0NextText.includes('预期Payload缺失 2 项')
+      && trafficP0NextText.includes('最近同步 2 项')
+      && trafficP0NextText.includes('登录/Profile未就绪:2')
+      && trafficP0NextText.includes('同步诊断已脱敏')
       && trafficP0NextText.includes('需闭环指标 2 项')
       && trafficP0NextText.includes('字段矩阵 2 项')
       && trafficP0NextText.includes('链路未加载 1 项')
@@ -1835,6 +1854,10 @@ requireNoText('public/index.html', "evidence: `定价 ${pricingReady ? '有' : '
 requireTextInFiles(['public/index.html', 'public/ota-diagnosis-static.js'], 'result.diagnosis_sections', 'OTA diagnosis UI renders backend-provided diagnosis sections');
 requireNoText('public/index.html', '<script src="ota-diagnosis-static.js', 'frontend lazy-loads extracted OTA diagnosis static helper');
 requireText('public/index.html', "const otaDiagnosisStaticScript = 'ota-diagnosis-static.js", 'entry keeps OTA diagnosis static lazy script path');
+requireText('public/index.html', 'ota-diagnosis-static.js?v=20260627-decision-closure-v2', 'entry loads OTA diagnosis decision-closure static bundle version');
+requireText('public/index.html', '业务闭环拆解', 'OTA diagnosis page exposes business loop breakdown');
+requireText('public/index.html', '建议动作与阻断状态', 'OTA diagnosis page exposes action readiness and blocked states');
+requireText('public/index.html', '缺口未补齐前，不进入可执行建议', 'OTA diagnosis page keeps evidence gaps separate from executable actions');
 requireText('public/index.html', 'const ensureOtaDiagnosisStaticReady = async () =>', 'entry keeps OTA diagnosis static ready guard');
 requireText('public/index.html', "requireOtaDiagnosisStatic('runOtaDiagnosisHotelFetchFlow')", 'entry uses extracted OTA diagnosis fetch flow runner');
 requireText('public/index.html', "requireOtaDiagnosisStatic('runOtaDiagnosisGenerateFlow')", 'entry uses extracted OTA diagnosis generate flow runner');
@@ -1844,6 +1867,10 @@ requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchTasks
 requireText('public/ota-diagnosis-static.js', 'const runOtaDiagnosisHotelFetchFlow', 'OTA diagnosis static runs fetch flow');
 requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisGenerateRequestBody', 'OTA diagnosis static builds generate request bodies');
 requireText('public/ota-diagnosis-static.js', 'const runOtaDiagnosisGenerateFlow', 'OTA diagnosis static runs generate flow');
+requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisDecisionClosureCards', 'OTA diagnosis static builds decision closure cards');
+requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisBusinessLoopSteps', 'OTA diagnosis static builds business loop steps');
+requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisActionRows', 'OTA diagnosis static builds action readiness rows');
+requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisDataGapRows', 'OTA diagnosis static builds evidence gap rows');
 requireNoText('public/index.html', '<script src="ai-analysis-static.js"></script>', 'frontend lazy-loads extracted AI analysis static helper');
 requireText('public/index.html', "const aiAnalysisStaticScript = 'ai-analysis-static.js'", 'entry keeps AI analysis static lazy script path');
 requireText('public/index.html', 'const ensureAiAnalysisStaticReady = async () =>', 'entry keeps AI analysis static ready guard');
@@ -1972,6 +1999,13 @@ requireText('public/operation-static.js', 'operationExecutionRoiText', 'operatio
 requireText('public/operation-static.js', 'buildOperationClosureSummaryBadge', 'operation closure summary badge builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOperationClosureSummaryCards', 'operation closure summary cards builder lives in operation static module');
 requireText('public/operation-static.js', 'operationClosureGapText', 'operation closure gap text helper lives in operation static module');
+requireText('public/operation-static.js', "status || '') === 'blocked_by_p0_ota_gate'", 'operation closure summary badge treats P0 gate as blocking');
+requireText('public/operation-static.js', "text: 'P0未就绪'", 'operation closure summary badge names P0 gate blocking state');
+requireText('public/system-static.js', "blocked_by_p0_ota_gate: 'bg-red-50 text-red-700 border-red-100'", 'operation closure module status marks P0 gate as blocking');
+requireText('public/operation-static.js', "text: '过程已闭环，ROI待补'", 'operation closure badge separates process closure from ROI readiness');
+requireText('public/operation-static.js', "label: '过程闭环'", 'operation closure cards expose process closure count');
+requireText('public/operation-static.js', "label: 'ROI就绪'", 'operation closure cards expose ROI readiness count');
+requireText('public/operation-static.js', 'summary.roi_ready_module_count', 'operation closure cards use ROI-ready module count');
 requireText('public/operation-static.js', 'buildOpeningCategoryProgressCards', 'opening category progress cards builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOpeningPositioningImpact', 'opening positioning impact builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOpeningTaskProgressCards', 'opening task progress cards builder lives in operation static module');
@@ -2020,11 +2054,14 @@ requireText('public/index.html', 'operationExecutionBottleneckTextForSummary(ope
 requireText('public/index.html', 'operationExecutionActionTextForItem(item, { strategyTypeLabel: operationStrategyTypeLabel })', 'operation execution action text calls extracted helper');
 requireText('public/index.html', 'operationExecutionReviewTextForItem(item, { statusLabel: operationExecutionStatusLabel })', 'operation execution review text calls extracted helper');
 requireText('public/index.html', 'operationExecutionRoiTextForRoi(roi, operationDisplayFormatters)', 'operation execution ROI text calls extracted helper');
+requireText('public/index.html', "String(item?.roi?.status || '') === 'ready'", 'operation execution evidence summary only counts ready ROI evidence');
 requireText('public/index.html', "buildOperationClosureSummaryBadge = requireOperationStatic(staticConfig, 'buildOperationClosureSummaryBadge')", 'operation closure summary badge uses extracted helper');
 requireText('public/index.html', "buildOperationClosureSummaryCards = requireOperationStatic(staticConfig, 'buildOperationClosureSummaryCards')", 'operation closure summary cards use extracted helper');
 requireText('public/index.html', "operationClosureGapText = requireOperationStatic(staticConfig, 'operationClosureGapText')", 'operation closure gap text uses extracted helper');
 requireText('public/index.html', 'buildOperationClosureSummaryBadge(operationClosureOverview.value?.summary || {})', 'operation closure summary badge calls extracted builder');
 requireText('public/index.html', 'buildOperationClosureSummaryCards(operationClosureOverview.value?.summary || {})', 'operation closure summary cards call extracted builder');
+requireText('public/index.html', '{{ module.reviewed_count || 0 }}', 'operation closure module card exposes review count separately from ROI count');
+requireText('public/index.html', '{{ module.roi_ready_count || 0 }}', 'operation closure module card exposes ROI-ready count');
 requireText('public/index.html', 'buildOpeningCategoryProgressCards(openingOverview.value?.category_progress || [])', 'opening category progress cards use extracted builder');
 requireText('public/index.html', 'buildOpeningPositioningImpact(openingProjectForm.value.positioning)', 'opening positioning impact uses extracted builder');
 requireText('public/index.html', 'buildOpeningTaskProgressCards(openingTaskStats.value)', 'opening progress cards use extracted builder');
@@ -2119,6 +2156,11 @@ requireNoText('public/index.html', "value: 'dueSoon', label: '7天内到期'", '
   const positioningImpact = helpers.buildOpeningPositioningImpact('高端商务');
   const statusChips = helpers.buildOpeningStatusFilterChips(stats);
   const attentionChips = helpers.buildOpeningAttentionFilterChips(stats);
+  const p0ClosureBadge = helpers.buildOperationClosureSummaryBadge({
+    status: 'blocked_by_p0_ota_gate',
+    process_status: 'closed',
+    roi_status: 'closed',
+  });
   checks.push({
     file: 'public/operation-static.js',
     label: 'opening progress helper preserves card and stage semantics',
@@ -2143,8 +2185,10 @@ requireNoText('public/index.html', "value: 'dueSoon', label: '7天内到期'", '
       && positioningImpact.summary.includes('高端商务定位会提高品质体验')
       && positioningImpact.items.includes('品质验收')
       && statusChips.map(item => item.value).join('|') === '|todo|doing|done|blocked'
-      && attentionChips.map(item => item.value).join('|') === 'overdue|dueSoon|high|blocked|noOwner|core',
-    detail: 'opening display helper extraction must keep labels, classes, positioning branches, and chip order',
+      && attentionChips.map(item => item.value).join('|') === 'overdue|dueSoon|high|blocked|noOwner|core'
+      && p0ClosureBadge.text === 'P0未就绪'
+      && p0ClosureBadge.className.includes('text-red-700'),
+    detail: 'opening display helper extraction must keep labels, classes, positioning branches, chip order, and P0 operation closure blocking state',
   });
 }
 requireNoText('public/index.html', 'operationFullData.reviews', 'operation dashboard does not render disabled review data');
@@ -2674,6 +2718,8 @@ try {
   const runMeituanBatchFetchFlow = meituanStatic.runMeituanBatchFetchFlow;
   const buildMeituanBrowserCaptureRequestContext = meituanStatic.buildMeituanBrowserCaptureRequestContext;
   const runMeituanBrowserCaptureFlow = meituanStatic.runMeituanBrowserCaptureFlow;
+  const getMeituanBrowserCaptureSupplementModules = meituanStatic.getMeituanBrowserCaptureSupplementModules;
+  const buildMeituanBrowserCaptureSupplementCounts = meituanStatic.buildMeituanBrowserCaptureSupplementCounts;
   const buildMeituanCapturedPayloadSaveContext = meituanStatic.buildMeituanCapturedPayloadSaveContext;
   const runMeituanCapturedPayloadSaveFlow = meituanStatic.runMeituanCapturedPayloadSaveFlow;
   const normalizeMeituanTrafficFetchForm = meituanStatic.normalizeMeituanTrafficFetchForm;
@@ -2684,6 +2730,10 @@ try {
   const validateMeituanOrderFetchInput = meituanStatic.validateMeituanOrderFetchInput;
   const buildMeituanOrderFetchRequestBody = meituanStatic.buildMeituanOrderFetchRequestBody;
   const runMeituanOrderFetchFlow = meituanStatic.runMeituanOrderFetchFlow;
+  const buildMeituanOrderDomCollectorScript = meituanStatic.buildMeituanOrderDomCollectorScript;
+  const parseMeituanOrderCsvText = meituanStatic.parseMeituanOrderCsvText;
+  const buildMeituanOrderCsvImportRequestBody = meituanStatic.buildMeituanOrderCsvImportRequestBody;
+  const runMeituanOrderCsvImportFlow = meituanStatic.runMeituanOrderCsvImportFlow;
   const normalizeMeituanAdsFetchForm = meituanStatic.normalizeMeituanAdsFetchForm;
   const validateMeituanAdsFetchInput = meituanStatic.validateMeituanAdsFetchInput;
   const buildMeituanAdsFetchRequestBody = meituanStatic.buildMeituanAdsFetchRequestBody;
@@ -2696,6 +2746,8 @@ try {
     || typeof runMeituanBatchFetchFlow !== 'function'
     || typeof buildMeituanBrowserCaptureRequestContext !== 'function'
     || typeof runMeituanBrowserCaptureFlow !== 'function'
+    || typeof getMeituanBrowserCaptureSupplementModules !== 'function'
+    || typeof buildMeituanBrowserCaptureSupplementCounts !== 'function'
     || typeof buildMeituanCapturedPayloadSaveContext !== 'function'
     || typeof runMeituanCapturedPayloadSaveFlow !== 'function'
     || typeof normalizeMeituanTrafficFetchForm !== 'function'
@@ -2706,6 +2758,10 @@ try {
     || typeof validateMeituanOrderFetchInput !== 'function'
     || typeof buildMeituanOrderFetchRequestBody !== 'function'
     || typeof runMeituanOrderFetchFlow !== 'function'
+    || typeof buildMeituanOrderDomCollectorScript !== 'function'
+    || typeof parseMeituanOrderCsvText !== 'function'
+    || typeof buildMeituanOrderCsvImportRequestBody !== 'function'
+    || typeof runMeituanOrderCsvImportFlow !== 'function'
     || typeof normalizeMeituanAdsFetchForm !== 'function'
     || typeof validateMeituanAdsFetchInput !== 'function'
     || typeof buildMeituanAdsFetchRequestBody !== 'function'
@@ -2751,6 +2807,62 @@ try {
         && staleManualResult.status === 'stale_after_load'
         && staleManualEvents.join('|') === 'load',
       detail: 'runMeituanManualTabSwitch active/stale samples',
+    });
+
+    const csvText = '\uFEFF订单号,房型,入住日期,离店日期,购买时间,底价(元)\n"123456789012345","阳光双床房","2026-05-29","2026-05-30","2026-05-28 20:30","188.50"';
+    const parsedCsvRows = parseMeituanOrderCsvText(csvText);
+    const csvRequestBody = buildMeituanOrderCsvImportRequestBody({
+      csvText,
+      form: { poiId: 'poi-1', startDate: '2026-05-28', endDate: '2026-05-30' },
+      systemHotelId: 7,
+      hotelName: 'Demo Hotel',
+    });
+    const csvImportEvents = [];
+    let csvFlowRequestBody = null;
+    const csvFlowResult = await runMeituanOrderCsvImportFlow({
+      getForm: () => ({ csvText, poiId: 'poi-1', startDate: '2026-05-28', endDate: '2026-05-30' }),
+      getSystemHotelId: () => 7,
+      getHotelNameById: () => 'Demo Hotel',
+      notify: (message, level) => csvImportEvents.push(`notify:${level}:${message}`),
+      setFetching: value => csvImportEvents.push(`fetching:${value}`),
+      setOrderResult: value => csvImportEvents.push(`order:${value?.saved_count ?? 'none'}`),
+      setOnlineDataResult: value => csvImportEvents.push(`online:${value?.row_count ?? 'none'}`),
+      requestSave: async body => {
+        csvFlowRequestBody = body;
+        return { code: 200, data: { saved_count: 1, row_count: 1 } };
+      },
+      refreshOnlineHistory: async () => csvImportEvents.push('refresh'),
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan order CSV import parses Tampermonkey export and saves through captured payload endpoint',
+      ok: parsedCsvRows.length === 1
+        && parsedCsvRows[0].orderNo === '123456789012345'
+        && parsedCsvRows[0].roomType === '阳光双床房'
+        && parsedCsvRows[0].bottomPrice === '188.50'
+        && csvRequestBody.payload.orders.length === 1
+        && csvRequestBody.payload.data_period === 'manual_dom_csv'
+        && csvRequestBody.payload.system_hotel_id === 7
+        && csvFlowResult.status === 'success'
+        && csvFlowRequestBody?.payload?.orders?.[0]?.checkIn === '2026-05-29'
+        && csvImportEvents.includes('fetching:true')
+        && csvImportEvents.includes('fetching:false')
+        && csvImportEvents.some(event => event.startsWith('notify:success:')),
+      detail: 'parseMeituanOrderCsvText/buildMeituanOrderCsvImportRequestBody/runMeituanOrderCsvImportFlow sample',
+    });
+
+    const collectorScript = buildMeituanOrderDomCollectorScript();
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan order DOM collector script is generated from system UI without credentials',
+      ok: collectorScript.includes('// ==UserScript==')
+        && collectorScript.includes('@match        https://eb.meituan.com/ebooking/order-eb/*')
+        && collectorScript.includes('@match        https://me.meituan.com/ebooking/merchant/ebIframe*')
+        && collectorScript.includes("var headers = ['订单号', '房型', '入住日期', '离店日期', '购买时间', '底价(元)'];")
+        && collectorScript.includes('function extractPageRows()')
+        && collectorScript.includes("PANEL_ID = 'suxi-meituan-order-dom-panel'")
+        && !/cookie|authorization|token|password/i.test(collectorScript),
+      detail: 'buildMeituanOrderDomCollectorScript sample',
     });
 
     const tasks = buildMeituanBatchFetchTasks({
@@ -3014,6 +3126,41 @@ try {
       detail: 'Meituan batch result sample',
     });
 
+    const supplementModules = getMeituanBrowserCaptureSupplementModules();
+    const supplementCounts = buildMeituanBrowserCaptureSupplementCounts({
+      payload_counts: {
+        peer_rank: 2,
+        traffic_analysis: 3,
+        search_keywords: 4,
+        traffic_forecast: 5,
+        responses: 9,
+      },
+    });
+    const supplementCountsFromPayload = buildMeituanBrowserCaptureSupplementCounts({
+      payload: {
+        peerRank: [{}, {}],
+        flowAnalysis: [{}],
+        searchKeywords: [{}, {}, {}],
+        trafficForecast: [{}],
+        responses: [{}, {}, {}, {}],
+      },
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan browser capture supplemental modules and counts are displayable',
+      ok: Array.isArray(supplementModules)
+        && supplementModules.length === 4
+        && supplementModules.some(item => item.key === 'peer_rank' && item.label === '同行排名')
+        && supplementCounts.find(item => item.key === 'peer_rank')?.count === 2
+        && supplementCounts.find(item => item.key === 'traffic_analysis')?.count === 3
+        && supplementCounts.find(item => item.key === 'search_keywords')?.count === 4
+        && supplementCounts.find(item => item.key === 'traffic_forecast')?.count === 5
+        && supplementCounts.find(item => item.key === 'responses')?.count === 9
+        && supplementCountsFromPayload.find(item => item.key === 'peer_rank')?.count === 2
+        && supplementCountsFromPayload.find(item => item.key === 'search_keywords')?.count === 3,
+      detail: 'buildMeituanBrowserCaptureSupplementCounts sample',
+    });
+
     const browserMissingHotel = buildMeituanBrowserCaptureRequestContext({
       form: { storeId: 'store-1' },
       systemHotelId: null,
@@ -3040,6 +3187,13 @@ try {
       hotelName: 'Hotel 10',
       options: { loginOnly: true, bindDataSource: false },
     });
+    const browserSupplementRequestContext = buildMeituanBrowserCaptureRequestContext({
+      form: {
+        storeId: 'store-supplement',
+        captureSections: 'peerRank flowForecast searchKeywords flowAnalysis',
+      },
+      systemHotelId: '10',
+    });
     checks.push({
       file: 'public/meituan-static.js',
       label: 'Meituan browser capture request context keeps missing states explicit',
@@ -3057,6 +3211,8 @@ try {
         && browserRequestContext.requestBody.partner_id === 'partner-10'
         && browserRequestContext.requestBody.ads_url === 'https://ads.example.test'
         && browserRequestContext.requestBody.sections.join(',') === 'traffic,ads'
+        && browserSupplementRequestContext.ok === true
+        && browserSupplementRequestContext.requestBody.sections.join(',') === 'traffic'
         && browserRequestContext.requestBody.login_only === true
         && browserRequestContext.requestBody.bind_data_source === false,
       detail: 'buildMeituanBrowserCaptureRequestContext sample',
@@ -3843,15 +3999,23 @@ try {
   const buildOtaDiagnosisFetchTasks = otaDiagnosisStatic.buildOtaDiagnosisFetchTasks;
   const runOtaDiagnosisHotelFetchFlow = otaDiagnosisStatic.runOtaDiagnosisHotelFetchFlow;
   const runOtaDiagnosisGenerateFlow = otaDiagnosisStatic.runOtaDiagnosisGenerateFlow;
+  const buildOtaDiagnosisDecisionClosureCards = otaDiagnosisStatic.buildOtaDiagnosisDecisionClosureCards;
+  const buildOtaDiagnosisBusinessLoopSteps = otaDiagnosisStatic.buildOtaDiagnosisBusinessLoopSteps;
+  const buildOtaDiagnosisActionRows = otaDiagnosisStatic.buildOtaDiagnosisActionRows;
+  const buildOtaDiagnosisDataGapRows = otaDiagnosisStatic.buildOtaDiagnosisDataGapRows;
   if (typeof buildOtaDiagnosisFetchContext !== 'function'
     || typeof buildOtaDiagnosisFetchTasks !== 'function'
     || typeof runOtaDiagnosisHotelFetchFlow !== 'function'
-    || typeof runOtaDiagnosisGenerateFlow !== 'function') {
+    || typeof runOtaDiagnosisGenerateFlow !== 'function'
+    || typeof buildOtaDiagnosisDecisionClosureCards !== 'function'
+    || typeof buildOtaDiagnosisBusinessLoopSteps !== 'function'
+    || typeof buildOtaDiagnosisActionRows !== 'function'
+    || typeof buildOtaDiagnosisDataGapRows !== 'function') {
     checks.push({
       file: 'public/ota-diagnosis-static.js',
-      label: 'OTA diagnosis static exports fetch/generate builders and flow runners',
+      label: 'OTA diagnosis static exports fetch/generate and decision-closure builders',
       ok: false,
-      detail: 'buildOtaDiagnosisFetchContext/buildOtaDiagnosisFetchTasks/runOtaDiagnosisHotelFetchFlow/runOtaDiagnosisGenerateFlow',
+      detail: 'buildOtaDiagnosisFetchContext/buildOtaDiagnosisFetchTasks/runOtaDiagnosisHotelFetchFlow/runOtaDiagnosisGenerateFlow/buildOtaDiagnosisDecisionClosureCards/buildOtaDiagnosisBusinessLoopSteps/buildOtaDiagnosisActionRows/buildOtaDiagnosisDataGapRows',
     });
   } else {
     const fetchContext = buildOtaDiagnosisFetchContext({
@@ -4094,6 +4258,52 @@ try {
         && exceptionLoading[0] === true
         && exceptionLoading[exceptionLoading.length - 1] === false,
       detail: 'runOtaDiagnosisGenerateFlow error-state samples',
+    });
+    const closureSample = {
+      decision_closure: {
+        status: 'blocked',
+        data_evidence_input: {
+          source_policy: 'database_only_no_synthetic_conclusion',
+          evidence_refs: ['ota_no_data_scope'],
+          data_gaps: [{ code: 'ota_same_period_source_rows_missing' }],
+          enough_for_executable_actions: false,
+        },
+        diagnostic_conclusion: { summary: '暂无可信诊断', confidence_level: 'low' },
+        suggested_actions: {
+          ready_count: 0,
+          blocked_count: 1,
+          items: [{
+            id: 'ota_action_collect_same_period_data',
+            action: '补齐同日 OTA 数据',
+            status: 'blocked_by_missing_ota_data',
+            execution_ready: false,
+            evidence_refs: ['ota_no_data_scope'],
+            required_evidence: ['same_period_ota_data'],
+            missing_evidence: [{ code: 'missing_same_period_ota_data', label: '同日 OTA 入库数据' }],
+            human_confirmation_status: 'blocked',
+          }],
+        },
+        blocked_state: { is_blocked: true, blocked_reasons: ['ota_same_period_source_rows_missing'] },
+        human_confirmation: { required: true, status: 'blocked', reason: 'recommended actions are blocked' },
+      },
+    };
+    const closureCards = buildOtaDiagnosisDecisionClosureCards(closureSample);
+    const loopSteps = buildOtaDiagnosisBusinessLoopSteps(closureSample);
+    const actionRows = buildOtaDiagnosisActionRows(closureSample);
+    const dataGapRows = buildOtaDiagnosisDataGapRows(closureSample);
+    checks.push({
+      file: 'public/ota-diagnosis-static.js',
+      label: 'OTA diagnosis decision closure UI helpers preserve blocked evidence state',
+      ok: closureCards.length === 5
+        && closureCards[0]?.key === 'data_evidence_input'
+        && closureCards[0]?.status === 'blocked'
+        && loopSteps.map(step => step.title).join(' -> ') === 'OTA数据 -> 收益分析 -> AI决策 -> 运营管理 -> 投资决策'
+        && loopSteps[4]?.status === 'blocked_by_operation_closure'
+        && actionRows[0]?.status === 'blocked_by_missing_ota_data'
+        && actionRows[0]?.missingText.includes('同日 OTA 入库数据')
+        && dataGapRows[0]?.code === 'ota_same_period_source_rows_missing'
+        && dataGapRows[0]?.status === 'blocked_by_data_gap',
+      detail: 'decision_closure blocked sample',
     });
   }
 } catch (error) {

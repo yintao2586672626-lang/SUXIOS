@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
+use app\service\OtaBrowserAssistImportService;
 use app\service\PlatformDataSyncService;
 use think\Response;
 use think\facade\Db;
@@ -113,6 +114,24 @@ trait PlatformDataSourceConcern
         }
     }
 
+    public function importBrowserAssistCapture(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $payload = $this->browserAssistCaptureRequestData();
+            $service = new OtaBrowserAssistImportService();
+            $result = $service->importCapture($this->currentUser, $payload);
+            OperationLog::record('online_data', 'import_browser_assist_capture', '导入浏览器辅助采集数据，分包: ' . $result['package_count'] . '，入库: ' . $result['saved_count'], $this->currentUser->id, null);
+            return $this->success($result, '浏览器辅助采集导入完成');
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('浏览器辅助采集导入失败: ' . $e->getMessage(), 500);
+        }
+    }
+
     public function syncTaskList(): Response
     {
         $this->checkPermission();
@@ -137,6 +156,40 @@ trait PlatformDataSourceConcern
         } catch (\Throwable $e) {
             return $this->error('获取同步日志失败: ' . $e->getMessage(), 500);
         }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function browserAssistCaptureRequestData(): array
+    {
+        $payload = $this->requestData();
+        $file = $this->request->file('file')
+            ?: $this->request->file('capture_file')
+            ?: $this->request->file('import_file');
+        if (!$file) {
+            return $payload;
+        }
+
+        $path = $file->getPathname();
+        if (!is_file($path)) {
+            throw new \RuntimeException('上传的采集文件不存在。', 422);
+        }
+        if ((int)filesize($path) > 5 * 1024 * 1024) {
+            throw new \RuntimeException('采集文件超过5MB。', 422);
+        }
+
+        $raw = file_get_contents($path);
+        if ($raw === false || trim($raw) === '') {
+            throw new \RuntimeException('采集文件为空。', 422);
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            throw new \RuntimeException('采集文件必须是JSON对象。', 422);
+        }
+
+        $payload['capture'] = $decoded;
+        return $payload;
     }
 
 }

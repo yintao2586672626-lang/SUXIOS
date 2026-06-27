@@ -131,7 +131,7 @@ function missing_requirement_employee_explanation(string $code, array $details =
                 $platformLabel . '最近可用历史数据只能作参考，不能替代目标日数据。',
                 '其它已采到平台的同日 OTA 指标可按平台单独复核。',
             ],
-            'explanation_next_action' => '使用现有' . $platformLabel . '手动或自动获取入口补齐目标日源数据。',
+            'explanation_next_action' => '默认使用现有' . $platformLabel . '浏览器 Profile 采集入口补齐目标日源数据；手动 Cookie/API 仅作临时补数或排障。',
         ];
     }
 
@@ -437,7 +437,7 @@ function next_action_for_missing_requirement(string $code, array $details = []):
             'action_code' => $code . '_collect_existing_path',
             'owner' => '酒店运营人员',
             'action' => sprintf(
-                '使用现有%s手动或自动获取入口补齐 %s 的 OTA 数据，然后重新运行真实闭环巡检。',
+                '默认使用现有%s浏览器 Profile 采集入口补齐 %s 的 OTA 数据，然后重新运行真实闭环巡检；手动 Cookie/API 仅作临时补数或排障。',
                 $platformLabel,
                 $date !== '' ? $date : '目标日期'
             ),
@@ -1141,7 +1141,7 @@ function inspection_next_action_employee_explanation(array $action): array
             'employee_explanation' => $platformLabel . '目标日没有同日 OTA 源数据行，不能证明今天' . $platformLabel . '数据已采到。',
             'limited_conclusions' => [$platformLabel . '收入', $platformLabel . '流量', $platformLabel . '转化', $platformLabel . '字段可信度', $platformLabel . 'AI 诊断'],
             'still_usable_metrics' => [$platformLabel . '最近可用历史数据只能作参考，不能替代目标日数据。', '其它已采到平台的同日 OTA 指标可按平台单独复核。'],
-            'explanation_next_action' => '使用现有' . $platformLabel . '手动或自动获取入口补齐目标日源数据。',
+            'explanation_next_action' => '默认使用现有' . $platformLabel . '浏览器 Profile 采集入口补齐目标日源数据；手动 Cookie/API 仅作临时补数或排障。',
         ],
         'standard_facts' => [
             'employee_explanation' => $platformLabel . '源数据没有形成可读的标准事实层，不能进入统一收益诊断。',
@@ -1193,18 +1193,18 @@ function inspection_next_action_entry(string $code): string
 {
     if (str_contains($code, 'source_rows_missing')) {
         if (str_starts_with($code, 'ctrip_')) {
-            return '/api/online-data/fetch-ctrip-overview';
+            return '/api/online-data/capture-ctrip-browser';
         }
         if (str_starts_with($code, 'meituan_')) {
-            return '/api/online-data/fetch-meituan';
+            return '/api/online-data/capture-meituan-browser';
         }
         return '/api/online-data/collection-reliability';
     }
     if ($code === 'ctrip_traffic_facts_missing_confirm_traffic_collection') {
-        return '/api/online-data/fetch-ctrip-traffic';
+        return '/api/online-data/capture-ctrip-browser';
     }
     if ($code === 'meituan_traffic_facts_missing_confirm_traffic_collection') {
-        return '/api/online-data/fetch-meituan-traffic';
+        return '/api/online-data/capture-meituan-browser';
     }
     if (str_contains($code, 'etl_not_ready')
         || str_contains($code, 'revenue_metrics_not_ready')
@@ -1358,7 +1358,7 @@ function inspection_traffic_acceptance_contract(): array
 function inspection_traffic_entry_options_with_readiness(string $platform, array $options): array
 {
     $platform = strtolower(trim($platform));
-    $preferredMode = 'manual_cookie_api';
+    $preferredMode = 'browser_profile';
     $indexed = [];
     foreach ($options as $index => $option) {
         if (!is_array($option)) {
@@ -1413,20 +1413,20 @@ function inspection_next_action_entry_options(string $code): array
         if (str_starts_with($code, 'ctrip_')) {
             return inspection_traffic_entry_options_with_readiness('ctrip', [
                 [
-                    'mode' => 'manual_cookie_api',
-                    'label' => '手动流量 Cookie/API',
-                    'entry' => '/api/online-data/fetch-ctrip-traffic',
-                    'use_when' => '已取得携程流量接口 Cookie、URL、spiderkey 或必要参数，需要临时补齐目标日流量事实。',
-                    'requires' => '用户提供授权上下文、流量接口参数和目标日期。',
-                    'boundary' => '不自动登录携程后台，不改变流量采集字段或字段映射。',
-                ],
-                [
                     'mode' => 'browser_profile',
                     'label' => '浏览器 Profile',
                     'entry' => '/api/online-data/capture-ctrip-browser',
-                    'use_when' => '门店携程浏览器 Profile 已登录授权，需要走现有自动采集路径补齐流量事实。',
+                    'use_when' => '默认主线：门店携程浏览器 Profile 已登录授权，走现有自动采集路径补齐流量事实。',
                     'requires' => '本地 Profile 存在且携程账号登录态有效。',
                     'boundary' => '不绕过验证码、短信或人机验证，不改变自动采集逻辑。',
+                ],
+                [
+                    'mode' => 'manual_cookie_api',
+                    'label' => '临时流量 Cookie/API',
+                    'entry' => '/api/online-data/fetch-ctrip-traffic',
+                    'use_when' => '仅临时使用：已取得携程流量接口 Cookie、URL、spiderkey 或必要参数，需要补齐目标日流量事实或排障。',
+                    'requires' => '用户提供授权上下文、流量接口参数和目标日期。',
+                    'boundary' => '不作为日常主线，不自动登录携程后台，不改变流量采集字段或字段映射。',
                 ],
                 [
                     'mode' => 'status_check',
@@ -1441,20 +1441,20 @@ function inspection_next_action_entry_options(string $code): array
         if (str_starts_with($code, 'meituan_')) {
             return inspection_traffic_entry_options_with_readiness('meituan', [
                 [
-                    'mode' => 'manual_cookie_api',
-                    'label' => '手动流量 Cookie/API',
-                    'entry' => '/api/online-data/fetch-meituan-traffic',
-                    'use_when' => '已取得美团流量接口 Cookie、Partner ID、POI ID 或必要参数，需要临时补齐目标日流量事实。',
-                    'requires' => '用户提供授权上下文、门店/POI 标识、流量接口参数和目标日期。',
-                    'boundary' => '不代登录美团后台，不改变流量采集字段或字段映射。',
-                ],
-                [
                     'mode' => 'browser_profile',
                     'label' => '浏览器 Profile',
                     'entry' => '/api/online-data/capture-meituan-browser',
-                    'use_when' => '门店美团浏览器 Profile 已登录授权，需要走现有自动采集路径补齐流量事实。',
+                    'use_when' => '默认主线：门店美团浏览器 Profile 已登录授权，走现有自动采集路径补齐流量事实。',
                     'requires' => '本地 Profile 存在且美团账号登录态有效。',
                     'boundary' => '不绕过验证码、短信或人机验证，不改变自动采集逻辑。',
+                ],
+                [
+                    'mode' => 'manual_cookie_api',
+                    'label' => '临时流量 Cookie/API',
+                    'entry' => '/api/online-data/fetch-meituan-traffic',
+                    'use_when' => '仅临时使用：已取得美团流量接口 Cookie、Partner ID、POI ID 或必要参数，需要补齐目标日流量事实或排障。',
+                    'requires' => '用户提供授权上下文、门店/POI 标识、流量接口参数和目标日期。',
+                    'boundary' => '不作为日常主线，不代登录美团后台，不改变流量采集字段或字段映射。',
                 ],
                 [
                     'mode' => 'status_check',
@@ -1504,20 +1504,20 @@ function inspection_next_action_entry_options(string $code): array
     if (str_starts_with($code, 'ctrip_')) {
         return inspection_entry_options_with_readiness('ctrip', [
             [
-                'mode' => 'manual_cookie_api',
-                'label' => '手动 Cookie/API',
-                'entry' => '/api/online-data/fetch-ctrip-overview',
-                'use_when' => '已取得携程 Cookie、Payload 或必要参数，需要临时补齐目标日经营概况。',
-                'requires' => '用户提供授权上下文、平台酒店标识和目标日期。',
-                'boundary' => '不自动登录携程后台，不启动浏览器 Profile，不改变采集字段。',
-            ],
-            [
                 'mode' => 'browser_profile',
                 'label' => '浏览器 Profile',
                 'entry' => '/api/online-data/capture-ctrip-browser',
-                'use_when' => '门店携程浏览器 Profile 已登录授权，需要走现有自动采集路径。',
+                'use_when' => '默认主线：门店携程浏览器 Profile 已登录授权，走现有自动采集路径。',
                 'requires' => '本地 Profile 存在且携程账号登录态有效。',
                 'boundary' => '不绕过验证码、短信或人机验证，不改变自动采集逻辑。',
+            ],
+            [
+                'mode' => 'manual_cookie_api',
+                'label' => '临时 Cookie/API',
+                'entry' => '/api/online-data/fetch-ctrip-overview',
+                'use_when' => '仅临时使用：已取得携程 Cookie、Payload 或必要参数，需要补齐目标日经营概况或排障。',
+                'requires' => '用户提供授权上下文、平台酒店标识和目标日期。',
+                'boundary' => '不作为日常主线，不自动登录携程后台，不启动浏览器 Profile，不改变采集字段。',
             ],
             [
                 'mode' => 'status_check',
@@ -1532,20 +1532,20 @@ function inspection_next_action_entry_options(string $code): array
     if (str_starts_with($code, 'meituan_')) {
         return inspection_entry_options_with_readiness('meituan', [
             [
-                'mode' => 'manual_cookie_api',
-                'label' => '手动 Cookie/API',
-                'entry' => '/api/online-data/fetch-meituan',
-                'use_when' => '已取得美团 Cookie、Session、POI 或必要 Payload，需要临时补齐目标日数据。',
-                'requires' => '用户提供授权上下文、门店/POI 标识和目标日期。',
-                'boundary' => '不代登录美团后台，不启动浏览器 Profile，不改变采集字段。',
-            ],
-            [
                 'mode' => 'browser_profile',
                 'label' => '浏览器 Profile',
                 'entry' => '/api/online-data/capture-meituan-browser',
-                'use_when' => '门店美团浏览器 Profile 已登录授权，需要走现有自动采集路径。',
+                'use_when' => '默认主线：门店美团浏览器 Profile 已登录授权，走现有自动采集路径。',
                 'requires' => '本地 Profile 存在且美团账号登录态有效。',
                 'boundary' => '不绕过验证码、短信或人机验证，不改变自动采集逻辑。',
+            ],
+            [
+                'mode' => 'manual_cookie_api',
+                'label' => '临时 Cookie/API',
+                'entry' => '/api/online-data/fetch-meituan',
+                'use_when' => '仅临时使用：已取得美团 Cookie、Session、POI 或必要 Payload，需要补齐目标日数据或排障。',
+                'requires' => '用户提供授权上下文、门店/POI 标识和目标日期。',
+                'boundary' => '不作为日常主线，不代登录美团后台，不启动浏览器 Profile，不改变采集字段。',
             ],
             [
                 'mode' => 'status_check',
@@ -3562,6 +3562,145 @@ function inspection_traffic_source_p0_payload_gate_summary(string $payloadPath):
     return $summary;
 }
 
+/**
+ * @param array<int, string> $args
+ * @return array{exit_code:int, stdout:string, stderr:string}
+ */
+function inspection_run_process(array $args, string $cwd): array
+{
+    $command = implode(' ', array_map('escapeshellarg', $args));
+    $descriptors = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $process = proc_open($command, $descriptors, $pipes, $cwd);
+    if (!is_resource($process)) {
+        return ['exit_code' => 1, 'stdout' => '', 'stderr' => 'process_start_failed'];
+    }
+
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    return [
+        'exit_code' => proc_close($process),
+        'stdout' => is_string($stdout) ? $stdout : '',
+        'stderr' => is_string($stderr) ? $stderr : '',
+    ];
+}
+
+function inspection_traffic_source_p0_payload_dry_run_defaults(): array
+{
+    return [
+        'importer_status' => 'not_run',
+        'importer_exit_code' => null,
+        'target_date_rows' => 0,
+        'traffic_evidence_rows' => 0,
+        'evidence_source_path_rows' => 0,
+        'evidence_structured_source_path_rows' => 0,
+        'evidence_raw_data_field_facts_rows' => 0,
+        'evidence_raw_data_exposed_rows' => 0,
+        'evidence_sensitive_value_rows' => 0,
+        'evidence_metric_keys' => [],
+        'evidence_missing_metric_keys' => [],
+        'dry_run_issue_codes' => [],
+        'dry_run_policy' => 'importer_dry_run_only_no_storage_write',
+    ];
+}
+
+/**
+ * @param array<int, mixed> $trafficEvidence
+ * @param array<string, mixed> $summary
+ */
+function inspection_traffic_source_p0_payload_evidence_diagnostics(array $trafficEvidence, array $summary): array
+{
+    $result = inspection_traffic_source_p0_payload_dry_run_defaults();
+    $metricKeys = [];
+    foreach ($trafficEvidence as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $sourcePath = trim((string)($row['source_path'] ?? ''));
+        if ($sourcePath !== '') {
+            $result['evidence_source_path_rows']++;
+        }
+        if (($row['source_path_structured'] ?? null) === true) {
+            $result['evidence_structured_source_path_rows']++;
+        }
+        if (($row['raw_data_field_facts_present'] ?? null) === true) {
+            $result['evidence_raw_data_field_facts_rows']++;
+        }
+        if (($row['raw_data_exposed'] ?? null) === true) {
+            $result['evidence_raw_data_exposed_rows']++;
+        }
+        if (($row['sensitive_values_exposed'] ?? null) === true) {
+            $result['evidence_sensitive_value_rows']++;
+        }
+        foreach ((array)($row['field_facts'] ?? []) as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            $metricKey = trim((string)($fact['metric_key'] ?? ''));
+            if ($metricKey !== '') {
+                $metricKeys[$metricKey] = true;
+            }
+        }
+    }
+    $missingMetricKeys = array_values(array_filter(array_map(
+        static fn($value): string => trim((string)$value),
+        (array)($summary['missing_metric_keys'] ?? [])
+    ), static fn(string $value): bool => $value !== ''));
+    sort($missingMetricKeys, SORT_STRING);
+    $metricKeys = array_keys($metricKeys);
+    sort($metricKeys, SORT_STRING);
+    $result['evidence_metric_keys'] = $metricKeys;
+    $result['evidence_missing_metric_keys'] = $missingMetricKeys;
+
+    return $result;
+}
+
+function inspection_traffic_source_p0_payload_importer_dry_run(string $platform, string $targetDate, int $systemHotelId, string $absolutePayloadPath): array
+{
+    global $root;
+
+    $result = inspection_traffic_source_p0_payload_dry_run_defaults();
+    if (!is_file($absolutePayloadPath)) {
+        return $result;
+    }
+
+    $run = inspection_run_process([
+        PHP_BINARY,
+        $root . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'import_p0_ota_traffic_payload.php',
+        '--platform=' . $platform,
+        '--date=' . $targetDate,
+        '--system-hotel-id=' . $systemHotelId,
+        '--payload=' . $absolutePayloadPath,
+        '--format=json',
+    ], $root);
+    $result['importer_exit_code'] = (int)$run['exit_code'];
+    $decoded = json_decode(trim($run['stdout']), true);
+    if (!is_array($decoded)) {
+        $result['importer_status'] = 'invalid_json';
+        return $result;
+    }
+
+    $summary = is_array($decoded['summary'] ?? null) ? $decoded['summary'] : [];
+    $trafficEvidence = array_values(array_filter((array)($decoded['traffic_evidence'] ?? []), 'is_array'));
+    $result = array_merge($result, inspection_traffic_source_p0_payload_evidence_diagnostics($trafficEvidence, $summary));
+    $result['importer_status'] = (string)($decoded['status'] ?? 'unknown');
+    $result['target_date_rows'] = max(0, (int)($summary['target_date_rows'] ?? 0));
+    $result['traffic_evidence_rows'] = count($trafficEvidence);
+    $result['dry_run_issue_codes'] = array_values(array_filter(array_map(
+        static fn($issue): string => is_array($issue) ? trim((string)($issue['code'] ?? '')) : '',
+        (array)($decoded['issues'] ?? [])
+    ), static fn(string $value): bool => $value !== ''));
+
+    return $result;
+}
+
 function inspection_traffic_source_p0_payload_candidate(string $platform, string $targetDate, int $systemHotelId): array
 {
     $payloadPath = inspection_traffic_source_p0_payload_candidate_path($platform, $targetDate, $systemHotelId);
@@ -3578,13 +3717,179 @@ function inspection_traffic_source_p0_payload_candidate(string $platform, string
     $absolutePayloadPath = $root . DIRECTORY_SEPARATOR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $payloadPath);
     $present = is_file($absolutePayloadPath);
     $gateSummary = $present ? inspection_traffic_source_p0_payload_gate_summary($payloadPath) : [];
+    $dryRun = $present ? inspection_traffic_source_p0_payload_importer_dry_run($platform, $targetDate, $systemHotelId, $absolutePayloadPath) : inspection_traffic_source_p0_payload_dry_run_defaults();
+    $readyToExecute = $present
+        && (int)($dryRun['importer_exit_code'] ?? 1) === 0
+        && (string)($dryRun['importer_status'] ?? '') === 'ready_to_import';
+    $status = $present ? ($readyToExecute ? 'ready_to_import' : 'blocked') : 'missing_expected_payload';
+    $issueCodes = $present
+        ? ($readyToExecute ? [] : (array)($dryRun['dry_run_issue_codes'] ?: ['payload_file_present_requires_importer_dry_run']))
+        : ['expected_payload_file_missing'];
+
+    return array_merge([
+        'status' => $status,
+        'ready_to_execute' => $readyToExecute,
+        'payload_path' => $payloadPath,
+        'issue_codes' => $issueCodes,
+        'capture_gate_summary' => $gateSummary,
+    ], $dryRun);
+}
+
+function inspection_traffic_source_latest_sync_task_summary(int $dataSourceId): array
+{
+    if ($dataSourceId <= 0) {
+        return ['status' => 'not_available', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+    }
+    try {
+        if (!table_exists('platform_data_sync_tasks')) {
+            return ['status' => 'task_table_missing', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+        }
+    } catch (Throwable $e) {
+        return ['status' => 'task_read_failed', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+    }
+
+    $fields = existing_columns('platform_data_sync_tasks', ['id', 'data_source_id', 'status', 'message', 'stats_json']);
+    if (!in_array('id', $fields, true) || !in_array('data_source_id', $fields, true)) {
+        return ['status' => 'task_schema_missing', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+    }
+
+    try {
+        $task = Db::name('platform_data_sync_tasks')
+            ->field(implode(',', $fields))
+            ->where('data_source_id', $dataSourceId)
+            ->order('id', 'desc')
+            ->find();
+    } catch (Throwable $e) {
+        return ['status' => 'task_read_failed', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+    }
+    if (!is_array($task) || $task === []) {
+        return ['status' => 'no_sync_task', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+    }
+
+    $stats = json_decode((string)($task['stats_json'] ?? ''), true);
+    $stats = is_array($stats) ? $stats : [];
+    return [
+        'status' => strtolower(trim((string)($task['status'] ?? 'unknown'))),
+        'message_code' => inspection_traffic_source_sync_task_message_code($task, $stats),
+        'saved_count' => max(0, (int)($stats['saved_count'] ?? 0)),
+        'normalized_count' => max(0, (int)($stats['normalized_count'] ?? 0)),
+        'sensitive_values_exposed' => false,
+    ];
+}
+
+function inspection_traffic_source_sync_task_message_code(array $task, array $stats): string
+{
+    $status = strtolower(trim((string)($task['status'] ?? '')));
+    $message = strtolower(trim((string)($task['message'] ?? '')));
+    $savedCount = max(0, (int)($stats['saved_count'] ?? 0));
+    $normalizedCount = max(0, (int)($stats['normalized_count'] ?? 0));
+    if ($status === '') {
+        return 'task_status_missing';
+    }
+    if (in_array($status, ['pending', 'running', 'syncing', 'syncing_after_login'], true)) {
+        return 'sync_running';
+    }
+    if ($status === 'success' && $savedCount > 0) {
+        return 'sync_reported_saved_rows_requires_target_date_verifier';
+    }
+    if (in_array($status, ['success', 'partial_success'], true) && $savedCount <= 0) {
+        return $normalizedCount > 0 ? 'sync_normalized_without_saved_rows' : 'sync_completed_without_saved_rows';
+    }
+    if ($status === 'waiting_config') {
+        return inspection_traffic_source_sync_task_message_looks_like_login_blocker($message) ? 'login_or_profile_not_ready' : 'waiting_config';
+    }
+    if (in_array($status, ['failed', 'capture_failed'], true)) {
+        if (str_contains($message, 'cannot find package') || str_contains($message, 'err_module_not_found') || str_contains($message, 'module_not_found') || str_contains($message, 'cloakbrowser')) {
+            return 'browser_dependency_missing';
+        }
+        if (inspection_traffic_source_sync_task_message_looks_like_login_blocker($message)) {
+            return 'login_or_profile_not_ready';
+        }
+        if (str_contains($message, 'no business rows') || str_contains($message, 'no rows') || str_contains($message, 'parsed') || str_contains($message, 'normalized_count=0')) {
+            return 'no_rows_parsed';
+        }
+        return 'capture_failed';
+    }
+    return 'unknown';
+}
+
+function inspection_traffic_source_sync_task_message_looks_like_login_blocker(string $message): bool
+{
+    return str_contains($message, 'profile is not prepared')
+        || str_contains($message, 'profile_not_prepared')
+        || str_contains($message, 'profile directory')
+        || str_contains($message, 'login session is not ready')
+        || str_contains($message, 're-login')
+        || str_contains($message, 'login_required')
+        || str_contains($message, 'login expired')
+        || str_contains($message, '登录')
+        || str_contains($message, '鐧诲綍');
+}
+
+function inspection_traffic_source_accumulate_latest_sync_task(array &$summary, array $task): void
+{
+    $summary['traffic_latest_sync_task_count'] = (int)($summary['traffic_latest_sync_task_count'] ?? 0) + 1;
+    $status = strtolower(trim((string)($task['status'] ?? 'unknown')));
+    if ($status !== '') {
+        $summary['traffic_latest_sync_task_status_counts'][$status] = ((int)($summary['traffic_latest_sync_task_status_counts'][$status] ?? 0)) + 1;
+    }
+    $messageCode = strtolower(trim((string)($task['message_code'] ?? '')));
+    if ($messageCode !== '') {
+        $summary['traffic_latest_sync_task_message_code_counts'][$messageCode] = ((int)($summary['traffic_latest_sync_task_message_code_counts'][$messageCode] ?? 0)) + 1;
+    }
+    $summary['traffic_latest_sync_task_saved_count'] = (int)($summary['traffic_latest_sync_task_saved_count'] ?? 0) + max(0, (int)($task['saved_count'] ?? 0));
+    $summary['traffic_latest_sync_task_normalized_count'] = (int)($summary['traffic_latest_sync_task_normalized_count'] ?? 0) + max(0, (int)($task['normalized_count'] ?? 0));
+    if (($task['sensitive_values_exposed'] ?? false) !== false) {
+        $summary['traffic_latest_sync_task_sensitive_values_exposed'] = true;
+    }
+}
+
+function inspection_traffic_source_profile_login_state_verified(array $config): bool
+{
+    foreach (['manual_login_state_verified', 'login_state_verified', 'profile_login_verified'] as $key) {
+        $value = $config[$key] ?? null;
+        if ($value === true || $value === 1 || $value === '1' || strtolower(trim((string)$value)) === 'true') {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function inspection_traffic_source_profile_login_trigger_action(string $platform, int $dataSourceId, int $systemHotelId, string $targetDate): array
+{
+    $platform = strtolower(trim($platform));
+    if (!in_array($platform, ['ctrip', 'meituan'], true) || $dataSourceId <= 0 || $systemHotelId <= 0) {
+        return [
+            'status' => 'not_available',
+            'reason' => 'missing_platform_data_source_or_hotel_scope',
+            'sensitive_values_exposed' => false,
+        ];
+    }
 
     return [
-        'status' => $present ? 'expected_payload_present_unverified' : 'missing_expected_payload',
-        'ready_to_execute' => false,
-        'payload_path' => $payloadPath,
-        'issue_codes' => $present ? ['payload_file_present_requires_importer_dry_run'] : ['expected_payload_file_missing'],
-        'capture_gate_summary' => $gateSummary,
+        'status' => 'available',
+        'method' => 'POST',
+        'entry' => '/api/online-data/profile-login-trigger/' . $platform,
+        'request_body' => [
+            'data_source_id' => $dataSourceId,
+            'system_hotel_id' => $systemHotelId,
+            'data_date' => $targetDate,
+            'capture_sections' => 'traffic',
+            'bind_data_source' => true,
+            'sync_after_login' => true,
+        ],
+        'request_policy' => 'backend_resolves_platform_identity_from_data_source_config; diagnostics do not expose raw platform identifiers; sync_after_login runs only after manual login succeeds.',
+        'after_login_sync' => [
+            'method' => 'POST',
+            'entry' => '/api/online-data/data-sources/' . $dataSourceId . '/sync',
+            'request_body' => [
+                'data_date' => $targetDate,
+                'capture_sections' => 'traffic',
+                'sections' => ['traffic'],
+            ],
+        ],
+        'sensitive_values_exposed' => false,
     ];
 }
 
@@ -3617,6 +3922,7 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
         $sourceChainPolicy = 'Target-date source rows include traffic/flow/conversion data types; P0 closure still requires ready verifier status.';
     }
     $p0FieldLoopMatrix = inspection_traffic_source_p0_field_loop_matrix($requiredMetricKeys, $requiredStorageFields, $targetDateTrafficRows, $platform, $targetDate);
+    $p0StandardFactSummary = inspection_traffic_source_p0_standard_fact_summary($requiredMetricKeys, $requiredStorageFields, $p0FieldLoopMatrix, $targetDateTrafficRows);
     $p0PlatformHotelIdentifierSource = $platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
     $p0PlatformHotelIdentifierStatus = $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'no_target_date_traffic_rows';
     $base = [
@@ -3632,12 +3938,23 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
         'traffic_managed_count' => 0,
         'traffic_secret_configured_count' => 0,
         'traffic_last_sync_status_counts' => [],
+        'traffic_latest_sync_task_count' => 0,
+        'traffic_latest_sync_task_status_counts' => [],
+        'traffic_latest_sync_task_message_code_counts' => [],
+        'traffic_latest_sync_task_saved_count' => 0,
+        'traffic_latest_sync_task_normalized_count' => 0,
+        'traffic_latest_sync_task_sensitive_values_exposed' => false,
         'required_next_inputs' => [],
         'recommended_collection_mode' => 'status_check',
         'action_entry' => '/api/online-data/collection-reliability',
         'status' => 'not_registered',
         'source_policy' => 'read_platform_data_sources_metadata_only',
         'sensitive_values_exposed' => false,
+        'p0_profile_login_trigger_policy' => 'metadata_only_backend_resolves_platform_identity',
+        'p0_profile_login_trigger_available_count' => 0,
+        'p0_profile_login_trigger_unavailable_count' => 0,
+        'p0_after_login_sync_available_count' => 0,
+        'p0_manual_login_state_verified_count' => 0,
         'p0_traffic_gate_status' => 'missing_target_date_traffic_rows',
         'p0_next_action_mode' => 'status_check',
         'p0_next_action_entry' => '/api/online-data/collection-reliability',
@@ -3664,6 +3981,15 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
         'p0_payload_candidate_captured_response_count' => 0,
         'p0_payload_candidate_business_row_count' => 0,
         'p0_payload_candidate_latest_captured_at' => '',
+        'p0_payload_candidate_target_date_rows' => 0,
+        'p0_payload_candidate_traffic_evidence_rows' => 0,
+        'p0_payload_candidate_evidence_source_path_rows' => 0,
+        'p0_payload_candidate_evidence_structured_source_path_rows' => 0,
+        'p0_payload_candidate_evidence_raw_data_field_facts_rows' => 0,
+        'p0_payload_candidate_evidence_raw_data_exposed_rows' => 0,
+        'p0_payload_candidate_evidence_sensitive_value_rows' => 0,
+        'p0_payload_candidate_evidence_metric_keys' => [],
+        'p0_payload_candidate_evidence_missing_metric_keys' => [],
         'p0_required_metric_keys' => $requiredMetricKeys,
         'p0_required_storage_fields' => $requiredStorageFields,
         'p0_required_field_fact_keys' => $requiredFieldFactKeys,
@@ -3679,6 +4005,7 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
         'p0_source_chain_scope' => $sourceChainScope,
         'p0_source_chain_policy' => $sourceChainPolicy,
     ];
+    $base = array_merge($base, $p0StandardFactSummary);
 
     try {
         if (!table_exists('platform_data_sources')) {
@@ -3746,9 +4073,27 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
         if ($lastSyncStatus !== '') {
             $lastSyncCounts[$lastSyncStatus] = ($lastSyncCounts[$lastSyncStatus] ?? 0) + 1;
         }
+        inspection_traffic_source_accumulate_latest_sync_task(
+            $base,
+            inspection_traffic_source_latest_sync_task_summary((int)($row['id'] ?? 0))
+        );
 
         $config = json_decode((string)($row['config_json'] ?? ''), true);
         $config = is_array($config) ? $config : [];
+        $manualLoginStateVerified = inspection_traffic_source_profile_login_state_verified($config);
+        $profileLoginTrigger = inspection_traffic_source_profile_login_trigger_action($platform, (int)($row['id'] ?? 0), (int)($row['system_hotel_id'] ?? 0), $targetDate);
+        if ($manualLoginStateVerified) {
+            $base['p0_manual_login_state_verified_count']++;
+        }
+        if ((string)($profileLoginTrigger['status'] ?? '') === 'available') {
+            $base['p0_profile_login_trigger_available_count']++;
+        } else {
+            $base['p0_profile_login_trigger_unavailable_count']++;
+        }
+        $afterLoginSync = $profileLoginTrigger['after_login_sync'] ?? null;
+        if (is_array($afterLoginSync) && trim((string)($afterLoginSync['entry'] ?? '')) !== '') {
+            $base['p0_after_login_sync_available_count']++;
+        }
         if (($config['registered_by'] ?? '') === 'p0_ota_field_loop') {
             $base['traffic_managed_count']++;
             $candidate = inspection_traffic_source_p0_payload_candidate($platform, $targetDate, (int)($row['system_hotel_id'] ?? 0));
@@ -3767,6 +4112,25 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
             }
             if (($candidate['payload_path'] ?? '') !== '') {
                 $base['p0_payload_candidate_paths'][] = (string)$candidate['payload_path'];
+            }
+            $base['p0_payload_candidate_target_date_rows'] += max(0, (int)($candidate['target_date_rows'] ?? 0));
+            $base['p0_payload_candidate_traffic_evidence_rows'] += max(0, (int)($candidate['traffic_evidence_rows'] ?? 0));
+            $base['p0_payload_candidate_evidence_source_path_rows'] += max(0, (int)($candidate['evidence_source_path_rows'] ?? 0));
+            $base['p0_payload_candidate_evidence_structured_source_path_rows'] += max(0, (int)($candidate['evidence_structured_source_path_rows'] ?? 0));
+            $base['p0_payload_candidate_evidence_raw_data_field_facts_rows'] += max(0, (int)($candidate['evidence_raw_data_field_facts_rows'] ?? 0));
+            $base['p0_payload_candidate_evidence_raw_data_exposed_rows'] += max(0, (int)($candidate['evidence_raw_data_exposed_rows'] ?? 0));
+            $base['p0_payload_candidate_evidence_sensitive_value_rows'] += max(0, (int)($candidate['evidence_sensitive_value_rows'] ?? 0));
+            foreach ((array)($candidate['evidence_metric_keys'] ?? []) as $metricKey) {
+                $metricKey = trim((string)$metricKey);
+                if ($metricKey !== '') {
+                    $base['p0_payload_candidate_evidence_metric_keys'][] = $metricKey;
+                }
+            }
+            foreach ((array)($candidate['evidence_missing_metric_keys'] ?? []) as $metricKey) {
+                $metricKey = trim((string)$metricKey);
+                if ($metricKey !== '') {
+                    $base['p0_payload_candidate_evidence_missing_metric_keys'][] = $metricKey;
+                }
             }
             foreach ((array)($candidate['issue_codes'] ?? []) as $issueCode) {
                 $issueCode = trim((string)$issueCode);
@@ -3804,6 +4168,8 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
     }
 
     ksort($lastSyncCounts);
+    ksort($base['traffic_latest_sync_task_status_counts']);
+    ksort($base['traffic_latest_sync_task_message_code_counts']);
     $base['traffic_last_sync_status_counts'] = $lastSyncCounts;
     ksort($base['p0_payload_candidate_status_counts']);
     ksort($base['p0_payload_candidate_gate_status_counts']);
@@ -3817,6 +4183,10 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
     $base['p0_payload_candidate_paths'] = array_values(array_unique($base['p0_payload_candidate_paths']));
     $base['p0_payload_candidate_issue_codes'] = array_values(array_unique($base['p0_payload_candidate_issue_codes']));
     $base['p0_payload_candidate_gate_failed_check_ids'] = array_values(array_unique($base['p0_payload_candidate_gate_failed_check_ids']));
+    $base['p0_payload_candidate_evidence_metric_keys'] = array_values(array_unique($base['p0_payload_candidate_evidence_metric_keys']));
+    $base['p0_payload_candidate_evidence_missing_metric_keys'] = array_values(array_unique($base['p0_payload_candidate_evidence_missing_metric_keys']));
+    sort($base['p0_payload_candidate_evidence_metric_keys'], SORT_STRING);
+    sort($base['p0_payload_candidate_evidence_missing_metric_keys'], SORT_STRING);
     if ((int)$base['target_date_traffic_rows'] > 0) {
         $base['status'] = 'target_date_traffic_ready';
     } elseif ((int)$base['traffic_source_count'] <= 0) {
@@ -3838,6 +4208,72 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
     $base['required_next_inputs'] = inspection_traffic_source_required_next_inputs($platform, $base);
 
     return $base;
+}
+
+function inspection_traffic_source_p0_standard_fact_summary(array $requiredMetricKeys, array $requiredStorageFields, array $fieldLoopMatrix, int $targetDateTrafficRows): array
+{
+    $statusCounts = [];
+    $completeMetricKeys = [];
+    $missingMetricKeys = [];
+    $incompleteMetricKeys = [];
+
+    foreach ($fieldLoopMatrix as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $status = trim((string)($item['status'] ?? 'not_loaded'));
+        if ($status === '') {
+            $status = 'not_loaded';
+        }
+        $statusCounts[$status] = (int)($statusCounts[$status] ?? 0) + 1;
+        $metricKey = trim((string)($item['metric_key'] ?? ''));
+        if ($metricKey === '') {
+            continue;
+        }
+        if ($status === 'complete') {
+            $completeMetricKeys[$metricKey] = true;
+        } elseif (in_array($status, ['no_target_date_traffic_rows', 'missing'], true)) {
+            $missingMetricKeys[$metricKey] = true;
+        } else {
+            $incompleteMetricKeys[$metricKey] = true;
+        }
+    }
+
+    ksort($statusCounts);
+    $completeMetricKeys = array_values(array_keys($completeMetricKeys));
+    $missingMetricKeys = array_values(array_keys($missingMetricKeys));
+    $incompleteMetricKeys = array_values(array_keys($incompleteMetricKeys));
+    sort($completeMetricKeys, SORT_STRING);
+    sort($missingMetricKeys, SORT_STRING);
+    sort($incompleteMetricKeys, SORT_STRING);
+
+    $requiredMetricCount = count(array_values($requiredMetricKeys));
+    if ($fieldLoopMatrix === []) {
+        $standardFactStatus = 'not_loaded';
+    } elseif (max(0, $targetDateTrafficRows) <= 0 || (int)($statusCounts['no_target_date_traffic_rows'] ?? 0) > 0) {
+        $standardFactStatus = 'missing_target_date_traffic_rows';
+    } elseif ($requiredMetricCount > 0 && count($completeMetricKeys) >= $requiredMetricCount && $missingMetricKeys === [] && $incompleteMetricKeys === []) {
+        $standardFactStatus = 'ready';
+    } elseif ((int)($statusCounts['requires_p0_verifier'] ?? 0) > 0) {
+        $standardFactStatus = 'requires_p0_verifier';
+    } else {
+        $standardFactStatus = 'incomplete';
+    }
+
+    return [
+        'p0_standard_fact_policy' => 'derived_from_p0_field_loop_matrix_ota_channel_only',
+        'p0_standard_fact_status' => $standardFactStatus,
+        'p0_standard_fact_raw_data_policy' => 'raw_data_field_facts_only_raw_payload_not_returned',
+        'p0_standard_fact_required_metric_count' => $requiredMetricCount,
+        'p0_standard_fact_complete_metric_count' => count($completeMetricKeys),
+        'p0_standard_fact_missing_metric_count' => count($missingMetricKeys),
+        'p0_standard_fact_incomplete_metric_count' => count($incompleteMetricKeys),
+        'p0_standard_fact_storage_field_count' => count(array_values($requiredStorageFields)),
+        'p0_standard_fact_status_counts' => $statusCounts,
+        'p0_standard_fact_complete_metric_keys' => $completeMetricKeys,
+        'p0_standard_fact_missing_metric_keys' => $missingMetricKeys,
+        'p0_standard_fact_incomplete_metric_keys' => $incompleteMetricKeys,
+    ];
 }
 
 function inspection_traffic_source_p0_field_loop_matrix(array $requiredMetricKeys, array $requiredStorageFields, int $targetDateTrafficRows, string $platform = '', string $targetDate = ''): array
@@ -4116,14 +4552,10 @@ function inspection_traffic_source_p0_capture_evidence_matches_row(array $desens
 
 function inspection_traffic_source_recommended_mode(string $platform, array $source): string
 {
-    $platform = strtolower(trim($platform));
     if ((int)($source['target_date_traffic_rows'] ?? 0) > 0) {
         return 'status_check';
     }
-    if ($platform === 'meituan' && (int)($source['traffic_source_count'] ?? 0) > 0) {
-        return 'browser_profile';
-    }
-    return 'manual_cookie_api';
+    return 'browser_profile';
 }
 
 function inspection_traffic_source_action_entry_for_mode(string $platform, string $mode): string
@@ -4159,9 +4591,11 @@ function inspection_traffic_source_required_next_inputs(string $platform, array 
         return ['platform_data_sources_readable'];
     }
 
-    $inputs = $platform === 'meituan'
-        ? ['traffic_request_url_or_cdp_endpoint_evidence', 'traffic_payload_or_query_params', 'authorized_meituan_profile_dir', 'manual_login_state_verified']
-        : ['traffic_payload_or_query_params', 'authorized_ctrip_profile_dir', 'manual_login_state_verified'];
+    $inputs = [
+        'authorized_' . $platform . '_profile_dir',
+        'manual_login_state_verified',
+        'traffic_response_listener',
+    ];
 
     if ((int)($source['traffic_source_count'] ?? 0) <= 0) {
         array_unshift($inputs, 'registered_traffic_data_source');
@@ -4174,6 +4608,35 @@ function inspection_traffic_source_required_next_inputs(string $platform, array 
     return array_values(array_unique($inputs));
 }
 
+function inspection_traffic_source_latest_sync_task_text(array $source): string
+{
+    $taskCount = max(0, (int)($source['traffic_latest_sync_task_count'] ?? 0));
+    if ($taskCount <= 0) {
+        return '';
+    }
+    $codeCounts = is_array($source['traffic_latest_sync_task_message_code_counts'] ?? null)
+        ? $source['traffic_latest_sync_task_message_code_counts']
+        : [];
+    $savedCount = max(0, (int)($source['traffic_latest_sync_task_saved_count'] ?? 0));
+    $normalizedCount = max(0, (int)($source['traffic_latest_sync_task_normalized_count'] ?? 0));
+    $parts = ['最近同步' . $taskCount . '项'];
+    if (!empty($codeCounts['login_or_profile_not_ready'])) {
+        $parts[] = '登录/Profile未就绪';
+    } elseif (!empty($codeCounts['browser_dependency_missing'])) {
+        $parts[] = '浏览器依赖缺失';
+    } elseif (!empty($codeCounts['sync_completed_without_saved_rows'])) {
+        $parts[] = '同步完成但未入库';
+    } elseif (!empty($codeCounts['sync_normalized_without_saved_rows'])) {
+        $parts[] = '已标准化但未入库';
+    } elseif (!empty($codeCounts['no_rows_parsed'])) {
+        $parts[] = '未解析到业务行';
+    }
+    if ($savedCount > 0 || $normalizedCount > 0) {
+        $parts[] = '标准化' . $normalizedCount . '行/入库' . $savedCount . '行';
+    }
+    return '（' . implode('，', $parts) . '）';
+}
+
 function inspection_traffic_source_readiness_text(array $source): string
 {
     $sourceCount = max(0, (int)($source['traffic_source_count'] ?? 0));
@@ -4181,19 +4644,34 @@ function inspection_traffic_source_readiness_text(array $source): string
     $waitingCount = max(0, (int)($source['traffic_waiting_config_count'] ?? 0));
     $trafficRows = max(0, (int)($source['target_date_traffic_rows'] ?? 0));
     $referenceSuffix = (bool)($source['p0_source_chain_reference_only'] ?? false) ? '，源证据仅参考' : '';
+    $latestSyncSuffix = inspection_traffic_source_latest_sync_task_text($source);
+    $entryParts = [];
+    $loginTriggerCount = max(0, (int)($source['p0_profile_login_trigger_available_count'] ?? 0));
+    $afterLoginSyncCount = max(0, (int)($source['p0_after_login_sync_available_count'] ?? 0));
+    $loginVerifiedCount = max(0, (int)($source['p0_manual_login_state_verified_count'] ?? 0));
+    if ($loginTriggerCount > 0) {
+        $entryParts[] = '登录入口' . $loginTriggerCount . '项';
+    }
+    if ($afterLoginSyncCount > 0) {
+        $entryParts[] = '登录后同步' . $afterLoginSyncCount . '项';
+    }
+    if ($loginVerifiedCount > 0) {
+        $entryParts[] = '登录态已确认' . $loginVerifiedCount . '项';
+    }
+    $entrySuffix = $entryParts !== [] ? '（' . implode('，', $entryParts) . '）' : '';
     if ($trafficRows > 0) {
-        return '目标日流量事实已入库';
+        return '目标日流量事实已入库' . $entrySuffix . $latestSyncSuffix;
     }
     if ($sourceCount <= 0) {
-        return '流量采集源未登记' . $referenceSuffix;
+        return '流量采集源未登记' . $referenceSuffix . $entrySuffix . $latestSyncSuffix;
     }
     if ($waitingCount > 0) {
-        return '流量采集源已登记，仍待授权或配置' . $referenceSuffix;
+        return '流量采集源已登记，仍待授权或配置' . $referenceSuffix . $entrySuffix . $latestSyncSuffix;
     }
     if ($readyCount > 0) {
-        return '流量采集源已就绪，但目标日流量事实未入库' . $referenceSuffix;
+        return '流量采集源已就绪，但目标日流量事实未入库' . $referenceSuffix . $entrySuffix . $latestSyncSuffix;
     }
-    return '流量采集源已登记，但状态未就绪' . $referenceSuffix;
+    return '流量采集源已登记，但状态未就绪' . $referenceSuffix . $entrySuffix . $latestSyncSuffix;
 }
 
 function inspection_traffic_source_next_action_text(array $source): string
@@ -4630,7 +5108,7 @@ function build_inspection_employee_questions(array $result): array
             ],
             'next_action' => $sourceCoverageStatus === 'complete'
                 ? ''
-                : '使用现有携程/美团手动或自动获取入口补齐缺失平台同日数据后重新巡检：' . ($missingSourcePlatformText !== '' ? $missingSourcePlatformText : '携程/美团'),
+                : '默认使用携程/美团浏览器 Profile 采集入口补齐缺失平台同日数据后重新巡检；手动 Cookie/API 仅作临时补数或排障：' . ($missingSourcePlatformText !== '' ? $missingSourcePlatformText : '携程/美团'),
         ],
         [
             'key' => 'trusted_fields',
