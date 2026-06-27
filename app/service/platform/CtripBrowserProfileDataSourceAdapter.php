@@ -1005,6 +1005,22 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             is_array($fieldConfigPayload['allowed_sections'] ?? null) ? $fieldConfigPayload['allowed_sections'] : []
         ))));
         if (!empty($fieldConfigPayload['configured']) && $allowedSections !== []) {
+            $hasOptionFieldConfig = array_key_exists('profile_field_config', $options)
+                || array_key_exists('profileFieldConfig', $options);
+            $hasOptionSections = false;
+            foreach (['capture_sections', 'captureSections', 'sections', 'profile_sections'] as $key) {
+                if (array_key_exists($key, $options) && trim((string)$options[$key]) !== '') {
+                    $hasOptionSections = true;
+                    break;
+                }
+            }
+            if ($hasOptionFieldConfig && !$hasOptionSections) {
+                foreach (['sequential_sections', 'sequentialSections', 'section_sequential', 'sectionSequential'] as $key) {
+                    if (array_key_exists($key, $options) && $this->truthy($options[$key])) {
+                        return implode(',', $allowedSections);
+                    }
+                }
+            }
             $optionSections = $this->firstString($options, $config, ['capture_sections', 'captureSections', 'sections', 'profile_sections'], '');
             $tokens = array_values(array_unique(array_filter(array_map(
                 'trim',

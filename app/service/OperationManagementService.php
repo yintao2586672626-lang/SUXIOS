@@ -610,6 +610,10 @@ class OperationManagementService
     public function buildPriceSuggestionExecutionIntentInput(array $suggestion, array $overrides = []): array
     {
         $date = $this->normalizeExecutionDate((string)($suggestion['suggestion_date'] ?? date('Y-m-d')));
+        $factors = $this->arrayValue($suggestion['factors'] ?? []);
+        $manualReview = $this->latestManualReviewFromFactors($factors);
+        $originalSuggestedPrice = (float)($suggestion['suggested_price'] ?? 0);
+        $targetPrice = $this->manualApprovedPriceFromReview($manualReview) ?? $originalSuggestedPrice;
 
         return [
             'source_module' => 'price_suggestion',
@@ -625,7 +629,7 @@ class OperationManagementService
                 'room_type_id' => (int)($suggestion['room_type_id'] ?? 0),
             ],
             'target_value' => [
-                'target_price' => (float)($suggestion['suggested_price'] ?? 0),
+                'target_price' => $targetPrice,
                 'min_price' => (float)($suggestion['min_price'] ?? 0),
                 'max_price' => (float)($suggestion['max_price'] ?? 0),
                 'room_type_key' => trim((string)($overrides['room_type_key'] ?? '')),
@@ -634,8 +638,13 @@ class OperationManagementService
             ],
             'evidence' => [
                 'reason' => (string)($suggestion['reason'] ?? ''),
-                'factors' => $this->arrayValue($suggestion['factors'] ?? []),
+                'factors' => $factors,
                 'competitor_data' => $this->arrayValue($suggestion['competitor_data'] ?? []),
+                'original_suggested_price' => $originalSuggestedPrice,
+                'approved_price' => $targetPrice,
+                'manual_review' => $manualReview === [] ? null : $manualReview,
+                'manual_review_storage' => $manualReview === [] ? null : 'price_suggestions.factors.manual_review_versions',
+                'auto_write_ota' => false,
             ],
             'expected_metric' => trim((string)($overrides['expected_metric'] ?? 'orders')),
             'expected_delta' => (float)($overrides['expected_delta'] ?? 0),
@@ -1517,6 +1526,46 @@ class OperationManagementService
         }
 
         return [];
+    }
+
+    /**
+     * @param array<string, mixed> $factors
+     * @return array<string, mixed>
+     */
+    private function latestManualReviewFromFactors(array $factors): array
+    {
+        if (is_array($factors['manual_review'] ?? null)) {
+            return $factors['manual_review'];
+        }
+
+        $versions = is_array($factors['manual_review_versions'] ?? null)
+            ? array_values($factors['manual_review_versions'])
+            : [];
+        $last = end($versions);
+
+        return is_array($last) ? $last : [];
+    }
+
+    /**
+     * @param array<string, mixed> $review
+     */
+    private function manualApprovedPriceFromReview(array $review): ?float
+    {
+        if (($review['action'] ?? '') !== 'approve_with_changes') {
+            return null;
+        }
+
+        $price = $review['approved_price'] ?? null;
+        if (is_string($price)) {
+            $price = preg_replace('/[^\d.\-]/', '', $price) ?? '';
+        }
+        if ($price === null || $price === '' || !is_numeric($price)) {
+            return null;
+        }
+
+        $number = round((float)$price, 2);
+
+        return $number > 0 ? $number : null;
     }
 
     private function normalizeExecutionDate(string $date): string

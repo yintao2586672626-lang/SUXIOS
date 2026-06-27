@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexPath = path.join(repoRoot, 'public/index.html');
 const publicRouterPath = path.join(repoRoot, 'public/router.php');
 const systemStaticPath = path.join(repoRoot, 'public/system-static.js');
+const revenueAiStaticPath = path.join(repoRoot, 'public/revenue-ai-static.js');
 const operationStaticPath = path.join(repoRoot, 'public/operation-static.js');
 const stylePath = path.join(repoRoot, 'public/style.css');
 const loginBgPngPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.png');
@@ -75,6 +77,9 @@ if (!fs.existsSync(indexPath)) {
   const stat = fs.statSync(indexPath);
   const content = fs.readFileSync(indexPath, 'utf8');
   const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
+  const revenueAiStaticContent = fs.existsSync(revenueAiStaticPath) ? fs.readFileSync(revenueAiStaticPath, 'utf8') : '';
+  const revenueAiServicePath = path.join(repoRoot, 'app/service/RevenueAiOverviewService.php');
+  const revenueAiServiceContent = fs.existsSync(revenueAiServicePath) ? fs.readFileSync(revenueAiServicePath, 'utf8') : '';
   const operationStaticContent = fs.existsSync(operationStaticPath) ? fs.readFileSync(operationStaticPath, 'utf8') : '';
   const ctripStaticPath = path.join(repoRoot, 'public/ctrip-static.js');
   const ctripStaticContent = fs.existsSync(ctripStaticPath) ? fs.readFileSync(ctripStaticPath, 'utf8') : '';
@@ -238,6 +243,251 @@ if (!fs.existsSync(indexPath)) {
     || !systemStaticContent.includes('if (Array.isArray(permissions)) return permissions.includes(key);')
     || !systemStaticContent.includes('return item.permissions.some(p => hasPermission(perms, p));')) {
     failures.push('public/system-static.js must keep visible menu filtering compatible with array and object permission payloads.');
+  }
+  try {
+    const sandbox = {
+      window: {},
+      document: { querySelector: () => null, createElement: () => ({ dataset: {}, addEventListener: () => {} }), head: { appendChild: () => {} } },
+      Promise,
+      Error,
+      setTimeout,
+      clearTimeout,
+    };
+    vm.runInNewContext(systemStaticContent, sandbox, { filename: 'public/system-static.js' });
+    const staticApi = sandbox.window.SUXI_SYSTEM_STATIC || {};
+    const topLevelNames = (staticApi.menuItemDefinitions || []).map((item) => item.name);
+    if (topLevelNames.join('|') !== '收益管理|线上数据|运营执行|系统设置') {
+      failures.push(`public/system-static.js top-level navigation must be 收益管理 / 线上数据 / 运营执行 / 系统设置, got: ${topLevelNames.join(' / ') || '(empty)'}.`);
+    }
+    const managerMenu = staticApi.filterVisibleMenuItems(staticApi.menuItemDefinitions, {
+      role_id: 2,
+      is_super_admin: false,
+      permissions: {
+        can_view_online_data: true,
+        can_manage_own_hotels: true,
+      },
+    });
+    if (JSON.stringify(managerMenu).includes('"path":"agent-center"')) {
+      failures.push('public/system-static.js manager-visible navigation must not expose the super-admin agent-center toolbox.');
+    }
+  } catch (error) {
+    failures.push(`public/system-static.js navigation guard could not evaluate menu definitions: ${error.message}`);
+  }
+  if (!content.includes('revenue-ai-static.js?v=20260627-business-date-cache-fix')
+    || !revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
+    || !revenueAiStaticContent.includes('buildRevenueAiGapRows')
+    || !revenueAiStaticContent.includes('buildRevenueAiMetricCards')
+    || !revenueAiStaticContent.includes('buildRevenueAiOverviewEndpoint')
+    || !revenueAiStaticContent.includes('resolveRevenueAiGapTarget')
+    || !revenueAiStaticContent.includes('buildRevenueAiPricingGateRows')
+    || !revenueAiStaticContent.includes('buildRevenueAiAgentActivityRows')
+    || !revenueAiStaticContent.includes('buildRevenueAiExecutionSummary')
+    || !revenueAiStaticContent.includes('buildRevenueAiExecutionRows')
+    || !revenueAiStaticContent.includes('buildRevenueAiEffectReviewRows')
+    || !revenueAiStaticContent.includes('evidenceSummary: item.evidence_summary ||')
+    || !revenueAiStaticContent.includes('latestEvidenceType: item.latest_evidence_type ||')
+    || !revenueAiStaticContent.includes('hasRevenueEvidence: item.has_revenue_evidence === true')
+    || !revenueAiStaticContent.includes('evidenceReadyForNextDay: item.evidence_ready_for_next_day === true')
+    || !revenueAiStaticContent.includes('inputActionKey: item.input_action_key ||')
+    || !revenueAiStaticContent.includes('inputNextAction: item.input_next_action ||')
+    || !revenueAiStaticContent.includes('nextActionKey: item.input_action_key || item.target_action ||')
+    || !revenueAiStaticContent.includes('actionLabel: item.input_action_label ||')
+    || !revenueAiStaticContent.includes("reason === 'operation_roi_missing' ? '补录ROI证据'")
+    || !revenueAiStaticContent.includes('effectReviewInputDisplay: effectReview.input_display ||')
+    || !revenueAiStaticContent.includes('effectReviewInputReadyCount: Number(effectReview.input_ready_count || 0)')
+    || !revenueAiStaticContent.includes('effectReviewInputPartialCount: Number(effectReview.input_partial_count || 0)')
+    || !content.includes('revenueAiExecutionSummary.effectReviewInputDisplay')
+    || !revenueAiServiceContent.includes('sortExecutionEffectReviewInputs')
+    || !revenueAiServiceContent.includes('executionEffectReviewInputPriority')
+    || !revenueAiServiceContent.includes('executionEffectReviewInputAction')
+    || !revenueAiServiceContent.includes('operationFeedbackInputGate')
+    || !revenueAiServiceContent.includes('pricingDecisionBasisSummary')
+    || !revenueAiServiceContent.includes("'expected_revpar_impact_display' =>")
+    || !revenueAiServiceContent.includes('priceSuggestionExpectedRevparImpact')
+    || !revenueAiServiceContent.includes("'decision_basis_summary' =>")
+    || !revenueAiServiceContent.includes("'target_page' => (string)($gate['target_page']")
+    || !revenueAiServiceContent.includes("'operation_feedback_input'")
+    || !revenueAiServiceContent.includes("'input_action_key' =>")
+    || !revenueAiServiceContent.includes("'input_next_action' =>")
+    || !revenueAiServiceContent.includes("$reason === 'operation_roi_missing'")
+    || !revenueAiServiceContent.includes("$reason === 'operation_execution_evidence_needed'")
+    || !revenueAiStaticContent.includes('canOpenExecution:')
+    || !revenueAiStaticContent.includes('targetPage,')
+    || !revenueAiStaticContent.includes('actionLabel,')
+    || !revenueAiStaticContent.includes('buildRevenueAiReviewQueueItems')
+    || !revenueAiStaticContent.includes('nextActions: Array.isArray(action.next_actions)')
+    || !revenueAiStaticContent.includes('reviewQueueSummary: action.review_queue_summary || reviewQueue.display ||')
+    || !revenueAiStaticContent.includes('impactLine,')
+    || !revenueAiStaticContent.includes('decisionBasisDisplay: decisionBasis.display ||')
+    || !revenueAiStaticContent.includes('decisionBasisHiddenBlockedCount')
+    || !revenueAiStaticContent.includes('decisionBasisHiddenDisplay:')
+    || !revenueAiStaticContent.includes('revenueAiDecisionBasisPriority')
+    || !revenueAiStaticContent.includes('.sort((left, right) =>')
+    || !revenueAiStaticContent.includes('decisionBasisItems,')
+    || !revenueAiStaticContent.includes('targetPage: item.target_page ||')
+    || !revenueAiStaticContent.includes('canOpenTarget: Boolean(item.target_page)')
+    || !revenueAiStaticContent.includes('const reviewQueueItems = buildRevenueAiReviewQueueItems(reviewQueue);')
+    || !revenueAiStaticContent.includes('approvedExecutionPendingCount')
+    || !revenueAiStaticContent.includes('executionPendingDisplay')
+    || !revenueAiStaticContent.includes('const actionEntry = item.action_entry && typeof item.action_entry ===')
+    || !revenueAiStaticContent.includes('const canApprove = item.can_review === true')
+    || !revenueAiStaticContent.includes('const canApproveWithChanges = item.can_review === true')
+    || !revenueAiStaticContent.includes('const canCreateExecutionIntent = manualActions.includes')
+    || !revenueAiStaticContent.includes('allowedEndpoints,')
+    || !revenueAiStaticContent.includes('nextAction: gate.next_action ||')
+    || !revenueAiStaticContent.includes('autoWriteOta: summary.auto_write_ota === true')
+    || !content.includes('const requireRevenueAiStatic = (key) => {')
+    || !revenueAiStaticContent.includes('const buildRevenueAiOverviewEndpoint = (options = {}) => {')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiBusinessDate = ({ overview = null, now = new Date() } = {}) => {')
+    || !content.includes("const revenueAiResolveBusinessDate = requireRevenueAiStatic('resolveRevenueAiBusinessDate');")
+    || !content.includes("const revenueAiResolveOverviewRequest = requireRevenueAiStatic('resolveRevenueAiOverviewRequest');")
+    || !content.includes("const revenueAiResolveOverviewResponse = requireRevenueAiStatic('resolveRevenueAiOverviewResponse');")
+    || !content.includes("const revenueAiBuildGapRows = requireRevenueAiStatic('buildRevenueAiGapRows');")
+    || !content.includes("const revenueAiResolveGapTarget = requireRevenueAiStatic('resolveRevenueAiGapTarget');")
+    || !content.includes("const revenueAiResolveDecisionBasisNavigation = requireRevenueAiStatic('resolveRevenueAiDecisionBasisNavigation');")
+    || !content.includes("const revenueAiBuildPricingGateRows = requireRevenueAiStatic('buildRevenueAiPricingGateRows');")
+    || !content.includes("const revenueAiBuildAgentActivityRows = requireRevenueAiStatic('buildRevenueAiAgentActivityRows');")
+    || !content.includes("const revenueAiBuildExecutionSummary = requireRevenueAiStatic('buildRevenueAiExecutionSummary');")
+    || !content.includes("const revenueAiBuildExecutionRows = requireRevenueAiStatic('buildRevenueAiExecutionRows');")
+    || !content.includes("const revenueAiBuildEffectReviewRows = requireRevenueAiStatic('buildRevenueAiEffectReviewRows');")
+    || !revenueAiStaticContent.includes('const revenueAiExecutionNeedsRoiEvidence = (row = {}) => {')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionNavigation = ({ row = {}, fallbackHotelId = 0 } = {}) => {')
+    || !content.includes("const revenueAiResolveExecutionAction = requireRevenueAiStatic('resolveRevenueAiExecutionAction');")
+    || !content.includes("const revenueAiIsReviewActionLoading = requireRevenueAiStatic('isRevenueAiReviewActionLoadingState');")
+    || !content.includes("const revenueAiBuildReviewActionLoadingState = requireRevenueAiStatic('buildRevenueAiReviewActionLoadingState');")
+    || !content.includes("const revenueAiResolveReviewActionDraft = requireRevenueAiStatic('resolveRevenueAiReviewActionDraft');")
+    || !content.includes("const revenueAiValidateApprovedPrice = requireRevenueAiStatic('validateRevenueAiApprovedPrice');")
+    || !content.includes("const revenueAiBuildReviewConfirmText = requireRevenueAiStatic('buildRevenueAiReviewConfirmText');")
+    || !content.includes("const revenueAiBuildReviewRequestBody = requireRevenueAiStatic('buildRevenueAiReviewRequestBody');")
+    || !content.includes("const revenueAiBuildExecutionIntentOpenRow = requireRevenueAiStatic('buildRevenueAiExecutionIntentOpenRow');")
+    || !content.includes("const revenueAiResolveReviewNavigation = requireRevenueAiStatic('resolveRevenueAiReviewNavigation');")
+    || !content.includes("const revenueAiBuildReviewNavigationState = requireRevenueAiStatic('buildRevenueAiReviewNavigationState');")
+    || content.includes("const revenueAiApiPath = requireRevenueAiStatic('normalizeRevenueAiApiPath');")
+    || !content.includes('const revenueAiPricingGateRows = computed(() => revenueAiBuildPricingGateRows({')
+    || !content.includes('const revenueAiAgentActivityRows = computed(() => revenueAiBuildAgentActivityRows({')
+    || !content.includes('const revenueAiExecutionSummary = computed(() => revenueAiBuildExecutionSummary({')
+    || !content.includes('const revenueAiBusinessDate = computed(() => revenueAiResolveBusinessDate({ overview: revenueAiOverview.value }));')
+    || content.includes('const revenueAiBusinessDate = computed(() => revenueAiOverview.value?.business_date || formatDate(')
+    || !content.includes('revenueAiBuildGapRows({')
+    || !content.includes('const overviewRequest = revenueAiResolveOverviewRequest({')
+    || !content.includes('await request(overviewRequest.endpoint)')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiOverviewResponse = ({ response = null, error = null } = {}) => {')
+    || !content.includes('const overviewResult = revenueAiResolveOverviewResponse({ response: res });')
+    || !content.includes('const overviewResult = revenueAiResolveOverviewResponse({ error: e });')
+    || content.includes("revenueAiOverviewError.value = res.message || 'Revenue AI 总览接口返回失败';")
+    || content.includes("revenueAiOverviewError.value = e.message || 'Revenue AI 总览接口请求失败';")
+    || content.includes("const loadRevenueAiOverview = async () => {\n                if (!token.value || currentPage.value !== 'compass') return null;")
+    || !content.includes('const { targetTab } = revenueAiResolveGapTarget(row);')
+    || content.includes('const revenueAiChannelStatus = (channel) =>')
+    || !content.includes('data-testid="revenue-ai-gap-closure"')
+    || !content.includes('data-testid="revenue-ai-pricing-gates"')
+    || !content.includes('data-testid="revenue-ai-review-queue"')
+    || !content.includes('data-testid="revenue-ai-decision-basis"')
+    || !content.includes('data-testid="revenue-ai-decision-basis-hidden"')
+    || !content.includes('@click="openRevenueAiDecisionBasis(basis)"')
+    || !content.includes('data-testid="revenue-ai-review-queue-items"')
+    || !content.includes('data-testid="revenue-ai-execution-pending"')
+    || !content.includes('{{ item.impactLine }}')
+    || !content.includes('data-testid="revenue-ai-agent-activity"')
+    || !content.includes('data-testid="revenue-ai-execution-summary"')
+    || !content.includes('data-testid="revenue-ai-effect-review-inputs"')
+    || !content.includes('const revenueAiEffectReviewRows = computed(() => revenueAiBuildEffectReviewRows({')
+    || !content.includes('v-if="action.nextActions?.length"')
+    || !content.includes('v-if="gate.nextAction"')
+    || !content.includes('const openRevenueAiGap = (row = {}) => {')
+    || !content.includes('const openRevenueAiDecisionBasis = async (basis = {}) => {')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiDecisionBasisNavigation = (basis = {}) => ({')
+    || content.includes('const targetPage = String(basis.targetPage || basis.target_page ||')
+    || !content.includes("if (navigation.targetPage === 'ops-track') {")
+    || !content.includes('const openRevenueAiExecutionItem = async (row = {}) => {')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionNavigation = ({ row = {}, fallbackHotelId = 0 } = {}) => {')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionAction = ({ row = {}, fallbackHotelId = 0 } = {}) => {')
+    || content.includes("const revenueAiExecutionNeedsRoiEvidence = requireRevenueAiStatic('revenueAiExecutionNeedsRoiEvidence');")
+    || content.includes("const revenueAiResolveExecutionNavigation = requireRevenueAiStatic('resolveRevenueAiExecutionNavigation');")
+    || content.includes("const revenueAiExecutionTaskActionItem = requireRevenueAiStatic('revenueAiExecutionTaskActionItem');")
+    || content.includes('const intentId = Number(row.intentId ||')
+    || content.includes('const revenueAiExecutionResolvedActionKey = (row = {}) => {')
+    || content.includes('const revenueAiExecutionTaskActionItem = (row = {}) => {')
+    || content.includes("const nextActionKey = navigation.nextActionKey;")
+    || content.includes("nextActionKey === 'record_execution_evidence'")
+    || content.includes("nextActionKey === 'record_roi_evidence'")
+    || content.includes("nextActionKey === 'record_effect_review'")
+    || content.includes("nextActionKey === 'review_effect'")
+    || content.includes("const revenueAiReviewActionKey = requireRevenueAiStatic('revenueAiReviewActionKey');")
+    || !revenueAiStaticContent.includes('const isRevenueAiReviewActionLoadingState = ({ state = {}, item = {}, action = \'\' } = {}) => {')
+    || !revenueAiStaticContent.includes('const buildRevenueAiReviewActionLoadingState = ({ state = {}, item = {}, action = \'\', loading = false } = {}) => {')
+    || !content.includes('return revenueAiIsReviewActionLoading({')
+    || !content.includes('revenueAiReviewActionLoading.value = revenueAiBuildReviewActionLoadingState({')
+    || content.includes('revenueAiReviewActionLoading.value[revenueAiReviewActionKey(item, action)]')
+    || content.includes('const key = revenueAiReviewActionKey(item, action);')
+    || content.includes("const revenueAiReviewActionText = requireRevenueAiStatic('revenueAiReviewActionText');")
+    || content.includes("const revenueAiReviewEndpoint = requireRevenueAiStatic('revenueAiReviewEndpoint');")
+    || content.includes("approve: '批准该调价建议'")
+    || content.includes("const endpoints = item.allowedEndpoints || {};")
+    || !revenueAiStaticContent.includes('const resolveRevenueAiReviewActionDraft = ({ item = {}, action = \'\' } = {}) => {')
+    || !content.includes('const draft = revenueAiResolveReviewActionDraft({ item, action });')
+    || content.includes('const suggestionId = Number(item.id || 0);')
+    || content.includes('item.autoWriteOta === true')
+    || content.includes("!endpoint.startsWith('/revenue-ai/price-suggestions/')")
+    || content.includes("showToast('不支持的审核动作'")
+    || content.includes("const parsedPrice = Number(String(inputValue).replace")
+    || content.includes("const body = normalizedAction === 'execution_intent'")
+    || !revenueAiStaticContent.includes("nextActionKey === 'record_execution_evidence'")
+    || !revenueAiStaticContent.includes("nextActionKey === 'record_evidence'")
+    || !content.includes('await recordOperationExecutionEvidence(taskItem);')
+    || !revenueAiStaticContent.includes("nextActionKey === 'record_roi_evidence'")
+    || !revenueAiStaticContent.includes("nextActionKey === 'record_effect_review'")
+    || !revenueAiStaticContent.includes("nextActionKey === 'review_effect'")
+    || !content.includes('await recordOperationRoiEvidence(taskItem);')
+    || !content.includes('await reviewOperationExecutionTask(taskItem);')
+    || !content.includes('const parseOptionalOperationEvidenceNumber = (value, label) => {')
+    || !content.includes('const normalizeOperationReviewStatus = (value) => {')
+    || !content.includes('const recordOperationRoiEvidence = async (item) => {')
+    || !content.includes("evidence_type: 'manual_roi_evidence'")
+    || !content.includes("source: 'revenue_ai_effect_review_input'")
+    || !content.includes("evidence_boundary: 'local_manual_roi_evidence_no_ota_write'")
+    || !content.includes('result_status: resultStatus')
+    || !content.includes('result_summary: resultSummary || \'继续观察，等待次日收益或ROI证据\'')
+    || !content.includes('复盘结论为达成/接近达成/未达成时必须填写说明')
+    || !content.includes("evidence_type: 'manual_price_execution'")
+    || !content.includes("evidence_boundary: 'local_manual_evidence_no_ota_write'")
+    || !content.includes('const operationEvidenceLocalTimestamp = () => {')
+    || !content.includes('执行前后收入需同时填写或都留空')
+    || !content.includes('current_value: operationEvidenceCleanObject({ ...currentValue, executed_before_price: beforePrice })')
+    || !content.includes('target_value: operationEvidenceCleanObject({ ...targetValue, executed_after_price: afterPrice })')
+    || !content.includes('const submitRevenueAiReviewAction = async (item = {}, action = \'\') => {')
+    || !content.includes('const isRevenueAiReviewActionLoading = (item = {}, action = \'\') => {')
+    || !content.includes("@click=\"openRevenueAiMetric(card)\"")
+    || !content.includes('@click="openRevenueAiExecutionItem(row)"')
+    || !content.includes('operationExecutionRowClass')
+    || !content.includes('@click="submitRevenueAiReviewAction(item, \'approve\')"')
+    || !content.includes('@click="submitRevenueAiReviewAction(item, \'approve_with_changes\')"')
+    || !content.includes('@click="submitRevenueAiReviewAction(item, \'reject\')"')
+    || !content.includes('@click="submitRevenueAiReviewAction(item, \'execution_intent\')"')
+    || !revenueAiStaticContent.includes("approve_with_changes: '修改后批准该调价建议'")
+    || !revenueAiStaticContent.includes('approved_price: approvedPrice')
+    || !content.includes("if (normalizedAction === 'execution_intent') {")
+    || !content.includes('await openRevenueAiExecutionItem(revenueAiBuildExecutionIntentOpenRow({')
+    || !revenueAiStaticContent.includes("targetAction: data.target_action || 'approve_intent'")
+    || !revenueAiStaticContent.includes("const resolveRevenueAiReviewNavigation = ({ item = {}, isSuperAdmin = false } = {}) => {")
+    || !revenueAiStaticContent.includes('const buildRevenueAiReviewNavigationState = (navigation = {}) => {')
+    || !content.includes('const navigationState = revenueAiBuildReviewNavigationState(navigation);')
+    || content.includes('filterReportHotel.value = navigation.hotelId')
+    || content.includes('priceSuggestionFilter.value.date = navigation.date')
+    || content.includes('priceSuggestionFilter.value.status = navigation.status')
+    || content.includes('revenueAgentTab.value = navigation.revenueAgentTab')
+    || content.includes('const entry = item.actionEntry || {};')
+    || content.includes("String(entry.target_page || '') !== 'agent-center'")
+    || !revenueAiStaticContent.includes("source: 'revenue_ai_homepage'")
+    || !content.includes("openOnlineDataEntryTab(targetTab, { force: true });")) {
+    failures.push('public/index.html must delegate Revenue AI display helpers to revenue-ai-static.js, keep gap/metric clicks on data-health, and expose only manual review/execution-intent actions.');
+  }
+  if (content.includes('@click="applyPriceSuggestion(item.id)"')) {
+    failures.push('public/index.html must not expose a direct apply-price button in Phase 1B; approved suggestions should be transferred to execution instead.');
+  }
+  if (content.includes('`/agent/price-suggestions/${id}/apply`')
+    || content.includes('已应用到房型基础价')) {
+    failures.push('public/index.html must not call the direct price apply endpoint or claim local base price was updated in Phase 1B.');
   }
   if (/<link\s+href=["']font-awesome\.min\.css["']\s+rel=["']stylesheet["']/.test(content)
     || !content.includes("const fontAwesomeStylesheet = 'font-awesome.min.css';")

@@ -352,6 +352,13 @@ Route::group('api/ota-standard', function () {
     Route::post('/analysis', 'OtaStandard/analysis');
 })->middleware(\app\middleware\Auth::class);
 
+// ==================== Revenue AI 首页只读总览 API ====================
+Route::group('api/revenue-ai', function () {
+    Route::get('/overview', 'RevenueAi/overview');
+    Route::post('/price-suggestions/:id/review', 'RevenueAi/reviewPriceSuggestion');
+    Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== AI 筹建管理路由 ====================
 Route::group('api/ai', function () {
     Route::post('/strategy', 'Ai/strategy');

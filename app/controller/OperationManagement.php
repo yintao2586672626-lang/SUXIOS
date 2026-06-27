@@ -270,7 +270,7 @@ class OperationManagement extends Base
             }
 
             [$hotelIds] = $this->resolveHotelScope();
-            return $this->success($this->service->reviewExecutionTask($id, $hotelIds));
+            return $this->success($this->service->reviewExecutionTask($id, $hotelIds, $this->requestData()));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'execution task review failed'), $this->operationThrowableStatus($e));
         }

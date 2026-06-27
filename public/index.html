@@ -58,6 +58,7 @@
     <script src="ctrip-static.js?v=20260617-profile-verification-cache-fix"></script>
     <script src="meituan-static.js?v=20260617-metric-cache-fix"></script>
     <script src="data-health-static.js?v=20260616-history-raw-helper"></script>
+    <script src="revenue-ai-static.js?v=20260627-business-date-cache-fix"></script>
     <script src="system-static.js?v=20260616-hotel-config-helpers"></script>
     <script src="compass-static.js?v=20260613-daily-workbench"></script>
     <script src="home-static.js?v=20260616-home-helpers"></script>
@@ -3800,7 +3801,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-100">
-                                        <tr v-for="item in operationExecutionItems" :key="item.id" class="hover:bg-gray-50">
+                                        <tr v-for="item in operationExecutionItems" :key="item.id" :class="operationExecutionRowClass(item)">
                                             <td class="px-4 py-3">
                                                 <div class="font-medium text-gray-900">{{ operationExecutionSourceText(item) }}</div>
                                                 <div class="text-xs text-gray-400">{{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
@@ -4899,21 +4900,21 @@
                         </div>
                     </div>
 
-                    <!-- 首页驾驶舱 -->
+                    <!-- Revenue AI 首页壳 -->
                     <div v-if="currentPage === 'compass'" class="compass-dashboard suxi-dashboard-scope">
                         <div class="compass-shell-card suxi-panel mb-6 overflow-hidden">
                             <div class="suxi-cockpit-header px-4 py-4 sm:px-5 lg:px-6" data-testid="home-cockpit-header">
                                 <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
                                     <div class="min-w-0">
-                                        <div class="text-[11px] font-semibold tracking-[0.14em] text-blue-100/80">OTA CHANNEL SCOPE</div>
-                                        <div class="mt-1 text-xl sm:text-2xl font-semibold text-white leading-tight">线上获客与收益罗盘</div>
+                                        <div class="text-[11px] font-semibold tracking-[0.14em] text-blue-100/80">REVENUE AI / OTA VERIFIED SCOPE</div>
+                                        <div class="mt-1 text-xl sm:text-2xl font-semibold text-white leading-tight">收益管理智能体总览</div>
                                         <div class="mt-3 grid grid-cols-2 gap-2 text-xs sm:flex sm:flex-wrap" data-testid="home-header-signal-row">
                                             <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
                                                 <span class="text-blue-200">数据</span>
                                                 <span class="ml-1 font-semibold text-white">{{ compassDataReadiness.summaryText }}</span>
                                             </span>
                                             <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
-                                                <span class="text-blue-200">趋势</span>
+                                                <span class="text-blue-200">样本</span>
                                                 <span class="ml-1 font-semibold text-white">{{ homeObservation?.sampleDaysText || '--' }}</span>
                                             </span>
                                             <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
@@ -4922,7 +4923,7 @@
                                             </span>
                                             <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
                                                 <span class="text-blue-200">动作</span>
-                                                <span class="ml-1 font-semibold text-white">{{ homeBoardActionRows[0]?.title || '复核数据' }}</span>
+                                                <span class="ml-1 font-semibold text-white">{{ revenueAiActionRows[0]?.title || revenueAiExecutionSummary.display || homeBoardActionRows[0]?.title || '复核数据' }}</span>
                                             </span>
                                         </div>
                                     </div>
@@ -4937,18 +4938,204 @@
                                             <span>最近同步 {{ compassLastSyncedAt }}</span>
                                         </div>
                                         <button @click="refreshCompassDashboard" :disabled="compassLoading" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60 whitespace-nowrap">
-                                            <i :class="compassLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ compassLoading ? '更新中' : '更新罗盘数据' }}
+                                            <i :class="compassLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ compassLoading ? '更新中' : '刷新状态' }}
                                         </button>
                                     </div>
                                 </div>
                             </div>
                             <div class="px-4 py-4 lg:px-6 bg-slate-50 space-y-4">
+                                <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4" data-testid="revenue-ai-status-strip">
+                                    <div v-for="row in revenueAiStatusRows" :key="row.key" class="min-h-[96px] rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <div class="truncate text-xs font-semibold text-slate-500" :title="row.label">{{ row.label }}</div>
+                                                <div class="mt-2 truncate text-base font-bold text-slate-900" :title="row.value">{{ row.value }}</div>
+                                            </div>
+                                            <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.status }}</span>
+                                        </div>
+                                        <div class="mt-2 line-clamp-2 text-xs leading-5 text-slate-500" :title="row.detail">{{ row.detail }}</div>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5" data-testid="revenue-ai-metric-cards">
+                                    <button type="button" v-for="card in revenueAiMetricCards" :key="card.key" @click="openRevenueAiMetric(card)" class="min-h-[118px] rounded-xl border border-slate-200 bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <div class="truncate text-xs font-semibold text-slate-500" :title="card.label">{{ card.label }}</div>
+                                                <div class="mt-2 truncate text-xl font-bold text-slate-900" :title="card.display">{{ card.display }}</div>
+                                            </div>
+                                            <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', card.className]">{{ card.statusLabel }}</span>
+                                        </div>
+                                        <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                                            <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.scopeLabel }}</span>
+                                            <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.dateBasisLabel }}</span>
+                                        </div>
+                                        <div class="mt-2 line-clamp-2 text-xs leading-5 text-slate-500" :title="card.reasonText">{{ card.reasonText }}</div>
+                                    </button>
+                                </div>
+                                <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="revenue-ai-gap-closure">
+                                    <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                        <div>
+                                            <div class="text-sm font-semibold text-slate-900">数据缺口闭环</div>
+                                            <div class="mt-1 text-xs text-slate-500">缺字段、登录失效、接口未命中和数据过期直接指向数据健康面板。</div>
+                                        </div>
+                                        <span :class="['w-fit rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiGapSummary.total > 0 ? revenueAiStatusClass(revenueAiGapSummary.high > 0 ? 'failed' : 'partial') : revenueAiStatusClass('ok')]">
+                                            {{ revenueAiGapSummary.total > 0 ? `${revenueAiGapSummary.total} 项待处理` : '暂无阻塞缺口' }}
+                                        </span>
+                                    </div>
+                                    <div v-if="revenueAiGapRows.length" class="grid grid-cols-1 gap-2 lg:grid-cols-2">
+                                        <button type="button" v-for="row in revenueAiGapRows" :key="row.key" @click="openRevenueAiGap(row)" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left transition hover:border-blue-200 hover:bg-white hover:shadow-sm">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="min-w-0">
+                                                    <div class="flex flex-wrap items-center gap-1.5">
+                                                        <span class="truncate text-sm font-semibold text-slate-900" :title="row.label">{{ row.label }}</span>
+                                                        <span class="rounded-md bg-white px-1.5 py-0.5 text-[11px] text-slate-500">{{ row.channelLabel }}</span>
+                                                    </div>
+                                                    <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500" :title="row.reasonText">{{ row.reasonText }}</div>
+                                                </div>
+                                                <div class="flex shrink-0 flex-col items-end gap-1">
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', row.statusClass]">{{ row.statusLabel }}</span>
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', row.severityClass]">{{ row.severityLabel }}</span>
+                                                </div>
+                                            </div>
+                                            <div class="mt-2 flex items-center justify-between gap-3 text-xs">
+                                                <span class="line-clamp-1 text-slate-600" :title="row.nextAction">{{ row.nextAction }}</span>
+                                                <span class="shrink-0 font-semibold text-blue-700">查看 <i class="fas fa-arrow-right ml-1 text-[10px]"></i></span>
+                                            </div>
+                                        </button>
+                                    </div>
+                                    <div v-else class="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700">
+                                        当前 Revenue AI 总览未返回阻塞缺口，仍以 OTA 渠道口径为准。
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 gap-3 xl:grid-cols-12" data-testid="revenue-ai-readonly-state">
+                                    <div class="xl:col-span-8 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                                        <div class="mb-3 flex items-center justify-between gap-3">
+                                            <div>
+                                                <div class="text-sm font-semibold text-slate-900">只读经营信号</div>
+                                                <div class="mt-1 text-xs text-slate-500">未具备数据时显示缺口原因，不生成预测或假建议。</div>
+                                            </div>
+                                            <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiOverviewLoading ? revenueAiStatusClass('unknown') : revenueAiStatusClass(revenueAiOverview?.data_status || 'unknown')]">{{ revenueAiOverviewLoading ? '加载中' : revenueAiStatusLabel(revenueAiOverview?.data_status || 'unknown') }}</span>
+                                        </div>
+                                        <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                                            <div v-for="signal in revenueAiSignalRows" :key="signal.key" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span class="text-xs font-semibold text-slate-500">{{ signal.label }}</span>
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', signal.className]">{{ signal.statusLabel }}</span>
+                                                </div>
+                                                <div class="mt-2 text-base font-bold text-slate-900">{{ signal.value }}</div>
+                                                <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500" :title="signal.reasonText">{{ signal.reasonText }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="xl:col-span-4 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                                        <div class="mb-3 flex items-center justify-between gap-3">
+                                            <div>
+                                                <div class="text-sm font-semibold text-slate-900">今日调价建议</div>
+                                                <div class="mt-1 text-xs text-slate-500">人工审核，不自动写 OTA。</div>
+                                            </div>
+                                            <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">人工审核</span>
+                                        </div>
+                                        <div class="space-y-2">
+                                            <div v-for="action in revenueAiActionRows" :key="action.key" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span class="text-sm font-semibold text-slate-900">{{ action.title }}</span>
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', action.className]">{{ action.statusLabel }}</span>
+                                                </div>
+                                                <div class="mt-1 line-clamp-3 text-xs leading-5 text-slate-500" :title="action.reasonText">{{ action.reasonText }}</div>
+                                                <div v-if="action.decisionBasisDisplay" class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5" data-testid="revenue-ai-decision-basis">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-slate-600" :title="action.decisionBasisDisplay">{{ action.decisionBasisDisplay }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.decisionBasisClassName]">{{ action.decisionBasisStatusLabel || '依据状态' }}</span>
+                                                    </div>
+                                                    <div v-if="action.decisionBasisItems?.length" class="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                                                        <button type="button" v-for="basis in action.decisionBasisItems" :key="basis.key" @click="openRevenueAiDecisionBasis(basis)" class="min-w-0 rounded-md bg-slate-50 px-2 py-1 text-left transition hover:bg-slate-100">
+                                                            <div class="flex items-center justify-between gap-2">
+                                                                <span class="truncate text-[11px] text-slate-600" :title="basis.label">{{ basis.label }}</span>
+                                                                <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', basis.className]">{{ basis.statusLabel }}</span>
+                                                            </div>
+                                                            <div class="mt-0.5 truncate text-[10px] text-slate-400" :title="basis.reasonText">{{ basis.reasonText }}</div>
+                                                        </button>
+                                                    </div>
+                                                    <div v-if="action.decisionBasisHiddenDisplay" class="mt-1 text-[10px] leading-4 text-amber-600" data-testid="revenue-ai-decision-basis-hidden">
+                                                        {{ action.decisionBasisHiddenDisplay }}
+                                                    </div>
+                                                </div>
+                                                <div v-if="action.reviewQueueSummary" class="mt-2 flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5" data-testid="revenue-ai-review-queue">
+                                                    <span class="truncate text-[11px] text-slate-600" :title="action.reviewQueueSummary">{{ action.reviewQueueSummary }}</span>
+                                                    <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.reviewQueueClassName]">{{ action.reviewQueueStatusLabel || '队列状态' }}</span>
+                                                </div>
+                                                <div v-if="action.executionPendingDisplay" class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5" data-testid="revenue-ai-execution-pending">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-blue-700" :title="action.executionPendingDisplay">{{ action.executionPendingDisplay }}</span>
+                                                        <span class="shrink-0 rounded-full border border-blue-200 bg-white px-1.5 py-0.5 text-[11px] text-blue-700 whitespace-nowrap">待执行交接</span>
+                                                    </div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-blue-600" :title="action.executionPendingReasonText">{{ action.executionPendingReasonText }}</div>
+                                                </div>
+                                                <div v-if="action.reviewQueueItems?.length" class="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white" data-testid="revenue-ai-review-queue-items">
+                                                    <div v-for="item in action.reviewQueueItems" :key="item.key" class="border-b border-slate-100 px-2 py-2 last:border-b-0">
+                                                        <div class="flex items-start justify-between gap-2">
+                                                            <div class="min-w-0">
+                                                                <div class="truncate text-xs font-semibold text-slate-700" :title="item.title">{{ item.title }}</div>
+                                                                <div class="mt-0.5 text-[11px] text-slate-400">{{ item.suggestionDate }}</div>
+                                                            </div>
+                                                            <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', item.className]">{{ item.statusLabel }}</span>
+                                                        </div>
+                                                        <div class="mt-1 truncate text-[11px] leading-4 text-slate-600" :title="item.priceLine">{{ item.priceLine }}</div>
+                                                        <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.evidenceLine">{{ item.evidenceLine }}</div>
+                                                        <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.impactLine">{{ item.impactLine }}</div>
+                                                        <div v-if="item.factorLine && item.factorLine !== '--'" class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.factorLine">{{ item.factorLine }}</div>
+                                                        <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="item.reasonText">{{ item.reasonText }}</div>
+                                                        <div v-if="item.canApprove || item.canApproveWithChanges || item.canReject || item.canCreateExecutionIntent" class="mt-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+                                                            <span class="text-[10px] text-slate-400">{{ item.actionHelpText }}</span>
+                                                            <div class="flex flex-wrap items-center gap-1">
+                                                                <button v-if="item.canApprove" type="button" @click="submitRevenueAiReviewAction(item, 'approve')" :disabled="isRevenueAiReviewActionLoading(item, 'approve')" class="shrink-0 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:border-emerald-200 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60">
+                                                                    {{ isRevenueAiReviewActionLoading(item, 'approve') ? '处理中' : '批准' }}
+                                                                </button>
+                                                                <button v-if="item.canApproveWithChanges" type="button" @click="submitRevenueAiReviewAction(item, 'approve_with_changes')" :disabled="isRevenueAiReviewActionLoading(item, 'approve_with_changes')" class="shrink-0 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:border-amber-200 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60">
+                                                                    {{ isRevenueAiReviewActionLoading(item, 'approve_with_changes') ? '处理中' : '改价批准' }}
+                                                                </button>
+                                                                <button v-if="item.canReject" type="button" @click="submitRevenueAiReviewAction(item, 'reject')" :disabled="isRevenueAiReviewActionLoading(item, 'reject')" class="shrink-0 rounded-lg border border-rose-100 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:border-rose-200 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60">
+                                                                    {{ isRevenueAiReviewActionLoading(item, 'reject') ? '处理中' : '拒绝' }}
+                                                                </button>
+                                                                <button v-if="item.canCreateExecutionIntent" type="button" @click="submitRevenueAiReviewAction(item, 'execution_intent')" :disabled="isRevenueAiReviewActionLoading(item, 'execution_intent')" class="shrink-0 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 hover:border-blue-200 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">
+                                                                    {{ isRevenueAiReviewActionLoading(item, 'execution_intent') ? '处理中' : '转执行' }}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div v-if="action.nextActions?.length" class="mt-2 space-y-1">
+                                                    <div v-for="nextAction in action.nextActions" :key="nextAction" class="flex items-start gap-1.5 text-[11px] leading-4 text-slate-600">
+                                                        <span class="mt-1 h-1 w-1 shrink-0 rounded-full bg-slate-400"></span>
+                                                        <span>{{ nextAction }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" data-testid="revenue-ai-pricing-gates">
+                                            <div class="mb-2 flex items-center justify-between gap-3">
+                                                <span class="text-xs font-semibold text-slate-600">调价前置条件</span>
+                                                <span class="text-[11px] text-slate-400">只读检查</span>
+                                            </div>
+                                            <div class="space-y-1.5">
+                                                <div v-for="gate in revenueAiPricingGateRows" :key="gate.key" class="flex items-start justify-between gap-2 rounded-lg bg-white px-2 py-1.5">
+                                                    <div class="min-w-0">
+                                                        <div class="truncate text-xs font-semibold text-slate-700" :title="gate.label">{{ gate.label }}</div>
+                                                        <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="gate.reasonText">{{ gate.reasonText }}</div>
+                                                        <div v-if="gate.nextAction" class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-400" :title="gate.nextAction">{{ gate.nextAction }}</div>
+                                                    </div>
+                                                    <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', gate.className]">{{ gate.statusLabel }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="home-operating-board">
                                     <div class="border-b border-slate-100 bg-gradient-to-r from-white via-slate-50 to-white px-3 py-3 sm:px-4">
                                         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                                             <div class="min-w-0">
-                                                <div class="text-[11px] font-semibold tracking-[0.12em] text-slate-400">OPERATING BOARD</div>
-                                                <h3 class="mt-1 text-lg font-bold text-gray-900 leading-tight">首页经营看板</h3>
+                                                <div class="text-[11px] font-semibold tracking-[0.12em] text-slate-400">REVENUE AI BOARD</div>
+                                                <h3 class="mt-1 text-lg font-bold text-gray-900 leading-tight">收益管理最小工作台</h3>
                                             </div>
                                             <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                                                 <div class="grid grid-cols-4 rounded-xl border border-slate-200 bg-white/80 p-1 text-xs shadow-sm sm:inline-grid">
@@ -5192,6 +5379,97 @@
                                                     <span :class="['rounded-full border px-2 py-0.5 text-[11px]', row.className]">{{ row.value }}</span>
                                                 </div>
                                             </button>
+                                        </div>
+                                        <div class="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5" data-testid="revenue-ai-execution-summary">
+                                            <div class="mb-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                                <div class="min-w-0">
+                                                    <div class="truncate text-xs font-semibold text-slate-600">今日执行进度 / 昨日效果复盘</div>
+                                                    <div class="mt-0.5 text-[11px] text-slate-400">{{ revenueAiExecutionSummary.dateBasisLabel }} · 只读追踪 · 不自动写 OTA</div>
+                                                </div>
+                                                <button type="button" @click="openHomeQuickEntry({ page: 'ops-track' })" class="inline-flex w-fit items-center gap-1 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100">
+                                                    去运营执行 <i class="fas fa-arrow-right text-[10px]"></i>
+                                                </button>
+                                            </div>
+                                            <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                                                <div class="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="text-[11px] font-semibold text-slate-500">执行进度</span>
+                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', revenueAiExecutionSummary.processClassName]">{{ revenueAiExecutionSummary.processStatusLabel }}</span>
+                                                    </div>
+                                                    <div class="mt-1 text-sm font-bold text-slate-900">{{ revenueAiExecutionSummary.processDisplay }}</div>
+                                                    <div class="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="revenueAiExecutionSummary.processReasonText">{{ revenueAiExecutionSummary.processReasonText }}</div>
+                                                </div>
+                                                <div class="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="text-[11px] font-semibold text-slate-500">效果复盘</span>
+                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', revenueAiExecutionSummary.effectReviewClassName]">{{ revenueAiExecutionSummary.effectReviewStatusLabel }}</span>
+                                                    </div>
+                                                    <div class="mt-1 text-sm font-bold text-slate-900">{{ revenueAiExecutionSummary.effectReviewDisplay }}</div>
+                                                    <div class="mt-1 text-[11px] font-semibold leading-4 text-slate-600" :title="revenueAiExecutionSummary.effectReviewInputDisplay">{{ revenueAiExecutionSummary.effectReviewInputDisplay }}</div>
+                                                    <div class="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="revenueAiExecutionSummary.effectReviewReasonText">{{ revenueAiExecutionSummary.effectReviewReasonText }}</div>
+                                                </div>
+                                            </div>
+                                            <div v-if="revenueAiExecutionSummary.nextAction" class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] leading-4 text-slate-600">
+                                                {{ revenueAiExecutionSummary.nextAction }}
+                                            </div>
+                                            <div class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-2" data-testid="revenue-ai-effect-review-inputs">
+                                                <div class="mb-1.5 flex items-center justify-between gap-2">
+                                                    <span class="text-[11px] font-semibold text-slate-500">明日判断输入</span>
+                                                    <span class="text-[10px] text-slate-400">来自执行复盘与ROI证据</span>
+                                                </div>
+                                                <div class="space-y-1.5">
+                                                    <button type="button" v-for="row in revenueAiEffectReviewRows" :key="row.key" @click="openRevenueAiExecutionItem(row)" class="flex w-full items-start justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-left transition hover:bg-white hover:shadow-sm">
+                                                        <div class="min-w-0">
+                                                            <div class="truncate text-xs font-semibold text-slate-700" :title="row.title">{{ row.title }}</div>
+                                                            <div class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-500" :title="row.detail">{{ row.detail }}</div>
+                                                            <div class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-400" :title="row.reviewSummary || row.reasonText">{{ row.reviewSummary || row.reasonText }}</div>
+                                                        </div>
+                                                        <div class="flex shrink-0 flex-col items-end gap-1">
+                                                            <span :class="['rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.statusLabel }}</span>
+                                                            <span class="text-[10px] text-slate-400">{{ row.roiDisplay || '--' }}</span>
+                                                        </div>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="mt-2 space-y-1.5">
+                                                <button type="button" v-for="row in revenueAiExecutionRows" :key="row.key" @click="openRevenueAiExecutionItem(row)" class="flex w-full items-start justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-left transition hover:bg-white hover:shadow-sm">
+                                                    <div class="min-w-0">
+                                                        <div class="truncate text-xs font-semibold text-slate-700" :title="row.title">{{ row.title }}</div>
+                                                        <div class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-500" :title="row.detail">{{ row.detail }}</div>
+                                                        <div v-if="row.nextAction" class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-400" :title="row.nextAction">{{ row.nextAction }}</div>
+                                                    </div>
+                                                    <div class="flex shrink-0 flex-col items-end gap-1">
+                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.stageLabel }}</span>
+                                                        <span class="text-[10px] text-slate-400">{{ row.meta }}</span>
+                                                        <span v-if="row.actionLabel" class="text-[10px] font-semibold text-blue-600">{{ row.actionLabel }}</span>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5" data-testid="revenue-ai-agent-activity">
+                                            <div class="mb-2 flex items-center justify-between gap-3">
+                                                <div class="min-w-0">
+                                                    <div class="truncate text-xs font-semibold text-slate-600" :title="revenueAiAgentActivitySummary.label">{{ revenueAiAgentActivitySummary.label }}操作日志</div>
+                                                    <div class="mt-0.5 text-[11px] text-slate-400">{{ revenueAiAgentActivitySummary.dateBasisLabel }} · 只读追溯</div>
+                                                </div>
+                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', revenueAiAgentActivitySummary.className]">{{ revenueAiAgentActivitySummary.statusLabel }}</span>
+                                            </div>
+                                            <div class="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                                                <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ revenueAiAgentActivitySummary.display }}</span>
+                                                <span v-if="revenueAiAgentActivitySummary.nextAction" class="line-clamp-1" :title="revenueAiAgentActivitySummary.nextAction">{{ revenueAiAgentActivitySummary.nextAction }}</span>
+                                            </div>
+                                            <div class="space-y-1.5">
+                                                <div v-for="log in revenueAiAgentActivityRows" :key="log.key" class="flex items-start justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5">
+                                                    <div class="min-w-0">
+                                                        <div class="truncate text-xs font-semibold text-slate-700" :title="log.action">{{ log.action }}</div>
+                                                        <div class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-500" :title="log.message">{{ log.message }}</div>
+                                                    </div>
+                                                    <div class="flex shrink-0 flex-col items-end gap-1">
+                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', log.className]">{{ log.statusLabel }}</span>
+                                                        <span class="text-[10px] text-slate-400">{{ log.time }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -10454,7 +10732,7 @@
                                                                 <button v-if="Number(item.status) === 1" @click="approvePrice(item.id, 'approve')" class="text-green-600 hover:text-green-800"><i class="fas fa-check"></i> 批准</button>
                                                                 <button v-if="Number(item.status) === 1" @click="approvePrice(item.id, 'reject')" class="text-red-600 hover:text-red-800"><i class="fas fa-times"></i> 拒绝</button>
                                                                 <button v-if="Number(item.status) === 2" @click="createPriceSuggestionExecutionIntent(item.id)" class="text-indigo-600 hover:text-indigo-800"><i class="fas fa-tasks"></i> 转单</button>
-                                                                <button v-if="Number(item.status) === 2" @click="applyPriceSuggestion(item.id)" class="text-blue-600 hover:text-blue-800"><i class="fas fa-paper-plane"></i> 应用</button>
+                                                                <span v-if="Number(item.status) === 2" class="cursor-not-allowed text-gray-400" title="Revenue AI 第一版不直接改房型价格；请转执行后由人工记录 OTA 执行证据。"><i class="fas fa-ban"></i> 应用暂停</span>
                                                                 <button v-if="Number(item.status) === 4" @click="reviewPriceSuggestion(item.id)" class="text-purple-600 hover:text-purple-800"><i class="fas fa-chart-line"></i> 复盘</button>
                                                                 <span v-if="![1,2,4].includes(Number(item.status))" class="text-gray-400">-</span>
                                                             </div>
@@ -19001,6 +19279,93 @@
                 });
             });
             const compassDataReadiness = computed(() => buildCompassDataReadiness(homeDataSources.value));
+            const revenueAiOverview = ref(null);
+            const revenueAiOverviewLoading = ref(false);
+            const revenueAiOverviewError = ref('');
+            const revenueAiReviewActionLoading = ref({});
+            const revenueAiExecutionFocus = ref(null);
+            let revenueAiOverviewRequestSeq = 0;
+            const revenueAiStatic = window.SUXI_REVENUE_AI_STATIC;
+            if (!revenueAiStatic || typeof revenueAiStatic !== 'object') {
+                throw new Error('缺少 Revenue AI 静态展示工具：revenue-ai-static.js 未加载');
+            }
+            const requireRevenueAiStatic = (key) => {
+                if (!Object.prototype.hasOwnProperty.call(revenueAiStatic, key)) {
+                    throw new Error(`缺少 Revenue AI 静态展示工具项：${key}`);
+                }
+                return revenueAiStatic[key];
+            };
+            const revenueAiStatusClass = requireRevenueAiStatic('revenueAiStatusClass');
+            const revenueAiStatusLabel = requireRevenueAiStatic('revenueAiStatusLabel');
+            const revenueAiSeverityClass = requireRevenueAiStatic('revenueAiSeverityClass');
+            const revenueAiResolveBusinessDate = requireRevenueAiStatic('resolveRevenueAiBusinessDate');
+            const revenueAiResolveOverviewRequest = requireRevenueAiStatic('resolveRevenueAiOverviewRequest');
+            const revenueAiResolveOverviewResponse = requireRevenueAiStatic('resolveRevenueAiOverviewResponse');
+            const revenueAiBuildMetricCards = requireRevenueAiStatic('buildRevenueAiMetricCards');
+            const revenueAiBuildGapRows = requireRevenueAiStatic('buildRevenueAiGapRows');
+            const revenueAiBuildGapSummary = requireRevenueAiStatic('buildRevenueAiGapSummary');
+            const revenueAiResolveGapTarget = requireRevenueAiStatic('resolveRevenueAiGapTarget');
+            const revenueAiResolveDecisionBasisNavigation = requireRevenueAiStatic('resolveRevenueAiDecisionBasisNavigation');
+            const revenueAiBuildStatusRows = requireRevenueAiStatic('buildRevenueAiStatusRows');
+            const revenueAiBuildSignalRows = requireRevenueAiStatic('buildRevenueAiSignalRows');
+            const revenueAiBuildActionRows = requireRevenueAiStatic('buildRevenueAiActionRows');
+            const revenueAiBuildPricingGateRows = requireRevenueAiStatic('buildRevenueAiPricingGateRows');
+            const revenueAiBuildAgentActivitySummary = requireRevenueAiStatic('buildRevenueAiAgentActivitySummary');
+            const revenueAiBuildAgentActivityRows = requireRevenueAiStatic('buildRevenueAiAgentActivityRows');
+            const revenueAiBuildExecutionSummary = requireRevenueAiStatic('buildRevenueAiExecutionSummary');
+            const revenueAiBuildExecutionRows = requireRevenueAiStatic('buildRevenueAiExecutionRows');
+            const revenueAiBuildEffectReviewRows = requireRevenueAiStatic('buildRevenueAiEffectReviewRows');
+            const revenueAiBusinessDate = computed(() => revenueAiResolveBusinessDate({ overview: revenueAiOverview.value }));
+            const revenueAiMetricCards = computed(() => revenueAiBuildMetricCards({
+                overview: revenueAiOverview.value,
+                overviewError: revenueAiOverviewError.value,
+            }));
+            const revenueAiGapRows = computed(() => revenueAiBuildGapRows({
+                overview: revenueAiOverview.value,
+                overviewError: revenueAiOverviewError.value,
+                overviewLoading: revenueAiOverviewLoading.value,
+            }));
+            const revenueAiGapSummary = computed(() => revenueAiBuildGapSummary(revenueAiGapRows.value || []));
+            const revenueAiStatusRows = computed(() => {
+                return revenueAiBuildStatusRows({
+                    readiness: compassDataReadiness.value || {},
+                    overview: revenueAiOverview.value || null,
+                    overviewLoading: revenueAiOverviewLoading.value,
+                    overviewError: revenueAiOverviewError.value,
+                    hotelName: homeObservation.value?.hotelName || '全部门店',
+                    hasHotelFilter: !!filterReportHotel.value,
+                    businessDate: revenueAiBusinessDate.value,
+                });
+            });
+            const revenueAiSignalRows = computed(() => revenueAiBuildSignalRows({ overview: revenueAiOverview.value }));
+            const revenueAiActionRows = computed(() => revenueAiBuildActionRows({
+                overview: revenueAiOverview.value,
+                overviewError: revenueAiOverviewError.value,
+            }));
+            const revenueAiPricingGateRows = computed(() => revenueAiBuildPricingGateRows({
+                overview: revenueAiOverview.value,
+                overviewError: revenueAiOverviewError.value,
+            }));
+            const revenueAiAgentActivitySummary = computed(() => revenueAiBuildAgentActivitySummary({
+                overview: revenueAiOverview.value,
+                overviewError: revenueAiOverviewError.value,
+            }));
+            const revenueAiAgentActivityRows = computed(() => revenueAiBuildAgentActivityRows({
+                overview: revenueAiOverview.value,
+                overviewError: revenueAiOverviewError.value,
+            }));
+            const revenueAiExecutionSummary = computed(() => revenueAiBuildExecutionSummary({
+                overview: revenueAiOverview.value,
+                overviewError: revenueAiOverviewError.value,
+            }));
+            const revenueAiExecutionRows = computed(() => revenueAiBuildExecutionRows({
+                overview: revenueAiOverview.value,
+                overviewError: revenueAiOverviewError.value,
+            }));
+            const revenueAiEffectReviewRows = computed(() => revenueAiBuildEffectReviewRows({
+                overview: revenueAiOverview.value,
+                overviewError: revenueAiOverviewError.value,
+            }));
             const homeDecisionSummaryRows = computed(() => {
                 const competitorReadiness = homeCompetitorReadiness.value || {};
                 const action = homeBoardActionRows.value[0] || {};
@@ -19559,6 +19924,196 @@
                 if (entry.page === 'meituan-ebooking' && onlineDataTab.value === 'meituan-ranking') {
                     nextTick(() => scheduleMeituanRankingSummaryRefresh());
                 }
+            };
+            const openRevenueAiGap = (row = {}) => {
+                const { targetTab } = revenueAiResolveGapTarget(row);
+                openOnlineDataEntryTab(targetTab, { force: true });
+            };
+            const openRevenueAiMetric = (card = {}) => {
+                openRevenueAiGap(card);
+            };
+            const openRevenueAiDecisionBasis = async (basis = {}) => {
+                const navigation = revenueAiResolveDecisionBasisNavigation(basis);
+                if (navigation.targetPage === 'online-data') {
+                    openOnlineDataEntryTab(navigation.targetTab || 'data-health', { force: true });
+                    return;
+                }
+                if (navigation.targetPage === 'ops-track') {
+                    currentPage.value = 'ops-track';
+                    await nextTick();
+                    await loadOperationActions();
+                    showToast(navigation.label ? `已进入运营执行：${navigation.label}` : '已进入运营执行');
+                    return;
+                }
+                if (navigation.targetPage) {
+                    openHomeQuickEntry({ page: navigation.targetPage, tab: navigation.targetTab });
+                    return;
+                }
+                if (navigation.nextAction) {
+                    showToast(navigation.nextAction, 'info');
+                }
+            };
+            const revenueAiResolveExecutionAction = requireRevenueAiStatic('resolveRevenueAiExecutionAction');
+            const openRevenueAiExecutionItem = async (row = {}) => {
+                const action = revenueAiResolveExecutionAction({
+                    row,
+                    fallbackHotelId: revenueAiOverview.value?.hotel_id || filterReportHotel.value || 0,
+                });
+                if (action.action === 'missing_entry') {
+                    showToast(action.message, action.level || 'warning');
+                    return;
+                }
+                if (action.action === 'open_page') {
+                    openHomeQuickEntry({ page: action.targetPage });
+                    return;
+                }
+
+                if (action.hotelId > 0) {
+                    operationFilters.value.hotel_id = String(action.hotelId);
+                }
+                const taskItem = action.taskItem;
+                if (action.action === 'record_execution_evidence') {
+                    if (action.confirmText && !window.confirm(action.confirmText)) {
+                        return;
+                    }
+                    await recordOperationExecutionEvidence(taskItem);
+                    await loadRevenueAiOverview();
+                    return;
+                }
+                if (action.action === 'record_roi_evidence') {
+                    if (action.confirmText && !window.confirm(action.confirmText)) {
+                        return;
+                    }
+                    await recordOperationRoiEvidence(taskItem);
+                    await loadRevenueAiOverview();
+                    return;
+                }
+                if (action.action === 'record_effect_review') {
+                    await reviewOperationExecutionTask(taskItem);
+                    await loadRevenueAiOverview();
+                    return;
+                }
+                revenueAiExecutionFocus.value = action.focus;
+                currentPage.value = 'ops-track';
+                await nextTick();
+                await loadOperationActions();
+                showToast(action.actionLabel ? `已进入运营执行：${action.actionLabel}` : '已进入运营执行');
+            };
+            const revenueAiIsReviewActionLoading = requireRevenueAiStatic('isRevenueAiReviewActionLoadingState');
+            const revenueAiBuildReviewActionLoadingState = requireRevenueAiStatic('buildRevenueAiReviewActionLoadingState');
+            const revenueAiResolveReviewActionDraft = requireRevenueAiStatic('resolveRevenueAiReviewActionDraft');
+            const revenueAiValidateApprovedPrice = requireRevenueAiStatic('validateRevenueAiApprovedPrice');
+            const revenueAiBuildReviewConfirmText = requireRevenueAiStatic('buildRevenueAiReviewConfirmText');
+            const revenueAiBuildReviewRequestBody = requireRevenueAiStatic('buildRevenueAiReviewRequestBody');
+            const revenueAiBuildExecutionIntentOpenRow = requireRevenueAiStatic('buildRevenueAiExecutionIntentOpenRow');
+            const revenueAiResolveReviewNavigation = requireRevenueAiStatic('resolveRevenueAiReviewNavigation');
+            const revenueAiBuildReviewNavigationState = requireRevenueAiStatic('buildRevenueAiReviewNavigationState');
+            const isRevenueAiReviewActionLoading = (item = {}, action = '') => {
+                return revenueAiIsReviewActionLoading({
+                    state: revenueAiReviewActionLoading.value,
+                    item,
+                    action,
+                });
+            };
+            const setRevenueAiReviewActionLoading = (item = {}, action = '', loading = false) => {
+                revenueAiReviewActionLoading.value = revenueAiBuildReviewActionLoadingState({
+                    state: revenueAiReviewActionLoading.value,
+                    item,
+                    action,
+                    loading,
+                });
+            };
+            const submitRevenueAiReviewAction = async (item = {}, action = '') => {
+                const draft = revenueAiResolveReviewActionDraft({ item, action });
+                if (!draft.ok) {
+                    showToast(draft.message || '定价建议审核动作不可用', draft.level || 'error');
+                    return;
+                }
+                const normalizedAction = draft.action;
+                const endpoint = draft.endpoint;
+                const actionText = draft.actionText;
+                let approvedPrice = null;
+                let reviewRemark = '';
+                if (normalizedAction === 'approve_with_changes') {
+                    const defaultPrice = Number(item.suggestedPrice || item.suggested_price || 0);
+                    const inputValue = window.prompt('请输入修改后批准价（不会写入携程/美团，仅记录本地审核价）', Number.isFinite(defaultPrice) && defaultPrice > 0 ? String(defaultPrice) : '');
+                    if (inputValue === null) return;
+                    const approvedPriceCheck = revenueAiValidateApprovedPrice(inputValue, item);
+                    if (!approvedPriceCheck.ok) {
+                        showToast(approvedPriceCheck.message, 'error');
+                        return;
+                    }
+                    approvedPrice = approvedPriceCheck.approvedPrice;
+                    const remarkValue = window.prompt('请输入修改原因或审核备注（可留空）', '');
+                    if (remarkValue === null) return;
+                    reviewRemark = String(remarkValue || '').trim();
+                }
+                const confirmText = revenueAiBuildReviewConfirmText({
+                    action: normalizedAction,
+                    actionText,
+                    approvedPrice,
+                });
+                if (!window.confirm(confirmText)) {
+                    return;
+                }
+
+                const body = revenueAiBuildReviewRequestBody({
+                    action: normalizedAction,
+                    item,
+                    approvedPrice,
+                    reviewRemark,
+                });
+
+                setRevenueAiReviewActionLoading(item, normalizedAction, true);
+                try {
+                    const res = await request(endpoint, {
+                        method: 'POST',
+                        body: JSON.stringify(body),
+                    });
+                    if (res.code === 200) {
+                        showToast(res.message || `${actionText}成功`);
+                        await loadRevenueAiOverview();
+                        if (normalizedAction === 'execution_intent') {
+                            await openRevenueAiExecutionItem(revenueAiBuildExecutionIntentOpenRow({
+                                payload: res.data || {},
+                                item,
+                            }));
+                        }
+                    } else {
+                        showToast(res.message || `${actionText}失败`, 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message || `${actionText}失败`, 'error');
+                } finally {
+                    setRevenueAiReviewActionLoading(item, normalizedAction, false);
+                }
+            };
+            const openRevenueAiReviewItem = async (item = {}) => {
+                const navigation = revenueAiResolveReviewNavigation({
+                    item,
+                    isSuperAdmin: user.value?.is_super_admin === true,
+                });
+                if (navigation.action === 'blocked') {
+                    showToast(navigation.message, navigation.level || 'warning');
+                    return;
+                }
+                if (navigation.action === 'gap') {
+                    openRevenueAiGap(navigation.gapTarget || { target_tab: 'data-health' });
+                    return;
+                }
+                const navigationState = revenueAiBuildReviewNavigationState(navigation);
+                if (navigationState.hotelId) {
+                    filterReportHotel.value = navigationState.hotelId;
+                }
+                if (navigationState.date) {
+                    priceSuggestionFilter.value.date = navigationState.date;
+                }
+                priceSuggestionFilter.value.status = navigationState.status;
+                currentPage.value = navigationState.currentPage;
+                agentTab.value = navigationState.agentTab;
+                revenueAgentTab.value = navigationState.revenueAgentTab;
+                await nextTick();
+                await loadPriceSuggestions();
             };
 
             // 竞对价格监控
@@ -23230,7 +23785,7 @@
             const visibleMenuItems = computed(() => filterVisibleMenuItems(menuItems.value, user.value));
 
             // 展开的子菜单
-            const expandedMenus = ref(['线上数据手动获取', '运营收益闭环', '运营管理（P0）']);
+            const expandedMenus = ref(['收益管理', '线上数据', '运营执行']);
 
             // 切换子菜单展开状态
             const toggleSubmenu = (menuName) => {
@@ -25215,6 +25770,16 @@
             let operationCanExecuteWithEvidence = (item) => ['pending_execute', 'executing'].includes(item?.execution?.status || '') && Number(item?.execution?.task_id || 0) > 0;
             let operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
             let operationExecutionActionAvailable = (item) => operationCanApproveExecution(item) || operationCanExecuteWithEvidence(item) || operationCanReviewExecution(item);
+            const operationExecutionRowClass = (item) => {
+                const focus = revenueAiExecutionFocus.value || {};
+                const intentId = Number(focus.intentId || 0);
+                const taskId = Number(focus.taskId || 0);
+                const matchesIntent = intentId > 0 && Number(item?.id || 0) === intentId;
+                const matchesTask = taskId > 0 && Number(item?.execution?.task_id || 0) === taskId;
+                return matchesIntent || matchesTask
+                    ? 'bg-blue-50/80 ring-1 ring-inset ring-blue-200'
+                    : 'hover:bg-gray-50';
+            };
             let buildOperationExecutionTraceRows = () => [];
             let buildOperationExecutionSummaryCards = () => [];
             let operationExecutionBottleneckTextForSummary = () => '暂无明显瓶颈';
@@ -26029,9 +26594,73 @@
             const parseOperationEvidenceNumber = (value, label) => {
                 const text = String(value ?? '').trim();
                 if (!text) throw new Error(`${label}不能为空`);
-                const number = Number(text);
+                const number = Number(text.replace(/[,，]/g, ''));
                 if (!Number.isFinite(number)) throw new Error(`${label}必须是数字`);
                 return number;
+            };
+            const parseOptionalOperationEvidenceNumber = (value, label) => {
+                const text = String(value ?? '').trim();
+                if (!text) return null;
+                return parseOperationEvidenceNumber(text, label);
+            };
+            const operationEvidenceFirstText = (sources = [], keys = []) => {
+                const list = Array.isArray(sources) ? sources : [sources];
+                for (const source of list) {
+                    if (!source || typeof source !== 'object') continue;
+                    for (const key of keys) {
+                        const value = source[key];
+                        if (value !== undefined && value !== null && String(value).trim() !== '') {
+                            return String(value);
+                        }
+                    }
+                }
+                return '';
+            };
+            const operationEvidenceCleanObject = (value = {}) => Object.fromEntries(
+                Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== null && String(entry).trim() !== '')
+            );
+            const operationEvidenceLocalTimestamp = () => {
+                const date = new Date();
+                const pad = (number) => String(number).padStart(2, '0');
+                return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+            };
+            const normalizeOperationEvidenceDateTime = (value) => {
+                const text = String(value ?? '').trim().replace('T', ' ');
+                if (!text) return operationEvidenceLocalTimestamp();
+                if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(text)) {
+                    throw new Error('执行时间格式需为 YYYY-MM-DD HH:mm:ss');
+                }
+                return text.length === 16 ? `${text}:00` : text;
+            };
+            const normalizeOperationReviewStatus = (value) => {
+                const text = String(value ?? '').trim().toLowerCase();
+                const map = {
+                    '1': 'success',
+                    '2': 'near_success',
+                    '3': 'failed',
+                    '4': 'observing',
+                    ok: 'success',
+                    success: 'success',
+                    near: 'near_success',
+                    near_success: 'near_success',
+                    failed: 'failed',
+                    fail: 'failed',
+                    observing: 'observing',
+                    wait: 'observing',
+                    '达成': 'success',
+                    '成功': 'success',
+                    '接近达成': 'near_success',
+                    '接近': 'near_success',
+                    '未达成': 'failed',
+                    '失败': 'failed',
+                    '观察': 'observing',
+                    '继续观察': 'observing',
+                };
+                const status = map[text] || '';
+                if (!status) {
+                    throw new Error('复盘结论必须是 success、near_success、failed 或 observing');
+                }
+                return status;
             };
 
             const approveOperationExecutionIntent = async (item, approved = true) => {
@@ -26058,11 +26687,95 @@
             const recordOperationExecutionEvidence = async (item) => {
                 const taskId = Number(item?.execution?.task_id || 0);
                 if (!taskId) return;
+                const recommendation = item?.recommendation && typeof item.recommendation === 'object' ? item.recommendation : {};
+                const isPriceExecution = recommendation.object_type === 'price';
+                if (isPriceExecution) {
+                    const currentValue = recommendation.current_value && typeof recommendation.current_value === 'object' ? recommendation.current_value : {};
+                    const targetValue = recommendation.target_value && typeof recommendation.target_value === 'object' ? recommendation.target_value : {};
+                    const beforePriceDefault = operationEvidenceFirstText([currentValue, targetValue], ['current_price', 'before_price', 'price', 'public_price']);
+                    const afterPriceDefault = operationEvidenceFirstText([targetValue, currentValue], ['approved_price', 'target_price', 'suggested_price', 'after_price', 'price']);
+                    const platformDefault = operationEvidenceFirstText([recommendation, targetValue, currentValue], ['platform', 'source_channel', 'channel']);
+                    const roomTypeDefault = operationEvidenceFirstText([targetValue, currentValue], ['room_type_key', 'room_type_id', 'room_type', 'product_id', 'rate_plan_key']);
+                    const beforePriceText = prompt('请输入执行前公开价/原价（可留空）', beforePriceDefault);
+                    if (beforePriceText === null) return;
+                    const afterPriceText = prompt('请输入执行后公开价/实际执行价（必填，未执行请取消）', afterPriceDefault);
+                    if (afterPriceText === null) return;
+                    const beforeRevenueText = prompt('请输入执行前收入，用于 ROI 复盘（可留空）');
+                    if (beforeRevenueText === null) return;
+                    const afterRevenueText = prompt('请输入执行后收入，用于 ROI 复盘（可留空）');
+                    if (afterRevenueText === null) return;
+                    const platformText = prompt('请输入执行平台，如 ctrip/meituan/手工（可留空）', platformDefault);
+                    if (platformText === null) return;
+                    const roomTypeText = prompt('请输入房型/产品标识（可留空）', roomTypeDefault);
+                    if (roomTypeText === null) return;
+                    const receiptPathText = prompt('请输入截图/回执路径或备注编号（可留空）');
+                    if (receiptPathText === null) return;
+                    const operatorText = prompt('请输入执行人（可留空）');
+                    if (operatorText === null) return;
+                    const executedAtText = prompt('请输入执行时间 YYYY-MM-DD HH:mm:ss（可留空，默认当前时间）', operationEvidenceLocalTimestamp());
+                    if (executedAtText === null) return;
+                    const remarkText = prompt('请输入执行证据备注，如平台、截图路径或操作说明');
+                    if (remarkText === null) return;
+
+                    try {
+                        const beforePrice = parseOptionalOperationEvidenceNumber(beforePriceText, '执行前公开价');
+                        const afterPrice = parseOperationEvidenceNumber(afterPriceText, '执行后公开价');
+                        const beforeRevenue = parseOptionalOperationEvidenceNumber(beforeRevenueText, '执行前收入');
+                        const afterRevenue = parseOptionalOperationEvidenceNumber(afterRevenueText, '执行后收入');
+                        if ((beforeRevenue === null) !== (afterRevenue === null)) {
+                            throw new Error('执行前后收入需同时填写或都留空');
+                        }
+                        const platform = String(platformText || '').trim();
+                        const roomType = String(roomTypeText || '').trim();
+                        const receiptPath = String(receiptPathText || '').trim();
+                        const executedBy = String(operatorText || '').trim();
+                        const executedAt = normalizeOperationEvidenceDateTime(executedAtText);
+                        const remark = String(remarkText || '').trim();
+                        const before = {};
+                        if (beforePrice !== null) before.price = beforePrice;
+                        if (beforeRevenue !== null) before.revenue = beforeRevenue;
+                        const after = { price: afterPrice };
+                        if (afterRevenue !== null) after.revenue = afterRevenue;
+                        operationLoading.value.actions = true;
+                        const res = await apiRequest(`/operation/execution-tasks/${taskId}/execute`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                status: 'executed',
+                                evidence_type: 'manual_price_execution',
+                                current_value: operationEvidenceCleanObject({ ...currentValue, executed_before_price: beforePrice }),
+                                target_value: operationEvidenceCleanObject({ ...targetValue, executed_after_price: afterPrice }),
+                                evidence: {
+                                    before,
+                                    after,
+                                    attachment_path: receiptPath,
+                                    platform_response: operationEvidenceCleanObject({
+                                        mode: 'manual',
+                                        scope: 'ota_channel_manual_execution',
+                                        platform,
+                                        room_type: roomType,
+                                        executed_by: executedBy,
+                                        executed_at: executedAt,
+                                        receipt_path: receiptPath,
+                                        evidence_boundary: 'local_manual_evidence_no_ota_write',
+                                    }),
+                                    remark,
+                                },
+                            }),
+                        });
+                        if (res.code !== 200) throw new Error(res.message || '执行证据保存失败');
+                        showToast('调价执行证据已保存；收入未填写时仍需后续补 ROI 验证');
+                        await loadOperationActions();
+                    } catch (error) {
+                        showToast(operationErrorMessage(error, error.message || '执行证据保存失败'), 'error');
+                    } finally {
+                        operationLoading.value.actions = false;
+                    }
+                    return;
+                }
                 const beforeText = prompt('请输入执行前收入，用于 ROI 复盘');
                 if (beforeText === null) return;
                 const afterText = prompt('请输入执行后收入，用于 ROI 复盘');
                 if (afterText === null) return;
-                const isPriceExecution = item?.recommendation?.object_type === 'price';
                 const costText = isPriceExecution ? '' : prompt('请输入执行成本或投放成本');
                 if (!isPriceExecution && costText === null) return;
                 const remark = (prompt('请输入执行证据备注，如平台、截图路径或操作说明') || '').trim();
@@ -26097,20 +26810,91 @@
                 }
             };
 
+            const recordOperationRoiEvidence = async (item) => {
+                const taskId = Number(item?.execution?.task_id || 0);
+                if (!taskId) return;
+                const recommendation = item?.recommendation && typeof item.recommendation === 'object' ? item.recommendation : {};
+                const isPriceExecution = recommendation.object_type === 'price';
+                const beforeText = prompt('请输入执行前收入，用于 ROI/增量收入复盘');
+                if (beforeText === null) return;
+                const afterText = prompt('请输入执行后收入，用于 ROI/增量收入复盘');
+                if (afterText === null) return;
+                const costText = isPriceExecution ? prompt('请输入执行成本（价格调整可留空）') : prompt('请输入执行成本或投放成本（必填）');
+                if (costText === null) return;
+                const attachmentPathText = prompt('请输入截图/回执路径或数据来源说明（可留空）');
+                if (attachmentPathText === null) return;
+                const remarkText = prompt('请输入 ROI 证据备注，如日期口径、数据来源或缺口说明');
+                if (remarkText === null) return;
+
+                try {
+                    const beforeRevenue = parseOperationEvidenceNumber(beforeText, '执行前收入');
+                    const afterRevenue = parseOperationEvidenceNumber(afterText, '执行后收入');
+                    const cost = isPriceExecution
+                        ? parseOptionalOperationEvidenceNumber(costText, '执行成本')
+                        : parseOperationEvidenceNumber(costText, '执行成本');
+                    const attachmentPath = String(attachmentPathText || '').trim();
+                    const remark = String(remarkText || '').trim();
+                    const after = { revenue: afterRevenue };
+                    if (cost !== null) after.cost = cost;
+                    operationLoading.value.actions = true;
+                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/evidence`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            evidence_type: 'manual_roi_evidence',
+                            evidence: {
+                                before: { revenue: beforeRevenue },
+                                after,
+                                attachment_path: attachmentPath,
+                                platform_response: operationEvidenceCleanObject({
+                                    mode: 'manual_roi_evidence',
+                                    scope: isPriceExecution ? 'price_execution_incremental_revenue' : 'operation_execution_roi',
+                                    source: 'revenue_ai_effect_review_input',
+                                    business_date: revenueAiOverview.value?.business_date || '',
+                                    evidence_boundary: 'local_manual_roi_evidence_no_ota_write',
+                                }),
+                                remark,
+                            },
+                        }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || 'ROI证据保存失败');
+                    showToast('ROI证据已保存；Revenue AI 将按真实收入/成本证据重新判断');
+                    await loadOperationActions();
+                } catch (error) {
+                    showToast(operationErrorMessage(error, error.message || 'ROI证据保存失败'), 'error');
+                } finally {
+                    operationLoading.value.actions = false;
+                }
+            };
+
             const reviewOperationExecutionTask = async (item) => {
                 const taskId = Number(item?.execution?.task_id || 0);
                 if (!taskId) return;
-                operationLoading.value.actions = true;
+                const defaultStatus = ['success', 'near_success', 'failed', 'observing'].includes(String(item?.review?.status || ''))
+                    ? String(item.review.status)
+                    : 'observing';
+                const statusText = prompt('请输入复盘结论：success=达成 / near_success=接近达成 / failed=未达成 / observing=继续观察', defaultStatus);
+                if (statusText === null) return;
+                const summaryText = prompt('请输入复盘说明。若缺少收入/ROI证据，请明确写出缺口原因');
+                if (summaryText === null) return;
                 try {
+                    const resultStatus = normalizeOperationReviewStatus(statusText);
+                    const resultSummary = String(summaryText || '').trim();
+                    if (['success', 'near_success', 'failed'].includes(resultStatus) && !resultSummary) {
+                        throw new Error('复盘结论为达成/接近达成/未达成时必须填写说明');
+                    }
+                    operationLoading.value.actions = true;
                     const res = await apiRequest(`/operation/execution-tasks/${taskId}/review`, {
                         method: 'POST',
-                        body: JSON.stringify({}),
+                        body: JSON.stringify({
+                            result_status: resultStatus,
+                            result_summary: resultSummary || '继续观察，等待次日收益或ROI证据',
+                        }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '执行复盘失败');
-                    showToast('执行复盘已更新');
+                    showToast(resultStatus === 'observing' ? '执行复盘已记录为继续观察' : '执行复盘结论已保存');
                     await loadOperationActions();
                 } catch (error) {
-                    showToast(operationErrorMessage(error, '执行复盘失败'), 'error');
+                    showToast(operationErrorMessage(error, error.message || '执行复盘失败'), 'error');
                 } finally {
                     operationLoading.value.actions = false;
                 }
@@ -30436,17 +31220,7 @@
             };
 
             const applyPriceSuggestion = async (id) => {
-                try {
-                    const res = await request(`/agent/price-suggestions/${id}/apply`, { method: 'POST' });
-                    if (res.code === 200) {
-                        showToast('已应用到房型基础价');
-                        await Promise.allSettled([loadPriceSuggestions(), loadRevenueDashboard()]);
-                    } else {
-                        showToast(res.message || '应用失败', 'error');
-                    }
-                } catch (e) {
-                    showToast('应用失败: ' + e.message, 'error');
-                }
+                showToast('Revenue AI 第一版不直接改房型价格；请使用“转单”进入运营执行并记录人工 OTA 执行证据。', 'warning');
             };
 
             const createPriceSuggestionExecutionIntent = async (id) => {
@@ -31365,14 +32139,48 @@
                 return run;
             };
 
+            const loadRevenueAiOverview = async () => {
+                const overviewRequest = revenueAiResolveOverviewRequest({
+                    hasToken: !!token.value,
+                    currentPage: currentPage.value,
+                    businessDate: revenueAiBusinessDate.value,
+                    hotelId: filterReportHotel.value,
+                });
+                if (!overviewRequest.shouldLoad) return null;
+                const requestSeq = ++revenueAiOverviewRequestSeq;
+                revenueAiOverviewLoading.value = true;
+                revenueAiOverviewError.value = '';
+                try {
+                    const res = await request(overviewRequest.endpoint);
+                    if (requestSeq !== revenueAiOverviewRequestSeq) return revenueAiOverview.value;
+                    const overviewResult = revenueAiResolveOverviewResponse({ response: res });
+                    revenueAiOverview.value = overviewResult.overview;
+                    revenueAiOverviewError.value = overviewResult.errorMessage;
+                } catch (e) {
+                    console.error('加载Revenue AI总览失败:', e);
+                    if (requestSeq === revenueAiOverviewRequestSeq) {
+                        const overviewResult = revenueAiResolveOverviewResponse({ error: e });
+                        revenueAiOverview.value = overviewResult.overview;
+                        revenueAiOverviewError.value = overviewResult.errorMessage;
+                    }
+                } finally {
+                    if (requestSeq === revenueAiOverviewRequestSeq) {
+                        revenueAiOverviewLoading.value = false;
+                    }
+                }
+                return revenueAiOverview.value;
+            };
+
             const loadCompassData = async (options = {}) => {
                 if (!token.value || compassLoading.value) return;
                 compassLoading.value = true;
                 try {
+                    const revenueAiOverviewLoad = loadRevenueAiOverview();
                     const params = new URLSearchParams();
                     if (filterReportHotel.value) params.append('hotel_id', filterReportHotel.value);
                     const suffix = params.toString() ? `?${params.toString()}` : '';
                     const res = await request(`/compass${suffix}`);
+                    await revenueAiOverviewLoad;
                     if (res.code === 200) {
                         compassLayout.value = mergeStoredHomeQuickLayout(res.data.layout || compassLayout.value);
                         compassWeather.value = res.data.weather || [];
@@ -36600,7 +37408,7 @@
                     operationExecutionItems, operationExecutionStages, operationExecutionSummaryCards, operationExecutionSourceText, operationExecutionActionText,
                 operationExecutionStatusLabel, operationExecutionStatusClass, operationExecutionReviewText, operationExecutionRoiText,
                 operationExecutionBottleneckText, operationExecutionMoneyStatusText, operationExecutionMoneyStatusClass, operationExecutionNextActionClass,
-                operationCanApproveExecution, operationCanExecuteWithEvidence, operationCanReviewExecution, operationExecutionActionAvailable, operationExecutionTraceRows,
+                operationCanApproveExecution, operationCanExecuteWithEvidence, operationCanReviewExecution, operationExecutionActionAvailable, operationExecutionRowClass, operationExecutionTraceRows,
                 approveOperationExecutionIntent, recordOperationExecutionEvidence, reviewOperationExecutionTask,
                 openingProjects, selectedOpeningProjectId, selectedOpeningProject, openingExecutionIntentId, openingOverview, openingTasks, openingLoading,
                 openingProjectForm, openingPositioningImpact, openingTaskFilter, openingTaskPage, openingTaskPagination, pagedOpeningTasks, openingCategories, openingStatusOptions, openingProgressQuickValues, openingOverviewCards, openingCategoryProgressCards, openingTaskStats, openingTaskProgressCards, openingTaskProgressStages, openingAiOutputResult, openingStatusFilterChips, openingAttentionFilterChips, filteredOpeningTasks,
@@ -36610,6 +37418,7 @@
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
+                revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
                 macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
                 compassHotelOptions, compassLoading, compassLastSyncedAt, compassDataReadiness, homeSecondaryPanelsReady, homeClosedLoopStages, homeAiTraceRows, refreshCompassDashboard,

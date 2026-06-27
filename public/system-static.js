@@ -217,117 +217,100 @@ window.SUXI_SYSTEM_STATIC = (() => {
         { value: 'en-US', label: 'English' },
     ];
     const menuItemDefinitions = [
-        { name: '首页', path: 'compass', icon: 'fas fa-home', requireSuper: false, requireManager: true, permissions: [] },
         {
-            name: '运营收益闭环',
-            testid: 'nav-project-ai-management',
-            icon: 'fas fa-project-diagram',
+            name: '收益管理',
+            testid: 'nav-revenue-management',
+            icon: 'fas fa-chart-line',
             requireSuper: false,
             permissions: [],
             children: [
+                { name: '收益管理智能体总览', path: 'compass', icon: 'fas fa-tachometer-alt', requireSuper: false, requireManager: true, permissions: [] },
+                { name: '收益管理研究中心', path: 'revenue-research-center', icon: 'fas fa-chart-line', testid: 'nav-revenue-research-center', requireManager: true, permissions: [] },
                 {
-                    name: '运营管理（P0）',
-                    testid: 'nav-ai-ops',
-                    icon: 'fas fa-cogs',
-                    path: 'ai-ops',
+                    name: '全生命周期辅助',
+                    path: 'lifecycle-auxiliary',
+                    icon: 'fas fa-share-alt',
+                    requireSuper: false,
+                    permissions: [],
                     children: [
-                        { name: '策源·全维数据', path: 'ops-source', icon: 'fas fa-search' },
-                        { name: '策析·根因定位', path: 'ops-analysis', icon: 'fas fa-microscope' },
-                        { name: '策见·预警推送', path: 'ops-insight', icon: 'fas fa-bell' },
-                        { name: 'AI经营日报', path: 'ai-daily-report', icon: 'fas fa-file-alt' },
-                        { name: '策案·策略模拟', path: 'ops-plan', icon: 'fas fa-lightbulb' },
-                        { name: '策行·效果追踪', path: 'ops-track', icon: 'fas fa-play-circle' }
-                    ]
-                },
-                {
-                    name: '筹建管理（二期）',
-                    testid: 'nav-ai-construction',
-                    icon: 'fas fa-hammer',
-                    path: 'ai-construction',
-                    children: [
-                        { name: '智略·战略推演', path: 'ai-strategy', icon: 'fas fa-chess' },
-                        { name: '智算·量化模拟', path: 'ai-simulation', icon: 'fas fa-calculator' },
-                        { name: '智策·可行性报告', path: 'ai-feasibility', icon: 'fas fa-file-contract' }
-                    ]
-                },
-                {
-                    name: '开业管理（二期）',
-                    testid: 'nav-ai-opening',
-                    icon: 'fas fa-store',
-                    path: 'ai-opening',
-                    children: [
+                        { name: '辅助总览', path: 'lifecycle', icon: 'fas fa-route' },
+                        { name: '筹建·战略推演', path: 'ai-strategy', icon: 'fas fa-chess' },
+                        { name: '筹建·量化模拟', path: 'ai-simulation', icon: 'fas fa-calculator' },
+                        { name: '筹建·可行性报告', path: 'ai-feasibility', icon: 'fas fa-file-contract' },
                         { name: '开业准备总览', path: 'opening-overview', icon: 'fas fa-clipboard-check' },
-                        { name: '开业检查清单', path: 'opening-checklist', icon: 'fas fa-tasks' }
-                    ]
+                        { name: '开业检查清单', path: 'opening-checklist', icon: 'fas fa-tasks' },
+                        { name: '扩张·市场评估', path: 'market-evaluation', icon: 'fas fa-chart-area' },
+                        { name: '扩张·标杆选模', path: 'benchmark-model', icon: 'fas fa-star' },
+                        { name: '扩张·协同提效', path: 'collaboration-efficiency', icon: 'fas fa-link' },
+                        { name: '转让·资产定价', path: 'asset-pricing', icon: 'fas fa-calculator' },
+                        { name: '转让·时机推演', path: 'timing-strategy', icon: 'fas fa-chess-knight' },
+                        { name: '转让·数据看板', path: 'decision-board', icon: 'fas fa-chart-pie' },
+                        { name: '图片优化助手', path: 'hotel-image-optimizer', icon: 'fas fa-image', requireManager: true, permissions: [] },
+                        { name: '酒店AI工具箱', path: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true, permissions: [] },
+                    ],
                 },
-                {
-                    name: '扩张管理（二期）',
-                    testid: 'nav-ai-expansion',
-                    icon: 'fas fa-chart-line',
-                    path: 'ai-expansion',
-                    children: [
-                        { name: '智投·市场评估', path: 'market-evaluation', icon: 'fas fa-chart-area' },
-                        { name: '智瞰·标杆选模', path: 'benchmark-model', icon: 'fas fa-star' },
-                        { name: '智联·协同提效', path: 'collaboration-efficiency', icon: 'fas fa-link' }
-                    ]
-                },
-                {
-                    name: '转让管理（二期）',
-                    testid: 'nav-ai-transfer',
-                    icon: 'fas fa-exchange-alt',
-                    path: 'ai-transfer',
-                    children: [
-                        { name: '智算·资产定价', path: 'asset-pricing', icon: 'fas fa-calculator' },
-                        { name: '智略·时机推演', path: 'timing-strategy', icon: 'fas fa-chess-knight' },
-                        { name: '智决·数据看板', path: 'decision-board', icon: 'fas fa-chart-pie' }
-                    ]
-                }
-            ]
+            ],
         },
-        { name: '全生命周期辅助', path: 'lifecycle', icon: 'fas fa-share-alt', requireSuper: false, permissions: [], highlight: true },
-        { name: '门店管理', path: 'hotels', icon: 'fas fa-hotel', configKey: 'menu_hotel_name', requireSuper: false, permissions: ['can_manage_own_hotels'] },
         {
-            name: '线上数据手动获取',
+            name: '线上数据',
             icon: 'fas fa-cloud-download-alt',
             requireSuper: false,
-            permissions: ['can_view_online_data'],
-            children: [
-                { name: '携程ebooking', path: 'ctrip-ebooking', icon: 'fas fa-plane' },
-                { name: '美团ebooking', path: 'meituan-ebooking', icon: 'fas fa-store' }
-            ]
-        },
-        { name: '平台数据自动获取', path: 'online-data', tab: 'platform-auto', icon: 'fas fa-robot', testid: 'nav-platform-auto-fetch', requireSuper: false, permissions: ['can_view_online_data'] },
-        { name: '酒店AI工具箱', path: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true, permissions: [] },
-        { name: '酒店图片优化助手', path: 'hotel-image-optimizer', icon: 'fas fa-image', requireManager: true, permissions: [] },
-        { name: '酒店收益管理研究中心', path: 'revenue-research-center', icon: 'fas fa-chart-line', testid: 'nav-revenue-research-center', requireManager: true, permissions: [] },
-        { name: '智能知识中枢', path: 'knowledge-center', icon: 'fas fa-brain', requireManager: true, permissions: [] },
-        {
-            name: '团队管理',
-            icon: 'fas fa-users',
-            requireSuper: true,
             permissions: [],
             children: [
-                { name: '员工管理', path: 'users', icon: 'fas fa-user-friends' },
-                { name: '角色权限', path: 'roles', icon: 'fas fa-user-shield', requireSuper: true },
-                { name: '操作日志', path: 'operation-logs', icon: 'fas fa-history', requireSuper: true }
-            ]
+                { name: '数据健康总览', path: 'online-data', tab: 'data-health', icon: 'fas fa-heartbeat', requireSuper: false, permissions: ['can_view_online_data'] },
+                { name: '携程ebooking', path: 'ctrip-ebooking', icon: 'fas fa-plane', requireSuper: false, permissions: ['can_view_online_data'] },
+                { name: '美团ebooking', path: 'meituan-ebooking', icon: 'fas fa-store', requireSuper: false, permissions: ['can_view_online_data'] },
+                { name: '平台数据自动获取', path: 'online-data', tab: 'platform-auto', icon: 'fas fa-robot', testid: 'nav-platform-auto-fetch', requireSuper: false, permissions: ['can_view_online_data'] },
+            ],
+        },
+        {
+            name: '运营执行',
+            testid: 'nav-operation-execution',
+            icon: 'fas fa-tasks',
+            requireSuper: false,
+            permissions: [],
+            children: [
+                { name: '策源·全维数据', path: 'ops-source', icon: 'fas fa-search' },
+                { name: '策析·根因定位', path: 'ops-analysis', icon: 'fas fa-microscope' },
+                { name: '策见·预警推送', path: 'ops-insight', icon: 'fas fa-bell' },
+                { name: 'AI经营日报', path: 'ai-daily-report', icon: 'fas fa-file-alt' },
+                { name: '策案·策略模拟', path: 'ops-plan', icon: 'fas fa-lightbulb' },
+                { name: '策行·效果追踪', path: 'ops-track', icon: 'fas fa-play-circle' },
+            ],
         },
         {
             name: '系统设置',
             icon: 'fas fa-cog',
-            requireSuper: true,
+            requireSuper: false,
             permissions: [],
             children: [
-                { name: '系统配置', path: 'system-config', icon: 'fas fa-sliders-h' },
-                { name: 'AI模型配置', path: 'ai-model-config', icon: 'fas fa-robot', i18nKey: 'aiModelConfig.pageTitle' },
-                { name: 'AI决策追溯', path: 'ai-governance', icon: 'fas fa-shield-alt' },
-                { name: '数据配置', path: 'data-config', icon: 'fas fa-database' }
-            ]
+                { name: '门店管理', path: 'hotels', icon: 'fas fa-hotel', configKey: 'menu_hotel_name', requireSuper: false, permissions: ['can_manage_own_hotels'] },
+                { name: '智能知识中枢', path: 'knowledge-center', icon: 'fas fa-brain', requireManager: true, permissions: [] },
+                {
+                    name: '团队管理',
+                    icon: 'fas fa-users',
+                    requireSuper: true,
+                    permissions: [],
+                    children: [
+                        { name: '员工管理', path: 'users', icon: 'fas fa-user-friends' },
+                        { name: '角色权限', path: 'roles', icon: 'fas fa-user-shield', requireSuper: true },
+                        { name: '操作日志', path: 'operation-logs', icon: 'fas fa-history', requireSuper: true },
+                    ],
+                },
+                { name: '系统配置', path: 'system-config', icon: 'fas fa-sliders-h', requireSuper: true, permissions: [] },
+                { name: 'AI模型配置', path: 'ai-model-config', icon: 'fas fa-robot', i18nKey: 'aiModelConfig.pageTitle', requireSuper: true, permissions: [] },
+                { name: 'AI决策追溯', path: 'ai-governance', icon: 'fas fa-shield-alt', requireSuper: true, permissions: [] },
+                { name: '数据配置', path: 'data-config', icon: 'fas fa-database', requireSuper: true, permissions: [] },
+            ],
         },
     ];
     const testIdNameMap = {
         '项目AI管理': 'project-ai-management',
         '首页': 'compass',
+        '收益管理': 'revenue-management',
+        '收益管理智能体总览': 'revenue-ai-overview',
+        '线上数据': 'online-data',
+        '运营执行': 'operation-execution',
         '全生命周期服务': 'lifecycle',
         '全生命周期辅助': 'lifecycle',
         '线上数据手动获取': 'online-data',
@@ -1186,22 +1169,20 @@ window.SUXI_SYSTEM_STATIC = (() => {
             }
             return true;
         };
+        const filterTree = (list = []) => (Array.isArray(list) ? list : [])
+            .map((item) => {
+                const visibleChildren = filterTree(item.children || []);
+                if (visibleChildren.length) {
+                    return { ...item, children: visibleChildren };
+                }
+                if (!item.children && isItemVisible(item)) {
+                    return { ...item };
+                }
+                return null;
+            })
+            .filter(Boolean);
 
-        return (Array.isArray(items) ? items : []).filter((item) => {
-            if (item.children) {
-                const visibleChildren = item.children.filter(child => isItemVisible(child));
-                return visibleChildren.length > 0;
-            }
-            return isItemVisible(item);
-        }).map((item) => {
-            if (item.children) {
-                return {
-                    ...item,
-                    children: item.children.filter(child => isItemVisible(child)),
-                };
-            }
-            return item;
-        });
+        return filterTree(items);
     };
     const firstNonEmptyText = (...values) => {
         const value = values.find(item => item !== undefined && item !== null && String(item).trim() !== '');

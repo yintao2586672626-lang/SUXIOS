@@ -68,6 +68,33 @@ final class ControllerRouteContractTest extends TestCase
         );
     }
 
+    public function testRevenueAiPriceSuggestionManualReviewRoutes(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+
+        self::assertStringContainsString(
+            "Route::post('/price-suggestions/:id/review', 'RevenueAi/reviewPriceSuggestion')",
+            $source,
+            'Revenue AI must expose a hotel-permission manual review route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent')",
+            $source,
+            'Revenue AI must expose an approved suggestion execution-intent route'
+        );
+    }
+
+    public function testOperationExecutionReviewControllerForwardsManualReviewPayload(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/OperationManagement.php');
+
+        self::assertStringContainsString(
+            '$this->service->reviewExecutionTask($id, $hotelIds, $this->requestData())',
+            $source,
+            'Operation execution review must forward manual result_status/result_summary payload'
+        );
+    }
+
     public function testStrategyAndQuantRecordsCanCreateExecutionIntentRoutes(): void
     {
         $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');

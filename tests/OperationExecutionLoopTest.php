@@ -210,6 +210,41 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame('competitor price higher', $input['evidence']['reason']);
     }
 
+    public function testPriceSuggestionExecutionIntentUsesManualApprovedPrice(): void
+    {
+        $service = new OperationManagementService();
+
+        $input = $service->buildPriceSuggestionExecutionIntentInput([
+            'id' => 77,
+            'hotel_id' => 7,
+            'room_type_id' => 3,
+            'suggestion_date' => '2026-06-01',
+            'current_price' => 280,
+            'suggested_price' => 318,
+            'min_price' => 220,
+            'max_price' => 380,
+            'reason' => 'competitor price higher',
+            'factors' => [
+                'manual_review' => [
+                    'version' => 1,
+                    'action' => 'approve_with_changes',
+                    'original_suggested_price' => 318,
+                    'approved_price' => 328,
+                ],
+            ],
+            'competitor_data' => ['avg_price' => 330],
+        ], [
+            'platform' => 'ctrip',
+        ]);
+
+        self::assertSame(328.0, $input['target_value']['target_price']);
+        self::assertSame(318.0, $input['evidence']['original_suggested_price']);
+        self::assertSame(328.0, $input['evidence']['approved_price']);
+        self::assertSame('approve_with_changes', $input['evidence']['manual_review']['action']);
+        self::assertSame('price_suggestions.factors.manual_review_versions', $input['evidence']['manual_review_storage']);
+        self::assertFalse($input['evidence']['auto_write_ota']);
+    }
+
     public function testExecutionRequiresApprovedIntent(): void
     {
         $service = new OperationManagementService();
@@ -449,6 +484,143 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertNull($summary['avg_roi']);
         self::assertSame(300.0, $summary['avg_revenue_lift']);
         self::assertSame(300.0, $summary['total_profit']);
+    }
+
+    public function testPriceExecutionEvidenceWithoutRevenueKeepsRoiDataGap(): void
+    {
+        $service = new OperationManagementService();
+
+        $item = $service->buildExecutionFlowItem([
+            'id' => 14,
+            'source_module' => 'price_suggestion',
+            'source_record_id' => 78,
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'price',
+            'action_type' => 'price_adjust',
+            'date_start' => '2026-06-02',
+            'date_end' => '2026-06-02',
+            'current_value_json' => json_encode(['current_price' => 280], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['target_price' => 318, 'room_type_key' => 'RT-1'], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => json_encode(['reason' => 'competitor price higher'], JSON_UNESCAPED_UNICODE),
+            'expected_metric' => 'revenue',
+            'expected_delta' => 200,
+            'risk_level' => 'medium',
+            'status' => 'approved',
+            'approved_by' => 3,
+            'approved_at' => '2026-06-02 10:00:00',
+            'review_remark' => '',
+            'blocked_reason' => '',
+            'created_at' => '2026-06-02 09:00:00',
+        ], [[
+            'id' => 33,
+            'intent_id' => 14,
+            'hotel_id' => 7,
+            'execution_mode' => 'manual',
+            'status' => 'executed',
+            'operator_id' => 3,
+            'result_status' => 'observing',
+            'result_summary' => '',
+            'executed_at' => '2026-06-02 11:00:00',
+            'current_value_json' => json_encode(['executed_before_price' => 280], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['executed_after_price' => 318], JSON_UNESCAPED_UNICODE),
+        ]], [[
+            'id' => 43,
+            'task_id' => 33,
+            'evidence_type' => 'manual_price_execution',
+            'before_json' => json_encode(['price' => 280], JSON_UNESCAPED_UNICODE),
+            'after_json' => json_encode(['price' => 318], JSON_UNESCAPED_UNICODE),
+            'platform_response_json' => json_encode([
+                'mode' => 'manual',
+                'scope' => 'ota_channel_manual_execution',
+                'platform' => 'ctrip',
+                'room_type' => 'RT-1',
+                'receipt_path' => '/runtime/evidence/price-14.png',
+                'evidence_boundary' => 'local_manual_evidence_no_ota_write',
+            ], JSON_UNESCAPED_UNICODE),
+            'attachment_path' => '/runtime/evidence/price-14.png',
+            'remark' => 'price updated manually; revenue evidence pending',
+            'created_at' => '2026-06-02 11:10:00',
+        ]]);
+
+        self::assertSame('review', $item['stage']);
+        self::assertSame(1, $item['evidence']['count']);
+        self::assertSame('manual_price_execution', $item['evidence']['latest']['evidence_type']);
+        self::assertSame('data_gap', $item['roi']['status']);
+        self::assertSame('revenue evidence missing', $item['roi']['message']);
+        self::assertSame('review_effect', $item['next_action']['key']);
+    }
+
+    public function testSupplementedRoiEvidenceUpgradesPriceExecutionToReadyInput(): void
+    {
+        $service = new OperationManagementService();
+
+        $item = $service->buildExecutionFlowItem([
+            'id' => 15,
+            'source_module' => 'price_suggestion',
+            'source_record_id' => 79,
+            'hotel_id' => 7,
+            'platform' => 'meituan',
+            'object_type' => 'price',
+            'action_type' => 'price_adjust',
+            'date_start' => '2026-06-03',
+            'date_end' => '2026-06-03',
+            'current_value_json' => json_encode(['current_price' => 260], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['target_price' => 288, 'room_type_key' => 'RT-2'], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => json_encode(['reason' => 'competitor median higher'], JSON_UNESCAPED_UNICODE),
+            'expected_metric' => 'revenue',
+            'expected_delta' => 150,
+            'risk_level' => 'medium',
+            'status' => 'approved',
+            'approved_by' => 3,
+            'approved_at' => '2026-06-03 10:00:00',
+            'review_remark' => '',
+            'blocked_reason' => '',
+            'created_at' => '2026-06-03 09:00:00',
+        ], [[
+            'id' => 34,
+            'intent_id' => 15,
+            'hotel_id' => 7,
+            'execution_mode' => 'manual',
+            'status' => 'executed',
+            'operator_id' => 3,
+            'result_status' => 'observing',
+            'result_summary' => 'continue observing',
+            'executed_at' => '2026-06-03 11:00:00',
+            'current_value_json' => json_encode(['executed_before_price' => 260], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['executed_after_price' => 288], JSON_UNESCAPED_UNICODE),
+        ]], [[
+            'id' => 43,
+            'task_id' => 34,
+            'evidence_type' => 'manual_price_execution',
+            'before_json' => json_encode(['price' => 260], JSON_UNESCAPED_UNICODE),
+            'after_json' => json_encode(['price' => 288], JSON_UNESCAPED_UNICODE),
+            'platform_response_json' => json_encode(['evidence_boundary' => 'local_manual_evidence_no_ota_write'], JSON_UNESCAPED_UNICODE),
+            'remark' => 'price updated manually',
+            'created_at' => '2026-06-03 11:10:00',
+        ], [
+            'id' => 44,
+            'task_id' => 34,
+            'evidence_type' => 'manual_roi_evidence',
+            'before_json' => json_encode(['revenue' => 1100], JSON_UNESCAPED_UNICODE),
+            'after_json' => json_encode(['revenue' => 1285], JSON_UNESCAPED_UNICODE),
+            'platform_response_json' => json_encode([
+                'mode' => 'manual_roi_evidence',
+                'source' => 'revenue_ai_effect_review_input',
+                'evidence_boundary' => 'local_manual_roi_evidence_no_ota_write',
+            ], JSON_UNESCAPED_UNICODE),
+            'attachment_path' => '/runtime/evidence/roi-15.png',
+            'remark' => 'manual next-day revenue evidence',
+            'created_at' => '2026-06-04 09:00:00',
+        ]]);
+
+        self::assertSame('review', $item['stage']);
+        self::assertSame(2, $item['evidence']['count']);
+        self::assertSame('manual_roi_evidence', $item['evidence']['latest']['evidence_type']);
+        self::assertSame('ready', $item['roi']['status']);
+        self::assertSame('amount', $item['roi']['unit']);
+        self::assertSame(185.0, $item['roi']['value']);
+        self::assertSame('after_revenue - before_revenue', $item['roi']['formula']);
     }
 
     public function testExecutionSummaryDoesNotMixPercentRoiAndRevenueLift(): void

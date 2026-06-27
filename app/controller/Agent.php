@@ -4450,7 +4450,11 @@ class Agent extends Base
             'expected_delta' => (float)$this->request->param('expected_delta', 0),
         ]);
         if (($result['ok'] ?? false) !== true) {
-            return $this->error((string)($result['message'] ?? 'apply failed'), (int)($result['code'] ?? 400));
+            return $this->error(
+                (string)($result['message'] ?? 'apply failed'),
+                (int)($result['code'] ?? 400),
+                is_array($result['data'] ?? null) ? $result['data'] : null
+            );
         }
         return $this->success($result['data'] ?? null, 'success');
     }
@@ -4496,69 +4500,22 @@ class Agent extends Base
 
     private function applyPriceSuggestionById(int $id, array $executionIntentOverrides = []): array
     {
-        $suggestion = PriceSuggestion::find($id);
-        if (!$suggestion) {
-            return ['ok' => false, 'message' => 'price suggestion not found', 'code' => 404];
-        }
-        if ((int)$suggestion->status === PriceSuggestion::STATUS_REJECTED) {
-            return ['ok' => false, 'message' => 'rejected suggestion cannot be applied', 'code' => 422];
-        }
-
-        $roomType = RoomType::find((int)$suggestion->room_type_id);
-        if (!$roomType) {
-            return ['ok' => false, 'message' => 'room type not found', 'code' => 404];
-        }
-
-        $service = new OperationManagementService();
-        $userId = (int)($this->currentUser->id ?? 0);
-        $alreadyApplied = (int)$suggestion->status === PriceSuggestion::STATUS_APPLIED;
-
-        try {
-            $result = Db::transaction(function () use ($suggestion, $roomType, $service, $userId, $executionIntentOverrides, $alreadyApplied): array {
-                if (!$alreadyApplied) {
-                    $roomType->base_price = (float)$suggestion->suggested_price;
-                    $roomType->save();
-                    $suggestion->apply($userId);
-                }
-
-                $intentInput = $service->buildPriceSuggestionExecutionIntentInput($suggestion->toArray(), $executionIntentOverrides);
-                $intent = $service->createExecutionIntent(
-                    [(int)$suggestion->hotel_id],
-                    (int)$suggestion->hotel_id,
-                    $intentInput,
-                    $userId
-                );
-
-                return [
-                    'id' => (int)$suggestion->id,
-                    'room_type_id' => (int)$suggestion->room_type_id,
-                    'base_price' => (float)$roomType->base_price,
-                    'local_price_updated' => !$alreadyApplied,
-                    'execution_intent' => $intent,
-                    'next_action' => 'Review the execution intent, approve it, then record manual OTA execution evidence before marking execution complete.',
-                ];
-            });
-        } catch (\Throwable $e) {
-            return ['ok' => false, 'message' => $e->getMessage() ?: 'create execution intent failed', 'code' => $e instanceof \InvalidArgumentException ? 422 : 500];
-        }
-
-        AgentLog::record(
-            (int)$suggestion->hotel_id,
-            AgentLog::AGENT_TYPE_REVENUE,
-            'price_apply',
-            'Apply price suggestion: ' . $id,
-            AgentLog::LEVEL_INFO,
-            [
+        return [
+            'ok' => false,
+            'code' => 409,
+            'message' => 'direct price apply is disabled in Revenue AI Phase 1B; create an execution intent and record manual execution evidence instead',
+            'data' => [
+                'reason' => 'direct_price_apply_disabled',
                 'suggestion_id' => $id,
-                'room_type_id' => (int)$suggestion->room_type_id,
-                'price' => (float)$suggestion->suggested_price,
-                'execution_intent_id' => (int)($result['execution_intent']['id'] ?? 0),
-                'execution_intent_status' => (string)($result['execution_intent']['status'] ?? ''),
+                'advisory_only' => true,
+                'manual_review_required' => true,
+                'local_price_updated' => false,
+                'auto_write_ota' => false,
+                'allowed_endpoint' => '/api/revenue-ai/price-suggestions/' . $id . '/execution-intent',
+                'forbidden_actions' => ['update_room_type_base_price', 'ota_write'],
+                'next_action' => '先创建执行意图，审批后由运营执行页记录人工 OTA 执行证据和次日复盘。',
             ],
-            $userId
-        );
-
-        return ['ok' => true, 'data' => $result];
+        ];
     }
 
     public function priceSuggestionReview(): Response

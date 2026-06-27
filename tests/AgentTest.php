@@ -601,6 +601,30 @@ final class AgentTest extends TestCase
         self::assertSame('ai_model_call_logs', $payload['log_sink']);
     }
 
+    public function testDirectPriceSuggestionApplyIsDisabledForManualExecutionBoundary(): void
+    {
+        $controller = $this->controller();
+
+        $result = $this->invokeNonPublic($controller, 'applyPriceSuggestionById', [77, [
+            'platform' => 'ctrip',
+            'room_type_key' => 'RT-1001',
+            'rate_plan_key' => 'BAR',
+        ]]);
+
+        self::assertFalse($result['ok']);
+        self::assertSame(409, $result['code']);
+        self::assertSame('direct_price_apply_disabled', $result['data']['reason']);
+        self::assertSame(77, $result['data']['suggestion_id']);
+        self::assertTrue($result['data']['advisory_only']);
+        self::assertTrue($result['data']['manual_review_required']);
+        self::assertFalse($result['data']['local_price_updated']);
+        self::assertFalse($result['data']['auto_write_ota']);
+        self::assertSame('/api/revenue-ai/price-suggestions/77/execution-intent', $result['data']['allowed_endpoint']);
+        self::assertContains('update_room_type_base_price', $result['data']['forbidden_actions']);
+        self::assertContains('ota_write', $result['data']['forbidden_actions']);
+        self::assertStringContainsString('执行意图', $result['data']['next_action']);
+    }
+
     public function testExtractKnowledgeHotelIdsPrefersSystemHotelIds(): void
     {
         $controller = $this->controller();
