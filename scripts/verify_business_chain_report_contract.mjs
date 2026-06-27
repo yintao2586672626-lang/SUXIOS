@@ -64,6 +64,18 @@ includesAll('business-chain report keeps P0 gate and downstream blocking explici
   'required_gate_command',
 ]);
 
+includesAll('business-chain report embeds executable P0 next steps from verifier metadata', report, [
+  'verify_p0_ota_field_loop_closure.php',
+  'p0_execution_plan',
+  'read_p0_verifier_metadata_only_no_ota_collection',
+  'operator_sequence',
+  'manual_login_state_verified',
+  'login_trigger_entry',
+  'after_login_sync_entry',
+  'single_scope_verifier',
+  'P0 Execution Plan',
+]);
+
 includesAll('business-chain report reads latest reference dates as complete date rows', report, [
   "field('data_date')->order('data_date', 'desc')",
   "preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $date)",

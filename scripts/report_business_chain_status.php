@@ -292,6 +292,169 @@ function business_chain_stage_rows(array $referenceDataset, array $revenue, arra
 }
 
 /**
+ * @return array<string, mixed>
+ */
+function business_chain_p0_execution_plan(string $targetDate, ?int $systemHotelId): array
+{
+    $script = __DIR__ . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php';
+    if (!is_file($script)) {
+        return [
+            'status' => 'not_loaded',
+            'source_policy' => 'p0_verifier_script_missing',
+            'error' => 'scripts/verify_p0_ota_field_loop_closure.php not found',
+        ];
+    }
+
+    $command = [PHP_BINARY, $script, '--date=' . $targetDate, '--format=json'];
+    if ($systemHotelId !== null) {
+        $command[] = '--system-hotel-id=' . $systemHotelId;
+    }
+    $descriptorSpec = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $process = proc_open($command, $descriptorSpec, $pipes, dirname(__DIR__));
+    if (!is_resource($process)) {
+        return [
+            'status' => 'not_loaded',
+            'source_policy' => 'p0_verifier_proc_open_failed',
+            'error' => 'Unable to start P0 verifier process.',
+        ];
+    }
+
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]) ?: '';
+    fclose($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]) ?: '';
+    fclose($pipes[2]);
+    $exitCode = proc_close($process);
+    $payload = business_chain_extract_json($stdout !== '' ? $stdout : $stderr);
+    if ($payload === []) {
+        return [
+            'status' => 'not_loaded',
+            'source_policy' => 'p0_verifier_output_not_json',
+            'verifier_exit_code' => $exitCode,
+            'error' => 'Unable to parse P0 verifier output.',
+        ];
+    }
+
+    return business_chain_compact_p0_execution_plan($payload, $targetDate, $systemHotelId, $exitCode);
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function business_chain_extract_json(string $text): array
+{
+    $start = strpos($text, '{');
+    $end = strrpos($text, '}');
+    if ($start === false || $end === false || $end <= $start) {
+        return [];
+    }
+    $decoded = json_decode(substr($text, $start, $end - $start + 1), true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+/**
+ * @param array<string, mixed> $payload
+ * @return array<string, mixed>
+ */
+function business_chain_compact_p0_execution_plan(array $payload, string $targetDate, ?int $systemHotelId, int $exitCode): array
+{
+    $platformSummaries = [];
+    $operatorSequence = [];
+    foreach (business_chain_list($payload['platforms'] ?? []) as $platformPayload) {
+        if (!is_array($platformPayload)) {
+            continue;
+        }
+        $platform = (string)($platformPayload['platform'] ?? '');
+        $gate = is_array($platformPayload['p0_traffic_gate'] ?? null) ? $platformPayload['p0_traffic_gate'] : [];
+        $steps = [];
+        foreach (business_chain_list($gate['hotel_scoped_next_steps'] ?? []) as $step) {
+            if (!is_array($step)) {
+                continue;
+            }
+            $trigger = is_array($step['profile_login_trigger'] ?? null) ? $step['profile_login_trigger'] : [];
+            $afterLoginSync = is_array($trigger['after_login_sync'] ?? null) ? $trigger['after_login_sync'] : [];
+            $compact = [
+                'platform' => $platform,
+                'system_hotel_id' => isset($step['system_hotel_id']) ? (int)$step['system_hotel_id'] : null,
+                'data_source_id' => isset($step['data_source_id']) ? (int)$step['data_source_id'] : null,
+                'data_source_status' => (string)($step['data_source_status'] ?? ''),
+                'last_sync_status' => (string)($step['last_sync_status'] ?? ''),
+                'manual_login_state_verified' => ($step['manual_login_state_verified'] ?? false) === true,
+                'login_trigger_entry' => (string)($trigger['entry'] ?? ''),
+                'login_trigger_status' => (string)($trigger['status'] ?? ''),
+                'after_login_sync_entry' => (string)($afterLoginSync['entry'] ?? ''),
+                'verifier_command' => (string)($step['p0_verifier_command'] ?? ''),
+            ];
+            $steps[] = $compact;
+            $operatorSequence[] = [
+                'type' => 'manual_login',
+                'platform' => $platform,
+                'system_hotel_id' => $compact['system_hotel_id'],
+                'data_source_id' => $compact['data_source_id'],
+                'entry' => $compact['login_trigger_entry'],
+                'status' => $compact['login_trigger_status'],
+                'required_human_action' => 'Complete authorized OTA login, captcha/SMS/human verification, and permission confirmation in the opened browser Profile.',
+            ];
+            $operatorSequence[] = [
+                'type' => 'after_login_sync',
+                'platform' => $platform,
+                'system_hotel_id' => $compact['system_hotel_id'],
+                'data_source_id' => $compact['data_source_id'],
+                'entry' => $compact['after_login_sync_entry'],
+                'requires' => 'manual_login_state_verified=true',
+            ];
+            $operatorSequence[] = [
+                'type' => 'single_scope_verifier',
+                'platform' => $platform,
+                'system_hotel_id' => $compact['system_hotel_id'],
+                'data_source_id' => $compact['data_source_id'],
+                'command' => $compact['verifier_command'],
+                'required_result' => 'ready',
+            ];
+        }
+        $platformSummaries[] = [
+            'platform' => $platform,
+            'target_date_rows' => (int)($platformPayload['target_date_rows'] ?? 0),
+            'latest_available_date' => (string)($platformPayload['latest_available']['date'] ?? ''),
+            'latest_available_rows' => (int)($platformPayload['latest_available']['rows'] ?? 0),
+            'field_fact_status' => (string)($platformPayload['field_fact_status'] ?? ''),
+            'traffic_gate_status' => (string)($gate['status'] ?? ''),
+            'traffic_rows' => (int)($gate['traffic_rows'] ?? 0),
+            'action_entry' => (string)($gate['action_entry'] ?? ''),
+            'action_status' => (string)($gate['action_status'] ?? ''),
+            'missing_inputs' => array_values(array_map('strval', (array)($gate['action_missing_inputs'] ?? $gate['required_next_inputs'] ?? []))),
+            'next_steps' => $steps,
+        ];
+    }
+
+    return [
+        'status' => (string)($payload['status'] ?? 'unknown'),
+        'verifier_exit_code' => $exitCode,
+        'source_policy' => 'read_p0_verifier_metadata_only_no_ota_collection',
+        'sensitive_values_policy' => 'metadata_only_no_cookie_token_profile_path_or_raw_payload',
+        'scope' => [
+            'target_date' => (string)($payload['scope']['date'] ?? $targetDate),
+            'system_hotel_id' => $systemHotelId,
+            'metric_scope' => (string)($payload['scope']['metric_scope'] ?? 'ota_channel'),
+        ],
+        'summary' => is_array($payload['summary'] ?? null) ? $payload['summary'] : [],
+        'platform_summaries' => $platformSummaries,
+        'operator_sequence' => $operatorSequence,
+        'completion_gate' => [
+            'command' => 'npm.cmd run verify:p0-ota-field-loop -- --date='
+                . $targetDate
+                . ($systemHotelId !== null ? ' --system-hotel-id=' . $systemHotelId : ''),
+            'required_status' => 'ready',
+            'current_status' => (string)($payload['status'] ?? 'unknown'),
+        ],
+    ];
+}
+
+/**
  * @param array<string, mixed> $revenue
  * @return array<int, array<string, mixed>>
  */
@@ -379,6 +542,7 @@ function business_chain_report(array $options): array
     $referenceDataset = business_chain_merge_datasets($referenceDatasets);
     $skipActive = $skipP0 && $targetDataset['status'] !== 'ready' && $referenceDataset['status'] === 'ready';
     $p0Gate = business_chain_gate($targetDate, $systemHotelId, $skipActive);
+    $p0ExecutionPlan = business_chain_p0_execution_plan($targetDate, $systemHotelId);
 
     $revenue = (new RevenueAiOverviewService())->buildOverviewFromDataset(
         $referenceDataset,
@@ -429,6 +593,7 @@ function business_chain_report(array $options): array
         ],
         'source_rows' => $sourceRows,
         'p0_downstream_gate' => $p0Gate,
+        'p0_execution_plan' => $p0ExecutionPlan,
         'stages' => $stages,
         'revenue_ai_summary' => [
             'data_status' => $revenue['data_status'] ?? '',
@@ -477,6 +642,28 @@ function business_chain_markdown(array $report): string
     }
     $lines[] = '';
     $lines[] = 'Next gate: `' . ($report['next_required_gate']['command'] ?? '') . '`';
+    $p0Plan = is_array($report['p0_execution_plan'] ?? null) ? $report['p0_execution_plan'] : [];
+    $operatorSequence = business_chain_list($p0Plan['operator_sequence'] ?? []);
+    if ($operatorSequence !== []) {
+        $lines[] = '';
+        $lines[] = '## P0 Execution Plan';
+        foreach ($operatorSequence as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $type = (string)($item['type'] ?? '');
+            $platform = (string)($item['platform'] ?? '');
+            $hotel = (string)($item['system_hotel_id'] ?? '');
+            $source = (string)($item['data_source_id'] ?? '');
+            if ($type === 'manual_login') {
+                $lines[] = '- login `' . $platform . '` hotel `' . $hotel . '` source `' . $source . '`: `' . ($item['entry'] ?? '') . '`';
+            } elseif ($type === 'after_login_sync') {
+                $lines[] = '- sync `' . $platform . '` hotel `' . $hotel . '` source `' . $source . '`: `' . ($item['entry'] ?? '') . '`';
+            } elseif ($type === 'single_scope_verifier') {
+                $lines[] = '- verify `' . $platform . '` hotel `' . $hotel . '` source `' . $source . '`: `' . ($item['command'] ?? '') . '`';
+            }
+        }
+    }
     return implode(PHP_EOL, $lines) . PHP_EOL;
 }
 
