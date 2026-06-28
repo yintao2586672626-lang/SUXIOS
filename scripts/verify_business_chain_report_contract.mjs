@@ -69,11 +69,29 @@ includesAll('business-chain report embeds executable P0 next steps from verifier
   'p0_execution_plan',
   'read_p0_verifier_metadata_only_no_ota_collection',
   'operator_sequence',
+  'authorization_options',
+  'browser_profile_tiancheng_account',
+  'authorized_cookie_api_temporary',
+  'cookie_api_as_default_mainline',
   'manual_login_state_verified',
   'login_trigger_entry',
   'after_login_sync_entry',
   'single_scope_verifier',
   'P0 Execution Plan',
+]);
+
+includesAll('business-chain report exposes skip-P0 downstream reference workflow', report, [
+  'downstream_reference_workflow',
+  'reference_workflow_ready_not_claimable',
+  'use_reference_ota_rows_for_diagnosis_only',
+  'revenue_diagnosis',
+  'ai_advice_draft',
+  'operation_execution_draft',
+  'investment_precheck',
+  'draft_not_written',
+  'auto_apply_ai_advice',
+  'whole_hotel_truth_from_ota_only',
+  'Downstream Reference Workflow',
 ]);
 
 includesAll('business-chain report reads latest reference dates as complete date rows', report, [
