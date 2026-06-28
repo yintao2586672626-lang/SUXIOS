@@ -3,9 +3,9 @@
 
     const revenueAiStatusTone = (status) => {
         const value = String(status || '').toLowerCase();
-        if (['ok', 'success', 'ready', 'reviewed'].includes(value)) return 'ok';
-        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'unverified', 'pending_review', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi'].includes(value)) return 'warning';
-        if (['failed', 'unauthorized', 'blocked', 'error'].includes(value)) return 'blocked';
+        if (['ok', 'success', 'ready', 'reviewed', 'ready_for_manual_generation', 'pricing_generation_candidates_ready'].includes(value)) return 'ok';
+        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'unverified', 'pending_review', 'pending_review_exists', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi', 'investment_precheck_waiting_decision_record', 'waiting_decision_record_readiness'].includes(value)) return 'warning';
+        if (['failed', 'unauthorized', 'blocked', 'error', 'investment_precheck_blocked_by_operation_roi', 'blocked_by_operation_roi'].includes(value)) return 'blocked';
         return 'unknown';
     };
 
@@ -31,6 +31,8 @@
         evidence_ready: '证据已具备',
         review_needed: '待复盘',
         reviewed_no_roi: '已复盘待补ROI',
+        investment_precheck_waiting_decision_record: '待投决记录',
+        waiting_decision_record_readiness: '待投决记录',
         ready: '可作为输入',
         reviewed: '已处理',
         unknown: '状态未知',
@@ -40,6 +42,8 @@
         not_loaded: '未接入',
         not_calculable: '不可计算',
         blocked: '待补数据',
+        investment_precheck_blocked_by_operation_roi: 'ROI门禁未过',
+        blocked_by_operation_roi: 'ROI门禁未过',
     }[String(status || '').toLowerCase()] || '状态未知');
 
     const revenueAiReasonText = (reason) => ({
@@ -122,6 +126,11 @@
         operation_effect_review_pending: '调价效果复盘待处理。',
         operation_effect_review_ready: '调价效果已有复盘和 ROI 证据。',
         operation_roi_missing: '调价复盘缺少 ROI 或增量收入证据。',
+        closed_operating_roi_missing: '运营闭环尚未形成可用 ROI 证据。',
+        operation_process_closure_missing: '运营执行过程闭环尚未完成。',
+        operation_intake_not_approved: 'AI 建议尚未进入人工批准的运营执行接收。',
+        'operation_execution.roi_ready': '需要运营执行 ROI ready 证据。',
+        'decision_record.readiness_ready': '需要投资决策记录 ready 证据。',
         overview_not_loaded: 'Revenue AI 总览接口尚未返回。',
         overview_request_failed: 'Revenue AI 总览接口请求失败。',
         blocked_by_data_credibility: 'OTA 数据可信门未通过，收益计算被阻断。',
@@ -180,12 +189,14 @@
         { key: 'data_completeness', label: '数据完整度' },
     ]);
 
-    const buildRevenueAiOverviewQuery = ({ businessDate = '', hotelId = '' } = {}) => {
+    const buildRevenueAiOverviewQuery = ({ businessDate = '', hotelId = '', platform = 'ctrip' } = {}) => {
         const params = new URLSearchParams();
         const dateText = String(businessDate || '').trim();
         const hotelIdText = String(hotelId || '').trim();
+        const platformText = String(platform || '').trim().toLowerCase();
         if (dateText) params.set('business_date', dateText);
         if (hotelIdText) params.set('hotel_id', hotelIdText);
+        if (platformText) params.set('platform', platformText);
         return params.toString();
     };
 
@@ -211,7 +222,7 @@
         return formatRevenueAiDate(current);
     };
 
-    const resolveRevenueAiOverviewRequest = ({ hasToken = false, currentPage = '', businessDate = '', hotelId = '' } = {}) => {
+    const resolveRevenueAiOverviewRequest = ({ hasToken = false, currentPage = '', businessDate = '', hotelId = '', platform = 'ctrip' } = {}) => {
         if (hasToken !== true) {
             return { shouldLoad: false, endpoint: '', reason: 'token_missing' };
         }
@@ -220,7 +231,7 @@
         }
         return {
             shouldLoad: true,
-            endpoint: buildRevenueAiOverviewEndpoint({ businessDate, hotelId }),
+            endpoint: buildRevenueAiOverviewEndpoint({ businessDate, hotelId, platform }),
             reason: '',
         };
     };
@@ -583,6 +594,9 @@
     const resolveRevenueAiDecisionBasisNavigation = (basis = {}) => ({
         targetPage: String(basis.targetPage || basis.target_page || '').trim(),
         targetTab: String(basis.targetTab || basis.target_tab || '').trim(),
+        targetAgentTab: String(basis.targetAgentTab || basis.target_agent_tab || '').trim(),
+        targetRevenueTab: String(basis.targetRevenueTab || basis.target_revenue_tab || '').trim(),
+        targetFilter: basis.targetFilter || basis.target_filter || {},
         nextAction: String(basis.nextAction || basis.next_action || '').trim(),
         label: String(basis.label || '').trim(),
     });
@@ -794,6 +808,388 @@
         return 10;
     };
 
+    const buildRevenueAiResolutionPlanSummary = ({ overview = null, action = null } = {}) => {
+        const candidates = [
+            action?.ai_decision_resolution_plan,
+            action?.ai_decision_review_contract?.resolution_plan,
+            overview?.pricing_readiness?.ai_decision_resolution_plan,
+            overview?.pricing_readiness?.ai_decision_review_contract?.resolution_plan,
+        ];
+        const plan = candidates.find(item => item && typeof item === 'object' && Object.keys(item).length > 0) || {};
+        const items = Array.isArray(plan.items) ? plan.items : [];
+        if (Object.keys(plan).length === 0 && items.length === 0) {
+            return {
+                visible: false,
+                status: 'not_loaded',
+                statusLabel: revenueAiStatusLabel('not_loaded'),
+                className: revenueAiStatusClass('not_loaded'),
+                sourceScope: '',
+                sourceChannels: [],
+                itemCount: 0,
+                pendingCount: 0,
+                hiddenCount: 0,
+                display: '',
+                items: [],
+            };
+        }
+        const asList = (value) => Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean) : [];
+        const sourceChannels = asList(plan.source_channels);
+        const status = String(plan.status || (items.length ? 'has_pending_evidence' : 'ready_for_ai_review'));
+        const pendingCount = Number(plan.pending_count ?? items.filter(item => String(item?.status || '') !== 'ok').length);
+        const itemCount = Number(plan.item_count ?? items.length);
+        const visibleItems = items.slice(0, 5).map((item, index) => {
+            const severity = String(item?.severity || 'medium').toLowerCase();
+            const code = String(item?.code || item?.evidence_code || `resolution_${index + 1}`);
+            return {
+                key: code,
+                order: Number(item?.order || index + 1),
+                code,
+                evidenceCode: String(item?.evidence_code || ''),
+                inputType: String(item?.input_type || ''),
+                statusLabel: revenueAiStatusLabel(item?.status || 'blocked'),
+                className: revenueAiStatusClass(item?.status || 'blocked'),
+                severity,
+                severityLabel: revenueAiSeverityLabel(severity),
+                severityClass: revenueAiSeverityClass(severity),
+                resolutionAction: String(item?.resolution_action || item?.next_action || code),
+                acceptanceCheck: String(item?.acceptance_check || ''),
+                unblocks: String(item?.unblocks || ''),
+                forbiddenShortcut: String(item?.forbidden_shortcut || ''),
+                targetPage: String(item?.target_page || ''),
+                targetTab: String(item?.target_tab || ''),
+                targetPlatform: String(item?.target_platform || ''),
+                targetAgentTab: String(item?.target_agent_tab || ''),
+                targetRevenueTab: String(item?.target_revenue_tab || ''),
+                canOpenTarget: Boolean(item?.target_page),
+            };
+        });
+        return {
+            visible: true,
+            status,
+            statusLabel: revenueAiStatusLabel(status === 'ready_for_ai_review' ? 'pending_review' : 'evidence_needed'),
+            className: revenueAiStatusClass(status === 'ready_for_ai_review' ? 'pending_review' : 'blocked'),
+            sourceScope: String(plan.source_scope || ''),
+            sourceChannels,
+            itemCount,
+            pendingCount,
+            hiddenCount: Math.max(0, items.length - visibleItems.length),
+            display: `AI决策补证 ${pendingCount}/${itemCount}`,
+            items: visibleItems,
+        };
+    };
+
+    const buildRevenueAiInvestmentPrecheckSummary = ({ overview = null, action = null } = {}) => {
+        const candidates = [
+            action?.operation_to_investment_handoff,
+            overview?.operation_to_investment_handoff,
+            overview?.pricing_readiness?.operation_to_investment_handoff,
+        ];
+        const handoff = candidates.find(item => item && typeof item === 'object' && Object.keys(item).length > 0) || {};
+        if (Object.keys(handoff).length === 0) {
+            return {
+                visible: false,
+                title: '投资预检',
+                status: 'not_loaded',
+                statusLabel: revenueAiStatusLabel('not_loaded'),
+                className: revenueAiStatusClass('not_loaded'),
+                reasonText: revenueAiReasonText('operation_execution_not_loaded'),
+                detailText: '',
+                sourceScope: '',
+                sourceChannels: [],
+                targetPage: '',
+                targetEntry: '',
+                targetService: '',
+                requiredGate: '',
+                operatingGateStatus: '',
+                businessClosureChainStatus: '',
+                operationRoiReady: 0,
+                readOnly: true,
+                autoWriteOta: false,
+                decisionAllowed: false,
+                canCreateInvestmentDecision: false,
+                missingEvidenceCodes: [],
+                blockedReasons: [],
+                forbiddenActions: [],
+                protectedBoundary: '',
+            };
+        }
+        const precheck = handoff.investment_precheck_packet && typeof handoff.investment_precheck_packet === 'object'
+            ? handoff.investment_precheck_packet
+            : {};
+        const asList = (value) => Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean) : [];
+        const missingEvidenceCodes = asList(precheck.missing_evidence_codes);
+        const missingEvidence = Array.isArray(precheck.missing_evidence) ? precheck.missing_evidence : [];
+        missingEvidence.forEach((item) => {
+            const code = String(item?.code || '').trim();
+            if (code && !missingEvidenceCodes.includes(code)) missingEvidenceCodes.push(code);
+        });
+        const blockedReasons = asList(handoff.blocked_reasons);
+        const sourceChannels = asList(handoff.source_channels?.length ? handoff.source_channels : handoff.source_platforms);
+        const forbiddenActions = asList(handoff.forbidden_actions);
+        const status = String(handoff.status || precheck.status || 'unknown');
+        const decisionAllowed = handoff.decision_allowed === true;
+        const canCreateInvestmentDecision = handoff.can_create_investment_decision === true;
+        const statusForDisplay = decisionAllowed && canCreateInvestmentDecision ? 'ready' : status;
+        const requiredGate = String(precheck.required_gate || '');
+        const reasonCode = missingEvidenceCodes[0] || blockedReasons[0] || String(handoff.operation_roi_reason || status);
+        const channelText = sourceChannels.length ? sourceChannels.map(revenueAiChannelLabel).join(' / ') : '';
+        const detailParts = [
+            channelText ? `范围 ${channelText}` : '',
+            handoff.upstream_operation_intake_status ? `上游 ${handoff.upstream_operation_intake_status}` : '',
+            requiredGate ? `门禁 ${requiredGate}` : '',
+            handoff.operation_roi_ready !== undefined ? `ROI ${Number(handoff.operation_roi_ready || 0)}` : '',
+        ].filter(Boolean);
+
+        return {
+            visible: true,
+            title: '投资预检',
+            status,
+            precheckStatus: String(precheck.status || ''),
+            statusLabel: revenueAiStatusLabel(statusForDisplay),
+            className: revenueAiStatusClass(statusForDisplay),
+            reasonText: revenueAiReasonText(reasonCode),
+            detailText: detailParts.join(' · '),
+            sourceScope: String(handoff.source_scope || ''),
+            sourceChannels,
+            targetPage: String(handoff.target_page || ''),
+            targetEntry: String(handoff.target_entry || ''),
+            targetService: String(handoff.target_service || ''),
+            requiredGate,
+            operatingGateStatus: String(precheck.operating_gate_status || handoff.operating_gate_status || ''),
+            businessClosureChainStatus: String(precheck.business_closure_chain_status || handoff.business_closure_chain_status || ''),
+            operationRoiReady: Number(handoff.operation_roi_ready || precheck.operation_roi_ready || 0),
+            readOnly: true,
+            autoWriteOta: false,
+            decisionAllowed,
+            canCreateInvestmentDecision,
+            missingEvidenceCodes,
+            blockedReasons,
+            forbiddenActions,
+            protectedBoundary: String(precheck.protected_boundary || handoff.protected_boundary || ''),
+        };
+    };
+
+    const revenueAiPricingGenerationStatusLabel = (status) => ({
+        ready_for_manual_generation: '可生成待审',
+        pending_review_exists: '已有待审',
+        blocked: '生成受阻',
+        failed: '预检失败',
+        not_loaded: '未加载',
+    }[String(status || '').toLowerCase()] || revenueAiStatusLabel(status || 'unknown'));
+
+    const revenueAiPricingGenerationReasonText = (reason) => ({
+        price_suggestion_generation_not_loaded: '调价建议生成预检尚未加载。',
+        pricing_generation_hotel_scope_missing: '调价建议生成缺少目标系统酒店范围。',
+        room_types_empty: '携程目标酒店暂无启用房型，不能生成待审调价建议。',
+        pricing_candidate_signals_missing: '调价候选信号不足，当前不会生成待审建议。',
+        pricing_generation_candidates_ready: '已存在可生成待审调价建议的只读候选。',
+        price_suggestions_pending_review: '存在待人工审核调价建议。',
+    }[String(reason || '')] || revenueAiReasonText(reason || 'overview_not_loaded'));
+
+    const buildRevenueAiPricingGenerationPreflightSummary = ({ overview = null, action = null } = {}) => {
+        const candidates = [
+            action?.pricing_generation_preflight,
+            overview?.pricing_generation_preflight,
+            overview?.pricing_readiness?.pricing_generation_preflight,
+        ];
+        const preflight = candidates.find(item => item && typeof item === 'object' && Object.keys(item).length > 0) || {};
+        if (Object.keys(preflight).length === 0) {
+            return { visible: false };
+        }
+
+        const status = String(preflight.status || 'unknown');
+        const reason = String(preflight.reason || '');
+        const targetFilter = preflight.target_filter && typeof preflight.target_filter === 'object'
+            ? preflight.target_filter
+            : {};
+        const rawRequiredInputs = Array.isArray(preflight.required_inputs) ? preflight.required_inputs : [];
+        const requiredInputs = rawRequiredInputs
+            .map((item) => ({
+                code: String(item?.code || ''),
+                source: String(item?.source || ''),
+                nextAction: String(item?.next_action || ''),
+            }))
+            .filter(item => item.code)
+            .slice(0, 4);
+        const rawCandidateSkipReasons = Array.isArray(preflight.candidate_skip_reasons)
+            ? preflight.candidate_skip_reasons.map(String).filter(Boolean)
+            : [];
+        const rawCandidateDataGaps = Array.isArray(preflight.candidate_data_gaps)
+            ? preflight.candidate_data_gaps.map(String).filter(Boolean)
+            : [];
+        const rawHotelChecks = Array.isArray(preflight.hotel_checks) ? preflight.hotel_checks : [];
+        const hotelChecks = rawHotelChecks
+            .map((item, index) => {
+                const skipReasons = Array.isArray(item?.skip_reasons)
+                    ? item.skip_reasons.map(String).filter(Boolean)
+                    : [];
+                return {
+                    key: `${Number(item?.hotel_id || 0) || 'hotel'}-${index}`,
+                    hotelId: Number(item?.hotel_id || 0),
+                    targetDateRows: Number(item?.target_date_rows || 0),
+                    roomTypeCount: Number(item?.room_type_count || 0),
+                    pendingSuggestions: Number(item?.pending_suggestions || 0),
+                    demandForecasts: Number(item?.demand_forecasts || 0),
+                    competitorAnalysisRecent: Number(item?.competitor_analysis_recent || 0),
+                    createCandidateCount: Number(item?.create_candidate_count || 0),
+                    skippedCandidateCount: Number(item?.skipped_candidate_count || 0),
+                    skipReasons: skipReasons.slice(0, 3),
+                    hiddenSkipReasonCount: Math.max(0, skipReasons.length - 3),
+                };
+            })
+            .filter(item => item.hotelId > 0 || item.targetDateRows > 0 || item.roomTypeCount > 0 || item.skipReasons.length > 0)
+            .slice(0, 4);
+        const targetHotelIds = Array.isArray(preflight.target_hotel_ids)
+            ? preflight.target_hotel_ids.map(item => Number(item || 0)).filter(item => item > 0)
+            : [];
+        const detailParts = [
+            targetHotelIds.length ? `酒店 ${targetHotelIds.join(' / ')}` : '',
+            `OTA行 ${Number(preflight.target_date_rows || 0)}`,
+            `房型 ${Number(preflight.room_type_count || 0)}`,
+            `候选 ${Number(preflight.create_candidate_count || 0)}`,
+            `待审 ${Number(preflight.pending_suggestion_count || 0)}`,
+        ].filter(Boolean);
+
+        return {
+            visible: status !== 'not_loaded',
+            title: '调价建议生成预检',
+            status,
+            statusLabel: revenueAiPricingGenerationStatusLabel(status),
+            className: revenueAiStatusClass(status),
+            reasonText: String(preflight.detail || '') || revenueAiPricingGenerationReasonText(reason),
+            nextAction: String(preflight.next_action || ''),
+            detailText: detailParts.join(' · '),
+            sourceScope: String(preflight.source_scope || ''),
+            sourceChannels: Array.isArray(preflight.source_channels) ? preflight.source_channels.map(String) : [],
+            targetHotelIds,
+            targetHotelCount: Number(preflight.target_hotel_count || targetHotelIds.length || 0),
+            targetDateRows: Number(preflight.target_date_rows || 0),
+            roomTypeCount: Number(preflight.room_type_count || 0),
+            createCandidateCount: Number(preflight.create_candidate_count || 0),
+            skippedCandidateCount: Number(preflight.skipped_candidate_count || 0),
+            pendingSuggestionCount: Number(preflight.pending_suggestion_count || 0),
+            candidateSkipReasons: rawCandidateSkipReasons.slice(0, 4),
+            hiddenCandidateSkipReasonCount: Math.max(0, rawCandidateSkipReasons.length - 4),
+            candidateDataGaps: rawCandidateDataGaps.slice(0, 5),
+            hiddenCandidateDataGapCount: Math.max(0, rawCandidateDataGaps.length - 5),
+            hotelChecks,
+            hiddenHotelCheckCount: Math.max(0, rawHotelChecks.length - hotelChecks.length),
+            requiredInputs,
+            hiddenRequiredInputCount: Math.max(0, rawRequiredInputs.length - requiredInputs.length),
+            canGeneratePendingSuggestions: preflight.can_generate_pending_suggestions === true,
+            readOnly: preflight.read_only !== false,
+            autoWriteOta: preflight.auto_write_ota === true,
+            advisoryOnly: preflight.advisory_only !== false,
+            target: {
+                label: '调价建议生成预检',
+                targetPage: String(preflight.target_page || ''),
+                targetTab: String(preflight.target_tab || ''),
+                targetAgentTab: String(preflight.target_agent_tab || ''),
+                targetRevenueTab: String(preflight.target_revenue_tab || ''),
+                targetFilter,
+                nextAction: String(preflight.next_action || ''),
+            },
+            canOpenTarget: Boolean(preflight.target_page),
+        };
+    };
+
+    const buildRevenueAiPriceSuggestionGenerateResult = ({ response = null, error = null } = {}) => {
+        if (error) {
+            const message = error && error.message ? String(error.message) : '定价建议生成请求失败';
+            return {
+                status: 'failed',
+                statusLabel: revenueAiPricingGenerationStatusLabel('failed'),
+                reason: 'request_failed',
+                reasonText: message,
+                message,
+                level: 'error',
+                className: revenueAiStatusClass('failed'),
+                createdCount: 0,
+                skippedCount: 0,
+                canGeneratePendingSuggestions: false,
+                requiredInputs: [],
+                hiddenRequiredInputCount: 0,
+                advisoryOnly: true,
+                manualReviewRequired: true,
+                autoWriteOta: false,
+            };
+        }
+
+        const payload = response && typeof response === 'object' ? response : {};
+        const data = payload.data && typeof payload.data === 'object' ? payload.data : {};
+        const createdCount = Number(data.created_count || 0);
+        const skippedCount = Number(data.skipped_count || 0);
+        const status = String(data.status || (createdCount > 0 ? 'created' : (payload.code === 200 ? 'blocked' : 'failed')));
+        const reason = String(data.reason || (createdCount > 0 ? 'price_suggestions_pending_review' : 'pricing_candidate_signals_missing'));
+        const isCreated = createdCount > 0 && status !== 'blocked' && status !== 'failed';
+        const rawRequiredInputs = Array.isArray(data.required_inputs) ? data.required_inputs : [];
+        const requiredInputs = rawRequiredInputs
+            .map((item) => ({
+                code: String(item?.code || ''),
+                status: String(item?.status || ''),
+                source: String(item?.source || ''),
+                nextAction: String(item?.next_action || ''),
+            }))
+            .filter(item => item.code)
+            .slice(0, 4);
+        const reasonText = String(data.detail || '') || revenueAiPricingGenerationReasonText(reason);
+        const nextAction = String(data.next_action || '');
+        const message = isCreated
+            ? `已生成 ${createdCount} 条待审建议；仍需人工审核，不写 OTA。`
+            : (nextAction || reasonText || String(payload.message || '定价建议生成受阻'));
+        const targetFilter = data.target_filter && typeof data.target_filter === 'object'
+            ? data.target_filter
+            : {};
+        const rawSkippedItems = Array.isArray(data.skipped) ? data.skipped : [];
+        const skippedItems = rawSkippedItems
+            .map((item, index) => {
+                const dataGaps = Array.isArray(item?.data_gaps) ? item.data_gaps.map(String).filter(Boolean) : [];
+                const reviewChecklist = Array.isArray(item?.review_checklist) ? item.review_checklist.map(String).filter(Boolean) : [];
+                return {
+                    key: `${Number(item?.room_type_id || 0) || 'room'}-${String(item?.reason || 'skipped')}-${index}`,
+                    roomTypeId: Number(item?.room_type_id || 0),
+                    roomTypeName: String(item?.room_type_name || item?.room_type?.name || '未命名房型'),
+                    reason: String(item?.reason || 'not_created'),
+                    primarySignalCount: Number(item?.primary_signal_count || 0),
+                    priceChangeRate: Number(item?.price_change_rate || 0),
+                    riskLevel: String(item?.risk_level || ''),
+                    dataGaps: dataGaps.slice(0, 4),
+                    hiddenDataGapCount: Math.max(0, dataGaps.length - 4),
+                    reviewChecklist: reviewChecklist.slice(0, 3),
+                    hiddenReviewChecklistCount: Math.max(0, reviewChecklist.length - 3),
+                };
+            })
+            .slice(0, 5);
+
+        return {
+            status,
+            statusLabel: isCreated ? '已生成待审' : revenueAiPricingGenerationStatusLabel(status),
+            reason,
+            reasonText,
+            message,
+            nextAction,
+            level: isCreated ? 'success' : (status === 'failed' ? 'error' : 'warning'),
+            className: isCreated ? revenueAiStatusClass('pending_review') : revenueAiStatusClass(status),
+            sourceScope: String(data.source_scope || ''),
+            sourceChannels: Array.isArray(data.source_channels) ? data.source_channels.map(String) : [],
+            targetHotelIds: Array.isArray(data.target_hotel_ids)
+                ? data.target_hotel_ids.map(item => Number(item || 0)).filter(item => item > 0)
+                : [],
+            targetFilter,
+            createdCount,
+            skippedCount,
+            reviewedCount: Number(data.reviewed_count || createdCount + skippedCount),
+            skippedItems,
+            hiddenSkippedItemCount: Math.max(0, rawSkippedItems.length - skippedItems.length),
+            canGeneratePendingSuggestions: data.can_generate_pending_suggestions === true,
+            requiredInputs,
+            hiddenRequiredInputCount: Math.max(0, rawRequiredInputs.length - requiredInputs.length),
+            advisoryOnly: data.advisory_only !== false,
+            manualReviewRequired: data.manual_review_required !== false,
+            autoWriteOta: data.auto_write_ota === true,
+        };
+    };
+
     const buildRevenueAiActionRows = ({ overview = null, overviewError = '' } = {}) => {
         const actions = Array.isArray(overview?.actions) ? overview.actions : [];
         const rows = actions.length ? actions : [{
@@ -807,6 +1203,18 @@
             const reviewQueue = action.review_queue && typeof action.review_queue === 'object'
                 ? action.review_queue
                 : (overview?.review_queue || {});
+            const reviewQueueTargetFilter = reviewQueue.target_filter && typeof reviewQueue.target_filter === 'object'
+                ? reviewQueue.target_filter
+                : {};
+            const reviewQueueTarget = {
+                label: action.review_queue_summary || reviewQueue.display || action.title || '',
+                targetPage: reviewQueue.target_page || '',
+                targetTab: reviewQueue.target_tab || '',
+                targetAgentTab: reviewQueue.target_agent_tab || '',
+                targetRevenueTab: reviewQueue.target_revenue_tab || '',
+                targetFilter: reviewQueueTargetFilter,
+                nextAction: reviewQueue.next_action || '',
+            };
             const reviewQueueStatus = reviewQueue.status || '';
             const decisionBasis = action.decision_basis_summary && typeof action.decision_basis_summary === 'object'
                 ? action.decision_basis_summary
@@ -837,10 +1245,15 @@
                         targetPage: item.target_page || '',
                         targetTab: item.target_tab || '',
                         targetPlatform: item.target_platform || '',
+                        targetAgentTab: item.target_agent_tab || '',
+                        targetRevenueTab: item.target_revenue_tab || '',
                         canOpenTarget: Boolean(item.target_page),
                     }));
             const reviewQueueItems = buildRevenueAiReviewQueueItems(reviewQueue);
             const approvedExecutionPendingCount = reviewQueueItems.filter(item => item.canCreateExecutionIntent).length;
+            const resolutionPlanSummary = buildRevenueAiResolutionPlanSummary({ overview, action });
+            const investmentPrecheckSummary = buildRevenueAiInvestmentPrecheckSummary({ overview, action });
+            const pricingGenerationPreflightSummary = buildRevenueAiPricingGenerationPreflightSummary({ overview, action });
             return {
                 key: action.key || action.title,
                 title: action.title || '暂无可审核调价建议',
@@ -853,6 +1266,8 @@
                 autoWriteOta: action.auto_write_ota === true,
                 manualReviewRequired: action.manual_review_required !== false,
                 reviewQueueSummary: action.review_queue_summary || reviewQueue.display || '',
+                reviewQueueTarget,
+                reviewQueueCanOpenTarget: Boolean(reviewQueueTarget.targetPage),
                 reviewQueueStatusLabel: reviewQueueStatus ? revenueAiStatusLabel(reviewQueueStatus) : '',
                 reviewQueueClassName: reviewQueueStatus ? revenueAiStatusClass(reviewQueueStatus) : revenueAiStatusClass('unknown'),
                 pendingReviewCount: Number(reviewQueue.pending_count || 0),
@@ -868,6 +1283,13 @@
                 decisionBasisHiddenBlockedCount,
                 decisionBasisHiddenDisplay: decisionBasisHiddenBlockedCount > 0 ? `另有 ${decisionBasisHiddenBlockedCount} 项待补未展示` : '',
                 decisionBasisItems,
+                resolutionPlanSummary,
+                resolutionPlanVisible: resolutionPlanSummary.visible === true,
+                resolutionPlanItems: resolutionPlanSummary.items,
+                pricingGenerationPreflightSummary,
+                pricingGenerationPreflightVisible: pricingGenerationPreflightSummary.visible === true,
+                investmentPrecheckSummary,
+                investmentPrecheckVisible: investmentPrecheckSummary.visible === true,
             };
         });
     };
@@ -1578,6 +2000,10 @@
         buildRevenueAiStatusRows,
         buildRevenueAiSignalRows,
         buildRevenueAiReviewQueueItems,
+        buildRevenueAiResolutionPlanSummary,
+        buildRevenueAiInvestmentPrecheckSummary,
+        buildRevenueAiPricingGenerationPreflightSummary,
+        buildRevenueAiPriceSuggestionGenerateResult,
         buildRevenueAiActionRows,
         buildRevenueAiPricingGateRows,
         buildRevenueAiAgentActivitySummary,

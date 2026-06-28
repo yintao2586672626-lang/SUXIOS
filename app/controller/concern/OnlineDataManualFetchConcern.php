@@ -302,6 +302,26 @@ trait OnlineDataManualFetchConcern
             }
 
             $responseData = $result['data'] ?? [];
+            $selfMetricValues = $this->requestMeituanSelfMetricValues();
+            $selfMetricStatus = !empty($selfMetricValues) ? 'provided' : 'missing';
+            $selfMetricMessage = '';
+            $selfMetricUpdateTime = '';
+            $includeSelfTradeMetrics = $this->isTruthyRequestValue($requestData['include_self_trade_metrics'] ?? true);
+            if (empty($selfMetricValues) && $includeSelfTradeMetrics) {
+                $selfMetricResult = $this->fetchMeituanSelfTradeMetricValues(
+                    (string)$partnerId,
+                    (string)$poiId,
+                    (string)$startDate,
+                    (string)$endDate,
+                    (string)$cookies,
+                    $authData,
+                    (string)$dateRange
+                );
+                $selfMetricValues = is_array($selfMetricResult['values'] ?? null) ? $selfMetricResult['values'] : [];
+                $selfMetricStatus = (string)($selfMetricResult['status'] ?? 'failed');
+                $selfMetricMessage = (string)($selfMetricResult['message'] ?? '');
+                $selfMetricUpdateTime = (string)($selfMetricResult['update_time'] ?? '');
+            }
             $savedCount = 0;
 
             if ($autoSave && is_array($responseData) && !empty($responseData)) {
@@ -318,6 +338,8 @@ trait OnlineDataManualFetchConcern
             // 确保所有数据都是有效的UTF-8编码
             $responseData = $this->ensureUtf8($responseData);
             $displayContext = $this->buildMeituanBusinessDisplayContext();
+            $displayContext['self_metric_values'] = $selfMetricValues;
+            $displayContext['self_metric_status'] = $selfMetricStatus;
             $displayContext['rank_type'] = $rankType;
             $displayHotels = $this->buildMeituanBusinessDisplayHotels($responseData, $displayContext);
             $displaySummary = $this->buildMeituanBusinessDisplaySummary($displayHotels, $displayContext);
@@ -340,6 +362,10 @@ trait OnlineDataManualFetchConcern
                     'data' => $responseData,
                     'raw_response' => $rawResponse,
                     'saved_count' => $savedCount,
+                    'self_metric_values' => $selfMetricValues,
+                    'self_metric_status' => $selfMetricStatus,
+                    'self_metric_message' => $selfMetricMessage,
+                    'self_metric_update_time' => $selfMetricUpdateTime,
                     'display_hotels' => $displayHotels,
                     'display_hotel_count' => count($displayHotels),
                     'display_summary' => $displaySummary,

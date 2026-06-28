@@ -99,7 +99,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
     ],
   },
   competitor_rank: {
-    label: '竞争圈动态-榜单',
+    label: '竞争圈动态-竞争圈榜单',
     dataType: 'traffic',
     aliases: ['rank', 'ranking', 'competitor_rank'],
     pageUrls: [
@@ -145,6 +145,14 @@ export const CTRIP_CAPTURE_SECTIONS = {
       sectionUrl('https://ebooking.ctrip.com/advertise/cpc/diagnosisReport?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/pyramidad/dataReport?micro=true', 'observed'),
       sectionUrl('https://ebooking.ctrip.com/pyramidad/diagnosisReport?micro=true', 'observed'),
+    ],
+  },
+  ladder_simulate_rank: {
+    label: '云梯排名预测',
+    dataType: 'advertising_forecast',
+    aliases: ['ladder', 'ladder_rank', 'simulate_rank', 'rank_forecast', 'yunti'],
+    pageUrls: [
+      sectionUrl('https://ebooking.ctrip.com/toolcenter/ladder/home', 'observed_from_live_probe'),
     ],
   },
   quality_psi: {
@@ -330,6 +338,22 @@ const trafficFields = [
   field('keyword', '搜索关键词', ['keyword', 'searchKeyword', 'filterWords']),
 ];
 
+const trafficFlowSourceFields = [
+  field('source_name', '流量来源', ['sourceName']),
+  field('source_rank_tag', '流量来源排名标签', ['sourceNameTag'], 'queryFlowSource 返回的页面图标标签，只保留为来源行辅助事实。'),
+  field('source_proportion', '我的酒店流量来源占比', ['proportion'], 'queryFlowSource flowSourceDetails[].proportion；来源结构占比，只保留 raw fact，不写入流量转化率。', { unit: '%' }),
+  field('competitor_avg_source_proportion', '竞争圈平均流量来源占比', ['competitorAvgProportion'], 'queryFlowSource flowSourceDetails[].competitorAvgProportion；竞争圈平均来源结构占比，只保留 raw fact。', { unit: '%' }),
+  field('source_pv', '流量来源PV', ['pv'], 'queryFlowSource flowSourceDetails[].pv；样例中与 allpv 推导竞圈占比，不等同于本店 page_views。', { unit: '次' }),
+  field('source_all_pv', '流量来源PV分母', ['allpv'], 'queryFlowSource flowSourceDetails[].allpv；用于解释来源占比口径，不写入曝光主列。', { unit: '次' }),
+  field('keyword', '搜索关键词', ['keyword', 'searchKeyword', 'keywords', 'filterWords']),
+];
+
+const trafficCityHotSearchFields = [
+  field('city_hot_search_keyword', '城市热搜关键词', ['keyword'], 'queryCityHotKeywords / queryQunarCityHotSearch 返回的关键词项；只作为关键词维度事实。'),
+  field('city_hot_search_uv', '城市热搜关键词UV', ['uv', 'UV'], '关键词级 UV，不覆盖酒店整体访客量。'),
+  field('city_hot_search_pv', '城市热搜关键词PV', ['pv', 'PV'], '关键词级 PV，不覆盖酒店列表页曝光量。'),
+];
+
 const qualityFields = [
   field('psi_score', 'PSI服务质量分', ['psi', 'PSI', 'psiScore', 'qualityscore', 'totalScore']),
   field('service_score', '服务质量分', ['serviceScore']),
@@ -416,6 +440,18 @@ const adsFields = [
   field('roas', '广告投产比ROAS', ['roas', 'roi']),
   field('campaign_id', '推广计划ID', ['campaignId', 'campaign_id']),
   field('diagnosis_text', '诊断建议', ['diagnosis', 'suggestion', 'interpretation', 'tasktext']),
+];
+
+const ladderSimulateRankFields = [
+  field('ladder_participating', '云梯参与状态', ['participating'], '是否正在参与云梯推广', { valueType: 'boolean', missingStatus: 'field_missing', confidenceStatus: 'live_probe_observed' }),
+  field('ladder_range_participating', '云梯范围参与状态', ['rangeParticipating'], '平台返回的范围参与状态，具体业务口径仍需页面文案复核', { valueType: 'boolean', missingStatus: 'field_missing', confidenceStatus: 'live_probe_observed' }),
+  field('ladder_effect_date', '云梯预测生效日期', ['effectDate'], '云梯预测列表的生效日期', { valueType: 'date', missingStatus: 'field_missing', confidenceStatus: 'live_probe_observed' }),
+  field('ladder_current_rank', '云梯当前排名', ['currentRank'], '接口给出的当前排名字段；是否已含当前云梯效果需结合页面文案复核', { unit: '名', valueType: 'integer', missingStatus: 'field_missing', confidenceStatus: 'live_probe_observed' }),
+  field('ladder_predicted_rank', '云梯预测排名', ['predicateRank'], '接口字段名为 predicateRank，按页面语义记为预测排名', { unit: '名', valueType: 'integer', missingStatus: 'field_missing', confidenceStatus: 'live_probe_observed' }),
+  field('ladder_origin_rank', '云梯原始排名', ['originRank'], '云梯推广前的原始或基准排名', { unit: '名', valueType: 'integer', missingStatus: 'field_missing', confidenceStatus: 'live_probe_observed' }),
+  field('ladder_strategy_ratio', '云梯策略比例', ['effectValue'], '样例页面显示为策略比例 15%', { unit: '%', valueType: 'number', missingStatus: 'field_missing', confidenceStatus: 'live_probe_observed' }),
+  field('ladder_estimated_traffic_lift', '云梯预估流量提升', ['increaseRatioValue'], '样例与页面流量提升预测折线相关，精确标签待页面文案复核', { unit: '%', valueType: 'number', missingStatus: 'field_missing', confidenceStatus: 'live_probe_observed' }),
+  field('ladder_participate_promote_lift', '云梯参与推广提升', ['participatePromoteValue'], '样例与页面推广提升折线相关，精确标签待页面文案复核', { unit: '%', valueType: 'number', missingStatus: 'field_missing', confidenceStatus: 'live_probe_observed' }),
 ];
 
 const userProfileFields = [
@@ -519,12 +555,20 @@ const FACT_ONLY_FIELD_IDS = new Set([
   'notice_text',
   'config_name',
   'config_value',
+  'city_hot_search_keyword',
+  'city_hot_search_uv',
+  'city_hot_search_pv',
   'keyword',
   'rank_metric',
   'room_type_id',
   'room_type_name',
   'sale_status',
   'source_name',
+  'source_proportion',
+  'competitor_avg_source_proportion',
+  'source_pv',
+  'source_all_pv',
+  'source_rank_tag',
   'start_date',
   'strategy',
   'suggest_action',
@@ -565,6 +609,15 @@ const FACT_ONLY_FIELD_IDS = new Set([
   'psi_basic_item_tips',
   'top_hot_words',
   'top_hot_hotels',
+  'ladder_participating',
+  'ladder_range_participating',
+  'ladder_effect_date',
+  'ladder_current_rank',
+  'ladder_predicted_rank',
+  'ladder_origin_rank',
+  'ladder_strategy_ratio',
+  'ladder_estimated_traffic_lift',
+  'ladder_participate_promote_lift',
   'psi_basic_item_activity_name',
   'psi_basic_item_activity_url',
 ]);
@@ -770,12 +823,16 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
     status: 'supporting',
     notes: '流量来源辅助弹窗，只保留来源/提示信息，不作为核心流量指标。',
   }),
-  endpoint('traffic_flow_source', 'traffic_report', ['queryFlowSource', 'getRealTimeVisitorSourceV1'], [...trafficFields]),
+  endpoint('traffic_flow_source', 'traffic_report', ['queryFlowSource', 'getRealTimeVisitorSourceV1'], [...trafficFlowSourceFields]),
   endpoint('traffic_menu_key', 'traffic_report', ['queryMenuKey'], [...supportNoticeFields], {
     status: 'supporting',
     notes: '流量页菜单/权限辅助接口，只用于判断页面上下文，不作为经营指标。',
   }),
-  endpoint('traffic_city_keywords', 'traffic_report', ['queryCityHotKeywords', 'queryQunarCityHotSearch'], [...trafficFields]),
+  endpoint('traffic_city_keywords', 'traffic_report', ['queryCityHotKeywords', 'queryQunarCityHotSearch'], [...trafficCityHotSearchFields], {
+    dataType: 'traffic',
+    status: 'fact_only',
+    notes: '城市/同城热门搜索关键词榜单；keyword/uv/pv 是关键词级聚合事实，不写入酒店整体访客量、曝光量或转化率。',
+  }),
   endpoint('traffic_search_details', 'traffic_report', ['querySearchFlowDetails'], [...trafficFields]),
   endpoint('traffic_hotel_min_price', 'traffic_report', ['queryHotelMinPriceV1'], [field('min_price', '实时起价', ['minPrice']), field('min_price_rank', '起价排名', ['minPriceRank'])]),
   endpoint('traffic_picture_quality', 'traffic_report', ['getPictureQualityScore'], [...qualityFields]),
@@ -847,6 +904,10 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
   endpoint('ads_resource_yellow_bar', 'ads_pyramid', ['getEbkResourceYellowBar'], [...supportNoticeFields], { status: 'supporting' }),
   endpoint('ads_dynamic_config', 'ads_pyramid', ['getDynamicConfig'], [...supportNoticeFields], { status: 'supporting' }),
   endpoint('ads_report_injection', 'ads_pyramid', ['reportInjectFnInfo'], [...supportNoticeFields], { status: 'supporting' }),
+  endpoint('ladder_simulate_rank', 'ladder_simulate_rank', ['getHotelSimulateRank'], [...ladderSimulateRankFields], {
+    status: 'live_probe_observed',
+    notes: '云梯预测只代表携程 OTA 推广预测；不得当作实际成交、实际排名结果、全酒店经营数据或投资判断依据。',
+  }),
 
   endpoint('psi_overview', 'quality_psi', ['getHotelPsiV2'], [...qualityFields, ...psiBasicScoreDetailFields]),
   endpoint('psi_growth_task', 'quality_psi', ['queryPsiGrowthTaskList', 'queryRewardScoreActivityList'], [...qualityFields, field('task_name', '提分任务', ['taskName', 'title', 'name']), field('task_action', '行动入口', ['action', 'targetUrl', 'activityUrl', 'url'])]),
@@ -954,6 +1015,7 @@ export const CTRIP_CAPTURE_SECTION_PRESETS = {
     'user_profile',
     'im_board',
     'ads_pyramid',
+    'ladder_simulate_rank',
     'quality_psi',
     'market_calendar',
     'biztravel_bpi',
@@ -1617,10 +1679,49 @@ function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo)
   if (endpointId === 'traffic_comment_score_summary') {
     return extractReviewPhotoRateFacts(node, path, fields, context, endpointInfo);
   }
+  if (endpointId === 'traffic_flow_source') {
+    return extractTrafficFlowSourceKeywordFacts(node, path, fields, context, endpointInfo);
+  }
   if (['competitor_management', 'competitor_flow', 'competitor_service'].includes(endpointId)) {
     return extractCompetitorIndexFacts(node, path, fields, context, endpointInfo);
   }
   return [];
+}
+
+function extractTrafficFlowSourceKeywordFacts(node, path, fields, context, endpointInfo) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) {
+    return [];
+  }
+
+  const fieldInfo = fields.find((item) => item.id === 'keyword');
+  if (!fieldInfo) {
+    return [];
+  }
+
+  const facts = [];
+  for (const sourceKey of ['keywords', 'filterWords']) {
+    const items = node[sourceKey];
+    if (!Array.isArray(items)) {
+      continue;
+    }
+    items.forEach((item, index) => {
+      if (!isScalar(item) || String(item).trim() === '') {
+        return;
+      }
+      facts.push(buildEndpointSpecificFact({
+        context,
+        endpointInfo,
+        fieldInfo,
+        sourceKey: `${sourceKey}[]`,
+        sourcePath: [...path, sourceKey, String(index)],
+        sourceParentPath: [...path, sourceKey],
+        value: item,
+        derived_from: 'queryFlowSource_keyword_array',
+      }));
+    });
+  }
+
+  return facts;
 }
 
 function extractWeeklyReportFacts(node, path, context, endpointInfo) {
@@ -2649,7 +2750,7 @@ export function generateCtripCaptureMarkdown({ i18nReference = null } = {}) {
     '|---|---|---|',
     '| P0 | 首页实时、经营报告概要、销售数据、流量数据 | 收益分析、日报、流量漏斗和核心运营诊断 |',
     '| P1 | 订单点评聚合、竞争圈概览、流失分析、竞争圈榜单、PSI、热点日历、用户分析 | 点评聚合、竞对对比、流失去向、服务质量、市场热度和客群结构判断 |',
-    '| P2 | 金字塔推广、PSI 服务质量分、IM 看板、BPI 分、携程商旅经营报告 | 广告投放、服务质量、客服响应、商旅渠道和企业客户表现 |',
+    '| P2 | 金字塔推广、云梯排名预测、PSI 服务质量分、IM 看板、BPI 分、携程商旅经营报告 | 广告投放、推广预测、服务质量、客服响应、商旅渠道和企业客户表现 |',
     '| P3 | 订单明细、价格房态、促销活动、结算财务、合同/MICE/RFP | 仍需补充真实接口 Payload / Response 后再进入字段目录 |',
     '',
     '## 采集范围预设',
@@ -2658,7 +2759,7 @@ export function generateCtripCaptureMarkdown({ i18nReference = null } = {}) {
     '|---|---|---|',
     '| `default` | 经营报告概要、流量数据 | 日常低成本自动抓取 |',
     '| `core` | 首页实时、经营报告概要、销售数据、流量数据 | P0 核心经营诊断 |',
-    '| `wide` | P0 + 竞争圈、流失、榜单、用户行为、IM、金字塔、PSI、商旅 BPI/经营/竞争圈 | 周期性全量经营复核 |',
+    '| `wide` | P0 + 竞争圈、流失、榜单、用户行为、IM、金字塔、云梯、PSI、商旅 BPI/经营/竞争圈 | 周期性全量经营复核 |',
     '| `all` | 字段目录内全部非点评明文模块 | 手动盘点或接口变更复核 |',
     '',
     '- Profile 采集参数可传 `--sections=core`、`--sections=wide`、`--sections=all`，或逗号分隔的模块 ID / alias。',
@@ -3384,7 +3485,8 @@ function standardDataTypeForFacts(facts) {
     'qunar_deal_rate', 'qunar_competitor_deal_rate',
     'visitor_rank', 'visitor_count_last_week', 'competitor_avg_visitor',
     'qunar_visitor_count', 'qunar_visitor_rank', 'qunar_visitor_count_last_week', 'qunar_competitor_avg_visitor',
-    'competitor_visitor', 'source_name', 'keyword', 'traffic_rank',
+    'competitor_visitor', 'source_name', 'source_rank_tag', 'source_proportion', 'competitor_avg_source_proportion',
+    'source_pv', 'source_all_pv', 'keyword', 'traffic_rank',
   ].includes(id))) {
     return 'traffic';
   }
@@ -3418,7 +3520,8 @@ function standardDataTypeForField(fieldId) {
     'qunar_deal_rate', 'qunar_competitor_deal_rate',
     'visitor_rank', 'visitor_count_last_week', 'competitor_avg_visitor',
     'qunar_visitor_count', 'qunar_visitor_rank', 'qunar_visitor_count_last_week', 'qunar_competitor_avg_visitor',
-    'competitor_visitor', 'source_name', 'keyword', 'traffic_rank',
+    'competitor_visitor', 'source_name', 'source_rank_tag', 'source_proportion', 'competitor_avg_source_proportion',
+    'source_pv', 'source_all_pv', 'keyword', 'traffic_rank',
   ].includes(fieldId)) {
     return 'traffic';
   }

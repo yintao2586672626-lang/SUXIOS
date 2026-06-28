@@ -31,6 +31,10 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'buildRevenueAiStatusRows',
     'buildRevenueAiSignalRows',
     'buildRevenueAiReviewQueueItems',
+    'buildRevenueAiResolutionPlanSummary',
+    'buildRevenueAiInvestmentPrecheckSummary',
+    'buildRevenueAiPricingGenerationPreflightSummary',
+    'buildRevenueAiPriceSuggestionGenerateResult',
     'buildRevenueAiActionRows',
     'buildRevenueAiPricingGateRows',
     'buildRevenueAiAgentActivitySummary',
@@ -79,22 +83,92 @@ test('Revenue AI static helper exposes the required display contract', () => {
 });
 
 test('Revenue AI entry cache-busts the business closure helper contract', () => {
-  assert.match(html, /<script src="revenue-ai-static\.js\?v=20260627-business-closure-cache-fix"><\/script>/);
+  assert.match(html, /<script src="revenue-ai-static\.js\?v=20260628-ctrip-generate-result"><\/script>/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
+  assert.match(html, /data-testid="revenue-ai-pricing-generation-preflight"/);
+  assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
+  assert.match(html, /data-testid="agent-pricing-generation-preflight-gaps"/);
+  assert.match(html, /data-testid="agent-pricing-generation-hotel-checks"/);
+  assert.match(html, /data-testid="agent-price-suggestion-generate-result"/);
+  assert.match(html, /data-testid="agent-price-suggestion-skipped-items"/);
+  assert.match(html, /data-testid="agent-room-type-pricing-guard"/);
+  assert.match(html, /requireRevenueAiStatic\('buildRevenueAiPricingGenerationPreflightSummary'\)/);
+  assert.match(html, /requireRevenueAiStatic\('buildRevenueAiPriceSuggestionGenerateResult'\)/);
+  assert.doesNotMatch(html, /已生成 \$\{res\.data\?\.created_count \|\| 0\} 条建议/);
+});
+
+test('Agent pricing suggestion workbench exposes manual room type pricing guard input', () => {
+  assert.match(html, /\/agent\/room-types\?\$\{params\}/);
+  assert.match(html, /request\('\/agent\/room-types'/);
+  assert.match(html, /const loadPriceSuggestionWorkbench = async \(\) => \{/);
+  assert.match(html, /loadDemandForecasts\(\)/);
+  assert.match(html, /loadCompetitorAnalysis\(\)/);
+  assert.match(html, /Promise\.allSettled\(\[\s*loadRoomTypes\(\),\s*loadDemandForecasts\(\),\s*loadCompetitorAnalysis\(\),\s*loadPriceSuggestions\(\),\s*loadRevenueAiOverview\(\),\s*\]\)/s);
+  assert.match(html, /人工配置项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。/);
+});
+
+test('Agent pricing suggestion workbench exposes manual Ctrip demand and competitor inputs', () => {
+  assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
+  assert.match(html, /agentPricingGenerationPreflightSummary/);
+  assert.match(html, /revenueAiBuildPricingGenerationPreflightSummary\(\{\s*overview: revenueAiOverview\.value,\s*\}\)/s);
+  assert.match(html, /agentPricingGenerationPreflightSummary\.autoWriteOta/);
+  assert.match(html, /agentPricingGenerationPreflightSummary\.requiredInputs/);
+  assert.match(html, /agentPricingGenerationPreflightSummary\.candidateSkipReasons/);
+  assert.match(html, /agentPricingGenerationPreflightSummary\.candidateDataGaps/);
+  assert.match(html, /agentPricingGenerationPreflightSummary\.hotelChecks/);
+  assert.match(html, /data-testid="agent-price-suggestion-ctrip-preflight-inputs"/);
+  assert.match(html, /data-testid="agent-suggestion-demand-forecast-manual-input"/);
+  assert.match(html, /data-testid="agent-suggestion-ctrip-competitor-price-manual-input"/);
+  assert.match(html, /data-testid="agent-demand-forecast-manual-input"/);
+  assert.match(html, /data-testid="agent-ctrip-competitor-price-manual-input"/);
+  assert.match(html, /manualCtripPricingInputMeta/);
+  assert.match(html, /source_scope: 'ctrip_ota_channel'/);
+  assert.match(html, /target_workflow: 'ctrip_revenue_ai_pricing_generation'/);
+  assert.match(html, /evidence_status: 'operator_provided'/);
+  assert.match(html, /auto_write_ota: false/);
+  assert.match(html, /request\('\/agent\/demand-forecasts'/);
+  assert.match(html, /input_type: 'manual_demand_forecast'/);
+  assert.match(html, /request\('\/agent\/competitor-analysis'/);
+  assert.match(html, /ota_platform: 1/);
+  assert.match(html, /input_type: 'manual_ctrip_competitor_price_sample'/);
+  assert.match(html, /handlePriceSuggestionDateChange/);
+  assert.match(html, /demandForecastForm\.value\.forecast_date = date/);
+  assert.match(html, /competitorPriceForm\.value\.analysis_date = date/);
+  assert.match(html, /syncRevenuePricingInputDate\(forecastDate\)/);
+  assert.match(html, /syncRevenuePricingInputDate\(analysisDate\)/);
+});
+
+test('Agent pricing suggestion workbench uses Revenue AI manual review bridge', () => {
+  assert.match(html, /request\(`\/revenue-ai\/price-suggestions\/\$\{id\}\/review`/);
+  assert.match(html, /Agent 定价建议工作台人工/);
+  assert.match(html, /未写 OTA/);
+  assert.match(html, /request\(`\/revenue-ai\/price-suggestions\/\$\{id\}\/execution-intent`/);
+  assert.match(html, /source: 'agent_pricing_suggestions'/);
+  assert.match(html, /loadRevenueAiOverview\(\)/);
+  assert.doesNotMatch(html, /\/agent\/price-suggestions\/\$\{id\}\/approve\?action=\$\{action\}/);
+  assert.doesNotMatch(html, /\/agent\/price-suggestions\/\$\{id\}\/execution-intent`/);
 });
 
 test('Revenue AI overview endpoint builder keeps query scope explicit', () => {
   assert.equal(
     helpers.buildRevenueAiOverviewEndpoint({ businessDate: '2026-06-25', hotelId: '58' }),
-    '/revenue-ai/overview?business_date=2026-06-25&hotel_id=58',
+    '/revenue-ai/overview?business_date=2026-06-25&hotel_id=58&platform=ctrip',
   );
   assert.equal(
     helpers.buildRevenueAiOverviewEndpoint({ businessDate: '2026-06-25', hotelId: '' }),
+    '/revenue-ai/overview?business_date=2026-06-25&platform=ctrip',
+  );
+  assert.equal(
+    helpers.buildRevenueAiOverviewEndpoint({ businessDate: '2026-06-25', hotelId: '', platform: '' }),
     '/revenue-ai/overview?business_date=2026-06-25',
   );
   assert.equal(
     helpers.buildRevenueAiOverviewQuery({ businessDate: ' 2026-06-25 ', hotelId: ' 58 ' }),
-    'business_date=2026-06-25&hotel_id=58',
+    'business_date=2026-06-25&hotel_id=58&platform=ctrip',
+  );
+  assert.equal(
+    helpers.buildRevenueAiOverviewQuery({ businessDate: '2026-06-25', platform: ' Meituan ' }),
+    'business_date=2026-06-25&platform=meituan',
   );
   assert.equal(
     helpers.resolveRevenueAiBusinessDate({ overview: { business_date: '2026-06-24' }, now: new Date('2026-06-27T10:00:00') }),
@@ -111,7 +185,7 @@ test('Revenue AI overview endpoint builder keeps query scope explicit', () => {
     hotelId: '58',
   });
   assert.equal(request.shouldLoad, true);
-  assert.equal(request.endpoint, '/revenue-ai/overview?business_date=2026-06-25&hotel_id=58');
+  assert.equal(request.endpoint, '/revenue-ai/overview?business_date=2026-06-25&hotel_id=58&platform=ctrip');
   assert.equal(helpers.resolveRevenueAiOverviewRequest({ hasToken: false, currentPage: 'compass' }).reason, 'token_missing');
   const agentCenterRequest = helpers.resolveRevenueAiOverviewRequest({
     hasToken: true,
@@ -120,7 +194,7 @@ test('Revenue AI overview endpoint builder keeps query scope explicit', () => {
     hotelId: '58',
   });
   assert.equal(agentCenterRequest.shouldLoad, true);
-  assert.equal(agentCenterRequest.endpoint, '/revenue-ai/overview?business_date=2026-06-25&hotel_id=58');
+  assert.equal(agentCenterRequest.endpoint, '/revenue-ai/overview?business_date=2026-06-25&hotel_id=58&platform=ctrip');
   assert.equal(helpers.resolveRevenueAiOverviewRequest({ hasToken: true, currentPage: 'online-data' }).reason, 'not_revenue_ai_surface');
   const success = helpers.resolveRevenueAiOverviewResponse({ response: { code: 200, data: { data_status: 'ok' } } });
   assert.equal(success.ok, true);
@@ -238,10 +312,14 @@ test('Revenue AI decision basis navigation resolver keeps target parsing pure', 
   const onlineData = helpers.resolveRevenueAiDecisionBasisNavigation({
     target_page: 'online-data',
     target_tab: 'data-health',
+    target_agent_tab: 'revenue',
+    target_revenue_tab: 'suggestions',
     label: '最低保护价',
   });
   assert.equal(onlineData.targetPage, 'online-data');
   assert.equal(onlineData.targetTab, 'data-health');
+  assert.equal(onlineData.targetAgentTab, 'revenue');
+  assert.equal(onlineData.targetRevenueTab, 'suggestions');
   assert.equal(onlineData.label, '最低保护价');
 
   const opsTrack = helpers.resolveRevenueAiDecisionBasisNavigation({
@@ -254,6 +332,8 @@ test('Revenue AI decision basis navigation resolver keeps target parsing pure', 
   const empty = helpers.resolveRevenueAiDecisionBasisNavigation({});
   assert.equal(empty.targetPage, '');
   assert.equal(empty.targetTab, '');
+  assert.equal(empty.targetAgentTab, '');
+  assert.equal(empty.targetRevenueTab, '');
   assert.equal(empty.nextAction, '');
 });
 
@@ -504,6 +584,153 @@ test('Revenue AI readonly actions never fabricate pricing recommendations', () =
   assert.equal(blocked[0].decisionBasisItems[2].label, '上一轮调价效果输入');
 });
 
+test('Revenue AI action rows expose AI decision resolution plan as operator evidence checklist', () => {
+  const resolutionPlan = {
+    status: 'has_pending_evidence',
+    source_scope: 'ctrip_ota_channel',
+    source_channels: ['ctrip'],
+    item_count: 2,
+    pending_count: 2,
+    items: [
+      {
+        order: 1,
+        code: 'revpar_denominator',
+        input_type: 'revenue_metric',
+        evidence_code: 'available_room_nights_missing',
+        status: 'pending_evidence',
+        severity: 'high',
+        target_page: 'online-data',
+        target_tab: 'data-health',
+        target_platform: 'hotel',
+        target_agent_tab: 'revenue',
+        target_revenue_tab: 'suggestions',
+        resolution_action: 'provide_available_room_nights_or_mark_metric_unusable',
+        acceptance_check: 'available_room_nights is proved or metric is explicitly unusable',
+        unblocks: 'ai_decision_review_contract.approval_allowed',
+        forbidden_shortcut: 'fill_missing_evidence_with_defaults',
+      },
+      {
+        order: 2,
+        code: 'manual_review_workflow',
+        input_type: 'manual_review',
+        evidence_code: 'manual_review_workflow_not_connected',
+        status: 'pending_evidence',
+        severity: 'medium',
+        resolution_action: 'persist_or_attach_manual_review_record',
+        acceptance_check: 'manual review record exists before operation intake',
+        unblocks: 'ai_decision_review_contract.operation_intake_allowed',
+        forbidden_shortcut: 'auto_create_operation_execution_intent',
+      },
+    ],
+  };
+
+  const summary = helpers.buildRevenueAiResolutionPlanSummary({
+    action: { ai_decision_resolution_plan: resolutionPlan },
+  });
+  assert.equal(summary.visible, true);
+  assert.equal(summary.status, 'has_pending_evidence');
+  assert.equal(summary.sourceScope, 'ctrip_ota_channel');
+  assert.deepEqual(summary.sourceChannels, ['ctrip']);
+  assert.equal(summary.itemCount, 2);
+  assert.equal(summary.pendingCount, 2);
+  assert.equal(summary.items.length, 2);
+  assert.equal(summary.items[0].resolutionAction, 'provide_available_room_nights_or_mark_metric_unusable');
+  assert.equal(summary.items[0].acceptanceCheck, 'available_room_nights is proved or metric is explicitly unusable');
+  assert.equal(summary.items[0].targetPage, 'online-data');
+  assert.equal(summary.items[0].targetTab, 'data-health');
+  assert.equal(summary.items[0].targetAgentTab, 'revenue');
+  assert.equal(summary.items[0].targetRevenueTab, 'suggestions');
+  assert.equal(summary.items[0].canOpenTarget, true);
+  assert.equal(summary.items[1].forbiddenShortcut, 'auto_create_operation_execution_intent');
+
+  const rows = helpers.buildRevenueAiActionRows({
+    overview: {
+      actions: [{
+        key: 'pricing_review',
+        title: 'pricing review',
+        status: 'blocked',
+        reason: 'available_room_nights_missing',
+        ai_decision_resolution_plan: resolutionPlan,
+      }],
+    },
+  });
+  assert.equal(rows[0].resolutionPlanVisible, true);
+  assert.equal(rows[0].resolutionPlanItems[0].unblocks, 'ai_decision_review_contract.approval_allowed');
+  assert.equal(rows[0].resolutionPlanItems[0].forbiddenShortcut, 'fill_missing_evidence_with_defaults');
+  assert.match(html, /data-testid="revenue-ai-resolution-plan"/);
+});
+
+test('Revenue AI action rows expose readonly operation to investment precheck', () => {
+  const operationToInvestmentHandoff = {
+    status: 'investment_precheck_blocked_by_operation_roi',
+    persisted: false,
+    target_module: 'investment_decision',
+    target_page: 'investment-decision',
+    target_service: 'InvestmentDecisionSupportService::buildOverviewFromEvidence',
+    target_entry: '/api/investment-decision/overview',
+    source_scope: 'ctrip_ota_channel_to_operation_roi',
+    source_channels: ['ctrip'],
+    source_platforms: ['ctrip'],
+    upstream_operation_intake_status: 'operation_intake_blocked_by_manual_review',
+    operation_roi_ready: 0,
+    operating_gate_status: 'not_ready',
+    business_closure_chain_status: 'not_closed',
+    decision_allowed: false,
+    can_create_investment_decision: false,
+    blocked_reasons: ['closed_operating_roi_missing', 'operation_intake_not_approved'],
+    forbidden_actions: [
+      'create_investment_decision_from_ota_channel_only',
+      'create_investment_record_without_closed_operation_roi',
+    ],
+    investment_precheck_packet: {
+      status: 'blocked_by_operation_roi',
+      source_policy: 'read_only_precheck_from_closed_operation_gate',
+      required_gate: 'operation_execution.roi_ready',
+      operating_gate_status: 'not_ready',
+      business_closure_chain_status: 'not_closed',
+      missing_evidence_codes: ['operation_execution.roi_ready'],
+      protected_boundary: 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
+    },
+  };
+
+  const summary = helpers.buildRevenueAiInvestmentPrecheckSummary({
+    overview: { operation_to_investment_handoff: operationToInvestmentHandoff },
+  });
+  assert.equal(summary.visible, true);
+  assert.equal(summary.status, 'investment_precheck_blocked_by_operation_roi');
+  assert.equal(summary.targetEntry, '/api/investment-decision/overview');
+  assert.equal(summary.targetService, 'InvestmentDecisionSupportService::buildOverviewFromEvidence');
+  assert.equal(summary.requiredGate, 'operation_execution.roi_ready');
+  assert.deepEqual(summary.sourceChannels, ['ctrip']);
+  assert.equal(summary.operationRoiReady, 0);
+  assert.equal(summary.readOnly, true);
+  assert.equal(summary.autoWriteOta, false);
+  assert.equal(summary.decisionAllowed, false);
+  assert.equal(summary.canCreateInvestmentDecision, false);
+  assert(summary.missingEvidenceCodes.includes('operation_execution.roi_ready'));
+  assert(summary.blockedReasons.includes('closed_operating_roi_missing'));
+  assert(summary.forbiddenActions.includes('create_investment_decision_from_ota_channel_only'));
+  assert.equal(summary.protectedBoundary, 'investment_decision_requires_closed_operation_roi_not_ota_channel_only');
+  assert.match(summary.className, /slate/);
+
+  const rows = helpers.buildRevenueAiActionRows({
+    overview: {
+      actions: [{
+        key: 'pricing_review',
+        title: 'pricing review',
+        status: 'blocked',
+        reason: 'operation_roi_missing',
+        operation_to_investment_handoff: operationToInvestmentHandoff,
+      }],
+    },
+  });
+  assert.equal(rows[0].investmentPrecheckVisible, true);
+  assert.equal(rows[0].investmentPrecheckSummary.decisionAllowed, false);
+  assert.equal(rows[0].investmentPrecheckSummary.canCreateInvestmentDecision, false);
+  assert.equal(rows[0].investmentPrecheckSummary.autoWriteOta, false);
+  assert(rows[0].investmentPrecheckSummary.detailText.includes('operation_intake_blocked_by_manual_review'));
+});
+
 test('Revenue AI action rows expose readonly price suggestion review queue', () => {
   const rows = helpers.buildRevenueAiActionRows({
     overview: {
@@ -597,6 +824,11 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
           status: 'pending_review',
           display: '待审核 2 / 已批准 1 / 已拒绝 0 / 已应用 0',
           pending_count: 2,
+          target_page: 'agent-center',
+          target_tab: 'suggestions',
+          target_agent_tab: 'revenue',
+          target_revenue_tab: 'suggestions',
+          target_filter: { hotel_id: 7, date: '2026-06-25', status: 1 },
           pending_items: [{
             id: 11,
             room_type_id: 3,
@@ -694,6 +926,11 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
   assert.match(rows[0].reasonText, /修改后批准/);
   assert.equal(rows[0].reviewQueueSummary, '待审核 2 / 已批准 1 / 已拒绝 0 / 已应用 0');
   assert.equal(rows[0].reviewQueueStatusLabel, '待人工审核');
+  assert.equal(rows[0].reviewQueueCanOpenTarget, true);
+  assert.equal(rows[0].reviewQueueTarget.targetPage, 'agent-center');
+  assert.equal(rows[0].reviewQueueTarget.targetAgentTab, 'revenue');
+  assert.equal(rows[0].reviewQueueTarget.targetRevenueTab, 'suggestions');
+  assert.deepEqual(rows[0].reviewQueueTarget.targetFilter, { hotel_id: 7, date: '2026-06-25', status: 1 });
   assert.equal(rows[0].decisionBasisDisplay, '判断依据 可用 5 / 待补 3');
   assert.equal(rows[0].decisionBasisItems[0].label, '上一轮调价效果输入');
   assert.equal(rows[0].decisionBasisItems[0].targetPage, 'ops-track');
@@ -733,6 +970,188 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
   assert.equal(rows[0].reviewQueueItems[1].allowedEndpoint, '/api/revenue-ai/price-suggestions/12/execution-intent');
   assert.match(rows[0].reviewQueueItems[1].impactLine, /暂缺可信预计 RevPAR 影响数据/);
   assert.equal(rows[0].autoWriteOta, false);
+});
+
+test('Revenue AI action rows expose pricing generation preflight without OTA write', () => {
+  const overview = {
+    pricing_generation_preflight: {
+      status: 'blocked',
+      reason: 'room_types_empty',
+      detail: '携程目标酒店暂无启用房型，生成入口会产生 0 条待审调价建议。',
+      next_action: '为携程目标酒店配置启用房型和最低保护价。',
+      source_scope: 'ctrip_ota_channel',
+      source_channels: ['ctrip'],
+      target_hotel_ids: [60, 64],
+      target_hotel_count: 2,
+      target_date_rows: 27,
+      room_type_count: 0,
+      pending_suggestion_count: 0,
+      create_candidate_count: 0,
+      skipped_candidate_count: 0,
+      candidate_skip_reasons: ['primary_signal_count_insufficient', 'floor_price_missing', 'manual_review_required', 'price_change_too_small', 'risk_guard_failed'],
+      candidate_data_gaps: ['demand_forecast_missing', 'competitor_price_missing', 'inventory_demand_signal_missing', 'elasticity_sample_lt_10', 'pickup_curve_on_books_snapshot_missing_or_short_history', 'ota_room_rate_source_missing'],
+      hotel_checks: [{
+        hotel_id: 64,
+        target_date_rows: 27,
+        room_type_count: 2,
+        pending_suggestions: 0,
+        demand_forecasts: 1,
+        competitor_analysis_recent: 0,
+        create_candidate_count: 0,
+        skipped_candidate_count: 2,
+        skip_reasons: ['primary_signal_count_insufficient', 'competitor_price_missing', 'manual_review_required', 'risk_guard_failed'],
+      }],
+      required_inputs: [
+        { code: 'room_types_enabled', source: 'room_types', next_action: '配置启用房型。' },
+        { code: 'floor_price_or_min_rate_guard', source: 'room_types', next_action: '配置最低保护价。' },
+      ],
+      can_generate_pending_suggestions: false,
+      read_only: true,
+      advisory_only: true,
+      auto_write_ota: false,
+      target_page: 'agent-center',
+      target_tab: 'suggestions',
+      target_agent_tab: 'revenue',
+      target_revenue_tab: 'suggestions',
+      target_filter: { hotel_id: 0, date: '2026-06-28', status: 0 },
+    },
+    actions: [{
+      key: 'pricing_review',
+      title: '暂无可审核调价建议',
+      status: 'blocked',
+      reason: 'room_types_empty',
+      pricing_generation_preflight: {
+        status: 'blocked',
+        reason: 'room_types_empty',
+        detail: '携程目标酒店暂无启用房型，生成入口会产生 0 条待审调价建议。',
+        source_scope: 'ctrip_ota_channel',
+        source_channels: ['ctrip'],
+        target_hotel_ids: [60, 64],
+        target_date_rows: 27,
+        room_type_count: 0,
+        pending_suggestion_count: 0,
+        create_candidate_count: 0,
+        required_inputs: [
+          { code: 'room_types_enabled', source: 'room_types', next_action: '配置启用房型。' },
+        ],
+        can_generate_pending_suggestions: false,
+        read_only: true,
+        advisory_only: true,
+        auto_write_ota: false,
+        target_page: 'agent-center',
+        target_tab: 'suggestions',
+        target_agent_tab: 'revenue',
+        target_revenue_tab: 'suggestions',
+        target_filter: { hotel_id: 0, date: '2026-06-28', status: 0 },
+      },
+    }],
+  };
+
+  const summary = helpers.buildRevenueAiPricingGenerationPreflightSummary({ overview });
+  assert.equal(summary.visible, true);
+  assert.equal(summary.status, 'blocked');
+  assert.equal(summary.statusLabel, '生成受阻');
+  assert.equal(summary.sourceScope, 'ctrip_ota_channel');
+  assert.deepEqual(summary.targetHotelIds, [60, 64]);
+  assert.equal(summary.roomTypeCount, 0);
+  assert.equal(summary.createCandidateCount, 0);
+  assert.deepEqual(summary.candidateSkipReasons, ['primary_signal_count_insufficient', 'floor_price_missing', 'manual_review_required', 'price_change_too_small']);
+  assert.equal(summary.hiddenCandidateSkipReasonCount, 1);
+  assert.deepEqual(summary.candidateDataGaps, ['demand_forecast_missing', 'competitor_price_missing', 'inventory_demand_signal_missing', 'elasticity_sample_lt_10', 'pickup_curve_on_books_snapshot_missing_or_short_history']);
+  assert.equal(summary.hiddenCandidateDataGapCount, 1);
+  assert.equal(summary.hotelChecks[0].hotelId, 64);
+  assert.equal(summary.hotelChecks[0].createCandidateCount, 0);
+  assert.equal(summary.hotelChecks[0].skippedCandidateCount, 2);
+  assert.deepEqual(summary.hotelChecks[0].skipReasons, ['primary_signal_count_insufficient', 'competitor_price_missing', 'manual_review_required']);
+  assert.equal(summary.hotelChecks[0].hiddenSkipReasonCount, 1);
+  assert.equal(summary.canGeneratePendingSuggestions, false);
+  assert.equal(summary.autoWriteOta, false);
+  assert.equal(summary.target.targetPage, 'agent-center');
+  assert.equal(summary.target.targetAgentTab, 'revenue');
+  assert.equal(summary.target.targetRevenueTab, 'suggestions');
+  assert.deepEqual(summary.target.targetFilter, { hotel_id: 0, date: '2026-06-28', status: 0 });
+
+  const rows = helpers.buildRevenueAiActionRows({ overview });
+  assert.equal(rows[0].pricingGenerationPreflightVisible, true);
+  assert.equal(rows[0].pricingGenerationPreflightSummary.requiredInputs[0].code, 'room_types_enabled');
+  assert.equal(rows[0].pricingGenerationPreflightSummary.readOnly, true);
+  assert.equal(rows[0].pricingGenerationPreflightSummary.autoWriteOta, false);
+});
+
+test('Revenue AI generate result exposes blocked Ctrip-only preconditions', () => {
+  const blocked = helpers.buildRevenueAiPriceSuggestionGenerateResult({
+    response: {
+      code: 200,
+      data: {
+        status: 'blocked',
+        reason: 'room_types_empty',
+        detail: '携程目标酒店暂无启用房型，不能生成待审调价建议。',
+        source_scope: 'ctrip_ota_channel',
+        source_channels: ['ctrip'],
+        target_hotel_ids: [64],
+        target_filter: { hotel_id: 64, date: '2026-06-28', status: 0 },
+        created_count: 0,
+        skipped_count: 0,
+        can_generate_pending_suggestions: false,
+        advisory_only: true,
+        manual_review_required: true,
+        auto_write_ota: false,
+        skipped: [{
+          room_type_id: 12,
+          room_type_name: 'Deluxe King',
+          reason: 'primary_signal_count_insufficient',
+          primary_signal_count: 1,
+          price_change_rate: 0,
+          risk_level: 'high',
+          data_gaps: ['demand_forecast_missing', 'competitor_price_missing', 'inventory_demand_signal_missing', 'elasticity_sample_lt_10', 'pickup_curve_on_books_snapshot_missing_or_short_history'],
+          review_checklist: ['Do not approve until blocking data gaps are resolved.', 'Add Ctrip competitor sample.', 'Add demand forecast.', 'Review elasticity.'],
+        }],
+        required_inputs: [
+          { code: 'room_types_enabled', source: 'room_types', next_action: '配置启用房型。' },
+          { code: 'floor_price_or_min_rate_guard', source: 'room_types', next_action: '配置最低保护价。' },
+        ],
+        next_action: '为携程目标酒店配置启用房型和最低保护价。',
+      },
+    },
+  });
+
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.reason, 'room_types_empty');
+  assert.equal(blocked.level, 'warning');
+  assert.equal(blocked.sourceScope, 'ctrip_ota_channel');
+  assert.deepEqual(blocked.sourceChannels, ['ctrip']);
+  assert.deepEqual(blocked.targetHotelIds, [64]);
+  assert.equal(blocked.createdCount, 0);
+  assert.equal(blocked.skippedCount, 0);
+  assert.equal(blocked.canGeneratePendingSuggestions, false);
+  assert.equal(blocked.autoWriteOta, false);
+  assert.equal(blocked.requiredInputs[0].code, 'room_types_enabled');
+  assert.equal(blocked.requiredInputs[1].code, 'floor_price_or_min_rate_guard');
+  assert.equal(blocked.skippedItems[0].roomTypeName, 'Deluxe King');
+  assert.equal(blocked.skippedItems[0].reason, 'primary_signal_count_insufficient');
+  assert.equal(blocked.skippedItems[0].primarySignalCount, 1);
+  assert.equal(blocked.skippedItems[0].dataGaps.length, 4);
+  assert.equal(blocked.skippedItems[0].hiddenDataGapCount, 1);
+  assert.equal(blocked.skippedItems[0].reviewChecklist.length, 3);
+  assert.equal(blocked.skippedItems[0].hiddenReviewChecklistCount, 1);
+
+  const created = helpers.buildRevenueAiPriceSuggestionGenerateResult({
+    response: {
+      code: 200,
+      data: {
+        status: 'created',
+        reason: 'price_suggestions_pending_review',
+        created_count: 2,
+        skipped_count: 1,
+        can_generate_pending_suggestions: true,
+        auto_write_ota: false,
+      },
+    },
+  });
+  assert.equal(created.level, 'success');
+  assert.equal(created.createdCount, 2);
+  assert.equal(created.canGeneratePendingSuggestions, true);
+  assert.equal(created.autoWriteOta, false);
 });
 
 test('Revenue AI pricing gate rows expose blockers without suggestions', () => {

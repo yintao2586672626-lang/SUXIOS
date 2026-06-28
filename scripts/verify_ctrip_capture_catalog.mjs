@@ -439,6 +439,25 @@ function verifyCatalog() {
   const flowSourcePopupEndpoint = CTRIP_CAPTURE_ENDPOINTS.find((endpoint) => endpoint.id === 'traffic_flow_source_popups');
   assertContract(flowSourcePopupEndpoint?.status === 'supporting', 'queryFlowSourcePopups must stay a supporting traffic endpoint');
   assertContract(flowSourcePopupEndpoint?.fields.some((field) => field.id === 'source_name'), 'queryFlowSourcePopups must expose source_name as fact-only context');
+  assertContract(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowSource?hostType=Ebooking')?.id === 'traffic_flow_source',
+    'datacenter queryFlowSource must route to traffic_flow_source',
+  );
+  const trafficFlowSourceEndpoint = CTRIP_CAPTURE_ENDPOINTS.find((endpoint) => endpoint.id === 'traffic_flow_source');
+  for (const [fieldId, sourceKey] of [
+    ['source_name', 'sourceName'],
+    ['source_rank_tag', 'sourceNameTag'],
+    ['source_proportion', 'proportion'],
+    ['competitor_avg_source_proportion', 'competitorAvgProportion'],
+    ['source_pv', 'pv'],
+    ['source_all_pv', 'allpv'],
+    ['keyword', 'keywords'],
+    ['keyword', 'filterWords'],
+  ]) {
+    const field = trafficFlowSourceEndpoint?.fields.find((item) => item.id === fieldId);
+    assertContract(field?.sourceKeys.includes(sourceKey), `traffic_flow_source ${fieldId} must include source key: ${sourceKey}`);
+  }
+  assertContract(!trafficFlowSourceEndpoint?.fields.some((field) => field.id === 'page_views'), 'queryFlowSource pv must not be mapped as hotel page_views');
   const trafficMenuKeyEndpoint = CTRIP_CAPTURE_ENDPOINTS.find((endpoint) => endpoint.id === 'traffic_menu_key');
   assertContract(trafficMenuKeyEndpoint?.status === 'supporting', 'queryMenuKey must stay a supporting traffic endpoint');
   assertContract(findCtripEndpointByUrl('https://ebooking.ctrip.com/api/collect2?metaSender=1.3.81') === null, 'collect2 must not become a Ctrip capture endpoint');
@@ -535,7 +554,8 @@ function verifyCatalog() {
   }
   const onlineDataSource = readFileSync('app/controller/OnlineData.php', 'utf8');
   const ctripFieldMetaSource = readFileSync('app/service/CtripProfileFieldMetaService.php', 'utf8');
-  const ctripProfileFieldSource = `${onlineDataSource}\n${ctripFieldMetaSource}`;
+  const ctripProfileConfigSource = readFileSync('app/controller/concern/CtripProfileConfigConcern.php', 'utf8');
+  const ctripProfileFieldSource = `${onlineDataSource}\n${ctripFieldMetaSource}\n${ctripProfileConfigSource}`;
   for (const fieldKey of [
     'competition_rank_order_count',
     'competition_rank_order_amount',
@@ -567,16 +587,21 @@ function verifyCatalog() {
     ctripProfileFieldSource.includes("'im_board', '用户行为-IM看板'"),
     'Ctrip default Profile modules must expose user behavior IM board',
   );
-  const publicIndexSource = readFileSync('public/index.html', 'utf8');
+  const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
+  const dataHealthStaticSource = readFileSync('public/data-health-static.js', 'utf8');
+  const publicCtripSource = `${ctripStaticSource}\n${dataHealthStaticSource}`;
   assertContract(
-    publicIndexSource.includes("competitor_rank: '竞争圈动态-竞争圈榜单'"),
+    publicCtripSource.includes("competitor_rank: '竞争圈动态-竞争圈榜单'")
+      || publicCtripSource.includes("value: 'competitor_rank', label: '竞争圈动态-竞争圈榜单'"),
     'Profile field-management UI must expose competitor_rank as 竞争圈动态-竞争圈榜单',
   );
   assertContract(
-    publicIndexSource.includes("im_board: '用户行为-IM看板'"),
+    publicCtripSource.includes("im_board: '用户行为-IM看板'")
+      || publicCtripSource.includes("value: 'im_board', label: '用户行为-IM看板'"),
     'Profile field-management UI must expose user behavior IM board',
   );
-  const saveStandardRowsMatch = onlineDataSource.match(/private function saveCtripStandardRows[\s\S]*?private function extractCtripCapturedResponseData/);
+  const autoFetchSource = readFileSync('app/controller/concern/AutoFetchConcern.php', 'utf8');
+  const saveStandardRowsMatch = autoFetchSource.match(/private function saveCtripStandardRows[\s\S]*?private function extractCtripCapturedResponseData/);
   assertContract(saveStandardRowsMatch, 'saveCtripStandardRows function must be present');
   assertContract(
     saveStandardRowsMatch[0].includes("->where('source', (string)($row['source'] ?? 'ctrip'))"),

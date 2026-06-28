@@ -4373,14 +4373,11 @@ class Agent extends Base
     {
         $this->checkAdmin();
         
-        $data = $this->request->post();
-        
-        $this->validate($data, [
-            'hotel_id' => 'require|integer',
-            'forecast_date' => 'require|date',
-            'room_type_id' => 'require|integer',
-            'predicted_occupancy' => 'require|float',
-        ]);
+        try {
+            $data = $this->normalizeDemandForecastPayload($this->request->post());
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
         
         $forecast = DemandForecast::createForecast($data['hotel_id'], $data['forecast_date'], $data);
         
@@ -4490,20 +4487,164 @@ class Agent extends Base
     }
 
     /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function normalizeDemandForecastPayload(array $data): array
+    {
+        $hotelId = (int)($data['hotel_id'] ?? 0);
+        if ($hotelId <= 0) {
+            throw new \InvalidArgumentException('hotel_id is required');
+        }
+
+        $forecastDate = trim((string)($data['forecast_date'] ?? ''));
+        if (!$this->isDateString($forecastDate)) {
+            throw new \InvalidArgumentException('forecast_date must be YYYY-MM-DD');
+        }
+
+        $roomTypeId = (int)($data['room_type_id'] ?? 0);
+        if ($roomTypeId <= 0) {
+            throw new \InvalidArgumentException('room_type_id is required');
+        }
+
+        $forecastMethod = (int)($data['forecast_method'] ?? DemandForecast::METHOD_HYBRID);
+        if (!in_array($forecastMethod, [
+            DemandForecast::METHOD_ARIMA,
+            DemandForecast::METHOD_LLM,
+            DemandForecast::METHOD_HYBRID,
+            DemandForecast::METHOD_ML,
+        ], true)) {
+            throw new \InvalidArgumentException('forecast_method is invalid');
+        }
+
+        return [
+            'hotel_id' => $hotelId,
+            'forecast_date' => $forecastDate,
+            'room_type_id' => $roomTypeId,
+            'forecast_method' => $forecastMethod,
+            'predicted_occupancy' => $this->parseBoundedNumber($data['predicted_occupancy'] ?? null, 'predicted_occupancy', 0.0, 100.0, false),
+            'predicted_demand' => (int)round($this->parseBoundedNumber($data['predicted_demand'] ?? 0, 'predicted_demand', 0.0, null, true)),
+            'confidence_score' => $this->normalizeConfidenceScore($data['confidence_score'] ?? ($data['confidence_percent'] ?? 0.8)),
+            'is_event_driven' => (int)($data['is_event_driven'] ?? 0) === 1 ? 1 : 0,
+            'event_factors' => is_array($data['event_factors'] ?? null) ? array_values((array)$data['event_factors']) : [],
+            'historical_data' => $this->manualCtripPricingInputMetadata($data['historical_data'] ?? [], 'manual_demand_forecast'),
+            'remark' => trim((string)($data['remark'] ?? 'operator_provided_ctrip_pricing_preflight_demand_forecast')),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function normalizeCtripCompetitorPricePayload(array $data): array
+    {
+        $hotelId = (int)($data['hotel_id'] ?? 0);
+        if ($hotelId <= 0) {
+            throw new \InvalidArgumentException('hotel_id is required');
+        }
+
+        $analysisDate = trim((string)($data['analysis_date'] ?? ''));
+        if (!$this->isDateString($analysisDate)) {
+            throw new \InvalidArgumentException('analysis_date must be YYYY-MM-DD');
+        }
+
+        $roomTypeId = (int)($data['room_type_id'] ?? 0);
+        if ($roomTypeId <= 0) {
+            throw new \InvalidArgumentException('room_type_id is required');
+        }
+
+        $platform = (int)($data['ota_platform'] ?? CompetitorAnalysis::PLATFORM_CTRIP);
+        if ($platform !== CompetitorAnalysis::PLATFORM_CTRIP) {
+            throw new \InvalidArgumentException('ota_platform must be ctrip for current pricing preflight');
+        }
+
+        $competitorId = max(0, (int)($data['competitor_hotel_id'] ?? 0));
+        $competitorData = is_array($data['competitor_data'] ?? null) ? $data['competitor_data'] : [];
+        $competitorName = trim((string)($data['competitor_name'] ?? ($competitorData['competitor_name'] ?? '')));
+        if ($competitorId <= 0 && $competitorName === '') {
+            throw new \InvalidArgumentException('competitor_name is required when competitor_hotel_id is unknown');
+        }
+
+        $ourPrice = $this->parsePositiveRoomTypeMoney($data['our_price'] ?? null, 'our_price');
+        $competitorPrice = $this->parsePositiveRoomTypeMoney($data['competitor_price'] ?? null, 'competitor_price');
+        $competitorData = $this->manualCtripPricingInputMetadata($competitorData, 'manual_ctrip_competitor_price_sample');
+        $competitorData['competitor_name'] = $competitorName;
+
+        return [
+            'hotel_id' => $hotelId,
+            'competitor_hotel_id' => $competitorId,
+            'analysis_date' => $analysisDate,
+            'room_type_id' => $roomTypeId,
+            'competitor_room_type_id' => max(0, (int)($data['competitor_room_type_id'] ?? 0)),
+            'our_price' => $ourPrice,
+            'competitor_price' => $competitorPrice,
+            'price_index' => round($ourPrice / $competitorPrice * 100, 2),
+            'ota_platform' => CompetitorAnalysis::PLATFORM_CTRIP,
+            'competitor_data' => $competitorData,
+        ];
+    }
+
+    private function parseBoundedNumber(mixed $value, string $field, float $min, ?float $max = null, bool $allowMin = true): float
+    {
+        if (is_string($value)) {
+            $value = trim($value);
+        }
+        if ($value === '' || $value === null || !is_numeric($value)) {
+            throw new \InvalidArgumentException($field . ' must be numeric');
+        }
+
+        $number = round((float)$value, 4);
+        if ($allowMin ? $number < $min : $number <= $min) {
+            throw new \InvalidArgumentException($field . ' is below allowed range');
+        }
+        if ($max !== null && $number > $max) {
+            throw new \InvalidArgumentException($field . ' is above allowed range');
+        }
+
+        return $number;
+    }
+
+    private function normalizeConfidenceScore(mixed $value): float
+    {
+        $confidence = $this->parseBoundedNumber($value, 'confidence_score', 0.0, 100.0, false);
+        if ($confidence > 1.0) {
+            $confidence = round($confidence / 100, 4);
+        }
+        if ($confidence <= 0.0 || $confidence > 1.0) {
+            throw new \InvalidArgumentException('confidence_score must be between 0 and 1 or 1 and 100 percent');
+        }
+
+        return $confidence;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function manualCtripPricingInputMetadata(mixed $metadata, string $inputType): array
+    {
+        $result = is_array($metadata) ? $metadata : [];
+        $result['input_scope'] = 'manual_pricing_configuration';
+        $result['source_scope'] = 'ctrip_ota_channel';
+        $result['target_workflow'] = 'ctrip_revenue_ai_pricing_generation';
+        $result['evidence_status'] = 'operator_provided';
+        $result['auto_write_ota'] = false;
+        $result['input_type'] = $inputType;
+
+        return $result;
+    }
+
+    /**
      * 记录竞对价格
      */
     public function recordCompetitorPrice(): Response
     {
         $this->checkAdmin();
         
-        $data = $this->request->post();
-        
-        $this->validate($data, [
-            'hotel_id' => 'require|integer',
-            'competitor_hotel_id' => 'require|integer',
-            'our_price' => 'require|float',
-            'competitor_price' => 'require|float',
-        ]);
+        try {
+            $data = $this->normalizeCtripCompetitorPricePayload($this->request->post());
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
         
         $analysis = CompetitorAnalysis::recordAnalysis(
             $data['hotel_id'],
@@ -4643,6 +4784,18 @@ class Agent extends Base
 
         $roomTypes = RoomType::getHotelRoomTypes($hotelId);
         $pricingService = new RevenuePricingRecommendationService();
+        if (count($roomTypes) === 0) {
+            return $this->success(
+                $this->buildPriceSuggestionGenerationBlockedResult(
+                    'room_types_empty',
+                    $hotelId,
+                    $date,
+                    [],
+                    '携程目标酒店暂无启用房型，不能生成待审调价建议。'
+                ),
+                'price suggestion generation blocked'
+            );
+        }
         $created = [];
         $skipped = [];
         foreach ($roomTypes as $roomType) {
@@ -4704,16 +4857,195 @@ class Agent extends Base
             $created[] = $pricingService->enrichSuggestionRows([$createdRow])[0];
         }
 
-        return $this->success([
+        return $this->success(
+            $this->buildPriceSuggestionGenerationRuntimeResult(
+                $hotelId,
+                $date,
+                $created,
+                $skipped,
+                $pricingService->hotelPricingModelSummary($hotelId, $date)
+            ),
+            'success'
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $created
+     * @param array<int, array<string, mixed>> $skipped
+     * @param array<string, mixed> $modelSummary
+     * @return array<string, mixed>
+     */
+    private function buildPriceSuggestionGenerationRuntimeResult(
+        int $hotelId,
+        string $date,
+        array $created,
+        array $skipped,
+        array $modelSummary
+    ): array {
+        $status = count($created) > 0 ? 'created' : 'blocked';
+        $reason = count($created) > 0
+            ? 'price_suggestions_pending_review'
+            : (string)($skipped[0]['reason'] ?? 'pricing_candidate_signals_missing');
+        $requiredInputs = count($created) > 0
+            ? []
+            : $this->buildPriceSuggestionGenerationRequiredInputs($reason);
+        $nextAction = count($created) > 0
+            ? '进入待审建议列表完成人工审核；本接口只创建待审建议，不写入携程 OTA 价格。'
+            : $this->priceSuggestionGenerationNextAction($reason);
+
+        return [
+            'status' => $status,
+            'reason' => $reason,
+            'detail' => $this->priceSuggestionGenerationReasonText($reason),
+            'source_scope' => 'ctrip_ota_channel',
+            'source_channels' => ['ctrip'],
+            'target_hotel_ids' => [$hotelId],
+            'target_filter' => [
+                'hotel_id' => $hotelId,
+                'date' => $date,
+                'status' => count($created) > 0 ? PriceSuggestion::STATUS_PENDING : 0,
+            ],
             'reviewed_count' => count($created) + count($skipped),
             'created_count' => count($created),
             'skipped_count' => count($skipped),
             'list' => $created,
             'skipped' => $skipped,
             'advisory_only' => true,
-            'model_summary' => $pricingService->hotelPricingModelSummary($hotelId, $date),
-            'next_action' => 'Manual review required. This endpoint only creates pending suggestions and does not write room prices or OTA rates.',
-        ], 'success');
+            'manual_review_required' => true,
+            'auto_write_ota' => false,
+            'review_endpoint_base' => '/api/revenue-ai/price-suggestions/{id}/review',
+            'execution_intent_endpoint_base' => '/api/revenue-ai/price-suggestions/{id}/execution-intent',
+            'ai_review_gate' => [
+                'status' => count($created) > 0 ? 'pending_manual_review' : 'blocked_by_preconditions',
+                'required_before' => 'operation_execution_intent',
+                'manual_review_required' => true,
+                'auto_apply_ai_advice' => false,
+                'operation_intake_allowed' => false,
+                'auto_write_ota' => false,
+            ],
+            'can_generate_pending_suggestions' => count($created) > 0,
+            'required_inputs' => $requiredInputs,
+            'model_summary' => $modelSummary,
+            'next_action' => $nextAction,
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $skipped
+     * @return array<string, mixed>
+     */
+    private function buildPriceSuggestionGenerationBlockedResult(
+        string $reason,
+        int $hotelId,
+        string $date,
+        array $skipped = [],
+        string $detail = ''
+    ): array {
+        return [
+            'status' => 'blocked',
+            'reason' => $reason,
+            'detail' => $detail !== '' ? $detail : $this->priceSuggestionGenerationReasonText($reason),
+            'source_scope' => 'ctrip_ota_channel',
+            'source_channels' => ['ctrip'],
+            'target_hotel_ids' => [$hotelId],
+            'target_filter' => [
+                'hotel_id' => $hotelId,
+                'date' => $date,
+                'status' => 0,
+            ],
+            'reviewed_count' => count($skipped),
+            'created_count' => 0,
+            'skipped_count' => count($skipped),
+            'list' => [],
+            'skipped' => $skipped,
+            'advisory_only' => true,
+            'manual_review_required' => true,
+            'auto_write_ota' => false,
+            'can_generate_pending_suggestions' => false,
+            'required_inputs' => $this->buildPriceSuggestionGenerationRequiredInputs($reason),
+            'next_action' => $this->priceSuggestionGenerationNextAction($reason),
+        ];
+    }
+
+    /**
+     * @return array<int, array{code: string, status: string, source: string, required_before: string, next_action: string}>
+     */
+    private function buildPriceSuggestionGenerationRequiredInputs(string $reason): array
+    {
+        $inputs = [
+            [
+                'code' => 'demand_forecast',
+                'status' => 'missing_or_blocked',
+                'source' => 'demand_forecasts',
+                'required_before' => 'POST /api/agent/price-suggestions/generate',
+                'next_action' => '补齐目标经营日期的需求预测记录。',
+            ],
+            [
+                'code' => 'competitor_price_samples',
+                'status' => 'missing_or_blocked',
+                'source' => 'competitor_analysis',
+                'required_before' => 'POST /api/agent/price-suggestions/generate',
+                'next_action' => '补齐携程目标经营日期前 7 天内的竞对价格样本。',
+            ],
+            [
+                'code' => 'pricing_candidate_signal',
+                'status' => 'missing_or_blocked',
+                'source' => 'RevenuePricingRecommendationService',
+                'required_before' => 'POST /api/agent/price-suggestions/generate',
+                'next_action' => '补齐推荐模型需要的主要信号，直到只读预检出现可生成候选。',
+            ],
+        ];
+
+        if ($reason === 'room_types_empty') {
+            array_unshift(
+                $inputs,
+                [
+                    'code' => 'room_types_enabled',
+                    'status' => 'missing_or_blocked',
+                    'source' => 'room_types',
+                    'required_before' => 'POST /api/agent/price-suggestions/generate',
+                    'next_action' => '为携程目标酒店配置至少一个启用房型。',
+                ],
+                [
+                    'code' => 'floor_price_or_min_rate_guard',
+                    'status' => 'missing_or_blocked',
+                    'source' => 'room_types',
+                    'required_before' => 'POST /api/agent/price-suggestions/generate',
+                    'next_action' => '为启用房型补齐基础价和最低保护价。',
+                ]
+            );
+        }
+
+        if ($reason === 'pending_suggestion_exists') {
+            return [[
+                'code' => 'manual_review_existing_pending_suggestion',
+                'status' => 'pending_review',
+                'source' => 'price_suggestions',
+                'required_before' => 'POST /api/agent/price-suggestions/generate',
+                'next_action' => '先审核或关闭已有待审调价建议，再生成新的待审建议。',
+            ]];
+        }
+
+        return $inputs;
+    }
+
+    private function priceSuggestionGenerationReasonText(string $reason): string
+    {
+        return match ($reason) {
+            'room_types_empty' => '携程目标酒店暂无启用房型，不能生成待审调价建议。',
+            'pending_suggestion_exists' => '已存在待审调价建议，不能重复生成。',
+            'pricing_candidate_signals_missing' => '调价候选信号不足，当前不会生成待审建议。',
+            default => '定价建议生成前置条件未满足。',
+        };
+    }
+
+    private function priceSuggestionGenerationNextAction(string $reason): string
+    {
+        return match ($reason) {
+            'room_types_empty' => '为携程目标酒店配置启用房型和最低保护价，再补需求预测与竞对样本；缺口未补齐前不生成待审建议。',
+            'pending_suggestion_exists' => '进入收益 Agent 的定价建议列表完成已有待审建议审核；Revenue AI 不自动写 OTA。',
+            default => '补齐需求预测、竞对价格、历史价格变化和保护价信号，直到只读预检出现可生成候选。',
+        };
     }
 
     public function applyPrice(): Response
@@ -4872,6 +5204,145 @@ class Agent extends Base
         $raw = SystemConfig::getValue('ota_cookie_alerts', '{}');
         $alerts = json_decode((string)$raw, true);
         return $this->success(['alerts' => is_array($alerts) ? array_values($alerts) : []]);
+    }
+
+    public function roomTypes(): Response
+    {
+        $this->checkAdmin();
+
+        $hotelId = (int)$this->request->param('hotel_id', 0);
+        if ($hotelId <= 0) {
+            return $this->error('hotel_id is required', 422);
+        }
+
+        $rows = RoomType::where('hotel_id', $hotelId)
+            ->order('sort_order', 'asc')
+            ->order('id', 'asc')
+            ->select()
+            ->toArray();
+
+        return $this->success([
+            'list' => $rows,
+            'input_scope' => 'manual_pricing_configuration',
+            'target_workflow' => 'ctrip_revenue_ai_pricing_generation',
+            'evidence_status' => 'operator_provided',
+            'auto_write_ota' => false,
+            'next_action' => count($rows) > 0
+                ? '继续补齐需求预测和竞对价格样本后，再生成待审调价建议。'
+                : '先配置至少一个启用房型、基础价和最低保护价；未配置前不生成待审调价建议。',
+        ]);
+    }
+
+    public function saveRoomType(): Response
+    {
+        $this->checkAdmin();
+
+        try {
+            $payload = $this->normalizeRoomTypePayload($this->request->post());
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        $id = (int)($payload['id'] ?? 0);
+        unset($payload['id']);
+        if ($id > 0) {
+            $roomType = RoomType::where('id', $id)
+                ->where('hotel_id', (int)$payload['hotel_id'])
+                ->find();
+            if (!$roomType) {
+                return $this->error('room_type_not_found_for_hotel', 404);
+            }
+            $roomType->save($payload);
+        } else {
+            $roomType = RoomType::create($payload);
+        }
+
+        AgentLog::record(
+            (int)$payload['hotel_id'],
+            AgentLog::AGENT_TYPE_REVENUE,
+            'room_type_pricing_guard_save',
+            'Room type pricing guard saved for Ctrip Revenue AI workflow',
+            AgentLog::LEVEL_INFO,
+            [
+                'room_type_id' => (int)$roomType->id,
+                'input_scope' => 'manual_pricing_configuration',
+                'target_workflow' => 'ctrip_revenue_ai_pricing_generation',
+                'auto_write_ota' => false,
+            ],
+            (int)($this->currentUser->id ?? 0)
+        );
+
+        return $this->success([
+            'room_type' => $roomType->toArray(),
+            'input_scope' => 'manual_pricing_configuration',
+            'target_workflow' => 'ctrip_revenue_ai_pricing_generation',
+            'evidence_status' => 'operator_provided',
+            'auto_write_ota' => false,
+            'next_action' => '继续补齐需求预测和竞对价格样本后，再生成待审调价建议。',
+        ], 'room type saved');
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function normalizeRoomTypePayload(array $data): array
+    {
+        $hotelId = (int)($data['hotel_id'] ?? 0);
+        if ($hotelId <= 0) {
+            throw new \InvalidArgumentException('hotel_id is required');
+        }
+
+        $name = trim((string)($data['name'] ?? ''));
+        if ($name === '') {
+            throw new \InvalidArgumentException('room_type_name is required');
+        }
+        $nameLength = function_exists('mb_strlen') ? mb_strlen($name) : strlen($name);
+        if ($nameLength > 80) {
+            throw new \InvalidArgumentException('room_type_name too long');
+        }
+
+        $basePrice = $this->parsePositiveRoomTypeMoney($data['base_price'] ?? null, 'base_price');
+        $minPrice = $this->parsePositiveRoomTypeMoney($data['min_price'] ?? null, 'min_price');
+        $maxPrice = $this->parsePositiveRoomTypeMoney($data['max_price'] ?? null, 'max_price');
+        if ($minPrice > $basePrice) {
+            throw new \InvalidArgumentException('min_price cannot be greater than base_price');
+        }
+        if ($maxPrice < $basePrice) {
+            throw new \InvalidArgumentException('max_price cannot be less than base_price');
+        }
+
+        $roomCount = max(0, (int)($data['room_count'] ?? 0));
+        $sortOrder = max(0, (int)($data['sort_order'] ?? 0));
+        $isEnabled = (int)($data['is_enabled'] ?? 1) === 0 ? 0 : 1;
+
+        return [
+            'id' => (int)($data['id'] ?? 0),
+            'hotel_id' => $hotelId,
+            'name' => $name,
+            'base_price' => $basePrice,
+            'min_price' => $minPrice,
+            'max_price' => $maxPrice,
+            'room_count' => $roomCount,
+            'sort_order' => $sortOrder,
+            'is_enabled' => $isEnabled,
+            'facilities' => is_array($data['facilities'] ?? null) ? array_values((array)$data['facilities']) : [],
+        ];
+    }
+
+    private function parsePositiveRoomTypeMoney(mixed $value, string $field): float
+    {
+        if (is_string($value)) {
+            $value = trim($value);
+        }
+        if ($value === '' || $value === null || !is_numeric($value)) {
+            throw new \InvalidArgumentException($field . ' must be a positive number');
+        }
+        $number = round((float)$value, 2);
+        if ($number <= 0) {
+            throw new \InvalidArgumentException($field . ' must be greater than 0');
+        }
+        return $number;
     }
 
 

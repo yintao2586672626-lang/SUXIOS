@@ -608,6 +608,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     date_range: dateRange,
                     cookies,
                     auth_data: form.auth_data,
+                    include_self_trade_metrics: true,
                     auto_save: true,
                     system_hotel_id: form.hotelId,
                 };
@@ -645,11 +646,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     taskId: responseData.task_id || '',
                     platform: responseData.platform || 'meituan',
                     async: responseData.async !== false,
-                    savedCount: responseData.saved_count || 0,
-                    displayHotels: [],
-                    displaySummary: null,
-                    displayCount: 0,
-                };
+                savedCount: responseData.saved_count || 0,
+                selfMetricValues: responseData.self_metric_values || responseData.selfMetricValues || {},
+                selfMetricStatus: responseData.self_metric_status || responseData.selfMetricStatus || '',
+                displayHotels: [],
+                displaySummary: null,
+                displayCount: 0,
+            };
             }
             return {
                 ...base,
@@ -658,6 +661,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 taskId: responseData.task_id || '',
                 data: responseData.data,
                 savedCount: responseData.saved_count || 0,
+                selfMetricValues: responseData.self_metric_values || responseData.selfMetricValues || {},
+                selfMetricStatus: responseData.self_metric_status || responseData.selfMetricStatus || '',
                 displayHotels: responseData.display_hotels || [],
                 displaySummary: responseData.display_summary || null,
                 displayCount: responseData.display_hotel_count || (responseData.display_hotels || []).length,
@@ -681,6 +686,18 @@ window.SUXI_MEITUAN_STATIC = (() => {
         displaySummary: null,
         displayCount: 0,
     });
+    const mergeMeituanSelfMetricValues = (...sources) => {
+        const result = {};
+        sources.forEach(source => {
+            if (!source || Array.isArray(source) || typeof source !== 'object') return;
+            Object.entries(source).forEach(([key, value]) => {
+                if (value === undefined || value === null || value === '') return;
+                const number = Number(String(value).replace(/,/g, ''));
+                result[key] = Number.isFinite(number) ? number : value;
+            });
+        });
+        return result;
+    };
     const isMeituanBackgroundAcceptedResponse = (response = {}) => {
         if (response.code !== 200) {
             return false;
@@ -695,6 +712,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         date_ranges: form.dateRanges,
         start_date: form.startDate,
         end_date: form.endDate,
+        self_metric_values: mergeMeituanSelfMetricValues(
+            form.selfMetricValues,
+            ...(Array.isArray(results) ? results.map(result => result.selfMetricValues) : [])
+        ),
     });
 
     const normalizeMeituanCookieText = (value) => String(value || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');

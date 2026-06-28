@@ -209,6 +209,8 @@ function isCtripCaptureUrl(value) {
       url.includes('/restapi/')
       || url.includes('datacenter')
       || url.includes('pyramid')
+      || url.includes('toolcenter/ladder')
+      || url.includes('/api/ladder/')
       || url.includes('psi')
       || url.includes('growth')
       || url.includes('competition')

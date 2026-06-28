@@ -18,9 +18,7 @@ class Compass extends Base
         if (!$this->currentUser) {
             abort(401, '未登录');
         }
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->isHotelManager()) {
-            abort(403, '无权限操作');
-        }
+        $this->requireHotel();
     }
 
     public function index(): Response

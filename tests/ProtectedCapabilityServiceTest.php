@@ -145,6 +145,26 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertSame('collection_health', $historyDetail['key']);
     }
 
+    public function testOtaCollectPathRequiresCollectPermissionNotReadOnlyPermission(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['online_data'],
+        ]);
+        $capability = $service->classifyPath('POST', '/api/online-data/fetch-ctrip');
+
+        self::assertIsArray($capability);
+        self::assertSame('can_fetch_online_data', $capability['permission']);
+
+        $authorization = $service->authorizeContext(
+            $this->userWithPermissions(['can_view_online_data']),
+            $capability,
+            ['hotel_id' => 7]
+        );
+
+        self::assertFalse($authorization['allowed']);
+        self::assertSame('role_permission_denied', $authorization['reason']);
+    }
+
     /**
      * @param array<int, string> $permissions
      */

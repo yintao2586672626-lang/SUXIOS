@@ -78,6 +78,44 @@ test('Meituan ranking supports temporary resource ids on the daily fetch panel',
   assert.match(meituanFetchFlow, /const selectedMeituanConfig = form\.hotelId\s*\?\s*await ensureMeituanConfigSecret\(getSelectedConfig\(\)\)\s*:\s*null;/);
 });
 
+test('Meituan ranking keeps rank summary on the second screen like Ctrip', () => {
+  const beforeMainTable = sliceFrom('<!-- backend display summary -->', '<!-- 竞对排名表格 -->');
+  const firstTable = sliceFrom('<!-- 竞对排名表格 -->', 'data-testid="meituan-rank-summary-second-screen"');
+  const secondScreen = sliceFrom('data-testid="meituan-rank-summary-second-screen"', '<!-- 流量数据获取 -->');
+
+  assert.doesNotMatch(beforeMainTable, /meituanVisibleRankInsightCards/);
+  assert.doesNotMatch(beforeMainTable, /榜单与来源状态/);
+  assert.doesNotMatch(firstTable, /rowspan="2">排名摘要/);
+  assert.match(secondScreen, /排名摘要/);
+  assert.match(secondScreen, /data-testid="meituan-rank-source-second-screen"/);
+  assert.match(secondScreen, /meituanVisibleRankInsightCards/);
+  assert.match(secondScreen, /榜单与来源状态/);
+  assert.match(secondScreen, /v-for="\(\s*hotel,\s*index\s*\) in pagedMeituanHotelsList"/);
+  assert.match(secondScreen, /hotel\.circlePositionText/);
+  assert.match(secondScreen, /hotel\.gapToLeaderText/);
+  assert.match(secondScreen, /hotel\.rankSummaryText/);
+});
+
+test('Meituan ranking money cells use backend source prefixes', () => {
+  const rankingTable = sliceFrom('<!-- 竞对排名表格 -->', 'data-testid="meituan-rank-summary-second-screen"');
+  const displayPayload = meituanStatic.slice(
+    meituanStatic.indexOf('const buildMeituanDisplayModelPayload = ({'),
+    meituanStatic.indexOf('const normalizeMeituanCookieText')
+  );
+  const fetchTasks = meituanStatic.slice(
+    meituanStatic.indexOf('const buildMeituanBatchFetchTasks = ({'),
+    meituanStatic.indexOf('const buildMeituanBatchFetchResultEntry')
+  );
+
+  assert.doesNotMatch(rankingTable, /'¥'\s*\+\s*hotel\.roomRevenueText/);
+  assert.doesNotMatch(rankingTable, /'¥'\s*\+\s*hotel\.salesText/);
+  assert.match(rankingTable, /\(hotel\.roomRevenuePrefix \|\| ''\) \+ hotel\.roomRevenueText/);
+  assert.match(rankingTable, /\(hotel\.salesPrefix \|\| ''\) \+ hotel\.salesText/);
+  assert.match(displayPayload, /self_metric_values:\s*mergeMeituanSelfMetricValues/);
+  assert.match(displayPayload, /results\.map\(result => result\.selfMetricValues\)/);
+  assert.match(fetchTasks, /include_self_trade_metrics:\s*true/);
+});
+
 test('Meituan config saves cookie-only and no longer treats room counts as credentials', () => {
   const saveMeituanConfigItem = functionSlice('saveMeituanConfigItem');
 
@@ -97,7 +135,7 @@ test('FontAwesome stylesheet does not block the core shell first second', () => 
   const head = sliceFrom('<head>', '</head>');
 
   assert.doesNotMatch(head, /<link\s+href=["']font-awesome\.min\.css["']\s+rel=["']stylesheet["']/);
-  assert.match(head, /const fontAwesomeStylesheet = 'font-awesome\.min\.css';/);
+  assert.match(head, /const fontAwesomeStylesheet = 'font-awesome\.min\.css\?v=20260628-static-router-fix';/);
   assert.match(head, /link\.dataset\.suxiFontawesome = '1';/);
   assert.match(head, /window\.setTimeout\(loadFontAwesomeStylesheet, 1600\);/);
   assert.match(head, /document\.addEventListener\('DOMContentLoaded', run, \{ once: true \}\);/);
@@ -106,7 +144,7 @@ test('FontAwesome stylesheet does not block the core shell first second', () => 
 test('Login background preload does not compete with cached-auth shell', () => {
   const head = sliceFrom('<head>', '</head>');
   const preloadOffset = head.indexOf("const loginBackgroundPreload = 'images/login-hotel-lobby-bg.avif';");
-  const tailwindOffset = head.indexOf('href="tailwind.min.css"');
+  const tailwindOffset = head.indexOf('href="tailwind.min.css?v=20260628-static-router-fix"');
 
   assert.doesNotMatch(head, /<link\s+rel=["']preload["']\s+href=["']images\/login-hotel-lobby-bg\.avif["']/);
   assert.ok(preloadOffset >= 0 && tailwindOffset >= 0 && preloadOffset < tailwindOffset);

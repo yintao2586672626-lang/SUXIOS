@@ -14,7 +14,7 @@ const SECTION_LABELS = {
   traffic_report: '经营报告-流量数据',
   competitor_overview: '竞争圈动态-概览',
   loss_analysis: '竞争圈动态-流失分析',
-  competitor_rank: '竞争圈动态-榜单',
+  competitor_rank: '竞争圈动态-竞争圈榜单',
   user_profile: '用户行为-用户分析',
   im_board: '用户行为-IM看板',
   ads_pyramid: '金字塔推广',

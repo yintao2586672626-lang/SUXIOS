@@ -626,6 +626,8 @@ Route::group('api/agent', function () {
     Route::get('/price-suggestions/:id/review', 'Agent/priceSuggestionReview');
     Route::get('/revenue-analysis', 'Agent/revenueAnalysis');
     Route::get('/cookie-warnings', 'Agent/cookieWarnings');
+    Route::get('/room-types', 'Agent/roomTypes');
+    Route::post('/room-types', 'Agent/saveRoomType');
 
     // 需求预测
     Route::get('/demand-forecasts', 'Agent/demandForecasts');

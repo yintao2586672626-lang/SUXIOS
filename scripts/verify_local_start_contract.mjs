@@ -30,7 +30,9 @@ if (!fs.existsSync(startupScriptPath)) {
     'Wait-MySql',
     'Assert-DatabaseReady',
     'Start-ThinkPhp',
+    'Test-StaticAsset',
     '/api/health',
+    'public/router.php',
     'information_schema.SCHEMATA',
     'information_schema.TABLES',
   ];
@@ -43,6 +45,10 @@ if (!fs.existsSync(startupScriptPath)) {
 
   if (!/Start-LocalMySql[\s\S]*Assert-DatabaseReady[\s\S]*Start-ThinkPhp/.test(script)) {
     failures.push('startup script must start/verify MySQL before starting ThinkPHP');
+  }
+
+  if (/"think",\s*"run"|public\/index\.php|public\\index\.php/.test(script)) {
+    failures.push('startup script must serve PHP through public/router.php so static CSS/JS files are not routed as ThinkPHP controllers');
   }
 }
 

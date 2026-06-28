@@ -39,4 +39,23 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
         self::assertSame('npm.cmd run verify:p0-ota-field-loop -- --date=2026-06-27 --system-hotel-id=7', $gate['required_gate_command']);
         self::assertContains('p0_ota_field_loop_ready_for_downstream_claims', $gate['allowed_claims']);
     }
+
+    public function testGateCommandCanStayScopedToCtripOnly(): void
+    {
+        $gate = (new P0OtaDownstreamGateService())->blockedForDataset('2026-06-28', null, [
+            'fact_ota_daily' => [
+                ['source' => 'ctrip'],
+            ],
+            'fact_ota_traffic' => [
+                ['source' => 'ctrip'],
+            ],
+        ], ['ctrip']);
+
+        self::assertSame('blocked_by_p0_ota_gate', $gate['status']);
+        self::assertSame(
+            'npm.cmd run verify:p0-ota-field-loop -- --date=2026-06-28 --platform=ctrip',
+            $gate['required_gate_command']
+        );
+        self::assertStringNotContainsString('meituan', $gate['required_gate_command']);
+    }
 }

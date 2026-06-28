@@ -162,8 +162,10 @@ class CompetitorAnalysis extends Model
         
         $matrix = [];
         foreach ($results as $item) {
+            $competitorData = is_array($item->competitor_data ?? null) ? $item->competitor_data : [];
+            $operatorCompetitorName = trim((string)($competitorData['competitor_name'] ?? ''));
             $roomTypeName = $item->roomType->name ?? '未知房型';
-            $competitorName = $item->competitorHotel->name ?? '未知竞对';
+            $competitorName = $item->competitorHotel->name ?? ($operatorCompetitorName !== '' ? $operatorCompetitorName : '未知竞对');
             
             if (!isset($matrix[$roomTypeName])) {
                 $matrix[$roomTypeName] = [];
@@ -185,6 +187,7 @@ class CompetitorAnalysis extends Model
                 'difference' => $item->price_difference,
                 'diff_percent' => $item->price_diff_percent,
                 'status' => $item->price_status_name,
+                'competitor_data' => $competitorData,
             ];
         }
         

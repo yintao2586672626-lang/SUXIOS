@@ -39,4 +39,8 @@ assert.match(migration, /'beta_user'/, '迁移必须写入内测用户角色');
 assert.match(migration, /'normal_user'/, '迁移必须写入普通用户角色');
 assert.match(initFull, /20260614_add_access_tier_hotel_owner_scope\.sql/, '完整初始化必须包含权限分层迁移');
 
+assert.match(hotelController, /owner_user_id/, 'hotel controller must write owner_user_id');
+assert.match(migration, /ADD COLUMN IF NOT EXISTS `owner_user_id`/, 'migration must add hotels.owner_user_id');
+assert.match(migration, /can_fetch_online_data` = CASE WHEN u\.`role_id` = 2 THEN 1 ELSE 0 END/, 'normal users must not collect OTA by default');
+
 console.log('access tier permission checks passed');

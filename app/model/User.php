@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace app\model;
 
+use app\service\HotelScopeService;
+use app\service\PermissionService;
 use think\Model;
 
 class User extends Model
@@ -138,6 +140,12 @@ class User extends Model
      */
     public function hasHotelPermission(int $hotelId, string $permission): bool
     {
+        $authorization = (new PermissionService())->authorize($this, $permission, $hotelId);
+        return (bool)$authorization['allowed'];
+    }
+
+    private function legacyHasHotelPermission(int $hotelId, string $permission): bool
+    {
         if ($hotelId <= 0) {
             return false;
         }
@@ -215,7 +223,9 @@ class User extends Model
         }
 
         $role = $this->role;
-        return $role && (int)$role->status === Role::STATUS_ENABLED && $role->hasPermission('can_manage_own_hotels');
+        return $role
+            && (int)$role->status === Role::STATUS_ENABLED
+            && ($role->hasPermission('can_manage_own_hotels') || $role->hasPermission('hotel.create'));
     }
 
     /**
@@ -223,6 +233,16 @@ class User extends Model
      * 注意：只返回启用状态的酒店
      */
     public function getPermittedHotelIds(): array
+    {
+        return (new HotelScopeService())->accessibleHotelIds($this);
+    }
+
+    public function getHotelScopeContext(): array
+    {
+        return (new HotelScopeService())->scopeContext($this);
+    }
+
+    private function legacyGetPermittedHotelIds(): array
     {
         if ($this->isSuperAdmin()) {
             // 超级管理员只返回启用的酒店

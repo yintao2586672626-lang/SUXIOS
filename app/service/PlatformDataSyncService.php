@@ -218,6 +218,58 @@ final class PlatformDataSyncService
                 'source_keys' => ['order_id', 'orderId', 'bookingId', 'book_order_num', 'order_count', 'orderCount', 'orders'],
             ],
         ],
+        'peer_rank' => [
+            [
+                'metric_key' => 'peer_rank_value',
+                'normalized_field' => 'data_value',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'data_value',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['data_value', 'dataValue', 'rank', 'ranking', 'rankValue', 'rank_value', 'rankPercent', 'rank_percent', 'value'],
+            ],
+            [
+                'metric_key' => 'peer_rank_dimension',
+                'normalized_field' => 'dimension',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'dimension',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['dimension', 'dim_name', '_dimName', 'rank_type', 'rankType', 'compare_type', 'compareType'],
+            ],
+            [
+                'metric_key' => 'peer_rank_compare_type',
+                'normalized_field' => 'compare_type',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'compare_type',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['compare_type', 'compareType', 'rank_type', 'rankType'],
+            ],
+        ],
+        'quality' => [
+            [
+                'metric_key' => 'quality_score',
+                'normalized_field' => 'data_value',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'data_value',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['data_value', 'dataValue', 'serviceScore', 'psiScore', 'imScore', 'score'],
+            ],
+            [
+                'metric_key' => 'quality_dimension',
+                'normalized_field' => 'dimension',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'dimension',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['dimension', 'dim_name', '_dimName', 'metric_key', 'metricKey'],
+            ],
+            [
+                'metric_key' => 'quality_compare_type',
+                'normalized_field' => 'compare_type',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'compare_type',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['compare_type', 'compareType'],
+            ],
+        ],
         'traffic' => [
             [
                 'metric_key' => 'list_exposure',
@@ -411,6 +463,7 @@ final class PlatformDataSyncService
             $sanitizedRow = $dataType === 'review'
                 ? $this->sanitizeReviewPayloadForStorage($row)
                 : $this->sanitizePayloadForStorage($row, $dataType);
+            $platformIdentifierEvidence = $this->platformHotelIdentifierEvidence($platform, $row, $source);
             $raw = [
                 'row' => $sanitizedRow,
                 'data_source_id' => $source['id'] ?? null,
@@ -422,6 +475,11 @@ final class PlatformDataSyncService
                 'snapshot_time' => $periodMeta['snapshot_time'],
                 'snapshot_bucket' => $periodMeta['snapshot_bucket'],
             ];
+            if (($platformIdentifierEvidence['present'] ?? false) === true) {
+                $raw['platform_hotel_identifier_present'] = true;
+                $raw['platform_hotel_identifier_source'] = (string)$platformIdentifierEvidence['source'];
+                $raw['platform_hotel_identifier_proof'] = (string)$platformIdentifierEvidence['proof'];
+            }
 
             $normalizedRow = [
                 'hotel_id' => $this->stringValue($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'external_hotel_id']) ?: (string)($source['external_hotel_id'] ?? ''),
@@ -494,7 +552,7 @@ final class PlatformDataSyncService
                 'source_key' => $sourceKey,
                 'source_path' => $sourceKey !== '' ? $this->fieldFactSourcePath($row, $sourceKey) : '',
                 'storage_table' => (string)$definition['storage_table'],
-                'storage_field' => (string)$definition['storage_field'],
+                'storage_field' => $this->normalizedStorageField($definition),
                 'normalized_field' => $normalizedField,
                 'status' => $status,
                 'missing_state' => (string)$definition['missing_state'],
@@ -507,6 +565,59 @@ final class PlatformDataSyncService
         }
 
         return $facts;
+    }
+
+    /**
+     * @param array<string, mixed> $definition
+     */
+    private function normalizedStorageField(array $definition): string
+    {
+        $table = trim((string)($definition['storage_table'] ?? ''));
+        $field = trim((string)($definition['storage_field'] ?? ''));
+        if ($table === 'online_daily_data'
+            && $field !== ''
+            && !str_contains($field, '.')
+            && !str_contains($field, '/')
+            && !str_contains($field, ' ')
+        ) {
+            return $table . '.' . $field;
+        }
+        return $field;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $source
+     * @return array{present: bool, source: string, proof: string}
+     */
+    private function platformHotelIdentifierEvidence(string $platform, array $row, array $source): array
+    {
+        $sourceFamily = strtolower(trim($platform)) === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
+        $keys = strtolower(trim($platform)) === 'meituan'
+            ? ['poiId', 'poi_id', 'storeId', 'store_id', 'shopId', 'shop_id', 'mtPoiId', 'mt_poi_id', 'partnerId', 'partner_id']
+            : ['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'masterHotelId', 'master_hotel_id', 'nodeId', 'node_id', 'ctrip_hotel_id', 'external_hotel_id'];
+        $sourceConfig = is_array($source['config'] ?? null)
+            ? (array)$source['config']
+            : $this->decodeConfig($source['config_json'] ?? []);
+        foreach ([
+            'row_field_present' => $row,
+            'source_field_present' => $source,
+            'source_config_field_present' => $sourceConfig,
+        ] as $proof => $candidate) {
+            if ($this->stringValue($candidate, $keys) !== '') {
+                return [
+                    'present' => true,
+                    'source' => $sourceFamily,
+                    'proof' => $proof,
+                ];
+            }
+        }
+
+        return [
+            'present' => false,
+            'source' => $sourceFamily,
+            'proof' => 'missing',
+        ];
     }
 
     /**
@@ -598,7 +709,7 @@ final class PlatformDataSyncService
         }
         $sourceKey = trim($sourceKey);
         if ($basePath === '') {
-            return $sourceKey;
+            return $sourceKey === '' ? '' : '$.' . $sourceKey;
         }
         if ($sourceKey === '') {
             return $basePath;
@@ -1851,6 +1962,9 @@ final class PlatformDataSyncService
         $dataType = $this->normalizeDataType($dataType);
         if ($dataType === 'quality') {
             return $this->numericValue($row, ['serviceScore', 'psiScore', 'imScore', 'score']);
+        }
+        if ($dataType === 'peer_rank') {
+            return $this->numericValue($row, ['rank', 'ranking', 'rankValue', 'rank_value', 'rankPercent', 'rank_percent']);
         }
         if ($dataType === 'advertising') {
             return $this->numericValue($row, ['roas', 'roi', 'ecpc', 'ctr', 'cvr']);

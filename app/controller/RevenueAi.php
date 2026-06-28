@@ -166,11 +166,15 @@ class RevenueAi extends Base
         }
 
         $data = $this->requestData();
-        foreach (['business_date', 'hotel_id'] as $key) {
+        foreach (['business_date', 'hotel_id', 'platform', 'channel', 'enabled_channels'] as $key) {
             $value = $this->request->param($key, null);
             if ($value !== null && $value !== '') {
                 $data[$key] = $value;
             }
+        }
+        $enabledChannels = $this->requestedEnabledChannels($data);
+        if ($enabledChannels !== []) {
+            $data['enabled_channels'] = $enabledChannels;
         }
         $permittedHotelIds = array_values(array_unique(array_filter(
             array_map('intval', $this->currentUser->getPermittedHotelIds()),
@@ -194,6 +198,32 @@ class RevenueAi extends Base
         $data['is_super_admin'] = $isSuperAdmin;
 
         return $data;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<int, string>
+     */
+    private function requestedEnabledChannels(array $data): array
+    {
+        $raw = $data['enabled_channels'] ?? $data['platform'] ?? $data['channel'] ?? null;
+        if ($raw === null || $raw === '') {
+            return [];
+        }
+        $items = is_array($raw) ? $raw : preg_split('/[,|]/', (string)$raw);
+        $channels = [];
+        foreach (is_array($items) ? $items : [] as $item) {
+            $channel = strtolower(trim((string)$item));
+            if ($channel === '') {
+                continue;
+            }
+            if (!in_array($channel, ['ctrip', 'meituan'], true)) {
+                throw new RuntimeException('revenue_ai_channel_invalid', 422);
+            }
+            $channels[] = $channel;
+        }
+
+        return array_values(array_unique($channels));
     }
 
     private function httpCode(RuntimeException $e): int

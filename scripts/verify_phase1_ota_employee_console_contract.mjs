@@ -731,6 +731,17 @@ includesAll('scripts/report_p0_profile_next_steps.mjs', 'P0 Profile next-step re
   'blocked_by_p0_ota_gate',
   'no_whole_hotel_or_downstream_closure_claim',
   'manual_login_state_verified=true',
+  'isPlatformReady',
+  "type: 'already_ready'",
+  'already_ready_no_login',
+  'already_ready_no_sync',
+  'login_verified_reference_only',
+  'operatorSkippedPlatforms',
+  "type: 'operator_skip'",
+  'p0_skipped_by_operator_reference_only_no_collection',
+  'skipped_by_operator_no_capture',
+  'skipped_by_operator_no_sync',
+  'operator_skip_platforms',
   'Profile 目录存在不等于登录态已验证',
 ]);
 
@@ -752,6 +763,15 @@ includesAll('tests/automation/p0_profile_next_steps_report.test.mjs', 'P0 Profil
   'blocked_by_p0_ota_gate',
   'no_whole_hotel_or_downstream_closure_claim',
   'single_scope_verifier',
+  'suppresses sync actions for ready platforms',
+  'already_ready_no_login',
+  'already_ready_no_sync',
+  'login_verified_reference_only',
+  'operator-skipped platform without sync action',
+  'p0_skipped_by_operator_reference_only_no_collection',
+  'skipped_by_operator_no_capture',
+  'skipped_by_operator_no_sync',
+  'operator_skip_platforms',
 ]);
 
 includesAllSources([
@@ -1062,7 +1082,7 @@ includesAll('docs/phase1_ota_trusted_loop_audit.md', 'audit document references 
   '员工视角验收',
 ]);
 
-packageScript('verify:phase1-employee-console', 'node scripts/verify_phase1_ota_employee_console_contract.mjs');
+packageScript('verify:phase1-employee-console', 'node scripts/verify_phase1_ota_employee_console_contract.mjs && node --test tests/automation/p0_profile_next_steps_report.test.mjs');
 
 const publicEntry = read('public/index.html');
 const dataHealthStaticEntry = read('public/data-health-static.js');
@@ -1942,6 +1962,7 @@ check(
 );
 
 const acceptanceDoc = read('docs/phase1_ota_employee_console_acceptance.md');
+const projectState = read('vault/project-state.md');
 check(
   'docs/phase1_ota_employee_console_acceptance.md',
   'employee console complete action queue is documented',
@@ -2132,6 +2153,29 @@ check(
     acceptanceDoc.includes('登录/Profile未就绪') &&
     acceptanceDoc.includes('不得展示原始同步任务'),
   'P0 gate metadata / next action mode / manual login state evidence'
+);
+check(
+  'docs/phase1_ota_employee_console_acceptance.md',
+  'P0 Profile next-step report ready/skip operator boundaries are documented',
+  acceptanceDoc.includes('--skip-platform=<platform>') &&
+    acceptanceDoc.includes('already_ready') &&
+    acceptanceDoc.includes('already_ready_no_login') &&
+    acceptanceDoc.includes('already_ready_no_sync') &&
+    acceptanceDoc.includes('operator_skip') &&
+    acceptanceDoc.includes('p0_skipped_by_operator_reference_only_no_collection') &&
+    acceptanceDoc.includes('login_verified_reference_only') &&
+    acceptanceDoc.includes('skipped_by_operator_no_capture') &&
+    acceptanceDoc.includes('skipped_by_operator_no_sync') &&
+    acceptanceDoc.includes('operator_skip_platforms') &&
+    acceptanceDoc.includes('不得展示该平台的采集入口、登录触发入口或 after-login sync 入口'),
+  'ready platform verifier-only and operator-skip no action URL boundary'
+);
+check(
+  'vault/project-state.md',
+  'P0 Profile next-step supersedes old all-sources login-sync wording',
+  projectState.includes('supersedes the 2026-06-27 report wording') &&
+    projectState.includes('valid only for non-ready and non-skipped data sources'),
+  'project state records ready/skip sequence correction'
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',

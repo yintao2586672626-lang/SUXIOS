@@ -16,6 +16,30 @@ function hasFlag(name) {
   return args.includes(`--${name}`);
 }
 
+function csvArgValues(name) {
+  const values = [];
+  const prefix = `--${name}=`;
+  for (const arg of args) {
+    if (arg.startsWith(prefix)) {
+      values.push(...arg.slice(prefix.length).split(','));
+    }
+  }
+  const index = args.indexOf(`--${name}`);
+  if (index >= 0 && args[index + 1]) {
+    values.push(...args[index + 1].split(','));
+  }
+  return values
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function operatorSkippedPlatforms() {
+  if (hasFlag('skip-p0') || hasFlag('allow-skip-p0')) {
+    return { skipAll: true, platforms: new Set() };
+  }
+  return { skipAll: false, platforms: new Set(csvArgValues('skip-platform')) };
+}
+
 function extractJson(text) {
   const source = String(text || '').trim();
   const start = source.indexOf('{');
@@ -62,7 +86,21 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function compactStep(platform, step) {
+function isPlatformReady(platformPayload, gate) {
+  const gateStatus = String(gate?.status || gate?.action_status || platformPayload?.status || '').trim().toLowerCase();
+  if (gateStatus === 'ready') {
+    return true;
+  }
+  return Number(platformPayload?.target_date_rows || 0) > 0
+    && Number(gate?.traffic_rows || 0) > 0
+    && asArray(gate?.action_missing_inputs).length === 0;
+}
+
+function compactStep(platform, step, options = {}) {
+  const operatorSkipActive = options.operatorSkipActive === true;
+  const platformReady = options.platformReady === true;
+  const manualLoginVerified = step?.manual_login_state_verified === true;
+  const skipWithVerifiedLogin = operatorSkipActive && manualLoginVerified;
   const trigger = step?.profile_login_trigger && typeof step.profile_login_trigger === 'object'
     ? step.profile_login_trigger
     : {};
@@ -75,11 +113,17 @@ function compactStep(platform, step) {
     data_source_id: step?.data_source_id ?? null,
     data_source_status: step?.data_source_status ?? '',
     last_sync_status: step?.last_sync_status ?? '',
-    manual_login_state_verified: step?.manual_login_state_verified === true,
-    login_trigger_status: trigger.status ?? '',
-    login_trigger_entry: trigger.entry ?? '',
-    after_login_sync_entry: afterLoginSync.entry ?? '',
+    manual_login_state_verified: manualLoginVerified,
+    login_trigger_status: platformReady
+      ? 'already_ready_no_login'
+      : (skipWithVerifiedLogin ? 'login_verified_reference_only' : (trigger.status ?? '')),
+    login_trigger_entry: platformReady || skipWithVerifiedLogin ? '' : (trigger.entry ?? ''),
+    after_login_sync_entry: operatorSkipActive || platformReady ? '' : (afterLoginSync.entry ?? ''),
     verifier_command: step?.p0_verifier_command ?? '',
+    operator_skip_active: operatorSkipActive,
+    platform_ready: platformReady,
+    platform_gate_status: options.platformGateStatus || '',
+    platform_action_status: options.platformActionStatus || '',
   };
 }
 
@@ -88,12 +132,21 @@ function buildReport(verifier) {
   const platforms = asArray(payload.platforms);
   const rows = [];
   const targetDate = payload.scope?.date || argValue('date', '');
+  const skipped = operatorSkippedPlatforms();
   const platformSummaries = platforms.map((platformPayload) => {
     const platform = String(platformPayload?.platform || '');
     const gate = platformPayload?.p0_traffic_gate && typeof platformPayload.p0_traffic_gate === 'object'
       ? platformPayload.p0_traffic_gate
       : {};
-    const steps = asArray(gate.hotel_scoped_next_steps).map((step) => compactStep(platform, step));
+    const operatorSkipActive = skipped.skipAll || skipped.platforms.has(platform.toLowerCase());
+    const platformReady = isPlatformReady(platformPayload, gate);
+    const steps = asArray(gate.hotel_scoped_next_steps).map((step) => compactStep(platform, step, {
+      operatorSkipActive,
+      platformReady,
+      platformGateStatus: gate.status || '',
+      platformActionStatus: gate.action_status || '',
+    }));
+    const derivedManualLoginCount = steps.filter((step) => step.manual_login_state_verified).length;
     const derivedLoginTriggerCount = steps.filter((step) => step.login_trigger_entry).length;
     const derivedAfterLoginSyncCount = steps.filter((step) => step.after_login_sync_entry).length;
     rows.push(...steps);
@@ -101,11 +154,18 @@ function buildReport(verifier) {
       platform,
       target_date_rows: Number(platformPayload?.target_date_rows || 0),
       traffic_rows: Number(gate.traffic_rows || 0),
-      action_entry: gate.action_entry || '',
-      action_status: gate.action_status || '',
+      action_entry: operatorSkipActive ? '' : (gate.action_entry || ''),
+      action_status: operatorSkipActive ? 'skipped_by_operator_no_capture' : (gate.action_status || ''),
+      p0_traffic_gate_status: gate.status || '',
+      platform_ready: platformReady,
       missing_inputs: asArray(gate.action_missing_inputs),
       next_step_count: Number(gate.p0_next_step_count || steps.length),
-      manual_login_state_verified_count: Number(gate.p0_manual_login_state_verified_count || 0),
+      manual_login_state_verified_count: Math.max(
+        Number(gate.p0_manual_login_state_verified_count || 0),
+        derivedManualLoginCount,
+      ),
+      operator_skip_active: operatorSkipActive,
+      operator_skip_policy: operatorSkipActive ? 'p0_skipped_by_operator_reference_only_no_collection' : '',
       profile_login_trigger_available_count: Math.max(
         Number(gate.p0_profile_login_trigger_available_count || 0),
         derivedLoginTriggerCount,
@@ -139,7 +199,7 @@ function buildReport(verifier) {
     next_steps: rows,
     operator_sequence: buildOperatorSequence(rows),
     completion_gate: completionGate,
-    downstream_gate: buildDownstreamGate(payload, completionGate),
+    downstream_gate: buildDownstreamGate(payload, completionGate, platformSummaries),
   };
 }
 
@@ -174,6 +234,47 @@ function buildCollectionPolicy() {
 function buildOperatorSequence(rows) {
   const sequence = [];
   for (const step of rows) {
+    if (step.platform_ready) {
+      sequence.push({
+        type: 'already_ready',
+        platform: step.platform,
+        system_hotel_id: step.system_hotel_id,
+        data_source_id: step.data_source_id,
+        status: 'p0_traffic_gate_ready',
+        boundary: 'Target-date OTA rows and traffic field evidence are already ready; do not start login or after-login sync from this report.',
+      });
+      sequence.push({
+        type: 'single_scope_verifier',
+        platform: step.platform,
+        system_hotel_id: step.system_hotel_id,
+        data_source_id: step.data_source_id,
+        command: step.verifier_command,
+        required_result: 'status=ready for this platform/hotel traffic gate',
+        boundary: 'Read-only verifier remains the evidence gate for ready platforms.',
+      });
+      continue;
+    }
+    if (step.operator_skip_active) {
+      sequence.push({
+        type: 'operator_skip',
+        platform: step.platform,
+        system_hotel_id: step.system_hotel_id,
+        data_source_id: step.data_source_id,
+        status: 'p0_skipped_by_operator',
+        boundary: 'No OTA collection or after-login sync should be started for this platform while the operator skip is active.',
+        completion_effect: 'P0 remains incomplete; downstream reports may use reference-only wording only.',
+      });
+      sequence.push({
+        type: 'single_scope_verifier',
+        platform: step.platform,
+        system_hotel_id: step.system_hotel_id,
+        data_source_id: step.data_source_id,
+        command: step.verifier_command,
+        required_result: 'status=ready for this platform/hotel traffic gate',
+        boundary: 'Read-only verifier remains the evidence gate; skip status is not completion proof.',
+      });
+      continue;
+    }
     sequence.push({
       type: 'manual_login',
       platform: step.platform,
@@ -206,10 +307,14 @@ function buildOperatorSequence(rows) {
   return sequence;
 }
 
-function buildDownstreamGate(payload, completionGate) {
+function buildDownstreamGate(payload, completionGate, platformSummaries = []) {
   const status = String(payload?.status || '');
   const isReady = status === 'ready';
   const blockingMissingInputs = new Set();
+  const operatorSkipped = asArray(platformSummaries)
+    .filter((item) => item?.operator_skip_active === true)
+    .map((item) => String(item.platform || '').trim())
+    .filter(Boolean);
   const stageDefinitions = [
     ['revenue_analysis', '收益分析'],
     ['ai_decision_advice', 'AI 决策建议'],
@@ -231,6 +336,9 @@ function buildDownstreamGate(payload, completionGate) {
       blockingMissingInputs.add('target_date_traffic_rows');
     }
   }
+  if (operatorSkipped.length > 0) {
+    blockingMissingInputs.add('p0_skipped_by_operator');
+  }
 
   return {
     status: isReady ? 'open' : 'blocked_by_p0_ota_gate',
@@ -239,6 +347,10 @@ function buildDownstreamGate(payload, completionGate) {
     required_gate_command: completionGate.command,
     scope_policy: 'ota_channel_gate_before_downstream_claims',
     blocking_missing_inputs: isReady ? [] : Array.from(blockingMissingInputs).sort(),
+    operator_skip_platforms: isReady ? [] : operatorSkipped,
+    operator_skip_policy: operatorSkipped.length > 0
+      ? 'operator_skip_is_reference_only_and_does_not_complete_p0'
+      : '',
     blocked_stage_keys: isReady ? [] : stageDefinitions.map(([key]) => key),
     stages: stageDefinitions.map(([key, label]) => ({
       key,
@@ -272,8 +384,8 @@ function renderMarkdown(report) {
     '',
     '## 平台状态',
     '',
-    '| 平台 | 目标日行 | 流量行 | 主线入口 | 状态 | 缺口 | 登录入口数 | 登录后同步数 |',
-    '| --- | ---: | ---: | --- | --- | --- | ---: | ---: |',
+    '| 平台 | 目标日行 | 流量行 | 主线入口 | 状态 | operator_skip_active | 缺口 | 登录入口数 | 登录后同步数 |',
+    '| --- | ---: | ---: | --- | --- | --- | --- | ---: | ---: |',
   ];
 
   for (const item of report.platform_summaries) {
@@ -283,6 +395,7 @@ function renderMarkdown(report) {
       item.traffic_rows,
       item.action_entry || '-',
       item.action_status || '-',
+      item.operator_skip_active ? item.operator_skip_policy || 'p0_skipped_by_operator' : '-',
       item.missing_inputs.length ? item.missing_inputs.join(', ') : '-',
       item.profile_login_trigger_available_count,
       item.after_login_sync_available_count,
@@ -298,8 +411,10 @@ function renderMarkdown(report) {
       lines.push(
         `${index + 1}. ${platformLabel(step.platform)} system_hotel_id=${step.system_hotel_id} / data_source_id=${step.data_source_id}`,
         `   - 当前状态: source=${step.data_source_status || '-'}, last_sync=${step.last_sync_status || '-'}, manual_login_state_verified=${step.manual_login_state_verified ? 'true' : 'false'}`,
-        `   - 登录触发: ${step.login_trigger_entry || '-'} (${step.login_trigger_status || '-'})`,
-        `   - 登录后同步: ${step.after_login_sync_entry || '-'}`,
+        `   - platform_ready=${step.platform_ready ? 'true' : 'false'}`,
+        `   - operator_skip_active=${step.operator_skip_active ? 'true' : 'false'}`,
+        `   - 登录触发: ${step.platform_ready ? 'already_ready_no_login' : (step.operator_skip_active && step.manual_login_state_verified ? 'login_verified_reference_only' : (step.login_trigger_entry || '-'))} (${step.login_trigger_status || '-'})`,
+        `   - 登录后同步: ${step.platform_ready ? 'already_ready_no_sync' : (step.operator_skip_active ? 'skipped_by_operator_no_sync' : (step.after_login_sync_entry || '-'))}`,
         `   - 复验命令: ${step.verifier_command || '-'}`,
       );
     });
@@ -311,6 +426,10 @@ function renderMarkdown(report) {
       lines.push(`- 登录: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.entry || '-'} (${item.status || '-'})`);
     } else if (item.type === 'after_login_sync') {
       lines.push(`- 同步: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.entry || '-'}，前置=${item.requires}`);
+    } else if (item.type === 'already_ready') {
+      lines.push(`- already_ready: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.status}; ${item.boundary}`);
+    } else if (item.type === 'operator_skip') {
+      lines.push(`- operator_skip: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.status}; ${item.boundary}`);
     } else if (item.type === 'single_scope_verifier') {
       lines.push(`- 复验: ${item.command || '-'}`);
     }
@@ -325,6 +444,7 @@ function renderMarkdown(report) {
     `- 状态: ${report.downstream_gate.status}`,
     `- 要求上游门禁: ${report.downstream_gate.required_gate_command}`,
     `- 阻断缺口: ${report.downstream_gate.blocking_missing_inputs.length ? report.downstream_gate.blocking_missing_inputs.join(', ') : '-'}`,
+    `- operator_skip_platforms: ${report.downstream_gate.operator_skip_platforms.length ? report.downstream_gate.operator_skip_platforms.join(', ') : '-'}`,
     `- 受限阶段: ${report.downstream_gate.blocked_stage_keys.length ? report.downstream_gate.blocked_stage_keys.join(', ') : '-'}`,
     `- 允许结论: ${report.downstream_gate.allowed_claims.join(', ')}`,
   );

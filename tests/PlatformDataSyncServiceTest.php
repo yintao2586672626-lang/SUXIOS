@@ -341,6 +341,17 @@ final class PlatformDataSyncServiceTest extends TestCase
                     'psiScore' => '88.6',
                     'hotelCollect' => '17',
                 ],
+                [
+                    'hotelId' => 'ctrip-2001',
+                    'hotelName' => 'Business Hotel',
+                    'statDate' => '2026-05-27',
+                    'data_type' => 'quality',
+                    'dimension' => 'psi_score',
+                    'psiScore' => '88.6',
+                    'compare_type' => 'self',
+                    'source_trace_id' => 'quality-trace',
+                    'url_hash' => str_repeat('e', 64),
+                ],
             ],
         ], [
             'id' => 21,
@@ -351,16 +362,28 @@ final class PlatformDataSyncServiceTest extends TestCase
             'ingestion_method' => 'browser_profile',
         ], 41);
 
-        self::assertCount(1, $rows);
-        self::assertSame('ctrip-2001', $rows[0]['hotel_id']);
-        self::assertSame('Business Hotel', $rows[0]['hotel_name']);
-        self::assertSame('2026-05-27', $rows[0]['data_date']);
-        self::assertSame(2888.8, $rows[0]['amount']);
-        self::assertSame(18, $rows[0]['quantity']);
-        self::assertSame(12, $rows[0]['book_order_num']);
-        self::assertSame(160.49, $rows[0]['data_value']);
-        self::assertStringContainsString('"serviceScore":"92.5"', $rows[0]['raw_data']);
-        self::assertStringContainsString('"psiScore":"88.6"', $rows[0]['raw_data']);
+        self::assertCount(2, $rows);
+        $businessRow = $rows[0]['data_type'] === 'business' ? $rows[0] : $rows[1];
+        $qualityRow = $rows[0]['data_type'] === 'quality' ? $rows[0] : $rows[1];
+
+        self::assertSame('ctrip-2001', $businessRow['hotel_id']);
+        self::assertSame('Business Hotel', $businessRow['hotel_name']);
+        self::assertSame('2026-05-27', $businessRow['data_date']);
+        self::assertSame(2888.8, $businessRow['amount']);
+        self::assertSame(18, $businessRow['quantity']);
+        self::assertSame(12, $businessRow['book_order_num']);
+        self::assertSame(160.49, $businessRow['data_value']);
+        self::assertStringContainsString('"serviceScore":"92.5"', $businessRow['raw_data']);
+        self::assertStringContainsString('"psiScore":"88.6"', $businessRow['raw_data']);
+
+        self::assertSame('quality', $qualityRow['data_type']);
+        self::assertSame(88.6, $qualityRow['data_value']);
+        $qualityRaw = json_decode((string)$qualityRow['raw_data'], true);
+        self::assertIsArray($qualityRaw);
+        $qualityFactsByKey = array_column($qualityRaw['field_facts'] ?? [], null, 'metric_key');
+        self::assertSame('online_daily_data.data_value', $qualityFactsByKey['quality_score']['storage_field'] ?? '');
+        self::assertSame('$.psiScore', $qualityFactsByKey['quality_score']['source_path'] ?? '');
+        self::assertSame(str_repeat('e', 64), $qualityFactsByKey['quality_score']['capture_evidence']['source_url_hash'] ?? '');
     }
 
     public function testAdvertisingRecordsMapCostTrafficConversionAndBookings(): void
@@ -1339,6 +1362,13 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('trace-traffic-row', $trafficRow['source_trace_id']);
             $trafficRaw = json_decode((string)$trafficRow['raw_data'], true);
             self::assertIsArray($trafficRaw);
+            self::assertTrue($trafficRaw['platform_hotel_identifier_present'] ?? false);
+            self::assertSame('hotel_id_family', $trafficRaw['platform_hotel_identifier_source'] ?? '');
+            $trafficFactsByKey = array_column($trafficRaw['field_facts'] ?? [], null, 'metric_key');
+            self::assertSame('$.list_exposure', $trafficFactsByKey['list_exposure']['source_path'] ?? '');
+            self::assertSame('online_daily_data.list_exposure', $trafficFactsByKey['list_exposure']['storage_field'] ?? '');
+            self::assertSame('online_daily_data.detail_exposure', $trafficFactsByKey['detail_exposure']['storage_field'] ?? '');
+            self::assertSame('online_daily_data.flow_rate', $trafficFactsByKey['flow_rate']['storage_field'] ?? '');
             self::assertSame(
                 str_repeat('c', 64),
                 $trafficRaw['field_facts'][0]['capture_evidence']['source_url_hash'] ?? ''
@@ -1489,6 +1519,13 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('mt-traffic-row', $trafficRow['source_trace_id']);
             $trafficRaw = json_decode((string)$trafficRow['raw_data'], true);
             self::assertIsArray($trafficRaw);
+            self::assertTrue($trafficRaw['platform_hotel_identifier_present'] ?? false);
+            self::assertSame('poi_id_family', $trafficRaw['platform_hotel_identifier_source'] ?? '');
+            $trafficFactsByKey = array_column($trafficRaw['field_facts'] ?? [], null, 'metric_key');
+            self::assertSame('$.list_exposure', $trafficFactsByKey['list_exposure']['source_path'] ?? '');
+            self::assertSame('online_daily_data.list_exposure', $trafficFactsByKey['list_exposure']['storage_field'] ?? '');
+            self::assertSame('online_daily_data.detail_exposure', $trafficFactsByKey['detail_exposure']['storage_field'] ?? '');
+            self::assertSame('online_daily_data.flow_rate', $trafficFactsByKey['flow_rate']['storage_field'] ?? '');
             self::assertSame(
                 str_repeat('d', 64),
                 $trafficRaw['field_facts'][0]['capture_evidence']['source_url_hash'] ?? ''
@@ -1569,6 +1606,14 @@ final class PlatformDataSyncServiceTest extends TestCase
             sort($types);
 
             self::assertSame(['business', 'peer_rank', 'room_type', 'search_keyword'], $types);
+            $peerRow = array_values(array_filter($rows, static fn(array $row): bool => $row['data_type'] === 'peer_rank'))[0] ?? null;
+            self::assertIsArray($peerRow);
+            self::assertSame(2.0, $peerRow['data_value']);
+            $peerRaw = json_decode((string)$peerRow['raw_data'], true);
+            self::assertIsArray($peerRaw);
+            $peerFactsByKey = array_column($peerRaw['field_facts'] ?? [], null, 'metric_key');
+            self::assertSame('online_daily_data.data_value', $peerFactsByKey['peer_rank_value']['storage_field'] ?? '');
+            self::assertSame('$.rank', $peerFactsByKey['peer_rank_value']['source_path'] ?? '');
         } finally {
             $this->removeDirectory($root);
         }

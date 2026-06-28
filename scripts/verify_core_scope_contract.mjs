@@ -42,27 +42,27 @@ const menuItems = systemStatic.menuItemDefinitions || [];
 const topLevelNames = menuItems.map((item) => item.name);
 
 assertContract(
-  topLevelNames.join('|') === '收益管理|线上数据|运营执行|系统设置',
-  `top-level navigation must be 收益管理 / 线上数据 / 运营执行 / 系统设置, got ${topLevelNames.join(' / ') || '(empty)'}`
+  topLevelNames.join('|') === '经营工作台|线上数据|运营执行|系统设置',
+  `top-level navigation must be 经营工作台 / 线上数据 / 运营执行 / 系统设置, got ${topLevelNames.join(' / ') || '(empty)'}`
 );
 
-const revenueMenu = menuItems.find((item) => item.name === '收益管理') || {};
+const revenueMenu = menuItems.find((item) => item.name === '经营工作台') || {};
 const revenueChildren = Array.isArray(revenueMenu.children) ? revenueMenu.children : [];
 assertContract(
-  revenueChildren[0]?.name === '收益管理智能体总览' && revenueChildren[0]?.path === 'compass',
-  'Revenue AI overview must remain the first revenue-management child while preserving compass path'
+  revenueChildren[0]?.name === '今日经营工作台' && revenueChildren[0]?.path === 'compass',
+  'Today operating workbench must remain the first revenue-management child while preserving compass path'
 );
 
-const lifecycleMenu = revenueChildren.find((item) => item.name === '全生命周期辅助') || {};
+const lifecycleMenu = revenueChildren.find((item) => item.name === '开店/扩张/投决') || {};
 assertContract(
   lifecycleMenu.path === 'lifecycle-auxiliary' && Array.isArray(lifecycleMenu.children) && lifecycleMenu.children.length >= 8,
-  'phase-2 lifecycle modules must stay under 全生命周期辅助 instead of top-level navigation'
+  'phase-2 lifecycle modules must stay under 开店/扩张/投决 instead of top-level navigation'
 );
 
 for (const phase2Name of ['筹建·战略推演', '扩张·市场评估', '转让·资产定价', '图片优化助手', '酒店AI工具箱']) {
   assertContract(
     flattenMenu([lifecycleMenu]).some((item) => item.name === phase2Name),
-    `phase-2 module must be retained under 全生命周期辅助: ${phase2Name}`
+    `phase-2 module must be retained under 开店/扩张/投决: ${phase2Name}`
   );
 }
 
@@ -90,8 +90,8 @@ includesAll('docs/revenue_ai_core_scope_priority.md', 'core slimming scope basel
   '人工审核、转运营执行意图、执行证据和 ROI 复盘证据',
 ]);
 
-includesAll('public/index.html', 'Revenue AI homepage shell', [
-  '收益管理智能体总览',
+includesAll('public/index.html', 'Today operating workbench homepage shell', [
+  '今日经营工作台',
   "const currentPage = ref('compass')",
   'loadRevenueAiOverview',
   'revenueAiOverview',

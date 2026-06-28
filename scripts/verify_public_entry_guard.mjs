@@ -104,7 +104,7 @@ if (!fs.existsSync(indexPath)) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
   }
 
-  if (!content.includes('system-static.js?v=20260616-hotel-config-helpers')
+  if (!content.includes('system-static.js?v=20260628-static-router-fix')
     || !systemStaticContent.includes('const getHotelCodeNumber = (code) => {')
     || !systemStaticContent.includes('const formatHotelCode = (num) =>')
     || !systemStaticContent.includes('const normalizeOtaConfigHotelName = (value = \'\') =>')
@@ -134,8 +134,8 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
-  if (!content.includes('ctrip-static.js?v=20260617-profile-verification-cache-fix')
-    || !content.includes('meituan-static.js?v=20260627-order-csv-import')) {
+  if (!content.includes('ctrip-static.js?v=20260628-static-router-fix')
+    || !content.includes('meituan-static.js?v=20260628-static-router-fix')) {
     failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance/metric exports change.');
   }
   if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';")
@@ -210,7 +210,7 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html references Vite hashed assets; do not build Vite into HOTEL/public.');
   }
 
-  const tailwindOffset = content.indexOf('href="tailwind.min.css"');
+  const tailwindOffset = content.indexOf('href="tailwind.min.css?v=20260628-static-router-fix"');
   const vueScriptMatch = content.match(/<script\s+src=["']vue\.global\.prod\.js(?:\?v=[^"']+)?["']/);
   const vueScriptOffset = vueScriptMatch ? vueScriptMatch.index : -1;
   if (tailwindOffset < 0 || vueScriptOffset < 0 || tailwindOffset > vueScriptOffset) {
@@ -256,8 +256,8 @@ if (!fs.existsSync(indexPath)) {
     vm.runInNewContext(systemStaticContent, sandbox, { filename: 'public/system-static.js' });
     const staticApi = sandbox.window.SUXI_SYSTEM_STATIC || {};
     const topLevelNames = (staticApi.menuItemDefinitions || []).map((item) => item.name);
-    if (topLevelNames.join('|') !== '收益管理|线上数据|运营执行|系统设置') {
-      failures.push(`public/system-static.js top-level navigation must be 收益管理 / 线上数据 / 运营执行 / 系统设置, got: ${topLevelNames.join(' / ') || '(empty)'}.`);
+    if (topLevelNames.join('|') !== '经营工作台|线上数据|运营执行|系统设置') {
+      failures.push(`public/system-static.js top-level navigation must be 经营工作台 / 线上数据 / 运营执行 / 系统设置, got: ${topLevelNames.join(' / ') || '(empty)'}.`);
     }
     const managerMenu = staticApi.filterVisibleMenuItems(staticApi.menuItemDefinitions, {
       role_id: 2,
@@ -273,7 +273,7 @@ if (!fs.existsSync(indexPath)) {
   } catch (error) {
     failures.push(`public/system-static.js navigation guard could not evaluate menu definitions: ${error.message}`);
   }
-  if (!content.includes('revenue-ai-static.js?v=20260627-business-closure-cache-fix')
+  if (!content.includes('revenue-ai-static.js?v=20260628-ctrip-generate-result')
     || !revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
     || !revenueAiStaticContent.includes('buildRevenueAiBusinessClosure')
     || !revenueAiStaticContent.includes('buildRevenueAiGapRows')
@@ -281,6 +281,7 @@ if (!fs.existsSync(indexPath)) {
     || !revenueAiStaticContent.includes('buildRevenueAiOverviewEndpoint')
     || !revenueAiStaticContent.includes('resolveRevenueAiGapTarget')
     || !revenueAiStaticContent.includes('buildRevenueAiPricingGateRows')
+    || !revenueAiStaticContent.includes('buildRevenueAiPriceSuggestionGenerateResult')
     || !revenueAiStaticContent.includes('buildRevenueAiAgentActivityRows')
     || !revenueAiStaticContent.includes('buildRevenueAiExecutionSummary')
     || !revenueAiStaticContent.includes('buildRevenueAiExecutionRows')
@@ -363,6 +364,8 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("const revenueAiBuildExecutionIntentOpenRow = requireRevenueAiStatic('buildRevenueAiExecutionIntentOpenRow');")
     || !content.includes("const revenueAiResolveReviewNavigation = requireRevenueAiStatic('resolveRevenueAiReviewNavigation');")
     || !content.includes("const revenueAiBuildReviewNavigationState = requireRevenueAiStatic('buildRevenueAiReviewNavigationState');")
+    || !content.includes("const revenueAiBuildPriceSuggestionGenerateResult = requireRevenueAiStatic('buildRevenueAiPriceSuggestionGenerateResult');")
+    || !content.includes('data-testid="agent-price-suggestion-generate-result"')
     || content.includes("const revenueAiApiPath = requireRevenueAiStatic('normalizeRevenueAiApiPath');")
     || !content.includes('const revenueAiPricingGateRows = computed(() => revenueAiBuildPricingGateRows({')
     || !content.includes('const revenueAiAgentActivityRows = computed(() => revenueAiBuildAgentActivityRows({')
@@ -490,8 +493,8 @@ if (!fs.existsSync(indexPath)) {
     || content.includes('已应用到房型基础价')) {
     failures.push('public/index.html must not call the direct price apply endpoint or claim local base price was updated in Phase 1B.');
   }
-  if (/<link\s+href=["']font-awesome\.min\.css["']\s+rel=["']stylesheet["']/.test(content)
-    || !content.includes("const fontAwesomeStylesheet = 'font-awesome.min.css';")
+  if (/<link\s+href=["']font-awesome\.min\.css(?:\?v=[^"']+)?["']\s+rel=["']stylesheet["']/.test(content)
+    || !content.includes("const fontAwesomeStylesheet = 'font-awesome.min.css?v=20260628-static-router-fix';")
     || !content.includes("link.dataset.suxiFontawesome = '1';")
     || !content.includes('window.setTimeout(loadFontAwesomeStylesheet, 1600);')) {
     failures.push('public/index.html must idle-load FontAwesome so icon fonts do not compete with core OTA first-second rendering.');
@@ -1765,7 +1768,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("const formatOnlineHistoryHotelOption = requireDataHealthStatic('formatOnlineHistoryHotelOption');")
     || !content.includes("const formatOnlineHistoryRaw = requireDataHealthStatic('formatOnlineHistoryRaw');")
     || !content.includes("const buildHotelDataDashboardRequests = requireDataHealthStatic('buildHotelDataDashboardRequests');")
-    || !content.includes('data-health-static.js?v=20260616-history-raw-helper')
+    || !content.includes('data-health-static.js?v=20260628-static-router-fix')
     || !onlineHistorySource.includes('const params = buildOnlineHistoryQueryParams({')
     || !hotelDashboardSource.includes('const requests = buildHotelDataDashboardRequests({ selectedHotelId });')
     || hotelDashboardSource.includes('const accountParams = new URLSearchParams();')

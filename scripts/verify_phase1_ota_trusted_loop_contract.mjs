@@ -82,9 +82,9 @@ requireIncludes('docs/phase1_ota_trusted_loop_goal.md', 'priority resources and 
   'manual_intervention_required',
 ]);
 
-requirePackageScript('verify:phase1-ota-loop', 'node scripts/verify_phase1_ota_trusted_loop_contract.mjs');
+requirePackageScript('verify:phase1-ota-loop', 'node scripts/verify_phase1_ota_trusted_loop_contract.mjs && node --test tests/automation/p0_ota_field_loop_runtime.test.mjs');
 requirePackageScript('verify:phase1-ota-audit', 'node scripts/verify_phase1_ota_trusted_loop_audit.mjs');
-requirePackageScript('verify:phase1-employee-console', 'node scripts/verify_phase1_ota_employee_console_contract.mjs');
+requirePackageScript('verify:phase1-employee-console', 'node scripts/verify_phase1_ota_employee_console_contract.mjs && node --test tests/automation/p0_profile_next_steps_report.test.mjs');
 requirePackageScript('verify:phase1-gap-explanations', 'node scripts/verify_phase1_ota_gap_explanations.mjs');
 requirePackageScript('verify:phase1-live-closure-contract', 'node scripts/verify_phase1_ota_live_closure_contract.mjs');
 requirePackageScript('verify:phase1-live-action-queue', 'node scripts/verify_phase1_live_action_queue_runtime.mjs');
@@ -99,6 +99,15 @@ requirePackageScript('import:p0-ota-traffic-payload', 'C:\\xampp\\php\\php.exe s
 requirePackageScript('import:p0-ota-traffic-payload:execute', 'C:\\xampp\\php\\php.exe scripts\\import_p0_ota_traffic_payload.php --execute=1');
 requirePackageScript('register:p0-ota-traffic-sources', 'C:\\xampp\\php\\php.exe scripts\\register_p0_ota_traffic_data_sources.php');
 requirePackageScript('register:p0-ota-traffic-sources:execute', 'C:\\xampp\\php\\php.exe scripts\\register_p0_ota_traffic_data_sources.php --execute');
+requireFile('tests/automation/p0_ota_field_loop_runtime.test.mjs');
+requireIncludes('tests/automation/p0_ota_field_loop_runtime.test.mjs', 'P0 field-loop runtime test keeps platform scope and all-platform gate honest', [
+  '--platform=ctrip',
+  'p0_platforms_ready',
+  'p0_platforms_incomplete',
+  'missing_target_date_traffic_rows',
+  'meituan_traffic_evidence_availability_incomplete',
+  'live_closure_incomplete',
+]);
 
 requireFile('scripts/import_p0_ota_traffic_payload.php');
 requireIncludes('scripts/import_p0_ota_traffic_payload.php', 'P0 payload importer stays explicit, dry-run first, and non-sensitive', [

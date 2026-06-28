@@ -273,6 +273,10 @@ test('covers additional observed Ctrip screenshot endpoints outside review conte
     'traffic_flow_source_popups',
   );
   assert.equal(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowSource?hostType=Ebooking&v=0.9956864722351721')?.id,
+    'traffic_flow_source',
+  );
+  assert.equal(
     findCtripEndpointByUrl('https://ebooking.ctrip.com/api/queryMenuKey?_fxpcqlniredt=demo')?.id,
     'traffic_menu_key',
   );
@@ -655,6 +659,116 @@ test('maps Ctrip user behavior IM board observed endpoints', () => {
   assert.equal(imIndex?.fields.some((field) => field.id === 'robot_resolution_rate'), true);
   assert.equal(imTrend?.fields.some((field) => field.id === 'session_count'), true);
   assert.equal(imTrend?.fields.some((field) => field.id === 'im_order_conversion_rate'), true);
+});
+
+test('maps Ctrip ladder simulate rank forecast as fact-only OTA promotion evidence', () => {
+  const url = 'https://ebooking.ctrip.com/toolcenter/api/ladder/getHotelSimulateRank?hostType=HE&v=0.17206586676598923';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'ladder_simulate_rank');
+  assert.equal(endpoint?.section, 'ladder_simulate_rank');
+  assert.equal(endpoint?.dataType, 'advertising_forecast');
+
+  const facts = extractCtripCatalogFacts({
+    code: 0,
+    data: {
+      participating: true,
+      rangeParticipating: true,
+      hotelSimulateRankBoList: [{
+        effectDate: '2026-06-28',
+        currentRank: 81,
+        predicateRank: 91,
+        originRank: 116,
+        effectValue: 15,
+        increaseRatioValue: 21,
+        participatePromoteValue: 30,
+      }],
+    },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: 'system_58',
+    dataDate: '2026-06-28',
+    capturedAt: '2026-06-28T09:48:34.000Z',
+    url,
+  });
+
+  const metricKeys = new Set(facts.map((fact) => fact.metric_key));
+  for (const key of [
+    'ladder_participating',
+    'ladder_range_participating',
+    'ladder_effect_date',
+    'ladder_current_rank',
+    'ladder_predicted_rank',
+    'ladder_origin_rank',
+    'ladder_strategy_ratio',
+    'ladder_estimated_traffic_lift',
+    'ladder_participate_promote_lift',
+  ]) {
+    assert.equal(metricKeys.has(key), true, key);
+  }
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'authorized hotel',
+    profileId: 'system_58',
+  });
+  assert.equal(rows.some((row) => row.data_type === 'advertising_forecast'), true);
+  const forecastRow = rows.find((row) => row.raw_data?.metrics?.ladder_predicted_rank === 91);
+  assert.equal(forecastRow.raw_data.fact_only, true);
+  assert.equal(forecastRow.raw_data.metric_status, 'non_numeric_fact');
+  assert.equal(forecastRow.raw_data.metrics.ladder_predicted_rank, 91);
+  assert.equal(forecastRow.raw_data.dimension_values.ladder_origin_rank, 116);
+  assert.equal(forecastRow.raw_data.facts.some((fact) => fact.storage_field === 'online_daily_data.raw_data.facts.metric_key=ladder_predicted_rank'), true);
+});
+
+test('keeps Ctrip city hot search keyword UV and PV as fact-only traffic evidence', () => {
+  const url = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryQunarCityHotSearch?hostType=Ebooking&v=0.9701556186613626';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'traffic_city_keywords');
+  assert.equal(endpoint?.section, 'traffic_report');
+  assert.equal(endpoint?.dataType, 'traffic');
+
+  const facts = extractCtripCatalogFacts({
+    rcode: 0,
+    msg: null,
+    totalPage: 0,
+    totalRecords: 0,
+    data: [{
+      keyword: '敦煌夜市',
+      uv: 49,
+      pv: 40622,
+    }],
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: 'system_58',
+    dataDate: '2026-06-27',
+    capturedAt: '2026-06-28T10:30:00.000Z',
+    url,
+  });
+
+  const metricKeys = new Set(facts.map((fact) => fact.metric_key));
+  assert.equal(metricKeys.has('city_hot_search_keyword'), true);
+  assert.equal(metricKeys.has('city_hot_search_uv'), true);
+  assert.equal(metricKeys.has('city_hot_search_pv'), true);
+  assert.equal(metricKeys.has('visitor_count'), false);
+  assert.equal(metricKeys.has('page_views'), false);
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'authorized hotel',
+    profileId: 'system_58',
+    dataDate: '2026-06-27',
+  });
+  const keywordRow = rows.find((row) => row.raw_data?.metrics?.city_hot_search_keyword === '敦煌夜市');
+  assert.equal(keywordRow.raw_data.fact_only, true);
+  assert.equal(keywordRow.raw_data.metric_status, 'non_numeric_fact');
+  assert.equal(keywordRow.raw_data.metrics.city_hot_search_uv, 49);
+  assert.equal(keywordRow.raw_data.metrics.city_hot_search_pv, 40622);
+  assert.equal(keywordRow.detail_exposure, 0);
+  assert.equal(keywordRow.raw_data.facts.every((fact) => fact.storage_field.startsWith('online_daily_data.raw_data.facts.metric_key=')), true);
 });
 
 test('maps Ctrip user behavior user-analysis distribution responses', () => {
@@ -1062,6 +1176,93 @@ test('covers reusable Ctrip platform notice endpoints as support facts only', ()
   assert.equal(rows[0].amount, 0);
   assert.equal(rows[0].book_order_num, 0);
   assert.equal(rows[0].raw_data.dimension_values.notice_title, '活动提示');
+});
+
+test('maps Ctrip traffic flow source shares without treating pv as hotel page views', () => {
+  const url = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowSource?hostType=Ebooking&v=0.9956864722351721';
+  const endpoint = findCtripEndpointByUrl(url, {
+    pageUrl: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true',
+  });
+  assert.equal(endpoint?.id, 'traffic_flow_source');
+
+  const facts = extractCtripCatalogFacts({
+    rcode: 0,
+    data: {
+      flowSourceDetails: [
+        {
+          sourceName: '拓展推荐列表',
+          proportion: 38.1,
+          pv: 2435,
+          allpv: 14425,
+          sourceNameTag: '<span class="icon-date num1"></span>',
+          competitorAvgProportion: '16.88',
+        },
+        {
+          sourceName: '城市搜索',
+          proportion: 25.6,
+          pv: 3804,
+          allpv: 14425,
+          sourceNameTag: '<span class="icon-date num2"></span>',
+          competitorAvgProportion: '26.37',
+        },
+      ],
+      keywords: ['鸣沙山月牙泉店', '营地'],
+      filterWords: ['鸣沙山月牙泉景区', '敦煌夜市'],
+    },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    platform: 'Ctrip',
+    hotelId: 'authorized-hotel',
+    dataDate: '2026-06-27',
+    capturedAt: '2026-06-28T10:00:00.000Z',
+    url,
+  });
+
+  const metricKeys = new Set(facts.map((fact) => fact.metric_key));
+  for (const key of [
+    'source_name',
+    'source_rank_tag',
+    'source_proportion',
+    'competitor_avg_source_proportion',
+    'source_pv',
+    'source_all_pv',
+    'keyword',
+  ]) {
+    assert.equal(metricKeys.has(key), true, key);
+  }
+  assert.equal(metricKeys.has('page_views'), false);
+
+  const firstSourceFacts = facts.filter((fact) => fact.source_parent_path === 'data.flowSourceDetails.0');
+  const byMetric = new Map(firstSourceFacts.map((fact) => [fact.metric_key, fact]));
+  assert.equal(byMetric.get('source_name')?.value, '拓展推荐列表');
+  assert.equal(byMetric.get('source_proportion')?.value, 38.1);
+  assert.equal(byMetric.get('competitor_avg_source_proportion')?.value, '16.88');
+  assert.equal(byMetric.get('source_pv')?.value, 2435);
+  assert.equal(byMetric.get('source_all_pv')?.value, 14425);
+
+  const keywordFacts = facts.filter((fact) => fact.metric_key === 'keyword');
+  assert.equal(keywordFacts.some((fact) => fact.source_key === 'keywords[]' && fact.value === '营地'), true);
+  assert.equal(keywordFacts.some((fact) => fact.source_key === 'filterWords[]' && fact.value === '敦煌夜市'), true);
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: '敦煌漠蓝Club野奢民宿',
+    profileId: 'authorized-hotel',
+    dataDate: '2026-06-27',
+  });
+  const sourceRow = rows.find((row) => row.raw_data?.metrics?.source_name === '拓展推荐列表');
+  assert.ok(sourceRow);
+  assert.equal(sourceRow.data_type, 'traffic');
+  assert.equal(sourceRow.raw_data.fact_only, true);
+  assert.equal(sourceRow.raw_data.metrics.source_proportion, 38.1);
+  assert.equal(sourceRow.raw_data.metrics.competitor_avg_source_proportion, 16.88);
+  assert.equal(sourceRow.raw_data.metrics.source_pv, 2435);
+  assert.equal(sourceRow.list_exposure, 0);
+  assert.equal(sourceRow.detail_exposure, 0);
+  assert.equal(sourceRow.flow_rate, 0);
+  assert.equal(sourceRow.raw_data.facts.some((fact) => fact.storage_field === 'online_daily_data.raw_data.facts.metric_key=source_proportion'), true);
 });
 
 test('does not treat Ctrip nodeId as a hotel_id catalog fact', () => {

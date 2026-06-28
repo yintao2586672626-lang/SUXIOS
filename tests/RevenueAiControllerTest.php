@@ -19,6 +19,30 @@ final class RevenueAiControllerTest extends TestCase
         return $reflection->newInstanceWithoutConstructor();
     }
 
+    public function testRequestedEnabledChannelsKeepsCtripScopeExplicit(): void
+    {
+        self::assertSame(['ctrip'], $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[
+            'platform' => ' Ctrip ',
+        ]]));
+        self::assertSame(['ctrip'], $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[
+            'enabled_channels' => 'ctrip,ctrip',
+        ]]));
+        self::assertSame(['ctrip', 'meituan'], $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[
+            'enabled_channels' => ['ctrip', 'meituan'],
+        ]]));
+        self::assertSame([], $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[]]));
+    }
+
+    public function testRequestedEnabledChannelsRejectsUnknownScope(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('revenue_ai_channel_invalid');
+
+        $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[
+            'platform' => 'unknown',
+        ]]);
+    }
+
     public function testReviewPayloadKeepsManualExecutionBoundary(): void
     {
         $payload = $this->invokeNonPublic($this->controller(), 'priceSuggestionReviewPayload', [[

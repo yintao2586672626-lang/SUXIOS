@@ -167,7 +167,95 @@ trait MeituanUtilityConcern
                 $result[$field] = $number;
             }
         }
+        $result = $this->mergeMeituanSelfMetricCardValues($result, $value);
         return $result;
+    }
+
+    private function mergeMeituanSelfMetricCardValues(array $result, array $payload): array
+    {
+        $cards = $this->extractMeituanSelfMetricCards($payload);
+        foreach ($cards as $card) {
+            if (!is_array($card)) {
+                continue;
+            }
+            $field = $this->meituanSelfMetricFieldFromCard($card);
+            if ($field === '' || isset($result[$field])) {
+                continue;
+            }
+            $number = $this->meituanSelfMetricCardNumber($card);
+            if ($number !== null) {
+                $result[$field] = $number;
+            }
+        }
+        return $result;
+    }
+
+    private function extractMeituanSelfMetricCards(array $payload): array
+    {
+        if (isset($payload['cards']) && is_array($payload['cards'])) {
+            return $payload['cards'];
+        }
+        if (isset($payload['data']) && is_array($payload['data'])) {
+            if (isset($payload['data']['cards']) && is_array($payload['data']['cards'])) {
+                return $payload['data']['cards'];
+            }
+            if (isset($payload['data']['businessData']['cards']) && is_array($payload['data']['businessData']['cards'])) {
+                return $payload['data']['businessData']['cards'];
+            }
+        }
+
+        $numericKeys = 0;
+        foreach (array_keys($payload) as $key) {
+            if (is_int($key)) {
+                $numericKeys++;
+            }
+        }
+        return $numericKeys > 0 && $numericKeys === count($payload) ? $payload : [];
+    }
+
+    private function meituanSelfMetricFieldFromCard(array $card): string
+    {
+        $id = (int)($card['id'] ?? 0);
+        $idMap = [
+            1 => 'salesRoomNights',
+            2 => 'sales',
+            4 => 'roomNights',
+            5 => 'roomRevenue',
+        ];
+        if (isset($idMap[$id])) {
+            return $idMap[$id];
+        }
+
+        $title = trim((string)($card['title'] ?? $card['name'] ?? $card['label'] ?? ''));
+        if ($title === '') {
+            return '';
+        }
+        if (str_contains($title, '销售间夜')) {
+            return 'salesRoomNights';
+        }
+        if (str_contains($title, '销售额') || str_contains($title, '交易额')) {
+            return 'sales';
+        }
+        if (str_contains($title, '入住间夜')) {
+            return 'roomNights';
+        }
+        if (str_contains($title, '入住金额') || str_contains($title, '房费收入') || str_contains($title, '入住收入')) {
+            return 'roomRevenue';
+        }
+        return '';
+    }
+
+    private function meituanSelfMetricCardNumber(array $card): ?float
+    {
+        $number = $this->nullableNumberFromKeys($card, ['value', 'dataValue', 'data_value', 'amount']);
+        if ($number === null) {
+            return null;
+        }
+        $suffix = (string)($card['suffix'] ?? $card['unit'] ?? '');
+        if (str_contains($suffix, '万')) {
+            $number *= 10000;
+        }
+        return $number;
     }
 
     private function roundMeituanDerivedMetric(string $field, float $value): float

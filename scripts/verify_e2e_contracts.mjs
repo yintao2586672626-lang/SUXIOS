@@ -95,7 +95,7 @@ requireText('public/index.html', 'data-testid="app-nav"', 'sidebar nav has stabl
 requireText('public/index.html', 'data-testid="app-main"', 'main app surface has stable selector');
 requireText('public/index.html', ':data-current-page="currentPage"', 'main app surface exposes current page state');
 requireNoText('public/index.html', '<link href="font-awesome.min.css" rel="stylesheet">', 'FontAwesome stylesheet must not block core shell first paint');
-requireText('public/index.html', "const fontAwesomeStylesheet = 'font-awesome.min.css';", 'entry keeps explicit FontAwesome idle loader');
+requireText('public/index.html', "const fontAwesomeStylesheet = 'font-awesome.min.css?v=20260628-static-router-fix';", 'entry keeps explicit versioned FontAwesome idle loader');
 requireText('public/index.html', 'window.setTimeout(loadFontAwesomeStylesheet, 1600);', 'FontAwesome icon font loads after core shell first second');
 requireText('public/index.html', 'const suxiApp = createApp({', 'entry keeps Vue app instance available before mount');
 requireText('public/index.html', 'const renderSuxiStartupError = (error) => {', 'entry renders startup/runtime initialization failures explicitly');
@@ -117,8 +117,8 @@ requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user f
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
-requireText('public/index.html', 'ctrip-static.js?v=20260617-profile-verification-cache-fix', 'entry bumps Ctrip static helper version for Profile verification cache fixes');
-requireText('public/index.html', 'meituan-static.js?v=20260627-order-csv-import', 'entry bumps Meituan static helper version for order CSV import');
+requireText('public/index.html', 'ctrip-static.js?v=20260628-static-router-fix', 'entry bumps Ctrip static helper version after static router fix');
+requireText('public/index.html', 'meituan-static.js?v=20260628-static-router-fix', 'entry bumps Meituan static helper version after static router fix');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -1019,7 +1019,7 @@ requireText('public/index.html', "requireAppSystemStatic('getHotelCodeNumber')",
 requireText('public/index.html', "requireAppSystemStatic('formatHotelCode')", 'entry uses extracted hotel-code formatter');
 requireText('public/index.html', "requireAppSystemStatic('normalizeOtaConfigHotelName')", 'entry uses extracted OTA config hotel-name normalizer');
 requireText('public/index.html', "requireAppSystemStatic('formatHotelBindingDate')", 'entry uses extracted hotel binding-date formatter');
-requireText('public/index.html', 'system-static.js?v=20260616-hotel-config-helpers', 'entry bumps system static helper version for hotel config helpers');
+requireText('public/index.html', 'system-static.js?v=20260628-static-router-fix', 'entry bumps system static helper version after static router fix');
 requireText('public/index.html', "requireSystemStatic('buildKnowledgeImportRequestBody')", 'entry uses extracted knowledge import request body builder');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportSuccessMessage')", 'entry uses extracted knowledge import success message');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportErrorMessage')", 'entry uses extracted knowledge import error message');
@@ -1165,7 +1165,7 @@ requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeAi
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeOperationSummary')", 'entry uses extracted Phase1 operation summary builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeClosureSummary')", 'entry uses extracted Phase1 closure summary builder');
 requireText('public/index.html', "requireDataHealthStatic('formatOnlineHistoryRaw')", 'entry uses extracted online history raw formatter');
-requireText('public/index.html', 'data-health-static.js?v=20260616-history-raw-helper', 'entry bumps data-health static helper version for history raw helper exports');
+requireText('public/index.html', 'data-health-static.js?v=20260628-static-router-fix', 'entry bumps data-health static helper version after static router fix');
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryHotelOption', 'data-health static formats online history hotel options');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryRaw', 'data-health static formats online history raw payloads');

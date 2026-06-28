@@ -1026,12 +1026,28 @@ function p0_platform_hotel_identifier_source(string $platform): string
 
 function p0_platform_hotel_identifier_present(array $row, string $platform): bool
 {
+    $expectedSource = p0_platform_hotel_identifier_source($platform);
+    $proofPresent = $row['platform_hotel_identifier_present'] ?? null;
+    $proofSource = trim((string)($row['platform_hotel_identifier_source'] ?? ''));
+    if ($proofPresent === true && ($proofSource === '' || $proofSource === $expectedSource)) {
+        return true;
+    }
+
     $keys = strtolower(trim($platform)) === 'meituan'
         ? ['poiId', 'poi_id', 'storeId', 'store_id', 'shopId', 'shop_id', 'mtPoiId', 'mt_poi_id', 'partnerId', 'partner_id']
         : ['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'masterHotelId', 'master_hotel_id', 'nodeId', 'node_id'];
-    foreach ($keys as $key) {
-        if (trim((string)($row[$key] ?? '')) !== '') {
-            return true;
+    $candidates = [$row];
+    foreach (['row', 'raw_data', 'source_row'] as $containerKey) {
+        if (is_array($row[$containerKey] ?? null)) {
+            $candidates[] = (array)$row[$containerKey];
+        }
+    }
+
+    foreach ($candidates as $candidate) {
+        foreach ($keys as $key) {
+            if (trim((string)($candidate[$key] ?? '')) !== '') {
+                return true;
+            }
         }
     }
 
@@ -1277,6 +1293,46 @@ function p0_source_summary_map(array $inspection): array
         }
     }
     return $map;
+}
+
+/**
+ * @param array<int, string> $missingCodes
+ * @param array<int, string> $platforms
+ */
+function p0_inspector_missing_codes_block_field_loop(array $missingCodes, array $platforms): bool
+{
+    if ($missingCodes === []) {
+        return true;
+    }
+
+    $blockingFragments = [
+        'source_rows_missing',
+        'etl_not_ready',
+        'revenue_metrics_not_ready',
+        'traffic_facts_missing',
+        'traffic_rows_missing',
+        'field_fact',
+    ];
+
+    foreach ($missingCodes as $code) {
+        $normalizedCode = strtolower(trim($code));
+        if ($normalizedCode === '') {
+            continue;
+        }
+        foreach ($platforms as $platform) {
+            $platformPrefix = strtolower(trim($platform)) . '_';
+            if (!str_starts_with($normalizedCode, $platformPrefix)) {
+                continue;
+            }
+            foreach ($blockingFragments as $fragment) {
+                if (str_contains($normalizedCode, $fragment)) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 /**
@@ -4211,10 +4267,14 @@ try {
                 $missingCodes[] = (string)$missing['code'];
             }
         }
-        p0_add_issue($issues, 'incomplete', 'live_closure_incomplete', 'Live OTA revenue/AI data foundation is still incomplete; field loop evidence cannot be treated as full closure.', [
-            'inspector_status' => 'incomplete',
-            'missing_codes' => array_values(array_unique($missingCodes)),
-        ]);
+        $missingCodes = array_values(array_unique($missingCodes));
+        if (p0_inspector_missing_codes_block_field_loop($missingCodes, $expectedPlatforms)) {
+            p0_add_issue($issues, 'incomplete', 'live_closure_incomplete', 'Live OTA field-loop data foundation is still incomplete; field loop evidence cannot be treated as full closure.', [
+                'inspector_status' => 'incomplete',
+                'missing_codes' => $missingCodes,
+                'p0_scope_policy' => 'Only OTA source rows, ETL, revenue metrics, traffic facts, and field-fact gaps block this field-loop verifier; downstream AI or operation sample gaps remain inspector reference status.',
+            ]);
+        }
     }
 
     $scripts = p0_package_scripts();

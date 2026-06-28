@@ -6,6 +6,7 @@ namespace app\controller;
 use app\model\Hotel as HotelModel;
 use app\model\OperationLog;
 use app\model\UserHotelPermission;
+use app\service\PermissionService;
 use think\exception\ValidateException;
 use think\Response;
 use think\facade\Db;
@@ -18,10 +19,6 @@ class Hotel extends Base
     public function index(): Response
     {
         $this->checkPermission();
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->canManageOwnHotels()) {
-            return $this->error('权限不足', 403);
-        }
-
         $creatorColumnError = $this->ensureCreatorColumnIfRequired();
         if ($creatorColumnError) {
             return $creatorColumnError;
@@ -136,7 +133,8 @@ class Hotel extends Base
         }
 
         $hasCreatorColumn = $this->tableColumnExists('hotels', 'created_by');
-        if (!$this->currentUser->isSuperAdmin() && !$hasCreatorColumn) {
+        $hasOwnerColumn = $this->tableColumnExists('hotels', 'owner_user_id');
+        if (!$this->currentUser->isSuperAdmin() && !$hasCreatorColumn && !$hasOwnerColumn) {
             return $this->missingCreatorColumnResponse();
         }
 
@@ -169,6 +167,9 @@ class Hotel extends Base
         $hotel->contact_phone = $data['contact_phone'] ?? '';
         $hotel->description = $data['description'] ?? '';
         $hotel->status = $data['status'] ?? HotelModel::STATUS_ENABLED;
+        if ($hasOwnerColumn) {
+            $hotel->owner_user_id = $this->resolveOwnerUserId($data);
+        }
         if ($hasCreatorColumn) {
             $hotel->created_by = (int)$this->currentUser->id;
         }
@@ -192,6 +193,10 @@ class Hotel extends Base
         $hotel = HotelModel::find($id);
         if (!$hotel) {
             return $this->error('酒店不存在');
+        }
+        $updateAuthorization = (new PermissionService())->authorize($this->currentUser, 'hotel.update', $id);
+        if (empty($updateAuthorization['allowed'])) {
+            return $this->error('权限不足', 403, $updateAuthorization);
         }
         if (!$this->currentUser->isSuperAdmin() && $this->currentUser->canManageOwnHotels()) {
             $creatorColumnError = $this->ensureCreatorColumnIfRequired();
@@ -272,6 +277,20 @@ class Hotel extends Base
         return $code === '' ? null : $code;
     }
 
+    private function resolveOwnerUserId(array $data): int
+    {
+        if (!$this->currentUser) {
+            return 0;
+        }
+
+        if (!$this->currentUser->isSuperAdmin()) {
+            return (int)$this->currentUser->id;
+        }
+
+        $ownerUserId = (int)($data['owner_user_id'] ?? 0);
+        return $ownerUserId > 0 ? $ownerUserId : (int)$this->currentUser->id;
+    }
+
     /**
      * 删除酒店
      */
@@ -282,6 +301,10 @@ class Hotel extends Base
         $forceDelete = $this->currentUser->isSuperAdmin() && $this->isForceDeleteRequested($data);
 
         $hotel = HotelModel::find($id);
+        $deleteAuthorization = (new PermissionService())->authorize($this->currentUser, 'hotel.delete', $id);
+        if (empty($deleteAuthorization['allowed'])) {
+            return $this->error('权限不足', 403, $deleteAuthorization);
+        }
         if (!$hotel) {
             return $this->error('酒店不存在');
         }
@@ -347,9 +370,7 @@ class Hotel extends Base
 
     private function requiresOwnHotelScope(): bool
     {
-        return $this->currentUser
-            && !$this->currentUser->isSuperAdmin()
-            && $this->currentUser->isBetaUser();
+        return false;
     }
 
     private function ensureCreatorColumnIfRequired(): ?Response
@@ -370,8 +391,15 @@ class Hotel extends Base
 
     private function currentUserOwnsHotel(HotelModel $hotel): bool
     {
-        return $this->currentUser
-            && (int)($hotel->created_by ?? 0) === (int)$this->currentUser->id;
+        if (!$this->currentUser) {
+            return false;
+        }
+
+        if ($this->tableColumnExists('hotels', 'owner_user_id')) {
+            return (int)($hotel->owner_user_id ?? 0) === (int)$this->currentUser->id;
+        }
+
+        return (int)($hotel->created_by ?? 0) === (int)$this->currentUser->id;
     }
 
     private function currentUserCanManageHotelRecord(HotelModel $hotel): bool
@@ -411,10 +439,23 @@ class Hotel extends Base
         $payload = [
             'user_id' => (int)$this->currentUser->id,
             'hotel_id' => $hotelId,
-            'can_view_report' => 0,
-            'can_fill_daily_report' => 0,
-            'can_fill_monthly_task' => 0,
-            'can_edit_report' => 0,
+            'scope_type' => 'owner',
+            'can_view' => 1,
+            'can_report' => 1,
+            'can_fill' => 1,
+            'can_edit' => 1,
+            'can_fetch_ota' => 1,
+            'can_delete_ota' => 0,
+            'can_export' => 1,
+            'can_ai' => 1,
+            'can_operation' => 1,
+            'can_investment' => 1,
+            'status' => 'active',
+            'created_by' => (int)$this->currentUser->id,
+            'can_view_report' => 1,
+            'can_fill_daily_report' => 1,
+            'can_fill_monthly_task' => 1,
+            'can_edit_report' => 1,
             'can_delete_report' => 0,
             'can_view_online_data' => 1,
             'can_fetch_online_data' => 1,
@@ -422,6 +463,26 @@ class Hotel extends Base
             'is_primary' => empty($this->currentUser->hotel_id) ? 1 : 0,
             'update_time' => date('Y-m-d H:i:s'),
         ];
+
+        foreach ([
+            'scope_type',
+            'can_view',
+            'can_report',
+            'can_fill',
+            'can_edit',
+            'can_fetch_ota',
+            'can_delete_ota',
+            'can_export',
+            'can_ai',
+            'can_operation',
+            'can_investment',
+            'status',
+            'created_by',
+        ] as $column) {
+            if (!$this->tableColumnExists('user_hotel_permissions', $column)) {
+                unset($payload[$column]);
+            }
+        }
 
         if ($this->tableColumnExists('user_hotel_permissions', 'tenant_id')) {
             $payload['tenant_id'] = (int)($hotel->tenant_id ?? $hotelId);

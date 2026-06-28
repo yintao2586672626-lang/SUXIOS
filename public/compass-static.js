@@ -73,10 +73,10 @@ window.SUXI_COMPASS_STATIC = (() => {
         channel: '来源：OTA 曝光、访客、转化和订单数据',
     };
     const dailyOpsPrimaryActions = [
-        { label: '平台自动获取', page: 'online-data', tab: 'platform-auto', icon: 'fas fa-robot' },
-        { label: '携程/去哪流量', page: 'ctrip-ebooking', tab: 'ctrip-traffic', icon: 'fas fa-route' },
-        { label: '美团排名', page: 'meituan-ebooking', tab: 'meituan-ranking', icon: 'fas fa-chart-bar' },
-        { label: '广告数据', page: 'ctrip-ebooking', tab: 'ctrip-ads', icon: 'fas fa-bullhorn' },
+        { label: '检查数据是否已同步', page: 'online-data', tab: 'data-health', icon: 'fas fa-heartbeat' },
+        { label: '同步平台账号数据', page: 'online-data', tab: 'platform-auto', icon: 'fas fa-robot' },
+        { label: '查看携程流量漏斗', page: 'ctrip-ebooking', tab: 'ctrip-traffic', icon: 'fas fa-route' },
+        { label: '查看美团竞对排名', page: 'meituan-ebooking', tab: 'meituan-ranking', icon: 'fas fa-chart-bar' },
     ];
     const dailyOpsReviewSteps = [
         { index: 1, title: '先跑经营概况', detail: '拿访客、订单、销售额、间夜、价格、入住率和紧张度，先形成 OTA 结果口径。' },
@@ -96,12 +96,12 @@ window.SUXI_COMPASS_STATIC = (() => {
     ];
     const defaultCompassWeatherCity = '成都市';
     const homeQuickEntryDefinitions = [
-        { key: 'online-data', title: 'OTA数据同步', desc: '采集校验携程美团', page: 'online-data', tab: 'data-health', icon: 'fas fa-cloud-download-alt', permission: 'can_view_online_data' },
-        { key: 'operation-diagnosis', title: '收益诊断', desc: '收入与OTA漏斗', page: 'ops-source', icon: 'fas fa-search' },
-        { key: 'operation-root-cause', title: '根因定位', desc: '找获客和收入问题', page: 'ops-analysis', icon: 'fas fa-microscope' },
-        { key: 'operation-alerts', title: '预警建议', desc: '查看风险与动作', page: 'ops-insight', icon: 'fas fa-bell' },
-        { key: 'strategy-simulation', title: '策略模拟', desc: '生成运营方案', page: 'ops-plan', icon: 'fas fa-lightbulb' },
-        { key: 'action-tracking', title: '动作复盘', desc: '跟踪执行与ROI', page: 'ops-track', icon: 'fas fa-play-circle' },
+        { key: 'online-data', title: '数据是否可用', desc: '看授权、采集、字段缺口', page: 'online-data', tab: 'data-health', icon: 'fas fa-cloud-download-alt', permission: 'can_view_online_data' },
+        { key: 'operation-diagnosis', title: '今天经营结果', desc: '收入、订单、转化总览', page: 'ops-source', icon: 'fas fa-search' },
+        { key: 'operation-root-cause', title: '为什么变差/变好', desc: '定位获客和收入原因', page: 'ops-analysis', icon: 'fas fa-microscope' },
+        { key: 'operation-alerts', title: '今天要处理什么', desc: '风险、预警和动作建议', page: 'ops-insight', icon: 'fas fa-bell' },
+        { key: 'strategy-simulation', title: '试算运营策略', desc: '调价、促销、投放影响', page: 'ops-plan', icon: 'fas fa-lightbulb' },
+        { key: 'action-tracking', title: '执行进度和效果', desc: '跟踪执行与ROI复盘', page: 'ops-track', icon: 'fas fa-play-circle' },
         { key: 'ai-tools', title: '酒店AI工具箱', desc: '辅助工具入口', page: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true },
         { key: 'hotel-management', title: '酒店管理', desc: '维护基础信息', page: 'hotels', icon: 'fas fa-hotel' },
         { key: 'system-settings', title: '系统设置', desc: '配置数据源与权限', page: 'system-config', icon: 'fas fa-cog', requireSuper: true },

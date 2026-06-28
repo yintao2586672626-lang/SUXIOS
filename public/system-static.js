@@ -218,16 +218,16 @@ window.SUXI_SYSTEM_STATIC = (() => {
     ];
     const menuItemDefinitions = [
         {
-            name: '收益管理',
+            name: '经营工作台',
             testid: 'nav-revenue-management',
             icon: 'fas fa-chart-line',
             requireSuper: false,
             permissions: [],
             children: [
-                { name: '收益管理智能体总览', path: 'compass', icon: 'fas fa-tachometer-alt', requireSuper: false, requireManager: true, permissions: [] },
-                { name: '收益管理研究中心', path: 'revenue-research-center', icon: 'fas fa-chart-line', testid: 'nav-revenue-research-center', requireManager: true, permissions: [] },
+                { name: '今日经营工作台', path: 'compass', icon: 'fas fa-tachometer-alt', requireSuper: false, permissions: [] },
+                { name: '收益分析中心', path: 'revenue-research-center', icon: 'fas fa-chart-line', testid: 'nav-revenue-research-center', permissions: [] },
                 {
-                    name: '全生命周期辅助',
+                    name: '开店/扩张/投决',
                     path: 'lifecycle-auxiliary',
                     icon: 'fas fa-share-alt',
                     requireSuper: false,
@@ -271,12 +271,12 @@ window.SUXI_SYSTEM_STATIC = (() => {
             requireSuper: false,
             permissions: [],
             children: [
-                { name: '策源·全维数据', path: 'ops-source', icon: 'fas fa-search' },
-                { name: '策析·根因定位', path: 'ops-analysis', icon: 'fas fa-microscope' },
-                { name: '策见·预警推送', path: 'ops-insight', icon: 'fas fa-bell' },
+                { name: '经营数据总览', path: 'ops-source', icon: 'fas fa-search' },
+                { name: '问题根因分析', path: 'ops-analysis', icon: 'fas fa-microscope' },
+                { name: '风险预警', path: 'ops-insight', icon: 'fas fa-bell' },
                 { name: 'AI经营日报', path: 'ai-daily-report', icon: 'fas fa-file-alt' },
-                { name: '策案·策略模拟', path: 'ops-plan', icon: 'fas fa-lightbulb' },
-                { name: '策行·效果追踪', path: 'ops-track', icon: 'fas fa-play-circle' },
+                { name: '策略模拟', path: 'ops-plan', icon: 'fas fa-lightbulb' },
+                { name: '执行跟踪', path: 'ops-track', icon: 'fas fa-play-circle' },
             ],
         },
         {
@@ -422,6 +422,9 @@ window.SUXI_SYSTEM_STATIC = (() => {
     const sanitizeCachedAuthUser = (profile = null) => {
         if (!profile || typeof profile !== 'object') return null;
         const permissions = normalizePermissionMap(profile.permissions);
+        const capabilities = Array.isArray(profile.capabilities)
+            ? profile.capabilities.filter(Boolean).map(item => String(item))
+            : [];
         const permitted = Array.isArray(profile.permitted_hotels)
             ? profile.permitted_hotels
                 .filter(item => item && item.id)
@@ -443,6 +446,9 @@ window.SUXI_SYSTEM_STATIC = (() => {
             is_super_admin: profile.is_super_admin === true,
             is_hotel_manager: profile.is_hotel_manager === true,
             permissions,
+            capabilities,
+            hotel_scope: profile.hotel_scope && typeof profile.hotel_scope === 'object' ? { ...profile.hotel_scope } : null,
+            modules: profile.modules && typeof profile.modules === 'object' ? { ...profile.modules } : {},
             permitted_hotels: permitted,
         };
     };
@@ -1164,7 +1170,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         };
         const isItemVisible = (item) => {
             if (item.requireSuper) return false;
-            if (item.requireManager && currentUser.role_id !== 2) return false;
+            if (item.requireManager && currentUser.role_id !== 2 && !currentUser.is_hotel_manager) return false;
             if (item.permissions && item.permissions.length > 0) {
                 const perms = currentUser.permissions || {};
                 return item.permissions.some(p => hasPermission(perms, p));

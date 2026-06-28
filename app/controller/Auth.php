@@ -10,6 +10,7 @@ use app\model\SystemConfig;
 use app\model\Role;
 use app\model\Hotel;
 use app\model\UserHotelPermission;
+use app\service\PermissionService;
 use think\Response;
 
 class Auth extends Base
@@ -226,6 +227,9 @@ class Auth extends Base
                 'hotel_name' => $user->hotel ? $user->hotel->name : '',
                 'is_super_admin' => $user->isSuperAdmin(),
                 'permissions' => $this->buildUserPermissions($user),
+                'capabilities' => $this->buildUserCapabilities($user),
+                'hotel_scope' => $user->getHotelScopeContext(),
+                'modules' => $this->buildUserModules($user),
             ],
         ], '登录成功');
     }
@@ -252,6 +256,25 @@ class Auth extends Base
             'can_view_field_assets' => $this->roleAllows($user, 'can_view_field_assets'),
             'can_view_diagnostics' => $this->roleAllows($user, 'can_view_diagnostics'),
             'can_manage_ai_governance' => $this->roleAllows($user, 'can_manage_ai_governance'),
+        ];
+    }
+
+    private function buildUserCapabilities(User $user): array
+    {
+        return (new PermissionService())->roleCapabilities($user);
+    }
+
+    private function buildUserModules(User $user): array
+    {
+        $capabilities = $this->buildUserCapabilities($user);
+        $allows = static fn(string $capability): bool => in_array('all', $capabilities, true)
+            || in_array($capability, $capabilities, true);
+
+        return [
+            'ai' => $allows('ai.view') || $allows('ai.execute'),
+            'investment' => $allows('investment.view') || $allows('investment.simulate'),
+            'operation' => $allows('operation.view') || $allows('operation.execute'),
+            'export' => $allows('report.export') || $allows('ota.export'),
         ];
     }
 
@@ -386,6 +409,9 @@ class Auth extends Base
             'is_hotel_manager' => $user->isHotelManager(),
             'permitted_hotels' => $permittedHotels,
             'permissions' => $userPermissions,
+            'capabilities' => $this->buildUserCapabilities($user),
+            'hotel_scope' => $user->getHotelScopeContext(),
+            'modules' => $this->buildUserModules($user),
         ]);
     }
 

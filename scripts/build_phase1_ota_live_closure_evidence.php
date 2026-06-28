@@ -2021,7 +2021,11 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
     $p0FieldLoopMatrix = traffic_source_p0_field_loop_matrix($requiredMetricKeys, $requiredStorageFields, $targetDateTrafficRows, $platform, $targetDate);
     $p0StandardFactSummary = traffic_source_p0_standard_fact_summary($requiredMetricKeys, $requiredStorageFields, $p0FieldLoopMatrix, $targetDateTrafficRows);
     $p0PlatformHotelIdentifierSource = $platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
-    $p0PlatformHotelIdentifierStatus = $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'no_target_date_traffic_rows';
+    $p0PlatformHotelIdentifierStatus = traffic_source_p0_platform_hotel_identifier_status($platform, $targetDate, $targetDateTrafficRows);
+    $p0TrafficFieldFactStatus = $targetDateTrafficRows > 0
+        ? (string)($p0StandardFactSummary['p0_standard_fact_status'] ?? 'incomplete')
+        : 'no_target_date_traffic_rows';
+    $p0TrafficGateStatus = traffic_source_p0_gate_status($targetDateTrafficRows, $p0TrafficFieldFactStatus, $p0PlatformHotelIdentifierStatus);
     $base = [
         'platform' => $platform,
         'target_date' => $targetDate,
@@ -2060,7 +2064,7 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
         'p0_external_evidence_status' => 'not_provided',
         'p0_pre_import_evidence_status' => 'not_provided',
         'p0_pre_import_evidence_policy' => 'External traffic evidence is source proof only; P0 closure still requires target-date traffic rows and ready verifier status.',
-        'p0_traffic_field_fact_status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'no_target_date_traffic_rows',
+        'p0_traffic_field_fact_status' => $p0TrafficFieldFactStatus,
         'p0_payload_candidate_policy' => 'ui_metadata_only_no_import',
         'p0_payload_candidate_payload_policy' => 'path_metadata_only_no_payload_content',
         'p0_payload_candidate_storage_policy' => 'does_not_write_online_daily_data',
@@ -2092,7 +2096,7 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
         'p0_required_field_fact_keys' => $requiredFieldFactKeys,
         'p0_missing_metric_keys' => $targetDateTrafficRows > 0 ? [] : $requiredMetricKeys,
         'p0_field_loop_matrix' => $p0FieldLoopMatrix,
-        'p0_traffic_closure_chain' => traffic_source_p0_closure_chain($p0FieldLoopMatrix, $targetDateTrafficRows, $p0PlatformHotelIdentifierStatus, $p0PlatformHotelIdentifierSource),
+        'p0_traffic_closure_chain' => traffic_source_p0_closure_chain($p0FieldLoopMatrix, $targetDateTrafficRows, $p0PlatformHotelIdentifierStatus, $p0PlatformHotelIdentifierSource, $p0TrafficGateStatus),
         'p0_traffic_closure_chain_policy' => 'Every chain item is OTA-channel evidence only and remains incomplete until the P0 field-loop verifier returns ready.',
         'p0_platform_hotel_identifier_source' => $p0PlatformHotelIdentifierSource,
         'p0_platform_hotel_identifier_status' => $p0PlatformHotelIdentifierStatus,
@@ -2298,7 +2302,7 @@ function traffic_source_readiness_for_platform(string $platform, array $context)
     $recommendedMode = traffic_source_recommended_mode($platform, $base);
     $base['recommended_collection_mode'] = $recommendedMode;
     $base['action_entry'] = traffic_source_action_entry_for_mode($platform, $recommendedMode);
-    $base['p0_traffic_gate_status'] = (int)$base['target_date_traffic_rows'] > 0 ? 'requires_p0_verifier' : 'missing_target_date_traffic_rows';
+    $base['p0_traffic_gate_status'] = $p0TrafficGateStatus;
     $base['p0_next_action_mode'] = $recommendedMode;
     $base['p0_next_action_entry'] = $base['action_entry'];
     $base['p0_next_step_count'] = max(0, (int)$base['traffic_managed_count']);
@@ -2448,9 +2452,10 @@ function traffic_source_p0_field_loop_matrix(array $requiredMetricKeys, array $r
     return array_values($matrix);
 }
 
-function traffic_source_p0_closure_chain(array $fieldLoopMatrix, int $targetDateTrafficRows, string $platformHotelIdentifierStatus, string $platformHotelIdentifierSource): array
+function traffic_source_p0_closure_chain(array $fieldLoopMatrix, int $targetDateTrafficRows, string $platformHotelIdentifierStatus, string $platformHotelIdentifierSource, string $trafficGateStatus = ''): array
 {
     $targetDateTrafficRows = max(0, $targetDateTrafficRows);
+    $trafficGateStatus = trim($trafficGateStatus);
     $chainStatus = static function (bool $ready) use ($targetDateTrafficRows): string {
         if ($targetDateTrafficRows <= 0) {
             return 'no_target_date_traffic_rows';
@@ -2510,10 +2515,73 @@ function traffic_source_p0_closure_chain(array $fieldLoopMatrix, int $targetDate
             'required' => $platformHotelIdentifierSource,
         ],
         'verifier' => [
-            'status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'incomplete',
+            'status' => $trafficGateStatus === 'ready' ? 'ready' : 'incomplete',
             'required' => 'P0 field-loop verifier returns ready',
         ],
     ];
+}
+
+function traffic_source_p0_gate_status(int $targetDateTrafficRows, string $trafficFieldFactStatus, string $platformHotelIdentifierStatus): string
+{
+    if (max(0, $targetDateTrafficRows) <= 0) {
+        return 'missing_target_date_traffic_rows';
+    }
+    if ($trafficFieldFactStatus !== 'ready') {
+        return 'traffic_field_fact_closure_incomplete';
+    }
+    if ($platformHotelIdentifierStatus !== 'ready') {
+        return 'platform_hotel_identifier_missing';
+    }
+    return 'ready';
+}
+
+function traffic_source_p0_platform_hotel_identifier_status(string $platform, string $targetDate, int $targetDateTrafficRows): string
+{
+    if (max(0, $targetDateTrafficRows) <= 0) {
+        return 'no_target_date_traffic_rows';
+    }
+    $presentRows = 0;
+    $missingRows = 0;
+    foreach (traffic_source_p0_traffic_rows($platform, $targetDate) as $row) {
+        $raw = decode_field_fact_raw_data($row['raw_data'] ?? null);
+        if (traffic_source_p0_platform_hotel_identifier_present($platform, $raw)) {
+            $presentRows++;
+        } else {
+            $missingRows++;
+        }
+    }
+    if ($presentRows > 0 && $missingRows === 0) {
+        return 'ready';
+    }
+    return 'missing';
+}
+
+function traffic_source_p0_platform_hotel_identifier_present(string $platform, array $row): bool
+{
+    $expectedSource = $platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
+    $proofPresent = $row['platform_hotel_identifier_present'] ?? null;
+    $proofSource = trim((string)($row['platform_hotel_identifier_source'] ?? ''));
+    if ($proofPresent === true && ($proofSource === '' || $proofSource === $expectedSource)) {
+        return true;
+    }
+
+    $keys = $platform === 'meituan'
+        ? ['poiId', 'poi_id', 'storeId', 'store_id', 'shopId', 'shop_id', 'mtPoiId', 'mt_poi_id', 'partnerId', 'partner_id']
+        : ['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'masterHotelId', 'master_hotel_id', 'nodeId', 'node_id', 'ctrip_hotel_id', 'external_hotel_id'];
+    $candidates = [$row];
+    foreach (['row', 'raw_data', 'source_row'] as $containerKey) {
+        if (is_array($row[$containerKey] ?? null)) {
+            $candidates[] = (array)$row[$containerKey];
+        }
+    }
+    foreach ($candidates as $candidate) {
+        foreach ($keys as $key) {
+            if (trim((string)($candidate[$key] ?? '')) !== '') {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 function traffic_source_p0_field_loop_matrix_index(array $requiredMetricKeys, array $requiredStorageFields, int $targetDateTrafficRows, string $status): array

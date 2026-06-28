@@ -23,6 +23,7 @@ $LogDir = Join-Path $RepoRoot "runtime\codex"
 $BaseUrl = "http://$BindHost`:$Port/"
 $HealthPath = "/api/health"
 $HealthUrl = "http://$BindHost`:$Port$HealthPath"
+$StaticProbeUrl = "http://$BindHost`:$Port/vue.global.prod.js?v=startup-static-probe"
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 Set-Location $RepoRoot
@@ -177,13 +178,25 @@ function Test-HttpHealth {
     }
 }
 
+function Test-StaticAsset {
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $StaticProbeUrl -TimeoutSec 3
+        $contentType = [string]$response.Headers["Content-Type"]
+        return $response.StatusCode -eq 200 `
+            -and $contentType -like "*javascript*" `
+            -and $response.Content -like "*Vue*"
+    } catch {
+        return $false
+    }
+}
+
 function Test-PortListening {
     $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     return $null -ne $listener
 }
 
 function Start-ThinkPhp {
-    if (Test-HttpHealth) {
+    if ((Test-HttpHealth) -and (Test-StaticAsset)) {
         Write-Host "[OK] ThinkPHP is already serving $BaseUrl"
         return
     }
@@ -198,7 +211,7 @@ function Start-ThinkPhp {
     Write-Host "[INFO] Starting ThinkPHP on $BaseUrl"
     Start-Process `
         -FilePath $PhpExe `
-        -ArgumentList @("think", "run", "--host", $BindHost, "--port", [string]$Port) `
+        -ArgumentList @("-S", "$BindHost`:$Port", "-t", "public", "public/router.php") `
         -WorkingDirectory $RepoRoot `
         -WindowStyle Hidden `
         -RedirectStandardOutput $stdout `
@@ -206,14 +219,14 @@ function Start-ThinkPhp {
         | Out-Null
 
     for ($i = 0; $i -lt $PhpWaitSeconds; $i++) {
-        if (Test-HttpHealth) {
+        if ((Test-HttpHealth) -and (Test-StaticAsset)) {
             Write-Host "[OK] ThinkPHP started: $BaseUrl"
             return
         }
         Start-Sleep -Seconds 1
     }
 
-    throw "ThinkPHP did not become healthy at $HealthUrl within $PhpWaitSeconds seconds."
+    throw "ThinkPHP did not become healthy at $HealthUrl with static assets available within $PhpWaitSeconds seconds."
 }
 
 if (-not (Test-Path (Join-Path $RepoRoot "think"))) {

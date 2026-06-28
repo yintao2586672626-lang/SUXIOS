@@ -22,7 +22,7 @@ class P0OtaDownstreamGateService
      * @param array<string, mixed> $dataset
      * @return array<string, mixed>
      */
-    public function blockedForDataset(string $businessDate, ?int $hotelId, array $dataset): array
+    public function blockedForDataset(string $businessDate, ?int $hotelId, array $dataset, array $platforms = []): array
     {
         $dailyRows = count($this->list($dataset['fact_ota_daily'] ?? []));
         $trafficRows = count($this->list($dataset['fact_ota_traffic'] ?? []));
@@ -34,14 +34,14 @@ class P0OtaDownstreamGateService
             $missingInputs[] = 'target_date_traffic_rows';
         }
 
-        return $this->blocked($businessDate, $hotelId, $missingInputs, 'not_verified');
+        return $this->blocked($businessDate, $hotelId, $missingInputs, 'not_verified', '', $platforms);
     }
 
     /**
      * @param array<string, mixed> $gate
      * @return array<string, mixed>
      */
-    public function normalize(array $gate, string $businessDate = '', ?int $hotelId = null): array
+    public function normalize(array $gate, string $businessDate = '', ?int $hotelId = null, array $platforms = []): array
     {
         $status = trim((string)($gate['status'] ?? ''));
         if ($status === 'ready') {
@@ -49,7 +49,7 @@ class P0OtaDownstreamGateService
                 'status' => 'ready',
                 'current_upstream_status' => trim((string)($gate['current_upstream_status'] ?? 'ready')),
                 'required_upstream_status' => trim((string)($gate['required_upstream_status'] ?? 'ready')),
-                'required_gate_command' => trim((string)($gate['required_gate_command'] ?? $this->verifierCommand($businessDate, $hotelId))),
+                'required_gate_command' => trim((string)($gate['required_gate_command'] ?? $this->verifierCommand($businessDate, $hotelId, $platforms))),
                 'scope_policy' => trim((string)($gate['scope_policy'] ?? 'ota_channel_gate_before_downstream_claims')),
                 'blocking_missing_inputs' => [],
                 'blocked_stage_keys' => [],
@@ -68,7 +68,8 @@ class P0OtaDownstreamGateService
             $hotelId,
             $missingInputs,
             trim((string)($gate['current_upstream_status'] ?? 'incomplete')),
-            trim((string)($gate['required_gate_command'] ?? ''))
+            trim((string)($gate['required_gate_command'] ?? '')),
+            $platforms
         );
     }
 
@@ -76,13 +77,20 @@ class P0OtaDownstreamGateService
      * @param array<int, string> $missingInputs
      * @return array<string, mixed>
      */
-    private function blocked(string $businessDate, ?int $hotelId, array $missingInputs, string $currentStatus, string $command = ''): array
+    private function blocked(
+        string $businessDate,
+        ?int $hotelId,
+        array $missingInputs,
+        string $currentStatus,
+        string $command = '',
+        array $platforms = []
+    ): array
     {
         return [
             'status' => 'blocked_by_p0_ota_gate',
             'current_upstream_status' => $currentStatus !== '' ? $currentStatus : 'incomplete',
             'required_upstream_status' => 'ready',
-            'required_gate_command' => $command !== '' ? $command : $this->verifierCommand($businessDate, $hotelId),
+            'required_gate_command' => $command !== '' ? $command : $this->verifierCommand($businessDate, $hotelId, $platforms),
             'scope_policy' => 'ota_channel_gate_before_downstream_claims',
             'blocking_missing_inputs' => array_values(array_unique($missingInputs)),
             'blocked_stage_keys' => self::BLOCKED_STAGE_KEYS,
@@ -116,17 +124,42 @@ class P0OtaDownstreamGateService
         return $rows;
     }
 
-    private function verifierCommand(string $businessDate, ?int $hotelId): string
+    private function verifierCommand(string $businessDate, ?int $hotelId, array $platforms = []): string
     {
         $date = trim($businessDate);
+        $platforms = $this->platformList($platforms);
         $command = 'npm.cmd run verify:p0-ota-field-loop';
         if ($date !== '') {
             $command .= ' -- --date=' . $date;
+            if ($platforms !== []) {
+                $command .= ' --platform=' . implode(',', $platforms);
+            }
+            if ($hotelId !== null) {
+                $command .= ' --system-hotel-id=' . $hotelId;
+            }
+        } elseif ($platforms !== []) {
+            $command .= ' -- --platform=' . implode(',', $platforms);
             if ($hotelId !== null) {
                 $command .= ' --system-hotel-id=' . $hotelId;
             }
         }
         return $command;
+    }
+
+    /**
+     * @param array<int, mixed> $platforms
+     * @return array<int, string>
+     */
+    private function platformList(array $platforms): array
+    {
+        $items = [];
+        foreach ($platforms as $platform) {
+            $text = strtolower(trim((string)$platform));
+            if (in_array($text, ['ctrip', 'meituan'], true)) {
+                $items[] = $text;
+            }
+        }
+        return array_values(array_unique($items));
     }
 
     /**

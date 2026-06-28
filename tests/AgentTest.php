@@ -670,6 +670,208 @@ final class AgentTest extends TestCase
         self::assertStringContainsString('执行意图', $result['data']['next_action']);
     }
 
+    public function testPriceSuggestionGenerationBlockedResultExposesCtripPreconditions(): void
+    {
+        $controller = $this->controller();
+
+        $result = $this->invokeNonPublic($controller, 'buildPriceSuggestionGenerationBlockedResult', [
+            'room_types_empty',
+            64,
+            '2026-06-28',
+            [],
+            '携程目标酒店暂无启用房型，不能生成待审调价建议。',
+        ]);
+
+        self::assertSame('blocked', $result['status']);
+        self::assertSame('room_types_empty', $result['reason']);
+        self::assertSame('ctrip_ota_channel', $result['source_scope']);
+        self::assertSame(['ctrip'], $result['source_channels']);
+        self::assertSame([64], $result['target_hotel_ids']);
+        self::assertSame(['hotel_id' => 64, 'date' => '2026-06-28', 'status' => 0], $result['target_filter']);
+        self::assertSame(0, $result['created_count']);
+        self::assertFalse($result['can_generate_pending_suggestions']);
+        self::assertTrue($result['advisory_only']);
+        self::assertTrue($result['manual_review_required']);
+        self::assertFalse($result['auto_write_ota']);
+        self::assertContains('room_types_enabled', array_column($result['required_inputs'], 'code'));
+        self::assertContains('floor_price_or_min_rate_guard', array_column($result['required_inputs'], 'code'));
+        self::assertContains('demand_forecast', array_column($result['required_inputs'], 'code'));
+        self::assertContains('competitor_price_samples', array_column($result['required_inputs'], 'code'));
+    }
+
+    public function testPriceSuggestionGenerationCreatedResultKeepsCtripReviewGate(): void
+    {
+        $controller = $this->controller();
+
+        $result = $this->invokeNonPublic($controller, 'buildPriceSuggestionGenerationRuntimeResult', [
+            64,
+            '2026-06-28',
+            [[
+                'id' => 101,
+                'hotel_id' => 64,
+                'room_type_id' => 12,
+                'status' => 1,
+                'current_price' => 320,
+                'suggested_price' => 352,
+            ]],
+            [],
+            [
+                'advisory_only' => true,
+                'model' => 'advisory_revenue_pricing_v1',
+            ],
+        ]);
+
+        self::assertSame('created', $result['status']);
+        self::assertSame('price_suggestions_pending_review', $result['reason']);
+        self::assertSame('ctrip_ota_channel', $result['source_scope']);
+        self::assertSame(['ctrip'], $result['source_channels']);
+        self::assertSame([64], $result['target_hotel_ids']);
+        self::assertSame(['hotel_id' => 64, 'date' => '2026-06-28', 'status' => 1], $result['target_filter']);
+        self::assertSame(1, $result['created_count']);
+        self::assertTrue($result['can_generate_pending_suggestions']);
+        self::assertTrue($result['advisory_only']);
+        self::assertTrue($result['manual_review_required']);
+        self::assertFalse($result['auto_write_ota']);
+        self::assertSame('/api/revenue-ai/price-suggestions/{id}/review', $result['review_endpoint_base']);
+        self::assertSame('/api/revenue-ai/price-suggestions/{id}/execution-intent', $result['execution_intent_endpoint_base']);
+        self::assertSame('pending_manual_review', $result['ai_review_gate']['status']);
+        self::assertSame('operation_execution_intent', $result['ai_review_gate']['required_before']);
+        self::assertFalse($result['ai_review_gate']['auto_apply_ai_advice']);
+        self::assertFalse($result['ai_review_gate']['operation_intake_allowed']);
+        self::assertFalse($result['ai_review_gate']['auto_write_ota']);
+        self::assertSame([], $result['required_inputs']);
+    }
+
+    public function testRoomTypePayloadRequiresManualPricingGuards(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'normalizeRoomTypePayload', [[
+            'hotel_id' => 64,
+            'name' => 'Deluxe King',
+            'base_price' => '320.126',
+            'min_price' => 260,
+            'max_price' => 420,
+            'room_count' => 12,
+            'sort_order' => 2,
+            'is_enabled' => 1,
+        ]]);
+
+        self::assertSame(64, $payload['hotel_id']);
+        self::assertSame('Deluxe King', $payload['name']);
+        self::assertSame(320.13, $payload['base_price']);
+        self::assertSame(260.0, $payload['min_price']);
+        self::assertSame(420.0, $payload['max_price']);
+        self::assertSame(12, $payload['room_count']);
+        self::assertSame(2, $payload['sort_order']);
+        self::assertSame(1, $payload['is_enabled']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('min_price cannot be greater than base_price');
+        $this->invokeNonPublic($controller, 'normalizeRoomTypePayload', [[
+            'hotel_id' => 64,
+            'name' => 'Invalid',
+            'base_price' => 200,
+            'min_price' => 260,
+            'max_price' => 420,
+        ]]);
+    }
+
+    public function testDemandForecastPayloadKeepsManualCtripPreflightBoundary(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'normalizeDemandForecastPayload', [[
+            'hotel_id' => 64,
+            'forecast_date' => '2026-06-28',
+            'room_type_id' => 12,
+            'predicted_occupancy' => '86.5',
+            'predicted_demand' => '9',
+            'confidence_percent' => 82,
+            'historical_data' => ['operator_note' => 'manual input'],
+            'remark' => 'manual forecast',
+        ]]);
+
+        self::assertSame(64, $payload['hotel_id']);
+        self::assertSame('2026-06-28', $payload['forecast_date']);
+        self::assertSame(12, $payload['room_type_id']);
+        self::assertSame(86.5, $payload['predicted_occupancy']);
+        self::assertSame(9, $payload['predicted_demand']);
+        self::assertSame(0.82, $payload['confidence_score']);
+        self::assertSame('manual input', $payload['historical_data']['operator_note']);
+        self::assertSame('manual_pricing_configuration', $payload['historical_data']['input_scope']);
+        self::assertSame('ctrip_ota_channel', $payload['historical_data']['source_scope']);
+        self::assertSame('ctrip_revenue_ai_pricing_generation', $payload['historical_data']['target_workflow']);
+        self::assertSame('operator_provided', $payload['historical_data']['evidence_status']);
+        self::assertFalse($payload['historical_data']['auto_write_ota']);
+        self::assertSame('manual_demand_forecast', $payload['historical_data']['input_type']);
+    }
+
+    public function testDemandForecastPayloadRejectsMissingRoomTypeMapping(): void
+    {
+        $controller = $this->controller();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('room_type_id is required');
+        $this->invokeNonPublic($controller, 'normalizeDemandForecastPayload', [[
+            'hotel_id' => 64,
+            'forecast_date' => '2026-06-28',
+            'room_type_id' => 0,
+            'predicted_occupancy' => 86,
+        ]]);
+    }
+
+    public function testCtripCompetitorPricePayloadKeepsManualPreflightBoundary(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'normalizeCtripCompetitorPricePayload', [[
+            'hotel_id' => 64,
+            'analysis_date' => '2026-06-28',
+            'room_type_id' => 12,
+            'competitor_hotel_id' => 0,
+            'competitor_name' => 'Manual competitor source',
+            'our_price' => '320.128',
+            'competitor_price' => 350,
+            'ota_platform' => 1,
+            'competitor_data' => ['sample_note' => 'ctrip page'],
+        ]]);
+
+        self::assertSame(64, $payload['hotel_id']);
+        self::assertSame('2026-06-28', $payload['analysis_date']);
+        self::assertSame(12, $payload['room_type_id']);
+        self::assertSame(0, $payload['competitor_hotel_id']);
+        self::assertSame(320.13, $payload['our_price']);
+        self::assertSame(350.0, $payload['competitor_price']);
+        self::assertSame(91.47, $payload['price_index']);
+        self::assertSame(1, $payload['ota_platform']);
+        self::assertSame('ctrip page', $payload['competitor_data']['sample_note']);
+        self::assertSame('Manual competitor source', $payload['competitor_data']['competitor_name']);
+        self::assertSame('manual_pricing_configuration', $payload['competitor_data']['input_scope']);
+        self::assertSame('ctrip_ota_channel', $payload['competitor_data']['source_scope']);
+        self::assertSame('ctrip_revenue_ai_pricing_generation', $payload['competitor_data']['target_workflow']);
+        self::assertSame('operator_provided', $payload['competitor_data']['evidence_status']);
+        self::assertFalse($payload['competitor_data']['auto_write_ota']);
+        self::assertSame('manual_ctrip_competitor_price_sample', $payload['competitor_data']['input_type']);
+    }
+
+    public function testCtripCompetitorPricePayloadRejectsNonCtripPlatform(): void
+    {
+        $controller = $this->controller();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('ota_platform must be ctrip');
+        $this->invokeNonPublic($controller, 'normalizeCtripCompetitorPricePayload', [[
+            'hotel_id' => 64,
+            'analysis_date' => '2026-06-28',
+            'room_type_id' => 12,
+            'competitor_hotel_id' => 8,
+            'our_price' => 320,
+            'competitor_price' => 350,
+            'ota_platform' => 2,
+        ]]);
+    }
+
     public function testExtractKnowledgeHotelIdsPrefersSystemHotelIds(): void
     {
         $controller = $this->controller();

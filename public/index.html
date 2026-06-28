@@ -28,12 +28,12 @@
             preloadLoginBackground();
         })();
     </script>
-    <link href="tailwind.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260628-mobile-shell">
-    <link rel="stylesheet" href="ai-custom.css?v=20260603-lifecycle-footer">
+    <link href="tailwind.min.css?v=20260628-static-router-fix" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=20260628-static-router-fix">
+    <link rel="stylesheet" href="ai-custom.css?v=20260628-static-router-fix">
     <script>
         (() => {
-            const fontAwesomeStylesheet = 'font-awesome.min.css';
+            const fontAwesomeStylesheet = 'font-awesome.min.css?v=20260628-static-router-fix';
             const loadFontAwesomeStylesheet = () => {
                 if (document.querySelector('link[data-suxi-fontawesome="1"]')) return;
                 const link = document.createElement('link');
@@ -53,15 +53,15 @@
             scheduleFontAwesomeStylesheetLoad();
         })();
     </script>
-    <script src="vue.global.prod.js?v=20260611-open-fix"></script>
-    <script src="shared-components.js?v=20260611-open-fix"></script>
-    <script src="ctrip-static.js?v=20260617-profile-verification-cache-fix"></script>
-    <script src="meituan-static.js?v=20260627-order-csv-import"></script>
-    <script src="data-health-static.js?v=20260616-history-raw-helper"></script>
-    <script src="revenue-ai-static.js?v=20260627-business-closure-cache-fix"></script>
-    <script src="system-static.js?v=20260616-hotel-config-helpers"></script>
-    <script src="compass-static.js?v=20260613-daily-workbench"></script>
-    <script src="home-static.js?v=20260616-home-helpers"></script>
+    <script src="vue.global.prod.js?v=20260628-static-router-fix"></script>
+    <script src="shared-components.js?v=20260628-static-router-fix"></script>
+    <script src="ctrip-static.js?v=20260628-static-router-fix"></script>
+    <script src="meituan-static.js?v=20260628-static-router-fix"></script>
+    <script src="data-health-static.js?v=20260628-static-router-fix"></script>
+    <script src="revenue-ai-static.js?v=20260628-ctrip-generate-result"></script>
+    <script src="system-static.js?v=20260628-static-router-fix"></script>
+    <script src="compass-static.js?v=20260628-static-router-fix"></script>
+    <script src="home-static.js?v=20260628-static-router-fix"></script>
 </head>
 <body class="bg-gray-100">
     <div id="app" v-cloak>
@@ -4910,8 +4910,8 @@
                             <div class="suxi-cockpit-header px-4 py-4 sm:px-5 lg:px-6" data-testid="home-cockpit-header">
                                 <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
                                     <div class="min-w-0">
-                                        <div class="text-[11px] font-semibold tracking-[0.14em] text-blue-100/80">REVENUE AI / OTA VERIFIED SCOPE</div>
-                                        <div class="mt-1 text-xl sm:text-2xl font-semibold text-white leading-tight">收益管理智能体总览</div>
+                                        <div class="text-[11px] font-semibold tracking-[0.14em] text-blue-100/80">TODAY OPERATING WORKBENCH</div>
+                                        <div class="mt-1 text-xl sm:text-2xl font-semibold text-white leading-tight">今日经营工作台</div>
                                         <div class="mt-3 grid grid-cols-2 gap-2 text-xs sm:flex sm:flex-wrap" data-testid="home-header-signal-row">
                                             <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
                                                 <span class="text-blue-200">数据</span>
@@ -5143,16 +5143,59 @@
                                                         {{ action.decisionBasisHiddenDisplay }}
                                                     </div>
                                                 </div>
-                                                <div v-if="action.reviewQueueSummary" class="mt-2 flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5" data-testid="revenue-ai-review-queue">
+                                                <div v-if="action.resolutionPlanVisible" class="mt-2 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1.5" data-testid="revenue-ai-resolution-plan">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-amber-800" :title="action.resolutionPlanSummary?.display">{{ action.resolutionPlanSummary?.display || 'AI决策补证' }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.resolutionPlanSummary?.className]">{{ action.resolutionPlanSummary?.statusLabel || '补证状态' }}</span>
+                                                    </div>
+                                                    <div v-if="action.resolutionPlanItems?.length" class="mt-1 space-y-1">
+                                                        <button type="button" v-for="item in action.resolutionPlanItems" :key="item.key" @click="openRevenueAiDecisionBasis(item)" class="w-full min-w-0 rounded-md bg-white px-2 py-1 text-left transition hover:bg-amber-100">
+                                                            <div class="flex items-center justify-between gap-2">
+                                                                <span class="truncate text-[11px] text-amber-900" :title="item.resolutionAction">{{ item.order }}. {{ item.resolutionAction }}</span>
+                                                                <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', item.severityClass]">{{ item.severityLabel }}</span>
+                                                            </div>
+                                                            <div class="mt-0.5 line-clamp-2 text-[10px] leading-4 text-amber-700" :title="item.acceptanceCheck">{{ item.acceptanceCheck }}</div>
+                                                        </button>
+                                                    </div>
+                                                    <div v-if="action.resolutionPlanSummary?.hiddenCount" class="mt-1 text-[10px] leading-4 text-amber-700">
+                                                        另有 {{ action.resolutionPlanSummary.hiddenCount }} 项补证未展示
+                                                    </div>
+                                                </div>
+                                                <button type="button" v-if="action.pricingGenerationPreflightVisible" @click="openRevenueAiDecisionBasis(action.pricingGenerationPreflightSummary?.target)" :disabled="!action.pricingGenerationPreflightSummary?.canOpenTarget" class="mt-2 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-white" data-testid="revenue-ai-pricing-generation-preflight">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-slate-700" :title="action.pricingGenerationPreflightSummary?.title">{{ action.pricingGenerationPreflightSummary?.title || '调价建议生成预检' }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.pricingGenerationPreflightSummary?.className]">{{ action.pricingGenerationPreflightSummary?.statusLabel || '预检状态' }}</span>
+                                                    </div>
+                                                    <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="action.pricingGenerationPreflightSummary?.detailText">{{ action.pricingGenerationPreflightSummary?.detailText }}</div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="action.pricingGenerationPreflightSummary?.reasonText">{{ action.pricingGenerationPreflightSummary?.reasonText }}</div>
+                                                    <div v-if="action.pricingGenerationPreflightSummary?.requiredInputs?.length" class="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-500">
+                                                        <span v-for="item in action.pricingGenerationPreflightSummary.requiredInputs" :key="item.code" class="rounded-md bg-slate-50 px-1.5 py-0.5" :title="item.nextAction">{{ item.code }}</span>
+                                                        <span v-if="action.pricingGenerationPreflightSummary.hiddenRequiredInputCount" class="rounded-md bg-slate-50 px-1.5 py-0.5">+{{ action.pricingGenerationPreflightSummary.hiddenRequiredInputCount }}</span>
+                                                    </div>
+                                                </button>
+                                                <button type="button" v-if="action.reviewQueueSummary" @click="openRevenueAiDecisionBasis(action.reviewQueueTarget)" :disabled="!action.reviewQueueCanOpenTarget" class="mt-2 flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-white" data-testid="revenue-ai-review-queue">
                                                     <span class="truncate text-[11px] text-slate-600" :title="action.reviewQueueSummary">{{ action.reviewQueueSummary }}</span>
                                                     <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.reviewQueueClassName]">{{ action.reviewQueueStatusLabel || '队列状态' }}</span>
-                                                </div>
+                                                </button>
                                                 <div v-if="action.executionPendingDisplay" class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5" data-testid="revenue-ai-execution-pending">
                                                     <div class="flex items-center justify-between gap-2">
                                                         <span class="truncate text-[11px] font-semibold text-blue-700" :title="action.executionPendingDisplay">{{ action.executionPendingDisplay }}</span>
                                                         <span class="shrink-0 rounded-full border border-blue-200 bg-white px-1.5 py-0.5 text-[11px] text-blue-700 whitespace-nowrap">待执行交接</span>
                                                     </div>
                                                     <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-blue-600" :title="action.executionPendingReasonText">{{ action.executionPendingReasonText }}</div>
+                                                </div>
+                                                <div v-if="action.investmentPrecheckVisible" class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5" data-testid="revenue-ai-investment-precheck">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-slate-700" :title="action.investmentPrecheckSummary?.title">{{ action.investmentPrecheckSummary?.title || '投资预检' }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.investmentPrecheckSummary?.className]">{{ action.investmentPrecheckSummary?.statusLabel || '预检状态' }}</span>
+                                                    </div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="action.investmentPrecheckSummary?.detailText">{{ action.investmentPrecheckSummary?.detailText || '等待运营 ROI 与投决记录证据。' }}</div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="action.investmentPrecheckSummary?.reasonText">{{ action.investmentPrecheckSummary?.reasonText }}</div>
+                                                    <div class="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
+                                                        <span v-if="action.investmentPrecheckSummary?.requiredGate" class="rounded-md bg-slate-50 px-1.5 py-0.5">门禁 {{ action.investmentPrecheckSummary.requiredGate }}</span>
+                                                        <span v-if="action.investmentPrecheckSummary?.targetEntry" class="rounded-md bg-slate-50 px-1.5 py-0.5">{{ action.investmentPrecheckSummary.targetEntry }}</span>
+                                                        <span class="rounded-md bg-slate-50 px-1.5 py-0.5">只读</span>
+                                                    </div>
                                                 </div>
                                                 <div v-if="action.reviewQueueItems?.length" class="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white" data-testid="revenue-ai-review-queue-items">
                                                     <div v-for="item in action.reviewQueueItems" :key="item.key" class="border-b border-slate-100 px-2 py-2 last:border-b-0">
@@ -5357,7 +5400,7 @@
                                 <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
                                     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div class="min-w-0">
-                                            <div class="text-base font-bold text-gray-900">运营入口</div>
+                                            <div class="text-base font-bold text-gray-900">常用功能入口</div>
                                         </div>
                                         <div class="flex flex-wrap items-center gap-2">
                                             <button
@@ -5426,10 +5469,11 @@
                                 <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="home-closed-loop-workbench">
                                     <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                                         <div class="min-w-0">
-                                            <div class="text-base font-bold text-gray-900">经营闭环</div>
+                                            <div class="text-base font-bold text-gray-900">按这个顺序完成今天的经营动作</div>
+                                            <div class="mt-1 text-xs text-slate-500">先确认 OTA 数据，再看收益结果、AI 建议、执行进度和投决沉淀。</div>
                                         </div>
                                         <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-5 text-slate-600">
-                                            当前链路：{{ compassDataReadiness.summaryText }} · {{ homeMarketForecastStatus }}
+                                            当前状态：{{ compassDataReadiness.summaryText }} · {{ homeMarketForecastStatus }}
                                         </div>
                                     </div>
                                     <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
@@ -5452,7 +5496,8 @@
                                     <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
                                         <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                             <div>
-                                                <div class="text-sm font-semibold text-slate-900">AI决策追溯</div>
+                                                <div class="text-sm font-semibold text-slate-900">AI建议为什么这么来</div>
+                                                <div class="mt-1 text-xs text-slate-500">这里检查输入证据、动作生成和人工确认，避免把缺数据误当成结论。</div>
                                             </div>
                                         </div>
                                         <div class="grid grid-cols-1 gap-2 lg:grid-cols-3">
@@ -8868,45 +8913,12 @@
                                     <div v-if="meituanHotelsList && meituanHotelsList.length > 0" class="mt-4">
                                         <!-- 价格指标概览 -->
                                         <!-- backend display summary -->
-                                        <div class="mb-4">
+                                        <div v-if="meituanBusinessSummaryCards.length" class="mb-4">
                                             <div class="responsive-metric-grid is-compact">
                                                 <div v-for="card in meituanBusinessSummaryCards" :key="card.key" :class="['rounded-lg p-3 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200']">
                                                     <div :class="['text-2xl font-bold', card.valueClass || 'text-gray-900']">{{ card.value || '-' }}</div>
                                                     <div class="text-xs text-gray-500">{{ card.label }}</div>
                                                     <div v-if="card.level" :class="['text-sm font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div v-if="meituanVisibleRankInsightCards.length || meituanRankHealthRows.length" class="mb-4 space-y-3">
-                                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-                                                <div v-for="card in meituanVisibleRankInsightCards" :key="card.key" :class="['rounded-lg border px-4 py-3 bg-white', card.className || 'border-gray-200 text-gray-700']">
-                                                    <div class="text-xs opacity-80">{{ card.label }}</div>
-                                                    <div class="mt-1 text-lg font-bold truncate" :title="card.value">{{ card.value || '-' }}</div>
-                                                    <div class="mt-1 text-xs leading-relaxed opacity-80">{{ card.note }}</div>
-                                                </div>
-                                            </div>
-                                            <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                                <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3">
-                                                    <div>
-                                                        <div class="text-sm font-semibold text-gray-900">榜单与来源状态</div>
-                                                        <div class="text-xs text-gray-500 mt-1">{{ meituanRankSourceNotice }}</div>
-                                                    </div>
-                                                    <div class="flex flex-wrap gap-2">
-                                                        <span v-for="row in meituanRankHealthRows" :key="row.key" :class="['rounded-md border px-2 py-1 text-xs', row.className || 'bg-gray-50 text-gray-500 border-gray-200']">
-                                                            {{ row.label }}：{{ row.statusText }}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                <div v-if="meituanTopSummaryRows.length" class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
-                                                    <div v-for="row in meituanTopSummaryRows" :key="row.poiId || row.hotelName" class="rounded-lg border border-gray-100 bg-slate-50 px-3 py-2">
-                                                        <div class="flex items-center justify-between gap-2">
-                                                            <div class="text-sm font-semibold text-gray-900 truncate" :title="row.hotelName">{{ row.hotelName }}</div>
-                                                            <span class="text-xs text-blue-600 whitespace-nowrap">{{ row.positionText || '-' }}</span>
-                                                        </div>
-                                                        <div class="mt-1 text-xs text-gray-500">{{ row.gapToNextText || row.rankTrendText || '暂无差距' }}</div>
-                                                        <div v-if="row.platformTagText && row.platformTagText !== '未返回'" class="mt-1 truncate text-[11px] text-orange-700" :title="row.platformTagText">{{ row.platformTagText }}</div>
-                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -8918,7 +8930,6 @@
                                                     <tr class="bg-gray-50">
                                                         <th class="px-2 py-2 text-center border text-sm bg-gray-100 w-12" rowspan="2">排名</th>
                                                         <th class="px-2 py-2 text-left border text-sm w-48" rowspan="2">酒店名称</th>
-                                                        <th class="px-2 py-2 text-left border text-sm bg-slate-50 min-w-[13rem]" rowspan="2">排名摘要</th>
                                                         <th class="px-2 py-2 text-center border text-sm bg-red-50" colspan="3">入住榜</th>
                                                         <th class="px-2 py-2 text-center border text-sm bg-green-50" colspan="3">销售榜</th>
                                                         <th class="px-2 py-2 text-center border text-sm bg-blue-50" colspan="3">流量榜</th>
@@ -8983,28 +8994,14 @@
                                                             </div>
                                                             <div v-else class="mt-1 text-[10px] text-slate-400">{{ hotel.platformTagSourceText || '标签未返回' }}</div>
                                                         </td>
-                                                        <td class="px-2 py-2 border text-left text-xs bg-white align-top min-w-[13rem]">
-                                                            <div class="space-y-1.5">
-                                                                <div class="flex items-center justify-between gap-2">
-                                                                    <span class="font-semibold text-slate-900 whitespace-nowrap">{{ hotel.circlePositionText || '-' }}</span>
-                                                                    <span :class="['rounded-full border px-1.5 py-0.5 text-[10px] leading-4 whitespace-nowrap', hotel.rankTrendClass || 'border-slate-200 bg-slate-50 text-slate-500']">{{ hotel.rankTrendText || '暂无变化' }}</span>
-                                                                </div>
-                                                                <div class="grid grid-cols-1 gap-1 text-[11px] leading-4 text-slate-600">
-                                                                    <div class="rounded-md bg-slate-50 px-2 py-1">{{ hotel.gapToPrevText || '距前一名未返回' }}</div>
-                                                                    <div class="rounded-md bg-cyan-50 px-2 py-1 text-cyan-700">{{ hotel.gapToLeaderText || '距TOP1未返回' }}</div>
-                                                                    <div class="rounded-md bg-amber-50 px-2 py-1 text-amber-700">{{ hotel.rank30RangeText || '近30天未返回' }}</div>
-                                                                </div>
-                                                                <div class="truncate text-[10px] text-slate-400" :title="hotel.rankSummaryText">{{ hotel.rankSummaryText || '平台未返回排名' }}</div>
-                                                            </div>
-                                                        </td>
                                                         <td class="px-2 py-2 border text-center font-medium text-red-700 text-sm bg-red-50 w-16">{{ hotel.roomNightsText || '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center font-medium text-red-700 text-sm bg-red-50 w-16">{{ hotel.roomRevenueText && hotel.roomRevenueText !== '-' ? '¥' + hotel.roomRevenueText : '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center font-medium text-red-700 text-sm bg-red-50 w-16">{{ hotel.avgRoomPriceText && hotel.avgRoomPriceText !== '-' ? '¥' + hotel.avgRoomPriceText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-red-700 text-sm bg-red-50 w-16">{{ hotel.roomRevenueText && hotel.roomRevenueText !== '-' ? (hotel.roomRevenuePrefix || '') + hotel.roomRevenueText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-red-700 text-sm bg-red-50 w-16">{{ hotel.avgRoomPriceText && hotel.avgRoomPriceText !== '-' ? (hotel.avgRoomPricePrefix || '') + hotel.avgRoomPriceText : '-' }}</td>
                                                         <td class="px-2 py-2 border text-center font-medium text-green-700 text-sm bg-green-50 w-16">{{ hotel.salesRoomNightsText || '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center font-medium text-green-700 text-sm bg-green-50 w-16">{{ hotel.salesText && hotel.salesText !== '-' ? '¥' + hotel.salesText : '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center font-medium text-green-700 text-sm bg-green-50 w-16">{{ hotel.avgSalesPriceText && hotel.avgSalesPriceText !== '-' ? '¥' + hotel.avgSalesPriceText : '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center text-blue-700 text-sm bg-blue-50 w-16">{{ hotel.exposureText || '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center text-blue-700 text-sm bg-blue-50 w-16">{{ hotel.viewsText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-green-700 text-sm bg-green-50 w-16">{{ hotel.salesText && hotel.salesText !== '-' ? (hotel.salesPrefix || '') + hotel.salesText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-green-700 text-sm bg-green-50 w-16">{{ hotel.avgSalesPriceText && hotel.avgSalesPriceText !== '-' ? (hotel.avgSalesPricePrefix || '') + hotel.avgSalesPriceText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-blue-700 text-sm bg-blue-50 w-16">{{ hotel.exposureText && hotel.exposureText !== '-' ? (hotel.exposurePrefix || '') + hotel.exposureText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-blue-700 text-sm bg-blue-50 w-16">{{ hotel.viewsText && hotel.viewsText !== '-' ? (hotel.viewsPrefix || '') + hotel.viewsText : '-' }}</td>
                                                         <td class="px-2 py-2 border text-center text-blue-700 text-sm bg-blue-50 w-16">{{ hotel.orderCountText || '-' }}</td>
                                                         <td class="px-2 py-2 border text-center text-purple-700 text-sm bg-purple-50 w-16">{{ hotel.viewConversionText || '-' }}</td>
                                                         <td class="px-2 py-2 border text-center text-purple-700 text-sm bg-purple-50 w-16">{{ hotel.payConversionText || '-' }}</td>
@@ -9012,6 +9009,73 @@
                                                     </tr>
                                                 </tbody>
                                             </table>
+                                        </div>
+                                        <div data-testid="meituan-rank-summary-second-screen" class="mt-4 rounded-lg border border-slate-200 bg-white">
+                                            <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                                                <div>
+                                                    <div class="text-sm font-semibold text-slate-900">排名摘要</div>
+                                                    <div class="text-xs text-slate-500 mt-1">按当前排序和分页展示榜单位置、升降、差距和近30天区间。</div>
+                                                </div>
+                                                <span class="shrink-0 rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-500">{{ meituanTablePagination.start }}-{{ meituanTablePagination.end }} / {{ meituanTablePagination.total }}</span>
+                                            </div>
+                                            <div class="divide-y divide-slate-100">
+                                                <div v-for="(hotel, index) in pagedMeituanHotelsList" :key="'rank-summary-' + (hotel.poiId || index)" class="grid grid-cols-1 gap-3 px-4 py-3 text-xs lg:grid-cols-[4rem_minmax(12rem,1.2fr)_minmax(0,2.8fr)] lg:items-center">
+                                                    <div class="font-semibold text-slate-700">#{{ meituanTableRankOffset + index + 1 }}</div>
+                                                    <div class="min-w-0">
+                                                        <div class="truncate text-sm font-semibold text-slate-900" :title="hotel.hotelName">{{ hotel.hotelName }}</div>
+                                                        <div class="mt-1 text-[11px] text-slate-500">{{ hotel.circlePositionText || '-' }}</div>
+                                                    </div>
+                                                    <div class="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] leading-4">
+                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[10px] leading-4', hotel.rankTrendClass || 'border-slate-200 bg-slate-50 text-slate-500']">{{ hotel.rankTrendText || '暂无变化' }}</span>
+                                                        <span class="rounded-md bg-slate-50 px-2 py-1 text-slate-600">{{ hotel.gapToPrevText || '距前一名未返回' }}</span>
+                                                        <span class="rounded-md bg-cyan-50 px-2 py-1 text-cyan-700">{{ hotel.gapToLeaderText || '距TOP1未返回' }}</span>
+                                                        <span class="rounded-md bg-amber-50 px-2 py-1 text-amber-700">{{ hotel.rank30RangeText || '近30天未返回' }}</span>
+                                                        <span class="min-w-0 truncate text-[10px] text-slate-400" :title="hotel.rankSummaryText">{{ hotel.rankSummaryText || '平台未返回排名' }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div v-if="meituanVisibleRankInsightCards.length || meituanRankHealthRows.length || meituanTopSummaryRows.length" data-testid="meituan-rank-source-second-screen" class="mt-4 space-y-3">
+                                            <div v-if="meituanVisibleRankInsightCards.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                                <div v-for="card in meituanVisibleRankInsightCards" :key="card.key" :class="['rounded-lg border px-4 py-3 bg-white', card.className || 'border-gray-200 text-gray-700']">
+                                                    <div class="text-xs opacity-80">{{ card.label }}</div>
+                                                    <div class="mt-1 text-lg font-bold truncate" :title="card.value">{{ card.value || '-' }}</div>
+                                                    <div class="mt-1 text-xs leading-relaxed opacity-80">{{ card.note }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="rounded-lg border border-gray-200 bg-white p-3">
+                                                <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3">
+                                                    <div>
+                                                        <div class="text-sm font-semibold text-gray-900">榜单与来源状态</div>
+                                                        <div class="text-xs text-gray-500 mt-1">{{ meituanRankSourceNotice }}</div>
+                                                    </div>
+                                                    <div class="flex flex-wrap gap-2">
+                                                        <span v-for="row in meituanRankHealthRows" :key="row.key" :class="['rounded-md border px-2 py-1 text-xs', row.className || 'bg-gray-50 text-gray-500 border-gray-200']">
+                                                            {{ row.label }}：{{ row.statusText }}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div v-if="meituanTopSummaryRows.length" class="mt-3 overflow-x-auto rounded-lg border border-slate-100">
+                                                    <table class="min-w-full bg-white text-xs">
+                                                        <thead class="bg-slate-50 text-slate-500">
+                                                            <tr>
+                                                                <th class="px-3 py-2 text-left font-medium">TOP酒店</th>
+                                                                <th class="px-3 py-2 text-center font-medium">表内位置</th>
+                                                                <th class="px-3 py-2 text-left font-medium">差距/趋势</th>
+                                                                <th class="px-3 py-2 text-left font-medium">平台标签</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <tr v-for="row in meituanTopSummaryRows" :key="row.poiId || row.hotelName" class="border-t border-slate-100">
+                                                                <td class="px-3 py-2 font-semibold text-slate-900" :title="row.hotelName">{{ row.hotelName || '-' }}</td>
+                                                                <td class="px-3 py-2 text-center text-blue-600 whitespace-nowrap">{{ row.positionText || '-' }}</td>
+                                                                <td class="px-3 py-2 text-slate-600">{{ row.gapToNextText || row.rankTrendText || '暂无差距' }}</td>
+                                                                <td class="px-3 py-2 text-orange-700">{{ row.platformTagText && row.platformTagText !== '未返回' ? row.platformTagText : '平台未返回' }}</td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -10833,7 +10897,7 @@
                                         <button @click="revenueAgentTab = 'config'" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='config' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-cog mr-2"></i>配置
                                         </button>
-                                        <button @click="revenueAgentTab = 'suggestions'; loadPriceSuggestions()" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='suggestions' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                        <button @click="revenueAgentTab = 'suggestions'; loadPriceSuggestionWorkbench()" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='suggestions' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-lightbulb mr-2"></i>定价建议
                                         </button>
                                         <button @click="revenueAgentTab = 'analysis'; loadRevenueAnalysisBundle()" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='analysis' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
@@ -10889,7 +10953,7 @@
                                         <div class="flex flex-wrap gap-3 mb-5 items-end">
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-600 mb-1.5">日期</label>
-                                                <input type="date" v-model="priceSuggestionFilter.date" class="input-field" @change="loadPriceSuggestions">
+                                                <input type="date" v-model="priceSuggestionFilter.date" class="input-field" @change="handlePriceSuggestionDateChange">
                                             </div>
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-600 mb-1.5">状态</label>
@@ -10907,6 +10971,231 @@
                                             <button @click="generatePriceSuggestions" :disabled="priceSuggestionGenerating" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
                                                 <i :class="priceSuggestionGenerating ? 'fas fa-spinner fa-spin' : 'fas fa-magic'" class="mr-2"></i>{{ priceSuggestionGenerating ? '生成中' : '生成建议' }}
                                             </button>
+                                        </div>
+                                        <div v-if="agentPricingGenerationPreflightSummary.visible" data-testid="agent-pricing-generation-preflight-summary" :class="['mb-5 rounded-lg border p-4 text-sm', agentPricingGenerationPreflightSummary.className]">
+                                            <div class="flex flex-wrap items-start justify-between gap-3">
+                                                <div>
+                                                    <div class="font-semibold">{{ agentPricingGenerationPreflightSummary.title || '携程调价建议生成预检' }}</div>
+                                                    <div class="mt-1 text-xs opacity-80">携程 OTA · 只读预检 · 自动写 OTA：{{ agentPricingGenerationPreflightSummary.autoWriteOta ? '是' : '否' }} · 人工审核后才可进入运营</div>
+                                                </div>
+                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', agentPricingGenerationPreflightSummary.className]">
+                                                    {{ agentPricingGenerationPreflightSummary.statusLabel || '预检状态' }}
+                                                </span>
+                                            </div>
+                                            <div class="mt-3 grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                                                <div class="rounded border border-current/10 bg-white/60 p-2">
+                                                    <div class="opacity-70">目标酒店</div>
+                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.targetHotelCount || agentPricingGenerationPreflightSummary.targetHotelIds?.length || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border border-current/10 bg-white/60 p-2">
+                                                    <div class="opacity-70">OTA行数</div>
+                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.targetDateRows || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border border-current/10 bg-white/60 p-2">
+                                                    <div class="opacity-70">启用房型</div>
+                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.roomTypeCount || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border border-current/10 bg-white/60 p-2">
+                                                    <div class="opacity-70">可生成候选</div>
+                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.createCandidateCount || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border border-current/10 bg-white/60 p-2">
+                                                    <div class="opacity-70">待审建议</div>
+                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.pendingSuggestionCount || 0 }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="mt-3 text-xs leading-5">
+                                                <div v-if="agentPricingGenerationPreflightSummary.detailText">{{ agentPricingGenerationPreflightSummary.detailText }}</div>
+                                                <div v-if="agentPricingGenerationPreflightSummary.reasonText" class="opacity-80">{{ agentPricingGenerationPreflightSummary.reasonText }}</div>
+                                                <div v-if="agentPricingGenerationPreflightSummary.nextAction" class="mt-1 font-medium">{{ agentPricingGenerationPreflightSummary.nextAction }}</div>
+                                            </div>
+                                            <div v-if="agentPricingGenerationPreflightSummary.candidateSkipReasons?.length || agentPricingGenerationPreflightSummary.candidateDataGaps?.length" data-testid="agent-pricing-generation-preflight-gaps" class="mt-3 border-t border-current/15 pt-3 text-xs">
+                                                <div class="font-semibold">候选缺口</div>
+                                                <div v-if="agentPricingGenerationPreflightSummary.candidateSkipReasons?.length" class="mt-2 flex flex-wrap gap-1.5">
+                                                    <span class="opacity-70">跳过原因</span>
+                                                    <span v-for="reason in agentPricingGenerationPreflightSummary.candidateSkipReasons" :key="`preflight-skip-${reason}`" class="rounded bg-white/60 px-1.5 py-0.5">{{ reason }}</span>
+                                                    <span v-if="agentPricingGenerationPreflightSummary.hiddenCandidateSkipReasonCount > 0" class="rounded bg-white/60 px-1.5 py-0.5">+{{ agentPricingGenerationPreflightSummary.hiddenCandidateSkipReasonCount }}</span>
+                                                </div>
+                                                <div v-if="agentPricingGenerationPreflightSummary.candidateDataGaps?.length" class="mt-2 flex flex-wrap gap-1.5">
+                                                    <span class="opacity-70">缺失信号</span>
+                                                    <span v-for="gap in agentPricingGenerationPreflightSummary.candidateDataGaps" :key="`preflight-gap-${gap}`" class="rounded bg-white/60 px-1.5 py-0.5">{{ gap }}</span>
+                                                    <span v-if="agentPricingGenerationPreflightSummary.hiddenCandidateDataGapCount > 0" class="rounded bg-white/60 px-1.5 py-0.5">+{{ agentPricingGenerationPreflightSummary.hiddenCandidateDataGapCount }}</span>
+                                                </div>
+                                            </div>
+                                            <div v-if="agentPricingGenerationPreflightSummary.hotelChecks?.length" data-testid="agent-pricing-generation-hotel-checks" class="mt-3 border-t border-current/15 pt-3 text-xs">
+                                                <div class="font-semibold">酒店级检查</div>
+                                                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                    <div v-for="item in agentPricingGenerationPreflightSummary.hotelChecks" :key="item.key" class="rounded border border-current/10 bg-white/50 p-2">
+                                                        <div class="flex flex-wrap items-center justify-between gap-2">
+                                                            <span class="font-medium">酒店 {{ item.hotelId || '-' }}</span>
+                                                            <span>候选 {{ item.createCandidateCount || 0 }} / 跳过 {{ item.skippedCandidateCount || 0 }}</span>
+                                                        </div>
+                                                        <div class="mt-1 opacity-80">OTA行 {{ item.targetDateRows || 0 }} · 房型 {{ item.roomTypeCount || 0 }} · 需求 {{ item.demandForecasts || 0 }} · 竞对 {{ item.competitorAnalysisRecent || 0 }}</div>
+                                                        <div v-if="item.skipReasons?.length" class="mt-1 flex flex-wrap gap-1">
+                                                            <span v-for="reason in item.skipReasons" :key="`${item.key}-${reason}`" class="rounded bg-white/70 px-1.5 py-0.5">{{ reason }}</span>
+                                                            <span v-if="item.hiddenSkipReasonCount > 0" class="rounded bg-white/70 px-1.5 py-0.5">+{{ item.hiddenSkipReasonCount }}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div v-if="agentPricingGenerationPreflightSummary.hiddenHotelCheckCount > 0" class="mt-1 opacity-80">另有 {{ agentPricingGenerationPreflightSummary.hiddenHotelCheckCount }} 个酒店检查未展示</div>
+                                            </div>
+                                            <div v-if="agentPricingGenerationPreflightSummary.requiredInputs?.length" class="mt-3 flex flex-wrap gap-2">
+                                                <span v-for="item in agentPricingGenerationPreflightSummary.requiredInputs" :key="item.code" class="inline-flex rounded border border-current/20 bg-white/50 px-2 py-0.5 text-xs" :title="item.nextAction || item.source">
+                                                    {{ item.code }}：{{ item.nextAction || item.source }}
+                                                </span>
+                                                <span v-if="agentPricingGenerationPreflightSummary.hiddenRequiredInputCount > 0" class="inline-flex rounded border border-current/20 bg-white/50 px-2 py-0.5 text-xs">另有 {{ agentPricingGenerationPreflightSummary.hiddenRequiredInputCount }} 项前置输入</span>
+                                            </div>
+                                        </div>
+                                        <div data-testid="agent-room-type-pricing-guard" class="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+                                            <div class="flex flex-wrap items-start justify-between gap-3">
+                                                <div>
+                                                    <h3 class="font-semibold text-gray-800">房型与最低保护价</h3>
+                                                    <div class="mt-1 text-xs text-gray-500">人工配置项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。</div>
+                                                </div>
+                                                <button @click="loadRoomTypes" class="px-3 py-1.5 text-sm rounded border border-gray-200 text-gray-600 hover:bg-gray-50">
+                                                    <i class="fas fa-rotate mr-1"></i>刷新
+                                                </button>
+                                            </div>
+                                            <div class="mt-3 grid grid-cols-1 md:grid-cols-7 gap-2">
+                                                <input v-model.trim="roomTypeConfigForm.name" class="input-field md:col-span-2" placeholder="房型名称">
+                                                <input type="number" v-model.number="roomTypeConfigForm.base_price" class="input-field" min="0" step="1" placeholder="基础价">
+                                                <input type="number" v-model.number="roomTypeConfigForm.min_price" class="input-field" min="0" step="1" placeholder="最低保护价">
+                                                <input type="number" v-model.number="roomTypeConfigForm.max_price" class="input-field" min="0" step="1" placeholder="最高限制价">
+                                                <input type="number" v-model.number="roomTypeConfigForm.room_count" class="input-field" min="0" step="1" placeholder="房量">
+                                                <div class="flex gap-2">
+                                                    <button @click="saveRoomTypeConfig" :disabled="roomTypeConfigSaving" class="flex-1 rounded bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50">
+                                                        <i :class="roomTypeConfigSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>{{ roomTypeConfigForm.id ? '更新' : '保存' }}
+                                                    </button>
+                                                    <button @click="resetRoomTypeConfigForm" class="rounded border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50" title="清空">
+                                                        <i class="fas fa-eraser"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="mt-3 overflow-x-auto">
+                                                <table class="w-full text-xs">
+                                                    <thead class="bg-gray-50 text-gray-500">
+                                                        <tr>
+                                                            <th class="px-3 py-2 text-left">房型</th>
+                                                            <th class="px-3 py-2 text-right">基础价</th>
+                                                            <th class="px-3 py-2 text-right">最低保护</th>
+                                                            <th class="px-3 py-2 text-right">最高限制</th>
+                                                            <th class="px-3 py-2 text-right">房量</th>
+                                                            <th class="px-3 py-2 text-left">状态</th>
+                                                            <th class="px-3 py-2 text-left">操作</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-gray-100">
+                                                        <tr v-for="item in roomTypeConfigList" :key="item.id">
+                                                            <td class="px-3 py-2 font-medium text-gray-800">{{ item.name }}</td>
+                                                            <td class="px-3 py-2 text-right">¥{{ item.base_price || 0 }}</td>
+                                                            <td class="px-3 py-2 text-right">¥{{ item.min_price || 0 }}</td>
+                                                            <td class="px-3 py-2 text-right">¥{{ item.max_price || 0 }}</td>
+                                                            <td class="px-3 py-2 text-right">{{ item.room_count || 0 }}</td>
+                                                            <td class="px-3 py-2">
+                                                                <span :class="['inline-flex rounded border px-2 py-0.5', Number(item.is_enabled) === 1 ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-gray-50 text-gray-500']">
+                                                                    {{ Number(item.is_enabled) === 1 ? '启用' : '停用' }}
+                                                                </span>
+                                                            </td>
+                                                            <td class="px-3 py-2">
+                                                                <button @click="editRoomTypeConfig(item)" class="text-blue-600 hover:text-blue-800">编辑</button>
+                                                            </td>
+                                                        </tr>
+                                                        <tr v-if="roomTypeConfigList.length === 0">
+                                                            <td colspan="7" class="px-3 py-5 text-center text-gray-400">暂无房型配置，携程调价建议生成会保持受阻</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                        <div data-testid="agent-price-suggestion-ctrip-preflight-inputs" class="mb-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                            <div data-testid="agent-suggestion-demand-forecast-manual-input" class="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                                                <div class="mb-3 flex flex-wrap items-start justify-between gap-2">
+                                                    <div>
+                                                        <h3 class="font-semibold text-emerald-900">目标日需求预测</h3>
+                                                        <div class="mt-1 text-xs text-emerald-700">人工提供项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。</div>
+                                                    </div>
+                                                    <button @click="loadDemandForecasts" class="rounded border border-emerald-200 bg-white px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50">
+                                                        <i class="fas fa-rotate mr-1"></i>刷新
+                                                    </button>
+                                                </div>
+                                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                    <input type="date" v-model="demandForecastForm.forecast_date" class="input-field">
+                                                    <select v-model.number="demandForecastForm.room_type_id" class="input-field">
+                                                        <option :value="0">选择房型</option>
+                                                        <option v-for="item in roomTypeConfigList" :key="`suggestion-forecast-room-${item.id}`" :value="Number(item.id)" :disabled="Number(item.is_enabled) !== 1">
+                                                            {{ item.name }}{{ Number(item.is_enabled) === 1 ? '' : '（停用）' }}
+                                                        </option>
+                                                    </select>
+                                                    <input type="number" v-model.number="demandForecastForm.predicted_occupancy" class="input-field" min="0" max="100" step="1" placeholder="预测入住率%">
+                                                    <input type="number" v-model.number="demandForecastForm.predicted_demand" class="input-field" min="0" step="1" placeholder="需求间夜">
+                                                    <input type="number" v-model.number="demandForecastForm.confidence_percent" class="input-field" min="0" max="100" step="1" placeholder="置信度%">
+                                                    <button @click="saveDemandForecastInput" :disabled="demandForecastSaving" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-800 disabled:opacity-50">
+                                                        <i :class="demandForecastSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存预测
+                                                    </button>
+                                                </div>
+                                                <input v-model.trim="demandForecastForm.remark" class="input-field mt-2 w-full" placeholder="预测口径备注（可选）">
+                                            </div>
+                                            <div data-testid="agent-suggestion-ctrip-competitor-price-manual-input" class="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                                                <div class="mb-3 flex flex-wrap items-start justify-between gap-2">
+                                                    <div>
+                                                        <h3 class="font-semibold text-blue-900">携程竞品价样本</h3>
+                                                        <div class="mt-1 text-xs text-blue-700">人工提供项，固定写入携程 OTA 样本范围；不代表全酒店经营数据，不写 OTA。</div>
+                                                    </div>
+                                                    <button @click="loadCompetitorAnalysis" class="rounded border border-blue-200 bg-white px-2.5 py-1.5 text-xs text-blue-700 hover:bg-blue-50">
+                                                        <i class="fas fa-rotate mr-1"></i>刷新
+                                                    </button>
+                                                </div>
+                                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                    <input type="date" v-model="competitorPriceForm.analysis_date" class="input-field">
+                                                    <select v-model.number="competitorPriceForm.room_type_id" class="input-field">
+                                                        <option :value="0">选择房型</option>
+                                                        <option v-for="item in roomTypeConfigList" :key="`suggestion-competitor-room-${item.id}`" :value="Number(item.id)" :disabled="Number(item.is_enabled) !== 1">
+                                                            {{ item.name }}{{ Number(item.is_enabled) === 1 ? '' : '（停用）' }}
+                                                        </option>
+                                                    </select>
+                                                    <input type="number" v-model.number="competitorPriceForm.our_price" class="input-field" min="0" step="1" placeholder="本店价">
+                                                    <input type="number" v-model.number="competitorPriceForm.competitor_price" class="input-field" min="0" step="1" placeholder="竞品价">
+                                                    <input type="number" v-model.number="competitorPriceForm.competitor_hotel_id" class="input-field" min="0" step="1" placeholder="竞对ID/未知填0">
+                                                    <button @click="saveCompetitorPriceInput" :disabled="competitorPriceSaving" class="rounded bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50">
+                                                        <i :class="competitorPriceSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存样本
+                                                    </button>
+                                                </div>
+                                                <input v-model.trim="competitorPriceForm.competitor_name" class="input-field mt-2 w-full" placeholder="竞对名称或样本来源">
+                                            </div>
+                                        </div>
+                                        <div v-if="priceSuggestionGenerateResult" data-testid="agent-price-suggestion-generate-result" :class="['mb-5 rounded-lg border p-3 text-sm', priceSuggestionGenerateResult.className]">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span class="font-semibold">{{ priceSuggestionGenerateResult.statusLabel }}</span>
+                                                <span class="text-xs">携程 OTA · 生成 {{ priceSuggestionGenerateResult.createdCount || 0 }} 条 · 跳过 {{ priceSuggestionGenerateResult.skippedCount || 0 }} 条</span>
+                                                <span class="text-xs">自动写 OTA：{{ priceSuggestionGenerateResult.autoWriteOta ? '是' : '否' }}</span>
+                                            </div>
+                                            <div class="mt-1">{{ priceSuggestionGenerateResult.message }}</div>
+                                            <div v-if="priceSuggestionGenerateResult.requiredInputs?.length" class="mt-2 flex flex-wrap gap-2">
+                                                <span v-for="item in priceSuggestionGenerateResult.requiredInputs" :key="item.code" class="inline-flex rounded border border-current/20 px-2 py-0.5 text-xs">
+                                                    {{ item.code }}：{{ item.nextAction || item.source }}
+                                                </span>
+                                                <span v-if="priceSuggestionGenerateResult.hiddenRequiredInputCount > 0" class="text-xs">另有 {{ priceSuggestionGenerateResult.hiddenRequiredInputCount }} 项前置输入</span>
+                                            </div>
+                                            <div v-if="priceSuggestionGenerateResult.skippedItems?.length" data-testid="agent-price-suggestion-skipped-items" class="mt-3 space-y-2">
+                                                <div class="text-xs font-semibold">未生成房型原因</div>
+                                                <div v-for="item in priceSuggestionGenerateResult.skippedItems" :key="item.key" class="rounded border border-current/15 bg-white/50 p-2 text-xs">
+                                                    <div class="flex flex-wrap items-center gap-2">
+                                                        <span class="font-medium">{{ item.roomTypeName }}</span>
+                                                        <span class="rounded border border-current/15 px-1.5 py-0.5">原因：{{ item.reason }}</span>
+                                                        <span class="rounded border border-current/15 px-1.5 py-0.5">主信号 {{ item.primarySignalCount }}</span>
+                                                        <span v-if="item.riskLevel" class="rounded border border-current/15 px-1.5 py-0.5">风险 {{ item.riskLevel }}</span>
+                                                        <span class="rounded border border-current/15 px-1.5 py-0.5">变化 {{ item.priceChangeRate }}%</span>
+                                                    </div>
+                                                    <div v-if="item.dataGaps?.length" class="mt-1 flex flex-wrap gap-1">
+                                                        <span v-for="gap in item.dataGaps" :key="`${item.key}-${gap}`" class="rounded bg-white/70 px-1.5 py-0.5">{{ gap }}</span>
+                                                        <span v-if="item.hiddenDataGapCount > 0" class="rounded bg-white/70 px-1.5 py-0.5">+{{ item.hiddenDataGapCount }}</span>
+                                                    </div>
+                                                    <div v-if="item.reviewChecklist?.length" class="mt-1 opacity-80">
+                                                        {{ item.reviewChecklist.join('；') }}<span v-if="item.hiddenReviewChecklistCount > 0">；另有 {{ item.hiddenReviewChecklistCount }} 项复核</span>
+                                                    </div>
+                                                </div>
+                                                <div v-if="priceSuggestionGenerateResult.hiddenSkippedItemCount > 0" class="text-xs opacity-80">另有 {{ priceSuggestionGenerateResult.hiddenSkippedItemCount }} 个房型未展示</div>
+                                            </div>
                                         </div>
 
                                         <div class="table-container overflow-x-auto">
@@ -11150,6 +11439,35 @@
                                                     <input type="date" v-model="forecastFilter.end_date" class="input-field">
                                                     <button @click="loadDemandForecasts" class="btn-primary"><i class="fas fa-search mr-2"></i>查询</button>
                                                 </div>
+                                                <div data-testid="agent-demand-forecast-manual-input" class="mb-4 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+                                                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                                        <div>
+                                                            <div class="text-sm font-semibold text-emerald-900">需求预测补录</div>
+                                                            <div class="text-xs text-emerald-700">人工提供项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。</div>
+                                                        </div>
+                                                        <button @click="resetDemandForecastForm" class="rounded border border-emerald-200 bg-white px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50">
+                                                            <i class="fas fa-eraser mr-1"></i>清空
+                                                        </button>
+                                                    </div>
+                                                    <div class="grid grid-cols-1 md:grid-cols-6 gap-2">
+                                                        <input type="date" v-model="demandForecastForm.forecast_date" class="input-field">
+                                                        <select v-model.number="demandForecastForm.room_type_id" class="input-field md:col-span-2">
+                                                            <option :value="0">选择房型</option>
+                                                            <option v-for="item in roomTypeConfigList" :key="`forecast-room-${item.id}`" :value="Number(item.id)" :disabled="Number(item.is_enabled) !== 1">
+                                                                {{ item.name }}{{ Number(item.is_enabled) === 1 ? '' : '（停用）' }}
+                                                            </option>
+                                                        </select>
+                                                        <input type="number" v-model.number="demandForecastForm.predicted_occupancy" class="input-field" min="0" max="100" step="1" placeholder="预测入住率%">
+                                                        <input type="number" v-model.number="demandForecastForm.predicted_demand" class="input-field" min="0" step="1" placeholder="需求间夜">
+                                                        <input type="number" v-model.number="demandForecastForm.confidence_percent" class="input-field" min="0" max="100" step="1" placeholder="置信度%">
+                                                    </div>
+                                                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                                                        <input v-model.trim="demandForecastForm.remark" class="input-field flex-1 min-w-[220px]" placeholder="预测口径备注（可选）">
+                                                        <button @click="saveDemandForecastInput" :disabled="demandForecastSaving" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-800 disabled:opacity-50">
+                                                            <i :class="demandForecastSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存预测
+                                                        </button>
+                                                    </div>
+                                                </div>
                                                 <div class="overflow-x-auto">
                                                     <table class="w-full text-sm">
                                                         <thead class="bg-gray-50 text-gray-500">
@@ -11166,7 +11484,7 @@
                                                                 <td class="px-3 py-2 font-medium text-gray-800">{{ row.forecast_date }}</td>
                                                                 <td class="px-3 py-2 text-right">{{ row.predicted_occupancy || 0 }}%</td>
                                                                 <td class="px-3 py-2 text-right">¥{{ row.predicted_revpar || 0 }}</td>
-                                                                <td class="px-3 py-2 text-right">{{ row.confidence_score || 0 }}%</td>
+                                                                <td class="px-3 py-2 text-right">{{ row.forecast_readiness?.confidence_percent ?? row.confidence_score ?? 0 }}%</td>
                                                                 <td class="px-3 py-2">
                                                                     <span v-if="row.forecast_readiness" :title="row.forecast_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', revenueForecastReadinessClass(row.forecast_readiness.stage)]">
                                                                         {{ row.forecast_readiness.status_label }}
@@ -11189,6 +11507,35 @@
                                                 <div class="flex flex-wrap gap-3 mb-4">
                                                     <input type="date" v-model="competitorFilter.date" class="input-field">
                                                     <button @click="loadCompetitorAnalysis" class="btn-primary"><i class="fas fa-search mr-2"></i>查询</button>
+                                                </div>
+                                                <div data-testid="agent-ctrip-competitor-price-manual-input" class="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                                        <div>
+                                                            <div class="text-sm font-semibold text-blue-900">携程竞品价样本补录</div>
+                                                            <div class="text-xs text-blue-700">人工提供项，固定写入携程 OTA 样本范围；不代表全酒店经营数据，不写 OTA。</div>
+                                                        </div>
+                                                        <button @click="resetCompetitorPriceForm" class="rounded border border-blue-200 bg-white px-2.5 py-1.5 text-xs text-blue-700 hover:bg-blue-50">
+                                                            <i class="fas fa-eraser mr-1"></i>清空
+                                                        </button>
+                                                    </div>
+                                                    <div class="grid grid-cols-1 md:grid-cols-6 gap-2">
+                                                        <input type="date" v-model="competitorPriceForm.analysis_date" class="input-field">
+                                                        <select v-model.number="competitorPriceForm.room_type_id" class="input-field md:col-span-2">
+                                                            <option :value="0">选择房型</option>
+                                                            <option v-for="item in roomTypeConfigList" :key="`competitor-room-${item.id}`" :value="Number(item.id)" :disabled="Number(item.is_enabled) !== 1">
+                                                                {{ item.name }}{{ Number(item.is_enabled) === 1 ? '' : '（停用）' }}
+                                                            </option>
+                                                        </select>
+                                                        <input type="number" v-model.number="competitorPriceForm.our_price" class="input-field" min="0" step="1" placeholder="本店价">
+                                                        <input type="number" v-model.number="competitorPriceForm.competitor_price" class="input-field" min="0" step="1" placeholder="竞品价">
+                                                        <input type="number" v-model.number="competitorPriceForm.competitor_hotel_id" class="input-field" min="0" step="1" placeholder="竞对ID/未知填0">
+                                                    </div>
+                                                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                                                        <input v-model.trim="competitorPriceForm.competitor_name" class="input-field flex-1 min-w-[220px]" placeholder="竞对名称或样本来源">
+                                                        <button @click="saveCompetitorPriceInput" :disabled="competitorPriceSaving" class="rounded bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50">
+                                                            <i :class="competitorPriceSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存样本
+                                                        </button>
+                                                    </div>
                                                 </div>
                                                 <div class="overflow-x-auto">
                                                     <table class="w-full text-sm">
@@ -18418,9 +18765,65 @@
             const competitorSummaryLoading = ref(false);
             let competitorSummaryRequestSeq = 0;
             const hotelCompetitorSummaries = ref({});
+            const meituanRankSourceNotice = computed(() => meituanBusinessSummary.value?.source_notice || '仅展示美团榜单已返回字段；未返回字段保留缺失状态。');
+            const meituanTableTab = ref('ranking'); // 美团数据表格Tab: ranking/traffic
+            // 表格排序功能
+            const meituanSortField = ref('roomNights'); // 当前排序字段
+            const meituanSortOrder = ref('desc'); // 排序方式: asc/desc
+            const meituanSortMetricValue = requireMeituanStatic('meituanSortMetricValue');
+            const buildMeituanRankDisplayRows = requireMeituanStatic('buildMeituanRankDisplayRows');
+            const meituanRankedHotelsList = computed(() => buildMeituanRankDisplayRows(meituanHotelsList.value, meituanSortField.value));
             const meituanBusinessSummaryCards = computed(() => {
                 const cards = meituanBusinessSummary.value?.cards;
-                return Array.isArray(cards) ? cards : [];
+                if (Array.isArray(cards) && cards.length) {
+                    return cards;
+                }
+
+                const rows = Array.isArray(meituanRankedHotelsList.value) ? meituanRankedHotelsList.value : [];
+                if (!rows.length) {
+                    return [];
+                }
+
+                const selfRow = rows.find(row => row?.isSelf) || null;
+                const topRow = rows[0] || null;
+                return [
+                    {
+                        key: 'fallback-hotel-count',
+                        label: '榜单酒店',
+                        value: String(rows.length),
+                        level: '当前表内',
+                        panelClass: 'bg-white border border-gray-200',
+                        valueClass: 'text-gray-900',
+                        levelClass: 'text-gray-500',
+                    },
+                    {
+                        key: 'fallback-self-rank',
+                        label: '本店排名',
+                        value: selfRow?.circlePositionText || '未命中本店',
+                        level: selfRow?.gapToLeaderText || '检查 POI 映射',
+                        panelClass: selfRow ? 'bg-blue-50 border border-blue-100' : 'bg-gray-50 border border-gray-200',
+                        valueClass: selfRow ? 'text-blue-700' : 'text-gray-500',
+                        levelClass: selfRow ? 'text-blue-600' : 'text-gray-500',
+                    },
+                    {
+                        key: 'fallback-top-hotel',
+                        label: '当前TOP1',
+                        value: topRow?.hotelName || '-',
+                        level: topRow?.gapToNextText || topRow?.rankTrendText || '暂无差距',
+                        panelClass: 'bg-indigo-50 border border-indigo-100',
+                        valueClass: 'text-indigo-700',
+                        levelClass: 'text-indigo-600',
+                    },
+                    {
+                        key: 'fallback-source-scope',
+                        label: '数据口径',
+                        value: '美团OTA',
+                        level: meituanRankSourceNotice.value || '仅已返回字段',
+                        panelClass: 'bg-emerald-50 border border-emerald-100',
+                        valueClass: 'text-emerald-700',
+                        levelClass: 'text-emerald-600',
+                    },
+                ];
             });
             const meituanRankInsightCards = computed(() => {
                 const cards = meituanBusinessSummary.value?.rank_insights;
@@ -18453,7 +18856,6 @@
                 }
                 return [];
             });
-            const meituanRankSourceNotice = computed(() => meituanBusinessSummary.value?.source_notice || '仅展示美团榜单已返回字段；未返回字段保留缺失状态。');
             const meituanFetchSuccess = ref(false); // 美团获取成功标志
             const meituanSavedCount = ref(0); // 美团保存的数据条数
             const meituanDataFetchTime = ref(''); // 美团数据获取时间
@@ -18461,12 +18863,6 @@
             const isMeituanBackgroundResult = (result = {}) => ['accepted', 'running', 'queued'].includes(String(result?.status || '').toLowerCase());
             const meituanFetchInProgress = computed(() => Array.isArray(onlineDataResult.value) && onlineDataResult.value.some(isMeituanPendingResult));
             const meituanFetchBackgroundAccepted = computed(() => Array.isArray(onlineDataResult.value) && onlineDataResult.value.some(isMeituanBackgroundResult));
-            const meituanTableTab = ref('ranking'); // 美团数据表格Tab: ranking/traffic
-            // 表格排序功能
-            const meituanSortField = ref('roomNights'); // 当前排序字段
-            const meituanSortOrder = ref('desc'); // 排序方式: asc/desc
-            const meituanSortMetricValue = requireMeituanStatic('meituanSortMetricValue');
-            const buildMeituanRankDisplayRows = requireMeituanStatic('buildMeituanRankDisplayRows');
             const buildCompetitorSummaryCoreCards = requireMeituanStatic('buildCompetitorSummaryCoreCards');
             const buildHomeCompetitorSummaryCards = requireMeituanStatic('buildHomeCompetitorSummaryCards');
             const runMeituanBatchFetchFlow = requireMeituanStatic('runMeituanBatchFetchFlow');
@@ -18477,7 +18873,6 @@
             const runMeituanCapturedPayloadSaveFlow = requireMeituanStatic('runMeituanCapturedPayloadSaveFlow');
             const runMeituanManualTabSwitch = requireMeituanStatic('runMeituanManualTabSwitch');
             const isMeituanRankingFormAlignedWithConfig = requireMeituanStatic('isMeituanRankingFormAlignedWithConfig');
-            const meituanRankedHotelsList = computed(() => buildMeituanRankDisplayRows(meituanHotelsList.value, meituanSortField.value));
             const meituanDynamicSelfRankRow = computed(() => meituanRankedHotelsList.value.find(row => row?.isSelf) || null);
             const meituanDisplayedHotelsList = computed(() => [...meituanRankedHotelsList.value].sort((a, b) => {
                 const aVal = meituanSortMetricValue(a, meituanSortField.value);
@@ -19917,6 +20312,7 @@
             const revenueAiBuildStatusRows = requireRevenueAiStatic('buildRevenueAiStatusRows');
             const revenueAiBuildSignalRows = requireRevenueAiStatic('buildRevenueAiSignalRows');
             const revenueAiBuildActionRows = requireRevenueAiStatic('buildRevenueAiActionRows');
+            const revenueAiBuildPricingGenerationPreflightSummary = requireRevenueAiStatic('buildRevenueAiPricingGenerationPreflightSummary');
             const revenueAiBuildPricingGateRows = requireRevenueAiStatic('buildRevenueAiPricingGateRows');
             const revenueAiBuildAgentActivitySummary = requireRevenueAiStatic('buildRevenueAiAgentActivitySummary');
             const revenueAiBuildAgentActivityRows = requireRevenueAiStatic('buildRevenueAiAgentActivityRows');
@@ -19954,6 +20350,9 @@
             const revenueAiActionRows = computed(() => revenueAiBuildActionRows({
                 overview: revenueAiOverview.value,
                 overviewError: revenueAiOverviewError.value,
+            }));
+            const agentPricingGenerationPreflightSummary = computed(() => revenueAiBuildPricingGenerationPreflightSummary({
+                overview: revenueAiOverview.value,
             }));
             const revenueAiPricingGateRows = computed(() => revenueAiBuildPricingGateRows({
                 overview: revenueAiOverview.value,
@@ -20551,6 +20950,34 @@
                     openOnlineDataEntryTab(navigation.targetTab || 'data-health', { force: true });
                     return;
                 }
+                if (navigation.targetPage === 'agent-center') {
+                    const targetFilter = navigation.targetFilter && typeof navigation.targetFilter === 'object'
+                        ? navigation.targetFilter
+                        : {};
+                    const targetHotelId = Number(targetFilter.hotel_id || 0);
+                    if (targetHotelId > 0) {
+                        filterReportHotel.value = String(targetHotelId);
+                    }
+                    if (targetFilter.date) {
+                        priceSuggestionFilter.value.date = String(targetFilter.date);
+                    }
+                    if (Object.prototype.hasOwnProperty.call(targetFilter, 'status')) {
+                        priceSuggestionFilter.value.status = Number(targetFilter.status || 0);
+                    }
+                    currentPage.value = 'agent-center';
+                    agentTab.value = navigation.targetAgentTab || 'revenue';
+                    revenueAgentTab.value = navigation.targetRevenueTab || navigation.targetTab || 'suggestions';
+                    await nextTick();
+                    if (agentTab.value === 'revenue' && revenueAgentTab.value === 'suggestions') {
+                        await loadPriceSuggestionWorkbench();
+                    } else if (agentTab.value === 'revenue' && revenueAgentTab.value === 'analysis') {
+                        await loadRevenueAnalysisBundle();
+                    } else if (agentTab.value === 'overview') {
+                        await loadAgentOverview();
+                    }
+                    showToast(navigation.label ? `已进入收益Agent：${navigation.label}` : '已进入收益Agent定价建议');
+                    return;
+                }
                 if (navigation.targetPage === 'ops-track') {
                     currentPage.value = 'ops-track';
                     await nextTick();
@@ -20621,6 +21048,7 @@
             const revenueAiBuildExecutionIntentOpenRow = requireRevenueAiStatic('buildRevenueAiExecutionIntentOpenRow');
             const revenueAiResolveReviewNavigation = requireRevenueAiStatic('resolveRevenueAiReviewNavigation');
             const revenueAiBuildReviewNavigationState = requireRevenueAiStatic('buildRevenueAiReviewNavigationState');
+            const revenueAiBuildPriceSuggestionGenerateResult = requireRevenueAiStatic('buildRevenueAiPriceSuggestionGenerateResult');
             const isRevenueAiReviewActionLoading = (item = {}, action = '') => {
                 return revenueAiIsReviewActionLoading({
                     state: revenueAiReviewActionLoading.value,
@@ -20726,7 +21154,7 @@
                 agentTab.value = navigationState.agentTab;
                 revenueAgentTab.value = navigationState.revenueAgentTab;
                 await nextTick();
-                await loadPriceSuggestions();
+                await loadPriceSuggestionWorkbench();
             };
 
             // 竞对价格监控
@@ -31752,7 +32180,7 @@
                     if (product.module.loader === 'revenue-analysis') {
                         await loadRevenueAnalysisBundle();
                     } else if (product.module.loader === 'price-suggestions') {
-                        await loadPriceSuggestions();
+                        await loadPriceSuggestionWorkbench();
                     } else if (product.module.loader === 'agent-overview') {
                         await loadAgentOverview();
                     }
@@ -31782,7 +32210,33 @@
             const priceSuggestions = ref([]);
             const priceSuggestionFilter = ref({ date: new Date().toISOString().split('T')[0], status: 0 });
             const priceSuggestionGenerating = ref(false);
+            const priceSuggestionGenerateResult = ref(null);
             const priceSuggestionReview = ref(null);
+            const roomTypeConfigList = ref([]);
+            const roomTypeConfigMeta = ref({});
+            const roomTypeConfigSaving = ref(false);
+            const manualCtripPricingInputMeta = Object.freeze({
+                input_scope: 'manual_pricing_configuration',
+                source_scope: 'ctrip_ota_channel',
+                target_workflow: 'ctrip_revenue_ai_pricing_generation',
+                evidence_status: 'operator_provided',
+                auto_write_ota: false,
+            });
+            const createRoomTypeConfigForm = () => ({
+                id: null,
+                name: '',
+                base_price: null,
+                min_price: null,
+                max_price: null,
+                room_count: 1,
+                sort_order: 0,
+                is_enabled: 1,
+            });
+            const roomTypeConfigForm = ref(createRoomTypeConfigForm());
+            const firstEnabledRoomTypeId = () => {
+                const row = (roomTypeConfigList.value || []).find(item => Number(item.is_enabled) === 1 && Number(item.id) > 0);
+                return row ? Number(row.id) : 0;
+            };
             const revenueAnalysisData = ref({
                 statistics: {},
                 room_types: [],
@@ -31832,6 +32286,16 @@
                 start_date: new Date().toISOString().split('T')[0],
                 end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
             });
+            const createDemandForecastForm = () => ({
+                forecast_date: priceSuggestionFilter.value.date || formatDate(new Date()),
+                room_type_id: firstEnabledRoomTypeId(),
+                predicted_occupancy: null,
+                predicted_demand: null,
+                confidence_percent: 80,
+                remark: '',
+            });
+            const demandForecastSaving = ref(false);
+            const demandForecastForm = ref(createDemandForecastForm());
             const forecastAccuracy = ref({ avg_error: 0, accuracy_rate: 0, total_forecasts: 0 });
             const highDemandDates = ref([]);
             const revenueDashboard = ref({
@@ -31842,6 +32306,16 @@
             // 竞对分析
             const competitorAnalysis = ref({ price_matrix: {}, alerts: [], trends: {} });
             const competitorFilter = ref({ date: new Date().toISOString().split('T')[0] });
+            const createCompetitorPriceForm = () => ({
+                analysis_date: competitorFilter.value.date || priceSuggestionFilter.value.date || formatDate(new Date()),
+                room_type_id: firstEnabledRoomTypeId(),
+                competitor_hotel_id: 0,
+                competitor_name: '',
+                our_price: null,
+                competitor_price: null,
+            });
+            const competitorPriceSaving = ref(false);
+            const competitorPriceForm = ref(createCompetitorPriceForm());
             const competitorPriceMatrixRows = computed(() => {
                 const matrix = competitorAnalysis.value?.price_matrix || {};
                 const rows = [];
@@ -32144,6 +32618,243 @@
                 }
             };
 
+            const resetRoomTypeConfigForm = () => {
+                roomTypeConfigForm.value = createRoomTypeConfigForm();
+            };
+
+            const editRoomTypeConfig = (item = {}) => {
+                roomTypeConfigForm.value = {
+                    id: item.id || null,
+                    name: item.name || '',
+                    base_price: Number(item.base_price || 0) || null,
+                    min_price: Number(item.min_price || 0) || null,
+                    max_price: Number(item.max_price || 0) || null,
+                    room_count: Number(item.room_count || 0),
+                    sort_order: Number(item.sort_order || 0),
+                    is_enabled: Number(item.is_enabled ?? 1),
+                };
+            };
+
+            const loadRoomTypes = async () => {
+                if (!filterReportHotel.value) {
+                    roomTypeConfigList.value = [];
+                    roomTypeConfigMeta.value = {};
+                    return;
+                }
+                try {
+                    const params = new URLSearchParams();
+                    params.append('hotel_id', filterReportHotel.value || 0);
+                    const res = await request(`/agent/room-types?${params}`);
+                    if (res.code === 200) {
+                        roomTypeConfigList.value = res.data?.list || [];
+                        roomTypeConfigMeta.value = {
+                            input_scope: res.data?.input_scope || '',
+                            target_workflow: res.data?.target_workflow || '',
+                            evidence_status: res.data?.evidence_status || '',
+                            auto_write_ota: res.data?.auto_write_ota === true,
+                            next_action: res.data?.next_action || '',
+                        };
+                        const defaultRoomTypeId = firstEnabledRoomTypeId();
+                        if (!Number(demandForecastForm.value.room_type_id || 0) && defaultRoomTypeId > 0) {
+                            demandForecastForm.value.room_type_id = defaultRoomTypeId;
+                        }
+                        if (!Number(competitorPriceForm.value.room_type_id || 0) && defaultRoomTypeId > 0) {
+                            competitorPriceForm.value.room_type_id = defaultRoomTypeId;
+                        }
+                    }
+                } catch (e) {
+                    console.error('加载房型价保失败:', e);
+                }
+            };
+
+            const saveRoomTypeConfig = async () => {
+                if (!filterReportHotel.value) {
+                    showToast('请先选择酒店', 'error');
+                    return;
+                }
+                roomTypeConfigSaving.value = true;
+                try {
+                    const payload = {
+                        ...roomTypeConfigForm.value,
+                        hotel_id: filterReportHotel.value,
+                        is_enabled: Number(roomTypeConfigForm.value.is_enabled ?? 1),
+                    };
+                    const res = await request('/agent/room-types', {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                    });
+                    if (res.code === 200) {
+                        showToast('房型与最低保护价已保存；继续补需求预测和竞对样本。');
+                        resetRoomTypeConfigForm();
+                        await Promise.allSettled([
+                            loadRoomTypes(),
+                            loadRevenueDashboard(),
+                            loadRevenueAiOverview(),
+                        ]);
+                    } else {
+                        showToast(res.message || '保存失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('保存失败: ' + e.message, 'error');
+                } finally {
+                    roomTypeConfigSaving.value = false;
+                }
+            };
+
+            const syncRevenuePricingInputDate = (date) => {
+                if (!date) return;
+                priceSuggestionFilter.value.date = date;
+                demandForecastForm.value.forecast_date = date;
+                competitorPriceForm.value.analysis_date = date;
+                competitorFilter.value.date = date;
+                forecastFilter.value.start_date = date;
+                if (!forecastFilter.value.end_date || forecastFilter.value.end_date < date) {
+                    forecastFilter.value.end_date = date;
+                }
+            };
+
+            const handlePriceSuggestionDateChange = async () => {
+                syncRevenuePricingInputDate(priceSuggestionFilter.value.date);
+                await loadPriceSuggestionWorkbench();
+            };
+
+            const resetDemandForecastForm = () => {
+                demandForecastForm.value = createDemandForecastForm();
+            };
+
+            const saveDemandForecastInput = async () => {
+                const hotelId = Number(filterReportHotel.value || 0);
+                const roomTypeId = Number(demandForecastForm.value.room_type_id || 0);
+                const forecastDate = demandForecastForm.value.forecast_date;
+                const predictedOccupancy = Number(demandForecastForm.value.predicted_occupancy || 0);
+                const predictedDemand = Number(demandForecastForm.value.predicted_demand || 0);
+                const confidencePercent = Number(demandForecastForm.value.confidence_percent || 0);
+                if (hotelId <= 0) {
+                    showToast('请先选择酒店', 'error');
+                    return;
+                }
+                if (!forecastDate || roomTypeId <= 0 || predictedOccupancy <= 0 || predictedOccupancy > 100) {
+                    showToast('请补齐预测日期、启用房型和 1-100 的预测入住率', 'error');
+                    return;
+                }
+                demandForecastSaving.value = true;
+                try {
+                    const payload = {
+                        hotel_id: hotelId,
+                        forecast_date: forecastDate,
+                        room_type_id: roomTypeId,
+                        predicted_occupancy: predictedOccupancy,
+                        predicted_demand: predictedDemand,
+                        confidence_score: confidencePercent > 1 ? Number((confidencePercent / 100).toFixed(4)) : confidencePercent,
+                        forecast_method: 3,
+                        is_event_driven: 0,
+                        historical_data: {
+                            ...manualCtripPricingInputMeta,
+                            input_type: 'manual_demand_forecast',
+                        },
+                        event_factors: [],
+                        remark: demandForecastForm.value.remark || 'operator_provided_ctrip_pricing_preflight_demand_forecast',
+                    };
+                    const res = await request('/agent/demand-forecasts', {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                    });
+                    if (res.code === 200) {
+                        syncRevenuePricingInputDate(forecastDate);
+                        showToast('需求预测已保存；继续补携程竞品价样本。');
+                        resetDemandForecastForm();
+                        await Promise.allSettled([
+                            loadDemandForecasts(),
+                            loadRevenueAnalysis(),
+                            loadRevenueDashboard(),
+                            loadRevenueAiOverview(),
+                        ]);
+                    } else {
+                        showToast(res.message || '需求预测保存失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('需求预测保存失败: ' + e.message, 'error');
+                } finally {
+                    demandForecastSaving.value = false;
+                }
+            };
+
+            const resetCompetitorPriceForm = () => {
+                competitorPriceForm.value = createCompetitorPriceForm();
+            };
+
+            const saveCompetitorPriceInput = async () => {
+                const hotelId = Number(filterReportHotel.value || 0);
+                const roomTypeId = Number(competitorPriceForm.value.room_type_id || 0);
+                const competitorHotelId = Number(competitorPriceForm.value.competitor_hotel_id || 0);
+                const analysisDate = competitorPriceForm.value.analysis_date;
+                const ourPrice = Number(competitorPriceForm.value.our_price || 0);
+                const competitorPrice = Number(competitorPriceForm.value.competitor_price || 0);
+                const competitorName = (competitorPriceForm.value.competitor_name || '').trim();
+                if (hotelId <= 0) {
+                    showToast('请先选择酒店', 'error');
+                    return;
+                }
+                if (!analysisDate || roomTypeId <= 0 || ourPrice <= 0 || competitorPrice <= 0) {
+                    showToast('请补齐采样日期、启用房型、本店价和竞品价', 'error');
+                    return;
+                }
+                if (competitorHotelId <= 0 && !competitorName) {
+                    showToast('请填写竞对ID或竞对名称，未知ID可填0但必须保留名称/来源', 'error');
+                    return;
+                }
+                competitorPriceSaving.value = true;
+                try {
+                    const payload = {
+                        hotel_id: hotelId,
+                        competitor_hotel_id: competitorHotelId,
+                        room_type_id: roomTypeId,
+                        analysis_date: analysisDate,
+                        our_price: ourPrice,
+                        competitor_price: competitorPrice,
+                        price_index: Number((ourPrice / competitorPrice * 100).toFixed(2)),
+                        ota_platform: 1,
+                        competitor_data: {
+                            ...manualCtripPricingInputMeta,
+                            input_type: 'manual_ctrip_competitor_price_sample',
+                            competitor_name: competitorName,
+                        },
+                    };
+                    const res = await request('/agent/competitor-analysis', {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                    });
+                    if (res.code === 200) {
+                        syncRevenuePricingInputDate(analysisDate);
+                        showToast('携程竞品价样本已保存；可重新运行调价建议生成预检。');
+                        resetCompetitorPriceForm();
+                        await Promise.allSettled([
+                            loadCompetitorAnalysis(),
+                            loadRevenueAnalysis(),
+                            loadRevenueDashboard(),
+                            loadRevenueAiOverview(),
+                            loadPriceSuggestions(),
+                        ]);
+                    } else {
+                        showToast(res.message || '竞品价样本保存失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('竞品价样本保存失败: ' + e.message, 'error');
+                } finally {
+                    competitorPriceSaving.value = false;
+                }
+            };
+
+            const loadPriceSuggestionWorkbench = async () => {
+                await Promise.allSettled([
+                    loadRoomTypes(),
+                    loadDemandForecasts(),
+                    loadCompetitorAnalysis(),
+                    loadPriceSuggestions(),
+                    loadRevenueAiOverview(),
+                ]);
+            };
+
             // 加载定价建议
             const loadPriceSuggestions = async () => {
                 try {
@@ -32163,10 +32874,20 @@
             // 审批定价建议
             const approvePrice = async (id, action) => {
                 try {
-                    const res = await request(`/agent/price-suggestions/${id}/approve?action=${action}`, { method: 'POST' });
+                    const normalizedAction = action === 'reject' ? 'reject' : 'approve';
+                    const res = await request(`/revenue-ai/price-suggestions/${id}/review`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            action: normalizedAction,
+                            remark: `Agent 定价建议工作台人工${normalizedAction === 'approve' ? '批准' : '拒绝'}；未写 OTA。`,
+                        }),
+                    });
                     if (res.code === 200) {
                         showToast(action === 'approve' ? '已批准' : '已拒绝');
-                        loadPriceSuggestions();
+                        await Promise.allSettled([
+                            loadPriceSuggestions(),
+                            loadRevenueAiOverview(),
+                        ]);
                     } else {
                         showToast(res.message || '操作失败', 'error');
                     }
@@ -32182,19 +32903,24 @@
                 }
                 priceSuggestionGenerating.value = true;
                 priceSuggestionReview.value = null;
+                priceSuggestionGenerateResult.value = null;
                 try {
                     const params = new URLSearchParams();
                     params.append('hotel_id', filterReportHotel.value);
                     params.append('date', priceSuggestionFilter.value.date);
                     const res = await request(`/agent/price-suggestions/generate?${params}`, { method: 'POST' });
+                    const result = revenueAiBuildPriceSuggestionGenerateResult({ response: res });
+                    priceSuggestionGenerateResult.value = result;
                     if (res.code === 200) {
-                        showToast(`已生成 ${res.data?.created_count || 0} 条建议`);
+                        showToast(result.message, result.level || 'success');
                         await Promise.allSettled([loadPriceSuggestions(), loadRevenueDashboard()]);
                     } else {
-                        showToast(res.message || '生成失败', 'error');
+                        showToast(result.message || res.message || '生成失败', 'error');
                     }
                 } catch (e) {
-                    showToast('生成失败: ' + e.message, 'error');
+                    const result = revenueAiBuildPriceSuggestionGenerateResult({ error: e });
+                    priceSuggestionGenerateResult.value = result;
+                    showToast('生成失败: ' + result.message, 'error');
                 } finally {
                     priceSuggestionGenerating.value = false;
                 }
@@ -32206,10 +32932,19 @@
 
             const createPriceSuggestionExecutionIntent = async (id) => {
                 try {
-                    const res = await request(`/agent/price-suggestions/${id}/execution-intent`, { method: 'POST' });
+                    const res = await request(`/revenue-ai/price-suggestions/${id}/execution-intent`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            source: 'agent_pricing_suggestions',
+                            expected_metric: 'orders',
+                        }),
+                    });
                     if (res.code === 200) {
                         showToast('执行意图已创建');
-                        await loadPriceSuggestions();
+                        await Promise.allSettled([
+                            loadPriceSuggestions(),
+                            loadRevenueAiOverview(),
+                        ]);
                     } else {
                         showToast(res.message || '转单失败', 'error');
                     }
@@ -32568,6 +33303,7 @@
                     loadRevenueDashboard(),
                     loadDemandForecasts(),
                     loadCompetitorAnalysis(),
+                    loadRoomTypes(),
                     loadPriceSuggestions()
                 ]);
             };
@@ -38598,11 +39334,13 @@
                 otaDiagnosisPriorityClass, otaDiagnosisPriorityText, otaDiagnosisMetricCards, otaDiagnosisResultSections, otaDiagnosisDecisionClosureCards, otaDiagnosisBusinessLoopSteps, otaDiagnosisActionRows, otaDiagnosisDataGapRows, otaDiagnosisDecisionStatusTextFor, otaDiagnosisDecisionStatusClassFor, otaDiagnosisDataGaps, otaDiagnosisActionItems,
                 setOtaDiagnosisRange, normalizeOtaDiagnosisList, generateOtaDiagnosis, switchAgentTab,
                 staffAgentTab, knowledgeList, knowledgeCategories, knowledgeFilter,
-                revenueAgentTab, priceSuggestions, priceSuggestionFilter, priceSuggestionGenerating, priceSuggestionReview,
+                revenueAgentTab, priceSuggestions, priceSuggestionFilter, priceSuggestionGenerating, priceSuggestionGenerateResult, priceSuggestionReview, agentPricingGenerationPreflightSummary,
+                roomTypeConfigList, roomTypeConfigMeta, roomTypeConfigSaving, roomTypeConfigForm,
                 assetAgentTab, deviceList, deviceStats, deviceFilter, energyData,
                 agentLogs, agentLogFilter,
                 loadAgentOverview, saveAgentConfig,
                 loadKnowledgeBase, openKnowledgeModal, saveKnowledge, deleteKnowledge,
+                loadPriceSuggestionWorkbench, handlePriceSuggestionDateChange, loadRoomTypes, resetRoomTypeConfigForm, editRoomTypeConfig, saveRoomTypeConfig,
                 loadPriceSuggestions, approvePrice, generatePriceSuggestions, applyPriceSuggestion, createPriceSuggestionExecutionIntent, reviewPriceSuggestion, pricingReadinessBadgeClass, priceSuggestionReviewReadinessClass, agentClosureReadinessBadgeClass,
                 loadDevices, openDeviceModal, saveDevice,
                 loadEnergyData, loadAgentLogs,
@@ -38612,10 +39350,10 @@
                 loadWorkOrders, createWorkOrder, assignWorkOrder, resolveWorkOrder, loadWorkOrderStats,
                 loadConversations, loadConversationStats, loadStaffDashboard, createWorkOrderFromConversation,
                 // Agent中心 - 收益管理增强
-                demandForecasts, forecastFilter, forecastAccuracy, highDemandDates, revenueDashboard,
+                demandForecasts, forecastFilter, demandForecastForm, demandForecastSaving, forecastAccuracy, highDemandDates, revenueDashboard,
                 revenueAnalysisData, revenueAnalysisDataNotice, revenueAccuracyText, revenueRevparRows,
-                competitorAnalysis, competitorFilter, competitorPriceMatrixRows,
-                loadDemandForecasts, loadCompetitorAnalysis, loadRevenueDashboard, loadRevenueAnalysis, loadRevenueAnalysisBundle,
+                competitorAnalysis, competitorFilter, competitorPriceForm, competitorPriceSaving, competitorPriceMatrixRows,
+                loadDemandForecasts, resetDemandForecastForm, saveDemandForecastInput, loadCompetitorAnalysis, resetCompetitorPriceForm, saveCompetitorPriceInput, loadRevenueDashboard, loadRevenueAnalysis, loadRevenueAnalysisBundle,
                 // Agent中心 - 资产运维增强
                 energyBenchmarks, energySuggestions, suggestionFilter,
                 maintenancePlans, maintenanceReminders, assetDashboard,

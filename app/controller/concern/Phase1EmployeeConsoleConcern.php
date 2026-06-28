@@ -3089,7 +3089,11 @@ trait Phase1EmployeeConsoleConcern
         // Keep parity with inspector helpers: traffic_source_p0_standard_fact_summary / inspection_traffic_source_p0_standard_fact_summary.
         $p0StandardFactSummary = $this->phase1P0StandardFactSummary($requiredMetricKeys, $requiredStorageFields, $p0FieldLoopMatrix, $targetDateTrafficRows);
         $p0PlatformHotelIdentifierSource = $platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
-        $p0PlatformHotelIdentifierStatus = $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'no_target_date_traffic_rows';
+        $p0PlatformHotelIdentifierStatus = $this->phase1P0PlatformHotelIdentifierStatus($platform, $targetDate, $targetDateTrafficRows);
+        $p0TrafficFieldFactStatus = $targetDateTrafficRows > 0
+            ? (string)($p0StandardFactSummary['p0_standard_fact_status'] ?? 'incomplete')
+            : 'no_target_date_traffic_rows';
+        $p0TrafficGateStatus = $this->phase1P0TrafficGateStatus($targetDateTrafficRows, $p0TrafficFieldFactStatus, $p0PlatformHotelIdentifierStatus);
         $base = [
             'platform' => $platform,
             'target_date' => $targetDate,
@@ -3131,7 +3135,7 @@ trait Phase1EmployeeConsoleConcern
             'p0_external_evidence_status' => 'not_provided',
             'p0_pre_import_evidence_status' => 'not_provided',
             'p0_pre_import_evidence_policy' => 'External traffic evidence is source proof only; P0 closure still requires target-date traffic rows and ready verifier status.',
-            'p0_traffic_field_fact_status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'no_target_date_traffic_rows',
+            'p0_traffic_field_fact_status' => $p0TrafficFieldFactStatus,
             'p0_payload_candidate_policy' => 'ui_metadata_only_no_import',
             'p0_payload_candidate_payload_policy' => 'path_metadata_only_no_payload_content',
             'p0_payload_candidate_storage_policy' => 'does_not_write_online_daily_data',
@@ -3155,7 +3159,7 @@ trait Phase1EmployeeConsoleConcern
             'p0_required_field_fact_keys' => $requiredFieldFactKeys,
             'p0_missing_metric_keys' => $targetDateTrafficRows > 0 ? [] : $requiredMetricKeys,
             'p0_field_loop_matrix' => $p0FieldLoopMatrix,
-            'p0_traffic_closure_chain' => $this->phase1P0TrafficClosureChain($p0FieldLoopMatrix, $targetDateTrafficRows, $p0PlatformHotelIdentifierStatus, $p0PlatformHotelIdentifierSource),
+            'p0_traffic_closure_chain' => $this->phase1P0TrafficClosureChain($p0FieldLoopMatrix, $targetDateTrafficRows, $p0PlatformHotelIdentifierStatus, $p0PlatformHotelIdentifierSource, $p0TrafficGateStatus),
             'p0_traffic_closure_chain_policy' => 'Every chain item is OTA-channel evidence only and remains incomplete until the P0 field-loop verifier returns ready.',
             'p0_platform_hotel_identifier_source' => $p0PlatformHotelIdentifierSource,
             'p0_platform_hotel_identifier_status' => $p0PlatformHotelIdentifierStatus,
@@ -3349,7 +3353,7 @@ trait Phase1EmployeeConsoleConcern
         $recommendedMode = $this->phase1TrafficSourceRecommendedMode($platform, $base);
         $base['recommended_collection_mode'] = $recommendedMode;
         $base['action_entry'] = $this->phase1TrafficSourceActionEntryForMode($platform, $recommendedMode);
-        $base['p0_traffic_gate_status'] = $trafficRows > 0 ? 'requires_p0_verifier' : 'missing_target_date_traffic_rows';
+        $base['p0_traffic_gate_status'] = $p0TrafficGateStatus;
         $base['p0_next_action_mode'] = $recommendedMode;
         $base['p0_next_action_entry'] = $base['action_entry'];
         $base['p0_next_step_count'] = max(0, (int)$base['traffic_managed_count']);
@@ -3821,9 +3825,10 @@ trait Phase1EmployeeConsoleConcern
         return array_values($matrix);
     }
 
-    private function phase1P0TrafficClosureChain(array $fieldLoopMatrix, int $targetDateTrafficRows, string $platformHotelIdentifierStatus, string $platformHotelIdentifierSource): array
+    private function phase1P0TrafficClosureChain(array $fieldLoopMatrix, int $targetDateTrafficRows, string $platformHotelIdentifierStatus, string $platformHotelIdentifierSource, string $trafficGateStatus = ''): array
     {
         $targetDateTrafficRows = max(0, $targetDateTrafficRows);
+        $trafficGateStatus = trim($trafficGateStatus);
         $chainStatus = static function (bool $ready) use ($targetDateTrafficRows): string {
             if ($targetDateTrafficRows <= 0) {
                 return 'no_target_date_traffic_rows';
@@ -3883,10 +3888,73 @@ trait Phase1EmployeeConsoleConcern
                 'required' => $platformHotelIdentifierSource,
             ],
             'verifier' => [
-                'status' => $targetDateTrafficRows > 0 ? 'requires_p0_verifier' : 'incomplete',
+                'status' => $trafficGateStatus === 'ready' ? 'ready' : 'incomplete',
                 'required' => 'P0 field-loop verifier returns ready',
             ],
         ];
+    }
+
+    private function phase1P0TrafficGateStatus(int $targetDateTrafficRows, string $trafficFieldFactStatus, string $platformHotelIdentifierStatus): string
+    {
+        if (max(0, $targetDateTrafficRows) <= 0) {
+            return 'missing_target_date_traffic_rows';
+        }
+        if ($trafficFieldFactStatus !== 'ready') {
+            return 'traffic_field_fact_closure_incomplete';
+        }
+        if ($platformHotelIdentifierStatus !== 'ready') {
+            return 'platform_hotel_identifier_missing';
+        }
+        return 'ready';
+    }
+
+    private function phase1P0PlatformHotelIdentifierStatus(string $platform, string $targetDate, int $targetDateTrafficRows): string
+    {
+        if (max(0, $targetDateTrafficRows) <= 0) {
+            return 'no_target_date_traffic_rows';
+        }
+        $presentRows = 0;
+        $missingRows = 0;
+        foreach ($this->phase1P0TrafficRows($platform, $targetDate) as $row) {
+            $raw = $this->phase1P0DecodeRawData($row['raw_data'] ?? null);
+            if ($this->phase1P0PlatformHotelIdentifierPresent($platform, $raw)) {
+                $presentRows++;
+            } else {
+                $missingRows++;
+            }
+        }
+        if ($presentRows > 0 && $missingRows === 0) {
+            return 'ready';
+        }
+        return 'missing';
+    }
+
+    private function phase1P0PlatformHotelIdentifierPresent(string $platform, array $row): bool
+    {
+        $expectedSource = $platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
+        $proofPresent = $row['platform_hotel_identifier_present'] ?? null;
+        $proofSource = trim((string)($row['platform_hotel_identifier_source'] ?? ''));
+        if ($proofPresent === true && ($proofSource === '' || $proofSource === $expectedSource)) {
+            return true;
+        }
+
+        $keys = $platform === 'meituan'
+            ? ['poiId', 'poi_id', 'storeId', 'store_id', 'shopId', 'shop_id', 'mtPoiId', 'mt_poi_id', 'partnerId', 'partner_id']
+            : ['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'masterHotelId', 'master_hotel_id', 'nodeId', 'node_id', 'ctrip_hotel_id', 'external_hotel_id'];
+        $candidates = [$row];
+        foreach (['row', 'raw_data', 'source_row'] as $containerKey) {
+            if (is_array($row[$containerKey] ?? null)) {
+                $candidates[] = (array)$row[$containerKey];
+            }
+        }
+        foreach ($candidates as $candidate) {
+            foreach ($keys as $key) {
+                if (trim((string)($candidate[$key] ?? '')) !== '') {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private function phase1P0TrafficFieldLoopMatrixIndex(array $requiredMetricKeys, array $requiredStorageFields, int $targetDateTrafficRows, string $status): array

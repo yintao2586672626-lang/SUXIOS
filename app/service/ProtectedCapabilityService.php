@@ -98,7 +98,7 @@ class ProtectedCapabilityService
                 ],
                 'online_data_core' => [
                     'label' => 'OTA collection and analysis',
-                    'permission' => 'can_view_online_data',
+                    'permission' => 'can_fetch_online_data',
                     'module' => 'online_data',
                     'paths' => [
                         'api/online-data/data-analysis',
