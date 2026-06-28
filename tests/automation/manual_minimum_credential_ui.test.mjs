@@ -111,6 +111,8 @@ test('Meituan ranking money cells use backend source prefixes', () => {
   assert.doesNotMatch(rankingTable, /'¥'\s*\+\s*hotel\.salesText/);
   assert.match(rankingTable, /\(hotel\.roomRevenuePrefix \|\| ''\) \+ hotel\.roomRevenueText/);
   assert.match(rankingTable, /\(hotel\.salesPrefix \|\| ''\) \+ hotel\.salesText/);
+  assert.match(rankingTable, /\(hotel\.exposurePrefix \|\| ''\) \+ hotel\.exposureText/);
+  assert.match(rankingTable, /\(hotel\.viewsPrefix \|\| ''\) \+ hotel\.viewsText/);
   assert.match(displayPayload, /self_metric_values:\s*mergeMeituanSelfMetricValues/);
   assert.match(displayPayload, /results\.map\(result => result\.selfMetricValues\)/);
   assert.match(fetchTasks, /include_self_trade_metrics:\s*true/);
