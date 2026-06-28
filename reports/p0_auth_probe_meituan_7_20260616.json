@@ -1,0 +1,36 @@
+{
+  "store_id": "739212829",
+  "poi_id": "739212829",
+  "poi_name": "",
+  "system_hotel_id": 7,
+  "default_data_date": "2026-06-16",
+  "captured_at": "2026-06-16T06:12:13.260Z",
+  "source": "meituan_browser_profile",
+  "mode": "login_only",
+  "capture_sections": [
+    "traffic"
+  ],
+  "pages": [],
+  "responses": [],
+  "reviews": [],
+  "traffic": [],
+  "ads": [],
+  "orders": [],
+  "screenshots": [],
+  "cookie_injection": {
+    "attempted": false,
+    "injected_count": 0,
+    "domains": []
+  },
+  "auth_status": {
+    "ok": true,
+    "status": "logged_in",
+    "url": "https://me.meituan.com/ebooking/merchant/home",
+    "message": "Meituan profile is logged in."
+  },
+  "capture_gate": {
+    "status": "pass",
+    "failed_check_ids": [],
+    "mode": "login_only"
+  }
+}

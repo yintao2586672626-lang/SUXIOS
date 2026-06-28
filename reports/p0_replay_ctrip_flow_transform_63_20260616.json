@@ -1,0 +1,23 @@
+{
+  "source": "ctrip_browser_profile_replay",
+  "profile_id": "63",
+  "hotel_id": "63",
+  "system_hotel_id": 63,
+  "default_data_date": "2026-06-16",
+  "captured_at": "2026-06-16T08:57:04.684Z",
+  "replay_source": {
+    "from": "reports/p0_quick_probe_ctrip_63_20260616.json",
+    "endpoint_id": "traffic_flow_transform",
+    "date_override": "2026-06-16"
+  },
+  "response": {
+    "status": 200,
+    "ok": true,
+    "url_hash_only": true,
+    "body_type": "text",
+    "body_keys": []
+  },
+  "data": {
+    "text_sample": ""
+  }
+}

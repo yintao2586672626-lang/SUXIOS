@@ -1,0 +1,446 @@
+﻿{
+    "script": "scripts\/import_p0_ota_traffic_payload.php",
+    "status": "imported",
+    "p0_completion_status": "imported_post_execute_readback_ready_requires_p0_verifier",
+    "p0_completion_gate": "P0 complete only when --execute saves target-date traffic rows and a separate verify:p0-ota-field-loop run returns ready.",
+    "post_execute_readback_policy": "Importer post_execute_verification is DB readback evidence only; final P0 closure still requires npm.cmd run verify:p0-ota-field-loop on the target date.",
+    "mode": "execute",
+    "platform": "ctrip",
+    "date": "2026-06-16",
+    "system_hotel_id": 7,
+    "payload_path": "reports\\p0_browser_capture_ctrip_system_7_20260616.json",
+    "scope_policy": "ota_channel_only",
+    "target_storage_table": "online_daily_data",
+    "target_data_type": "traffic",
+    "payload_import_projection": {
+        "applied": true,
+        "reason": "browser_capture_import_projection",
+        "retained_top_level_keys": [
+            "source",
+            "mode",
+            "system_hotel_id",
+            "hotel_id",
+            "default_data_date",
+            "auth_status",
+            "capture_gate",
+            "requested_sections",
+            "traffic",
+            "standard_rows",
+            "responses"
+        ],
+        "dropped_top_level_key_count": 25,
+        "dropped_top_level_keys": [
+            "profile_id",
+            "hotel_name",
+            "captured_at",
+            "page_urls",
+            "catalog",
+            "approved_mappings",
+            "profile_field_config",
+            "pages",
+            "xhr_urls",
+            "unmatched_xhr_urls",
+            "endpoint_candidates",
+            "p3_evidence_drafts",
+            "p3_evidence_matrix",
+            "capture_audit",
+            "capture_gap_report",
+            "by_section",
+            "rows",
+            "catalog_facts",
+            "business",
+            "reviews"
+        ],
+        "removed_sensitive_metadata_count": 127,
+        "removed_sensitive_metadata_paths": [
+            "auth_status.url",
+            "traffic.2.promoteUrl",
+            "standard_rows.0.raw_data.source_url",
+            "standard_rows.1.raw_data.source_url",
+            "standard_rows.2.raw_data.source_url",
+            "standard_rows.3.raw_data.source_url",
+            "standard_rows.4.raw_data.source_url",
+            "standard_rows.5.raw_data.source_url",
+            "standard_rows.6.raw_data.source_url",
+            "standard_rows.7.raw_data.source_url",
+            "standard_rows.8.raw_data.source_url",
+            "standard_rows.9.raw_data.source_url",
+            "standard_rows.10.raw_data.source_url",
+            "standard_rows.11.raw_data.source_url",
+            "standard_rows.12.raw_data.source_url",
+            "standard_rows.13.raw_data.source_url",
+            "standard_rows.14.raw_data.source_url",
+            "standard_rows.15.raw_data.source_url",
+            "standard_rows.16.raw_data.source_url",
+            "standard_rows.17.raw_data.source_url"
+        ]
+    },
+    "sensitive_values_exposed": false,
+    "summary": {
+        "extracted_rows": 90,
+        "target_date_rows": 1,
+        "defaulted_date_rows": 0,
+        "complete_field_fact_preview_rows": 1,
+        "incomplete_field_fact_preview_rows": 0,
+        "rows_with_desensitized_capture_evidence": 1,
+        "missing_capture_evidence_rows": 0,
+        "rows_with_complete_desensitized_capture_evidence": 1,
+        "missing_complete_capture_evidence_rows": 0,
+        "row_level_desensitized_capture_evidence_rows": 1,
+        "missing_row_level_capture_evidence_rows": 0,
+        "row_level_complete_desensitized_capture_evidence_rows": 1,
+        "missing_row_level_complete_capture_evidence_rows": 0,
+        "browser_response_evidence_rows": 1,
+        "missing_browser_response_evidence_rows": 0,
+        "browser_date_source_evidence_rows": 1,
+        "missing_browser_date_source_evidence_rows": 0,
+        "explicit_source_path_rows": 1,
+        "missing_source_path_rows": 0,
+        "platform_hotel_identifier_rows": 1,
+        "missing_platform_hotel_identifier_rows": 0,
+        "complete_metric_keys": [
+            "list_exposure",
+            "detail_exposure",
+            "flow_rate",
+            "order_filling_num",
+            "order_submit_num"
+        ],
+        "missing_metric_keys": [],
+        "sample_rows": [
+            {
+                "row_date": "2026-06-16",
+                "source_path": "$.data",
+                "source_path_structured": true,
+                "platform_hotel_identifier_present": true,
+                "desensitized_capture_evidence_present": true,
+                "complete_desensitized_capture_evidence_present": true,
+                "row_level_desensitized_capture_evidence_present": true,
+                "row_level_complete_desensitized_capture_evidence_present": true,
+                "browser_response_evidence_present": true,
+                "date_source": "request.payload.statdate",
+                "browser_date_source_evidence_present": true,
+                "metrics": {
+                    "list_exposure": 0,
+                    "detail_exposure": 0,
+                    "flow_rate": 0,
+                    "order_filling_num": 0,
+                    "order_submit_num": 0
+                },
+                "field_fact_preview": {
+                    "status": "ready",
+                    "complete_metric_keys": [
+                        "list_exposure",
+                        "detail_exposure",
+                        "flow_rate",
+                        "order_filling_num",
+                        "order_submit_num"
+                    ],
+                    "missing_metric_keys": [],
+                    "fact_count": 5,
+                    "desensitized_capture_evidence_present": true,
+                    "ui_status": {
+                        "field_fact_status": "ready",
+                        "label": "字段闭环",
+                        "detail": "metric_key 5\/5，采集证据 5，desensitized_capture_evidence 5，source_path 5，structured_source_path 5，入库字段 5，入库值 5，缺失 0",
+                        "captured_count": 5,
+                        "missing_count": 0,
+                        "capture_evidence_count": 5,
+                        "desensitized_capture_evidence_count": 5,
+                        "source_path_count": 5,
+                        "structured_source_path_count": 5,
+                        "metric_key_count": 5,
+                        "storage_field_count": 5,
+                        "stored_value_present_count": 5,
+                        "stored_value_missing_count": 0,
+                        "raw_data_exposed": false
+                    },
+                    "field_facts": [
+                        {
+                            "metric_key": "list_exposure",
+                            "source_path": "$.data.listExposure",
+                            "storage_field": "online_daily_data.list_exposure",
+                            "stored_value_present": true,
+                            "capture_evidence": {
+                                "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                                "source_url_hash": "398526f16e46541ab22fc898b13c14fb2806bd097addf8e38d8f29086937a4fc"
+                            }
+                        },
+                        {
+                            "metric_key": "detail_exposure",
+                            "source_path": "$.data.detailExposure",
+                            "storage_field": "online_daily_data.detail_exposure",
+                            "stored_value_present": true,
+                            "capture_evidence": {
+                                "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                                "source_url_hash": "398526f16e46541ab22fc898b13c14fb2806bd097addf8e38d8f29086937a4fc"
+                            }
+                        },
+                        {
+                            "metric_key": "flow_rate",
+                            "source_path": "$.data.flowRate",
+                            "storage_field": "online_daily_data.flow_rate",
+                            "stored_value_present": true,
+                            "capture_evidence": {
+                                "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                                "source_url_hash": "398526f16e46541ab22fc898b13c14fb2806bd097addf8e38d8f29086937a4fc"
+                            }
+                        },
+                        {
+                            "metric_key": "order_filling_num",
+                            "source_path": "$.data.orderFillingNum",
+                            "storage_field": "online_daily_data.order_filling_num",
+                            "stored_value_present": true,
+                            "capture_evidence": {
+                                "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                                "source_url_hash": "398526f16e46541ab22fc898b13c14fb2806bd097addf8e38d8f29086937a4fc"
+                            }
+                        },
+                        {
+                            "metric_key": "order_submit_num",
+                            "source_path": "$.data.orderSubmitNum",
+                            "storage_field": "online_daily_data.order_submit_num",
+                            "stored_value_present": true,
+                            "capture_evidence": {
+                                "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                                "source_url_hash": "398526f16e46541ab22fc898b13c14fb2806bd097addf8e38d8f29086937a4fc"
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "execute_plan": {
+        "input_source": "validated_target_date_rows",
+        "payload_shape": "data.flowData",
+        "target_date_row_count": 1,
+        "rows_with_desensitized_capture_evidence": 1,
+        "rows_with_complete_desensitized_capture_evidence": 1
+    },
+    "traffic_evidence": [
+        {
+            "platform": "ctrip",
+            "target_date": "2026-06-16",
+            "system_hotel_id": 7,
+            "scope_policy": "ota_channel_only",
+            "platform_hotel_identifier_present": true,
+            "platform_hotel_identifier_source": "hotel_id_family",
+            "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+            "capture_evidence": {
+                "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                "source_url_hash": "398526f16e46541ab22fc898b13c14fb2806bd097addf8e38d8f29086937a4fc"
+            },
+            "sensitive_values_exposed": false,
+            "ui_status": {
+                "field_fact_status": "ready",
+                "label": "字段闭环",
+                "detail": "metric_key 5\/5，采集证据 5，desensitized_capture_evidence 5，source_path 5，structured_source_path 5，入库字段 5，入库值 5，缺失 0",
+                "captured_count": 5,
+                "missing_count": 0,
+                "capture_evidence_count": 5,
+                "desensitized_capture_evidence_count": 5,
+                "source_path_count": 5,
+                "structured_source_path_count": 5,
+                "metric_key_count": 5,
+                "storage_field_count": 5,
+                "stored_value_present_count": 5,
+                "stored_value_missing_count": 0,
+                "raw_data_exposed": false
+            },
+            "field_facts": [
+                {
+                    "metric_key": "list_exposure",
+                    "source_path": "$.data.listExposure",
+                    "storage_field": "online_daily_data.list_exposure",
+                    "stored_value_present": true,
+                    "capture_evidence": {
+                        "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                        "source_url_hash": "398526f16e46541ab22fc898b13c14fb2806bd097addf8e38d8f29086937a4fc"
+                    }
+                },
+                {
+                    "metric_key": "detail_exposure",
+                    "source_path": "$.data.detailExposure",
+                    "storage_field": "online_daily_data.detail_exposure",
+                    "stored_value_present": true,
+                    "capture_evidence": {
+                        "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                        "source_url_hash": "398526f16e46541ab22fc898b13c14fb2806bd097addf8e38d8f29086937a4fc"
+                    }
+                },
+                {
+                    "metric_key": "flow_rate",
+                    "source_path": "$.data.flowRate",
+                    "storage_field": "online_daily_data.flow_rate",
+                    "stored_value_present": true,
+                    "capture_evidence": {
+                        "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                        "source_url_hash": "398526f16e46541ab22fc898b13c14fb2806bd097addf8e38d8f29086937a4fc"
+                    }
+                },
+                {
+                    "metric_key": "order_filling_num",
+                    "source_path": "$.data.orderFillingNum",
+                    "storage_field": "online_daily_data.order_filling_num",
+                    "stored_value_present": true,
+                    "capture_evidence": {
+                        "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                        "source_url_hash": "398526f16e46541ab22fc898b13c14fb2806bd097addf8e38d8f29086937a4fc"
+                    }
+                },
+                {
+                    "metric_key": "order_submit_num",
+                    "source_path": "$.data.orderSubmitNum",
+                    "storage_field": "online_daily_data.order_submit_num",
+                    "stored_value_present": true,
+                    "capture_evidence": {
+                        "source_trace_id": "ctrip:3123baeac0d7a8fd91032536a8ad0ca2752854747c3e2c70dffc479a04935226",
+                        "source_url_hash": "398526f16e46541ab22fc898b13c14fb2806bd097addf8e38d8f29086937a4fc"
+                    }
+                }
+            ],
+            "traffic_closure_chain": {
+                "capture_evidence": {
+                    "status": "ready",
+                    "required": "desensitized source_trace_id plus source_url_hash for every required traffic metric"
+                },
+                "source_path": {
+                    "status": "ready",
+                    "required": "structured source_path for every required traffic metric"
+                },
+                "metric_key": {
+                    "status": "ready",
+                    "required": "list_exposure,detail_exposure,flow_rate,order_filling_num,order_submit_num"
+                },
+                "storage_field": {
+                    "status": "ready",
+                    "required": "online_daily_data.list_exposure,online_daily_data.detail_exposure,online_daily_data.flow_rate,online_daily_data.order_filling_num,online_daily_data.order_submit_num"
+                },
+                "stored_value": {
+                    "status": "ready",
+                    "required": "stored_value_present=true for every required traffic metric"
+                },
+                "ui_status": {
+                    "status": "ready",
+                    "required": "ready UI field_fact_status with zero missing fields and no raw_data exposure"
+                },
+                "platform_hotel_identifier": {
+                    "status": "ready",
+                    "required": "hotel_id_family"
+                },
+                "verifier": {
+                    "status": "requires_execute_and_p0_verifier",
+                    "required": "P0 complete only after --execute saves target-date traffic rows and verify:p0-ota-field-loop returns ready"
+                }
+            },
+            "traffic_closure_chain_policy": "External traffic_evidence closure chain is pre-import source proof only; P0 remains incomplete until --execute saves target-date traffic rows and verify:p0-ota-field-loop returns ready."
+        }
+    ],
+    "traffic_evidence_contract": {
+        "status": "ready_for_p0_verifier_external_evidence",
+        "verifier_command": "npm.cmd run verify:p0-ota-field-loop -- --date=2026-06-16 --platform=ctrip --system-hotel-id=7 --traffic-evidence=<this-json-output>",
+        "completion_policy": "External traffic_evidence validates desensitized source proof only; P0 closure still requires --execute import plus verify:p0-ota-field-loop target-date traffic rows."
+    },
+    "warnings": [
+        {
+            "code": "browser_capture_gate_soft_warning",
+            "message": "Browser capture gate has non-blocking endpoint\/field coverage gaps; row-level date, source path, metric, capture evidence, and response evidence checks remain required before import.",
+            "capture_gate_status": "fail",
+            "failed_check_ids": [
+                "endpoint_coverage"
+            ],
+            "blocking_failed_check_ids": []
+        }
+    ],
+    "issues": [],
+    "completion_policy": "Import is only accepted as P0 closure after verify:p0-ota-field-loop proves target-date traffic rows and traffic field facts.",
+    "next_verifier_command": "npm.cmd run verify:p0-ota-field-loop -- --date=2026-06-16 --platform=ctrip --system-hotel-id=7",
+    "saved_count": 1,
+    "execute_policy": "explicit_execute_only",
+    "execute_input_source": "validated_target_date_rows",
+    "execute_payload_shape": "data.flowData",
+    "execute_payload_row_count": 1,
+    "post_execute_verification": {
+        "status": "ready",
+        "target_date": "2026-06-16",
+        "platform": "ctrip",
+        "system_hotel_id": 7,
+        "traffic_row_count": 1,
+        "rows_with_field_facts": 1,
+        "ready_ui_status_rows": 1,
+        "ui_status_ready_rows": 1,
+        "ui_status_incomplete_rows": 0,
+        "platform_hotel_identifier_source": "hotel_id_family",
+        "platform_hotel_identifier_rows": 1,
+        "missing_platform_hotel_identifier_rows": 0,
+        "complete_metric_keys": [
+            "list_exposure",
+            "detail_exposure",
+            "flow_rate",
+            "order_filling_num",
+            "order_submit_num"
+        ],
+        "missing_metric_keys": [],
+        "incomplete_metric_keys": [],
+        "ui_statuses": [
+            "ready"
+        ],
+        "sensitive_values_exposed": false,
+        "sample_ui_statuses": [
+            {
+                "row_id": 15704,
+                "field_fact_status": "ready",
+                "raw_data_exposed": false,
+                "captured_count": 5,
+                "desensitized_capture_evidence_count": 5,
+                "structured_source_path_count": 5,
+                "missing_count": 0,
+                "stored_value_missing_count": 0,
+                "status": "ready"
+            }
+        ],
+        "sample_rows": [
+            {
+                "id": 15704,
+                "field_fact_status": "ready",
+                "raw_data_exposed": false,
+                "field_fact_count": 5
+            }
+        ],
+        "traffic_closure_chain": {
+            "capture_evidence": {
+                "status": "ready",
+                "required": "desensitized source_trace_id plus source_url_hash, matched to the stored traffic row and each field fact"
+            },
+            "source_path": {
+                "status": "ready",
+                "required": "structured source_path for every required traffic metric"
+            },
+            "metric_key": {
+                "status": "ready",
+                "required": "list_exposure,detail_exposure,flow_rate,order_filling_num,order_submit_num"
+            },
+            "storage_field": {
+                "status": "ready",
+                "required": "online_daily_data.list_exposure,online_daily_data.detail_exposure,online_daily_data.flow_rate,online_daily_data.order_filling_num,online_daily_data.order_submit_num"
+            },
+            "stored_value": {
+                "status": "ready",
+                "required": "stored value present for every required traffic metric"
+            },
+            "ui_status": {
+                "status": "ready",
+                "required": "ready UI field_fact_status with no raw_data exposure"
+            },
+            "platform_hotel_identifier": {
+                "status": "ready",
+                "required": "hotel_id_family"
+            },
+            "verifier": {
+                "status": "ready",
+                "required": "post_execute_verification.status=ready and verify:p0-ota-field-loop target-date traffic gate ready"
+            }
+        },
+        "traffic_closure_chain_policy": "Post-execute closure chain is DB readback evidence only; P0 remains incomplete unless stored target-date traffic rows and verify:p0-ota-field-loop are ready."
+    }
+}

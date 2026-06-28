@@ -1,0 +1,1667 @@
+{
+  "profile_id": "64",
+  "hotel_id": "64",
+  "default_data_date": "2026-06-16",
+  "source": "ctrip_browser_profile",
+  "mode": "quick_endpoint_probe",
+  "captured_at": "2026-06-16T09:07:31.140Z",
+  "requested_sections": [
+    "traffic_report"
+  ],
+  "catalog": {
+    "platform": "ctrip",
+    "section_count": 18,
+    "endpoint_count": 78,
+    "field_count": 252,
+    "default_sections": [
+      "business_overview",
+      "business_weekly_overview",
+      "traffic_report"
+    ],
+    "presets": {
+      "default": [
+        "business_overview",
+        "business_weekly_overview",
+        "traffic_report"
+      ],
+      "core": [
+        "homepage",
+        "business_overview",
+        "business_weekly_overview",
+        "sales_report",
+        "traffic_report"
+      ],
+      "wide": [
+        "homepage",
+        "business_overview",
+        "business_weekly_overview",
+        "sales_report",
+        "traffic_report",
+        "comment_review",
+        "competitor_overview",
+        "loss_analysis",
+        "competitor_rank",
+        "user_profile",
+        "im_board",
+        "ads_pyramid",
+        "quality_psi",
+        "market_calendar",
+        "biztravel_bpi",
+        "biztravel_business_report",
+        "biztravel_competitor"
+      ]
+    },
+    "interaction_plan_section_count": 16,
+    "interaction_plan_step_count": 80
+  },
+  "pages": [
+    {
+      "name": "traffic_report",
+      "label": "经营报告-流量数据",
+      "configured_url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true",
+      "confidence": "observed_from_user",
+      "url": "https://ebooking.ctrip.com/login/index?targetPath=%2Fdatacenter%2Finland%2Fbusinessreport%2Fflowdata%3FmicroJump%3Dtrue",
+      "ok": true,
+      "elapsed_ms": 5794
+    }
+  ],
+  "responses": [
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeInfo?_fxpcqlniredt=09031167317472657753&x-traceID=09031167317472657753-1781600853736-6920434",
+      "section": "traffic_report",
+      "section_label": "经营报告-流量数据",
+      "endpoint_id": "",
+      "endpoint_label": "",
+      "data_type": "traffic",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST",
+      "post_data": "{\"reqHead\":{\"host\":\"ebooking.ctrip.com\",\"pathName\":\"/login/index\",\"locale\":\"zh-CN\",\"release\":\"\",\"client\":{\"deviceType\":\"PC\",\"os\":\"Windows\",\"osVersion\":\"Windows 10\",\"deviceName\":\"Windows PC\",\"clientId\":\"09031167317472657753\",\"screenWidth\":1920,\"screenHeight\":1080,\"isIn\":{\"ie\":false,\"chrome\":true,\"chrome49\":false,\"wechat\":false,\"firefox\":false,\"ios\":false,\"android\":false},\"isModernBrowser\":true,\"browser\":\"Chrome\",\"browserVersion\":\"146\",\"platform\":\"pc\",\"technology\":\"web\"},\"ubt\":{\"pageid\":\"10650079622\",\"pvid\":2,\"sid\":2,\"vid\":\"1781590337586.1468wTThZ4pd\",\"fp\":\"38E79A-987DC2-A5DD20\",\"rmsToken\":\"fp=38E79A-987DC2-A5DD20&vid=1781590337586.1468wTThZ4pd&pageId=10650079622&r=5c85d0dff6f54ba089145c508b2035f1&ip=171.217.42.19&rg=fin&kpData=0_0_0&kpControl=0_0_0-0_0_0&kpEmp=0_0_0_0_0_0_0_0_0_0-0_0_0_0_0_0_0_0_0_0-0_0_0_0_0_0_0_0_0_0&screen=1920x1080&tz=+8&blang=zh-CN&oslang=zh-CN&ua=Mozilla%2F5.0%20(Windows%20NT%2010.0%3B%20Win64%3B%20x64)%20AppleWebKit%2F537.36%20(KHTML%2C%20like%20Gecko)%20Chrome%2F146.0.0.0%20Safari%2F537.36&d=ebooking.ctrip.com&v=25&kpg=0_0_0_0_0_0_0_0_0_0&adblock=F&cck=F&ftoken=\"},\"gps\":{\"coord\":\"\",\"lat\":\"\",\"lng\":\"\",\"cid\":0,\"cnm\":\"\"},\"protocal\":\"https:\"},\"head\":{\"cid\":\"09031167317472657753\",\"ctok\":\"\",\"cver\":\"1.0\",\"lang\":\"01\",\"sid\":\"8888\",\"syscode\":\"09\",\"auth\":\"\",\"xsid\":\"\",\"extension\":[]}}",
+      "catalog_fact_count": 0,
+      "standard_row_count": 0,
+      "data": {
+        "resStatus": {
+          "rcode": 200,
+          "rmsg": ""
+        },
+        "qrcodeUrl": "https://ebooking.ctrip.com/login/authorize?qrcodeToken=35c1c1e9f985459ebbaa201b24ad0430-17r1p0098q",
+        "ResponseStatus": {
+          "Timestamp": "/Date(1781600927412+0800)/",
+          "Ack": "Success",
+          "Errors": [],
+          "Extension": [
+            {
+              "Id": "CLOGGING_TRACE_ID",
+              "Value": "719891fc-af3c-4dde-b998-ea7f16097ed9"
+            },
+            {
+              "Id": "RootMessageId",
+              "Value": "100025527-0a959435-494889-673431"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24278/getTelByLocale?_fxpcqlniredt=09031167317472657753&x-traceID=09031167317472657753-1781600853737-8502311",
+      "section": "traffic_report",
+      "section_label": "经营报告-流量数据",
+      "endpoint_id": "",
+      "endpoint_label": "",
+      "data_type": "traffic",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST",
+      "post_data": "{\"reqHead\":{\"host\":\"ebooking.ctrip.com\",\"pathName\":\"/login/index\",\"locale\":\"zh-CN\",\"release\":\"\",\"client\":{\"deviceType\":\"PC\",\"os\":\"Windows\",\"osVersion\":\"Windows 10\",\"deviceName\":\"Windows PC\",\"clientId\":\"09031167317472657753\",\"screenWidth\":1920,\"screenHeight\":1080,\"isIn\":{\"ie\":false,\"chrome\":true,\"chrome49\":false,\"wechat\":false,\"firefox\":false,\"ios\":false,\"android\":false},\"isModernBrowser\":true,\"browser\":\"Chrome\",\"browserVersion\":\"146\",\"platform\":\"pc\",\"technology\":\"web\"},\"ubt\":{\"pageid\":\"10650079622\",\"pvid\":2,\"sid\":2,\"vid\":\"1781590337586.1468wTThZ4pd\",\"fp\":\"38E79A-987DC2-A5DD20\",\"rmsToken\":\"fp=38E79A-987DC2-A5DD20&vid=1781590337586.1468wTThZ4pd&pageId=10650079622&r=5c85d0dff6f54ba089145c508b2035f1&ip=171.217.42.19&rg=fin&kpData=0_0_0&kpControl=0_0_0-0_0_0&kpEmp=0_0_0_0_0_0_0_0_0_0-0_0_0_0_0_0_0_0_0_0-0_0_0_0_0_0_0_0_0_0&screen=1920x1080&tz=+8&blang=zh-CN&oslang=zh-CN&ua=Mozilla%2F5.0%20(Windows%20NT%2010.0%3B%20Win64%3B%20x64)%20AppleWebKit%2F537.36%20(KHTML%2C%20like%20Gecko)%20Chrome%2F146.0.0.0%20Safari%2F537.36&d=ebooking.ctrip.com&v=25&kpg=0_0_0_0_0_0_0_0_0_0&adblock=F&cck=F&ftoken=\"},\"gps\":{\"coord\":\"\",\"lat\":\"\",\"lng\":\"\",\"cid\":0,\"cnm\":\"\"},\"protocal\":\"https:\"},\"head\":{\"cid\":\"09031167317472657753\",\"ctok\":\"\",\"cver\":\"1.0\",\"lang\":\"01\",\"sid\":\"8888\",\"syscode\":\"09\",\"auth\":\"\",\"xsid\":\"\",\"extension\":[]}}",
+      "catalog_fact_count": 0,
+      "standard_row_count": 0,
+      "data": {
+        "tel_masked": "*******************3737",
+        "resStatus": {
+          "rcode": 200,
+          "rmsg": ""
+        },
+        "ResponseStatus": {
+          "Timestamp": "/Date(1781600927415+0800)/",
+          "Ack": "Success",
+          "Errors": [],
+          "Extension": [
+            {
+              "Id": "CLOGGING_TRACE_ID",
+              "Value": "61c33444-72a3-9445-9ebe-2bcb64d49b53"
+            },
+            {
+              "Id": "RootMessageId",
+              "Value": "100025527-0a088ef6-494889-669082"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031167317472657753&x-traceID=09031167317472657753-1781600856887-7707733",
+      "section": "traffic_report",
+      "section_label": "经营报告-流量数据",
+      "endpoint_id": "",
+      "endpoint_label": "",
+      "data_type": "traffic",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST",
+      "post_data": "{\"reqHead\":{\"host\":\"ebooking.ctrip.com\",\"pathName\":\"/login/index\",\"locale\":\"zh-CN\",\"release\":\"\",\"client\":{\"deviceType\":\"PC\",\"os\":\"Windows\",\"osVersion\":\"Windows 10\",\"deviceName\":\"Windows PC\",\"clientId\":\"09031167317472657753\",\"screenWidth\":1920,\"screenHeight\":1080,\"isIn\":{\"ie\":false,\"chrome\":true,\"chrome49\":false,\"wechat\":false,\"firefox\":false,\"ios\":false,\"android\":false},\"isModernBrowser\":true,\"browser\":\"Chrome\",\"browserVersion\":\"146\",\"platform\":\"pc\",\"technology\":\"web\"},\"ubt\":{\"pageid\":\"10650079622\",\"pvid\":2,\"sid\":2,\"vid\":\"1781590337586.1468wTThZ4pd\",\"fp\":\"38E79A-987DC2-A5DD20\",\"rmsToken\":\"fp=38E79A-987DC2-A5DD20&vid=1781590337586.1468wTThZ4pd&pageId=10650079622&r=5c85d0dff6f54ba089145c508b2035f1&ip=171.217.42.19&rg=fin&kpData=0_0_0&kpControl=0_0_0-0_0_0&kpEmp=0_0_0_0_0_0_0_0_0_0-0_0_0_0_0_0_0_0_0_0-0_0_0_0_0_0_0_0_0_0&screen=1920x1080&tz=+8&blang=zh-CN&oslang=zh-CN&ua=Mozilla%2F5.0%20(Windows%20NT%2010.0%3B%20Win64%3B%20x64)%20AppleWebKit%2F537.36%20(KHTML%2C%20like%20Gecko)%20Chrome%2F146.0.0.0%20Safari%2F537.36&d=ebooking.ctrip.com&v=25&kpg=0_0_0_0_0_0_0_0_0_0&adblock=F&cck=F&ftoken=\"},\"gps\":{\"coord\":\"\",\"lat\":\"\",\"lng\":\"\",\"cid\":0,\"cnm\":\"\"},\"protocal\":\"https:\"},\"qrcodeToken\":\"35c1c1e9f985459ebbaa201b24ad0430-17r1p0098q\",\"head\":{\"cid\":\"09031167317472657753\",\"ctok\":\"\",\"cver\":\"1.0\",\"lang\":\"01\",\"sid\":\"8888\",\"syscode\":\"09\",\"auth\":\"\",\"xsid\":\"\",\"extension\":[]}}",
+      "catalog_fact_count": 0,
+      "standard_row_count": 0,
+      "data": {
+        "resStatus": {
+          "rcode": 200,
+          "rmsg": ""
+        },
+        "qrcodeStatus": "NOT_SCAN",
+        "ResponseStatus": {
+          "Timestamp": "/Date(1781600930572+0800)/",
+          "Ack": "Success",
+          "Errors": [],
+          "Extension": [
+            {
+              "Id": "CLOGGING_TRACE_ID",
+              "Value": "2be49322-be83-4217-9dab-856f279357b0"
+            },
+            {
+              "Id": "RootMessageId",
+              "Value": "100025527-0a15479c-494889-844584"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "xhr_urls": [
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeInfo?_fxpcqlniredt=09031167317472657753&x-traceID=09031167317472657753-1781600853736-6920434",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24278/getTelByLocale?_fxpcqlniredt=09031167317472657753&x-traceID=09031167317472657753-1781600853737-8502311",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031167317472657753&x-traceID=09031167317472657753-1781600856887-7707733",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    }
+  ],
+  "unmatched_xhr_urls": [],
+  "by_section": {
+    "traffic_report": []
+  },
+  "rows": [],
+  "standard_rows": [],
+  "catalog_facts": [],
+  "capture_audit": {
+    "platform": "ctrip",
+    "generated_at": "2026-06-16T09:07:31.140Z",
+    "input_files": [
+      "D:\\桌面\\SUXIOS\\宿析OS初始版\\HOTEL\\reports\\p0_quick_probe_ctrip_64_20260616.json"
+    ],
+    "summary": {
+      "input_file_count": 1,
+      "response_count": 3,
+      "catalog_fact_count": 0,
+      "unique_metric_count": 0,
+      "standard_row_count": 0,
+      "unmatched_xhr_url_count": 0,
+      "formal_endpoint_count": 0,
+      "endpoint_candidate_count": 0,
+      "pending_candidate_section_count": 0,
+      "requested_section_count": 1,
+      "expected_endpoint_count": 13,
+      "captured_catalog_endpoint_count": 0,
+      "missing_catalog_endpoint_count": 13,
+      "expected_field_count": 93,
+      "captured_catalog_field_count": 0,
+      "missing_catalog_field_count": 93,
+      "auth_login_required_count": 0,
+      "page_count": 1,
+      "interaction_planned_count": 0,
+      "interaction_clicked_count": 0,
+      "interaction_skipped_count": 0,
+      "interaction_error_count": 0,
+      "interaction_section_count": 1,
+      "p3_evidence_draft_count": 0,
+      "p3_evidence_ready_count": 0,
+      "p3_evidence_incomplete_count": 0,
+      "p3_evidence_ready_section_count": 0
+    },
+    "by_section": {
+      "traffic_report": {
+        "response_count": 3,
+        "catalog_fact_count": 0,
+        "standard_row_count": 0,
+        "endpoint_ids": [],
+        "metric_keys": []
+      }
+    },
+    "interactions_by_section": {
+      "traffic_report": {
+        "page_count": 1,
+        "planned_count": 0,
+        "clicked_count": 0,
+        "skipped_count": 0,
+        "error_count": 0,
+        "clicked_actions": [],
+        "missed_actions": [],
+        "skipped_reasons": []
+      }
+    },
+    "endpoint_coverage": {
+      "summary": {
+        "requested_section_count": 1,
+        "expected_endpoint_count": 13,
+        "captured_endpoint_count": 0,
+        "missing_endpoint_count": 13,
+        "coverage_rate": 0
+      },
+      "requested_sections": [
+        "traffic_report"
+      ],
+      "sections": {
+        "traffic_report": {
+          "expected_endpoint_count": 13,
+          "captured_endpoint_count": 0,
+          "missing_endpoint_count": 13,
+          "captured_endpoint_ids": [],
+          "missing_endpoint_ids": [
+            "traffic_city_keywords",
+            "traffic_comment_score_summary",
+            "traffic_flow_source",
+            "traffic_flow_source_popups",
+            "traffic_flow_transform",
+            "traffic_hotel_min_price",
+            "traffic_hotel_seq",
+            "traffic_menu_key",
+            "traffic_order_overview",
+            "traffic_order_trend",
+            "traffic_picture_quality",
+            "traffic_scan_flow",
+            "traffic_search_details"
+          ],
+          "missing_endpoints": [
+            {
+              "id": "traffic_city_keywords",
+              "label": "经营报告-流量数据",
+              "status": "observed",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_comment_score_summary",
+              "label": "经营报告-流量数据",
+              "status": "observed",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_flow_source",
+              "label": "经营报告-流量数据",
+              "status": "observed",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_flow_source_popups",
+              "label": "经营报告-流量数据",
+              "status": "supporting",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_flow_transform",
+              "label": "经营报告-流量数据",
+              "status": "observed",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_hotel_min_price",
+              "label": "经营报告-流量数据",
+              "status": "observed",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_hotel_seq",
+              "label": "经营报告-流量数据",
+              "status": "observed",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_menu_key",
+              "label": "经营报告-流量数据",
+              "status": "supporting",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_order_overview",
+              "label": "经营报告-流量数据",
+              "status": "observed",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_order_trend",
+              "label": "经营报告-流量数据",
+              "status": "observed",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_picture_quality",
+              "label": "经营报告-流量数据",
+              "status": "observed",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_scan_flow",
+              "label": "经营报告-流量数据",
+              "status": "observed",
+              "data_type": "traffic"
+            },
+            {
+              "id": "traffic_search_details",
+              "label": "经营报告-流量数据",
+              "status": "observed",
+              "data_type": "traffic"
+            }
+          ]
+        }
+      }
+    },
+    "field_coverage": {
+      "summary": {
+        "requested_section_count": 1,
+        "expected_field_count": 93,
+        "captured_field_count": 0,
+        "missing_field_count": 93,
+        "coverage_rate": 0
+      },
+      "requested_sections": [
+        "traffic_report"
+      ],
+      "sections": {
+        "traffic_report": {
+          "expected_field_count": 93,
+          "captured_field_count": 0,
+          "missing_field_count": 93,
+          "unexpected_field_count": 0,
+          "captured_field_ids": [],
+          "missing_field_ids": [
+            "avg_price",
+            "bad_review_tag",
+            "base_score",
+            "comment_count",
+            "comment_good_rate",
+            "comment_response_rate",
+            "comment_score_summary",
+            "comment_unreply_count",
+            "competitor_average",
+            "competitor_avg_visitor",
+            "competitor_deal_rate",
+            "competitor_detail_visitor",
+            "competitor_flow_rate",
+            "competitor_list_exposure",
+            "competitor_order_fill_rate",
+            "competitor_order_page_visitor",
+            "competitor_order_submit_user",
+            "config_name",
+            "config_value",
+            "conversion_rate",
+            "ctrip_comment_count",
+            "ctrip_rating",
+            "ctrip_rating_rank",
+            "deal_rate",
+            "deduct_score",
+            "detail_visitor",
+            "elong_comment_count",
+            "elong_rating",
+            "flow_rate",
+            "hotel_collect",
+            "hotel_collect_rank",
+            "im_score",
+            "keyword",
+            "list_exposure",
+            "min_price",
+            "min_price_rank",
+            "notice_count",
+            "notice_text",
+            "notice_title",
+            "occupancy_rate",
+            "order_amount",
+            "order_count",
+            "order_fill_rate",
+            "order_page_visitor",
+            "order_submit_user",
+            "page_views",
+            "psi_score",
+            "qunar_comment_count",
+            "qunar_competitor_avg_visitor",
+            "qunar_competitor_deal_rate",
+            "qunar_competitor_detail_visitor",
+            "qunar_competitor_flow_rate",
+            "qunar_competitor_list_exposure",
+            "qunar_competitor_order_fill_rate",
+            "qunar_competitor_order_page_visitor",
+            "qunar_competitor_order_submit_user",
+            "qunar_deal_rate",
+            "qunar_detail_visitor",
+            "qunar_flow_rate",
+            "qunar_list_exposure",
+            "qunar_order_fill_rate",
+            "qunar_order_page_visitor",
+            "qunar_order_submit_user",
+            "qunar_rating",
+            "qunar_rating_rank",
+            "qunar_visitor_rank",
+            "rank",
+            "rating_competitor_total",
+            "reply_rank",
+            "reply_rate",
+            "review_cleanliness_score",
+            "review_environment_score",
+            "review_facility_score",
+            "review_photo_count",
+            "review_photo_rate",
+            "review_service_score",
+            "reward_score",
+            "room_nights",
+            "service_score",
+            "service_score_rank",
+            "source_name",
+            "target_url",
+            "tensity",
+            "traffic_rank",
+            "visitor_count",
+            "visitor_rank",
+            "weekly_competitor_avg_order_page_visitor",
+            "weekly_competitor_avg_submit_user",
+            "weekly_order_page_visitor",
+            "weekly_submit_user",
+            "weekly_top_competitor_order_page_visitor",
+            "weekly_top_competitor_submit_user",
+            "zx_comment_count"
+          ],
+          "unexpected_field_ids": []
+        }
+      }
+    },
+    "auth_status": {
+      "status": "partial_login_redirect",
+      "login_page_count": 1,
+      "page_count": 1,
+      "login_page_urls": [
+        "https://ebooking.ctrip.com/login/index?targetPath=%2Fdatacenter%2Finland%2Fbusinessreport%2Fflowdata%3FmicroJump%3Dtrue"
+      ],
+      "message": "Some Ctrip pages redirected to login; inspect missing sections."
+    },
+    "captured_endpoint_ids": [],
+    "metric_keys": [],
+    "endpoint_candidates": {
+      "traffic_report": {
+        "id": "traffic_report",
+        "label": "经营报告-流量数据",
+        "priority": "P0",
+        "data_type": "traffic",
+        "count": 0,
+        "evidence_status": "needs_payload_response",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response",
+          "page/tab context",
+          "hotel/date parameters"
+        ],
+        "items": []
+      },
+      "orders_detail": {
+        "id": "orders_detail",
+        "label": "订单明细",
+        "priority": "P3",
+        "data_type": "order",
+        "count": 0,
+        "evidence_status": "needs_payload_response",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response",
+          "page/tab context",
+          "hotel/date parameters"
+        ],
+        "items": []
+      },
+      "price_inventory": {
+        "id": "price_inventory",
+        "label": "价格房态",
+        "priority": "P3",
+        "data_type": "business",
+        "count": 0,
+        "evidence_status": "needs_payload_response",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response",
+          "page/tab context",
+          "hotel/date parameters"
+        ],
+        "items": []
+      },
+      "promotion": {
+        "id": "promotion",
+        "label": "促销活动",
+        "priority": "P3",
+        "data_type": "advertising",
+        "count": 0,
+        "evidence_status": "needs_payload_response",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response",
+          "page/tab context",
+          "hotel/date parameters"
+        ],
+        "items": []
+      },
+      "settlement_finance": {
+        "id": "settlement_finance",
+        "label": "结算财务",
+        "priority": "P3",
+        "data_type": "finance",
+        "count": 0,
+        "evidence_status": "needs_payload_response",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response",
+          "page/tab context",
+          "hotel/date parameters"
+        ],
+        "items": []
+      },
+      "contract_mice_rfp": {
+        "id": "contract_mice_rfp",
+        "label": "合同 / MICE / RFP",
+        "priority": "P3",
+        "data_type": "contract",
+        "count": 0,
+        "evidence_status": "needs_payload_response",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response",
+          "page/tab context",
+          "hotel/date parameters"
+        ],
+        "items": []
+      }
+    },
+    "p3_evidence_matrix": {
+      "platform": "ctrip",
+      "generated_at": "2026-06-16T09:07:31.140Z",
+      "summary": {
+        "total_bundles": 0,
+        "ready_bundle_count": 0,
+        "incomplete_bundle_count": 0,
+        "ready_section_count": 0,
+        "missing_section_count": 6,
+        "incomplete_section_count": 0
+      },
+      "sections": {
+        "traffic_report": {
+          "id": "traffic_report",
+          "label": "经营报告-流量数据",
+          "priority": "P0",
+          "data_type": "traffic",
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "bundle_count": 0,
+          "field_draft_count": 0,
+          "missing_evidence": [],
+          "request_urls": []
+        },
+        "orders_detail": {
+          "id": "orders_detail",
+          "label": "订单明细",
+          "priority": "P3",
+          "data_type": "order",
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "bundle_count": 0,
+          "field_draft_count": 0,
+          "missing_evidence": [],
+          "request_urls": []
+        },
+        "price_inventory": {
+          "id": "price_inventory",
+          "label": "价格房态",
+          "priority": "P3",
+          "data_type": "business",
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "bundle_count": 0,
+          "field_draft_count": 0,
+          "missing_evidence": [],
+          "request_urls": []
+        },
+        "promotion": {
+          "id": "promotion",
+          "label": "促销活动",
+          "priority": "P3",
+          "data_type": "advertising",
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "bundle_count": 0,
+          "field_draft_count": 0,
+          "missing_evidence": [],
+          "request_urls": []
+        },
+        "settlement_finance": {
+          "id": "settlement_finance",
+          "label": "结算财务",
+          "priority": "P3",
+          "data_type": "finance",
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "bundle_count": 0,
+          "field_draft_count": 0,
+          "missing_evidence": [],
+          "request_urls": []
+        },
+        "contract_mice_rfp": {
+          "id": "contract_mice_rfp",
+          "label": "合同 / MICE / RFP",
+          "priority": "P3",
+          "data_type": "contract",
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "bundle_count": 0,
+          "field_draft_count": 0,
+          "missing_evidence": [],
+          "request_urls": []
+        }
+      },
+      "missing_sections": [
+        "traffic_report",
+        "orders_detail",
+        "price_inventory",
+        "promotion",
+        "settlement_finance",
+        "contract_mice_rfp"
+      ],
+      "incomplete_sections": [],
+      "next_actions": [
+        "traffic_report: 还没有证据包，需补 Request URL / Payload / Preview-Response / 页面上下文 / 酒店日期参数。",
+        "orders_detail: 还没有证据包，需补 Request URL / Payload / Preview-Response / 页面上下文 / 酒店日期参数。",
+        "price_inventory: 还没有证据包，需补 Request URL / Payload / Preview-Response / 页面上下文 / 酒店日期参数。",
+        "promotion: 还没有证据包，需补 Request URL / Payload / Preview-Response / 页面上下文 / 酒店日期参数。",
+        "settlement_finance: 还没有证据包，需补 Request URL / Payload / Preview-Response / 页面上下文 / 酒店日期参数。",
+        "contract_mice_rfp: 还没有证据包，需补 Request URL / Payload / Preview-Response / 页面上下文 / 酒店日期参数。"
+      ]
+    },
+    "capture_gap_report": {
+      "status": "blocked_auth",
+      "blockers": [
+        "auth_session",
+        "standard_rows"
+      ],
+      "missing_formal_endpoint_count": 13,
+      "missing_formal_endpoints": [
+        {
+          "section": "traffic_report",
+          "id": "traffic_city_keywords",
+          "label": "经营报告-流量数据",
+          "status": "observed",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_comment_score_summary",
+          "label": "经营报告-流量数据",
+          "status": "observed",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_flow_source",
+          "label": "经营报告-流量数据",
+          "status": "observed",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_flow_source_popups",
+          "label": "经营报告-流量数据",
+          "status": "supporting",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_flow_transform",
+          "label": "经营报告-流量数据",
+          "status": "observed",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_hotel_min_price",
+          "label": "经营报告-流量数据",
+          "status": "observed",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_hotel_seq",
+          "label": "经营报告-流量数据",
+          "status": "observed",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_menu_key",
+          "label": "经营报告-流量数据",
+          "status": "supporting",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_order_overview",
+          "label": "经营报告-流量数据",
+          "status": "observed",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_order_trend",
+          "label": "经营报告-流量数据",
+          "status": "observed",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_picture_quality",
+          "label": "经营报告-流量数据",
+          "status": "observed",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_scan_flow",
+          "label": "经营报告-流量数据",
+          "status": "observed",
+          "data_type": "traffic"
+        },
+        {
+          "section": "traffic_report",
+          "id": "traffic_search_details",
+          "label": "经营报告-流量数据",
+          "status": "observed",
+          "data_type": "traffic"
+        }
+      ],
+      "missing_fields_by_section": {
+        "traffic_report": {
+          "expected_field_count": 93,
+          "captured_field_count": 0,
+          "missing_field_count": 93,
+          "missing_field_ids": [
+            "avg_price",
+            "bad_review_tag",
+            "base_score",
+            "comment_count",
+            "comment_good_rate",
+            "comment_response_rate",
+            "comment_score_summary",
+            "comment_unreply_count",
+            "competitor_average",
+            "competitor_avg_visitor",
+            "competitor_deal_rate",
+            "competitor_detail_visitor",
+            "competitor_flow_rate",
+            "competitor_list_exposure",
+            "competitor_order_fill_rate",
+            "competitor_order_page_visitor",
+            "competitor_order_submit_user",
+            "config_name",
+            "config_value",
+            "conversion_rate",
+            "ctrip_comment_count",
+            "ctrip_rating",
+            "ctrip_rating_rank",
+            "deal_rate",
+            "deduct_score",
+            "detail_visitor",
+            "elong_comment_count",
+            "elong_rating",
+            "flow_rate",
+            "hotel_collect",
+            "hotel_collect_rank",
+            "im_score",
+            "keyword",
+            "list_exposure",
+            "min_price",
+            "min_price_rank",
+            "notice_count",
+            "notice_text",
+            "notice_title",
+            "occupancy_rate",
+            "order_amount",
+            "order_count",
+            "order_fill_rate",
+            "order_page_visitor",
+            "order_submit_user",
+            "page_views",
+            "psi_score",
+            "qunar_comment_count",
+            "qunar_competitor_avg_visitor",
+            "qunar_competitor_deal_rate",
+            "qunar_competitor_detail_visitor",
+            "qunar_competitor_flow_rate",
+            "qunar_competitor_list_exposure",
+            "qunar_competitor_order_fill_rate",
+            "qunar_competitor_order_page_visitor",
+            "qunar_competitor_order_submit_user",
+            "qunar_deal_rate",
+            "qunar_detail_visitor",
+            "qunar_flow_rate",
+            "qunar_list_exposure",
+            "qunar_order_fill_rate",
+            "qunar_order_page_visitor",
+            "qunar_order_submit_user",
+            "qunar_rating",
+            "qunar_rating_rank",
+            "qunar_visitor_rank",
+            "rank",
+            "rating_competitor_total",
+            "reply_rank",
+            "reply_rate",
+            "review_cleanliness_score",
+            "review_environment_score",
+            "review_facility_score",
+            "review_photo_count",
+            "review_photo_rate",
+            "review_service_score",
+            "reward_score",
+            "room_nights",
+            "service_score",
+            "service_score_rank",
+            "source_name",
+            "target_url",
+            "tensity",
+            "traffic_rank",
+            "visitor_count",
+            "visitor_rank",
+            "weekly_competitor_avg_order_page_visitor",
+            "weekly_competitor_avg_submit_user",
+            "weekly_order_page_visitor",
+            "weekly_submit_user",
+            "weekly_top_competitor_order_page_visitor",
+            "weekly_top_competitor_submit_user",
+            "zx_comment_count"
+          ]
+        }
+      },
+      "p3_candidate_sections": {},
+      "p3_evidence_sections": {
+        "traffic_report": {
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "missing_evidence": []
+        },
+        "orders_detail": {
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "missing_evidence": []
+        },
+        "price_inventory": {
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "missing_evidence": []
+        },
+        "promotion": {
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "missing_evidence": []
+        },
+        "settlement_finance": {
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "missing_evidence": []
+        },
+        "contract_mice_rfp": {
+          "status": "missing_evidence",
+          "ready_count": 0,
+          "incomplete_count": 0,
+          "missing_evidence": []
+        }
+      },
+      "next_actions": [
+        {
+          "action": "login_and_rerun_capture",
+          "reason": "partial_login_redirect",
+          "section": "",
+          "endpoint_id": "",
+          "required_evidence": [
+            "logged-in browser profile"
+          ]
+        },
+        {
+          "action": "verify_standard_row_mapping",
+          "reason": "standard_row_count_zero",
+          "section": "",
+          "endpoint_id": "",
+          "required_evidence": [
+            "catalog_facts or approved P3 mapping rows"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_city_keywords",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_comment_score_summary",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_flow_source",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_flow_source_popups",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_flow_transform",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_hotel_min_price",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_hotel_seq",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_menu_key",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_order_overview",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_order_trend",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_picture_quality",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_scan_flow",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_formal_endpoint",
+          "reason": "endpoint_coverage_missing",
+          "section": "traffic_report",
+          "endpoint_id": "traffic_search_details",
+          "required_evidence": [
+            "Request URL",
+            "Payload",
+            "Preview / Response"
+          ]
+        },
+        {
+          "action": "capture_missing_fields",
+          "reason": "field_coverage_missing",
+          "section": "traffic_report",
+          "field_ids": [
+            "avg_price",
+            "bad_review_tag",
+            "base_score",
+            "comment_count",
+            "comment_good_rate",
+            "comment_response_rate",
+            "comment_score_summary",
+            "comment_unreply_count",
+            "competitor_average",
+            "competitor_avg_visitor",
+            "competitor_deal_rate",
+            "competitor_detail_visitor",
+            "competitor_flow_rate",
+            "competitor_list_exposure",
+            "competitor_order_fill_rate",
+            "competitor_order_page_visitor",
+            "competitor_order_submit_user",
+            "config_name",
+            "config_value",
+            "conversion_rate",
+            "ctrip_comment_count",
+            "ctrip_rating",
+            "ctrip_rating_rank",
+            "deal_rate",
+            "deduct_score",
+            "detail_visitor",
+            "elong_comment_count",
+            "elong_rating",
+            "flow_rate",
+            "hotel_collect",
+            "hotel_collect_rank",
+            "im_score",
+            "keyword",
+            "list_exposure",
+            "min_price",
+            "min_price_rank",
+            "notice_count",
+            "notice_text",
+            "notice_title",
+            "occupancy_rate"
+          ],
+          "required_evidence": [
+            "source path",
+            "Preview / Response"
+          ]
+        }
+      ]
+    },
+    "next_evidence_required": []
+  },
+  "capture_gate": {
+    "status": "fail",
+    "failed": true,
+    "failed_check_ids": [
+      "auth_session",
+      "standard_rows"
+    ],
+    "thresholds": {
+      "require_auth_session": true,
+      "min_response_count": 1,
+      "min_standard_rows": 1,
+      "require_endpoint_coverage": false,
+      "require_expected_endpoints": true,
+      "max_missing_endpoints": 0,
+      "require_field_coverage": false,
+      "min_field_coverage_rate": null,
+      "max_missing_fields": null
+    },
+    "checks": [
+      {
+        "id": "auth_session",
+        "status": "fail",
+        "actual": "partial_login_redirect",
+        "expected": "logged_in or ok_or_unverified",
+        "message": "Capture must not be a Ctrip login page or partial login redirect."
+      },
+      {
+        "id": "response_count",
+        "status": "pass",
+        "actual": 3,
+        "expected": ">=1",
+        "message": "Capture must include business XHR/fetch responses."
+      },
+      {
+        "id": "standard_rows",
+        "status": "fail",
+        "actual": 0,
+        "expected": ">=1",
+        "message": "Capture must produce rows that can feed SUXIOS OTA analytics."
+      }
+    ]
+  },
+  "capture_gap_report": {
+    "status": "blocked_auth",
+    "blockers": [
+      "auth_session",
+      "standard_rows"
+    ],
+    "missing_formal_endpoint_count": 13,
+    "missing_formal_endpoints": [
+      {
+        "section": "traffic_report",
+        "id": "traffic_city_keywords",
+        "label": "经营报告-流量数据",
+        "status": "observed",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_comment_score_summary",
+        "label": "经营报告-流量数据",
+        "status": "observed",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_flow_source",
+        "label": "经营报告-流量数据",
+        "status": "observed",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_flow_source_popups",
+        "label": "经营报告-流量数据",
+        "status": "supporting",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_flow_transform",
+        "label": "经营报告-流量数据",
+        "status": "observed",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_hotel_min_price",
+        "label": "经营报告-流量数据",
+        "status": "observed",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_hotel_seq",
+        "label": "经营报告-流量数据",
+        "status": "observed",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_menu_key",
+        "label": "经营报告-流量数据",
+        "status": "supporting",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_order_overview",
+        "label": "经营报告-流量数据",
+        "status": "observed",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_order_trend",
+        "label": "经营报告-流量数据",
+        "status": "observed",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_picture_quality",
+        "label": "经营报告-流量数据",
+        "status": "observed",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_scan_flow",
+        "label": "经营报告-流量数据",
+        "status": "observed",
+        "data_type": "traffic"
+      },
+      {
+        "section": "traffic_report",
+        "id": "traffic_search_details",
+        "label": "经营报告-流量数据",
+        "status": "observed",
+        "data_type": "traffic"
+      }
+    ],
+    "missing_fields_by_section": {
+      "traffic_report": {
+        "expected_field_count": 93,
+        "captured_field_count": 0,
+        "missing_field_count": 93,
+        "missing_field_ids": [
+          "avg_price",
+          "bad_review_tag",
+          "base_score",
+          "comment_count",
+          "comment_good_rate",
+          "comment_response_rate",
+          "comment_score_summary",
+          "comment_unreply_count",
+          "competitor_average",
+          "competitor_avg_visitor",
+          "competitor_deal_rate",
+          "competitor_detail_visitor",
+          "competitor_flow_rate",
+          "competitor_list_exposure",
+          "competitor_order_fill_rate",
+          "competitor_order_page_visitor",
+          "competitor_order_submit_user",
+          "config_name",
+          "config_value",
+          "conversion_rate",
+          "ctrip_comment_count",
+          "ctrip_rating",
+          "ctrip_rating_rank",
+          "deal_rate",
+          "deduct_score",
+          "detail_visitor",
+          "elong_comment_count",
+          "elong_rating",
+          "flow_rate",
+          "hotel_collect",
+          "hotel_collect_rank",
+          "im_score",
+          "keyword",
+          "list_exposure",
+          "min_price",
+          "min_price_rank",
+          "notice_count",
+          "notice_text",
+          "notice_title",
+          "occupancy_rate",
+          "order_amount",
+          "order_count",
+          "order_fill_rate",
+          "order_page_visitor",
+          "order_submit_user",
+          "page_views",
+          "psi_score",
+          "qunar_comment_count",
+          "qunar_competitor_avg_visitor",
+          "qunar_competitor_deal_rate",
+          "qunar_competitor_detail_visitor",
+          "qunar_competitor_flow_rate",
+          "qunar_competitor_list_exposure",
+          "qunar_competitor_order_fill_rate",
+          "qunar_competitor_order_page_visitor",
+          "qunar_competitor_order_submit_user",
+          "qunar_deal_rate",
+          "qunar_detail_visitor",
+          "qunar_flow_rate",
+          "qunar_list_exposure",
+          "qunar_order_fill_rate",
+          "qunar_order_page_visitor",
+          "qunar_order_submit_user",
+          "qunar_rating",
+          "qunar_rating_rank",
+          "qunar_visitor_rank",
+          "rank",
+          "rating_competitor_total",
+          "reply_rank",
+          "reply_rate",
+          "review_cleanliness_score",
+          "review_environment_score",
+          "review_facility_score",
+          "review_photo_count",
+          "review_photo_rate",
+          "review_service_score",
+          "reward_score",
+          "room_nights",
+          "service_score",
+          "service_score_rank",
+          "source_name",
+          "target_url",
+          "tensity",
+          "traffic_rank",
+          "visitor_count",
+          "visitor_rank",
+          "weekly_competitor_avg_order_page_visitor",
+          "weekly_competitor_avg_submit_user",
+          "weekly_order_page_visitor",
+          "weekly_submit_user",
+          "weekly_top_competitor_order_page_visitor",
+          "weekly_top_competitor_submit_user",
+          "zx_comment_count"
+        ]
+      }
+    },
+    "p3_candidate_sections": {},
+    "p3_evidence_sections": {
+      "traffic_report": {
+        "status": "missing_evidence",
+        "ready_count": 0,
+        "incomplete_count": 0,
+        "missing_evidence": []
+      },
+      "orders_detail": {
+        "status": "missing_evidence",
+        "ready_count": 0,
+        "incomplete_count": 0,
+        "missing_evidence": []
+      },
+      "price_inventory": {
+        "status": "missing_evidence",
+        "ready_count": 0,
+        "incomplete_count": 0,
+        "missing_evidence": []
+      },
+      "promotion": {
+        "status": "missing_evidence",
+        "ready_count": 0,
+        "incomplete_count": 0,
+        "missing_evidence": []
+      },
+      "settlement_finance": {
+        "status": "missing_evidence",
+        "ready_count": 0,
+        "incomplete_count": 0,
+        "missing_evidence": []
+      },
+      "contract_mice_rfp": {
+        "status": "missing_evidence",
+        "ready_count": 0,
+        "incomplete_count": 0,
+        "missing_evidence": []
+      }
+    },
+    "next_actions": [
+      {
+        "action": "login_and_rerun_capture",
+        "reason": "partial_login_redirect",
+        "section": "",
+        "endpoint_id": "",
+        "required_evidence": [
+          "logged-in browser profile"
+        ]
+      },
+      {
+        "action": "verify_standard_row_mapping",
+        "reason": "standard_row_count_zero",
+        "section": "",
+        "endpoint_id": "",
+        "required_evidence": [
+          "catalog_facts or approved P3 mapping rows"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_city_keywords",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_comment_score_summary",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_flow_source",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_flow_source_popups",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_flow_transform",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_hotel_min_price",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_hotel_seq",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_menu_key",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_order_overview",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_order_trend",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_picture_quality",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_scan_flow",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_formal_endpoint",
+        "reason": "endpoint_coverage_missing",
+        "section": "traffic_report",
+        "endpoint_id": "traffic_search_details",
+        "required_evidence": [
+          "Request URL",
+          "Payload",
+          "Preview / Response"
+        ]
+      },
+      {
+        "action": "capture_missing_fields",
+        "reason": "field_coverage_missing",
+        "section": "traffic_report",
+        "field_ids": [
+          "avg_price",
+          "bad_review_tag",
+          "base_score",
+          "comment_count",
+          "comment_good_rate",
+          "comment_response_rate",
+          "comment_score_summary",
+          "comment_unreply_count",
+          "competitor_average",
+          "competitor_avg_visitor",
+          "competitor_deal_rate",
+          "competitor_detail_visitor",
+          "competitor_flow_rate",
+          "competitor_list_exposure",
+          "competitor_order_fill_rate",
+          "competitor_order_page_visitor",
+          "competitor_order_submit_user",
+          "config_name",
+          "config_value",
+          "conversion_rate",
+          "ctrip_comment_count",
+          "ctrip_rating",
+          "ctrip_rating_rank",
+          "deal_rate",
+          "deduct_score",
+          "detail_visitor",
+          "elong_comment_count",
+          "elong_rating",
+          "flow_rate",
+          "hotel_collect",
+          "hotel_collect_rank",
+          "im_score",
+          "keyword",
+          "list_exposure",
+          "min_price",
+          "min_price_rank",
+          "notice_count",
+          "notice_text",
+          "notice_title",
+          "occupancy_rate"
+        ],
+        "required_evidence": [
+          "source path",
+          "Preview / Response"
+        ]
+      }
+    ]
+  }
+}

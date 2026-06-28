@@ -1,0 +1,34 @@
+{
+    "task": {
+        "task_id": "ctrip_system_58_20260625185227_7de1d936",
+        "platform": "ctrip",
+        "platform_name": "携程",
+        "system_hotel_id": 58,
+        "profile_key": "system_58",
+        "profile_dir": "storage/ctrip_profile_system_58",
+        "status": "queued",
+        "message": "登录任务已提交，正在打开浏览器",
+        "created_at": "2026-06-25 18:52:27",
+        "updated_at": "2026-06-25 18:52:27",
+        "started_at": "2026-06-25 18:52:27",
+        "output": "D:\\桌面\\SUXIOS\\宿析OS初始版\\HOTEL\\app\\runtime\\platform_profile_login\\ctrip_system_58_20260625185227_7de1d936.json",
+        "log": "D:\\桌面\\SUXIOS\\宿析OS初始版\\HOTEL\\app\\runtime\\platform_profile_login\\ctrip_system_58_20260625185227_7de1d936.log",
+        "input": "D:\\桌面\\SUXIOS\\宿析OS初始版\\HOTEL\\app\\runtime\\platform_profile_login\\ctrip_system_58_20260625185227_7de1d936.input.json",
+        "current_key": "platform_profile_login_current_ctrip_58_system_58"
+    },
+    "request": {
+        "system_hotel_id": 58,
+        "profile_id": "system_58",
+        "hotel_id": "",
+        "hotel_name": "西安天诚",
+        "sections": [
+            "default"
+        ],
+        "bind_data_source": true,
+        "platform": "ctrip",
+        "profile_key": "system_58",
+        "capture_sections": [
+            "default"
+        ]
+    }
+}

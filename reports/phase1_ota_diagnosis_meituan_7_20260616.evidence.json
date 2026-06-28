@@ -1,0 +1,44 @@
+{
+    "source": "\/api\/agent\/ota-diagnosis",
+    "status": "actionable_from_verified_p0_traffic_evidence",
+    "source_policy": "read_existing_verified_p0_traffic_evidence_only",
+    "scope": {
+        "date": "2026-06-16",
+        "platform": "meituan",
+        "system_hotel_id": 7,
+        "hotel_id": "7",
+        "metric_scope": "ota_channel"
+    },
+    "summary": "2026-06-16 meituan OTA traffic and conversion facts have target-date source rows and are ready for manual operation handoff in OTA-channel scope only.",
+    "evidence_sources": [
+        {
+            "ref": "online_daily_data#15703",
+            "source_policy": "read_existing_imported_p0_traffic_row_metadata_only",
+            "metric_scope": "ota_channel",
+            "date": "2026-06-16",
+            "platform": "meituan",
+            "system_hotel_id": 7,
+            "target_date_traffic_rows": 1,
+            "field_fact_status": "ready",
+            "raw_data_exposed": false
+        },
+        {
+            "ref": "reports\/p0_traffic_meituan_7_20260616.json",
+            "source_policy": "desensitized_capture_payload_reference",
+            "metric_scope": "ota_channel"
+        }
+    ],
+    "data_gaps": [],
+    "action_items": [
+        {
+            "id": "meituan_p0_traffic_review_20260616_7",
+            "action": "Review 2026-06-16 meituan OTA traffic and conversion facts, confirm field evidence is ready, then hand the action to manual operation approval.",
+            "status": "ready_for_execution",
+            "evidence_refs": [
+                "online_daily_data#15703",
+                "p0_traffic_meituan_7_20260616"
+            ],
+            "source_policy": "ota_channel_operation_handoff_only"
+        }
+    ]
+}

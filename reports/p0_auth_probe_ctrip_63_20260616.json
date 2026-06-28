@@ -1,0 +1,834 @@
+{
+  "profile_id": "63",
+  "hotel_id": "63",
+  "hotel_name": "",
+  "system_hotel_id": 63,
+  "default_data_date": "2026-06-16",
+  "source": "ctrip_browser_profile",
+  "mode": "login_only",
+  "captured_at": "2026-06-16T08:13:13.219Z",
+  "page_urls": {
+    "homepage": [
+      {
+        "url": "https://ebooking.ctrip.com/home/mainland?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/home?microJump=true",
+        "confidence": "inferred"
+      }
+    ],
+    "business_overview": [
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true",
+        "confidence": "observed"
+      }
+    ],
+    "business_weekly_overview": [
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/weekReport?micro=true&microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/weekReport?microJump=true",
+        "confidence": "observed_from_cached_router"
+      }
+    ],
+    "sales_report": [
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true",
+        "confidence": "observed_from_user"
+      }
+    ],
+    "room_type": [
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true",
+        "confidence": "sales_data_subtab"
+      }
+    ],
+    "traffic_report": [
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true",
+        "confidence": "observed_from_user"
+      }
+    ],
+    "comment_review": [
+      {
+        "url": "https://ebooking.ctrip.com/comment/commentList?microJump=true",
+        "confidence": "observed_from_user"
+      }
+    ],
+    "competitor_overview": [
+      {
+        "url": "https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionprofile?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true",
+        "confidence": "sidebar_navigation"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/marketanalysis/overview?microJump=true",
+        "confidence": "inferred"
+      }
+    ],
+    "loss_analysis": [
+      {
+        "url": "https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionprofile?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/lossanalysis?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true",
+        "confidence": "sidebar_navigation"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/marketanalysis/flowanalysis?microJump=true",
+        "confidence": "observed_from_response"
+      }
+    ],
+    "competitor_rank": [
+      {
+        "url": "https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionlist?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionprofile?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true",
+        "confidence": "sidebar_navigation"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/marketanalysis/rank?microJump=true",
+        "confidence": "inferred"
+      }
+    ],
+    "user_profile": [
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true",
+        "confidence": "sidebar_navigation"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/userbehavior/index?microJump=true",
+        "confidence": "inferred"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/ebkgrowth/datacenter/userbehavior/user?microJump=true",
+        "confidence": "observed_from_user"
+      }
+    ],
+    "im_board": [
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true",
+        "confidence": "sidebar_navigation"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?goto=im",
+        "confidence": "observed_from_cache"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/userbehavior/im?microJump=true",
+        "confidence": "inferred"
+      }
+    ],
+    "ads_pyramid": [
+      {
+        "url": "https://ebooking.ctrip.com/toolcenter/cpc/pyramid",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/toolcenter/cpc/dataReport",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/toolcenter/cpc/dataReport?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/toolcenter/cpc/comparison?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/advertise/cpc/dataReport?micro=true&microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/advertise/cpc/comparison?micro=true&microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/advertise/cpc/diagnosisReport?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/pyramidad/dataReport?micro=true",
+        "confidence": "observed"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/pyramidad/diagnosisReport?micro=true",
+        "confidence": "observed"
+      }
+    ],
+    "quality_psi": [
+      {
+        "url": "https://ebooking.ctrip.com/toolcenter/psi/index?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/toolcenter/psi/index?fromType=menu&microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/psi/index?micro=true&fromType=menu&microJump=true",
+        "confidence": "observed"
+      }
+    ],
+    "market_calendar": [
+      {
+        "url": "https://ebooking.ctrip.com/ebkgrowth/datacenter/marketanalysis/marketheat?microJump=true",
+        "confidence": "observed_from_user"
+      },
+      {
+        "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true",
+        "confidence": "observed_from_endpoint"
+      }
+    ],
+    "biztravel_bpi": [
+      {
+        "url": "https://bbk.ctripbiz.cn/bpi",
+        "confidence": "observed_from_screenshot"
+      },
+      {
+        "url": "https://bbk.ctripbiz.com/bpi",
+        "confidence": "fallback"
+      }
+    ],
+    "biztravel_business_report": [
+      {
+        "url": "https://bbk.ctripbiz.cn/datacenter/businessReport",
+        "confidence": "observed_from_screenshot"
+      },
+      {
+        "url": "https://bbk.ctripbiz.com/datacenter/businessReport",
+        "confidence": "fallback"
+      }
+    ],
+    "biztravel_competitor": [
+      {
+        "url": "https://bbk.ctripbiz.cn/datacenter/comparatorReport",
+        "confidence": "observed_from_screenshot"
+      },
+      {
+        "url": "https://bbk.ctripbiz.com/datacenter/comparatorReport",
+        "confidence": "fallback"
+      }
+    ]
+  },
+  "requested_sections": [
+    "traffic_report"
+  ],
+  "catalog": {
+    "platform": "ctrip",
+    "section_count": 18,
+    "endpoint_count": 78,
+    "field_count": 252,
+    "default_sections": [
+      "business_overview",
+      "business_weekly_overview",
+      "traffic_report"
+    ],
+    "presets": {
+      "default": [
+        "business_overview",
+        "business_weekly_overview",
+        "traffic_report"
+      ],
+      "core": [
+        "homepage",
+        "business_overview",
+        "business_weekly_overview",
+        "sales_report",
+        "traffic_report"
+      ],
+      "wide": [
+        "homepage",
+        "business_overview",
+        "business_weekly_overview",
+        "sales_report",
+        "traffic_report",
+        "comment_review",
+        "competitor_overview",
+        "loss_analysis",
+        "competitor_rank",
+        "user_profile",
+        "im_board",
+        "ads_pyramid",
+        "quality_psi",
+        "market_calendar",
+        "biztravel_bpi",
+        "biztravel_business_report",
+        "biztravel_competitor"
+      ]
+    },
+    "interaction_plan_section_count": 16,
+    "interaction_plan_step_count": 80
+  },
+  "approved_mappings": {
+    "configured": false,
+    "path": "",
+    "mapping_count": 0
+  },
+  "profile_field_config": {
+    "configured": false,
+    "path": "",
+    "allowed_field_count": null,
+    "allowed_section_count": null,
+    "allowed_sections": [],
+    "field_count": 0
+  },
+  "pages": [
+    {
+      "name": "auth",
+      "label": "登录状态",
+      "url": "https://ebooking.ctrip.com/home/mainland",
+      "configured_url": "https://ebooking.ctrip.com/login/index",
+      "ok": true,
+      "auth_status": "login_prepared",
+      "reason": "login_only"
+    }
+  ],
+  "responses": [],
+  "xhr_urls": [
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "xhr"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://s.c-ctrip.com/bee/collect?metaSender=1.3.82&contextTs=1781597594644&vid=1781597594431.6828Ddf1BSYx&sid=1&pvId=1&appId=100036380",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/10290/createclientid?systemcode=09&createtype=3&contentType=json",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/10290/createclientid?systemcode=09&createtype=3&contentType=json",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeInfo?_fxpcqlniredt=09031173217481639400&x-traceID=09031173217481639400-1781597594980-2743722",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "xhr"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24278/getTelByLocale?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597595001-6700955",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://cdid.c-ctrip.com/chloro-device/v2/d",
+      "status": 200,
+      "request_type": "xhr"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597598465-1129143",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://www.ctrip.com/m/i18n/ReportRecentUsedKey.html",
+      "status": 200,
+      "request_type": "xhr"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597601473-9245670",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597604465-566017",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597607463-9268124",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597610463-4327620",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/checkJigsawSwitchV2?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597611636-5879338",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/captcha/v4/risk_inspect",
+      "status": 200,
+      "request_type": "xhr"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/webLoginForHotel?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597611760-362018",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/checkJigsawSwitchV2?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597613124-7964781",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/captcha/v4/risk_inspect",
+      "status": 200,
+      "request_type": "xhr"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/sendAuthenticationCodeV2?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597613260-501571",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://www.ctrip.com/m/i18n/ReportRecentUsedKey.html",
+      "status": 200,
+      "request_type": "xhr"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/28967/reportInjectFnInfo?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597614616-3514909",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/loginHotelByAuthToken?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597621373-3248099",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/login/webapi/setLoginTicket?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597621888-4189531",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "xhr"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "xhr"
+    },
+    {
+      "url": "https://s.c-ctrip.com/bee/collect?metaSender=1.3.82&contextTs=1781597622392&vid=1781597594431.6828Ddf1BSYx&sid=1&pvId=3&appId=100036380",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://m.ctrip.com/ares/cdn/downgrade.json",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://s.c-ctrip.com/bee/collect?metaSender=1.3.82&contextTs=1781597622303&vid=1781597594431.6828Ddf1BSYx&sid=1&pvId=2&appId=100036380",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/home?micro=true",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://cdid.c-ctrip.com/model-poc2/h",
+      "status": 200,
+      "request_type": "xhr"
+    },
+    {
+      "url": "https://pages.c-ctrip.com/hotels/libs/sdk/sdt/10/sdt.min.js",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/23958/pendingHotelGrowthTaskListV2?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623077-2402534",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24306/getNewPropertyIncubationTasks?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623283-5088425",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24278/getMultiNotifyMessage?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623421-3661785",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/23270/queryEPush?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623421-7726831",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24278/getSDTScript?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623657-941487",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24306/getCompareStatusResultByHotel?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623666-250541",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24306/getViolations?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623674-5612058",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24306/getPsiSummaryInfo?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623688-5676113",
+      "status": 200,
+      "request_type": "fetch"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24306/getTendencyListInfo?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623695-6774967",
+      "status": 200,
+      "request_type": "fetch"
+    }
+  ],
+  "unmatched_xhr_urls": [
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "xhr",
+      "method": "POST"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://s.c-ctrip.com/bee/collect?metaSender=1.3.82&contextTs=1781597594644&vid=1781597594431.6828Ddf1BSYx&sid=1&pvId=1&appId=100036380",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/10290/createclientid?systemcode=09&createtype=3&contentType=json",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "GET"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/10290/createclientid?systemcode=09&createtype=3&contentType=json",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "GET"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeInfo?_fxpcqlniredt=09031173217481639400&x-traceID=09031173217481639400-1781597594980-2743722",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "xhr",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24278/getTelByLocale?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597595001-6700955",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://cdid.c-ctrip.com/chloro-device/v2/d",
+      "status": 200,
+      "request_type": "xhr",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597598465-1129143",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://www.ctrip.com/m/i18n/ReportRecentUsedKey.html",
+      "status": 200,
+      "request_type": "xhr",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597601473-9245670",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597604465-566017",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597607463-9268124",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/getLoginQrcodeStatus?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597610463-4327620",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/checkJigsawSwitchV2?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597611636-5879338",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/captcha/v4/risk_inspect",
+      "status": 200,
+      "request_type": "xhr",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/webLoginForHotel?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597611760-362018",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/checkJigsawSwitchV2?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597613124-7964781",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/captcha/v4/risk_inspect",
+      "status": 200,
+      "request_type": "xhr",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/sendAuthenticationCodeV2?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597613260-501571",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://www.ctrip.com/m/i18n/ReportRecentUsedKey.html",
+      "status": 200,
+      "request_type": "xhr",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/30544/loginHotelByAuthToken?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597621373-3248099",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/login/webapi/setLoginTicket?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597621888-4189531",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "xhr",
+      "method": "POST"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "status": 200,
+      "request_type": "xhr",
+      "method": "POST"
+    },
+    {
+      "url": "https://s.c-ctrip.com/bee/collect?metaSender=1.3.82&contextTs=1781597622392&vid=1781597594431.6828Ddf1BSYx&sid=1&pvId=3&appId=100036380",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://m.ctrip.com/ares/cdn/downgrade.json",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "GET"
+    },
+    {
+      "url": "https://s.c-ctrip.com/bee/collect?metaSender=1.3.82&contextTs=1781597622303&vid=1781597594431.6828Ddf1BSYx&sid=1&pvId=2&appId=100036380",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/home?micro=true",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "GET"
+    },
+    {
+      "url": "https://cdid.c-ctrip.com/model-poc2/h",
+      "status": 200,
+      "request_type": "xhr",
+      "method": "POST"
+    },
+    {
+      "url": "https://pages.c-ctrip.com/hotels/libs/sdk/sdt/10/sdt.min.js",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "GET"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/23958/pendingHotelGrowthTaskListV2?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623077-2402534",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24306/getNewPropertyIncubationTasks?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623283-5088425",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24278/getSDTScript?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623657-941487",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24306/getCompareStatusResultByHotel?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623666-250541",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24306/getViolations?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623674-5612058",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24306/getPsiSummaryInfo?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623688-5676113",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    },
+    {
+      "url": "https://ebooking.ctrip.com/restapi/soa2/24306/getTendencyListInfo?_fxpcqlniredt=09031116117481639466&x-traceID=09031116117481639466-1781597623695-6774967",
+      "status": 200,
+      "request_type": "fetch",
+      "method": "POST"
+    }
+  ],
+  "endpoint_candidates": [],
+  "p3_evidence_drafts": [],
+  "p3_evidence_matrix": null,
+  "capture_audit": {
+    "auth_status": {
+      "ok": true,
+      "status": "logged_in",
+      "url": "https://ebooking.ctrip.com/home/mainland",
+      "message": "Ctrip profile is logged in."
+    },
+    "capture_gap_report": {
+      "status": "skipped",
+      "reason": "login_only"
+    }
+  },
+  "capture_gate": {
+    "status": "pass",
+    "mode": "login_only",
+    "reason": "login_only",
+    "failed_check_ids": [],
+    "checks": [
+      {
+        "id": "auth_session",
+        "status": "pass",
+        "message": "Ctrip login session prepared in browser profile."
+      }
+    ]
+  },
+  "capture_gap_report": {
+    "status": "skipped",
+    "reason": "login_only"
+  },
+  "by_section": {
+    "traffic_report": []
+  },
+  "rows": [],
+  "standard_rows": [],
+  "catalog_facts": [],
+  "business": [],
+  "traffic": [],
+  "reviews": [],
+  "screenshots": [],
+  "cookie_injection": {
+    "attempted": false,
+    "injected_count": 0,
+    "domains": []
+  },
+  "auth_status": {
+    "ok": true,
+    "status": "logged_in",
+    "url": "https://ebooking.ctrip.com/home/mainland",
+    "message": "Ctrip profile is logged in."
+  },
+  "capture_execution": {
+    "mode": "single_page_sequential",
+    "section_concurrency": 1,
+    "parallel_fallback_enabled": true,
+    "parallel_failed_sections": [],
+    "fallback_sections": []
+  },
+  "_pending_response_count": 1
+}

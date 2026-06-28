@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "skills": {
+    "pr-reviewer": {
+      "name": "pr-reviewer",
+      "source": "pack:tech-code-review",
+      "version": "",
+      "installedAt": "2026-06-27T13:41:22Z"
+    },
+    "critical-code-reviewer": {
+      "name": "critical-code-reviewer",
+      "source": "pack:tech-code-review",
+      "version": "",
+      "installedAt": "2026-06-27T13:41:22Z"
+    },
+    "project-code-standard": {
+      "name": "project-code-standard",
+      "source": "pack:tech-code-review",
+      "version": "",
+      "installedAt": "2026-06-27T13:41:22Z"
+    },
+    "security-audit": {
+      "name": "security-audit",
+      "source": "pack:tech-code-review",
+      "version": "",
+      "installedAt": "2026-06-27T13:41:22Z"
+    },
+    "clean-code-review": {
+      "name": "clean-code-review",
+      "source": "pack:tech-code-review",
+      "version": "",
+      "installedAt": "2026-06-27T13:41:22Z"
+    },
+    "cody": {
+      "name": "cody",
+      "source": "pack:tech-code-review",
+      "version": "",
+      "installedAt": "2026-06-27T13:41:22Z"
+    }
+  },
+  "packs": {
+    "tech-code-review": {
+      "displayName": "代码审查",
+      "version": "",
+      "skillSlugs": [
+        "pr-reviewer",
+        "critical-code-reviewer",
+        "project-code-standard",
+        "security-audit",
+        "clean-code-review",
+        "cody"
+      ],
+      "installedAt": "2026-06-27T13:41:22Z"
+    }
+  }
+}
