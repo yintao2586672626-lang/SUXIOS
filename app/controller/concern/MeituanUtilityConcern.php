@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\service\CtripTrafficDisplayService;
-use think\facade\Db;
 
 trait MeituanUtilityConcern
 {
@@ -412,90 +411,6 @@ trait MeituanUtilityConcern
             return (int)$value === 1;
         }
         return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'y'], true);
-    }
-
-    /**
-     * Parse and save Meituan comment API data.
-     */
-    private function parseAndSaveMeituanComments(array $comments, string $poiId, string $partnerId, ?int $systemHotelId = null): int
-    {
-        return 0;
-
-        $savedCount = 0;
-        $dataDate = date('Y-m-d');
-
-        foreach ($comments as $comment) {
-            try {
-                $commentId = $comment['id'] ?? $comment['commentId'] ?? null;
-                if (!$commentId) {
-                    continue;
-                }
-
-                // 检查是否已存在相同的评论
-                $existing = Db::name('online_daily_data')
-                    ->where('source', 'meituan')
-                    ->where('data_type', 'review')
-                    ->where('raw_data', 'like', '%"' . $commentId . '"%')
-                    ->first();
-
-                if ($existing) {
-                    continue;
-                }
-
-                // 提取评论内容（美团字段：comment）
-                $content = $comment['comment'] ?? $comment['content'] ?? $comment['commentContent'] ?? '';
-
-                // 美团评分是50分制：50=5星, 40=4星, 30=3星...
-                $score = $comment['score'] ?? $comment['star'] ?? 0;
-                $starRating = $score / 10; // 转换为星级（1-5）
-
-                // 时间处理（美团返回毫秒时间戳）
-                $commentTime = $comment['commentTime'] ?? $comment['createTime'] ?? null;
-                if ($commentTime && is_numeric($commentTime)) {
-                    $commentTime = date('Y-m-d H:i:s', $commentTime / 1000);
-                } else {
-                    $commentTime = $commentTime ?: null;
-                }
-
-                $userName = $comment['userName'] ?? $comment['nickName'] ?? '匿名用户';
-                $hotelName = $comment['poiName'] ?? $comment['hotelName'] ?? '';
-                $bizReply = $comment['bizReply'] ?? ''; // 商家回复
-                $badComment = $comment['badComment'] ?? false; // 是否差评
-
-                // 检查内容是否为空（如果评论为空但有商家回复也保存）
-                if (empty($content) && empty($bizReply)) {
-                    continue;
-                }
-
-                // 保存到数据库
-                $insertData = [
-                    'hotel_id' => $systemHotelId,
-                    'hotel_name' => $hotelName,
-                    'source' => 'meituan',
-                    'data_type' => 'review',
-                    'data_date' => $dataDate,
-                    'amount' => 0,
-                    'quantity' => 1,
-                    'book_order_num' => 0,
-                    'comment_score' => $starRating,
-                    'qunar_comment_score' => 0,
-                    'raw_data' => json_encode($comment, JSON_UNESCAPED_UNICODE),
-                    'create_time' => date('Y-m-d H:i:s'),
-                    'update_time' => date('Y-m-d H:i:s'),
-                ];
-                $insertData = $this->applyOnlineDailyDataValidationFields($insertData);
-
-                $inserted = Db::name('online_daily_data')->insertGetId($insertData);
-                if ($inserted) {
-                    $savedCount++;
-                }
-            } catch (\Throwable $e) {
-                // 记录错误但继续处理下一条
-                error_log('保存美团评论失败: ' . $e->getMessage());
-            }
-        }
-
-        return $savedCount;
     }
 
     /**

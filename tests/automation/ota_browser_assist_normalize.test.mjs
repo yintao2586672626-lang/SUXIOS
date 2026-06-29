@@ -125,3 +125,111 @@ test('keeps missing browser assist fields explicit instead of inventing values',
     'field_missing',
   );
 });
+
+test('normalizes Meituan hook payload into supplemental import packages', () => {
+  const result = normalizeBrowserAssistCapturePayload({
+    capture: {
+      P_RZ_0: {
+        rankType: 'P_RZ',
+        rankTypeName: '入住榜',
+        dateRange: '0',
+        dateRangeName: '今日实时',
+        source: 'peer',
+        capturedAt: '2026-06-29T08:10:00.000Z',
+        data: {
+          peerRankData: [
+            {
+              dimName: '入住间夜',
+              roundRanks: [
+                { poiId: 'peer-1', poiName: '同行酒店A', rank: 2, percent: '35.5', dataValue: 18 },
+              ],
+            },
+          ],
+        },
+      },
+      FLOW_CONV_0: {
+        rankType: 'FLOW_CONV',
+        dateRange: '0',
+        source: 'flow',
+        capturedAt: '2026-06-29T08:11:00.000Z',
+        data: {
+          exposeCount: 1000,
+          visitCount: 200,
+          orderCount: 20,
+          exposeVisitRate: 20,
+          visitOrderRate: 10,
+        },
+      },
+      FLOW_SRC_0: {
+        rankType: 'FLOW_SRC',
+        dateRange: '0',
+        source: 'flow',
+        capturedAt: '2026-06-29T08:12:00.000Z',
+        data: {
+          list: [
+            { name: '非广告曝光', value: 800, percent: 80 },
+          ],
+        },
+      },
+      FORECAST_2: {
+        rankType: 'FORECAST',
+        forecastType: '2',
+        source: 'forecast',
+        capturedAt: '2026-06-29T08:13:00.000Z',
+        data: {
+          detail: [
+            { dateTime: '20260701', current: 88, peerAvg: 120 },
+          ],
+        },
+      },
+      KEYWORDS: {
+        rankType: 'KEYWORDS',
+        source: 'keywords',
+        capturedAt: '2026-06-29T08:14:00.000Z',
+        data: {
+          cards: [
+            {
+              title: '热门搜索',
+              itemList: [
+                { name: '机场酒店', value: 320 },
+              ],
+            },
+          ],
+        },
+      },
+    },
+  }, {
+    systemHotelId: 58,
+    generatedAt: '2026-06-29 08:15:00',
+  });
+
+  assert.equal(result.summary.row_count, 5);
+  assert.deepEqual(
+    result.packages.map((item) => `${item.platform}:${item.data_type}`).sort(),
+    ['meituan:peer_rank', 'meituan:search_keyword', 'meituan:traffic_analysis', 'meituan:traffic_forecast'],
+  );
+
+  const peer = result.rows.find((row) => row.data_type === 'peer_rank');
+  assert.equal(peer.dimension, 'peer_rank:P_RZ:入住间夜');
+  assert.equal(peer.rank, 2);
+  assert.equal(peer.rank_percent, 35.5);
+  assert.equal(peer.raw_data.module, 'meituan_hook_peer_rank');
+
+  const conversion = result.rows.find((row) => row.data_type === 'traffic_analysis' && row.analysis_type === 'conversion_funnel');
+  assert.equal(conversion.list_exposure, 1000);
+  assert.equal(conversion.detail_exposure, 200);
+  assert.equal(conversion.order_submit_num, 20);
+  assert.equal(conversion.flow_rate, 10);
+
+  const source = result.rows.find((row) => row.dimension === 'traffic_analysis:source:非广告曝光');
+  assert.equal(source.data_value, 800);
+
+  const forecast = result.rows.find((row) => row.data_type === 'traffic_forecast');
+  assert.equal(forecast.data_date, '2026-07-01');
+  assert.equal(forecast.peer_avg, 120);
+  assert.equal(forecast.raw_data.quality_status, 'signal_only');
+
+  const keyword = result.rows.find((row) => row.data_type === 'search_keyword');
+  assert.equal(keyword.keyword, '机场酒店');
+  assert.equal(keyword.data_value, 320);
+});

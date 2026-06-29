@@ -284,34 +284,6 @@ trait MeituanCapturedDataConcern
         return false;
     }
 
-    private function normalizeMeituanCapturedReviewRow(array $item, array $context): ?array
-    {
-        $reviewId = (string)$this->firstMeituanValue($item, ['review_id', 'reviewId', 'comment_id', 'commentId', 'id', 'orderId'], '');
-        $content = (string)$this->firstMeituanValue($item, ['content', 'comment', 'commentContent', 'review_content'], '');
-        $reply = (string)$this->firstMeituanValue($item, ['reply', 'bizReply', 'merchantReply', 'replyContent'], '');
-        if ($reviewId === '' && $content === '' && $reply === '') {
-            return null;
-        }
-
-        $score = $this->normalizeMeituanScore($this->firstMeituanValue($item, ['score', 'star', 'rating', 'totalScore'], 0));
-        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['review_time', 'reviewTime', 'commentTime', 'createTime', 'stay_date', 'stayDate'], ''))
-            ?: ($context['default_data_date'] ?? date('Y-m-d'));
-        $isNegative = $this->meituanBool($this->firstMeituanValue($item, ['is_negative', 'isNegative', 'badComment'], false))
-            || ($score > 0 && $score < 3.0);
-        $identity = $reviewId !== '' ? $reviewId : substr(md5(json_encode($item, JSON_UNESCAPED_UNICODE)), 0, 12);
-
-        return $this->baseMeituanCapturedRow($item, $context, [
-            'data_date' => $dataDate,
-            'amount' => 0,
-            'quantity' => 1,
-            'book_order_num' => 0,
-            'comment_score' => $score,
-            'data_value' => $score,
-            'data_type' => 'review',
-            'dimension' => 'review:' . ($isNegative ? 'negative' : 'normal') . ':' . $identity,
-        ]);
-    }
-
     private function normalizeMeituanCapturedTrafficRow(array $item, array $context): ?array
     {
         $exposure = (int)$this->meituanNumber($item, ['exposure_count', 'exposureCount', 'listExposure', 'impression', 'impressions', 'exposure'], 0);

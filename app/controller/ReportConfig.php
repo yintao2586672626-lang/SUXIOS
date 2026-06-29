@@ -5,9 +5,7 @@ namespace app\controller;
 
 use app\model\ReportConfig as ReportConfigModel;
 use app\model\OperationLog;
-use think\exception\ValidateException;
 use think\Response;
-use think\facade\Db;
 
 class ReportConfig extends Base
 {

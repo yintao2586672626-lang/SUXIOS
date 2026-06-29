@@ -78,7 +78,7 @@ final class CtripReviewOrderMatchService
      */
     public function matchReviewToOrder(array $review, array $imSessions, array $orders, array $options = []): array
     {
-        $reviewDate = $this->extractDate($review, ['checkinTimeStr', 'checkInDate', 'checkinDate', 'arrivalDate', 'arrival_date']);
+        $reviewDate = $this->extractDate($review, ['checkinTimeStr', 'checkInDate', 'check_in_date', 'checkinDate', 'checkin_date', 'arrivalDate', 'arrival_date', 'stayDate', 'stay_date']);
         $coverageStart = $this->normalizeDate((string)($options['coverage_start_date'] ?? ''));
         if ($coverageStart !== '' && $reviewDate !== '' && $reviewDate < $coverageStart) {
             return [
@@ -293,7 +293,7 @@ final class CtripReviewOrderMatchService
      */
     private function extractReviewUsername(array $review): string
     {
-        foreach (['userName', 'user_name', 'sourceUsername', 'source_username', 'username', 'nickName', 'nick_name'] as $field) {
+        foreach (['userName', 'user_name', 'sourceUsername', 'source_username', 'username', 'nickName', 'nick_name', 'user_name_masked'] as $field) {
             if (isset($review[$field]) && trim((string)$review[$field]) !== '') {
                 return trim((string)$review[$field]);
             }
@@ -325,6 +325,9 @@ final class CtripReviewOrderMatchService
         if ($text === '') {
             return '';
         }
+        if (preg_match('/^20\d{2}$/', $text)) {
+            return '';
+        }
         if (preg_match('/(20\d{2})[-\/.年](\d{1,2})[-\/.月](\d{1,2})/u', $text, $matches)) {
             return sprintf('%04d-%02d-%02d', (int)$matches[1], (int)$matches[2], (int)$matches[3]);
         }
@@ -341,7 +344,7 @@ final class CtripReviewOrderMatchService
      */
     private function extractRoomName(array $review): string
     {
-        foreach (['hotelRoomInfo', 'hotel_room_info', 'roomName', 'room_name', 'roomType', 'room_type'] as $field) {
+        foreach (['hotelRoomInfo', 'hotel_room_info', 'roomName', 'room_name', 'roomType', 'room_type', 'room_type_name', 'productName', 'product_name', 'ratePlanName', 'rate_plan_name'] as $field) {
             if (isset($review[$field]) && trim((string)$review[$field]) !== '') {
                 return trim((string)$review[$field]);
             }
@@ -371,7 +374,7 @@ final class CtripReviewOrderMatchService
                 }
             }
 
-            foreach (['guestName', 'guest_name', 'customerName', 'customer_name'] as $field) {
+            foreach (['guestName', 'guest_name', 'customerName', 'customer_name', 'contactName', 'contact_name'] as $field) {
                 if ($guestName !== '' && isset($order[$field]) && trim((string)$order[$field]) === $guestName) {
                     return true;
                 }
@@ -392,7 +395,7 @@ final class CtripReviewOrderMatchService
         }
 
         $matched = array_values(array_filter($orders, function (array $order) use ($reviewDate): bool {
-            foreach (['arrivalDate', 'arrival_date', 'checkInDate', 'check_in_date'] as $field) {
+            foreach (['arrivalDate', 'arrival_date', 'checkInDate', 'check_in_date', 'checkIn', 'check_in', 'checkinTime', 'checkin_time', 'checkInTime', 'check_in_time', 'stayDate', 'stay_date'] as $field) {
                 if (isset($order[$field]) && $this->normalizeDate((string)$order[$field]) === $reviewDate) {
                     return true;
                 }
@@ -414,7 +417,7 @@ final class CtripReviewOrderMatchService
         }
 
         $matched = array_values(array_filter($orders, function (array $order) use ($roomName): bool {
-            foreach (['roomName', 'room_name', 'roomType', 'room_type'] as $field) {
+            foreach (['roomName', 'room_name', 'roomType', 'room_type', 'room_type_name', 'productName', 'product_name', 'ratePlanName', 'rate_plan_name'] as $field) {
                 $orderRoom = trim((string)($order[$field] ?? ''));
                 if ($orderRoom !== '' && str_starts_with($orderRoom, $roomName)) {
                     return true;
@@ -433,11 +436,11 @@ final class CtripReviewOrderMatchService
     private function normalizeOrderForResponse(array $order): array
     {
         return [
-            'order_id' => (string)($order['orderId'] ?? $order['order_id'] ?? $order['platform_order_id'] ?? ''),
-            'guest_name' => (string)($order['guestName'] ?? $order['guest_name'] ?? $order['customerName'] ?? $order['customer_name'] ?? ''),
-            'guest_uid' => (string)($order['guestUid'] ?? $order['guest_uid'] ?? $order['ctrip_guest_uid'] ?? ''),
-            'arrival_date' => $this->normalizeDate((string)($order['arrivalDate'] ?? $order['arrival_date'] ?? $order['checkInDate'] ?? $order['check_in_date'] ?? '')),
-            'room_name' => (string)($order['roomName'] ?? $order['room_name'] ?? $order['roomType'] ?? $order['room_type'] ?? ''),
+            'order_id' => (string)($order['orderId'] ?? $order['order_id'] ?? $order['orderNo'] ?? $order['order_no'] ?? $order['orderSn'] ?? $order['order_sn'] ?? $order['platform_order_id'] ?? $order['bookingOrderId'] ?? $order['booking_order_id'] ?? $order['reservationOrderId'] ?? $order['reservation_order_id'] ?? ''),
+            'guest_name' => (string)($order['guestName'] ?? $order['guest_name'] ?? $order['customerName'] ?? $order['customer_name'] ?? $order['contactName'] ?? $order['contact_name'] ?? ''),
+            'guest_uid' => (string)($order['guestUid'] ?? $order['guest_uid'] ?? $order['ctrip_guest_uid'] ?? $order['memberUid'] ?? $order['member_uid'] ?? $order['uid'] ?? ''),
+            'arrival_date' => $this->normalizeDate((string)($order['arrivalDate'] ?? $order['arrival_date'] ?? $order['checkInDate'] ?? $order['check_in_date'] ?? $order['checkIn'] ?? $order['check_in'] ?? $order['checkinTime'] ?? $order['checkin_time'] ?? $order['checkInTime'] ?? $order['check_in_time'] ?? $order['stayDate'] ?? $order['stay_date'] ?? '')),
+            'room_name' => (string)($order['roomName'] ?? $order['room_name'] ?? $order['roomType'] ?? $order['room_type'] ?? $order['room_type_name'] ?? $order['productName'] ?? $order['product_name'] ?? $order['ratePlanName'] ?? $order['rate_plan_name'] ?? ''),
             'match_source' => 'ctrip_order_pool',
         ];
     }

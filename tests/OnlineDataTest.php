@@ -1646,6 +1646,49 @@ final class OnlineDataTest extends TestCase
         self::assertSame(100.0, $rowsByPoi['RIVAL']['metricDerived']['roomRevenue']['row_percent']);
     }
 
+    public function testBackendPrefersHigherQualityMeituanGroupMetricOverEarlierPercentScale(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'mergeMeituanBusinessDisplayGroups', [[
+            [
+                'date_range' => '1',
+                'display_hotels' => [
+                    [
+                        'poiId' => 'RIVAL',
+                        'hotelName' => 'Rival Hotel',
+                        'roomRevenue' => 1,
+                        'metricSourceStatus' => ['roomRevenue' => 'percent_only'],
+                        'metricDerived' => ['roomRevenue' => ['method' => 'percent_min_integer_scale']],
+                    ],
+                ],
+            ],
+            [
+                'date_range' => '30',
+                'display_hotels' => [
+                    [
+                        'poiId' => 'RIVAL',
+                        'hotelName' => 'Rival Hotel',
+                        'roomRevenue' => 1000,
+                        'metricSourceStatus' => ['roomRevenue' => 'meituan_business_detail_returned'],
+                    ],
+                ],
+            ],
+        ], [
+            'date_ranges' => ['1', '30'],
+        ]]);
+
+        $rowsByPoi = [];
+        foreach ($rows as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame(1000.0, $rowsByPoi['RIVAL']['roomRevenue']);
+        self::assertSame('1,000', $rowsByPoi['RIVAL']['roomRevenueText']);
+        self::assertSame('meituan_business_detail_returned', $rowsByPoi['RIVAL']['metricSourceStatus']['roomRevenue']);
+        self::assertArrayNotHasKey('roomRevenue', $rowsByPoi['RIVAL']['metricDerived']);
+    }
+
     public function testBackendKeepsMeituanTodayRealtimePercentOnlyValuesMissing(): void
     {
         $controller = $this->controller();

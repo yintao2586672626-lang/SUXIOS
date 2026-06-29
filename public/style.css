@@ -6806,6 +6806,7 @@ aside.sidebar:not(.collapsed) {
 .suxi-app-shell main[data-current-page="ai-feasibility"],
 .suxi-app-shell main[data-current-page="agent-center"],
 .suxi-app-shell main[data-current-page="ai-governance"],
+.suxi-app-shell main[data-current-page="ai-daily-report"],
 .suxi-app-shell main[data-current-page="ai-model-config"] {
     --sx-page-accent: #2563eb;
     --sx-page-accent-dark: #1d4ed8;
@@ -6841,6 +6842,7 @@ aside.sidebar:not(.collapsed) {
 .suxi-app-shell main[data-current-page="asset-pricing"],
 .suxi-app-shell main[data-current-page="timing-strategy"],
 .suxi-app-shell main[data-current-page="decision-board"],
+.suxi-app-shell main[data-current-page="investment-decision"],
 .suxi-app-shell main[data-current-page="revenue-research-center"] {
     --sx-page-accent: #b45309;
     --sx-page-accent-dark: #92400e;
@@ -6849,6 +6851,7 @@ aside.sidebar:not(.collapsed) {
 }
 
 .suxi-app-shell main[data-current-page="online-data"],
+.suxi-app-shell main[data-current-page="hotel-image-optimizer"],
 .suxi-app-shell main[data-current-page="data-config"] {
     --sx-page-accent: #0f766e;
     --sx-page-accent-dark: #115e59;
@@ -8175,6 +8178,233 @@ aside.sidebar:not(.collapsed) {
     background: #93c5fd;
 }
 
+.suxi-dashboard-scope .suxi-executive-answer {
+    overflow: hidden;
+    border: 1px solid #d8c8a5;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #fffdf7 0%, #f8fafc 52%, #eef7f4 100%);
+    box-shadow: 0 14px 34px rgba(70, 54, 25, .08);
+}
+
+.suxi-dashboard-scope .suxi-answer-main {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid rgba(159, 132, 82, .22);
+    padding: 18px;
+}
+
+.suxi-dashboard-scope .suxi-answer-eyebrow {
+    color: #9a6b24;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .08em;
+}
+
+.suxi-dashboard-scope .suxi-answer-title {
+    margin-top: 6px;
+    color: #16211d;
+    font-size: 24px;
+    font-weight: 800;
+    line-height: 1.18;
+    overflow-wrap: anywhere;
+}
+
+.suxi-dashboard-scope .suxi-answer-sub {
+    margin-top: 8px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.suxi-dashboard-scope .suxi-answer-chain {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    max-width: 520px;
+    color: #315a50;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.suxi-dashboard-scope .suxi-answer-chain span {
+    border: 1px solid rgba(49, 90, 80, .18);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .68);
+    padding: 5px 9px;
+    white-space: nowrap;
+}
+
+.suxi-dashboard-scope .suxi-answer-chain i {
+    color: #b08133;
+    font-size: 10px;
+}
+
+.suxi-dashboard-scope .suxi-answer-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1px;
+    background: rgba(159, 132, 82, .16);
+}
+
+.suxi-dashboard-scope .suxi-answer-card {
+    min-width: 0;
+    min-height: 142px;
+    border: 0;
+    border-top: 3px solid #94a3b8;
+    background: rgba(255, 255, 255, .86);
+    padding: 14px;
+    text-align: left;
+    transition: background-color .18s ease, transform .18s ease;
+}
+
+.suxi-dashboard-scope .suxi-answer-card:hover {
+    background: #fff;
+    transform: translateY(-1px);
+}
+
+.suxi-dashboard-scope .suxi-answer-card.is-good {
+    border-top-color: #0f766e;
+}
+
+.suxi-dashboard-scope .suxi-answer-card.is-warning {
+    border-top-color: #b7791f;
+}
+
+.suxi-dashboard-scope .suxi-answer-card.is-action {
+    border-top-color: #2563eb;
+}
+
+.suxi-dashboard-scope .suxi-answer-card.is-waiting {
+    border-top-color: #94a3b8;
+}
+
+.suxi-dashboard-scope .suxi-answer-card-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+}
+
+.suxi-dashboard-scope .suxi-answer-icon {
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #d9e2ec;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #315a50;
+    font-size: 12px;
+}
+
+.suxi-dashboard-scope .suxi-answer-label {
+    min-width: 0;
+    overflow: hidden;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.suxi-dashboard-scope .suxi-answer-badge {
+    max-width: 112px;
+    overflow: hidden;
+    border: 1px solid #e5eaf0;
+    border-radius: 999px;
+    background: #f8fafc;
+    padding: 3px 7px;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.suxi-dashboard-scope .suxi-answer-value {
+    margin-top: 14px;
+    display: -webkit-box;
+    overflow: hidden;
+    color: #111827;
+    font-size: 20px;
+    font-weight: 850;
+    line-height: 1.22;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow-wrap: anywhere;
+}
+
+.suxi-dashboard-scope .suxi-answer-note {
+    margin-top: 10px;
+    display: -webkit-box;
+    overflow: hidden;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.55;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow-wrap: anywhere;
+}
+
+.suxi-dashboard-scope .suxi-evidence-fold {
+    border: 1px solid #d9e2ec;
+    border-radius: 8px;
+    background: #fff;
+    padding: 10px 12px;
+}
+
+.suxi-dashboard-scope .suxi-evidence-fold summary {
+    display: flex;
+    cursor: pointer;
+    list-style: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.suxi-dashboard-scope .suxi-evidence-fold summary::-webkit-details-marker {
+    display: none;
+}
+
+.suxi-dashboard-scope .suxi-evidence-fold summary::after {
+    content: "+";
+    display: inline-flex;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #d9e2ec;
+    border-radius: 6px;
+    color: #334155;
+}
+
+.suxi-dashboard-scope .suxi-evidence-fold[open] summary::after {
+    content: "-";
+}
+
+@media (max-width: 1024px) {
+    .suxi-dashboard-scope .suxi-answer-main {
+        flex-direction: column;
+    }
+
+    .suxi-dashboard-scope .suxi-answer-chain {
+        justify-content: flex-start;
+    }
+
+    .suxi-dashboard-scope .suxi-answer-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 .suxi-dashboard-scope .compass-shell-card,
 .suxi-dashboard-scope .home-hero-panel,
 .suxi-dashboard-scope > .bg-white.rounded-xl {
@@ -8265,6 +8495,23 @@ aside.sidebar:not(.collapsed) {
 
     .suxi-dashboard-scope .suxi-metric-value {
         font-size: 19px;
+    }
+
+    .suxi-dashboard-scope .suxi-answer-main {
+        padding: 14px;
+    }
+
+    .suxi-dashboard-scope .suxi-answer-title {
+        font-size: 20px;
+    }
+
+    .suxi-dashboard-scope .suxi-answer-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .suxi-dashboard-scope .suxi-evidence-fold summary {
+        align-items: flex-start;
+        flex-direction: column;
     }
 }
 

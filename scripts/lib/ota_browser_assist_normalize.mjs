@@ -4,7 +4,7 @@ import { attachOtaCaptureEvidence } from './ota_capture_standard.mjs';
 
 const CONTRACT_VERSION = 'ota_browser_assist_collection_contract.v1';
 const COLLECTION_MODE = 'browser_assist_dom';
-const KNOWN_SECTION_KEYS = ['ctrip', 'ctripStats', 'meituan', 'meituanStats'];
+const KNOWN_SECTION_KEYS = ['ctrip', 'ctripStats', 'meituan', 'meituanStats', 'meituanHook', 'meituanPeerHook'];
 
 const PLATFORM_LABELS = {
   ctrip: 'Ctrip',
@@ -15,7 +15,10 @@ const PLATFORM_LABELS = {
 const DATA_TYPE_LABELS = {
   inventory: 'room inventory',
   traffic: 'realtime traffic',
+  traffic_analysis: 'traffic analysis',
+  traffic_forecast: 'traffic forecast',
   peer_rank: 'peer rank',
+  search_keyword: 'search keyword',
 };
 
 export function normalizeBrowserAssistCapturePayload(input, options = {}) {
@@ -36,6 +39,7 @@ export function normalizeBrowserAssistCapturePayload(input, options = {}) {
     ...normalizeInventorySection(payload.meituan, 'meituan', 'meituan_inventory', context, warnings),
     ...normalizeCtripStatsSection(payload.ctripStats, context, warnings),
     ...normalizeMeituanStatsSection(payload.meituanStats, context, warnings),
+    ...normalizeMeituanHookSection(resolveMeituanHookSection(payload), context, warnings),
   ];
 
   const packages = buildImportPackages(rows, context);
@@ -381,6 +385,433 @@ function normalizeMeituanStatsSection(section, context, warnings) {
   return [attachEvidence(row, 'meituan', 'traffic', sourcePath, 'meituan_stats', section)];
 }
 
+function normalizeMeituanHookSection(section, context, warnings) {
+  const root = unwrapMeituanHookRoot(section);
+  if (!root) {
+    return [];
+  }
+
+  const rows = [];
+  for (const [key, item] of Object.entries(root)) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      continue;
+    }
+    if (key === 'OWN_METRICS' || key === 'OWN_TODAY') {
+      warnings.push({
+        platform: 'meituan',
+        module: 'meituan_hook',
+        code: 'own_metrics_not_imported',
+        source_path: `meituan_hook.${key}`,
+        message: 'Meituan hook own metrics are retained as context only; they are not imported as confirmed revenue facts.',
+      });
+      continue;
+    }
+    if (isMeituanHookPeerItem(key, item)) {
+      rows.push(...normalizeMeituanHookPeerItem(key, item, context, warnings));
+      continue;
+    }
+    if (isMeituanHookForecastItem(key, item)) {
+      rows.push(...normalizeMeituanHookForecastItem(key, item, context, warnings));
+      continue;
+    }
+    if (isMeituanHookKeywordItem(key, item)) {
+      rows.push(...normalizeMeituanHookKeywordItem(key, item, context, warnings));
+      continue;
+    }
+    if (isMeituanHookFlowItem(key, item)) {
+      rows.push(...normalizeMeituanHookFlowItem(key, item, context, warnings));
+    }
+  }
+
+  if (rows.length === 0 && hasMeituanHookShape(root)) {
+    warnings.push({
+      platform: 'meituan',
+      module: 'meituan_hook',
+      code: 'hook_rows_missing',
+      message: 'Meituan hook payload was detected but no importable rows were found.',
+    });
+  }
+  return rows;
+}
+
+function normalizeMeituanHookPeerItem(key, item, context, warnings) {
+  const data = hookData(item);
+  const sections = Array.isArray(data.peerRankData) ? data.peerRankData : [];
+  if (sections.length === 0) {
+    warnings.push({
+      platform: 'meituan',
+      module: 'meituan_hook_peer_rank',
+      code: 'peer_rank_rows_missing',
+      source_path: `meituan_hook.${key}.data.peerRankData`,
+      message: 'Meituan hook peer rank item has no peerRankData rows.',
+    });
+    return [];
+  }
+
+  const snapshot = resolveSnapshot(item, context);
+  const dateRange = cleanText(firstDefined(item.dateRange, item.date_range, hookKeyPart(key, 2)));
+  const rankType = cleanText(firstDefined(item.rankType, item.rank_type, hookKeyRankType(key)));
+  const rows = [];
+  sections.forEach((section, sectionIndex) => {
+    if (!section || typeof section !== 'object' || Array.isArray(section)) {
+      return;
+    }
+    const dimName = cleanText(firstDefined(section.dimName, section.dimension, section.metricName, section.aiMetricName));
+    const rankRows = Array.isArray(section.roundRanks)
+      ? section.roundRanks
+      : Array.isArray(section.roundRank)
+        ? section.roundRank
+        : Array.isArray(section.ranks)
+          ? section.ranks
+          : Array.isArray(section.list)
+            ? section.list
+            : [];
+    rankRows.forEach((rankRow, rowIndex) => {
+      if (!rankRow || typeof rankRow !== 'object' || Array.isArray(rankRow)) {
+        return;
+      }
+      const sourcePath = `meituan_hook.${key}.data.peerRankData.${sectionIndex}.roundRanks.${rowIndex}`;
+      const dataDate = hookDataDate(item, context, snapshot, dateRange);
+      const rank = toNumber(firstDefined(rankRow.rank, rankRow.ranking, rankRow.rankValue, rankRow.sort));
+      const percent = toNumber(firstDefined(rankRow.percent, rankRow.ratio, rankRow.rank_percent, rankRow.rankPercent));
+      const metricValue = toNumber(firstDefined(rankRow.dataValue, rankRow.data_value, rankRow.value, rankRow.metric_value));
+      rows.push(attachEvidence(compactObject({
+        source: 'meituan',
+        platform: 'meituan',
+        data_type: 'peer_rank',
+        data_date: dataDate,
+        data_period: hookPeriod(dateRange),
+        snapshot_time: snapshot.snapshotTime,
+        snapshot_bucket: snapshot.snapshotBucket,
+        system_hotel_id: toInteger(firstDefined(item.system_hotel_id, item.systemHotelId, context.systemHotelId)) || undefined,
+        hotel_id: cleanText(firstDefined(rankRow.poiId, rankRow.poi_id, rankRow.hotelId, rankRow.hotel_id)),
+        hotel_name: cleanText(firstDefined(rankRow.poiName, rankRow.poi_name, rankRow.hotelName, rankRow.hotel_name)),
+        dimension: `peer_rank:${rankType || 'unknown'}:${dimName || 'unknown'}`,
+        compare_type: 'competitor',
+        rank_type: rankType || undefined,
+        rank,
+        rank_percent: percent,
+        data_value: hasValue(metricValue) ? metricValue : rank,
+        acquisition_method: COLLECTION_MODE,
+        source_contract: CONTRACT_VERSION,
+        raw_data: {
+          collection_mode: COLLECTION_MODE,
+          source_contract: CONTRACT_VERSION,
+          module: 'meituan_hook_peer_rank',
+          date_range: dateRange,
+          date_range_name: cleanText(item.dateRangeName || item.date_range_name),
+          rank_type_name: cleanText(item.rankTypeName || item.rank_type_name),
+          dimension_name: dimName,
+          snapshot_time_source: snapshot.source,
+          peer_rank: compactObject({
+            rank,
+            percent,
+            data_value: metricValue,
+            poi_name: cleanText(firstDefined(rankRow.poiName, rankRow.poi_name, rankRow.hotelName, rankRow.hotel_name)),
+            raw: rankRow,
+          }),
+          field_facts: [
+            fieldFact('peer_rank', 'peer_rank', `${sourcePath}.rank`, 'online_daily_data.data_value/raw_data.peer_rank.rank', rank),
+            fieldFact('peer_percent', 'peer_rank', `${sourcePath}.percent`, 'online_daily_data.raw_data.peer_rank.percent', percent, 'optional_missing'),
+            fieldFact('peer_data_value', 'peer_rank', `${sourcePath}.dataValue`, 'online_daily_data.raw_data.peer_rank.data_value', metricValue, 'optional_missing'),
+          ],
+        },
+      }), 'meituan', 'peer_rank', sourcePath, 'meituan_hook', item));
+    });
+  });
+  return rows;
+}
+
+function normalizeMeituanHookFlowItem(key, item, context) {
+  const data = hookData(item);
+  const snapshot = resolveSnapshot(item, context);
+  const dateRange = cleanText(firstDefined(item.dateRange, item.date_range, hookKeyPart(key, 2)));
+  const dataDate = hookDataDate(item, context, snapshot, dateRange);
+  const sourcePath = `meituan_hook.${key}.data`;
+  const flowType = hookFlowType(key, item);
+  if (flowType === 'conversion') {
+    const exposeCount = toNumber(firstDefined(data.exposeCount, data.exposureCount, data.exposure));
+    const visitCount = toNumber(firstDefined(data.visitCount, data.visitorCount, data.uv));
+    const orderCount = toNumber(firstDefined(data.orderCount, data.payOrderCount, data.orders));
+    const visitOrderRate = toNumber(firstDefined(data.visitOrderRate, data.conversionRate, data.orderConversionRate));
+    return [attachEvidence(compactObject({
+      source: 'meituan',
+      platform: 'meituan',
+      data_type: 'traffic_analysis',
+      data_date: dataDate,
+      data_period: hookPeriod(dateRange),
+      snapshot_time: snapshot.snapshotTime,
+      snapshot_bucket: snapshot.snapshotBucket,
+      system_hotel_id: toInteger(firstDefined(item.system_hotel_id, item.systemHotelId, context.systemHotelId)) || undefined,
+      hotel_name: cleanText(firstDefined(item.hotelName, item.hotel_name, context.hotelName)) || undefined,
+      dimension: 'traffic_analysis:flow_conversion',
+      analysis_type: 'conversion_funnel',
+      list_exposure: exposeCount,
+      detail_exposure: visitCount,
+      order_submit_num: orderCount,
+      order_filling_num: orderCount,
+      flow_rate: visitOrderRate,
+      data_value: hasValue(orderCount) ? orderCount : visitOrderRate,
+      acquisition_method: COLLECTION_MODE,
+      source_contract: CONTRACT_VERSION,
+      raw_data: hookRawData(item, 'meituan_hook_flow_conversion', dateRange, snapshot, data),
+    }), 'meituan', 'traffic_analysis', sourcePath, 'meituan_hook', item)];
+  }
+
+  const list = Array.isArray(data.list) ? data.list : [];
+  if (list.length === 0) {
+    return [attachEvidence(compactObject({
+      source: 'meituan',
+      platform: 'meituan',
+      data_type: 'traffic_analysis',
+      data_date: dataDate,
+      data_period: hookPeriod(dateRange),
+      snapshot_time: snapshot.snapshotTime,
+      snapshot_bucket: snapshot.snapshotBucket,
+      system_hotel_id: toInteger(firstDefined(item.system_hotel_id, item.systemHotelId, context.systemHotelId)) || undefined,
+      hotel_name: cleanText(firstDefined(item.hotelName, item.hotel_name, context.hotelName)) || undefined,
+      dimension: `traffic_analysis:${flowType}`,
+      analysis_type: flowType,
+      data_value: toNumber(firstDefined(data.value, data.dataValue, data.exposeCount, data.visitCount, data.orderCount)),
+      acquisition_method: COLLECTION_MODE,
+      source_contract: CONTRACT_VERSION,
+      raw_data: hookRawData(item, `meituan_hook_flow_${flowType}`, dateRange, snapshot, data),
+    }), 'meituan', 'traffic_analysis', sourcePath, 'meituan_hook', item)];
+  }
+
+  return list.map((row, index) => {
+    const itemSourcePath = `${sourcePath}.list.${index}`;
+    return attachEvidence(compactObject({
+      source: 'meituan',
+      platform: 'meituan',
+      data_type: 'traffic_analysis',
+      data_date: dataDate,
+      data_period: hookPeriod(dateRange),
+      snapshot_time: snapshot.snapshotTime,
+      snapshot_bucket: snapshot.snapshotBucket,
+      system_hotel_id: toInteger(firstDefined(item.system_hotel_id, item.systemHotelId, context.systemHotelId)) || undefined,
+      hotel_name: cleanText(firstDefined(item.hotelName, item.hotel_name, context.hotelName)) || undefined,
+      dimension: `traffic_analysis:${flowType}:${cleanText(row.name || row.dimension || index)}`,
+      analysis_type: flowType,
+      list_exposure: toNumber(firstDefined(row.exposeCount, row.exposureCount, row.value)),
+      detail_exposure: toNumber(firstDefined(row.visitCount, row.visitorCount, row.uv)),
+      flow_rate: toNumber(firstDefined(row.visitOrderRate, row.conversionRate, row.flowRate)),
+      data_value: toNumber(firstDefined(row.value, row.dataValue, row.current)),
+      peer_rank: toNumber(firstDefined(row.rank, row.peerRank)),
+      week_over_week: toNumber(firstDefined(row.weekOverWeek, row.wow)),
+      acquisition_method: COLLECTION_MODE,
+      source_contract: CONTRACT_VERSION,
+      raw_data: hookRawData(item, `meituan_hook_flow_${flowType}`, dateRange, snapshot, row),
+    }), 'meituan', 'traffic_analysis', itemSourcePath, 'meituan_hook', item);
+  });
+}
+
+function normalizeMeituanHookForecastItem(key, item, context) {
+  const data = hookData(item);
+  const snapshot = resolveSnapshot(item, context);
+  const forecastType = cleanText(firstDefined(item.forecastType, item.forecast_type, hookKeyPart(key, 1), data.type));
+  const detail = Array.isArray(data.detail) ? data.detail : [];
+  const rows = detail.length ? detail : [data];
+  return rows.map((row, index) => {
+    const sourcePath = detail.length ? `meituan_hook.${key}.data.detail.${index}` : `meituan_hook.${key}.data`;
+    const dataDate = normalizeDate(firstDefined(row.dateTime, row.date, row.dataDate, row.statDate))
+      || hookDataDate(item, context, snapshot, '');
+    return attachEvidence(compactObject({
+      source: 'meituan',
+      platform: 'meituan',
+      data_type: 'traffic_forecast',
+      data_date: dataDate,
+      data_period: 'next_30_days',
+      snapshot_time: snapshot.snapshotTime,
+      snapshot_bucket: snapshot.snapshotBucket,
+      system_hotel_id: toInteger(firstDefined(item.system_hotel_id, item.systemHotelId, context.systemHotelId)) || undefined,
+      hotel_name: cleanText(firstDefined(item.hotelName, item.hotel_name, context.hotelName)) || undefined,
+      dimension: `traffic_forecast:${forecastType || 'flow_forecast'}`,
+      forecast_type: forecastType || undefined,
+      compare_type: 'forecast',
+      data_value: toNumber(firstDefined(row.current, row.dataValue, row.value)),
+      peer_avg: toNumber(firstDefined(row.peerAvg, row.peer_avg, row.competitorAvg, row.competitor_avg)),
+      acquisition_method: COLLECTION_MODE,
+      source_contract: CONTRACT_VERSION,
+      raw_data: hookRawData(item, 'meituan_hook_traffic_forecast', '', snapshot, row),
+    }), 'meituan', 'traffic_forecast', sourcePath, 'meituan_hook', item);
+  });
+}
+
+function normalizeMeituanHookKeywordItem(key, item, context) {
+  const data = hookData(item);
+  const snapshot = resolveSnapshot(item, context);
+  const dataDate = hookDataDate(item, context, snapshot, '');
+  const cards = Array.isArray(data.cards) ? data.cards : [];
+  const rows = [];
+  cards.forEach((card, cardIndex) => {
+    if (!card || typeof card !== 'object' || Array.isArray(card)) {
+      return;
+    }
+    const items = Array.isArray(card.itemList)
+      ? card.itemList
+      : Array.isArray(card.items)
+        ? card.items
+        : Array.isArray(card.list)
+          ? card.list
+          : [];
+    items.forEach((keywordRow, rowIndex) => {
+      const keyword = cleanText(firstDefined(keywordRow.name, keywordRow.keyword, keywordRow.searchKeyword, keywordRow.searchWord));
+      const sourcePath = `meituan_hook.${key}.data.cards.${cardIndex}.itemList.${rowIndex}`;
+      rows.push(attachEvidence(compactObject({
+        source: 'meituan',
+        platform: 'meituan',
+        data_type: 'search_keyword',
+        data_date: dataDate,
+        data_period: 'snapshot',
+        snapshot_time: snapshot.snapshotTime,
+        snapshot_bucket: snapshot.snapshotBucket,
+        system_hotel_id: toInteger(firstDefined(item.system_hotel_id, item.systemHotelId, context.systemHotelId)) || undefined,
+        hotel_name: cleanText(firstDefined(item.hotelName, item.hotel_name, context.hotelName)) || undefined,
+        dimension: keyword || 'search_keyword',
+        keyword: keyword || undefined,
+        keyword_group: cleanText(firstDefined(card.title, card.name)),
+        data_value: toNumber(firstDefined(keywordRow.value, keywordRow.dataValue, keywordRow.heat, keywordRow.rank)),
+        list_exposure: toNumber(firstDefined(keywordRow.impressions, keywordRow.exposure, keywordRow.exposureCount)),
+        detail_exposure: toNumber(firstDefined(keywordRow.clicks, keywordRow.clickCount, keywordRow.detailExposure)),
+        acquisition_method: COLLECTION_MODE,
+        source_contract: CONTRACT_VERSION,
+        raw_data: hookRawData(item, 'meituan_hook_search_keyword', '', snapshot, keywordRow),
+      }), 'meituan', 'search_keyword', sourcePath, 'meituan_hook', item));
+    });
+  });
+
+  if (rows.length) {
+    return rows;
+  }
+  const list = Array.isArray(data.list) ? data.list : [];
+  return list.map((keywordRow, index) => {
+    const keyword = cleanText(firstDefined(keywordRow.keyword, keywordRow.searchKeyword, keywordRow.searchWord, keywordRow.name));
+    const sourcePath = `meituan_hook.${key}.data.list.${index}`;
+    return attachEvidence(compactObject({
+      source: 'meituan',
+      platform: 'meituan',
+      data_type: 'search_keyword',
+      data_date: dataDate,
+      data_period: 'snapshot',
+      snapshot_time: snapshot.snapshotTime,
+      snapshot_bucket: snapshot.snapshotBucket,
+      system_hotel_id: toInteger(firstDefined(item.system_hotel_id, item.systemHotelId, context.systemHotelId)) || undefined,
+      hotel_name: cleanText(firstDefined(item.hotelName, item.hotel_name, context.hotelName)) || undefined,
+      dimension: keyword || 'search_keyword',
+      keyword: keyword || undefined,
+      data_value: toNumber(firstDefined(keywordRow.value, keywordRow.dataValue, keywordRow.heat, keywordRow.rank)),
+      acquisition_method: COLLECTION_MODE,
+      source_contract: CONTRACT_VERSION,
+      raw_data: hookRawData(item, 'meituan_hook_search_keyword', '', snapshot, keywordRow),
+    }), 'meituan', 'search_keyword', sourcePath, 'meituan_hook', item);
+  });
+}
+
+function hookRawData(item, module, dateRange, snapshot, data) {
+  return {
+    collection_mode: COLLECTION_MODE,
+    source_contract: CONTRACT_VERSION,
+    module,
+    date_range: dateRange || undefined,
+    date_range_name: cleanText(item.dateRangeName || item.date_range_name) || undefined,
+    source: cleanText(item.source) || undefined,
+    snapshot_time_source: snapshot.source,
+    quality_status: module.includes('forecast') ? 'signal_only' : undefined,
+    data,
+  };
+}
+
+function resolveMeituanHookSection(payload) {
+  for (const key of ['meituanHook', 'meituanPeerHook', 'meituanTrafficHook', 'meituanCompetitorHook', 'captured']) {
+    if (payload?.[key] && hasMeituanHookShape(payload[key])) {
+      return payload[key];
+    }
+  }
+  return hasMeituanHookShape(payload) ? payload : null;
+}
+
+function unwrapMeituanHookRoot(section) {
+  if (!section || typeof section !== 'object' || Array.isArray(section)) {
+    return null;
+  }
+  if (section.captured && hasMeituanHookShape(section.captured)) {
+    return section.captured;
+  }
+  return hasMeituanHookShape(section) ? section : null;
+}
+
+function hasMeituanHookShape(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  return Object.entries(value).some(([key, item]) => {
+    if (/^(P_[A-Z]+_\d+|FLOW_[A-Z]+_\d+|FORECAST_\d+|KEYWORDS|OWN_METRICS|OWN_TODAY)$/.test(key)) {
+      return true;
+    }
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return false;
+    }
+    const source = cleanText(item.source).toLowerCase();
+    return ['peer', 'flow', 'forecast', 'keywords'].includes(source);
+  });
+}
+
+function isMeituanHookPeerItem(key, item) {
+  return /^P_[A-Z]+_\d+$/.test(key)
+    || cleanText(item.source).toLowerCase() === 'peer'
+    || Array.isArray(hookData(item).peerRankData);
+}
+
+function isMeituanHookFlowItem(key, item) {
+  return /^FLOW_[A-Z]+_\d+$/.test(key) || cleanText(item.source).toLowerCase() === 'flow';
+}
+
+function isMeituanHookForecastItem(key, item) {
+  return /^FORECAST_\d+$/.test(key) || cleanText(item.source).toLowerCase() === 'forecast';
+}
+
+function isMeituanHookKeywordItem(key, item) {
+  return key === 'KEYWORDS' || cleanText(item.source).toLowerCase() === 'keywords';
+}
+
+function hookData(item) {
+  return item && typeof item.data === 'object' && !Array.isArray(item.data) ? item.data : item;
+}
+
+function hookKeyPart(key, index) {
+  return String(key || '').split('_')[index] || '';
+}
+
+function hookKeyRankType(key) {
+  const parts = String(key || '').split('_');
+  return parts.length >= 3 ? `${parts[0]}_${parts[1]}` : '';
+}
+
+function hookFlowType(key, item) {
+  const value = String(key || item.rankType || item.rank_type || '').toUpperCase();
+  if (value.includes('CONV')) return 'conversion';
+  if (value.includes('SRC')) return 'source';
+  if (value.includes('TREND')) return 'trend';
+  if (value.includes('DOM')) return 'dom_snapshot';
+  return 'flow_analysis';
+}
+
+function hookDataDate(item, context, snapshot, dateRange) {
+  return normalizeDate(firstDefined(item.data_date, item.dataDate, context.dataDate))
+    || dateFromDateTime(snapshot.snapshotTime)
+    || (String(dateRange || '') === '0' ? normalizeDate(context.generatedAt) : '');
+}
+
+function hookPeriod(dateRange) {
+  return {
+    0: 'realtime_snapshot',
+    1: 'yesterday',
+    7: 'last_7_days',
+    30: 'last_30_days',
+  }[String(dateRange || '')] || 'snapshot';
+}
+
 function attachEvidence(row, platform, section, sourcePath, captureSource, originalSection) {
   return attachOtaCaptureEvidence(row, platform, {
     section,
@@ -443,11 +874,14 @@ function unwrapPayload(input) {
   if (!input || typeof input !== 'object') {
     return {};
   }
-  if (input.data && typeof input.data === 'object' && KNOWN_SECTION_KEYS.some((key) => input.data[key])) {
-    return { ...input, ...input.data };
-  }
-  if (input.payload && typeof input.payload === 'object' && KNOWN_SECTION_KEYS.some((key) => input.payload[key])) {
-    return { ...input, ...input.payload };
+  for (const key of ['data', 'payload', 'capture']) {
+    const child = input[key];
+    if (!child || typeof child !== 'object' || Array.isArray(child)) {
+      continue;
+    }
+    if (KNOWN_SECTION_KEYS.some((sectionKey) => child[sectionKey]) || hasMeituanHookShape(child)) {
+      return { ...input, ...child };
+    }
   }
   return input;
 }

@@ -31,6 +31,19 @@
     "test": "tests/automation/ota_browser_assist_normalize.test.mjs",
     "backend_contract_verifier": "scripts/verify_ota_browser_assist_import_contract.php"
   },
+  "accepted_payload_shapes": [
+    {
+      "name": "four_section_browser_assist_capture",
+      "keys": ["ctrip", "ctripStats", "meituan", "meituanStats"],
+      "package_outputs": ["ctrip:inventory", "ctrip:traffic", "ctrip:peer_rank", "meituan:inventory", "meituan:traffic"]
+    },
+    {
+      "name": "meituan_peer_flow_hook_capture",
+      "keys": ["P_RZ_0", "FLOW_CONV_0", "FLOW_SRC_0", "FLOW_TREND_0", "FORECAST_2", "KEYWORDS"],
+      "package_outputs": ["meituan:peer_rank", "meituan:traffic_analysis", "meituan:traffic_forecast", "meituan:search_keyword"],
+      "boundary": "supplemental OTA-channel signal only; forecast rows remain signal_only"
+    }
+  ],
   "modules": [
     {
       "platform": "meituan",

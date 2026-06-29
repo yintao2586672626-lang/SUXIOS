@@ -26,6 +26,31 @@ const flowBuilder = sliceBetween(
   'const platformProfileFlowRows = computed(() => {',
   'const meituanPlatformProfileStatusRow = computed'
 );
+const requestContextLayer = sliceBetween(
+  html,
+  'const BUSINESS_CONTEXT_ENDPOINT_PREFIXES = [',
+  'const userHasPermission = (key) =>'
+);
+const statusMapper = sliceBetween(
+  html,
+  'const platformCollectionStatusText = (status) => ({',
+  'const platformReviewCollectionText = (row) => {'
+);
+const typeBreakdown = sliceBetween(
+  html,
+  'data-testid="platform-collection-type-breakdown"',
+  'data-testid="platform-profile-p0-flow"'
+);
+const postFetchSchedulers = sliceBetween(
+  html,
+  'const scheduleOnlineDataRefresh =',
+  'const PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS ='
+);
+const reviewAutomation = sliceBetween(
+  html,
+  'const runCtripReviewMatchAutomation =',
+  'const bindCtripReviewOrderMatch ='
+);
 
 test('OTA platform status page exposes the P0 Profile login flow without credential custody', () => {
   assert.match(flowPanel, /Profile 主线，不托管 OTA 账号密码/);
@@ -80,4 +105,75 @@ test('OTA platform Profile flow uses login-state and target-date evidence as the
   assert.match(flowBuilder, /storedRows > 0/);
   assert.match(flowBuilder, /targetDateText/);
   assert.doesNotMatch(flowBuilder, /ctripPassword|meituanPassword|operator-request|full-phone|hasAppSession|App 会话/);
+});
+
+test('business request layer carries hotel tenant and platform context only for scoped modules', () => {
+  assert.match(requestContextLayer, /BUSINESS_CONTEXT_ENDPOINT_PREFIXES/);
+  for (const path of ['/online-data/', '/dashboard/', '/revenue-ai/', '/revenue-research/', '/operation/']) {
+    assert.match(requestContextLayer, new RegExp(path.replaceAll('/', '\\/')), `missing business context prefix ${path}`);
+  }
+  for (const marker of ['system_hotel_id', 'tenant_id', 'platform', 'withBusinessContext', 'businessContext']) {
+    assert.match(requestContextLayer, new RegExp(marker), `request context layer must handle ${marker}`);
+  }
+  assert.match(requestContextLayer, /appendContextToRequestUrl/);
+  assert.match(requestContextLayer, /appendContextToJsonBody/);
+});
+
+test('collection status vocabulary exposes explicit user-visible states', () => {
+  for (const marker of [
+    'not_loaded',
+    'not_collected',
+    'collecting',
+    'failed',
+    'login_expired',
+    'unauthorized',
+    'no_permission',
+    'policy_disabled',
+    'strategy_disabled',
+    'data_empty',
+    'collected',
+    'partial',
+    'stale',
+  ]) {
+    assert.match(statusMapper, new RegExp(marker), `status mapper must include ${marker}`);
+  }
+  for (const text of ['未加载', '未采集', '采集中', '采集失败', '登录过期', '无权限', '策略禁用', '数据为空', '已采集', '部分成功', '已过期']) {
+    assert.match(statusMapper, new RegExp(text), `status mapper must display ${text}`);
+  }
+});
+
+test('platform status page separates data types and operational next actions', () => {
+  assert.match(html, /data-testid="platform-context-card"/);
+  assert.match(typeBreakdown, /platformCollectionTypeRows/);
+  for (const text of ['数据类型', '发生了什么', '为什么重要', '下一步', '负责人']) {
+    assert.match(typeBreakdown, new RegExp(text), `type breakdown must show ${text}`);
+  }
+  const typeRowBehavior = sliceBetween(
+    html,
+    'const platformCollectionTypeWhyText = (row = {}) => {',
+    'const buildDefaultOnlineHistoryFilter = () =>'
+  );
+  for (const text of ['点评采集默认策略禁用', '收益/运营负责人', '运营人员', '系统管理员', '数据管理员']) {
+    assert.match(typeRowBehavior, new RegExp(text), `type rows must include ${text}`);
+  }
+});
+
+test('post collection actions refresh the unified collection-status panel', () => {
+  assert.match(postFetchSchedulers, /const schedulePlatformCollectionStatusRefresh = \(\) =>/);
+  assert.match(postFetchSchedulers, /loadPlatformCollectionStatus\(\{ force: true, cacheMs: 0 \}\)/);
+  assert.match(postFetchSchedulers, /scheduleAutoFetchStatusPanelRefresh[\s\S]*schedulePlatformCollectionStatusRefresh\(\)/);
+  const syncAction = sliceBetween(
+    html,
+    'const syncPlatformDataSource = async (source) => {',
+    'const importPlatformDataRowsFromText = async () => {'
+  );
+  assert.match(syncAction, /schedulePlatformCollectionStatusRefresh\(\)/);
+  assert.match(syncAction, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}\)/);
+});
+
+test('Ctrip review order matching does not trigger default live review collection', () => {
+  assert.match(html, /不启用实时点评采集/);
+  assert.match(reviewAutomation, /review_collection_policy:\s*'policy_disabled'/);
+  assert.match(reviewAutomation, /点评采集默认策略禁用/);
+  assert.doesNotMatch(reviewAutomation, /capture-ctrip-browser|comment_review|capture_sections/);
 });

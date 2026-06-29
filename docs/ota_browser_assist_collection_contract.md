@@ -100,6 +100,21 @@ POST /api/online-data/browser-assist-import
 }
 ```
 
+也支持美团同行/流量 Hook 原始键名输入，例如：
+
+```json
+{
+  "system_hotel_id": 58,
+  "capture": {
+    "P_RZ_0": {},
+    "FLOW_CONV_0": {},
+    "FLOW_SRC_0": {},
+    "FORECAST_2": {},
+    "KEYWORDS": {}
+  }
+}
+```
+
 也支持上传 JSON 文件字段：`file`、`capture_file` 或 `import_file`。
 
 后端会自动按 `platform + data_type` 分包，并逐包复用现有 `PlatformDataSyncService::importRows()` 入库。
@@ -119,7 +134,7 @@ node scripts/normalize_ota_browser_assist_capture.mjs `
 POST /api/online-data/data-import
 ```
 
-导入包按 `platform + data_type` 拆分，例如 `ctrip/inventory`、`ctrip/traffic`、`ctrip/peer_rank`、`meituan/traffic`。这样可以适配现有导入服务的规则，避免手工导入时 `source.data_type` 覆盖行级 `data_type` 造成误归类。
+导入包按 `platform + data_type` 拆分，例如 `ctrip/inventory`、`ctrip/traffic`、`ctrip/peer_rank`、`meituan/traffic`、`meituan/peer_rank`、`meituan/traffic_analysis`、`meituan/search_keyword`、`meituan/traffic_forecast`。这样可以适配现有导入服务的规则，避免手工导入时 `source.data_type` 覆盖行级 `data_type` 造成误归类。
 
 ## 禁止项
 

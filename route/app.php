@@ -265,6 +265,7 @@ Route::group('api/online-data', function () {
     Route::post('/ctrip-review-matches/orders', 'OnlineData/saveCtripOrderForMatch');
     Route::post('/ctrip-review-matches/lookup', 'OnlineData/lookupCtripReviewOrderMatch');
     Route::post('/ctrip-review-matches/run', 'OnlineData/runCtripReviewOrderMatchAutomation');
+    Route::post('/ctrip-review-matches/closure', 'OnlineData/checkCtripReviewOrderMatchClosure');
     Route::post('/ctrip-review-matches/bind', 'OnlineData/bindCtripReviewOrderMatch');
     Route::post('/meituan-review-matches/reviews', 'OnlineData/saveMeituanReviewForMatch');
     Route::post('/meituan-review-matches/orders', 'OnlineData/saveMeituanOrderForMatch');

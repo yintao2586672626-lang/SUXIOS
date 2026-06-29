@@ -1366,6 +1366,33 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('loadPlatformCollectionResources({\n                            force: options.force === true,\n                            cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,')) {
     failures.push('public/index.html must deduplicate and short-cache platform collection-resource reads from the platform source panel.');
   }
+  if (!content.includes('const BUSINESS_CONTEXT_ENDPOINT_PREFIXES = [')
+    || !content.includes('const withBusinessRequestContext = (url, options = {}) =>')
+    || !content.includes('system_hotel_id')
+    || !content.includes('tenant_id')
+    || !content.includes('platform')) {
+    failures.push('public/index.html must keep a unified request context layer for scoped OTA/revenue/operation requests.');
+  }
+  if (!content.includes('data-testid="platform-collection-type-breakdown"')
+    || !content.includes('const platformCollectionTypeRows = computed(() => {')
+    || !content.includes('发生了什么')
+    || !content.includes('为什么重要')
+    || !content.includes('负责人')) {
+    failures.push('public/index.html must expose data-type collection status with operational next actions.');
+  }
+  if (!content.includes('const schedulePlatformCollectionStatusRefresh = () =>')
+    || !content.includes('loadPlatformCollectionStatus({ force: true, cacheMs: 0 })')
+    || !content.includes('schedulePlatformCollectionStatusRefresh();')) {
+    failures.push('public/index.html must refresh collection-status after collection and platform-source mutations.');
+  }
+  const ctripReviewAutomationSource = content.slice(
+    content.indexOf('const runCtripReviewMatchAutomation ='),
+    content.indexOf('const bindCtripReviewOrderMatch =')
+  );
+  if (!ctripReviewAutomationSource.includes("review_collection_policy: 'policy_disabled'")
+    || /capture-ctrip-browser|comment_review|capture_sections/.test(ctripReviewAutomationSource)) {
+    failures.push('public/index.html must not trigger default live review collection from Ctrip review order matching.');
+  }
   if (!content.includes('const competitorSummaryRequestPromises = new Map();')
     || !content.includes('const competitorSummaryResultCache = new Map();')
     || !/const loadCompetitorSummary = async \(options = \{\}\) =>[\s\S]*readRequestCache\(competitorSummaryResultCache, requestKey, cacheMs\)[\s\S]*competitorSummaryRequestPromises\.has\(requestKey\)[\s\S]*writeRequestCache\(competitorSummaryResultCache, requestKey, cacheMs\)[\s\S]*competitorSummaryRequestPromises\.delete\(requestKey\)/.test(content)) {

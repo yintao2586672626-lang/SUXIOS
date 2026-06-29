@@ -7,11 +7,9 @@ use app\model\OperationLog;
 use app\model\SystemConfig;
 use app\model\SystemNotification;
 use app\service\BrowserProfileCaptureRequestService;
-use app\service\ManualOnlineFetchTaskService;
 use app\service\PlatformProfileBindingReadinessService;
 use app\service\PlatformDataSyncService;
 use think\Response;
-use think\exception\HttpException;
 use think\facade\Db;
 
 trait AutoFetchConcern

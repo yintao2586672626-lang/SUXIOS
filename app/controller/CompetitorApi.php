@@ -8,7 +8,6 @@ use app\model\CompetitorHotel;
 use app\model\CompetitorPriceLog;
 use app\model\OperationLog;
 use think\Response;
-use think\facade\Db;
 
 class CompetitorApi extends Base
 {

@@ -5,7 +5,6 @@ namespace app\controller;
 
 use app\model\User as UserModel;
 use app\model\Role;
-use app\model\Hotel;
 use app\model\OperationLog;
 use think\Response;
 use think\facade\Db;

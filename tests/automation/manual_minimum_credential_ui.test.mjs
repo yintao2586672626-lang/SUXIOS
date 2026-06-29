@@ -124,6 +124,32 @@ test('Meituan ranking money cells use backend source prefixes', () => {
   assert.match(fetchTasks, /include_self_business_metrics:\s*includeSelfMetrics/);
 });
 
+test('Meituan batch fetch only requests self metric supplements once per date range', () => {
+  const tasks = meituanStaticApi.buildMeituanBatchFetchTasks({
+    form: {
+      url: 'https://eb.meituan.com/api/v1/ebooking/data/rank',
+      hotelId: 58,
+      dateRanges: ['1', '7', 'custom'],
+      startDate: '2026-06-01',
+      endDate: '2026-06-03',
+    },
+    partnerId: '4517495',
+    poiId: '1022727174',
+    cookies: 'token=ok',
+  });
+
+  assert.equal(tasks.length, 12);
+  ['1', '7', 'custom'].forEach(dateRange => {
+    const rangeTasks = tasks.filter(task => task.dateRange === dateRange);
+    assert.equal(rangeTasks.length, 4);
+    assert.equal(rangeTasks.filter(task => task.body.include_self_trade_metrics === true).length, 1);
+    assert.equal(rangeTasks.filter(task => task.body.include_self_traffic_metrics === true).length, 1);
+    assert.equal(rangeTasks.filter(task => task.body.include_self_business_metrics === true).length, 1);
+    assert.equal(rangeTasks.find(task => task.body.include_self_trade_metrics === true)?.rankType, 'P_RZ');
+    assert.equal(rangeTasks.filter(task => task.body.include_self_trade_metrics === false).length, 3);
+  });
+});
+
 test('Meituan display model keeps self metric anchors scoped by date range', () => {
   const payload = meituanStaticApi.buildMeituanDisplayModelPayload({
     form: {
@@ -137,6 +163,11 @@ test('Meituan display model keeps self metric anchors scoped by date range', () 
         dateRange: '7',
         displayHotels: [{ poiId: 'SELF', hotelName: 'Self Hotel', dateRange: '7' }],
         selfMetricValues: { exposure: 700, salesRoomNights: 70 },
+      },
+      {
+        dateRange: '7',
+        displayHotels: [{ poiId: 'RIVAL', hotelName: 'Rival Hotel', dateRange: '7' }],
+        selfMetricValues: { exposure: 0, salesRoomNights: 0 },
       },
       {
         dateRange: '30',

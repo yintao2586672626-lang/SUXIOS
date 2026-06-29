@@ -12,7 +12,6 @@ use app\model\PriceSuggestion;
 use app\model\RoomType;
 use app\model\EnergyConsumption;
 use app\model\Device;
-use app\model\DeviceCategory;
 use app\model\DeviceMaintenance;
 use app\model\DemandForecast;
 use app\model\CompetitorAnalysis;
@@ -34,7 +33,6 @@ use app\service\RevenueForecastReadinessService;
 use app\service\RevenuePricingRecommendationService;
 use think\Response;
 use think\facade\Db;
-use think\facade\Log;
 
 /**
  * Agent控制器

@@ -116,6 +116,112 @@ $check(
     'raw_data.field_facts'
 );
 
+$hookNormalized = $service->normalizeCapturePackages([
+    'system_hotel_id' => 58,
+    'capture' => [
+        'P_RZ_0' => [
+            'rankType' => 'P_RZ',
+            'rankTypeName' => '入住榜',
+            'dateRange' => '0',
+            'dateRangeName' => '今日实时',
+            'source' => 'peer',
+            'capturedAt' => '2026-06-29T08:10:00.000Z',
+            'data' => [
+                'peerRankData' => [
+                    [
+                        'dimName' => '入住间夜',
+                        'roundRanks' => [
+                            ['poiId' => 'peer-1', 'poiName' => '同行酒店A', 'rank' => 2, 'percent' => '35.5', 'dataValue' => 18],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+        'FLOW_CONV_0' => [
+            'rankType' => 'FLOW_CONV',
+            'dateRange' => '0',
+            'source' => 'flow',
+            'capturedAt' => '2026-06-29T08:11:00.000Z',
+            'data' => [
+                'exposeCount' => 1000,
+                'visitCount' => 200,
+                'orderCount' => 20,
+                'exposeVisitRate' => 20,
+                'visitOrderRate' => 10,
+            ],
+        ],
+        'FLOW_SRC_0' => [
+            'rankType' => 'FLOW_SRC',
+            'dateRange' => '0',
+            'source' => 'flow',
+            'capturedAt' => '2026-06-29T08:12:00.000Z',
+            'data' => [
+                'list' => [
+                    ['name' => '非广告曝光', 'value' => 800, 'percent' => 80],
+                ],
+            ],
+        ],
+        'FORECAST_2' => [
+            'rankType' => 'FORECAST',
+            'forecastType' => '2',
+            'source' => 'forecast',
+            'capturedAt' => '2026-06-29T08:13:00.000Z',
+            'data' => [
+                'detail' => [
+                    ['dateTime' => '20260701', 'current' => 88, 'peerAvg' => 120],
+                ],
+            ],
+        ],
+        'KEYWORDS' => [
+            'rankType' => 'KEYWORDS',
+            'source' => 'keywords',
+            'capturedAt' => '2026-06-29T08:14:00.000Z',
+            'data' => [
+                'cards' => [
+                    [
+                        'title' => '热门搜索',
+                        'itemList' => [
+                            ['name' => '机场酒店', 'value' => 320],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+    ],
+]);
+
+$hookPackageKeys = array_map(
+    static fn(array $package): string => $package['platform'] . ':' . $package['data_type'],
+    $hookNormalized['packages']
+);
+sort($hookPackageKeys);
+
+$check(
+    'normalizer accepts Meituan hook payload keys',
+    $hookPackageKeys === ['meituan:peer_rank', 'meituan:search_keyword', 'meituan:traffic_analysis', 'meituan:traffic_forecast'],
+    implode(',', $hookPackageKeys)
+);
+$check(
+    'Meituan hook peer rank keeps OTA-channel dimension and percent',
+    count(array_filter($hookNormalized['rows'], static fn(array $row): bool => ($row['data_type'] ?? '') === 'peer_rank'
+        && ($row['dimension'] ?? '') === 'peer_rank:P_RZ:入住间夜'
+        && (float)($row['rank_percent'] ?? 0) === 35.5)) === 1,
+    'peer_rank:P_RZ:入住间夜'
+);
+$check(
+    'Meituan hook flow conversion maps to traffic_analysis',
+    count(array_filter($hookNormalized['rows'], static fn(array $row): bool => ($row['data_type'] ?? '') === 'traffic_analysis'
+        && ($row['analysis_type'] ?? '') === 'conversion_funnel'
+        && (int)($row['order_submit_num'] ?? 0) === 20)) === 1,
+    'traffic_analysis:conversion_funnel'
+);
+$check(
+    'Meituan hook forecast remains signal-only',
+    count(array_filter($hookNormalized['rows'], static fn(array $row): bool => ($row['data_type'] ?? '') === 'traffic_forecast'
+        && ($row['raw_data']['quality_status'] ?? '') === 'signal_only')) === 1,
+    'traffic_forecast signal_only'
+);
+
 $failed = array_values(array_filter($checks, static fn(array $check): bool => !$check['ok']));
 foreach ($checks as $item) {
     echo ($item['ok'] ? '[OK] ' : '[FAIL] ') . $item['name'];

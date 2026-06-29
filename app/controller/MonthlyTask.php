@@ -4,9 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\model\MonthlyTask as MonthlyTaskModel;
-use app\model\Hotel;
 use app\model\OperationLog;
-use think\exception\ValidateException;
 use think\Response;
 use think\facade\Db;
 

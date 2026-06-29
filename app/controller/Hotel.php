@@ -7,7 +7,6 @@ use app\model\Hotel as HotelModel;
 use app\model\OperationLog;
 use app\model\UserHotelPermission;
 use app\service\PermissionService;
-use think\exception\ValidateException;
 use think\Response;
 use think\facade\Db;
 

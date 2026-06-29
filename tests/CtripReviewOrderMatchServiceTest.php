@@ -81,6 +81,82 @@ final class CtripReviewOrderMatchServiceTest extends TestCase
         self::assertSame('im_uid_date_room', $result['match_method']);
     }
 
+    public function testStandardizedReviewAndOrderAliasesCanMatch(): void
+    {
+        $service = new CtripReviewOrderMatchService();
+        $uid = md5('m5193520007');
+
+        $result = $service->matchReviewToOrder([
+            'review_id' => 'review-standard-1',
+            'user_name_masked' => 'M519352****',
+            'check_in_date' => '2026-06-28',
+            'room_type' => 'Deluxe King',
+        ], [
+            [
+                'groupId' => 'group-standard-1',
+                'members' => [
+                    $uid => [
+                        'uid' => $uid,
+                        'nickName' => 'Guest A',
+                        'roleType' => 'guest',
+                    ],
+                ],
+            ],
+        ], [
+            [
+                'orderNo' => 'CTRIP-ORDER-1',
+                'memberUid' => $uid,
+                'contactName' => 'Guest A',
+                'checkIn' => '2026-06-28',
+                'room_type_name' => 'Deluxe King Breakfast',
+                'platform' => 'ctrip',
+            ],
+        ]);
+
+        self::assertSame('found', $result['status']);
+        self::assertSame('CTRIP-ORDER-1', $result['order']['order_id']);
+        self::assertSame('Guest A', $result['order']['guest_name']);
+        self::assertSame($uid, $result['order']['guest_uid']);
+        self::assertSame('im_uid_date_room', $result['match_method']);
+    }
+
+    public function testPartialYearCoverageDateDoesNotBlockMatching(): void
+    {
+        $service = new CtripReviewOrderMatchService();
+        $uid = md5('m5193520007');
+
+        $result = $service->matchReviewToOrder([
+            'commentId' => 'comment-year-coverage',
+            'user_name_masked' => 'M519352****',
+            'check_in_date' => '2026-06-28',
+            'room_type' => 'Deluxe King',
+        ], [
+            [
+                'groupId' => 'group-year-coverage',
+                'members' => [
+                    $uid => [
+                        'uid' => $uid,
+                        'nickName' => 'Guest A',
+                        'roleType' => 'guest',
+                    ],
+                ],
+            ],
+        ], [
+            [
+                'orderNo' => 'CTRIP-ORDER-YEAR-COVERAGE',
+                'memberUid' => $uid,
+                'contactName' => 'Guest A',
+                'checkIn' => '2026-06-28',
+                'room_type_name' => 'Deluxe King Breakfast',
+            ],
+        ], [
+            'coverage_start_date' => '2026',
+        ]);
+
+        self::assertSame('found', $result['status']);
+        self::assertSame('CTRIP-ORDER-YEAR-COVERAGE', $result['order']['order_id']);
+    }
+
     public function testReviewOrderMatchReturnsPersonLockedWhenSameGuestHasMultipleOrders(): void
     {
         $service = new CtripReviewOrderMatchService();
