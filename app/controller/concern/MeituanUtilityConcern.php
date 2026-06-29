@@ -247,6 +247,7 @@ trait MeituanUtilityConcern
         $idMap = [
             1 => 'salesRoomNights',
             2 => 'sales',
+            3 => 'orderCount',
             4 => 'roomNights',
             5 => 'roomRevenue',
         ];

@@ -6094,6 +6094,10 @@
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         广告数据
                                     </button>
+                                    <button @click="openCtripManualTab('ctrip-review-match')"
+                                        :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-review-match' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                        评价匹配
+                                    </button>
                                     <button @click="switchToDownloadCenter"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-download' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         查询结果存储
@@ -7670,6 +7674,252 @@
                                 </div>
 
                                 <!-- 点评数据获取 -->
+                                <div v-if="onlineDataTab === 'ctrip-review-match'" class="space-y-4">
+                                    <div class="border rounded-lg bg-white p-4">
+                                        <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+                                            <div>
+                                                <h4 class="text-lg font-semibold text-gray-900">携程评价订单匹配</h4>
+                                                <p class="text-sm text-gray-500 mt-1">携程 OTA 渠道口径 · 基于已授权导入的评价、IM 会话和订单池做反查，不启用实时点评采集。</p>
+                                                <div class="mt-3 flex flex-wrap gap-2 text-xs">
+                                                    <span class="px-2 py-1 rounded border border-emerald-100 bg-emerald-50 text-emerald-700">IM 身份锁定</span>
+                                                    <span class="px-2 py-1 rounded border border-blue-100 bg-blue-50 text-blue-700">订单池匹配</span>
+                                                    <span class="px-2 py-1 rounded border border-amber-100 bg-amber-50 text-amber-700">人工绑定留痕</span>
+                                                </div>
+                                            </div>
+                                            <div class="w-full xl:w-80">
+                                                <label class="block text-xs text-gray-500 mb-1">归属门店</label>
+                                                <select v-model="ctripReviewMatchForm.systemHotelId" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                    <option value="">使用当前携程门店 / 当前账号门店</option>
+                                                    <option v-for="h in hotels" :key="'ctrip-review-match-hotel-' + h.id" :value="h.id">{{ h.name }}</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="border rounded-lg bg-white p-4 space-y-4">
+                                        <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+                                            <div>
+                                                <h5 class="font-semibold text-gray-900">自动匹配流水线</h5>
+                                                <p class="text-sm text-gray-500 mt-1">系统自动扫描携程原始采集记录和匹配缓存，导入可识别的评价、IM 会话、订单池，并批量写入匹配结果。</p>
+                                            </div>
+                                            <button type="button" @click="runCtripReviewMatchAutomation" :disabled="!!ctripReviewMatchLoading"
+                                                class="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:bg-gray-400 whitespace-nowrap">
+                                                <i class="fas fa-robot mr-1"></i>{{ ctripReviewMatchLoading === '自动匹配' ? '自动匹配中' : '一键自动匹配' }}
+                                            </button>
+                                        </div>
+                                        <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
+                                            <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                <div class="text-xs text-gray-500">评价</div>
+                                                <div class="text-lg font-semibold text-gray-900">{{ ctripReviewMatchResult?.data?.summary?.review_count ?? '-' }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                <div class="text-xs text-gray-500">IM会话</div>
+                                                <div class="text-lg font-semibold text-gray-900">{{ ctripReviewMatchResult?.data?.summary?.im_session_count ?? '-' }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                <div class="text-xs text-gray-500">订单池</div>
+                                                <div class="text-lg font-semibold text-gray-900">{{ ctripReviewMatchResult?.data?.summary?.order_count ?? '-' }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+                                                <div class="text-xs text-emerald-600">已匹配</div>
+                                                <div class="text-lg font-semibold text-emerald-700">{{ ctripReviewMatchResult?.data?.summary?.matched_count ?? '-' }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                <div class="text-xs text-blue-600">锁定客人</div>
+                                                <div class="text-lg font-semibold text-blue-700">{{ ctripReviewMatchResult?.data?.summary?.person_locked_count ?? '-' }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-amber-100 bg-amber-50 p-3">
+                                                <div class="text-xs text-amber-600">待复核</div>
+                                                <div class="text-lg font-semibold text-amber-700">{{ ctripReviewMatchResult?.data?.summary?.needs_ops_count ?? '-' }}</div>
+                                            </div>
+                                        </div>
+                                        <div v-if="ctripReviewMatchResult?.data?.missing_sources?.length" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                                            缺少数据源：{{ ctripReviewMatchResult.data.missing_sources.join(' / ') }}。{{ ctripReviewMatchResult.data.next_action }}
+                                        </div>
+                                        <div v-if="ctripReviewMatchResult?.data?.samples?.length" class="overflow-x-auto border rounded-lg">
+                                            <table class="min-w-full text-sm">
+                                                <thead class="bg-gray-50 text-gray-500">
+                                                    <tr>
+                                                        <th class="px-3 py-2 text-left">评价ID</th>
+                                                        <th class="px-3 py-2 text-left">用户名</th>
+                                                        <th class="px-3 py-2 text-left">状态</th>
+                                                        <th class="px-3 py-2 text-left">订单号</th>
+                                                        <th class="px-3 py-2 text-left">客人</th>
+                                                        <th class="px-3 py-2 text-left">原因</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="sample in ctripReviewMatchResult.data.samples" :key="sample.comment_id" class="border-t">
+                                                        <td class="px-3 py-2 font-mono text-xs">{{ sample.comment_id || '-' }}</td>
+                                                        <td class="px-3 py-2">{{ sample.source_username || '-' }}</td>
+                                                        <td class="px-3 py-2">{{ sample.status || '-' }}</td>
+                                                        <td class="px-3 py-2 font-mono text-xs">{{ sample.order_id || '-' }}</td>
+                                                        <td class="px-3 py-2">{{ sample.guest_name || '-' }}</td>
+                                                        <td class="px-3 py-2 text-gray-500">{{ sample.reason || '-' }}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex justify-end">
+                                        <button type="button" @click="showCtripReviewMatchManualPanel = !showCtripReviewMatchManualPanel"
+                                            class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
+                                            <i class="fas fa-tools mr-1"></i>{{ showCtripReviewMatchManualPanel ? '收起手动补录' : '展开手动补录/复核' }}
+                                        </button>
+                                    </div>
+
+                                    <div v-if="showCtripReviewMatchManualPanel" class="space-y-4">
+                                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                        <div class="border rounded-lg bg-white p-4 space-y-3">
+                                            <div class="flex items-center justify-between gap-3">
+                                                <div>
+                                                    <h5 class="font-semibold text-gray-900">1. 评价信息</h5>
+                                                    <p class="text-xs text-gray-500 mt-1">支持粘贴携程评价 JSON，也可只填关键字段。</p>
+                                                </div>
+                                                <button type="button" @click="saveCtripReviewForMatch" :disabled="!!ctripReviewMatchLoading"
+                                                    class="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:bg-gray-400 whitespace-nowrap">
+                                                    <i class="fas fa-save mr-1"></i>保存评价
+                                                </button>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">commentId</label>
+                                                    <input v-model="ctripReviewMatchForm.commentId" class="w-full px-3 py-2 border rounded-lg" placeholder="携程评价ID">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">评价用户名</label>
+                                                    <input v-model="ctripReviewMatchForm.userName" class="w-full px-3 py-2 border rounded-lg" placeholder="如 M519352****">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">入住日期</label>
+                                                    <input v-model="ctripReviewMatchForm.checkinTimeStr" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">房型</label>
+                                                    <input v-model="ctripReviewMatchForm.hotelRoomInfo" class="w-full px-3 py-2 border rounded-lg" placeholder="如 舒适大床房">
+                                                </div>
+                                            </div>
+                                            <textarea v-model="ctripReviewMatchForm.rawReviewJson" rows="5"
+                                                class="w-full px-3 py-2 border rounded-lg font-mono text-xs"
+                                                placeholder='可选：粘贴评价接口中的单条 JSON，如 {"commentId":"","userName":"","checkinTimeStr":"","hotelRoomInfo":""}'></textarea>
+                                        </div>
+
+                                        <div class="border rounded-lg bg-white p-4 space-y-3">
+                                            <div class="flex items-center justify-between gap-3">
+                                                <div>
+                                                    <h5 class="font-semibold text-gray-900">2. IM 会话</h5>
+                                                    <p class="text-xs text-gray-500 mt-1">来自携程 queryMessageList，核心字段是 groupId 和 members。</p>
+                                                </div>
+                                                <button type="button" @click="saveCtripReviewImSession" :disabled="!!ctripReviewMatchLoading"
+                                                    class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:bg-gray-400 whitespace-nowrap">
+                                                    <i class="fas fa-comments mr-1"></i>保存IM
+                                                </button>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">groupId</label>
+                                                    <input v-model="ctripReviewMatchForm.imGroupId" class="w-full px-3 py-2 border rounded-lg" placeholder="携程 IM groupId">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">关联订单号</label>
+                                                    <input v-model="ctripReviewMatchForm.imOrderId" class="w-full px-3 py-2 border rounded-lg" placeholder="可选">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">入住日期</label>
+                                                    <input v-model="ctripReviewMatchForm.imArrivalDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">房型</label>
+                                                    <input v-model="ctripReviewMatchForm.imRoomName" class="w-full px-3 py-2 border rounded-lg" placeholder="可选">
+                                                </div>
+                                            </div>
+                                            <textarea v-model="ctripReviewMatchForm.rawImSessionJson" rows="4"
+                                                class="w-full px-3 py-2 border rounded-lg font-mono text-xs"
+                                                placeholder='可选：粘贴 queryMessageList 会话 JSON，系统会优先读取其中的 members'></textarea>
+                                            <textarea v-model="ctripReviewMatchForm.imMembersJson" rows="4"
+                                                class="w-full px-3 py-2 border rounded-lg font-mono text-xs"
+                                                placeholder='members JSON 数组，如 [{"uid":"379875...","nickName":"刘玉","avatar":"","roleType":"guest"}]'></textarea>
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                        <div class="border rounded-lg bg-white p-4 space-y-3">
+                                            <div class="flex items-center justify-between gap-3">
+                                                <div>
+                                                    <h5 class="font-semibold text-gray-900">3. 订单池</h5>
+                                                    <p class="text-xs text-gray-500 mt-1">保存可匹配的携程订单，后续按客人身份、入住日期、房型做候选。</p>
+                                                </div>
+                                                <button type="button" @click="saveCtripOrderForMatch" :disabled="!!ctripReviewMatchLoading"
+                                                    class="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:bg-gray-400 whitespace-nowrap">
+                                                    <i class="fas fa-receipt mr-1"></i>保存订单
+                                                </button>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">订单号</label>
+                                                    <input v-model="ctripReviewMatchForm.orderId" class="w-full px-3 py-2 border rounded-lg" placeholder="携程订单号">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">客人姓名</label>
+                                                    <input v-model="ctripReviewMatchForm.guestName" class="w-full px-3 py-2 border rounded-lg" placeholder="如 刘玉">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">客人 UID</label>
+                                                    <input v-model="ctripReviewMatchForm.guestUid" class="w-full px-3 py-2 border rounded-lg" placeholder="可选，优先用于匹配">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">入住日期</label>
+                                                    <input v-model="ctripReviewMatchForm.orderArrivalDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">离店日期</label>
+                                                    <input v-model="ctripReviewMatchForm.orderDepartureDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">房型</label>
+                                                    <input v-model="ctripReviewMatchForm.orderRoomName" class="w-full px-3 py-2 border rounded-lg" placeholder="可选">
+                                                </div>
+                                            </div>
+                                            <textarea v-model="ctripReviewMatchForm.rawOrderJson" rows="4"
+                                                class="w-full px-3 py-2 border rounded-lg font-mono text-xs"
+                                                placeholder='可选：粘贴订单 JSON，如 {"orderId":"","guestName":"","arrivalDate":"","roomName":""}'></textarea>
+                                        </div>
+
+                                        <div class="border rounded-lg bg-white p-4 space-y-4">
+                                            <div>
+                                                <h5 class="font-semibold text-gray-900">4. 匹配与绑定</h5>
+                                                <p class="text-xs text-gray-500 mt-1">先自动反查；无法唯一确认时，再人工绑定订单号。</p>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <button type="button" @click="lookupCtripReviewOrderMatch" :disabled="!!ctripReviewMatchLoading"
+                                                    class="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:bg-gray-400">
+                                                    <i class="fas fa-search mr-1"></i>自动反查订单
+                                                </button>
+                                                <button type="button" @click="bindCtripReviewOrderMatch" :disabled="!!ctripReviewMatchLoading"
+                                                    class="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:text-gray-400">
+                                                    <i class="fas fa-link mr-1"></i>人工绑定
+                                                </button>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                    <div class="text-xs text-gray-500">当前动作</div>
+                                                    <div class="text-sm font-medium text-gray-900">{{ ctripReviewMatchLoading || '待操作' }}</div>
+                                                </div>
+                                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                    <div class="text-xs text-gray-500">匹配状态</div>
+                                                    <div class="text-sm font-medium text-gray-900">{{ ctripReviewMatchResult?.data?.status || ctripReviewMatchResult?.data?.match_status || '-' }}</div>
+                                                </div>
+                                            </div>
+                                            <pre v-if="ctripReviewMatchResult" class="text-xs text-gray-700 bg-gray-50 border rounded-lg p-3 whitespace-pre-wrap max-h-80 overflow-auto">{{ JSON.stringify(ctripReviewMatchResult, null, 2) }}</pre>
+                                            <div v-else class="text-sm text-gray-400 bg-gray-50 border border-dashed rounded-lg p-6 text-center">
+                                                暂无匹配结果
+                                            </div>
+                                        </div>
+                                    </div>
+                                    </div>
+                                </div>
+
                                 <!-- 下载中心 -->
                                 <div v-if="onlineDataTab === 'ctrip-download'">
                                     <!-- 子Tab导航 -->
@@ -15161,6 +15411,93 @@
                                                 </div>
                                             </div>
                                         </div>
+                                        <div class="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+                                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+                                                <div>
+                                                    <div class="text-sm font-semibold text-slate-900">登录与采集状态</div>
+                                                    <div class="mt-1 text-xs text-slate-500">系统登录、当前门店权限、携程/美团平台登录和 OTA 渠道采集状态分开显示。</div>
+                                                </div>
+                                                <button type="button" @click="loadPlatformCollectionStatus({ force: true })" :disabled="platformCollectionStatusLoading"
+                                                    class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:text-gray-400">
+                                                    <i :class="platformCollectionStatusLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>刷新采集状态
+                                                </button>
+                                            </div>
+                                            <div class="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                                <div v-for="card in platformContextSummaryCards" :key="card.key" class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                                                    <div class="text-xs text-slate-500">{{ card.label }}</div>
+                                                    <div class="mt-1 flex items-center justify-between gap-2">
+                                                        <span class="text-sm font-semibold text-slate-900 truncate" :title="card.value">{{ card.value }}</span>
+                                                        <span :class="['shrink-0 rounded-full px-2 py-0.5 text-xs', card.statusClass]">{{ card.badge || card.value }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div v-if="platformProfileFlowRows.length" data-testid="platform-profile-p0-flow" class="mt-3 space-y-3">
+                                                <div v-for="flow in platformProfileFlowRows" :key="'platform-profile-flow-' + flow.platform" class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                                    <div class="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                                                        <div class="min-w-0">
+                                                            <div class="flex flex-wrap items-center gap-2">
+                                                                <span class="text-sm font-semibold text-slate-900">{{ flow.platformName }}</span>
+                                                                <span :class="['rounded-full border px-2 py-0.5 text-xs', platformProfileStatusBadgeClass(flow.statusCode)]">{{ flow.statusText }}</span>
+                                                            </div>
+                                                            <div class="mt-1 text-xs text-slate-500">Profile 主线，不托管 OTA 账号密码；以人工验证登录态和目标日期真实入库作为闭环。</div>
+                                                        </div>
+                                                        <div class="text-xs text-slate-500 lg:text-right">
+                                                            <div>失败原因：<span :class="platformCollectionFailureReasonClass(flow.failureRaw, flow.collectionRow)">{{ flow.failureText }}</span></div>
+                                                            <div class="mt-1">目标日期：{{ flow.targetDateText }}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mt-3 grid grid-cols-1 md:grid-cols-5 gap-2">
+                                                        <div v-for="(step, index) in flow.steps" :key="flow.platform + '-' + step.key" :class="['min-h-[84px] rounded-md border px-3 py-2', platformProfileFlowStepClass(step.status)]">
+                                                            <div class="flex items-center gap-2">
+                                                                <span :class="['inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold', platformProfileFlowStepDotClass(step.status)]">{{ index + 1 }}</span>
+                                                                <span class="text-xs font-semibold text-slate-900">{{ step.label }}</span>
+                                                            </div>
+                                                            <div class="mt-2 text-[11px] leading-4 text-slate-600">{{ step.description }}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div v-if="platformCollectionStatusError" class="mt-3 rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
+                                                {{ platformCollectionStatusError }}
+                                            </div>
+                                            <div v-if="platformCollectionStatusRows.length" class="mt-3 overflow-x-auto">
+                                                <table class="min-w-full text-sm">
+                                                    <thead class="bg-slate-50 text-slate-600">
+                                                        <tr>
+                                                            <th class="px-3 py-2 text-left">平台</th>
+                                                            <th class="px-3 py-2 text-left">平台登录</th>
+                                                            <th class="px-3 py-2 text-left">采集状态</th>
+                                                            <th class="px-3 py-2 text-left">最近采集</th>
+                                                            <th class="px-3 py-2 text-left">数据范围</th>
+                                                            <th class="px-3 py-2 text-left">失败原因</th>
+                                                            <th class="px-3 py-2 text-left">点评边界</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-slate-100">
+                                                        <tr v-for="row in platformCollectionStatusRows" :key="'collection-status-' + row.platform">
+                                                            <td class="px-3 py-3 font-medium text-slate-900">{{ row.platformName || row.platform }}</td>
+                                                            <td class="px-3 py-3">
+                                                                <span :class="['rounded-full border px-2 py-0.5 text-xs', platformProfileStatusBadgeClass(row.profile?.statusCode || row.platformLoginStatus)]">{{ row.platformLoginText || row.platformLoginStatus || '未配置' }}</span>
+                                                            </td>
+                                                            <td class="px-3 py-3">
+                                                                <span :class="['rounded-full px-2 py-0.5 text-xs', platformCollectionStatusClass(row.collectionStatus)]">{{ platformCollectionStatusText(row.collectionStatus) }}</span>
+                                                                <div class="mt-1 text-xs text-slate-500">入库 {{ row.storedRowCount || 0 }} 条</div>
+                                                            </td>
+                                                            <td class="px-3 py-3 text-slate-600">{{ platformRowLatestText(row) }}</td>
+                                                            <td class="px-3 py-3 text-slate-600">{{ row.dataRange || row.latestDataDate || '-' }}</td>
+                                                            <td class="px-3 py-3 max-w-xs truncate" :title="row.failureReason || platformCollectionFailureReasonText(row.failureReason, row)">
+                                                                <span :class="platformCollectionFailureReasonClass(row.failureReason, row)">{{ platformCollectionFailureReasonText(row.failureReason, row) }}</span>
+                                                            </td>
+                                                            <td class="px-3 py-3 text-slate-600">{{ platformReviewCollectionText(row) }}</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <div v-else-if="!platformCollectionStatusLoading && !platformCollectionStatusError" class="mt-3 rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                                                暂无采集状态；请选择门店后刷新。
+                                            </div>
+                                            <div class="mt-3 text-xs text-slate-500">以上只代表携程/美团 OTA 渠道口径，不代表全酒店经营事实；点评采集默认策略禁用，需显式授权后才可另行启用。</div>
+                                        </div>
                                         <div v-if="platformProfileStatusRows.length" class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
                                             <div v-for="item in platformProfileStatusRows" :key="'platform-profile-status-' + item.platform" class="rounded-lg border border-slate-200 bg-slate-50 p-3">
                                                 <div class="flex items-start justify-between gap-3">
@@ -18003,6 +18340,35 @@
             const cachedAuthUser = token.value ? loadCachedAuthUser() : null;
             const isLoggedIn = ref(!!token.value && !!cachedAuthUser);
             const user = ref(cachedAuthUser);
+            const createDefaultAuthContext = (tokenStatus = token.value ? 'valid' : 'missing') => ({
+                tokenStatus,
+                hotelId: null,
+                tenantId: null,
+                platform: 'unknown',
+                currentHotelName: '',
+                permissionStatus: 'unknown',
+                fetchPermissionStatus: 'unknown',
+                platformLoginScope: ['ctrip', 'meituan'],
+            });
+            const authContext = ref(createDefaultAuthContext());
+            const normalizeTokenStatusFromReason = (reason) => {
+                const value = String(reason || '').toLowerCase();
+                if (value.includes('missing')) return 'missing';
+                if (value.includes('expired')) return 'expired';
+                if (value.includes('invalid') || value.includes('unauthorized') || value.includes('forbidden')) return 'unauthorized';
+                return token.value ? 'unauthorized' : 'missing';
+            };
+            const applyAuthContext = (context = {}) => {
+                if (!context || typeof context !== 'object') return;
+                authContext.value = {
+                    ...authContext.value,
+                    ...context,
+                    tokenStatus: context.tokenStatus || authContext.value.tokenStatus || (token.value ? 'valid' : 'missing'),
+                    platform: context.platform || authContext.value.platform || 'unknown',
+                    permissionStatus: context.permissionStatus || authContext.value.permissionStatus || 'unknown',
+                    fetchPermissionStatus: context.fetchPermissionStatus || authContext.value.fetchPermissionStatus || 'unknown',
+                };
+            };
             const userHasPermission = (key) => !!(user.value?.permissions || {})[key];
             const canManageOwnHotels = () => !!user.value?.is_super_admin || userHasPermission('can_manage_own_hotels');
             const currentLocale = ref(getInitialLocale());
@@ -18073,14 +18439,18 @@
                     deferUiTask(() => loadFormOperationSupport(), 0);
                 }, delay);
             };
-            const clearAuthSession = () => {
+            const clearAuthSessionWithStatus = (tokenStatus = 'missing') => {
                 clearStartupHotelListLoadTimer();
                 clearFormOperationSupportLoadTimer();
                 isLoggedIn.value = false;
                 user.value = null;
                 token.value = '';
+                authContext.value = createDefaultAuthContext(tokenStatus);
                 localStorage.removeItem('token');
                 clearCachedAuthUser();
+            };
+            const clearAuthSession = () => {
+                clearAuthSessionWithStatus('missing');
             };
             const postFetchRefreshTimers = new Map();
             const schedulePostFetchRefresh = (key, callback, delay = 240) => {
@@ -18145,8 +18515,11 @@
             const platformSyncTasks = ref([]);
             const platformSyncLogs = ref([]);
             const platformCollectionResources = ref(null);
+            const platformCollectionStatus = ref(null);
             const platformCollectionResourceLoading = ref(false);
             const platformCollectionResourceError = ref('');
+            const platformCollectionStatusLoading = ref(false);
+            const platformCollectionStatusError = ref('');
             const platformDataSourceLoading = ref(false);
             const platformDataSourceSaving = ref(false);
             const platformDataSourceSyncingId = ref(null);
@@ -18456,6 +18829,131 @@
                     },
                 ];
             });
+            const platformCollectionStatusRows = computed(() => {
+                const rows = platformCollectionStatus.value?.platforms;
+                if (!rows || typeof rows !== 'object') return [];
+                return Object.values(rows).filter(Boolean);
+            });
+            const platformContextSummaryCards = computed(() => {
+                const context = platformCollectionStatus.value?.context || authContext.value || {};
+                const summary = platformCollectionStatus.value?.summary || {};
+                return [
+                    {
+                        key: 'token',
+                        label: '系统登录',
+                        value: context.tokenStatus || authContext.value.tokenStatus || 'unknown',
+                        badge: (context.tokenStatus || authContext.value.tokenStatus) === 'valid' ? '有效' : '异常',
+                        statusClass: (context.tokenStatus || authContext.value.tokenStatus) === 'valid' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700',
+                    },
+                    {
+                        key: 'hotel',
+                        label: '当前门店',
+                        value: context.currentHotelName || (context.hotelId ? `ID ${context.hotelId}` : '未选择'),
+                        badge: context.hotelId ? '已选择' : '待选择',
+                        statusClass: context.hotelId ? 'bg-slate-100 text-slate-700' : 'bg-amber-100 text-amber-700',
+                    },
+                    {
+                        key: 'permission',
+                        label: '门店权限',
+                        value: context.permissionStatus || 'unknown',
+                        badge: context.permissionStatus === 'allowed' ? '允许' : (context.permissionStatus === 'denied' ? '拒绝' : '未知'),
+                        statusClass: context.permissionStatus === 'allowed' ? 'bg-emerald-100 text-emerald-700' : (context.permissionStatus === 'denied' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'),
+                    },
+                    {
+                        key: 'collection',
+                        label: 'OTA 采集',
+                        value: platformCollectionStatusText(summary.collectionStatus || 'not_loaded'),
+                        badge: platformCollectionStatusText(summary.collectionStatus || 'not_loaded'),
+                        statusClass: platformCollectionStatusClass(summary.collectionStatus || 'not_loaded'),
+                    },
+                ];
+            });
+            const platformCollectionStatusText = (status) => ({
+                collected: '已采集',
+                collecting: '采集中',
+                partial: '部分成功',
+                failed: '失败',
+                stale: '已过期',
+                not_collected: '未采集',
+                not_loaded: '未加载',
+            })[String(status || '')] || String(status || '未知');
+            const platformCollectionStatusClass = (status) => ({
+                collected: 'bg-emerald-100 text-emerald-700',
+                collecting: 'bg-blue-100 text-blue-700',
+                partial: 'bg-amber-100 text-amber-700',
+                failed: 'bg-red-100 text-red-700',
+                stale: 'bg-amber-100 text-amber-700',
+                not_collected: 'bg-slate-100 text-slate-600',
+                not_loaded: 'bg-slate-100 text-slate-600',
+            })[String(status || '')] || 'bg-slate-100 text-slate-600';
+            const platformReviewCollectionText = (row) => {
+                const status = row?.reviewCollection?.status || 'unknown';
+                if (status === 'policy_disabled') return '点评策略禁用';
+                if (row?.reviewCollection?.requiresExplicitAuthorization) return '需显式授权';
+                return status;
+            };
+            const platformRowLatestText = (row) => {
+                if (row?.latestCollectedAt) return row.latestCollectedAt;
+                if (row?.latestTask?.finishedAt) return row.latestTask.finishedAt;
+                if (row?.latestTask?.startedAt) return row.latestTask.startedAt;
+                return '-';
+            };
+            const platformFailureReasonSourceText = (reason, row = null) => {
+                const candidates = [
+                    reason,
+                    row?.failureReason,
+                    row?.latestTask?.message,
+                    row?.latestTask?.error_message,
+                    row?.latestTask?.status,
+                    row?.sourceSummary?.lastError,
+                    row?.sourceSummary?.last_error,
+                    row?.profile?.nextAction,
+                    row?.profile?.next_action,
+                    row?.profile?.currentStatus,
+                    row?.profile?.current_status,
+                ];
+                const value = candidates.find(item => item !== undefined && item !== null && String(item).trim() !== '');
+                return value === undefined ? '' : String(value).trim();
+            };
+            const platformCollectionFailureReasonText = (reason, row = null) => {
+                const raw = platformFailureReasonSourceText(reason, row);
+                const status = String(row?.collectionStatus || '').trim().toLowerCase();
+                const storedRows = Number(row?.storedRowCount || 0);
+                if (!raw) {
+                    if (status === 'collected' && storedRows > 0) return '-';
+                    if (['failed', 'partial', 'stale'].includes(status)) return '失败原因未返回';
+                    if (['not_collected', 'not_loaded', ''].includes(status)) return '目标日期无入库行';
+                    return '状态未解释';
+                }
+                const text = raw.replace(/\s+/g, ' ');
+                const lower = text.toLowerCase();
+                if (/sync_completed_without_saved_rows|saved_count\s*=\s*0|no business rows|empty_result|zero_saved_rows/.test(lower)) return '同步完成但没有真实入库数据';
+                if (/no_collected_ota_rows|no_saved_rows|target_date_no_rows|no_rows_for_target_date/.test(lower)) return '目标日期无入库行';
+                if (/captcha_required|sms_code_required|verification_code|captcha|sms|短信|验证码/.test(lower)) return '验证码或短信未完成';
+                if (/slider_requires_manual|human_verification_required|yoda|slider|human|人机|滑块/.test(lower)) return '人机验证未完成';
+                if (/missing_profile|needs_profile|profile_missing|profile is not prepared|profile not found|browser profile/.test(lower)) return '缺少浏览器 Profile';
+                if (/login_expired|login_required|waiting_login|manual_login_state_missing|unauthorized|forbidden|auth|session|401|403|登录|授权|过期|失效/.test(lower)) return '登录态或授权已失效';
+                if (/field_missing|missing_field|schema|parse|parser|字段|未解析/.test(lower)) return '字段缺失或未解析到业务行';
+                if (/browser_runtime_error|spawn|eperm|eacces|playwright|chromium|browser process|浏览器运行/.test(lower)) return '浏览器运行环境异常';
+                if (/platform_api_error|request failed|http\s*[45]\d\d|timeout|network|接口|返回异常/.test(lower)) return '平台接口返回异常';
+                if (/password_error|account_not_found/.test(lower)) return '账号密码错误（非 Profile 主线）';
+                return text;
+            };
+            const platformCollectionFailureReasonClass = (reason, row = null) => {
+                const raw = platformFailureReasonSourceText(reason, row).toLowerCase();
+                const text = platformCollectionFailureReasonText(reason, row);
+                if (text === '-') return 'text-slate-400';
+                if (/browser_runtime_error|spawn|eperm|eacces|platform_api_error|request failed|http\s*[45]\d\d|failed|error|异常|失败/.test(raw) || ['失败原因未返回', '平台接口返回异常', '浏览器运行环境异常'].includes(text)) {
+                    return 'text-red-700';
+                }
+                if (/captcha|sms|slider|yoda|human|login|auth|session|profile|401|403|验证码|短信|人机|登录|授权|过期|失效/.test(raw) || ['验证码或短信未完成', '人机验证未完成', '缺少浏览器 Profile', '登录态或授权已失效'].includes(text)) {
+                    return 'text-amber-700';
+                }
+                if (['目标日期无入库行', '同步完成但没有真实入库数据', '字段缺失或未解析到业务行', '状态未解释'].includes(text)) {
+                    return 'text-amber-700';
+                }
+                return 'text-slate-600';
+            };
             const requirePlatformBatchHealthStatic = (key) => {
                 const value = window.SUXI_DATA_HEALTH_STATIC?.[key];
                 if (typeof value !== 'function') {
@@ -18604,6 +19102,10 @@
             const ctripEndpointEvidenceValidating = ref(false);
             const ctripCommentForm = ref(createCtripCommentForm());
             const ctripCommentResult = ref(null);
+            const ctripReviewMatchForm = ref(createCtripReviewMatchForm());
+            const ctripReviewMatchLoading = ref('');
+            const ctripReviewMatchResult = ref(null);
+            const showCtripReviewMatchManualPanel = ref(false);
             const ctripCommentBrowserCaptureForm = ref(createCtripCommentBrowserCaptureForm());
             const ctripCommentBrowserCaptureResult = ref(null);
             const ctripCommentBrowserCaptureRunning = ref(false);
@@ -20754,7 +21256,7 @@
             };
             const canUseHomeEntry = (entry) => {
                 if (entry.requireSuper && !user.value?.is_super_admin) return false;
-                if (entry.requireManager && user.value?.role_id !== 2 && !user.value?.is_super_admin) return false;
+                if (entry.requireManager && user.value?.role_id !== 2 && !user.value?.is_hotel_manager && !user.value?.is_super_admin) return false;
                 if (entry.permission) {
                     return !!(user.value?.permissions || {})[entry.permission];
                 }
@@ -21533,6 +22035,109 @@
                     if (platform) map[platform] = row;
                 });
                 return map;
+            });
+            const platformProfileFlowStepClass = (status) => ({
+                done: 'border-emerald-200 bg-emerald-50',
+                active: 'border-blue-200 bg-blue-50',
+                warning: 'border-amber-200 bg-amber-50',
+                blocked: 'border-red-200 bg-red-50',
+                pending: 'border-slate-200 bg-white',
+            })[String(status || '')] || 'border-slate-200 bg-white';
+            const platformProfileFlowStepDotClass = (status) => ({
+                done: 'border-emerald-200 bg-emerald-100 text-emerald-700',
+                active: 'border-blue-200 bg-blue-100 text-blue-700',
+                warning: 'border-amber-200 bg-amber-100 text-amber-700',
+                blocked: 'border-red-200 bg-red-100 text-red-700',
+                pending: 'border-slate-200 bg-slate-100 text-slate-500',
+            })[String(status || '')] || 'border-slate-200 bg-slate-100 text-slate-500';
+            const platformProfileFlowRows = computed(() => {
+                const map = new Map();
+                const ensureItem = (platform) => {
+                    const key = String(platform || '').trim().toLowerCase();
+                    if (!key) return null;
+                    if (!map.has(key)) map.set(key, { platform: key, collectionRow: null, profileItem: null });
+                    return map.get(key);
+                };
+                platformCollectionStatusRows.value.forEach(row => {
+                    const item = ensureItem(row?.platform);
+                    if (item) item.collectionRow = row;
+                });
+                platformProfileStatusRows.value.forEach(row => {
+                    const item = ensureItem(row?.platform);
+                    if (item) item.profileItem = row;
+                });
+                return Array.from(map.values()).map(({ platform, collectionRow, profileItem }) => {
+                    const profile = collectionRow?.profile || {};
+                    const currentStatus = String(profileItem?.current_status || profile.currentStatus || collectionRow?.platformLoginStatus || '').trim();
+                    let statusCode = String(profileItem?.status_code || profile.statusCode || collectionRow?.platformLoginStatus || '').trim().toLowerCase();
+                    if (!statusCode && /manual_login_state_verified|logged_in|已登录|授权可用/i.test(currentStatus)) statusCode = 'logged_in';
+                    const dataSourceId = profileItem?.data_source_id || profile.dataSourceId || profile.data_source_id || '';
+                    const profileExists = profileItem?.profile_exists === true || profile.profileExists === true;
+                    const hasConfiguredProfile = profileExists || !!dataSourceId || !['', 'unconfigured', 'missing_profile', 'needs_profile'].includes(statusCode);
+                    const loginVerified = statusCode === 'logged_in' || /manual_login_state_verified|logged_in|已登录|授权可用/i.test(currentStatus);
+                    const loginBlocked = ['login_expired', 'capture_failed'].includes(statusCode);
+                    const collectionStatus = String(collectionRow?.collectionStatus || '').trim().toLowerCase();
+                    const storedRows = Number(collectionRow?.storedRowCount || 0);
+                    const collectionDone = collectionStatus === 'collected' && (storedRows > 0 || collectionRow?.dataCollected === true);
+                    const collectionPartial = collectionStatus === 'partial';
+                    const collectionBlocked = ['failed', 'stale'].includes(collectionStatus);
+                    const failureRaw = platformFailureReasonSourceText(collectionRow?.failureReason, collectionRow);
+                    const failureText = platformCollectionFailureReasonText(collectionRow?.failureReason, collectionRow);
+                    const normalizedProfileItem = profileItem || {
+                        platform,
+                        status_code: statusCode,
+                        current_status: currentStatus,
+                        profile_key: profile.profileKey || '',
+                    };
+                    const syncStepStatus = collectionDone
+                        ? 'done'
+                        : (collectionPartial ? 'warning' : (collectionStatus === 'collecting' ? 'active' : (collectionBlocked ? 'blocked' : (loginVerified ? 'active' : 'pending'))));
+                    const dataStepStatus = collectionDone
+                        ? 'done'
+                        : (collectionPartial ? 'warning' : (collectionBlocked ? 'blocked' : (loginVerified ? 'warning' : 'pending')));
+                    return {
+                        platform,
+                        platformName: collectionRow?.platformName || profileItem?.platform_name || platform,
+                        statusCode: statusCode || 'unconfigured',
+                        statusText: platformProfileStatusLabel(normalizedProfileItem),
+                        failureRaw,
+                        failureText,
+                        collectionRow,
+                        targetDateText: collectionRow?.dataRange || collectionRow?.latestDataDate || collectionRow?.latestTask?.targetDate || collectionRow?.latestTask?.target_date || '-',
+                        steps: [
+                            {
+                                key: 'open-login',
+                                label: '打开平台登录',
+                                status: hasConfiguredProfile ? 'done' : 'active',
+                                description: hasConfiguredProfile ? '已存在平台数据源和浏览器 Profile。' : '先补齐平台数据源和授权浏览器 Profile。',
+                            },
+                            {
+                                key: 'user-verification',
+                                label: '等待用户验证',
+                                status: loginVerified ? 'done' : (hasConfiguredProfile ? (loginBlocked ? 'blocked' : 'active') : 'pending'),
+                                description: loginVerified ? '用户已在授权浏览器内完成验证。' : '在授权浏览器内完成人工登录、短信或人机验证。',
+                            },
+                            {
+                                key: 'confirm-login-state',
+                                label: '确认登录态',
+                                status: loginVerified ? 'done' : (loginBlocked ? 'blocked' : 'pending'),
+                                description: loginVerified ? '登录态已人工验证，可进入采集。' : '等待系统确认 manual_login_state_verified。',
+                            },
+                            {
+                                key: 'sync-target-date',
+                                label: '同步目标日期数据',
+                                status: syncStepStatus,
+                                description: collectionDone ? `目标日期同步已入库 ${storedRows} 条。` : (loginVerified ? '运行现有数据源同步，记录真实入库结果。' : '登录态确认后再运行目标日期同步。'),
+                            },
+                            {
+                                key: 'verify-data-completeness',
+                                label: '验证数据完整性',
+                                status: dataStepStatus,
+                                description: collectionDone ? '目标日期已有真实入库行。' : failureText,
+                            },
+                        ],
+                    };
+                });
             });
             const meituanPlatformProfileStatusRow = computed(() => platformProfileStatusByPlatform.value.meituan || null);
             const ctripPlatformProfileStatusRow = computed(() => platformProfileStatusByPlatform.value.ctrip || null);
@@ -25465,12 +26070,20 @@
 
                     // 处理 401 认证失败
                     if (response.status === 401 || data.code === 401) {
-                        clearAuthSession();
+                        const tokenStatus = normalizeTokenStatusFromReason(data?.data?.reason || data?.data?.redacted_reason || data?.message);
+                        clearAuthSessionWithStatus(tokenStatus);
                         // 只在非初始化请求时显示提示
                         if (url !== '/auth/info') {
                             showToast('登录已过期，请重新登录', 'error');
                         }
                         return data;
+                    }
+
+                    if (response.status === 403 || data.code === 403) {
+                        applyAuthContext({
+                            tokenStatus: token.value ? 'valid' : 'unauthorized',
+                            permissionStatus: 'denied',
+                        });
                     }
 
                     // 其他 HTTP 错误
@@ -25487,6 +26100,248 @@
                 }
             };
             const apiRequest = request;
+
+            function createCtripReviewMatchForm() {
+                return {
+                    systemHotelId: '',
+                    commentId: '',
+                    userName: '',
+                    checkinTimeStr: '',
+                    hotelRoomInfo: '',
+                    rawReviewJson: '',
+                    imGroupId: '',
+                    imSessionId: '',
+                    imOrderId: '',
+                    imArrivalDate: '',
+                    imDepartureDate: '',
+                    imRoomName: '',
+                    rawImSessionJson: '',
+                    imMembersJson: '',
+                    orderId: '',
+                    guestUid: '',
+                    guestName: '',
+                    orderArrivalDate: '',
+                    orderDepartureDate: '',
+                    orderRoomName: '',
+                    orderStatus: '',
+                    rawOrderJson: '',
+                };
+            }
+
+            const isPlainJsonObject = value => !!value && typeof value === 'object' && !Array.isArray(value);
+            const isEmptyJsonObject = value => isPlainJsonObject(value) && Object.keys(value).length === 0;
+            const resolveCtripReviewMatchSystemHotelId = () => String(
+                ctripReviewMatchForm.value.systemHotelId
+                || selectedCtripHotelId.value
+                || user.value?.hotel_id
+                || ''
+            ).trim();
+            const parseCtripReviewMatchJsonValue = (value, label, emptyValue) => {
+                const text = String(value || '').trim();
+                if (!text) return emptyValue;
+                try {
+                    return JSON.parse(text);
+                } catch (error) {
+                    throw new Error(`${label} JSON 格式错误: ${error.message}`);
+                }
+            };
+            const requireCtripReviewMatchObject = (value, label) => {
+                if (isPlainJsonObject(value)) return value;
+                throw new Error(`${label} 必须是 JSON 对象`);
+            };
+            const assignCtripReviewMatchText = (target, key, value) => {
+                const text = String(value ?? '').trim();
+                if (text) target[key] = text;
+            };
+            const findCtripReviewMatchArrayByKeys = (value, keys, depth = 0) => {
+                if (depth > 5 || !value || typeof value !== 'object') return null;
+                if (Array.isArray(value)) {
+                    for (const item of value) {
+                        const nested = findCtripReviewMatchArrayByKeys(item, keys, depth + 1);
+                        if (nested) return nested;
+                    }
+                    return null;
+                }
+                for (const key of keys) {
+                    if (Array.isArray(value[key])) return value[key];
+                }
+                for (const child of Object.values(value)) {
+                    const nested = findCtripReviewMatchArrayByKeys(child, keys, depth + 1);
+                    if (nested) return nested;
+                }
+                return null;
+            };
+            const resolveCtripReviewMatchMembers = (rawSession, form) => {
+                const membersFromSession = findCtripReviewMatchArrayByKeys(rawSession, ['members', 'memberList', 'member_list', 'imMembers']);
+                if (Array.isArray(membersFromSession)) return membersFromSession;
+                const members = parseCtripReviewMatchJsonValue(form.imMembersJson, 'members', []);
+                if (!Array.isArray(members)) {
+                    throw new Error('members JSON 必须是数组');
+                }
+                return members;
+            };
+            const buildCtripReviewMatchBasePayload = () => {
+                const systemHotelId = resolveCtripReviewMatchSystemHotelId();
+                if (!systemHotelId) {
+                    throw new Error('请选择归属门店');
+                }
+                return { system_hotel_id: systemHotelId };
+            };
+            const buildCtripReviewMatchReviewPayload = () => {
+                const form = ctripReviewMatchForm.value;
+                const raw = requireCtripReviewMatchObject(
+                    parseCtripReviewMatchJsonValue(form.rawReviewJson, '评价信息', {}),
+                    '评价信息'
+                );
+                const review = { ...raw };
+                assignCtripReviewMatchText(review, 'commentId', form.commentId);
+                assignCtripReviewMatchText(review, 'userName', form.userName);
+                assignCtripReviewMatchText(review, 'checkinTimeStr', form.checkinTimeStr);
+                assignCtripReviewMatchText(review, 'hotelRoomInfo', form.hotelRoomInfo);
+                if (!String(review.commentId || review.comment_id || review.id || review.reviewId || review.review_id || '').trim()) {
+                    throw new Error('请填写评价 commentId');
+                }
+                return {
+                    ...buildCtripReviewMatchBasePayload(),
+                    review,
+                };
+            };
+            const buildCtripReviewMatchImPayload = () => {
+                const form = ctripReviewMatchForm.value;
+                const rawValue = parseCtripReviewMatchJsonValue(form.rawImSessionJson, 'IM 会话', {});
+                const session = Array.isArray(rawValue)
+                    ? { members: rawValue }
+                    : { ...requireCtripReviewMatchObject(rawValue, 'IM 会话') };
+                assignCtripReviewMatchText(session, 'groupId', form.imGroupId);
+                assignCtripReviewMatchText(session, 'sessionId', form.imSessionId);
+                assignCtripReviewMatchText(session, 'orderId', form.imOrderId);
+                assignCtripReviewMatchText(session, 'arrivalDate', form.imArrivalDate);
+                assignCtripReviewMatchText(session, 'departureDate', form.imDepartureDate);
+                assignCtripReviewMatchText(session, 'roomName', form.imRoomName);
+                session.members = resolveCtripReviewMatchMembers(session, form);
+                if (!String(session.groupId || session.group_id || '').trim()) {
+                    throw new Error('请填写携程 IM groupId');
+                }
+                if (!Array.isArray(session.members) || session.members.length === 0) {
+                    throw new Error('请粘贴携程 IM members');
+                }
+                return {
+                    ...buildCtripReviewMatchBasePayload(),
+                    session,
+                };
+            };
+            const buildCtripReviewMatchOrderPayload = () => {
+                const form = ctripReviewMatchForm.value;
+                const raw = requireCtripReviewMatchObject(
+                    parseCtripReviewMatchJsonValue(form.rawOrderJson, '订单信息', {}),
+                    '订单信息'
+                );
+                const order = { ...raw };
+                assignCtripReviewMatchText(order, 'orderId', form.orderId);
+                assignCtripReviewMatchText(order, 'guestUid', form.guestUid);
+                assignCtripReviewMatchText(order, 'guestName', form.guestName);
+                assignCtripReviewMatchText(order, 'arrivalDate', form.orderArrivalDate);
+                assignCtripReviewMatchText(order, 'departureDate', form.orderDepartureDate);
+                assignCtripReviewMatchText(order, 'roomName', form.orderRoomName);
+                assignCtripReviewMatchText(order, 'orderStatus', form.orderStatus);
+                if (!String(order.orderId || order.order_id || order.platform_order_id || '').trim()) {
+                    throw new Error('请填写携程订单号');
+                }
+                return {
+                    ...buildCtripReviewMatchBasePayload(),
+                    order,
+                };
+            };
+            const buildCtripReviewMatchLookupPayload = () => {
+                const form = ctripReviewMatchForm.value;
+                const payload = buildCtripReviewMatchBasePayload();
+                const rawReview = requireCtripReviewMatchObject(
+                    parseCtripReviewMatchJsonValue(form.rawReviewJson, '评价信息', {}),
+                    '评价信息'
+                );
+                const hasReviewInput = !isEmptyJsonObject(rawReview)
+                    || String(form.userName || form.checkinTimeStr || form.hotelRoomInfo || '').trim() !== '';
+                if (hasReviewInput) {
+                    payload.review = buildCtripReviewMatchReviewPayload().review;
+                } else {
+                    assignCtripReviewMatchText(payload, 'commentId', form.commentId);
+                    if (!payload.commentId) {
+                        throw new Error('请填写评价 commentId，或粘贴评价 JSON');
+                    }
+                }
+                return payload;
+            };
+            const buildCtripReviewMatchBindPayload = () => {
+                const form = ctripReviewMatchForm.value;
+                const payload = buildCtripReviewMatchBasePayload();
+                assignCtripReviewMatchText(payload, 'commentId', form.commentId);
+                assignCtripReviewMatchText(payload, 'orderId', form.orderId || form.imOrderId);
+                assignCtripReviewMatchText(payload, 'guestUid', form.guestUid);
+                assignCtripReviewMatchText(payload, 'guestName', form.guestName);
+                if (!payload.commentId || !payload.orderId) {
+                    throw new Error('人工绑定需要 commentId 和订单号');
+                }
+                return payload;
+            };
+            const runCtripReviewMatchAction = async (actionLabel, url, buildPayload, successMessage) => {
+                if (ctripReviewMatchLoading.value) return;
+                ctripReviewMatchLoading.value = actionLabel;
+                try {
+                    const res = await request(url, {
+                        method: 'POST',
+                        body: JSON.stringify(buildPayload()),
+                    });
+                    ctripReviewMatchResult.value = res;
+                    const ok = Number(res?.code) === 200;
+                    showToast(res?.message || successMessage || `${actionLabel}完成`, ok ? 'success' : 'error');
+                } catch (error) {
+                    const message = error.message || `${actionLabel}失败`;
+                    ctripReviewMatchResult.value = { code: 500, message, action: actionLabel };
+                    showToast(message, 'error');
+                } finally {
+                    ctripReviewMatchLoading.value = '';
+                }
+            };
+            const saveCtripReviewImSession = () => runCtripReviewMatchAction(
+                '保存IM会话',
+                '/online-data/ctrip-review-matches/im-sessions',
+                buildCtripReviewMatchImPayload,
+                '携程 IM 会话缓存已保存'
+            );
+            const saveCtripReviewForMatch = () => runCtripReviewMatchAction(
+                '保存评价',
+                '/online-data/ctrip-review-matches/reviews',
+                buildCtripReviewMatchReviewPayload,
+                '携程评价已保存'
+            );
+            const saveCtripOrderForMatch = () => runCtripReviewMatchAction(
+                '保存订单',
+                '/online-data/ctrip-review-matches/orders',
+                buildCtripReviewMatchOrderPayload,
+                '携程订单已保存'
+            );
+            const lookupCtripReviewOrderMatch = () => runCtripReviewMatchAction(
+                '自动反查订单',
+                '/online-data/ctrip-review-matches/lookup',
+                buildCtripReviewMatchLookupPayload,
+                '携程评价订单反查完成'
+            );
+            const runCtripReviewMatchAutomation = () => runCtripReviewMatchAction(
+                '自动匹配',
+                '/online-data/ctrip-review-matches/run',
+                () => ({
+                    ...buildCtripReviewMatchBasePayload(),
+                    raw_limit: 30,
+                    review_limit: 200,
+                }),
+                '携程评价订单自动匹配完成'
+            );
+            const bindCtripReviewOrderMatch = () => runCtripReviewMatchAction(
+                '人工绑定订单',
+                '/online-data/ctrip-review-matches/bind',
+                buildCtripReviewMatchBindPayload,
+                '携程评价订单已绑定'
+            );
 
             const parsePlatformJsonField = (value, label) => {
                 const text = String(value || '').trim();
@@ -25685,6 +26540,52 @@
                 return run;
             };
 
+            const loadPlatformCollectionStatus = async (options = {}) => {
+                const loadOptions = normalizeRequestCacheOptions(options);
+                const force = loadOptions.force === true;
+                const cacheMs = Number(loadOptions.cacheMs || 0);
+                const hotelId = typeof getAutoFetchHotelId === 'function' ? getAutoFetchHotelId() : '';
+                const platform = String(options.platform || 'all').toLowerCase();
+                const requestKey = `${String(hotelId || '')}|${platform}`;
+                if (force) {
+                    platformCollectionStatusResultCache.delete(requestKey);
+                } else if (readRequestCache(platformCollectionStatusResultCache, requestKey, cacheMs)) {
+                    return platformCollectionStatus.value;
+                }
+                if (platformCollectionStatusRequestPromises.has(requestKey)) {
+                    return platformCollectionStatusRequestPromises.get(requestKey);
+                }
+                platformCollectionStatusLoading.value = true;
+                platformCollectionStatusError.value = '';
+                const run = (async () => {
+                    try {
+                        const params = new URLSearchParams();
+                        if (hotelId) params.set('system_hotel_id', hotelId);
+                        params.set('platform', platform || 'all');
+                        const res = await request(`/online-data/collection-status?${params.toString()}`);
+                        if (res.code === 200) {
+                            platformCollectionStatus.value = res.data || null;
+                            applyAuthContext(res.data?.context || {});
+                            writeRequestCache(platformCollectionStatusResultCache, requestKey, cacheMs);
+                        } else {
+                            platformCollectionStatus.value = null;
+                            platformCollectionStatusResultCache.delete(requestKey);
+                            platformCollectionStatusError.value = res.message || '采集状态加载失败';
+                        }
+                    } catch (error) {
+                        platformCollectionStatus.value = null;
+                        platformCollectionStatusResultCache.delete(requestKey);
+                        platformCollectionStatusError.value = error.message || '采集状态加载失败';
+                    } finally {
+                        platformCollectionStatusLoading.value = false;
+                        platformCollectionStatusRequestPromises.delete(requestKey);
+                    }
+                    return platformCollectionStatus.value;
+                })();
+                platformCollectionStatusRequestPromises.set(requestKey, run);
+                return run;
+            };
+
             const loadPlatformDataSourcePanel = async (options = {}) => {
                 if (!hotels.value.length && typeof loadHotels === 'function') {
                     await loadHotels({ cacheMs: HOTEL_LIST_CACHE_TTL_MS });
@@ -25699,6 +26600,10 @@
                         cacheMs: options.force ? 0 : PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS,
                         force: options.force === true,
                     }),
+                    loadPlatformCollectionStatus({
+                        force: options.force === true,
+                        cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,
+                    }),
                 ]);
                 scheduleDelayedPageTask(() => {
                     if (!shouldRefreshPlatformDataSourcesPanel()) return null;
@@ -25712,6 +26617,10 @@
                             cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,
                         }),
                         loadPlatformCollectionResources({
+                            force: options.force === true,
+                            cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,
+                        }),
+                        loadPlatformCollectionStatus({
                             force: options.force === true,
                             cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,
                         }),
@@ -25932,6 +26841,8 @@
             const platformSyncLogsResultCache = new Map();
             const platformCollectionResourcesRequestPromises = new Map();
             const platformCollectionResourcesResultCache = new Map();
+            const platformCollectionStatusRequestPromises = new Map();
+            const platformCollectionStatusResultCache = new Map();
             const competitorSummaryRequestPromises = new Map();
             const competitorSummaryResultCache = new Map();
 
@@ -29185,6 +30096,7 @@
                         loginError.value = '';
                         token.value = res.data.token;
                         user.value = res.data.user;
+                        applyAuthContext(res.data.context || res.data.user?.context || {});
                         saveCachedAuthUser(res.data.user);
                         permittedHotels.value = res.data.user?.permitted_hotels || [];
                         if (!hotels.value.length && permittedHotels.value.length) {
@@ -30582,6 +31494,7 @@
                 const res = await request('/auth/info');
                 if (res.code === 200) {
                     user.value = res.data;
+                    applyAuthContext(res.data.context || {});
                     permittedHotels.value = res.data.permitted_hotels || [];
                     // 单门店用户自动选择其唯一的酒店
                     if (!user.value.is_super_admin && permittedHotels.value.length === 1) {
@@ -37581,6 +38494,7 @@
                     request('/auth/info').then(res => {
                         if (res.code === 200) {
                             user.value = res.data;
+                            applyAuthContext(res.data.context || {});
                             saveCachedAuthUser(res.data);
                             permittedHotels.value = res.data.permitted_hotels || [];
                             if (!hotels.value.length && permittedHotels.value.length) {
@@ -39231,7 +40145,7 @@
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
                 openOnlineDataTab,
-                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchResult, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldConfigPanelReady, ctripProfileFieldConfigPanelBody, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
@@ -39276,7 +40190,7 @@
                 getMeituanExposureMetric, getMeituanClickMetric, getMeituanVisitorMetric, getMeituanSubmitMetric, getMeituanFlowRateMetric, isMeituanTrafficDataRow, isMeituanOrderDataRow, isMeituanAdsDataRow,
                 editOnlineDataItem, deleteOnlineDataItem, showOnlineDataEditModal, onlineDataEditForm, saveOnlineDataEdit,
                 toNumber, toFixedSafe, safeDivide, formatNumber, calculateHhi, revenueConcentration, visitConcentration, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
-                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, fillCtripCookieApiCorePreset, fillDataConfigCtripCookieApiCorePreset, checkCtripProfileStatus, runCtripCookieApiCapture, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, importMeituanOrderCsvData, copyMeituanOrderCollectorScript, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, runMeituanBrowserSupplementCapture, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
+                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, saveCtripReviewImSession, saveCtripReviewForMatch, saveCtripOrderForMatch, lookupCtripReviewOrderMatch, bindCtripReviewOrderMatch, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, fillCtripCookieApiCorePreset, fillDataConfigCtripCookieApiCorePreset, checkCtripProfileStatus, runCtripCookieApiCapture, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, importMeituanOrderCsvData, copyMeituanOrderCollectorScript, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, runMeituanBrowserSupplementCapture, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
                 // 携程配置管理
                 ctripConfigForm, ctripConfigList, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig, canFetchCtripManualData,
                 ctripOverviewFetchActionLoading, ctripOverviewCoreFetchRunning,

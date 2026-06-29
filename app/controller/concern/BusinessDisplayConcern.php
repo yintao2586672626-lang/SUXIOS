@@ -910,10 +910,14 @@ trait BusinessDisplayConcern
                     if (!$hasIncomingSignal) {
                         continue;
                     }
+                    $incomingQuality = $this->meituanMetricMergeQuality($row, $field);
+                    $existingQuality = (int)($hotelMap[$key]['_metricMergeQuality'][$field] ?? $this->meituanMetricMergeQuality($hotelMap[$key], $field));
                     $incomingPriority = $this->meituanDisplayGroupDateRangePriority((string)($row['displayGroupDateRange'] ?? $row['dateRange'] ?? ''));
                     $existingPriority = (int)($hotelMap[$key]['_metricDateRangePriority'][$field] ?? PHP_INT_MAX);
                     $existingValue = (float)($hotelMap[$key][$field] ?? 0);
-                    if ($incomingPriority < $existingPriority || ($incomingPriority === $existingPriority && $incomingValue > $existingValue)) {
+                    if ($incomingQuality > $existingQuality
+                        || ($incomingQuality === $existingQuality && ($incomingPriority < $existingPriority || ($incomingPriority === $existingPriority && $incomingValue > $existingValue)))
+                    ) {
                         $hotelMap[$key][$field] = $incomingValue;
                         $selectedStatus = $incomingStatus !== ''
                             ? $incomingStatus
@@ -939,6 +943,7 @@ trait BusinessDisplayConcern
                             unset($hotelMap[$key]['metricDerived'][$field]);
                         }
                         $hotelMap[$key]['_metricDateRangePriority'][$field] = $incomingPriority;
+                        $hotelMap[$key]['_metricMergeQuality'][$field] = $incomingQuality;
                     }
                     continue;
                 }
@@ -1000,6 +1005,7 @@ trait BusinessDisplayConcern
         if ($useDateRangePriorityMerge) {
             foreach ($hotelMap as &$row) {
                 unset($row['_metricDateRangePriority']);
+                unset($row['_metricMergeQuality']);
             }
             unset($row);
         }
@@ -1018,6 +1024,44 @@ trait BusinessDisplayConcern
             }
         }
         return false;
+    }
+
+    private function meituanMetricMergeQuality(array $row, string $field): int
+    {
+        $value = (float)($row[$field] ?? 0);
+        $status = (string)($row['metricSourceStatus'][$field] ?? '');
+        $derived = is_array($row['metricDerived'][$field] ?? null) ? $row['metricDerived'][$field] : null;
+        if (in_array($field, ['roomRevenue', 'sales'], true)) {
+            if ($value > 0 && $this->isMeituanDisplayableMoneyMetricSource($row, $field, $status)) {
+                return 90;
+            }
+            if ($value > 0 && $this->isMeituanPercentScaleDerivedMetric($row, $field)) {
+                return 30;
+            }
+            if ($value > 0) {
+                return 50;
+            }
+        } else {
+            if ($value > 0 && $this->isMeituanMetricSourceUsable($status)) {
+                return 80;
+            }
+            if ($value > 0) {
+                return 60;
+            }
+        }
+
+        if ($derived !== null) {
+            return (string)($derived['method'] ?? '') === 'percent_min_integer_scale' ? 30 : 40;
+        }
+        $rankValue = $this->meituanMetricRankValue($row, $field);
+        if ($rankValue !== null && $rankValue > 0) {
+            return 35;
+        }
+        $rankPercent = $this->meituanMetricRankPercent($row, $field);
+        if ($rankPercent !== null && $rankPercent >= 0) {
+            return 25;
+        }
+        return $status !== '' ? 10 : 0;
     }
 
     private function meituanDisplayGroupDateRangePriority(string $dateRange): int
@@ -1973,14 +2017,20 @@ trait BusinessDisplayConcern
             $metricSourceStatus = is_array($row['metricSourceStatus'] ?? null) ? $row['metricSourceStatus'] : [];
             $metricDerived = is_array($row['metricDerived'] ?? null) ? $row['metricDerived'] : [];
 
-            $hasRoomPriceInputs = $roomNights > 0 && $roomRevenue > 0;
-            $hasSalesPriceInputs = $salesRoomNights > 0 && $sales > 0;
+            $displayableRoomRevenue = $this->isMeituanDisplayableMoneyMetricSource($row, 'roomRevenue', (string)($metricSourceStatus['roomRevenue'] ?? ''))
+                ? $roomRevenue
+                : 0.0;
+            $displayableSales = $this->isMeituanDisplayableMoneyMetricSource($row, 'sales', (string)($metricSourceStatus['sales'] ?? ''))
+                ? $sales
+                : 0.0;
+            $hasRoomPriceInputs = $roomNights > 0 && $displayableRoomRevenue > 0;
+            $hasSalesPriceInputs = $salesRoomNights > 0 && $displayableSales > 0;
             $canUseRoomPriceBasis = $hasRoomPriceInputs
                 && $this->canUseMeituanMetricPairForAveragePrice($metricSourceStatus, $metricDerived, 'roomRevenue', 'roomNights');
             $canUseSalesPriceBasis = $hasSalesPriceInputs
                 && $this->canUseMeituanMetricPairForAveragePrice($metricSourceStatus, $metricDerived, 'sales', 'salesRoomNights');
-            $avgRoomPrice = $hasRoomPriceInputs ? (float)(int)round($roomRevenue / $roomNights) : 0.0;
-            $avgSalesPrice = $hasSalesPriceInputs ? (float)(int)round($sales / $salesRoomNights) : 0.0;
+            $avgRoomPrice = $hasRoomPriceInputs ? (float)(int)round($displayableRoomRevenue / $roomNights) : 0.0;
+            $avgSalesPrice = $hasSalesPriceInputs ? (float)(int)round($displayableSales / $salesRoomNights) : 0.0;
             if ($hasRoomPriceInputs && !$canUseRoomPriceBasis) {
                 $metricSourceStatus['avgRoomPrice'] = '按美团榜单指标相除';
                 $metricDerived['avgRoomPrice'] = [
@@ -2102,8 +2152,8 @@ trait BusinessDisplayConcern
             $row['sourceStatusText'] = '美团榜单返回';
             $row['metricHealth'] = $this->buildMeituanMetricHealthRows($row, $metricSourceStatus);
             $row['displayMetricStatus'] = [
-                'avgRoomPrice' => $this->meituanAveragePriceDisplayStatus($roomNights, $roomRevenue, $canUseRoomPriceBasis, 'missing_room_nights', 'missing_room_revenue'),
-                'avgSalesPrice' => $this->meituanAveragePriceDisplayStatus($salesRoomNights, $sales, $canUseSalesPriceBasis, 'missing_sales_room_nights', 'missing_sales'),
+                'avgRoomPrice' => $this->meituanAveragePriceDisplayStatus($roomNights, $displayableRoomRevenue, $canUseRoomPriceBasis, 'missing_room_nights', 'missing_room_revenue'),
+                'avgSalesPrice' => $this->meituanAveragePriceDisplayStatus($salesRoomNights, $displayableSales, $canUseSalesPriceBasis, 'missing_sales_room_nights', 'missing_sales'),
                 'orderCount' => $orderCount > 0 ? 'ok' : 'missing_order_count',
                 'absoluteConversion' => $absoluteConversion > 0 ? 'ok' : 'missing_conversion',
             ];

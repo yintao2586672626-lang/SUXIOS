@@ -99,6 +99,7 @@ class Auth extends Base
             $user->save();
 
             if ($resolvedHotelId !== null) {
+                $hotelPermissionDefaults = $this->buildSelfRegistrationHotelPermissionDefaults($role);
                 $permission = new UserHotelPermission();
                 $permission->user_id = (int)$user->id;
                 $permission->hotel_id = $resolvedHotelId;
@@ -107,9 +108,9 @@ class Auth extends Base
                 $permission->can_fill_monthly_task = 0;
                 $permission->can_edit_report = 0;
                 $permission->can_delete_report = 0;
-                $permission->can_view_online_data = 1;
-                $permission->can_fetch_online_data = 1;
-                $permission->can_delete_online_data = 0;
+                $permission->can_view_online_data = $hotelPermissionDefaults['can_view_online_data'];
+                $permission->can_fetch_online_data = $hotelPermissionDefaults['can_fetch_online_data'];
+                $permission->can_delete_online_data = $hotelPermissionDefaults['can_delete_online_data'];
                 $permission->is_primary = 1;
                 $permission->save();
             }
@@ -214,29 +215,145 @@ class Auth extends Base
         LoginLog::record($user->id, $username, 'login', 'success', null, $ip, $userAgent, $clientInfo);
         OperationLog::record('auth', 'login', '用户登录: ' . $username, $user->id, $user->hotel_id);
 
+        $permittedHotels = $this->buildPermittedHotels($user);
+
         return $this->success([
             'token' => $token,
             'expires_in' => 86400,
-            'user' => [
-                'id' => $user->id,
-                'username' => $user->username,
-                'realname' => $user->realname,
-                'role_id' => $user->role_id,
-                'role_name' => $user->role ? $user->role->display_name : '',
-                'hotel_id' => $user->hotel_id,
-                'hotel_name' => $user->hotel ? $user->hotel->name : '',
-                'is_super_admin' => $user->isSuperAdmin(),
-                'permissions' => $this->buildUserPermissions($user),
-                'capabilities' => $this->buildUserCapabilities($user),
-                'hotel_scope' => $user->getHotelScopeContext(),
-                'modules' => $this->buildUserModules($user),
-            ],
+            'user' => $this->buildLoginUserPayload($user, $permittedHotels),
+            'context' => $this->buildAuthContext($user, $permittedHotels),
         ], '登录成功');
     }
 
     /**
      * 生成安全的 Token
      */
+    private function buildSelfRegistrationHotelPermissionDefaults(Role $role): array
+    {
+        $permissions = $role->getPermissionList();
+
+        return [
+            'can_view_online_data' => Role::permissionListAllows($permissions, 'can_view_online_data') ? 1 : 0,
+            'can_fetch_online_data' => Role::permissionListAllows($permissions, 'can_fetch_online_data') ? 1 : 0,
+            'can_delete_online_data' => Role::permissionListAllows($permissions, 'can_delete_online_data') ? 1 : 0,
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildPermittedHotels(User $user): array
+    {
+        $permittedHotelIds = $user->getPermittedHotelIds();
+        if (empty($permittedHotelIds)) {
+            return [];
+        }
+
+        return Hotel::whereIn('id', array_values(array_map('intval', $permittedHotelIds)))
+            ->select()
+            ->toArray();
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $permittedHotels
+     * @return array<string, mixed>
+     */
+    private function buildLoginUserPayload(User $user, array $permittedHotels): array
+    {
+        return [
+            'id' => $user->id,
+            'username' => $user->username,
+            'realname' => $user->realname,
+            'role_id' => $user->role_id,
+            'role_name' => $user->role ? $user->role->display_name : '',
+            'hotel_id' => $user->hotel_id,
+            'hotel_name' => $user->hotel ? $user->hotel->name : '',
+            'is_super_admin' => $user->isSuperAdmin(),
+            'is_hotel_manager' => $user->isHotelManager(),
+            'permitted_hotels' => $permittedHotels,
+            'permissions' => $this->buildUserPermissions($user),
+            'capabilities' => $this->buildUserCapabilities($user),
+            'hotel_scope' => $user->getHotelScopeContext(),
+            'modules' => $this->buildUserModules($user),
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $permittedHotels
+     * @return array<string, mixed>
+     */
+    private function buildAuthContext(User $user, array $permittedHotels): array
+    {
+        $requestedHotelId = $this->positiveIntOrNull(
+            $this->request->get('system_hotel_id', $this->request->get('hotel_id', null))
+        );
+        $permittedHotelIds = array_values(array_map(static fn(array $hotel): int => (int)($hotel['id'] ?? 0), $permittedHotels));
+        $currentHotel = $this->resolveAuthContextHotel($user, $permittedHotels, $requestedHotelId);
+        $hotelId = $requestedHotelId ?: ($currentHotel ? (int)($currentHotel['id'] ?? 0) : ((int)($user->hotel_id ?? 0) ?: null));
+        $permissionStatus = 'unknown';
+        if ($hotelId) {
+            $permissionStatus = ($user->isSuperAdmin() || in_array((int)$hotelId, $permittedHotelIds, true)) ? 'allowed' : 'denied';
+        }
+
+        $tenantId = $this->positiveIntOrNull($currentHotel['tenant_id'] ?? $user->tenant_id ?? null);
+
+        return [
+            'tokenStatus' => 'valid',
+            'hotelId' => $hotelId ?: null,
+            'tenantId' => $tenantId,
+            'platform' => $this->normalizeAuthContextPlatform($this->request->get('platform', 'unknown')),
+            'currentHotelName' => $currentHotel ? (string)($currentHotel['name'] ?? $currentHotel['hotel_name'] ?? '') : '',
+            'permissionStatus' => $permissionStatus,
+            'platformLoginScope' => ['ctrip', 'meituan'],
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $permittedHotels
+     * @return array<string, mixed>|null
+     */
+    private function resolveAuthContextHotel(User $user, array $permittedHotels, ?int $requestedHotelId): ?array
+    {
+        foreach ($permittedHotels as $hotel) {
+            $id = (int)($hotel['id'] ?? 0);
+            if ($requestedHotelId !== null && $id === $requestedHotelId) {
+                return $hotel;
+            }
+        }
+
+        $userHotelId = (int)($user->hotel_id ?? 0);
+        if ($userHotelId > 0) {
+            foreach ($permittedHotels as $hotel) {
+                if ((int)($hotel['id'] ?? 0) === $userHotelId) {
+                    return $hotel;
+                }
+            }
+        }
+
+        if (count($permittedHotels) === 1) {
+            return $permittedHotels[0];
+        }
+
+        return null;
+    }
+
+    private function normalizeAuthContextPlatform($value): string
+    {
+        $platform = strtolower(trim((string)$value));
+        if (in_array($platform, ['ctrip', 'meituan', 'all'], true)) {
+            return $platform;
+        }
+        return 'unknown';
+    }
+
+    private function positiveIntOrNull($value): ?int
+    {
+        if ($value === null || $value === '' || !is_numeric($value) || (int)$value <= 0) {
+            return null;
+        }
+        return (int)$value;
+    }
+
     private function buildUserPermissions(User $user): array
     {
         return [
@@ -387,11 +504,7 @@ class Auth extends Base
         $user = User::with(['role', 'hotel'])->find($this->currentUser->id);
 
         // 获取用户可访问的酒店（只包含启用的酒店）
-        $permittedHotelIds = $user->getPermittedHotelIds();
-        $permittedHotels = [];
-        if (!empty($permittedHotelIds)) {
-            $permittedHotels = \app\model\Hotel::whereIn('id', $permittedHotelIds)->select();
-        }
+        $permittedHotels = $this->buildPermittedHotels($user);
         
         $userPermissions = $this->buildUserPermissions($user);
 
@@ -412,6 +525,7 @@ class Auth extends Base
             'capabilities' => $this->buildUserCapabilities($user),
             'hotel_scope' => $user->getHotelScopeContext(),
             'modules' => $this->buildUserModules($user),
+            'context' => $this->buildAuthContext($user, $permittedHotels),
         ]);
     }
 

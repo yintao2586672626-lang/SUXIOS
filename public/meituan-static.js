@@ -597,9 +597,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const dateRanges = Array.isArray(form.dateRanges) ? form.dateRanges : [];
         const tasks = [];
         dateRanges.forEach(dateRange => {
-            meituanBatchRankTypes.forEach(rankType => {
+            meituanBatchRankTypes.forEach((rankType, rankIndex) => {
                 const rangeName = meituanBatchDateRangeNames[dateRange] || dateRange;
                 const rankName = meituanBatchRankTypeNames[rankType] || rankType;
+                const includeSelfMetrics = rankIndex === 0;
                 const body = {
                     url: form.url,
                     partner_id: partnerId,
@@ -608,9 +609,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     date_range: dateRange,
                     cookies,
                     auth_data: form.auth_data,
-                    include_self_trade_metrics: true,
-                    include_self_traffic_metrics: true,
-                    include_self_business_metrics: true,
+                    include_self_trade_metrics: includeSelfMetrics,
+                    include_self_traffic_metrics: includeSelfMetrics,
+                    include_self_business_metrics: includeSelfMetrics,
                     auto_save: true,
                     system_hotel_id: form.hotelId,
                 };
@@ -640,6 +641,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (response.code === 200) {
             const responseData = response.data || {};
             const responseStatus = String(responseData.status || '').toLowerCase();
+            const displayHotels = Array.isArray(responseData.display_hotels) ? responseData.display_hotels : [];
+            const savedCount = Number(responseData.saved_count || 0) || 0;
+            const displayCount = Number(responseData.display_hotel_count ?? displayHotels.length) || 0;
             if (['accepted', 'running', 'queued'].includes(responseStatus)) {
                 return {
                     ...base,
@@ -648,13 +652,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     taskId: responseData.task_id || '',
                     platform: responseData.platform || 'meituan',
                     async: responseData.async !== false,
-                savedCount: responseData.saved_count || 0,
-                selfMetricValues: responseData.self_metric_values || responseData.selfMetricValues || {},
-                selfMetricStatus: responseData.self_metric_status || responseData.selfMetricStatus || '',
-                displayHotels: [],
-                displaySummary: null,
-                displayCount: 0,
-            };
+                    savedCount,
+                    selfMetricValues: responseData.self_metric_values || responseData.selfMetricValues || {},
+                    selfMetricStatus: responseData.self_metric_status || responseData.selfMetricStatus || '',
+                    displayHotels,
+                    displaySummary: responseData.display_summary || null,
+                    displayCount,
+                };
             }
             return {
                 ...base,
@@ -662,12 +666,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 status: responseData.status || 'success',
                 taskId: responseData.task_id || '',
                 data: responseData.data,
-                savedCount: responseData.saved_count || 0,
+                savedCount,
                 selfMetricValues: responseData.self_metric_values || responseData.selfMetricValues || {},
                 selfMetricStatus: responseData.self_metric_status || responseData.selfMetricStatus || '',
-                displayHotels: responseData.display_hotels || [],
+                displayHotels,
                 displaySummary: responseData.display_summary || null,
-                displayCount: responseData.display_hotel_count || (responseData.display_hotels || []).length,
+                displayCount,
             };
         }
         return {
@@ -695,7 +699,15 @@ window.SUXI_MEITUAN_STATIC = (() => {
             Object.entries(source).forEach(([key, value]) => {
                 if (value === undefined || value === null || value === '') return;
                 const number = Number(String(value).replace(/,/g, ''));
-                result[key] = Number.isFinite(number) ? number : value;
+                if (!Number.isFinite(number)) {
+                    result[key] = value;
+                    return;
+                }
+                const existingNumber = Number(String(result[key] ?? '').replace(/,/g, ''));
+                if (number <= 0 && Number.isFinite(existingNumber) && existingNumber > 0) {
+                    return;
+                }
+                result[key] = number;
             });
         });
         return result;
@@ -721,6 +733,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         });
         return Array.from(groupsByRange.values()).filter(group => group.display_hotels.length > 0);
     };
+    const buildMeituanDisplayModelRows = (results = []) => (
+        (Array.isArray(results) ? results : [])
+            .flatMap(result => (Array.isArray(result?.displayHotels) ? result.displayHotels : []))
+    );
     const isMeituanBackgroundAcceptedResponse = (response = {}) => {
         if (response.code !== 200) {
             return false;
@@ -729,6 +745,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return ['accepted', 'running', 'queued'].includes(status);
     };
     const buildMeituanDisplayModelPayload = ({ results = [], form = {} } = {}) => ({
+        display_hotels: buildMeituanDisplayModelRows(results),
         display_groups: buildMeituanDisplayModelGroups({ results, form }),
         competitor_room_count: form.competitorRoomCount,
         target_poi_id: form.poiId,

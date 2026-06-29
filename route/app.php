@@ -260,6 +260,18 @@ Route::group('api/online-data', function () {
     Route::post('/fetch-ctrip-ads', 'OnlineData/fetchCtripAds');
     Route::post('/save-ctrip-comment-config', 'OnlineData/saveCtripCommentConfig');
     Route::get('/get-ctrip-comment-config-list', 'OnlineData/getCtripCommentConfigList');
+    Route::post('/ctrip-review-matches/im-sessions', 'OnlineData/saveCtripReviewImSession');
+    Route::post('/ctrip-review-matches/reviews', 'OnlineData/saveCtripReviewForMatch');
+    Route::post('/ctrip-review-matches/orders', 'OnlineData/saveCtripOrderForMatch');
+    Route::post('/ctrip-review-matches/lookup', 'OnlineData/lookupCtripReviewOrderMatch');
+    Route::post('/ctrip-review-matches/run', 'OnlineData/runCtripReviewOrderMatchAutomation');
+    Route::post('/ctrip-review-matches/bind', 'OnlineData/bindCtripReviewOrderMatch');
+    Route::post('/meituan-review-matches/reviews', 'OnlineData/saveMeituanReviewForMatch');
+    Route::post('/meituan-review-matches/orders', 'OnlineData/saveMeituanOrderForMatch');
+    Route::post('/meituan-review-matches/lookup', 'OnlineData/lookupMeituanReviewOrderMatch');
+    Route::post('/meituan-review-matches/bind', 'OnlineData/bindMeituanReviewOrderMatch');
+    Route::post('/meituan-review-matches/unbind', 'OnlineData/unbindMeituanReviewOrderMatch');
+    Route::post('/meituan-orders/phone-state', 'OnlineData/meituanOrderPhoneState');
     // 携程配置
     Route::post('/save-ctrip-config', 'OnlineData/saveCtripConfig');
     Route::get('/get-ctrip-config-list', 'OnlineData/getCtripConfigList');
@@ -270,6 +282,7 @@ Route::group('api/online-data', function () {
     Route::post('/save-ctrip-config-by-bookmark', 'OnlineData/saveCtripConfigByBookmark');
     // 线上数据管理
     Route::get('/collection-resources', 'OnlineData/collectionResourceCatalog');
+    Route::get('/collection-status', 'OnlineData/collectionStatus');
     Route::get('/data-sources', 'OnlineData/dataSourceList');
     Route::post('/data-sources/:id/sync', 'OnlineData/syncDataSource');
     Route::post('/data-sources', 'OnlineData/saveDataSource');

@@ -118,9 +118,10 @@ test('Meituan ranking money cells use backend source prefixes', () => {
   assert.match(rankingTable, /\(hotel\.exposurePrefix \|\| ''\) \+ hotel\.exposureText/);
   assert.match(rankingTable, /\(hotel\.viewsPrefix \|\| ''\) \+ hotel\.viewsText/);
   assert.match(displayPayload, /display_groups:\s*buildMeituanDisplayModelGroups/);
-  assert.match(fetchTasks, /include_self_trade_metrics:\s*true/);
-  assert.match(fetchTasks, /include_self_traffic_metrics:\s*true/);
-  assert.match(fetchTasks, /include_self_business_metrics:\s*true/);
+  assert.match(fetchTasks, /const includeSelfMetrics = rankIndex === 0;/);
+  assert.match(fetchTasks, /include_self_trade_metrics:\s*includeSelfMetrics/);
+  assert.match(fetchTasks, /include_self_traffic_metrics:\s*includeSelfMetrics/);
+  assert.match(fetchTasks, /include_self_business_metrics:\s*includeSelfMetrics/);
 });
 
 test('Meituan display model keeps self metric anchors scoped by date range', () => {

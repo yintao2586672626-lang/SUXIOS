@@ -371,9 +371,9 @@ final class OnlineDataTest extends TestCase
                         'checkOutDate' => '2026-05-03',
                         'createTime' => '2026/5/1',
                         'guestName' => 'Alice Guest',
-                        'phone' => '13800138000',
-                        'mobile' => '13900139000',
-                        'idCardNo' => '110101199003074219',
+                        'phone' => '90000008000',
+                        'mobile' => '90000009000',
+                        'idCardNo' => 'sample-id-card-token',
                         'customerRemark' => 'late arrival with child',
                     ]],
                 ],
@@ -399,9 +399,9 @@ final class OnlineDataTest extends TestCase
         $orderRaw = (string)$rows[1]['raw_data'];
         self::assertStringNotContainsString('ORDER-1', $orderRaw);
         self::assertStringNotContainsString('Alice Guest', $orderRaw);
-        self::assertStringNotContainsString('13800138000', $orderRaw);
-        self::assertStringNotContainsString('13900139000', $orderRaw);
-        self::assertStringNotContainsString('110101199003074219', $orderRaw);
+        self::assertStringNotContainsString('90000008000', $orderRaw);
+        self::assertStringNotContainsString('90000009000', $orderRaw);
+        self::assertStringNotContainsString('sample-id-card-token', $orderRaw);
         self::assertStringNotContainsString('late arrival with child', $orderRaw);
 
         $decodedOrderRaw = json_decode($orderRaw, true);
@@ -1001,6 +1001,41 @@ final class OnlineDataTest extends TestCase
         self::assertArrayNotHasKey('avgRoomPrice', $values);
     }
 
+    public function testBackendParsesMeituanTradeManageOrderCountCardAsSelfMetricValue(): void
+    {
+        $controller = $this->controller();
+
+        $values = $this->invokeNonPublic($controller, 'normalizeMeituanSelfMetricValues', [[
+            'data' => [
+                'cards' => [
+                    ['id' => 3, 'title' => 'pay order count', 'value' => '9'],
+                ],
+            ],
+        ]]);
+
+        self::assertSame(9.0, $values['orderCount']);
+    }
+
+    public function testBackendFetchesMeituanTradeMetricsWhenOnlySomeSelfMetricsExist(): void
+    {
+        $controller = $this->controller();
+        $requiredFields = ['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'orderCount'];
+
+        self::assertTrue($this->invokeNonPublic($controller, 'hasMissingMeituanSelfMetricValues', [[
+            'exposure' => 22333,
+            'views' => 1884,
+            'sales' => 1763,
+        ], $requiredFields]));
+
+        self::assertFalse($this->invokeNonPublic($controller, 'hasMissingMeituanSelfMetricValues', [[
+            'roomNights' => 7,
+            'roomRevenue' => 1177,
+            'salesRoomNights' => 10,
+            'sales' => 1763,
+            'orderCount' => 9,
+        ], $requiredFields]));
+    }
+
     public function testBackendDerivesMeituanRoomRevenueFromSelfMetricsBeforeRankAmount(): void
     {
         $controller = $this->controller();
@@ -1290,6 +1325,45 @@ final class OnlineDataTest extends TestCase
         self::assertSame('-', $rowsByPoi['TOP']['salesText']);
         self::assertSame('', $rowsByPoi['TOP']['salesPrefix']);
         self::assertSame('', $rowsByPoi['SECOND']['salesPrefix']);
+    }
+
+    public function testBackendDoesNotShowAverageRoomPriceFromHiddenPercentScaleRoomRevenue(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplayHotels', [[
+            'data' => [
+                'peerRankData' => [
+                    [
+                        'dimName' => 'room nights',
+                        'aiMetricName' => 'P_RZ_NIGHT_COUNT',
+                        'roundRanks' => [
+                            ['poiId' => 'TOP', 'poiName' => 'Top Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
+                            ['poiId' => 'SECOND', 'poiName' => 'Second Hotel', 'dataValue' => null, 'percent' => 50, 'rank' => 2],
+                        ],
+                    ],
+                    [
+                        'dimName' => 'room revenue',
+                        'aiMetricName' => 'P_RZ_ROOM_PAY',
+                        'roundRanks' => [
+                            ['poiId' => 'TOP', 'poiName' => 'Top Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
+                            ['poiId' => 'SECOND', 'poiName' => 'Second Hotel', 'dataValue' => null, 'percent' => 50, 'rank' => 2],
+                        ],
+                    ],
+                ],
+            ],
+        ]]);
+
+        $rowsByPoi = [];
+        foreach ($rows as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame('percent_min_integer_scale', $rowsByPoi['TOP']['metricDerived']['roomRevenue']['method']);
+        self::assertSame('-', $rowsByPoi['TOP']['roomRevenueText']);
+        self::assertSame(0.0, $rowsByPoi['TOP']['avgRoomPrice']);
+        self::assertSame('-', $rowsByPoi['TOP']['avgRoomPriceText']);
+        self::assertSame('missing_room_revenue', $rowsByPoi['TOP']['displayMetricStatus']['avgRoomPrice']);
     }
 
     public function testBackendDerivesMeituanTrafficRankValuesFromSelfMetricsAsCounts(): void
@@ -6992,7 +7066,7 @@ final class OnlineDataTest extends TestCase
                     'orderList' => [[
                         'orderId' => 'CTRIP-ORDER-001',
                         'guestName' => 'Alice Zhang',
-                        'guestPhone' => '13812345678',
+                        'guestPhone' => '90000005678',
                         'orderAmount' => '588.00',
                     ]],
                 ],
@@ -7013,7 +7087,7 @@ final class OnlineDataTest extends TestCase
         self::assertStringNotContainsString('secret-token', $encoded);
         self::assertStringNotContainsString('CTRIP-ORDER-001', $encoded);
         self::assertStringNotContainsString('Alice Zhang', $encoded);
-        self::assertStringNotContainsString('13812345678', $encoded);
+        self::assertStringNotContainsString('90000005678', $encoded);
     }
 
     public function testCtripEndpointEvidenceBundleRejectsNonCtripUrl(): void

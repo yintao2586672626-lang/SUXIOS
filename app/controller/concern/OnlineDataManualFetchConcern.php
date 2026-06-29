@@ -307,7 +307,8 @@ trait OnlineDataManualFetchConcern
             $selfMetricMessage = '';
             $selfMetricUpdateTime = '';
             $includeSelfTradeMetrics = $this->isTruthyRequestValue($requestData['include_self_trade_metrics'] ?? true);
-            if (empty($selfMetricValues) && $includeSelfTradeMetrics) {
+            $requiredTradeMetricFields = ['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'orderCount'];
+            if ($includeSelfTradeMetrics && $this->hasMissingMeituanSelfMetricValues($selfMetricValues, $requiredTradeMetricFields)) {
                 $selfMetricResult = $this->fetchMeituanSelfTradeMetricValues(
                     (string)$partnerId,
                     (string)$poiId,
@@ -317,8 +318,21 @@ trait OnlineDataManualFetchConcern
                     $authData,
                     (string)$dateRange
                 );
-                $selfMetricValues = is_array($selfMetricResult['values'] ?? null) ? $selfMetricResult['values'] : [];
-                $selfMetricStatus = (string)($selfMetricResult['status'] ?? 'failed');
+                $tradeMetricValues = is_array($selfMetricResult['values'] ?? null) ? $selfMetricResult['values'] : [];
+                foreach ($tradeMetricValues as $field => $value) {
+                    if (!isset($selfMetricValues[$field]) || (float)$selfMetricValues[$field] <= 0) {
+                        $selfMetricValues[$field] = $value;
+                    }
+                }
+                if (!empty($tradeMetricValues)) {
+                    $selfMetricStatus = $selfMetricStatus === 'missing'
+                        ? 'trade_returned'
+                        : $selfMetricStatus . '+trade_returned';
+                } else {
+                    $selfMetricStatus = $selfMetricStatus === 'missing'
+                        ? (string)($selfMetricResult['status'] ?? 'failed')
+                        : $selfMetricStatus . '+trade_' . (string)($selfMetricResult['status'] ?? 'failed');
+                }
                 $selfMetricMessage = (string)($selfMetricResult['message'] ?? '');
                 $selfMetricUpdateTime = (string)($selfMetricResult['update_time'] ?? '');
             }
@@ -909,6 +923,21 @@ trait OnlineDataManualFetchConcern
     public function fetchMeituanAds(): Response
     {
         return $this->fetchMeituanManualBusinessSection('ads');
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     * @param array<int, string> $fields
+     */
+    private function hasMissingMeituanSelfMetricValues(array $values, array $fields): bool
+    {
+        $normalized = $this->normalizeMeituanSelfMetricValues($values);
+        foreach ($fields as $field) {
+            if (!isset($normalized[$field]) || (float)$normalized[$field] <= 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function fetchMeituanManualBusinessSection(string $section): Response

@@ -84,6 +84,78 @@ final class ControllerRouteContractTest extends TestCase
         );
     }
 
+    public function testCtripReviewOrderMatchRoutes(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+
+        self::assertStringContainsString(
+            "Route::post('/ctrip-review-matches/im-sessions', 'OnlineData/saveCtripReviewImSession')",
+            $source,
+            'Ctrip review matching must accept authorized IM session cache imports'
+        );
+        self::assertStringContainsString(
+            "Route::post('/ctrip-review-matches/reviews', 'OnlineData/saveCtripReviewForMatch')",
+            $source,
+            'Ctrip review matching must accept review records without enabling live comment collection'
+        );
+        self::assertStringContainsString(
+            "Route::post('/ctrip-review-matches/orders', 'OnlineData/saveCtripOrderForMatch')",
+            $source,
+            'Ctrip review matching must accept OTA order pool records'
+        );
+        self::assertStringContainsString(
+            "Route::post('/ctrip-review-matches/lookup', 'OnlineData/lookupCtripReviewOrderMatch')",
+            $source,
+            'Ctrip review matching must expose lookup route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/ctrip-review-matches/run', 'OnlineData/runCtripReviewOrderMatchAutomation')",
+            $source,
+            'Ctrip review matching must expose one-click automation route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/ctrip-review-matches/bind', 'OnlineData/bindCtripReviewOrderMatch')",
+            $source,
+            'Ctrip review matching must expose manual bind route'
+        );
+    }
+
+    public function testMeituanReviewOrderMatchRoutes(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+
+        self::assertStringContainsString(
+            "Route::post('/meituan-review-matches/reviews', 'OnlineData/saveMeituanReviewForMatch')",
+            $source,
+            'Meituan review matching must accept review records'
+        );
+        self::assertStringContainsString(
+            "Route::post('/meituan-review-matches/orders', 'OnlineData/saveMeituanOrderForMatch')",
+            $source,
+            'Meituan review matching must accept authorized OTA order pool records'
+        );
+        self::assertStringContainsString(
+            "Route::post('/meituan-review-matches/lookup', 'OnlineData/lookupMeituanReviewOrderMatch')",
+            $source,
+            'Meituan review matching must expose lookup route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/meituan-review-matches/bind', 'OnlineData/bindMeituanReviewOrderMatch')",
+            $source,
+            'Meituan review matching must expose manual bind route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/meituan-review-matches/unbind', 'OnlineData/unbindMeituanReviewOrderMatch')",
+            $source,
+            'Meituan review matching must expose manual unbind route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/meituan-orders/phone-state', 'OnlineData/meituanOrderPhoneState')",
+            $source,
+            'Meituan order phone handling must expose a masked status route'
+        );
+    }
+
     public function testOperationExecutionReviewControllerForwardsManualReviewPayload(): void
     {
         $source = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/OperationManagement.php');

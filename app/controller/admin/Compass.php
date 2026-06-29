@@ -74,14 +74,14 @@ class Compass extends Base
             }
         }
 
-        SystemConfig::setValue(self::LAYOUT_KEY, json_encode([
+        SystemConfig::setValue($this->layoutConfigKey(), json_encode([
             'order' => $order,
             'hidden' => $hidden,
             'quick_entries' => [
                 'order' => $quickOrder,
                 'hidden' => $quickHidden,
             ],
-        ], JSON_UNESCAPED_UNICODE), '门店罗盘板块布局');
+        ], JSON_UNESCAPED_UNICODE), $this->layoutConfigDescription());
 
         OperationLog::record('compass', 'update_layout', '更新门店罗盘板块排序', $this->currentUser->id);
 
@@ -96,7 +96,10 @@ class Compass extends Base
     private function getLayoutConfig(): array
     {
         $default = $this->getDefaultLayout();
-        $raw = SystemConfig::getValue(self::LAYOUT_KEY, '');
+        $raw = SystemConfig::getValue($this->layoutConfigKey(), '');
+        if (!$raw && $this->currentUser && !$this->currentUser->isSuperAdmin()) {
+            $raw = SystemConfig::getValue(self::LAYOUT_KEY, '');
+        }
         if (!$raw) {
             return $default;
         }
@@ -131,6 +134,23 @@ class Compass extends Base
                 'hidden' => $quickHidden,
             ],
         ];
+    }
+
+    private function layoutConfigKey(): string
+    {
+        if ($this->currentUser && !$this->currentUser->isSuperAdmin()) {
+            $userId = max(0, (int)($this->currentUser->id ?? 0));
+            return self::LAYOUT_KEY . '_user_' . $userId;
+        }
+
+        return self::LAYOUT_KEY;
+    }
+
+    private function layoutConfigDescription(): string
+    {
+        return $this->currentUser && !$this->currentUser->isSuperAdmin()
+            ? '门店罗盘用户板块布局'
+            : '门店罗盘板块布局';
     }
 
     private function getDefaultLayout(): array
