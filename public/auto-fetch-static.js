@@ -116,12 +116,18 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
     const platformProfileMachineText = (value) => /[a-z]+[_-][a-z]+|\/api\/|https?:|[{}[\]=]/i.test(String(value || ''));
     const platformProfileStatusLabel = (item) => {
         const statusCode = String(item?.status_code || '').trim().toLowerCase();
+        if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '无权限';
+        if (statusCode === 'hotel_mismatch') return '门店不匹配';
         const map = {
             unconfigured: '未配置',
             waiting_login: '待登录',
             logged_in: '已登录',
             login_expired: '登录失效',
             login_required: '需要登录',
+            permission_denied: '无权限',
+            no_permission: '无权限',
+            unauthorized: '无权限',
+            hotel_mismatch: '门店不匹配',
             capture_failed: '采集失败',
             missing_profile: '缺少 Profile',
             needs_profile: '缺少 Profile',
@@ -141,6 +147,10 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         logged_in: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         waiting_login: 'bg-amber-50 text-amber-700 border-amber-200',
         login_expired: 'bg-red-50 text-red-700 border-red-200',
+        permission_denied: 'bg-red-50 text-red-700 border-red-200',
+        no_permission: 'bg-red-50 text-red-700 border-red-200',
+        unauthorized: 'bg-red-50 text-red-700 border-red-200',
+        hotel_mismatch: 'bg-red-50 text-red-700 border-red-200',
         capture_failed: 'bg-red-50 text-red-700 border-red-200',
         unconfigured: 'bg-gray-50 text-gray-500 border-gray-200',
     }[statusCode] || 'bg-gray-50 text-gray-500 border-gray-200');
@@ -196,13 +206,18 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         return '-';
     };
     const platformProfilePrimaryActionText = (item) => {
+        const statusCode = String(item?.status_code || '').trim().toLowerCase();
+        if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '查看权限';
+        if (statusCode === 'hotel_mismatch') return '重新绑定门店';
         if (item?.status_code === 'login_expired') return '重新登录平台账号';
         return item?.platform === 'meituan' ? '登录美团' : '登录携程';
     };
     const platformProfileNextActionText = (item) => {
         const raw = String(item?.next_action || '').trim();
         const statusCode = String(item?.status_code || '').trim().toLowerCase();
-        if (['logged_in'].includes(statusCode)) return '授权可用，下一步以目标日入库行证明采集成功';
+        if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '当前账号无该门店采集权限，请切换账号或补授权。';
+        if (statusCode === 'hotel_mismatch') return 'Profile 登录态存在，但绑定门店与当前门店不匹配，请重新绑定正确门店。';
+        if (['logged_in'].includes(statusCode)) return '登录态可复用，点击同步会走现有数据源，不会直接弹登录。';
         if (['waiting_login', 'login_expired', 'login_required'].includes(statusCode) || /login|auth|cookie|登录|授权|过期|失效/i.test(raw)) {
             return '完成或刷新平台登录后，再运行现有自动采集';
         }

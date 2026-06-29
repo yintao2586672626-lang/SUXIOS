@@ -108,7 +108,7 @@ final class PlatformProfileBindingReadinessService
 
         $loginStatus = match ($statusCode) {
             'logged_in' => 'ok',
-            'login_expired' => 'error',
+            'login_expired', 'permission_denied', 'hotel_mismatch' => 'error',
             'capture_failed' => 'error',
             'unconfigured' => 'missing',
             default => 'warning',

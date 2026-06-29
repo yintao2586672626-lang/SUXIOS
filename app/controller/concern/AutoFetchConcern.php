@@ -1566,7 +1566,7 @@ trait AutoFetchConcern
         $profileDir = $relativeDir !== '' ? $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir) : '';
         $exists = $profileDir !== '' && is_dir($profileDir);
         $cache = $profileKey !== '' ? $this->readPlatformProfileStatusCache($platform, $hotelId, $profileKey) : [];
-        $statusCode = $this->resolvePlatformProfileStatusCode($profileKey, $exists, $source, $cache);
+        $statusCode = $this->resolvePlatformProfileStatusCode($profileKey, $exists, $source, $cache, $config);
         $bindingChecks = $this->buildPlatformProfileBindingChecks($platform, $hotelId, $config, $source, $statusCode, $exists, $profileKey);
         $p0Readiness = $this->summarizePlatformProfileBindingChecks($bindingChecks);
         $primaryAction = $this->firstPlatformProfileBindingAction($bindingChecks);
@@ -1694,13 +1694,19 @@ trait AutoFetchConcern
         ];
     }
 
-    private function resolvePlatformProfileStatusCode(string $profileKey, bool $profileExists, ?array $source, array $cache): string
+    private function resolvePlatformProfileStatusCode(string $profileKey, bool $profileExists, ?array $source, array $cache, array $config = []): string
     {
         if ($profileKey === '' && empty($source)) {
             return 'unconfigured';
         }
         if (!$profileExists) {
             return 'waiting_login';
+        }
+        if ($this->platformProfileSourceHasHotelMismatchError($source)) {
+            return 'hotel_mismatch';
+        }
+        if ($this->platformProfileSourceHasPermissionError($source)) {
+            return 'permission_denied';
         }
         if ($this->platformProfileSourceHasLoginExpiredError($source)) {
             return 'login_expired';
@@ -1711,10 +1717,36 @@ trait AutoFetchConcern
         if (($cache['status_code'] ?? '') === 'logged_in' || !empty($cache['auth_status']['ok'])) {
             return 'logged_in';
         }
+        if ($this->platformProfileConfigHasVerifiedLogin($config)) {
+            return 'logged_in';
+        }
         if (in_array((string)($source['last_sync_status'] ?? ''), ['failed', 'partial_success'], true)) {
             return 'capture_failed';
         }
         return 'waiting_login';
+    }
+
+    private function platformProfileConfigHasVerifiedLogin(array $config): bool
+    {
+        foreach (['manual_login_state_verified', 'login_state_verified', 'profile_login_verified', 'profile_daily_reuse_enabled'] as $key) {
+            $value = $config[$key] ?? null;
+            if (is_bool($value) && $value) {
+                return true;
+            }
+            if (is_numeric($value) && (int)$value === 1) {
+                return true;
+            }
+            if (in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on', 'logged_in'], true)) {
+                return true;
+            }
+        }
+
+        $status = strtolower(trim((string)($config['profile_status'] ?? $config['login_status'] ?? '')));
+        if ($status === 'logged_in') {
+            return true;
+        }
+        $authStatus = is_array($config['auth_status'] ?? null) ? $config['auth_status'] : [];
+        return !empty($authStatus['ok']);
     }
 
     private function platformProfileSourceHasLoginExpiredError(?array $source): bool
@@ -1738,6 +1770,30 @@ trait AutoFetchConcern
         }
 
         return preg_match('/browser_profile\s*需重新登录|需重新登录|重新登录|login\s*timeout|login_required|login_expired|login\s*expired|login\s*page|unauthorized|forbidden|401|403|未登录|登录失效|登录过期|授权失效/i', $message) === 1;
+    }
+
+    private function platformProfileSourceHasPermissionError(?array $source): bool
+    {
+        if (empty($source)) {
+            return false;
+        }
+
+        $syncStatus = strtolower(trim((string)($source['last_sync_status'] ?? $source['status'] ?? '')));
+        $message = strtolower(trim((string)($source['last_error'] ?? $source['message'] ?? '')));
+        if (in_array($syncStatus, ['permission_denied', 'no_permission', 'forbidden'], true)) {
+            return true;
+        }
+        return $message !== '' && preg_match('/permission_denied|no_permission|forbidden|http\s*403|status\s*403|access\s*denied|not\s*authorized|unauthorized_hotel|无权|无权限|权限不足/i', $message) === 1;
+    }
+
+    private function platformProfileSourceHasHotelMismatchError(?array $source): bool
+    {
+        if (empty($source)) {
+            return false;
+        }
+
+        $message = strtolower(trim((string)($source['last_error'] ?? $source['message'] ?? '')));
+        return $message !== '' && preg_match('/hotel_mismatch|store_mismatch|poi_mismatch|source hotel scope mismatch|data source hotel scope mismatch|hotel scope mismatch|门店不匹配|酒店不匹配|门店.*不匹配/i', $message) === 1;
     }
 
     private function platformProfileStatusText(string $statusCode): string
@@ -1833,6 +1889,10 @@ trait AutoFetchConcern
         $config = $isCtrip
             ? [
                 'profile_id' => $profileKey,
+                'stable_profile_id' => $profileKey,
+                'profile_binding_key' => $profileKey,
+                'profile_reuse_scope' => 'ota_account_store',
+                'profile_daily_reuse_enabled' => true,
                 'hotel_id' => trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? $requestData['ctripHotelId'] ?? $payload['hotel_id'] ?? '')),
                 'hotel_name' => trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? $payload['hotel_name'] ?? '')),
                 'capture_sections' => $this->normalizeCtripProfileCaptureSections(
@@ -1841,6 +1901,10 @@ trait AutoFetchConcern
             ]
             : [
                 'store_id' => $profileKey,
+                'stable_profile_id' => $profileKey,
+                'profile_binding_key' => $profileKey,
+                'profile_reuse_scope' => 'ota_account_store',
+                'profile_daily_reuse_enabled' => true,
                 'poi_id' => trim((string)($requestData['poi_id'] ?? $requestData['poiId'] ?? $payload['poi_id'] ?? '')),
                 'poi_name' => trim((string)($requestData['poi_name'] ?? $requestData['poiName'] ?? $payload['poi_name'] ?? '')),
                 'partner_id' => trim((string)($requestData['partner_id'] ?? $requestData['partnerId'] ?? '')),

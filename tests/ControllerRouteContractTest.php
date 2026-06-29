@@ -109,9 +109,19 @@ final class ControllerRouteContractTest extends TestCase
             'Ctrip review matching must expose lookup route'
         );
         self::assertStringContainsString(
+            "Route::post('/ctrip-review-matches/identity-preview', 'OnlineData/previewCtripReviewOrdererIdentity')",
+            $source,
+            'Ctrip review matching must expose read-only page identity preview route'
+        );
+        self::assertStringContainsString(
             "Route::post('/ctrip-review-matches/run', 'OnlineData/runCtripReviewOrderMatchAutomation')",
             $source,
             'Ctrip review matching must expose one-click automation route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/ctrip-review-matches/closure', 'OnlineData/checkCtripReviewOrderMatchClosure')",
+            $source,
+            'Ctrip review matching must expose real-data closure verification route'
         );
         self::assertStringContainsString(
             "Route::post('/ctrip-review-matches/bind', 'OnlineData/bindCtripReviewOrderMatch')",

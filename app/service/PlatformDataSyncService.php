@@ -908,6 +908,7 @@ final class PlatformDataSyncService
             $this->refreshDatabaseConnectionAfterExternalFetch();
             $payload = $this->applySyncOptionPeriodMetadata($result['payload'] ?? [], $options);
             if (($result['status'] ?? '') !== 'success') {
+                $payload['sync_diagnostics'] = $this->buildSyncDiagnostics([], 0, $source, $options, $payload, (string)$result['status'], (string)$result['message']);
                 return $this->finishTask($taskId, $source, (string)$result['status'], (string)$result['message'], 0, 0, $payload, $timing, $syncStartedAt);
             }
 
@@ -923,10 +924,19 @@ final class PlatformDataSyncService
 
             $status = $saved > 0 ? 'success' : 'partial_success';
             $message = $saved > 0 ? 'Platform data synchronized.' : 'No business rows were found in payload.';
+            $diagnostics = $this->buildSyncDiagnostics($rows, $saved, $source, $options, $payload, $status, $message);
+            if ((string)($diagnostics['p0_status'] ?? '') !== 'ready' && !empty($diagnostics['requires_target_date_traffic'])) {
+                $status = 'partial_success';
+                $message = (string)($diagnostics['operator_message'] ?? 'profile_reused_but_target_date_traffic_not_ready');
+            }
+            $payload['sync_diagnostics'] = $diagnostics;
             return $this->finishTask($taskId, $source, $status, $message, count($rows), $saved, $payload, $timing, $syncStartedAt);
         } catch (\Throwable $e) {
             $this->refreshDatabaseConnectionAfterExternalFetch();
-            return $this->finishTask($taskId, $source, 'failed', $e->getMessage(), 0, 0, [], $timing, $syncStartedAt);
+            $payload = [
+                'sync_diagnostics' => $this->buildSyncDiagnostics([], 0, $source, $options, [], 'failed', $e->getMessage()),
+            ];
+            return $this->finishTask($taskId, $source, 'failed', $e->getMessage(), 0, 0, $payload, $timing, $syncStartedAt);
         }
     }
 
@@ -1543,6 +1553,9 @@ final class PlatformDataSyncService
         if (!empty($payload['error_summary'])) {
             $stats['error_summary'] = mb_substr((string)$payload['error_summary'], 0, 500);
         }
+        if (is_array($payload['sync_diagnostics'] ?? null)) {
+            $stats['sync_diagnostics'] = $payload['sync_diagnostics'];
+        }
         foreach (['data_period', 'snapshot_time', 'snapshot_bucket'] as $periodKey) {
             if (!empty($payload[$periodKey])) {
                 $stats[$periodKey] = (string)$payload[$periodKey];
@@ -1585,7 +1598,154 @@ final class PlatformDataSyncService
             'saved_count' => $savedCount,
             'next_retry_at' => $nextRetryAt,
             'timing' => $timing,
+            'sync_diagnostics' => is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : null,
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, mixed>
+     */
+    private function buildSyncDiagnostics(array $rows, int $savedCount, array $source, array $options, array $payload, string $adapterStatus, string $adapterMessage): array
+    {
+        $targetDate = $this->syncTargetDate($options, $payload);
+        $dataTypes = [];
+        $targetRows = 0;
+        $targetTrafficRows = 0;
+        $targetTrafficFieldFactReady = 0;
+        $targetTrafficFieldFactMissing = 0;
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $rowDate = $this->normalizeDate($row['data_date'] ?? $row['dataDate'] ?? null);
+            if ($rowDate !== $targetDate) {
+                continue;
+            }
+            $targetRows++;
+            $dataType = $this->normalizeDataType((string)($row['data_type'] ?? $row['dataType'] ?? $source['data_type'] ?? ''));
+            if ($dataType !== '') {
+                $dataTypes[$dataType] = true;
+            }
+            if ($dataType === 'traffic') {
+                $targetTrafficRows++;
+                if ($this->normalizedRowHasFieldFactEvidence($row)) {
+                    $targetTrafficFieldFactReady++;
+                } else {
+                    $targetTrafficFieldFactMissing++;
+                }
+            }
+        }
+
+        $requiresTraffic = $this->syncRequiresTargetDateTrafficEvidence($source, $options, $payload);
+        $fieldFactStatus = $targetTrafficRows <= 0
+            ? 'not_loaded'
+            : ($targetTrafficFieldFactReady > 0 && $targetTrafficFieldFactMissing === 0 ? 'ready' : ($targetTrafficFieldFactReady > 0 ? 'partial' : 'missing'));
+        $missingInputs = [];
+        if ($requiresTraffic && $targetTrafficRows <= 0) {
+            $missingInputs[] = 'target_date_traffic_rows';
+        }
+        if ($requiresTraffic && $targetTrafficRows > 0 && $targetTrafficFieldFactReady <= 0) {
+            $missingInputs[] = 'traffic_field_facts';
+        }
+        $p0Status = $requiresTraffic
+            ? ($missingInputs === [] ? 'ready' : 'blocked')
+            : ($savedCount > 0 ? 'not_required' : 'not_loaded');
+        $operatorMessage = 'target_date_traffic_ready';
+        if (in_array('target_date_traffic_rows', $missingInputs, true)) {
+            $operatorMessage = 'profile_reused_no_target_date_traffic_rows';
+        } elseif (in_array('traffic_field_facts', $missingInputs, true)) {
+            $operatorMessage = 'traffic_field_facts_missing';
+        } elseif ($adapterStatus !== 'success') {
+            $operatorMessage = $adapterMessage !== '' ? $adapterMessage : $adapterStatus;
+        }
+
+        return [
+            'target_date' => $targetDate,
+            'requires_target_date_traffic' => $requiresTraffic,
+            'target_date_rows' => $targetRows,
+            'target_date_traffic_rows' => $targetTrafficRows,
+            'target_date_data_types' => array_keys($dataTypes),
+            'target_date_traffic_field_fact_ready_count' => $targetTrafficFieldFactReady,
+            'target_date_traffic_field_fact_missing_count' => $targetTrafficFieldFactMissing,
+            'field_fact_status' => $fieldFactStatus,
+            'p0_status' => $p0Status,
+            'missing_inputs' => $missingInputs,
+            'operator_message' => $operatorMessage,
+            'adapter_status' => $adapterStatus,
+            'adapter_message' => mb_substr($adapterMessage, 0, 240),
+        ];
+    }
+
+    private function syncTargetDate(array $options, array $payload): string
+    {
+        $date = $this->normalizeDate(
+            $options['target_date']
+            ?? $options['targetDate']
+            ?? $options['data_date']
+            ?? $options['dataDate']
+            ?? $payload['target_date']
+            ?? $payload['targetDate']
+            ?? $payload['data_date']
+            ?? $payload['dataDate']
+            ?? ($payload['data_source_capture']['data_date'] ?? null)
+        );
+        return $date ?? date('Y-m-d');
+    }
+
+    private function syncRequiresTargetDateTrafficEvidence(array $source, array $options, array $payload): bool
+    {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $method = strtolower(trim((string)($source['ingestion_method'] ?? '')));
+        if (!in_array($platform, ['ctrip', 'meituan'], true) || !in_array($method, ['browser_profile', 'profile_browser'], true)) {
+            return false;
+        }
+
+        $trigger = strtolower(trim((string)($options['trigger_type'] ?? $options['triggerType'] ?? '')));
+        if (in_array($trigger, ['daily_profile_reuse', 'profile_login_after_sync', 'profile_login_verified_sync'], true)) {
+            return true;
+        }
+        $dataType = $this->normalizeDataType((string)($source['data_type'] ?? $options['data_type'] ?? $options['dataType'] ?? ''));
+        if ($dataType === 'traffic') {
+            return true;
+        }
+
+        $sectionText = strtolower(json_encode([
+            $options['capture_sections'] ?? null,
+            $options['captureSections'] ?? null,
+            $options['sections'] ?? null,
+            $payload['data_source_capture']['capture_sections'] ?? null,
+            $payload['sync_summary'] ?? null,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+        return preg_match('/traffic|flow|core|default|business_overview|traffic_report/', $sectionText) === 1;
+    }
+
+    private function normalizedRowHasFieldFactEvidence(array $row): bool
+    {
+        $raw = $row['raw_data'] ?? [];
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($raw)) {
+            return false;
+        }
+
+        $summary = is_array($raw['field_fact_summary'] ?? null) ? $raw['field_fact_summary'] : [];
+        if ((int)($summary['captured_count'] ?? 0) > 0 || (int)($summary['capture_evidence_count'] ?? 0) > 0) {
+            return true;
+        }
+        $facts = is_array($raw['field_facts'] ?? null) ? $raw['field_facts'] : [];
+        foreach ($facts as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            if (($fact['status'] ?? '') === 'captured' || !empty($fact['stored_value_present']) || !empty($fact['capture_evidence'])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function storeRawRecord(array $source, int $taskId, array $payload, ?int $httpStatus): void
@@ -2638,6 +2798,11 @@ final class PlatformDataSyncService
         $period = $this->normalizeDataPeriod($options['data_period'] ?? $options['dataPeriod'] ?? '');
         if ($period !== '' && empty($payload['data_period'])) {
             $payload['data_period'] = $period;
+        }
+
+        $dataDate = $this->normalizeDate($options['data_date'] ?? $options['dataDate'] ?? $options['target_date'] ?? $options['targetDate'] ?? null);
+        if ($dataDate !== null && empty($payload['data_date'])) {
+            $payload['data_date'] = $dataDate;
         }
 
         $snapshotTime = $this->normalizeDateTime($options['snapshot_time'] ?? $options['snapshotTime'] ?? null);

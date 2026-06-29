@@ -2772,6 +2772,12 @@ final class OnlineDataTest extends TestCase
         self::assertSame('traffic', $config['capture_sections']);
         self::assertSame('p0_ota_field_loop', $config['registered_by']);
         self::assertSame('ctrip-60', $config['hotel_id']);
+        self::assertSame('system_60', $config['stable_profile_id']);
+        self::assertSame('system_60', $config['profile_binding_key']);
+        self::assertSame('ota_account_store', $config['profile_reuse_scope']);
+        self::assertTrue($config['profile_daily_reuse_enabled']);
+        self::assertSame('data-sources/:id/sync', $config['profile_daily_reuse_entry']);
+        self::assertTrue($config['profile_login_probe_required_before_relogin']);
         self::assertSame(['ok' => true, 'status' => 'logged_in', 'message' => 'Ctrip profile is logged in.'], $config['auth_status']);
         self::assertSame('pass', $config['profile_login_capture_gate']['status']);
 

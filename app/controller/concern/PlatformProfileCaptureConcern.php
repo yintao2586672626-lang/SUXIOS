@@ -29,7 +29,7 @@ trait PlatformProfileCaptureConcern
         ];
     }
 
-    private function buildCtripProfileStatus(array $requestData, ?int $systemHotelId = null, bool $probeCookie = false): array
+    private function buildCtripProfileStatus(array $requestData, ?int $systemHotelId = null, bool $probeCookie = false, bool $probeLogin = false): array
     {
         $hotelId = $systemHotelId !== null ? (int)$systemHotelId : 0;
         $profileId = $this->ctripProfileStoreIdFromConfig($requestData, $hotelId);
@@ -40,21 +40,65 @@ trait PlatformProfileCaptureConcern
             ? $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir)
             : '';
         $exists = $profileDir !== '' && is_dir($profileDir);
+        $cached = ($hotelId > 0 && $profileId !== '') ? $this->readPlatformProfileStatusCache('ctrip', $hotelId, $profileId) : [];
+        $cachedStatusCode = (string)($cached['status_code'] ?? '');
+        $statusCode = $exists
+            ? ($cachedStatusCode !== '' ? $cachedStatusCode : 'waiting_login')
+            : 'waiting_login';
 
         $status = [
             'profile_id' => $profileId,
             'profile_dir' => $relativeDir,
             'exists' => $exists,
             'cookie_probe_requested' => $probeCookie,
+            'login_probe_requested' => $probeLogin,
             'cookie_extractable' => false,
             'cookie_count' => 0,
             'skipped_count' => 0,
             'last_modified_at' => $exists ? date('Y-m-d H:i:s', (int)filemtime($profileDir)) : '',
+            'last_login_check_time' => (string)($cached['checked_at'] ?? ''),
+            'auth_status' => $cached['auth_status'] ?? null,
+            'capture_gate' => $cached['capture_gate'] ?? null,
             'status' => $exists ? 'profile_found' : 'missing_profile',
+            'status_code' => $statusCode,
+            'current_status' => $this->ctripProfileStatusText($statusCode),
             'next_action' => $exists
                 ? '可直接用于携程 Cookie API；如 Cookie 探测失败，请重新登录携程 Profile'
                 : '点击“只登录并保存 Profile”完成携程登录，或直接粘贴有效 Cookie',
         ];
+
+        if ($exists && $probeLogin) {
+            $probe = $this->runCtripProfileLoginProbe($requestData, $projectRoot, $hotelId, $profileId);
+            $authStatus = is_array($probe['auth_status'] ?? null) ? $probe['auth_status'] : [
+                'ok' => false,
+                'status' => 'login_required',
+                'message' => (string)($probe['message'] ?? 'Ctrip login probe failed.'),
+            ];
+            $isOk = !empty($authStatus['ok']);
+            $probeStatusCode = $this->ctripProfileProbeStatusCode($probe, $authStatus);
+            $status['auth_status'] = $authStatus;
+            $status['capture_gate'] = $probe['capture_gate'] ?? null;
+            $status['output'] = (string)($probe['output'] ?? '');
+            $status['last_login_check_time'] = date('Y-m-d H:i:s');
+            $status['status'] = $isOk ? 'ready' : 'login_required';
+            $status['status_code'] = $probeStatusCode;
+            $status['current_status'] = $this->ctripProfileStatusText((string)$status['status_code']);
+            $status['next_action'] = $isOk
+                ? 'profile_reuse_ready'
+                : (string)$status['status_code'];
+
+            if ($hotelId > 0 && $profileId !== '') {
+                $this->cachePlatformProfileStatus('ctrip', $hotelId, $profileId, [
+                    'checked_at' => $status['last_login_check_time'],
+                    'auth_status' => $authStatus,
+                    'capture_gate' => $status['capture_gate'],
+                    'status_code' => $status['status_code'],
+                    'output' => $status['output'],
+                ]);
+            }
+
+            return $status;
+        }
 
         if (!$exists || !$probeCookie) {
             return $status;
@@ -81,6 +125,97 @@ trait PlatformProfileCaptureConcern
         return $status;
     }
 
+    private function ctripProfileStatusText(string $statusCode): string
+    {
+        return match ($statusCode) {
+            'logged_in' => 'logged_in',
+            'login_expired', 'login_required' => 'login_expired',
+            'permission_denied' => 'permission_denied',
+            'hotel_mismatch' => 'hotel_mismatch',
+            'capture_failed' => 'capture_failed',
+            'waiting_login' => 'waiting_login',
+            default => 'unconfigured',
+        };
+    }
+
+    private function ctripProfileProbeStatusCode(array $probe, array $authStatus): string
+    {
+        if (!empty($authStatus['ok'])) {
+            return 'logged_in';
+        }
+        $text = strtolower(json_encode([
+            'message' => $authStatus['message'] ?? $probe['message'] ?? '',
+            'status' => $authStatus['status'] ?? '',
+            'capture_gate' => $probe['capture_gate'] ?? null,
+            'stdout' => $probe['stdout'] ?? '',
+            'stderr' => $probe['stderr'] ?? '',
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+        if (preg_match('/hotel_mismatch|store_mismatch|poi_mismatch|hotel scope mismatch|source hotel scope mismatch|门店不匹配|酒店不匹配/', $text) === 1) {
+            return 'hotel_mismatch';
+        }
+        if (preg_match('/permission_denied|no_permission|forbidden|http\s*403|status\s*403|access\s*denied|not\s*authorized|无权|无权限|权限不足/', $text) === 1) {
+            return 'permission_denied';
+        }
+        return 'login_expired';
+    }
+
+    private function runCtripProfileLoginProbe(array $requestData, string $projectRoot, int $systemHotelId, string $profileId): array
+    {
+        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs';
+        if (!is_file($scriptPath)) {
+            return ['message' => 'ctrip_browser_capture_script_missing'];
+        }
+        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
+        if ($nodeBinary === '') {
+            return ['message' => 'node_binary_missing'];
+        }
+        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture';
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
+            return ['message' => 'ctrip_login_probe_output_dir_unavailable'];
+        }
+        $safeProfileId = BrowserProfileCaptureRequestService::safeFilePart($profileId);
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_login_probe_' . $safeProfileId . '_' . date('YmdHis') . '.json';
+        $args = [
+            $nodeBinary,
+            $scriptPath,
+            '--profile-id=' . $profileId,
+            '--system-hotel-id=' . (string)$systemHotelId,
+            '--output=' . $outputPath,
+            '--login-only=true',
+            '--headless=true',
+            '--login-timeout-ms=30000',
+            '--sections=business_overview',
+            '--login-url=https://ebooking.ctrip.com/login/index',
+        ];
+        $hotelId = trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? $requestData['ctripHotelId'] ?? ''));
+        if ($hotelId !== '') {
+            $args[] = '--hotel-id=' . $hotelId;
+        }
+        $hotelName = trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? ''));
+        if ($hotelName !== '') {
+            $args[] = '--hotel-name=' . $hotelName;
+        }
+        $chromePath = BrowserProfileCaptureRequestService::resolveChromePath();
+        if ($chromePath !== '') {
+            $args[] = '--chrome-path=' . $chromePath;
+        }
+
+        $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, 90);
+        if (!is_file($outputPath)) {
+            return [
+                'message' => (string)($runResult['message'] ?? 'ctrip_login_probe_output_missing'),
+                'stdout' => $this->trimMeituanCaptureLog((string)($runResult['stdout'] ?? '')),
+                'stderr' => $this->trimMeituanCaptureLog((string)($runResult['stderr'] ?? '')),
+            ];
+        }
+
+        $payload = json_decode((string)file_get_contents($outputPath), true);
+        if (!is_array($payload)) {
+            return ['message' => 'ctrip_login_probe_json_invalid', 'output' => $outputPath];
+        }
+        $payload['output'] = $outputPath;
+        return $payload;
+    }
     private function buildMeituanProfileStatus(array $requestData, ?int $systemHotelId = null, bool $probeLogin = false): array
     {
         $hotelId = $systemHotelId !== null ? (int)$systemHotelId : 0;

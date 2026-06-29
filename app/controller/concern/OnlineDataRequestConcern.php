@@ -704,16 +704,19 @@ trait OnlineDataRequestConcern
             ?? null
         );
         $probeCookie = $this->isTruthyRequestValue($requestData['probe_cookie'] ?? $requestData['probeCookie'] ?? false);
-        $status = $this->buildCtripProfileStatus($requestData, $systemHotelId, $probeCookie);
-        if ($probeCookie && $systemHotelId !== null && !empty($status['profile_id'])) {
+        $probeLogin = $this->isTruthyRequestValue($requestData['probe_login'] ?? $requestData['probeLogin'] ?? false);
+        $status = $this->buildCtripProfileStatus($requestData, $systemHotelId, $probeCookie, $probeLogin);
+        if ($probeLogin && $systemHotelId !== null && !empty($status['profile_id'])) {
             $this->cachePlatformProfileStatus('ctrip', (int)$systemHotelId, (string)$status['profile_id'], [
                 'checked_at' => date('Y-m-d H:i:s'),
                 'auth_status' => [
-                    'ok' => ($status['status'] ?? '') === 'ready',
-                    'status' => ($status['status'] ?? '') === 'ready' ? 'logged_in' : 'login_required',
+                    'ok' => ($status['status_code'] ?? '') === 'logged_in',
+                    'status' => ($status['status_code'] ?? '') === 'logged_in' ? 'logged_in' : 'login_required',
                     'message' => (string)($status['next_action'] ?? ''),
                 ],
-                'status_code' => ($status['status'] ?? '') === 'ready' ? 'logged_in' : 'login_expired',
+                'capture_gate' => $status['capture_gate'] ?? null,
+                'status_code' => (string)($status['status_code'] ?? 'login_expired'),
+                'output' => (string)($status['output'] ?? ''),
             ]);
         }
 

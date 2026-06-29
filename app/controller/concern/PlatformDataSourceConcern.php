@@ -67,6 +67,7 @@ trait PlatformDataSourceConcern
                 : 'denied';
 
             $service = new PlatformDataSyncService();
+            $targetDate = $this->collectionStatusTargetDate($requestData);
             $filters = ['system_hotel_id' => (int)$systemHotelId];
             if (in_array($platform, ['ctrip', 'meituan'], true)) {
                 $filters['platform'] = $platform;
@@ -75,7 +76,7 @@ trait PlatformDataSourceConcern
             $catalog = $service->collectionResourceCatalog($this->currentUser, $filters);
             $sources = $service->listDataSources($this->currentUser, $filters);
             $tasks = $service->listSyncTasks($this->currentUser, array_merge($filters, ['limit' => 30]));
-            $dailySummary = $this->collectionStatusDailySummary((int)$systemHotelId, $platform);
+            $dailySummary = $this->collectionStatusDailySummary((int)$systemHotelId, $platform, $targetDate);
             $profileStatus = $this->buildPlatformProfileStatus((int)$systemHotelId);
             $hotel = Db::name('hotels')->where('id', (int)$systemHotelId)->find() ?: [];
             $platforms = in_array($platform, ['ctrip', 'meituan'], true) ? [$platform] : ['ctrip', 'meituan'];
@@ -97,6 +98,7 @@ trait PlatformDataSourceConcern
                 'hotelId' => (int)$systemHotelId,
                 'tenantId' => $this->positiveCollectionStatusInt($hotel['tenant_id'] ?? $this->currentUser->tenant_id ?? null),
                 'platform' => $platform,
+                'targetDate' => $targetDate,
                 'currentHotelName' => (string)($hotel['name'] ?? ''),
                 'permissionStatus' => $permissionStatus,
                 'fetchPermissionStatus' => $fetchPermissionStatus,
@@ -108,6 +110,7 @@ trait PlatformDataSourceConcern
                     'hotelId' => (int)$systemHotelId,
                     'tenantId' => $this->positiveCollectionStatusInt($hotel['tenant_id'] ?? $this->currentUser->tenant_id ?? null),
                     'platform' => $platform,
+                    'targetDate' => $targetDate,
                     'currentHotelName' => (string)($hotel['name'] ?? ''),
                     'permissionStatus' => $permissionStatus,
                     'fetchPermissionStatus' => $fetchPermissionStatus,
@@ -309,7 +312,7 @@ trait PlatformDataSourceConcern
     /**
      * @return array<string, array<string, mixed>>
      */
-    private function collectionStatusDailySummary(int $systemHotelId, string $platform): array
+    private function collectionStatusDailySummary(int $systemHotelId, string $platform, string $targetDate): array
     {
         $columns = $this->collectionStatusTableColumns('online_daily_data');
         if (!isset($columns['data_date'], $columns['system_hotel_id'])) {
@@ -344,7 +347,25 @@ trait PlatformDataSourceConcern
             return [];
         }
 
+        $targetStats = $this->collectionStatusTargetDateStats($systemHotelId, $platforms, $sourceColumn, $columns, $targetDate);
         $summary = [];
+        foreach ($platforms as $itemPlatform) {
+            $summary[$itemPlatform] = array_merge([
+                'row_count' => 0,
+                'start_date' => '',
+                'end_date' => '',
+                'latest_collected_at' => '',
+                'data_range' => '',
+            ], $targetStats[$itemPlatform] ?? [
+                'target_date' => $targetDate,
+                'target_date_rows' => 0,
+                'target_date_traffic_rows' => 0,
+                'target_date_data_types' => [],
+                'target_date_traffic_field_fact_ready_count' => 0,
+                'target_date_traffic_field_fact_missing_count' => 0,
+                'target_date_traffic_field_fact_status' => 'not_loaded',
+            ]);
+        }
         foreach ($rows as $row) {
             $itemPlatform = strtolower((string)($row['platform'] ?? ''));
             if (!in_array($itemPlatform, ['ctrip', 'meituan'], true)) {
@@ -352,16 +373,113 @@ trait PlatformDataSourceConcern
             }
             $start = (string)($row['start_date'] ?? '');
             $end = (string)($row['end_date'] ?? '');
-            $summary[$itemPlatform] = [
+            $summary[$itemPlatform] = array_merge($summary[$itemPlatform] ?? [], [
                 'row_count' => (int)($row['row_count'] ?? 0),
                 'start_date' => $start,
                 'end_date' => $end,
                 'latest_collected_at' => (string)($row['latest_collected_at'] ?? ''),
                 'data_range' => $start !== '' && $end !== '' ? ($start === $end ? $start : $start . ' 至 ' . $end) : '',
-            ];
+            ]);
         }
 
         return $summary;
+    }
+
+    /**
+     * @param array<int, string> $platforms
+     * @param array<string, bool> $columns
+     * @return array<string, array<string, mixed>>
+     */
+    private function collectionStatusTargetDateStats(int $systemHotelId, array $platforms, string $sourceColumn, array $columns, string $targetDate): array
+    {
+        $stats = [];
+        foreach ($platforms as $platform) {
+            $stats[$platform] = [
+                'target_date' => $targetDate,
+                'target_date_rows' => 0,
+                'target_date_traffic_rows' => 0,
+                'target_date_data_types' => [],
+                'target_date_traffic_field_fact_ready_count' => 0,
+                'target_date_traffic_field_fact_missing_count' => 0,
+                'target_date_traffic_field_fact_status' => 'not_loaded',
+            ];
+        }
+        if ($targetDate === '' || !isset($columns['data_date'], $columns['system_hotel_id'])) {
+            return $stats;
+        }
+
+        $fields = [$sourceColumn . ' AS platform'];
+        $fields[] = isset($columns['data_type']) ? 'data_type' : "'' AS data_type";
+        $fields[] = isset($columns['raw_data']) ? 'raw_data' : "'' AS raw_data";
+        try {
+            $rows = Db::name('online_daily_data')
+                ->field(implode(',', $fields))
+                ->whereIn($sourceColumn, $platforms)
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('data_date', $targetDate)
+                ->limit(2000)
+                ->select()
+                ->toArray();
+        } catch (\Throwable $e) {
+            return $stats;
+        }
+
+        foreach ($rows as $row) {
+            $platform = strtolower((string)($row['platform'] ?? ''));
+            if (!isset($stats[$platform])) {
+                continue;
+            }
+            $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+            $stats[$platform]['target_date_rows']++;
+            if ($dataType !== '') {
+                $stats[$platform]['target_date_data_types'][$dataType] = true;
+            }
+            if ($dataType === 'traffic') {
+                $stats[$platform]['target_date_traffic_rows']++;
+                if ($this->collectionStatusRawHasFieldFacts($row['raw_data'] ?? '')) {
+                    $stats[$platform]['target_date_traffic_field_fact_ready_count']++;
+                } else {
+                    $stats[$platform]['target_date_traffic_field_fact_missing_count']++;
+                }
+            }
+        }
+
+        foreach ($stats as $platform => $row) {
+            $trafficRows = (int)($row['target_date_traffic_rows'] ?? 0);
+            $ready = (int)($row['target_date_traffic_field_fact_ready_count'] ?? 0);
+            $missing = (int)($row['target_date_traffic_field_fact_missing_count'] ?? 0);
+            $stats[$platform]['target_date_data_types'] = array_keys($row['target_date_data_types'] ?? []);
+            $stats[$platform]['target_date_traffic_field_fact_status'] = $trafficRows <= 0
+                ? 'not_loaded'
+                : ($ready > 0 && $missing === 0 ? 'ready' : ($ready > 0 ? 'partial' : 'missing'));
+        }
+
+        return $stats;
+    }
+
+    private function collectionStatusRawHasFieldFacts($rawData): bool
+    {
+        if (is_string($rawData)) {
+            $decoded = json_decode($rawData, true);
+            $rawData = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($rawData)) {
+            return false;
+        }
+        $summary = is_array($rawData['field_fact_summary'] ?? null) ? $rawData['field_fact_summary'] : [];
+        if ((int)($summary['captured_count'] ?? 0) > 0 || (int)($summary['capture_evidence_count'] ?? 0) > 0) {
+            return true;
+        }
+        $facts = is_array($rawData['field_facts'] ?? null) ? $rawData['field_facts'] : [];
+        foreach ($facts as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            if (($fact['status'] ?? '') === 'captured' || !empty($fact['stored_value_present']) || !empty($fact['capture_evidence'])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -380,9 +498,16 @@ trait PlatformDataSourceConcern
         $latestSource = $this->latestCollectionStatusSource($platformSources);
         $resourceStatuses = $this->collectionStatusResourceRows($catalog, $platform);
         $profileRow = $this->collectionStatusProfileRow($profileStatus, $platform);
-        $dataCollected = (int)($dailySummary['row_count'] ?? 0) > 0;
-        $collectionStatus = $this->resolveCollectionStatus($dataCollected, $latestTask, $resourceStatuses);
-        $failureReason = $this->collectionStatusFailureReason($collectionStatus, $latestTask, $latestSource, $profileRow, $resourceStatuses, $dataCollected);
+        $latestTaskStats = $latestTask ? $this->collectionStatusDecodeJson($latestTask['stats_json'] ?? '') : [];
+        $syncDiagnostics = is_array($latestTaskStats['sync_diagnostics'] ?? null) ? $latestTaskStats['sync_diagnostics'] : [];
+        $targetDate = (string)($dailySummary['target_date'] ?? $syncDiagnostics['target_date'] ?? '');
+        $targetDateRows = (int)($dailySummary['target_date_rows'] ?? 0);
+        $targetDateTrafficRows = (int)($dailySummary['target_date_traffic_rows'] ?? 0);
+        $fieldFactStatus = (string)($dailySummary['target_date_traffic_field_fact_status'] ?? 'not_loaded');
+        $hasStoredData = (int)($dailySummary['row_count'] ?? 0) > 0;
+        $dataCollected = $targetDateTrafficRows > 0 && $fieldFactStatus === 'ready';
+        $collectionStatus = $this->resolveCollectionStatus($dataCollected, $hasStoredData, $latestTask, $resourceStatuses, $dailySummary, $profileRow);
+        $failureReason = $this->collectionStatusFailureReason($collectionStatus, $latestTask, $latestSource, $profileRow, $resourceStatuses, $dataCollected, $dailySummary, $syncDiagnostics);
 
         return [
             'platform' => $platform,
@@ -391,11 +516,19 @@ trait PlatformDataSourceConcern
             'platformLoginText' => (string)($profileRow['current_status'] ?? '未配置'),
             'permissionStatus' => 'allowed',
             'dataCollected' => $dataCollected,
+            'hasStoredData' => $hasStoredData,
             'collectionStatus' => $collectionStatus,
             'latestCollectedAt' => (string)($dailySummary['latest_collected_at'] ?? ''),
             'latestDataDate' => (string)($dailySummary['end_date'] ?? ''),
             'dataRange' => (string)($dailySummary['data_range'] ?? ''),
             'storedRowCount' => (int)($dailySummary['row_count'] ?? 0),
+            'targetDate' => $targetDate,
+            'targetDateRows' => $targetDateRows,
+            'targetDateTrafficRows' => $targetDateTrafficRows,
+            'targetDateDataTypes' => array_values((array)($dailySummary['target_date_data_types'] ?? [])),
+            'fieldFactsReady' => (int)($dailySummary['target_date_traffic_field_fact_ready_count'] ?? 0),
+            'fieldFactsMissing' => (int)($dailySummary['target_date_traffic_field_fact_missing_count'] ?? 0),
+            'fieldFactStatus' => $fieldFactStatus,
             'failureReason' => $failureReason,
             'dataScope' => 'ota_channel',
             'reviewCollection' => [
@@ -417,11 +550,14 @@ trait PlatformDataSourceConcern
                 'readyCount' => count(array_filter($platformSources, static fn(array $source): bool => in_array((string)($source['status'] ?? ''), ['ready', 'success'], true))),
                 'latestSourceId' => isset($latestSource['id']) ? (int)$latestSource['id'] : null,
                 'latestSourceStatus' => (string)($latestSource['status'] ?? $latestSource['last_sync_status'] ?? ''),
+                'lastError' => $this->redactCollectionStatusText((string)($latestSource['last_error'] ?? '')),
             ],
             'latestTask' => $latestTask ? [
                 'id' => (int)($latestTask['id'] ?? 0),
                 'status' => (string)($latestTask['status'] ?? ''),
                 'message' => $this->redactCollectionStatusText((string)($latestTask['message'] ?? '')),
+                'syncDiagnostics' => $syncDiagnostics,
+                'targetDate' => (string)($syncDiagnostics['target_date'] ?? ''),
                 'startedAt' => (string)($latestTask['started_at'] ?? ''),
                 'finishedAt' => (string)($latestTask['finished_at'] ?? ''),
                 'nextRetryAt' => (string)($latestTask['next_retry_at'] ?? ''),
@@ -463,7 +599,13 @@ trait PlatformDataSourceConcern
         }
 
         $status = 'not_collected';
-        if (in_array('failed', $statuses, true)) {
+        if (in_array('permission_denied', $statuses, true)) {
+            $status = 'permission_denied';
+        } elseif (in_array('hotel_mismatch', $statuses, true)) {
+            $status = 'hotel_mismatch';
+        } elseif (in_array('login_expired', $statuses, true)) {
+            $status = 'login_expired';
+        } elseif (in_array('failed', $statuses, true)) {
             $status = 'failed';
         } elseif (in_array('partial', $statuses, true)) {
             $status = 'partial';
@@ -595,14 +737,33 @@ trait PlatformDataSourceConcern
      * @param array<string, mixed>|null $latestTask
      * @param array<int, array<string, mixed>> $resourceStatuses
      */
-    private function resolveCollectionStatus(bool $dataCollected, ?array $latestTask, array $resourceStatuses): string
+    private function resolveCollectionStatus(bool $dataCollected, bool $hasStoredData, ?array $latestTask, array $resourceStatuses, array $dailySummary, array $profileRow): string
     {
         $taskStatus = (string)($latestTask['status'] ?? '');
         if ($taskStatus === 'running') {
             return 'collecting';
         }
+        $profileStatus = (string)($profileRow['status_code'] ?? '');
+        if (!$dataCollected && in_array($profileStatus, ['permission_denied', 'no_permission', 'unauthorized'], true)) {
+            return 'permission_denied';
+        }
+        if (!$dataCollected && $profileStatus === 'hotel_mismatch') {
+            return 'hotel_mismatch';
+        }
+        if (!$dataCollected && in_array($profileStatus, ['waiting_login', 'login_expired'], true)) {
+            return 'login_expired';
+        }
         if ($taskStatus === 'failed') {
             return 'failed';
+        }
+        $targetDateRows = (int)($dailySummary['target_date_rows'] ?? 0);
+        $targetTrafficRows = (int)($dailySummary['target_date_traffic_rows'] ?? 0);
+        $fieldFactStatus = (string)($dailySummary['target_date_traffic_field_fact_status'] ?? 'not_loaded');
+        if ($targetTrafficRows > 0 && $fieldFactStatus !== 'ready') {
+            return 'partial';
+        }
+        if ($targetDateRows > 0 && $targetTrafficRows <= 0) {
+            return 'partial';
         }
         if ($taskStatus === 'partial_success') {
             return 'partial';
@@ -617,7 +778,10 @@ trait PlatformDataSourceConcern
         if (in_array('stale', $resourceCollections, true)) {
             return 'stale';
         }
-        return $dataCollected ? 'collected' : 'not_collected';
+        if ($dataCollected) {
+            return 'collected';
+        }
+        return $hasStoredData ? 'stale' : 'not_collected';
     }
 
     /**
@@ -626,16 +790,46 @@ trait PlatformDataSourceConcern
      * @param array<string, mixed> $profileRow
      * @param array<int, array<string, mixed>> $resourceStatuses
      */
-    private function collectionStatusFailureReason(string $collectionStatus, ?array $latestTask, ?array $latestSource, array $profileRow, array $resourceStatuses, bool $dataCollected): string
+    private function collectionStatusFailureReason(string $collectionStatus, ?array $latestTask, ?array $latestSource, array $profileRow, array $resourceStatuses, bool $dataCollected, array $dailySummary = [], array $syncDiagnostics = []): string
     {
         $taskMessage = $this->redactCollectionStatusText((string)($latestTask['message'] ?? ''));
-        if (in_array($collectionStatus, ['failed', 'partial'], true) && $taskMessage !== '') {
-            return $taskMessage;
-        }
-
         $profileStatus = (string)($profileRow['status_code'] ?? '');
+        if (in_array($profileStatus, ['permission_denied', 'no_permission', 'unauthorized'], true)) {
+            return 'permission_denied';
+        }
+        if ($profileStatus === 'hotel_mismatch') {
+            return 'hotel_mismatch';
+        }
         if (in_array($profileStatus, ['waiting_login', 'login_expired'], true)) {
             return $this->redactCollectionStatusText((string)($profileRow['next_action'] ?? $profileRow['current_status'] ?? 'platform_login_required'));
+        }
+
+        $operatorMessage = $this->redactCollectionStatusText((string)($syncDiagnostics['operator_message'] ?? ''));
+        $missingInputs = is_array($syncDiagnostics['missing_inputs'] ?? null) ? $syncDiagnostics['missing_inputs'] : [];
+        if ($operatorMessage !== '' && in_array('target_date_traffic_rows', $missingInputs, true)) {
+            return $operatorMessage;
+        }
+        if ($operatorMessage !== '' && in_array('traffic_field_facts', $missingInputs, true)) {
+            return $operatorMessage;
+        }
+
+        if ((int)($dailySummary['target_date_rows'] ?? 0) <= 0) {
+            if ((int)($dailySummary['row_count'] ?? 0) > 0) {
+                return 'target_date_no_rows';
+            }
+            if (in_array($collectionStatus, ['not_collected', 'stale'], true)) {
+                return 'no_collected_ota_rows';
+            }
+        }
+        if ((int)($dailySummary['target_date_rows'] ?? 0) > 0 && (int)($dailySummary['target_date_traffic_rows'] ?? 0) <= 0) {
+            return (string)($syncDiagnostics['operator_message'] ?? 'target_date_traffic_rows_missing');
+        }
+        if ((int)($dailySummary['target_date_traffic_rows'] ?? 0) > 0 && (string)($dailySummary['target_date_traffic_field_fact_status'] ?? '') !== 'ready') {
+            return 'traffic_field_facts_missing';
+        }
+
+        if (in_array($collectionStatus, ['failed', 'partial'], true) && $taskMessage !== '') {
+            return $taskMessage;
         }
 
         $sourceError = $this->redactCollectionStatusText((string)($latestSource['last_error'] ?? ''));
@@ -651,6 +845,18 @@ trait PlatformDataSourceConcern
         }
 
         return $dataCollected ? '' : 'no_collected_ota_rows';
+    }
+
+    private function collectionStatusDecodeJson($value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function redactCollectionStatusText(string $text): string
@@ -685,6 +891,26 @@ trait PlatformDataSourceConcern
             return null;
         }
         return (int)$value;
+    }
+
+    private function collectionStatusTargetDate(array $requestData): string
+    {
+        $value = trim((string)(
+            $requestData['target_date']
+            ?? $requestData['targetDate']
+            ?? $requestData['data_date']
+            ?? $requestData['dataDate']
+            ?? $requestData['date']
+            ?? ''
+        ));
+        if ($value !== '') {
+            $value = str_replace('/', '-', $value);
+            $time = strtotime($value);
+            if ($time !== false) {
+                return date('Y-m-d', $time);
+            }
+        }
+        return date('Y-m-d');
     }
 
     /**

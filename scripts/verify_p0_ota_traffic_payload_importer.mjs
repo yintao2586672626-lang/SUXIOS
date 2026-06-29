@@ -72,6 +72,41 @@ const cases = [
     expect: { exitCode: 0, status: 'ready_to_import', targetRows: 1, evidenceRows: 1, issuesAbsent: ['required_traffic_metric_keys_missing'] },
   },
   {
+    name: 'ctrip_standard_rows_all_zero_required_metrics_blocked',
+    platform: 'ctrip',
+    payload: {
+      standard_rows: [
+        {
+          source: 'ctrip',
+          data_type: 'traffic',
+          hotel_id: 'demo',
+          data_date: date,
+          _source_path: 'standard_rows.0',
+          capture_evidence: {
+            source_trace_id: 'ctrip:standard-row-zero-traffic',
+            source_url_hash: hash('z'),
+          },
+          list_exposure: 0,
+          detail_exposure: 0,
+          flow_rate: 0,
+          order_filling_num: 0,
+          order_submit_num: 0,
+        },
+      ],
+    },
+    expect: {
+      exitCode: 1,
+      status: 'blocked',
+      targetRows: 1,
+      evidenceRows: 1,
+      nonzeroRequiredMetricRows: 0,
+      zeroRequiredMetricRows: 1,
+      requiredMetricValueStatus: 'zero_value_unverified',
+      issuesPresent: ['target_date_required_traffic_metrics_zero_unverified'],
+      issuesAbsent: ['required_traffic_metric_keys_missing', 'traffic_field_fact_preview_rows_incomplete'],
+    },
+  },
+  {
     name: 'meituan_browser_capture_envelope_ready',
     platform: 'meituan',
     payload: {
@@ -1199,6 +1234,15 @@ for (const item of cases) {
   if (Number.isFinite(Number(item.expect.completePreviewRows))) {
     check(item.name, `${item.name} complete field fact preview rows`, Number(summary.complete_field_fact_preview_rows || 0) === item.expect.completePreviewRows, JSON.stringify(summary));
   }
+  if (Number.isFinite(Number(item.expect.nonzeroRequiredMetricRows))) {
+    check(item.name, `${item.name} nonzero required metric rows`, Number(summary.target_date_nonzero_required_metric_rows || 0) === item.expect.nonzeroRequiredMetricRows, JSON.stringify(summary));
+  }
+  if (Number.isFinite(Number(item.expect.zeroRequiredMetricRows))) {
+    check(item.name, `${item.name} zero required metric rows`, Number(summary.target_date_zero_required_metric_rows || 0) === item.expect.zeroRequiredMetricRows, JSON.stringify(summary));
+  }
+  if (typeof item.expect.requiredMetricValueStatus === 'string') {
+    check(item.name, `${item.name} required metric value status`, String(summary.target_date_required_metric_value_status || '') === item.expect.requiredMetricValueStatus, JSON.stringify(summary));
+  }
   if (Array.isArray(item.expect.missingMetricKeys)) {
     const actualMissingMetricKeys = (summary.missing_metric_keys || []).map(String).sort();
     const expectedMissingMetricKeys = item.expect.missingMetricKeys.map(String).sort();
@@ -1536,6 +1580,7 @@ check('traffic_evidence_contract', 'importer emits desensitized platform hotel i
 check('traffic_evidence_contract', 'importer emits pre-import traffic closure chain without completing P0', importerSource.includes('p0_import_traffic_closure_chain') && importerSource.includes("'traffic_closure_chain' => p0_import_traffic_closure_chain") && importerSource.includes("'traffic_closure_chain_policy'") && importerSource.includes('requires_execute_and_p0_verifier') && importerSource.includes('pre-import source proof only'));
 check('traffic_evidence_contract', 'importer keeps external evidence non-completion policy', importerSource.includes('External traffic_evidence validates desensitized source proof only'));
 check('traffic_evidence_contract', 'importer blocks cross-row metric coverage', importerSource.includes('traffic_field_fact_preview_rows_incomplete') && importerSource.includes('cross-row metric coverage is not accepted'));
+check('traffic_evidence_contract', 'importer blocks unverified all-zero target-date core traffic metrics', importerSource.includes('target_date_required_traffic_metrics_zero_unverified') && importerSource.includes('target_date_nonzero_required_metric_rows') && importerSource.includes('zero_value_unverified'));
 check('traffic_evidence_contract', 'importer blocks traffic evidence and execute row count mismatches', importerSource.includes('traffic_evidence_execute_row_count_mismatch') && importerSource.includes('Traffic evidence rows, target-date rows, and execute payload rows must match before import.') && importerSource.includes('$trafficEvidenceRowCount') && importerSource.includes('$executeRowCount'));
 check('traffic_evidence_contract', 'importer requires exact P0 traffic storage fields in preview', importerSource.includes('$requiredStorageFields = p0_import_required_traffic_storage_fields()') && importerSource.includes("trim((string)($fact['storage_field'] ?? '')) === $requiredStorageFields[$metricKey]"));
 check('traffic_evidence_contract', 'importer requires metric-level trace and source hash before field facts are complete', importerSource.includes('p0_import_fact_has_desensitized_capture_evidence') && importerSource.includes('p0_import_fact_capture_evidence_matches_row') && importerSource.includes('$rowSourceTraceId') && importerSource.includes('$rowSourceUrlHash') && importerSource.includes("$desensitized['source_trace_id']") && importerSource.includes("$desensitized['source_url_hash']"));
@@ -1552,6 +1597,7 @@ check('traffic_evidence_contract', 'P0 verifier normalizes camelCase sensitive m
 check('traffic_evidence_contract', 'P0 verifier requires stored traffic row UI status and structured source paths', p0VerifierSource.includes('p0_traffic_row_ui_status') && p0VerifierSource.includes('ui_status_incomplete_rows') && p0VerifierSource.includes('p0_source_path_is_structured') && p0VerifierSource.includes('source_path_structured'));
 check('traffic_evidence_contract', 'P0 verifier requires stored platform hotel identity before ready traffic closure', p0VerifierSource.includes('p0_platform_hotel_identifier_present') && p0VerifierSource.includes('platform_hotel_identifier_status') && p0VerifierSource.includes("$base['status'] = 'platform_hotel_identifier_missing'") && p0VerifierSource.includes("&& (string)$base['platform_hotel_identifier_status'] === 'ready'"));
 check('traffic_evidence_contract', 'P0 traffic gate exposes stored platform hotel identity status and counts', p0VerifierSource.includes("'platform_hotel_identifier_source' => $platformHotelIdentifierSource") && p0VerifierSource.includes("'platform_hotel_identifier_status' => $platformHotelIdentifierStatus") && p0VerifierSource.includes("'platform_hotel_identifier_rows' => $platformHotelIdentifierRows") && p0VerifierSource.includes("'missing_platform_hotel_identifier_rows' => $missingPlatformHotelIdentifierRows"));
+check('traffic_evidence_contract', 'P0 verifier blocks unverified all-zero stored target-date core traffic metrics', p0VerifierSource.includes('zero_value_unverified') && p0VerifierSource.includes('nonzero_required_metric_rows') && p0VerifierSource.includes('required_metric_value_status') && p0VerifierSource.includes("'required_metric_value' => ["));
 check('traffic_evidence_contract', 'P0 traffic gate exposes stage-by-stage closure chain', p0VerifierSource.includes("'traffic_closure_chain' => [") && p0VerifierSource.includes("'capture_evidence' => [") && p0VerifierSource.includes("'source_path' => [") && p0VerifierSource.includes("'metric_key' => [") && p0VerifierSource.includes("'storage_field' => [") && p0VerifierSource.includes("'stored_value' => [") && p0VerifierSource.includes("'ui_status' => [") && p0VerifierSource.includes("'platform_hotel_identifier' => [") && p0VerifierSource.includes("'verifier' => [") && p0VerifierSource.includes('OTA-channel evidence only'));
 check('traffic_evidence_contract', 'P0 verifier exposes a per-metric field loop matrix', p0VerifierSource.includes('field_loop_matrix') && p0VerifierSource.includes('p0_traffic_field_loop_matrix_index') && p0VerifierSource.includes('p0_mark_traffic_field_loop_metric') && p0VerifierSource.includes('expected_storage_field') && p0VerifierSource.includes('capture_evidence_matches_row') && p0VerifierSource.includes('ui_status_ready'));
 check('traffic_evidence_contract', 'P0 verifier supports system hotel scoped closure', p0VerifierSource.includes('system-hotel-id') && p0VerifierSource.includes('system_hotel_id_mismatch'));

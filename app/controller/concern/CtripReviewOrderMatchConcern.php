@@ -224,6 +224,73 @@ trait CtripReviewOrderMatchConcern
         }
     }
 
+    public function previewCtripReviewOrdererIdentity(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $data = $this->requestData();
+            $systemHotelId = $this->resolveCtripReviewMatchHotelId($data);
+            if (!$systemHotelId) {
+                return $this->error('请选择酒店', 400);
+            }
+
+            $review = $this->buildCtripReviewOrdererPreviewReview($data);
+            $imSessions = $this->loadCtripReviewImSessions($systemHotelId);
+            $orders = $this->loadCtripOrderPool($systemHotelId);
+            $service = new CtripReviewOrderMatchService();
+            $identityResult = $service->matchReviewIdentity($review, $imSessions);
+            $result = $service->matchReviewToOrder(
+                $review,
+                $imSessions,
+                $orders,
+                ['coverage_start_date' => $this->firstCtripOrderCoverageDate($systemHotelId)]
+            );
+            if (($result['status'] ?? '') === 'out_of_coverage' && ($identityResult['status'] ?? '') === 'person_locked') {
+                $result['identity'] = $identityResult['identity'] ?? null;
+                $result['confidence'] = $identityResult['confidence'] ?? $result['confidence'] ?? 'none';
+                $result['identity_preview_status'] = 'person_locked';
+            }
+
+            $identity = is_array($result['identity'] ?? null) ? $result['identity'] : null;
+            $order = is_array($result['order'] ?? null) ? $result['order'] : null;
+            $guestName = trim((string)($identity['guest_name'] ?? $result['person_name'] ?? ''));
+            $status = (string)($result['status'] ?? 'unknown');
+            $orderLabel = $order
+                ? '已查到订单'
+                : ($guestName !== '' ? '已锁定客人，待订单池复核' : '未查到订单');
+
+            return $this->success([
+                'mode' => 'identity_preview',
+                'scope' => 'ctrip_ota_channel',
+                'status' => $status,
+                'reason' => (string)($result['reason'] ?? ''),
+                'confidence' => (string)($result['confidence'] ?? 'none'),
+                'source_username' => $this->firstCtripReviewMatchText($review, ['userName', 'user_name', 'sourceUsername', 'source_username', 'username', 'nickName', 'nick_name', 'user_name_masked']),
+                'display_label' => '疑似下单人',
+                'display_text' => $guestName !== '' ? ('疑似下单人：' . $guestName) : '未匹配到下单人',
+                'order_label' => $orderLabel,
+                'identity' => $identity,
+                'order' => $order,
+                'result' => $result,
+                'storage_write' => false,
+                'source_status' => [
+                    'scope' => 'ctrip_ota_channel',
+                    'policy' => 'authorized_page_identity_preview_only',
+                    'review_collection_policy' => 'policy_disabled',
+                    'storage_write' => false,
+                    'im_session_count' => count($imSessions),
+                    'order_count' => count($orders),
+                ],
+            ], '携程评价疑似下单人预览完成');
+        } catch (\think\exception\HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+        } catch (\Throwable $e) {
+            return $this->error('携程评价疑似下单人预览失败: ' . $e->getMessage(), 500);
+        }
+    }
+
     public function runCtripReviewOrderMatchAutomation(): Response
     {
         $this->checkPermission();
@@ -550,9 +617,25 @@ trait CtripReviewOrderMatchConcern
                 'required_sources' => ['ctrip_reviews', 'ctrip_im_sessions', 'ctrip_orders'],
                 'accepted_match_statuses' => ['found', 'matched'],
             ],
+            'next_commands' => $ready ? [] : $this->buildCtripReviewMatchClosureNextCommands($systemHotelId),
             'next_action' => $ready
                 ? '携程评价匹配闭环已由真实入库数据证明'
                 : '导入真实授权的携程评价明细、IM members 和订单池，并执行入库匹配后重跑闭环检查',
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function buildCtripReviewMatchClosureNextCommands(int $systemHotelId): array
+    {
+        $payloadArg = ' -- --file=<authorized-payload.json> --system-hotel-id=' . $systemHotelId;
+
+        return [
+            'preflight' => 'npm.cmd run import:ctrip-review-match-payload:preflight' . $payloadArg,
+            'dry_run' => 'npm.cmd run import:ctrip-review-match-payload' . $payloadArg,
+            'execute' => 'npm.cmd run import:ctrip-review-match-payload:execute' . $payloadArg,
+            'verify' => 'npm.cmd run verify:ctrip-review-match -- --system-hotel-id=' . $systemHotelId,
         ];
     }
 
@@ -1203,6 +1286,35 @@ trait CtripReviewOrderMatchConcern
             ?? $requestData['hotelId']
             ?? null
         );
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function buildCtripReviewOrdererPreviewReview(array $data): array
+    {
+        $review = isset($data['review']) && is_array($data['review']) ? $data['review'] : [];
+        $fieldMap = [
+            'commentId' => ['commentId', 'comment_id', 'reviewId', 'review_id', 'id'],
+            'userName' => ['userName', 'user_name', 'sourceUsername', 'source_username', 'username', 'nickName', 'nick_name', 'user_name_masked'],
+            'checkinTimeStr' => ['checkinTimeStr', 'checkInDate', 'check_in_date', 'checkinDate', 'arrivalDate', 'arrival_date', 'stayDate', 'stay_date'],
+            'hotelRoomInfo' => ['hotelRoomInfo', 'hotel_room_info', 'roomName', 'room_name', 'roomType', 'room_type', 'room_type_name', 'productName', 'product_name', 'ratePlanName', 'rate_plan_name'],
+            'content' => ['content', 'comment', 'commentContent', 'comment_content', 'reviewContent', 'review_content', 'text', '_dom_text'],
+        ];
+
+        foreach ($fieldMap as $target => $fields) {
+            foreach ($fields as $field) {
+                if (!isset($data[$field]) || trim((string)$data[$field]) === '') {
+                    continue;
+                }
+                $review[$target] = trim((string)$data[$field]);
+                break;
+            }
+        }
+
+        $review['_preview_source'] = 'authorized_page_payload';
+        return $review;
     }
 
     /**

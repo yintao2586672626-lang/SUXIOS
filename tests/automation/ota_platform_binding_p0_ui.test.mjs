@@ -46,6 +46,11 @@ const postFetchSchedulers = sliceBetween(
   'const scheduleOnlineDataRefresh =',
   'const PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS ='
 );
+const profileProbeAction = sliceBetween(
+  html,
+  'const probePlatformProfileStatus = async (item) => {',
+  'const loadCollectionReliability = async'
+);
 const reviewAutomation = sliceBetween(
   html,
   'const runCtripReviewMatchAutomation =',
@@ -59,6 +64,30 @@ test('OTA platform status page exposes the P0 Profile login flow without credent
   assert.match(flowPanel, /platformProfileFlowStepClass/);
   assert.match(flowPanel, /platformProfileFlowStepDotClass/);
   assert.doesNotMatch(flowPanel, /ctripPassword|meituanPassword|operator-request|full-phone|hasAppSession|App 会话/);
+});
+
+test('browser assist import panel posts supplemental captures through the contract endpoint', () => {
+  assert.match(html, /ota-browser-assist-static\.js/);
+  assert.match(html, /data-testid="browser-assist-import-panel"/);
+  assert.match(html, /browserAssistImportForm/);
+  assert.match(html, /browserAssistImportResult/);
+  assert.match(html, /readBrowserAssistCaptureFile/);
+  assert.match(html, /copyBrowserAssistCollectorScript/);
+  assert.match(html, /buildOtaBrowserAssistCollectorScript/);
+  assert.match(html, /复制轻量采集脚本/);
+  assert.match(html, /importBrowserAssistCaptureFromText/);
+  assert.match(html, /\/online-data\/browser-assist-import/);
+
+  const browserAssistImportAction = sliceBetween(
+    html,
+    'const importBrowserAssistCaptureFromText = async () => {',
+    'const platformSourceStatusClass ='
+  );
+  assert.match(browserAssistImportAction, /system_hotel_id: systemHotelId/);
+  assert.match(browserAssistImportAction, /capture,/);
+  assert.match(browserAssistImportAction, /schedulePlatformCollectionStatusRefresh\(\)/);
+  assert.match(browserAssistImportAction, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}\)/);
+  assert.doesNotMatch(browserAssistImportAction, /bottomPrice|confirmed_revenue|revenue_amount/);
 });
 
 test('OTA platform failure reasons are mapped to user-visible blockers', () => {
@@ -76,6 +105,12 @@ test('OTA platform failure reasons are mapped to user-visible blockers', () => {
     'field_missing',
     'browser_runtime_error',
     'platform_api_error',
+    'profile_reused_no_target_date_traffic_rows',
+    'target_date_traffic_rows_missing',
+    'traffic_field_facts_missing',
+    'hotel_mismatch',
+    'permission_denied',
+    'endpoint_not_triggered',
   ]) {
     assert.match(failureMapper, new RegExp(marker), `failure mapper must handle ${marker}`);
   }
@@ -102,7 +137,8 @@ test('OTA platform Profile flow uses login-state and target-date evidence as the
   }
   assert.match(flowBuilder, /manual_login_state_verified/);
   assert.match(flowBuilder, /const collectionDone = collectionStatus === 'collected'/);
-  assert.match(flowBuilder, /storedRows > 0/);
+  assert.match(flowBuilder, /targetTrafficRows > 0/);
+  assert.match(flowBuilder, /fieldFactStatus === 'ready'/);
   assert.match(flowBuilder, /targetDateText/);
   assert.doesNotMatch(flowBuilder, /ctripPassword|meituanPassword|operator-request|full-phone|hasAppSession|App 会话/);
 });
@@ -168,7 +204,19 @@ test('post collection actions refresh the unified collection-status panel', () =
     'const importPlatformDataRowsFromText = async () => {'
   );
   assert.match(syncAction, /schedulePlatformCollectionStatusRefresh\(\)/);
+  assert.match(syncAction, /daily_profile_reuse/);
+  assert.match(syncAction, /body\.interactive_browser = false/);
+  assert.match(syncAction, /body\.target_date = targetDate/);
+  assert.match(syncAction, /target_date_traffic_rows/);
+  assert.match(syncAction, /schedulePlatformProfileStatusRefresh\(\{ silent: true, force: true \}\)/);
+  assert.match(syncAction, /schedulePlatformSyncLogPanelRefresh\(\{ force: true \}\)/);
   assert.match(syncAction, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}\)/);
+});
+
+test('Ctrip Profile probe uses login-state endpoint instead of starting a capture action', () => {
+  assert.match(profileProbeAction, /\/online-data\/ctrip-profile-status/);
+  assert.match(profileProbeAction, /probe_login:\s*'1'/);
+  assert.doesNotMatch(profileProbeAction, /runCtripBrowserCapture\(\{ loginOnly: true \}\)/);
 });
 
 test('Ctrip review order matching does not trigger default live review collection', () => {

@@ -106,6 +106,21 @@ function ctrip_review_match_closure_status_counts(int $systemHotelId): array
     return $counts;
 }
 
+/**
+ * @return array<string, string>
+ */
+function ctrip_review_match_closure_next_commands(int $systemHotelId): array
+{
+    $payloadArg = ' -- --file=<authorized-payload.json> --system-hotel-id=' . $systemHotelId;
+
+    return [
+        'preflight' => 'npm.cmd run import:ctrip-review-match-payload:preflight' . $payloadArg,
+        'dry_run' => 'npm.cmd run import:ctrip-review-match-payload' . $payloadArg,
+        'execute' => 'npm.cmd run import:ctrip-review-match-payload:execute' . $payloadArg,
+        'verify' => 'npm.cmd run verify:ctrip-review-match -- --system-hotel-id=' . $systemHotelId,
+    ];
+}
+
 try {
     $options = ctrip_review_match_closure_parse_args($argv);
     $app = new App($root);
@@ -143,6 +158,7 @@ try {
             'accepted_match_statuses' => ['found', 'matched'],
         ],
         'missing_sources' => array_values(array_unique($missingSources)),
+        'next_commands' => $ready ? [] : ctrip_review_match_closure_next_commands($systemHotelId),
         'next_action' => $ready
             ? '携程评价匹配闭环已由真实入库数据证明'
             : '导入真实授权的携程评价明细、IM members 和订单池，并执行入库匹配后重跑本验证',

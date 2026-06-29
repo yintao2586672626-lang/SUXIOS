@@ -822,6 +822,20 @@ function p0_import_traffic_metrics(array $row, string $platform): array
 }
 
 /**
+ * @param array<string, mixed> $metrics
+ */
+function p0_import_has_nonzero_required_traffic_metric(array $metrics): bool
+{
+    foreach (['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'] as $key) {
+        if (abs((float)($metrics[$key] ?? 0)) > 0.000001) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * @param array<string, mixed> $row
  * @return array<string, mixed>
  */
@@ -1052,6 +1066,8 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
     $rowsWithBrowserDateSourceEvidence = 0;
     $rowsWithExplicitSourcePath = 0;
     $rowsWithPlatformHotelIdentifier = 0;
+    $targetDateNonzeroRequiredMetricRows = 0;
+    $targetDateZeroRequiredMetricRows = 0;
     $metricKeys = [];
     $sample = [];
     $payloadEvidence = p0_import_desensitized_capture_evidence($payload);
@@ -1102,6 +1118,12 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
             $rowsWithBrowserResponseEvidence++;
         }
         $metrics = p0_import_traffic_metrics($row, $platform);
+        $hasNonzeroRequiredMetric = p0_import_has_nonzero_required_traffic_metric($metrics);
+        if ($hasNonzeroRequiredMetric) {
+            $targetDateNonzeroRequiredMetricRows++;
+        } else {
+            $targetDateZeroRequiredMetricRows++;
+        }
         $preview = p0_import_preview_field_facts($row, $metrics, $platform, $systemHotelId, $date);
         foreach ((array)$preview['complete_metric_keys'] as $metricKey) {
             $metricKeys[(string)$metricKey] = true;
@@ -1152,6 +1174,10 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
         'missing_source_path_rows' => max(0, $targetRows - $rowsWithExplicitSourcePath),
         'platform_hotel_identifier_rows' => $rowsWithPlatformHotelIdentifier,
         'missing_platform_hotel_identifier_rows' => max(0, $targetRows - $rowsWithPlatformHotelIdentifier),
+        'target_date_nonzero_required_metric_rows' => $targetDateNonzeroRequiredMetricRows,
+        'target_date_zero_required_metric_rows' => $targetDateZeroRequiredMetricRows,
+        'target_date_required_metric_value_status' => $targetDateNonzeroRequiredMetricRows > 0 ? 'ready' : ($targetRows > 0 ? 'zero_value_unverified' : 'no_target_date_traffic_rows'),
+        'target_date_required_metric_value_policy' => 'Target-date P0 traffic closure requires at least one non-zero core traffic metric row; all-zero rows need explicit source-side zero confirmation before they can be treated as business-ready.',
         'complete_metric_keys' => $completeMetricKeys,
         'missing_metric_keys' => array_values(array_diff($required, $completeMetricKeys)),
         'sample_rows' => $sample,
@@ -1242,6 +1268,8 @@ function p0_import_prepare_execute_payload(array $rows, string $platform, int $s
     $preparedRows = [];
     $evidenceRows = 0;
     $completeEvidenceRows = 0;
+    $nonzeroRequiredMetricRows = 0;
+    $zeroRequiredMetricRows = 0;
 
     foreach ($rows as $row) {
         if (!is_array($row)) {
@@ -1254,6 +1282,11 @@ function p0_import_prepare_execute_payload(array $rows, string $platform, int $s
         }
 
         $metrics = p0_import_traffic_metrics($row, $platform);
+        if (p0_import_has_nonzero_required_traffic_metric($metrics)) {
+            $nonzeroRequiredMetricRows++;
+        } else {
+            $zeroRequiredMetricRows++;
+        }
         $row['source'] = $platform;
         $row['data_type'] = 'traffic';
         $row['data_date'] = $rowDate;
@@ -1290,6 +1323,8 @@ function p0_import_prepare_execute_payload(array $rows, string $platform, int $s
         'row_count' => count($preparedRows),
         'rows_with_desensitized_capture_evidence' => $evidenceRows,
         'rows_with_complete_desensitized_capture_evidence' => $completeEvidenceRows,
+        'nonzero_required_metric_rows' => $nonzeroRequiredMetricRows,
+        'zero_required_metric_rows' => $zeroRequiredMetricRows,
     ];
 }
 
@@ -1305,6 +1340,8 @@ function p0_import_execute_plan(array $prepared): array
         'target_date_row_count' => $prepared['row_count'],
         'rows_with_desensitized_capture_evidence' => $prepared['rows_with_desensitized_capture_evidence'],
         'rows_with_complete_desensitized_capture_evidence' => (int)($prepared['rows_with_complete_desensitized_capture_evidence'] ?? 0),
+        'nonzero_required_metric_rows' => (int)($prepared['nonzero_required_metric_rows'] ?? 0),
+        'zero_required_metric_rows' => (int)($prepared['zero_required_metric_rows'] ?? 0),
     ];
 }
 
@@ -1425,6 +1462,10 @@ function p0_import_post_execute_verification(array $options): array
         'system_hotel_id' => (int)$options['system-hotel-id'],
         'traffic_row_count' => 0,
         'rows_with_field_facts' => 0,
+        'nonzero_required_metric_rows' => 0,
+        'zero_required_metric_rows' => 0,
+        'required_metric_value_status' => 'not_loaded',
+        'required_metric_value_policy' => 'DB readback P0 traffic closure requires at least one non-zero core traffic metric row; all-zero rows need explicit source-side zero confirmation before they can be treated as business-ready.',
         'ready_ui_status_rows' => 0,
         'ui_status_ready_rows' => 0,
         'ui_status_incomplete_rows' => 0,
@@ -1514,6 +1555,18 @@ function p0_import_post_execute_verification(array $options): array
         if (p0_import_sensitive_hits($raw) !== []) {
             $base['sensitive_values_exposed'] = true;
         }
+        $metrics = [
+            'list_exposure' => (float)($row['list_exposure'] ?? 0),
+            'detail_exposure' => (float)($row['detail_exposure'] ?? 0),
+            'flow_rate' => (float)($row['flow_rate'] ?? 0),
+            'order_filling_num' => (float)($row['order_filling_num'] ?? 0),
+            'order_submit_num' => (float)($row['order_submit_num'] ?? 0),
+        ];
+        if (p0_import_has_nonzero_required_traffic_metric($metrics)) {
+            $base['nonzero_required_metric_rows']++;
+        } else {
+            $base['zero_required_metric_rows']++;
+        }
 
         $uiStatus = p0_import_external_ui_status(p0_import_preview_ui_status($row, $raw));
         $uiFieldFactStatus = (string)($uiStatus['field_fact_status'] ?? '');
@@ -1601,6 +1654,7 @@ function p0_import_post_execute_verification(array $options): array
                 'field_fact_status' => $uiFieldFactStatus,
                 'raw_data_exposed' => (bool)($uiStatus['raw_data_exposed'] ?? true),
                 'field_fact_count' => count($facts),
+                'metrics' => $metrics,
             ];
         }
     }
@@ -1612,9 +1666,11 @@ function p0_import_post_execute_verification(array $options): array
     $base['missing_metric_keys'] = $missingKeys;
     $base['incomplete_metric_keys'] = $incompleteKeys;
     $base['ui_statuses'] = array_values(array_keys($uiStatuses));
+    $base['required_metric_value_status'] = (int)$base['nonzero_required_metric_rows'] > 0 ? 'ready' : 'zero_value_unverified';
     $base['status'] = $missingKeys === []
         && $incompleteKeys === []
         && (int)$base['rows_with_field_facts'] > 0
+        && (int)$base['nonzero_required_metric_rows'] > 0
         && (int)$base['ready_ui_status_rows'] > 0
         && (int)$base['ui_status_incomplete_rows'] === 0
         && (int)$base['missing_platform_hotel_identifier_rows'] === 0
@@ -1628,6 +1684,8 @@ function p0_import_post_execute_verification(array $options): array
         $base['status'] = 'ui_status_incomplete';
     } elseif ((int)$base['missing_platform_hotel_identifier_rows'] > 0 || (int)$base['platform_hotel_identifier_rows'] === 0) {
         $base['status'] = 'platform_hotel_identifier_missing';
+    } elseif ((int)$base['nonzero_required_metric_rows'] === 0) {
+        $base['status'] = 'zero_value_unverified';
     }
     $base['traffic_closure_chain'] = p0_import_post_execute_closure_chain($base, $stageMetricKeys, $requiredMetricKeys, $requiredStorageFields);
 
@@ -1779,6 +1837,15 @@ try {
             'code' => 'required_traffic_metric_keys_missing',
             'message' => 'Payload rows do not prove every required traffic metric key.',
             'missing_metric_keys' => $summary['missing_metric_keys'],
+        ];
+    }
+    if ((int)$summary['target_date_rows'] > 0 && (int)($summary['target_date_nonzero_required_metric_rows'] ?? 0) <= 0) {
+        $issues[] = [
+            'code' => 'target_date_required_traffic_metrics_zero_unverified',
+            'message' => 'Target-date traffic rows carry no non-zero required traffic metric; all-zero core metrics are not accepted as P0 traffic closure without explicit source-side zero confirmation.',
+            'target_date_rows' => (int)$summary['target_date_rows'],
+            'target_date_zero_required_metric_rows' => (int)($summary['target_date_zero_required_metric_rows'] ?? 0),
+            'target_date_required_metric_value_policy' => (string)($summary['target_date_required_metric_value_policy'] ?? ''),
         ];
     }
     if ((int)$summary['target_date_rows'] > 0 && (int)($summary['incomplete_field_fact_preview_rows'] ?? 0) > 0) {

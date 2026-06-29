@@ -10,6 +10,46 @@ use PHPUnit\Framework\TestCase;
 
 final class PlatformDataSyncServiceTest extends TestCase
 {
+    public function testBrowserProfileSyncDiagnosticsRequiresTargetDateTrafficFieldFacts(): void
+    {
+        $service = new PlatformDataSyncService();
+        $source = [
+            'id' => 77,
+            'name' => 'Ctrip Profile Traffic',
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+        ];
+        $options = [
+            'trigger_type' => 'daily_profile_reuse',
+            'data_date' => '2026-06-29',
+            'capture_sections' => 'traffic',
+        ];
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [[
+                'data_date' => '2026-06-29',
+                'data_type' => 'traffic',
+                'list_exposure' => 100,
+                'detail_exposure' => 20,
+                'flow_rate' => 0.2,
+            ]],
+        ], $source, 88);
+        $method = new \ReflectionMethod($service, 'buildSyncDiagnostics');
+        $method->setAccessible(true);
+        $ready = $method->invoke($service, $rows, 1, $source, $options, ['data_date' => '2026-06-29'], 'success', 'ok');
+
+        self::assertSame('ready', $ready['p0_status']);
+        self::assertSame(1, $ready['target_date_traffic_rows']);
+        self::assertSame('ready', $ready['field_fact_status']);
+        self::assertGreaterThan(0, $ready['target_date_traffic_field_fact_ready_count']);
+
+        $blocked = $method->invoke($service, [], 0, $source, $options, ['data_date' => '2026-06-29'], 'success', 'ok');
+        self::assertSame('blocked', $blocked['p0_status']);
+        self::assertContains('target_date_traffic_rows', $blocked['missing_inputs']);
+        self::assertSame('profile_reused_no_target_date_traffic_rows', $blocked['operator_message']);
+    }
+
     public function testManualPayloadNormalizesRowsForOnlineDailyDataWithTraceability(): void
     {
         $service = new PlatformDataSyncService();

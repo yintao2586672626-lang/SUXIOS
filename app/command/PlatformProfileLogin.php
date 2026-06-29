@@ -440,12 +440,20 @@ class PlatformProfileLogin extends Command
         $config = $isCtrip
             ? [
                 'profile_id' => $profileKey,
+                'stable_profile_id' => $profileKey,
+                'profile_binding_key' => $profileKey,
+                'profile_reuse_scope' => 'ota_account_store',
+                'profile_daily_reuse_enabled' => true,
                 'hotel_id' => trim((string)($request['hotel_id'] ?? $request['hotelId'] ?? $payload['hotel_id'] ?? '')),
                 'hotel_name' => trim((string)($request['hotel_name'] ?? $request['hotelName'] ?? $payload['hotel_name'] ?? '')),
                 'capture_sections' => $this->safeSections($request['capture_sections'] ?? $request['sections'] ?? 'core', 'core'),
             ]
             : [
                 'store_id' => $profileKey,
+                'stable_profile_id' => $profileKey,
+                'profile_binding_key' => $profileKey,
+                'profile_reuse_scope' => 'ota_account_store',
+                'profile_daily_reuse_enabled' => true,
                 'poi_id' => trim((string)($request['poi_id'] ?? $request['poiId'] ?? $payload['poi_id'] ?? '')),
                 'poi_name' => trim((string)($request['poi_name'] ?? $request['poiName'] ?? $payload['poi_name'] ?? '')),
                 'partner_id' => trim((string)($request['partner_id'] ?? $request['partnerId'] ?? '')),
@@ -545,6 +553,12 @@ class PlatformProfileLogin extends Command
         $config['profile_login_verified_at'] = $now;
         $config['profile_login_verified_by'] = 'platform_profile_login_task';
         $config['profile_login_verification_scope'] = 'browser_profile_session_only';
+        $config['stable_profile_id'] = $profileKey;
+        $config['profile_binding_key'] = $profileKey;
+        $config['profile_reuse_scope'] = 'ota_account_store';
+        $config['profile_daily_reuse_enabled'] = true;
+        $config['profile_daily_reuse_entry'] = 'data-sources/:id/sync';
+        $config['profile_login_probe_required_before_relogin'] = true;
 
         if ($platform === 'ctrip' && trim((string)($config['profile_id'] ?? $config['profileId'] ?? '')) === '') {
             $config['profile_id'] = $profileKey;
