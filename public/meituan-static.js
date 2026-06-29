@@ -609,6 +609,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     cookies,
                     auth_data: form.auth_data,
                     include_self_trade_metrics: true,
+                    include_self_traffic_metrics: true,
+                    include_self_business_metrics: true,
                     auto_save: true,
                     system_hotel_id: form.hotelId,
                 };
@@ -698,6 +700,27 @@ window.SUXI_MEITUAN_STATIC = (() => {
         });
         return result;
     };
+    const buildMeituanDisplayModelGroups = ({ results = [], form = {} } = {}) => {
+        const groupsByRange = new Map();
+        (Array.isArray(results) ? results : []).forEach(result => {
+            const dateRange = String(result?.dateRange ?? result?.date_range ?? '').trim();
+            const key = dateRange || '__unknown__';
+            if (!groupsByRange.has(key)) {
+                groupsByRange.set(key, {
+                    date_range: dateRange,
+                    date_range_name: result?.dateRangeName || result?.date_range_name || '',
+                    display_hotels: [],
+                    self_metric_values: mergeMeituanSelfMetricValues(form.selfMetricValues),
+                });
+            }
+            const group = groupsByRange.get(key);
+            if (Array.isArray(result?.displayHotels)) {
+                group.display_hotels.push(...result.displayHotels);
+            }
+            group.self_metric_values = mergeMeituanSelfMetricValues(group.self_metric_values, result?.selfMetricValues);
+        });
+        return Array.from(groupsByRange.values()).filter(group => group.display_hotels.length > 0);
+    };
     const isMeituanBackgroundAcceptedResponse = (response = {}) => {
         if (response.code !== 200) {
             return false;
@@ -706,16 +729,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return ['accepted', 'running', 'queued'].includes(status);
     };
     const buildMeituanDisplayModelPayload = ({ results = [], form = {} } = {}) => ({
-        display_hotels: (Array.isArray(results) ? results : []).flatMap(result => Array.isArray(result.displayHotels) ? result.displayHotels : []),
+        display_groups: buildMeituanDisplayModelGroups({ results, form }),
         competitor_room_count: form.competitorRoomCount,
         target_poi_id: form.poiId,
+        system_hotel_id: form.hotelId,
         date_ranges: form.dateRanges,
         start_date: form.startDate,
         end_date: form.endDate,
-        self_metric_values: mergeMeituanSelfMetricValues(
-            form.selfMetricValues,
-            ...(Array.isArray(results) ? results.map(result => result.selfMetricValues) : [])
-        ),
     });
 
     const normalizeMeituanCookieText = (value) => String(value || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');

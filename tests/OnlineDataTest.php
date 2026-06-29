@@ -933,6 +933,10 @@ final class OnlineDataTest extends TestCase
         self::assertSame('120', $rows[0]['avgSalesPriceText']);
         self::assertSame(50, $rows[0]['orderCount']);
         self::assertSame('50', $rows[0]['orderCountText']);
+        self::assertSame('1,000', $rows[0]['roomRevenueText']);
+        self::assertSame('', $rows[0]['roomRevenuePrefix']);
+        self::assertSame('960', $rows[0]['salesText']);
+        self::assertSame('', $rows[0]['salesPrefix']);
         self::assertSame(0.05, $rows[0]['absoluteConversion']);
         self::assertSame('5.00%', $rows[0]['absoluteConversionText']);
         self::assertSame('50.00%', $rows[0]['viewConversionText']);
@@ -941,6 +945,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame('derived_from_display_metrics', $rows[0]['displayMetricStatus']['avgSalesPrice']);
         self::assertSame('room_revenue_div_room_nights_display_metric', $rows[0]['metricDerived']['avgRoomPrice']['method']);
         self::assertSame('sales_div_sales_room_nights_display_metric', $rows[0]['metricDerived']['avgSalesPrice']['method']);
+        self::assertSame('views_times_pay_conversion', $rows[0]['metricDerived']['orderCount']['method']);
         self::assertSame('ok', $rows[0]['displayMetricStatus']['absoluteConversion']);
     }
 
@@ -960,16 +965,16 @@ final class OnlineDataTest extends TestCase
         self::assertSame(492.0, $rows[0]['roomNights']);
         self::assertSame(6054.34, $rows[0]['roomRevenue']);
         self::assertSame('492', $rows[0]['roomNightsText']);
-        self::assertSame('6,054.34', $rows[0]['roomRevenueText']);
-        self::assertSame('¥', $rows[0]['roomRevenuePrefix']);
-        self::assertSame(12.31, $rows[0]['avgRoomPrice']);
+        self::assertSame('6,054', $rows[0]['roomRevenueText']);
+        self::assertSame('', $rows[0]['roomRevenuePrefix']);
+        self::assertSame(12.0, $rows[0]['avgRoomPrice']);
         self::assertSame('12', $rows[0]['avgRoomPriceText']);
-        self::assertSame('¥', $rows[0]['avgRoomPricePrefix']);
+        self::assertSame('', $rows[0]['avgRoomPricePrefix']);
         self::assertSame('derived_from_display_metrics', $rows[0]['displayMetricStatus']['avgRoomPrice']);
         self::assertSame('room_revenue_div_room_nights_display_metric', $rows[0]['metricDerived']['avgRoomPrice']['method']);
 
         $summary = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplaySummary', [$rows, []]);
-        self::assertSame(12.31, $summary['metrics']['avgRoomPrice']);
+        self::assertSame(12.0, $summary['metrics']['avgRoomPrice']);
         self::assertSame('-', $summary['metrics']['marketPriceSignal']);
     }
 
@@ -994,6 +999,149 @@ final class OnlineDataTest extends TestCase
         self::assertSame(88.0, $values['roomNights']);
         self::assertSame(15400.0, $values['roomRevenue']);
         self::assertArrayNotHasKey('avgRoomPrice', $values);
+    }
+
+    public function testBackendDerivesMeituanRoomRevenueFromSelfMetricsBeforeRankAmount(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplayHotels', [[
+            'data' => [
+                'peerRankData' => [
+                    [
+                        'dimName' => 'room nights',
+                        'aiMetricName' => 'P_RZ_NIGHT_COUNT',
+                        'roundRanks' => [
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => 88, 'percent' => 50, 'rank' => 8],
+                            ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => 492, 'percent' => 100, 'rank' => 1],
+                        ],
+                    ],
+                    [
+                        'dimName' => 'room revenue',
+                        'aiMetricName' => 'P_RZ_ROOM_PAY',
+                        'roundRanks' => [
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => 154, 'percent' => 50, 'rank' => 8],
+                            ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => 6054.34, 'percent' => 100, 'rank' => 1],
+                        ],
+                    ],
+                ],
+            ],
+        ], [
+            'target_poi_id' => 'SELF',
+            'self_metric_values' => [
+                'roomNights' => 88,
+                'roomRevenue' => 15400,
+            ],
+        ]]);
+
+        $rowsByPoi = [];
+        foreach ($rows as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame(15400.0, $rowsByPoi['SELF']['roomRevenue']);
+        self::assertArrayNotHasKey('roomRevenue', $rowsByPoi['SELF']['metricDerived']);
+        self::assertSame(30800.0, $rowsByPoi['RIVAL']['roomRevenue']);
+        self::assertSame('30,800', $rowsByPoi['RIVAL']['roomRevenueText']);
+        self::assertSame(63.0, $rowsByPoi['RIVAL']['avgRoomPrice']);
+        self::assertSame('63', $rowsByPoi['RIVAL']['avgRoomPriceText']);
+        self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['roomRevenue']['method']);
+    }
+
+    public function testBackendDerivesMeituanRoomRevenueFromSelfMetricAndRankValueWhenPercentMissing(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplayHotels', [[
+            'data' => [
+                'peerRankData' => [
+                    [
+                        'dimName' => 'room nights',
+                        'aiMetricName' => 'P_RZ_NIGHT_COUNT',
+                        'roundRanks' => [
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => 88, 'rank' => 8],
+                            ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => 492, 'rank' => 1],
+                        ],
+                    ],
+                    [
+                        'dimName' => 'room revenue',
+                        'aiMetricName' => 'P_RZ_ROOM_PAY',
+                        'roundRanks' => [
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => 1540, 'rank' => 8],
+                            ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => 6054.34, 'rank' => 1],
+                        ],
+                    ],
+                ],
+            ],
+        ], [
+            'target_poi_id' => 'SELF',
+            'self_metric_values' => [
+                'roomNights' => 88,
+                'roomRevenue' => 15400,
+            ],
+        ]]);
+
+        $rowsByPoi = [];
+        foreach ($rows as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame(15400.0, $rowsByPoi['SELF']['roomRevenue']);
+        self::assertSame(1540.0, $rowsByPoi['SELF']['metricRankValue']['roomRevenue']);
+        self::assertSame(60543.0, $rowsByPoi['RIVAL']['roomRevenue']);
+        self::assertSame('60,543', $rowsByPoi['RIVAL']['roomRevenueText']);
+        self::assertSame(123.0, $rowsByPoi['RIVAL']['avgRoomPrice']);
+        self::assertSame('123', $rowsByPoi['RIVAL']['avgRoomPriceText']);
+        self::assertSame('self_value_times_row_rank_value_div_self_rank_value', $rowsByPoi['RIVAL']['metricDerived']['roomRevenue']['method']);
+        self::assertSame(6054.34, $rowsByPoi['RIVAL']['metricDerived']['roomRevenue']['row_rank_value']);
+    }
+
+    public function testBackendKeepsMeituanRankValueDerivedRoomRevenueThroughDisplayGroups(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'mergeMeituanBusinessDisplayGroups', [[
+            [
+                'date_range' => '7',
+                'self_metric_values' => [
+                    'roomNights' => 7,
+                    'roomRevenue' => 1177,
+                ],
+                'display_hotels' => [
+                    [
+                        'poiId' => 'SELF',
+                        'hotelName' => 'Self Hotel',
+                        'roomNights' => 7,
+                        'roomRevenue' => 117.7,
+                        'metricRankValue' => ['roomRevenue' => 117.7],
+                        'metricSourceStatus' => ['roomRevenue' => 'rank_returned'],
+                        'isSelf' => true,
+                    ],
+                    [
+                        'poiId' => 'RIVAL',
+                        'hotelName' => 'Rival Hotel',
+                        'roomNights' => 439,
+                        'roomRevenue' => 7240,
+                        'metricRankValue' => ['roomRevenue' => 7240],
+                        'metricSourceStatus' => ['roomRevenue' => 'rank_returned'],
+                    ],
+                ],
+            ],
+        ], [
+            'target_poi_id' => 'SELF',
+            'date_ranges' => ['7'],
+        ]]);
+
+        $rowsByPoi = [];
+        foreach ($rows as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame(1177.0, $rowsByPoi['SELF']['roomRevenue']);
+        self::assertSame(72400.0, $rowsByPoi['RIVAL']['roomRevenue']);
+        self::assertSame('72,400', $rowsByPoi['RIVAL']['roomRevenueText']);
+        self::assertSame(165.0, $rowsByPoi['RIVAL']['avgRoomPrice']);
+        self::assertSame('self_value_times_row_rank_value_div_self_rank_value', $rowsByPoi['RIVAL']['metricDerived']['roomRevenue']['method']);
     }
 
     public function testBackendDerivesMeituanPercentOnlyRankValuesFromSelfMetrics(): void
@@ -1043,11 +1191,13 @@ final class OnlineDataTest extends TestCase
         self::assertSame(16.0, $rowsByPoi['RIVAL']['salesRoomNights']);
         self::assertSame(2115.0, $rowsByPoi['RIVAL']['sales']);
         self::assertSame('¥', $rowsByPoi['RIVAL']['salesPrefix']);
+        self::assertSame('2,115', $rowsByPoi['RIVAL']['salesText']);
         self::assertSame(80.0, $rowsByPoi['RIVAL']['metricRankPercent']['salesRoomNights']);
         self::assertSame('按本店值和美团百分比推导', $rowsByPoi['RIVAL']['metricSourceStatus']['sales']);
         self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['sales']['method']);
 
         $summary = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplaySummary', [$rows, []]);
+        self::assertSame(5115.0, $summary['metrics']['totalSales']);
         self::assertSame(3, $summary['metrics']['derivedMetricCount']);
         self::assertStringContainsString('推导', $summary['source_notice']);
     }
@@ -1137,7 +1287,7 @@ final class OnlineDataTest extends TestCase
         }
 
         self::assertSame('percent_min_integer_scale', $rowsByPoi['TOP']['metricDerived']['sales']['method']);
-        self::assertNotSame('-', $rowsByPoi['TOP']['salesText']);
+        self::assertSame('-', $rowsByPoi['TOP']['salesText']);
         self::assertSame('', $rowsByPoi['TOP']['salesPrefix']);
         self::assertSame('', $rowsByPoi['SECOND']['salesPrefix']);
     }
@@ -1192,6 +1342,234 @@ final class OnlineDataTest extends TestCase
         self::assertSame('', $rowsByPoi['RIVAL']['viewsPrefix']);
         self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['exposure']['method']);
         self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['views']['method']);
+    }
+
+    public function testBackendUsesStoredMeituanSelfTrafficAnchorsForPercentOnlyTrafficRanks(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplayHotels', [[
+            'data' => [
+                'peerRankData' => [
+                    [
+                        'dimName' => 'exposure',
+                        'aiMetricName' => 'EXPOSURE',
+                        'roundRanks' => [
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
+                            ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => null, 'percent' => 60, 'rank' => 2],
+                        ],
+                    ],
+                    [
+                        'dimName' => 'view',
+                        'aiMetricName' => 'VIEW',
+                        'roundRanks' => [
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
+                            ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => null, 'percent' => 40, 'rank' => 2],
+                        ],
+                    ],
+                ],
+            ],
+        ], [
+            'target_poi_id' => 'SELF',
+            'stored_self_metric_values' => [
+                'list_exposure' => 10000,
+                'detail_exposure' => 2500,
+            ],
+        ]]);
+
+        $rowsByPoi = [];
+        foreach ($rows as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame(10000.0, $rowsByPoi['SELF']['exposure']);
+        self::assertSame(2500.0, $rowsByPoi['SELF']['views']);
+        self::assertSame('meituan_stored_self_traffic', $rowsByPoi['SELF']['metricSourceStatus']['exposure']);
+        self::assertSame('meituan_stored_self_traffic', $rowsByPoi['SELF']['metricSourceStatus']['views']);
+        self::assertSame(6000.0, $rowsByPoi['RIVAL']['exposure']);
+        self::assertSame(1000.0, $rowsByPoi['RIVAL']['views']);
+        self::assertSame('', $rowsByPoi['RIVAL']['exposurePrefix']);
+        self::assertSame('', $rowsByPoi['RIVAL']['viewsPrefix']);
+        self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['exposure']['method']);
+        self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['views']['method']);
+    }
+
+    public function testBackendNormalizesMeituanFlowConversionMyHotelSelfMetrics(): void
+    {
+        $controller = $this->controller();
+
+        $values = $this->invokeNonPublic($controller, 'normalizeMeituanSelfMetricValues', [[
+            'data' => [
+                'myHotel' => [
+                    'exposureUV' => 22333,
+                    'intentionUV' => 1884,
+                    'payOrderCnt' => 108,
+                    'intentionPerExposure' => '8.44%',
+                    'payOrderPerIntention' => '5.73%',
+                ],
+            ],
+        ]]);
+
+        self::assertSame(22333.0, $values['exposure']);
+        self::assertSame(1884.0, $values['views']);
+        self::assertSame(108.0, $values['orderCount']);
+        self::assertSame(0.0844, $values['viewConversion']);
+        self::assertSame(0.0573, $values['payConversion']);
+    }
+
+    public function testBackendNormalizesMeituanHomeBusinessDataCardsAsSelfMetrics(): void
+    {
+        $controller = $this->controller();
+
+        $values = $this->invokeNonPublic($controller, 'normalizeMeituanSelfMetricValues', [[
+            'data' => [
+                'cards' => [
+                    ['id' => 'EXPOSE_PV_CNT', 'value' => '1.84', 'unit' => '万'],
+                    ['id' => 'INTENTION_UV', 'value' => '1884'],
+                    ['id' => 'PAY_ORDER_CNT_UV', 'value' => '5.73', 'suffix' => '%'],
+                    ['id' => 'PAY_ORDER_CNT', 'value' => '108'],
+                    ['id' => 'PAY_ROOMNIGHT', 'value' => '113'],
+                    ['id' => 'PAY_AMT', 'value' => '1.99', 'unit' => '万', 'suffix' => '元'],
+                    ['id' => 'CONSUME_ROOMNIGHT_SPLIT_EX_7DAYS_REFUND', 'value' => '93'],
+                ],
+            ],
+        ]]);
+
+        self::assertSame(18400.0, $values['exposure']);
+        self::assertSame(1884.0, $values['views']);
+        self::assertSame(0.0573, $values['payConversion']);
+        self::assertSame(108.0, $values['orderCount']);
+        self::assertSame(113.0, $values['salesRoomNights']);
+        self::assertSame(19900.0, $values['sales']);
+        self::assertSame(93.0, $values['roomNights']);
+    }
+
+    public function testBackendKeepsMeituanSelfMetricAnchorsScopedByDateRangeGroups(): void
+    {
+        $controller = $this->controller();
+
+        $groups = [
+            [
+                'date_range' => '7',
+                'self_metric_values' => ['salesRoomNights' => 70],
+                'display_hotels' => [
+                    [
+                        'poiId' => 'SELF',
+                        'hotelName' => 'Self Hotel',
+                        'salesRoomNights' => 70,
+                        'metricRankPercent' => ['salesRoomNights' => 100],
+                        'metricSourceStatus' => ['salesRoomNights' => 'meituan_business_detail_returned'],
+                        'isSelf' => true,
+                    ],
+                    [
+                        'poiId' => 'RIVAL',
+                        'hotelName' => 'Rival Hotel',
+                        'salesRoomNights' => 0,
+                        'metricRankPercent' => ['salesRoomNights' => 50],
+                        'metricSourceStatus' => ['salesRoomNights' => '美团仅返回百分比'],
+                    ],
+                ],
+            ],
+            [
+                'date_range' => '30',
+                'self_metric_values' => ['salesRoomNights' => 300],
+                'display_hotels' => [
+                    [
+                        'poiId' => 'SELF',
+                        'hotelName' => 'Self Hotel',
+                        'salesRoomNights' => 300,
+                        'metricRankPercent' => ['salesRoomNights' => 100],
+                        'metricSourceStatus' => ['salesRoomNights' => 'meituan_business_detail_returned'],
+                        'isSelf' => true,
+                    ],
+                    [
+                        'poiId' => 'RIVAL',
+                        'hotelName' => 'Rival Hotel',
+                        'salesRoomNights' => 0,
+                        'metricRankPercent' => ['salesRoomNights' => 10],
+                        'metricSourceStatus' => ['salesRoomNights' => '美团仅返回百分比'],
+                    ],
+                ],
+            ],
+        ];
+
+        $rows = $this->invokeNonPublic($controller, 'mergeMeituanBusinessDisplayGroups', [$groups, [
+            'target_poi_id' => 'SELF',
+            'date_ranges' => ['7', '30'],
+        ]]);
+
+        $rowsByPoi = [];
+        foreach ($rows as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame(35.0, $rowsByPoi['RIVAL']['salesRoomNights']);
+        self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['salesRoomNights']['method']);
+    }
+
+    public function testBackendKeepsMeituanRoomRevenueScopedToCurrentDateRangeGroup(): void
+    {
+        $controller = $this->controller();
+
+        $groups = [
+            [
+                'date_range' => '7',
+                'self_metric_values' => ['roomRevenue' => 15400],
+                'display_hotels' => [
+                    [
+                        'poiId' => 'SELF',
+                        'hotelName' => 'Self Hotel',
+                        'roomRevenue' => 15400,
+                        'metricRankPercent' => ['roomRevenue' => 50],
+                        'metricSourceStatus' => ['roomRevenue' => 'meituan_business_detail_returned'],
+                        'isSelf' => true,
+                    ],
+                    [
+                        'poiId' => 'RIVAL',
+                        'hotelName' => 'Rival Hotel',
+                        'roomRevenue' => 0,
+                        'metricRankPercent' => ['roomRevenue' => 100],
+                        'metricSourceStatus' => ['roomRevenue' => '美团仅返回百分比'],
+                    ],
+                ],
+            ],
+            [
+                'date_range' => '30',
+                'self_metric_values' => ['roomRevenue' => 60000],
+                'display_hotels' => [
+                    [
+                        'poiId' => 'SELF',
+                        'hotelName' => 'Self Hotel',
+                        'roomRevenue' => 60000,
+                        'metricRankPercent' => ['roomRevenue' => 50],
+                        'metricSourceStatus' => ['roomRevenue' => 'meituan_business_detail_returned'],
+                        'isSelf' => true,
+                    ],
+                    [
+                        'poiId' => 'RIVAL',
+                        'hotelName' => 'Rival Hotel',
+                        'roomRevenue' => 0,
+                        'metricRankPercent' => ['roomRevenue' => 80],
+                        'metricSourceStatus' => ['roomRevenue' => '美团仅返回百分比'],
+                    ],
+                ],
+            ],
+        ];
+
+        $rows = $this->invokeNonPublic($controller, 'mergeMeituanBusinessDisplayGroups', [$groups, [
+            'target_poi_id' => 'SELF',
+            'date_ranges' => ['7', '30'],
+        ]]);
+
+        $rowsByPoi = [];
+        foreach ($rows as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame(30800.0, $rowsByPoi['RIVAL']['roomRevenue']);
+        self::assertSame('30,800', $rowsByPoi['RIVAL']['roomRevenueText']);
+        self::assertSame(15400.0, $rowsByPoi['RIVAL']['metricDerived']['roomRevenue']['self_value']);
+        self::assertSame(100.0, $rowsByPoi['RIVAL']['metricDerived']['roomRevenue']['row_percent']);
     }
 
     public function testBackendKeepsMeituanTodayRealtimePercentOnlyValuesMissing(): void
@@ -1271,26 +1649,24 @@ final class OnlineDataTest extends TestCase
             ],
         ]]);
 
-        self::assertSame(44, $rows[0]['orderCount']);
-        self::assertSame('44', $rows[0]['orderCountText']);
+        self::assertSame(0, $rows[0]['orderCount']);
+        self::assertSame('-', $rows[0]['orderCountText']);
         self::assertSame(round(232 / 2166, 4), $rows[0]['viewConversion']);
         self::assertSame('10.71%', $rows[0]['viewConversionText']);
-        self::assertSame(round(44 / 232, 4), $rows[0]['payConversion']);
-        self::assertSame('18.97%', $rows[0]['payConversionText']);
-        self::assertSame(round(44 / 2166, 4), $rows[0]['absoluteConversion']);
-        self::assertSame('2.03%', $rows[0]['absoluteConversionText']);
+        self::assertSame(0.0, $rows[0]['payConversion']);
+        self::assertSame('-', $rows[0]['payConversionText']);
+        self::assertSame(0.0, $rows[0]['absoluteConversion']);
+        self::assertSame('-', $rows[0]['absoluteConversionText']);
         self::assertSame('指数 ', $rows[0]['exposurePrefix']);
         self::assertSame('指数 ', $rows[0]['viewsPrefix']);
-        self::assertSame('sales_room_nights_as_order_count_proxy', $rows[0]['metricDerived']['orderCount']['method']);
         self::assertSame('views_div_exposure', $rows[0]['metricDerived']['viewConversion']['method']);
-        self::assertSame('order_count_div_views', $rows[0]['metricDerived']['payConversion']['method']);
-        self::assertSame('view_conversion_times_pay_conversion', $rows[0]['metricDerived']['absoluteConversion']['method']);
-        self::assertSame('按销售间夜代理估算', $rows[0]['metricSourceStatus']['orderCount']);
+        self::assertArrayNotHasKey('orderCount', $rows[0]['metricDerived']);
+        self::assertArrayNotHasKey('payConversion', $rows[0]['metricDerived']);
+        self::assertArrayNotHasKey('absoluteConversion', $rows[0]['metricDerived']);
+        self::assertArrayNotHasKey('orderCount', $rows[0]['metricSourceStatus']);
         self::assertSame('按曝光和浏览估算', $rows[0]['metricSourceStatus']['viewConversion']);
-        self::assertSame('按订单量和浏览估算', $rows[0]['metricSourceStatus']['payConversion']);
-        self::assertSame('按浏览转化和支付转化估算', $rows[0]['metricSourceStatus']['absoluteConversion']);
-        self::assertSame('ok', $rows[0]['displayMetricStatus']['orderCount']);
-        self::assertSame('ok', $rows[0]['displayMetricStatus']['absoluteConversion']);
+        self::assertSame('missing_order_count', $rows[0]['displayMetricStatus']['orderCount']);
+        self::assertSame('missing_conversion', $rows[0]['displayMetricStatus']['absoluteConversion']);
     }
 
     public function testBackendBuildsMeituanBusinessDisplaySummaryForFrontend(): void

@@ -322,6 +322,64 @@ trait OnlineDataManualFetchConcern
                 $selfMetricMessage = (string)($selfMetricResult['message'] ?? '');
                 $selfMetricUpdateTime = (string)($selfMetricResult['update_time'] ?? '');
             }
+            $includeSelfTrafficMetrics = $this->isTruthyRequestValue($requestData['include_self_traffic_metrics'] ?? true);
+            if ($includeSelfTrafficMetrics) {
+                $selfTrafficResult = $this->fetchMeituanSelfTrafficMetricValues(
+                    (string)$partnerId,
+                    (string)$poiId,
+                    (string)$startDate,
+                    (string)$endDate,
+                    (string)$cookies,
+                    $authData,
+                    (string)$dateRange
+                );
+                $trafficMetricValues = is_array($selfTrafficResult['values'] ?? null) ? $selfTrafficResult['values'] : [];
+                foreach ($trafficMetricValues as $field => $value) {
+                    if (!isset($selfMetricValues[$field]) || (float)$selfMetricValues[$field] <= 0) {
+                        $selfMetricValues[$field] = $value;
+                    }
+                }
+                if (!empty($trafficMetricValues)) {
+                    $selfMetricStatus = $selfMetricStatus === 'missing'
+                        ? 'traffic_returned'
+                        : $selfMetricStatus . '+traffic_returned';
+                    if ($selfMetricUpdateTime === '') {
+                        $selfMetricUpdateTime = (string)($selfTrafficResult['update_time'] ?? '');
+                    }
+                } elseif ($selfMetricStatus === 'missing') {
+                    $selfMetricStatus = 'traffic_' . (string)($selfTrafficResult['status'] ?? 'empty');
+                    $selfMetricMessage = (string)($selfTrafficResult['message'] ?? $selfMetricMessage);
+                }
+            }
+            $includeSelfBusinessMetrics = $this->isTruthyRequestValue($requestData['include_self_business_metrics'] ?? true);
+            if ($includeSelfBusinessMetrics) {
+                $selfBusinessResult = $this->fetchMeituanSelfHomeBusinessMetricValues(
+                    (string)$partnerId,
+                    (string)$poiId,
+                    (string)$startDate,
+                    (string)$endDate,
+                    (string)$cookies,
+                    $authData,
+                    (string)$dateRange
+                );
+                $businessMetricValues = is_array($selfBusinessResult['values'] ?? null) ? $selfBusinessResult['values'] : [];
+                foreach ($businessMetricValues as $field => $value) {
+                    if (!isset($selfMetricValues[$field]) || (float)$selfMetricValues[$field] <= 0) {
+                        $selfMetricValues[$field] = $value;
+                    }
+                }
+                if (!empty($businessMetricValues)) {
+                    $selfMetricStatus = $selfMetricStatus === 'missing'
+                        ? 'business_returned'
+                        : $selfMetricStatus . '+business_returned';
+                    if ($selfMetricUpdateTime === '') {
+                        $selfMetricUpdateTime = (string)($selfBusinessResult['update_time'] ?? '');
+                    }
+                } elseif ($selfMetricStatus === 'missing') {
+                    $selfMetricStatus = 'business_' . (string)($selfBusinessResult['status'] ?? 'empty');
+                    $selfMetricMessage = (string)($selfBusinessResult['message'] ?? $selfMetricMessage);
+                }
+            }
             $savedCount = 0;
 
             if ($autoSave && is_array($responseData) && !empty($responseData)) {
@@ -410,9 +468,16 @@ trait OnlineDataManualFetchConcern
                 $decodedRows = json_decode($rows, true);
                 $rows = is_array($decodedRows) ? $decodedRows : [];
             }
+            $displayGroups = $this->request->post('display_groups', $this->request->post('displayGroups', []));
+            if (is_string($displayGroups)) {
+                $decodedGroups = json_decode($displayGroups, true);
+                $displayGroups = is_array($decodedGroups) ? $decodedGroups : [];
+            }
 
             $displayContext = $this->buildMeituanBusinessDisplayContext();
-            $displayHotels = $this->mergeMeituanBusinessDisplayHotels(is_array($rows) ? $rows : [], $displayContext);
+            $displayHotels = is_array($displayGroups) && !empty($displayGroups)
+                ? $this->mergeMeituanBusinessDisplayGroups($displayGroups, $displayContext)
+                : $this->mergeMeituanBusinessDisplayHotels(is_array($rows) ? $rows : [], $displayContext);
             return $this->success([
                 'display_hotels' => $displayHotels,
                 'display_hotel_count' => count($displayHotels),

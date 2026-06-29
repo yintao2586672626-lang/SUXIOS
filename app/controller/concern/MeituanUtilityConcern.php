@@ -155,19 +155,33 @@ trait MeituanUtilityConcern
             'roomRevenue' => ['roomRevenue', 'room_revenue', 'stayRevenue', 'stay_revenue'],
             'salesRoomNights' => ['salesRoomNights', 'sales_room_nights', 'salesQuantity'],
             'sales' => ['sales', 'salesAmount', 'sales_amount', 'amount'],
-            'viewConversion' => ['viewConversion', 'view_conversion'],
-            'payConversion' => ['payConversion', 'pay_conversion'],
-            'exposure' => ['exposure', 'listExposure', 'list_exposure'],
-            'views' => ['views', 'view', 'detailExposure', 'detail_exposure'],
+            'orderCount' => ['orderCount', 'order_count', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count'],
+            'viewConversion' => ['viewConversion', 'view_conversion', 'intentionPerExposure', 'intention_per_exposure'],
+            'payConversion' => ['payConversion', 'pay_conversion', 'payOrderPerIntention', 'pay_order_per_intention'],
+            'exposure' => ['exposure', 'listExposure', 'list_exposure', 'exposureUV', 'exposure_uv'],
+            'views' => ['views', 'view', 'detailExposure', 'detail_exposure', 'intentionUV', 'intention_uv'],
         ];
         $result = [];
         foreach ($aliases as $field => $keys) {
             $number = $this->nullableNumberFromKeys($value, $keys);
             if ($number !== null) {
+                if (in_array($field, ['viewConversion', 'payConversion'], true)) {
+                    $number = $this->normalizeMeituanRatioMetric($number);
+                }
                 $result[$field] = $number;
             }
         }
         $result = $this->mergeMeituanSelfMetricCardValues($result, $value);
+        foreach ([$value['myHotel'] ?? null, $value['data']['myHotel'] ?? null] as $nested) {
+            if (!is_array($nested)) {
+                continue;
+            }
+            foreach ($this->normalizeMeituanSelfMetricValues($nested) as $field => $number) {
+                if (!isset($result[$field])) {
+                    $result[$field] = $number;
+                }
+            }
+        }
         return $result;
     }
 
@@ -182,7 +196,7 @@ trait MeituanUtilityConcern
             if ($field === '' || isset($result[$field])) {
                 continue;
             }
-            $number = $this->meituanSelfMetricCardNumber($card);
+            $number = $this->meituanSelfMetricCardNumber($card, $field);
             if ($number !== null) {
                 $result[$field] = $number;
             }
@@ -215,6 +229,20 @@ trait MeituanUtilityConcern
 
     private function meituanSelfMetricFieldFromCard(array $card): string
     {
+        $cardId = strtoupper(trim((string)($card['id'] ?? '')));
+        $stringIdMap = [
+            'EXPOSE_PV_CNT' => 'exposure',
+            'INTENTION_UV' => 'views',
+            'PAY_ORDER_CNT_UV' => 'payConversion',
+            'PAY_ORDER_CNT' => 'orderCount',
+            'PAY_ROOMNIGHT' => 'salesRoomNights',
+            'PAY_AMT' => 'sales',
+            'CONSUME_ROOMNIGHT_SPLIT_EX_7DAYS_REFUND' => 'roomNights',
+        ];
+        if (isset($stringIdMap[$cardId])) {
+            return $stringIdMap[$cardId];
+        }
+
         $id = (int)($card['id'] ?? 0);
         $idMap = [
             1 => 'salesRoomNights',
@@ -245,23 +273,54 @@ trait MeituanUtilityConcern
         return '';
     }
 
-    private function meituanSelfMetricCardNumber(array $card): ?float
+    private function meituanSelfMetricCardNumber(array $card, string $field = ''): ?float
     {
         $number = $this->nullableNumberFromKeys($card, ['value', 'dataValue', 'data_value', 'amount']);
         if ($number === null) {
             return null;
         }
-        $suffix = (string)($card['suffix'] ?? $card['unit'] ?? '');
-        if (str_contains($suffix, '万')) {
+        $unitText = implode(' ', array_map(static fn($value): string => (string)$value, [
+            $card['unit'] ?? '',
+            $card['suffix'] ?? '',
+            $card['valueUnit'] ?? '',
+            $card['value_unit'] ?? '',
+            $card['unitName'] ?? '',
+            $card['unit_name'] ?? '',
+        ]));
+        if ($this->isMeituanTenThousandUnit($unitText)) {
             $number *= 10000;
+            return $number;
+        }
+        if (in_array($field, ['viewConversion', 'payConversion'], true)) {
+            return $this->normalizeMeituanRatioMetric($number);
         }
         return $number;
+    }
+
+    private function isMeituanTenThousandUnit(string $unit): bool
+    {
+        $unit = trim($unit);
+        if ($unit === '') {
+            return false;
+        }
+        return str_contains($unit, '万')
+            || str_contains($unit, '萬')
+            || str_contains($unit, '涓囧')
+            || preg_match('/\bw\b/i', $unit) === 1;
+    }
+
+    private function normalizeMeituanRatioMetric(float $value): float
+    {
+        return round(abs($value) > 1 ? $value / 100 : $value, 4);
     }
 
     private function roundMeituanDerivedMetric(string $field, float $value): float
     {
         if (in_array($field, ['viewConversion', 'payConversion'], true)) {
             return round($value, 4);
+        }
+        if (in_array($field, ['roomRevenue', 'sales'], true)) {
+            return (float)(int)round($value);
         }
         return round($value, 2);
     }

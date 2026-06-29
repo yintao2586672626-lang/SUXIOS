@@ -165,6 +165,117 @@ trait BusinessDisplayConcern
         ];
     }
 
+    private function fetchMeituanSelfTrafficMetricValues(
+        string $partnerId,
+        string $poiId,
+        string $startDate,
+        string $endDate,
+        string $cookies,
+        array $authData,
+        $dateRange
+    ): array {
+        if ($partnerId === '' || $poiId === '' || $cookies === '') {
+            return [
+                'status' => 'skipped',
+                'values' => [],
+                'message' => 'missing_partner_poi_or_cookie',
+            ];
+        }
+
+        $url = 'https://eb.meituan.com/api/shepherdGw/bizDatacenter/hotel/eb/dataCenter/analyse/flowConversion';
+        $params = [
+            'poiId' => $poiId,
+            'partnerId' => $partnerId,
+            'dataScope' => 'vpoi',
+            'yodaReady' => 'h5',
+            'csecplatform' => 4,
+            'csecversion' => '4.2.4',
+        ];
+        $dateRangeText = trim((string)$dateRange);
+        if (in_array($dateRangeText, ['0', '1', '7', '30'], true)) {
+            $params['dateRange'] = (int)$dateRangeText;
+        } elseif ($startDate !== '' && $endDate !== '') {
+            $params['startDate'] = str_replace('-', '', $startDate);
+            $params['endDate'] = str_replace('-', '', $endDate);
+            $params['dateRange'] = 1;
+        } else {
+            $params['dateRange'] = 1;
+        }
+
+        $result = $this->sendMeituanRequest($url, $params, $cookies, $authData);
+        if (empty($result['success'])) {
+            return [
+                'status' => 'failed',
+                'values' => [],
+                'message' => (string)($result['error'] ?? 'request_failed'),
+            ];
+        }
+
+        $values = $this->normalizeMeituanSelfMetricValues($result['data'] ?? []);
+        return [
+            'status' => !empty($values) ? 'returned' : 'empty',
+            'values' => $values,
+            'message' => !empty($values) ? '' : 'self_traffic_values_missing',
+            'update_time' => (string)($result['data']['data']['rtDataUpdateTime'] ?? ''),
+        ];
+    }
+
+    private function fetchMeituanSelfHomeBusinessMetricValues(
+        string $partnerId,
+        string $poiId,
+        string $startDate,
+        string $endDate,
+        string $cookies,
+        array $authData,
+        $dateRange
+    ): array {
+        if ($partnerId === '' || $poiId === '' || $cookies === '') {
+            return [
+                'status' => 'skipped',
+                'values' => [],
+                'message' => 'missing_partner_poi_or_cookie',
+            ];
+        }
+
+        $url = 'https://eb.meituan.com/api/v1/ebooking/home/businessData';
+        $params = [
+            'poiId' => $poiId,
+            'partnerId' => $partnerId,
+            'dataScope' => 'vpoi',
+            'deviceType' => 1,
+            'yodaReady' => 'h5',
+            'csecplatform' => 4,
+            'csecversion' => '4.2.4',
+        ];
+        $dateRangeText = trim((string)$dateRange);
+        if (in_array($dateRangeText, ['0', '1', '7', '30'], true)) {
+            $params['dateRange'] = (int)$dateRangeText;
+        } elseif ($startDate !== '' && $endDate !== '') {
+            $params['startDate'] = str_replace('-', '', $startDate);
+            $params['endDate'] = str_replace('-', '', $endDate);
+            $params['dateRange'] = 1;
+        } else {
+            $params['dateRange'] = 1;
+        }
+
+        $result = $this->sendMeituanRequest($url, $params, $cookies, $authData);
+        if (empty($result['success'])) {
+            return [
+                'status' => 'failed',
+                'values' => [],
+                'message' => (string)($result['error'] ?? 'request_failed'),
+            ];
+        }
+
+        $values = $this->normalizeMeituanSelfMetricValues($result['data'] ?? []);
+        return [
+            'status' => !empty($values) ? 'returned' : 'empty',
+            'values' => $values,
+            'message' => !empty($values) ? '' : 'self_home_business_values_missing',
+            'update_time' => (string)($result['data']['data']['rtDataUpdateTime'] ?? ''),
+        ];
+    }
+
     private function meituanSelfTradeDateType(string $dateRange, string $startDate, string $endDate): string
     {
         if ($dateRange === '0' || $dateRange === '1' || $startDate === $endDate) {
@@ -736,6 +847,7 @@ trait BusinessDisplayConcern
             if ($metricType !== '') {
                 if ($value !== null) {
                     $hotelMap[$key][$metricType] = max((float)($hotelMap[$key][$metricType] ?? 0), $value);
+                    $hotelMap[$key]['metricRankValue'][$metricType] = max((float)($hotelMap[$key]['metricRankValue'][$metricType] ?? 0), $value);
                     $hotelMap[$key]['metricSourceStatus'][$metricType] = '美团榜单返回';
                 } elseif ($rankPercent !== null && empty($hotelMap[$key]['metricSourceStatus'][$metricType])) {
                     $hotelMap[$key]['metricSourceStatus'][$metricType] = '美团仅返回百分比';
@@ -765,9 +877,10 @@ trait BusinessDisplayConcern
         return $this->sortBusinessDisplayHotels($hotelMap, 'roomNights');
     }
 
-    private function mergeMeituanBusinessDisplayHotels(array $rows, array $context = []): array
+    private function mergeMeituanBusinessDisplayHotels(array $rows, array $context = [], bool $applyPercentDerivation = true): array
     {
         $hotelMap = [];
+        $useDateRangePriorityMerge = !$applyPercentDerivation && $this->hasMeituanDisplayGroupDateRangeRows($rows);
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
@@ -782,23 +895,75 @@ trait BusinessDisplayConcern
                 $hotelMap[$key] = $this->emptyMeituanBusinessDisplayHotelRow($poiId, $hotelName, $context);
             }
 
-            foreach (['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'viewConversion', 'payConversion', 'exposure', 'views'] as $field) {
-                $hotelMap[$key][$field] = max((float)($hotelMap[$key][$field] ?? 0), (float)($row[$field] ?? 0));
+            $incomingMetricRankPercent = is_array($row['metricRankPercent'] ?? null) ? $row['metricRankPercent'] : [];
+            $incomingMetricRankValue = is_array($row['metricRankValue'] ?? null) ? $row['metricRankValue'] : [];
+            $incomingMetricDerived = is_array($row['metricDerived'] ?? null) ? $row['metricDerived'] : [];
+            foreach (['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'orderCount', 'viewConversion', 'payConversion', 'exposure', 'views'] as $field) {
+                $incomingValue = (float)($row[$field] ?? 0);
                 $incomingStatus = (string)($row['metricSourceStatus'][$field] ?? '');
+                if ($useDateRangePriorityMerge) {
+                    $hasIncomingSignal = $incomingValue > 0
+                        || $incomingStatus !== ''
+                        || array_key_exists($field, $incomingMetricRankPercent)
+                        || array_key_exists($field, $incomingMetricRankValue)
+                        || array_key_exists($field, $incomingMetricDerived);
+                    if (!$hasIncomingSignal) {
+                        continue;
+                    }
+                    $incomingPriority = $this->meituanDisplayGroupDateRangePriority((string)($row['displayGroupDateRange'] ?? $row['dateRange'] ?? ''));
+                    $existingPriority = (int)($hotelMap[$key]['_metricDateRangePriority'][$field] ?? PHP_INT_MAX);
+                    $existingValue = (float)($hotelMap[$key][$field] ?? 0);
+                    if ($incomingPriority < $existingPriority || ($incomingPriority === $existingPriority && $incomingValue > $existingValue)) {
+                        $hotelMap[$key][$field] = $incomingValue;
+                        $selectedStatus = $incomingStatus !== ''
+                            ? $incomingStatus
+                            : ($incomingValue > 0 ? '美团榜单返回' : (array_key_exists($field, $incomingMetricRankPercent) ? '美团仅返回百分比' : ''));
+                        if ($selectedStatus !== '') {
+                            $hotelMap[$key]['metricSourceStatus'][$field] = $selectedStatus;
+                        } else {
+                            unset($hotelMap[$key]['metricSourceStatus'][$field]);
+                        }
+                        if (array_key_exists($field, $incomingMetricRankPercent) && is_numeric($incomingMetricRankPercent[$field])) {
+                            $hotelMap[$key]['metricRankPercent'][$field] = (float)$incomingMetricRankPercent[$field];
+                        } else {
+                            unset($hotelMap[$key]['metricRankPercent'][$field]);
+                        }
+                        if (array_key_exists($field, $incomingMetricRankValue) && is_numeric($incomingMetricRankValue[$field])) {
+                            $hotelMap[$key]['metricRankValue'][$field] = (float)$incomingMetricRankValue[$field];
+                        } else {
+                            unset($hotelMap[$key]['metricRankValue'][$field]);
+                        }
+                        if (array_key_exists($field, $incomingMetricDerived) && is_array($incomingMetricDerived[$field])) {
+                            $hotelMap[$key]['metricDerived'][$field] = $incomingMetricDerived[$field];
+                        } else {
+                            unset($hotelMap[$key]['metricDerived'][$field]);
+                        }
+                        $hotelMap[$key]['_metricDateRangePriority'][$field] = $incomingPriority;
+                    }
+                    continue;
+                }
+                $hotelMap[$key][$field] = max((float)($hotelMap[$key][$field] ?? 0), $incomingValue);
                 if ((float)($row[$field] ?? 0) > 0 || $this->isMeituanMetricSourceUsable($incomingStatus)) {
                     $hotelMap[$key]['metricSourceStatus'][$field] = $incomingStatus !== '' ? $incomingStatus : '美团榜单返回';
                 } elseif ($incomingStatus !== '' && empty($hotelMap[$key]['metricSourceStatus'][$field])) {
                     $hotelMap[$key]['metricSourceStatus'][$field] = $incomingStatus;
                 }
             }
-            foreach ((is_array($row['metricRankPercent'] ?? null) ? $row['metricRankPercent'] : []) as $field => $percent) {
-                if (is_numeric($percent)) {
-                    $hotelMap[$key]['metricRankPercent'][$field] = (float)$percent;
+            if (!$useDateRangePriorityMerge) {
+                foreach ($incomingMetricRankPercent as $field => $percent) {
+                    if (is_numeric($percent)) {
+                        $hotelMap[$key]['metricRankPercent'][$field] = (float)$percent;
+                    }
                 }
-            }
-            foreach ((is_array($row['metricDerived'] ?? null) ? $row['metricDerived'] : []) as $field => $derived) {
-                if (is_array($derived)) {
-                    $hotelMap[$key]['metricDerived'][$field] = $derived;
+                foreach ($incomingMetricRankValue as $field => $rankValue) {
+                    if (is_numeric($rankValue)) {
+                        $hotelMap[$key]['metricRankValue'][$field] = max((float)($hotelMap[$key]['metricRankValue'][$field] ?? 0), (float)$rankValue);
+                    }
+                }
+                foreach ($incomingMetricDerived as $field => $derived) {
+                    if (is_array($derived)) {
+                        $hotelMap[$key]['metricDerived'][$field] = $derived;
+                    }
                 }
             }
             $hotelMap[$key]['platformTags'] = $this->mergeStringList($hotelMap[$key]['platformTags'] ?? [], is_array($row['platformTags'] ?? null) ? $row['platformTags'] : []);
@@ -832,8 +997,82 @@ trait BusinessDisplayConcern
             }
         }
 
-        $hotelMap = $this->applyMeituanPercentDerivedMetrics($hotelMap, $context);
+        if ($useDateRangePriorityMerge) {
+            foreach ($hotelMap as &$row) {
+                unset($row['_metricDateRangePriority']);
+            }
+            unset($row);
+        }
+
+        if ($applyPercentDerivation) {
+            $hotelMap = $this->applyMeituanPercentDerivedMetrics($hotelMap, $context);
+        }
         return $this->sortBusinessDisplayHotels($hotelMap, 'roomNights');
+    }
+
+    private function hasMeituanDisplayGroupDateRangeRows(array $rows): bool
+    {
+        foreach ($rows as $row) {
+            if (is_array($row) && trim((string)($row['displayGroupDateRange'] ?? '')) !== '') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function meituanDisplayGroupDateRangePriority(string $dateRange): int
+    {
+        $dateRange = trim($dateRange);
+        if ($dateRange === '') {
+            $dateRange = 'unknown';
+        }
+        return [
+            '0' => 0,
+            '1' => 1,
+            '7' => 2,
+            '30' => 3,
+            'custom' => 4,
+            'unknown' => 5,
+        ][$dateRange] ?? 6;
+    }
+
+    private function mergeMeituanBusinessDisplayGroups(array $groups, array $context = []): array
+    {
+        $resolvedRows = [];
+        foreach ($groups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+            $rows = $group['display_hotels'] ?? $group['displayHotels'] ?? [];
+            if (is_string($rows)) {
+                $decodedRows = json_decode($rows, true);
+                $rows = is_array($decodedRows) ? $decodedRows : [];
+            }
+            if (!is_array($rows) || empty($rows)) {
+                continue;
+            }
+
+            $dateRange = trim((string)($group['date_range'] ?? $group['dateRange'] ?? ''));
+            $groupContext = $context;
+            if ($dateRange !== '') {
+                $groupContext['date_range'] = $dateRange;
+                $groupContext['date_ranges'] = [$dateRange];
+            }
+            $groupContext['self_metric_values'] = $this->normalizeMeituanSelfMetricValues($group['self_metric_values'] ?? $group['selfMetricValues'] ?? []);
+
+            $groupRows = $this->mergeMeituanBusinessDisplayHotels($rows, $groupContext);
+            foreach ($groupRows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                if ($dateRange !== '') {
+                    $row['displayGroupDateRange'] = $dateRange;
+                }
+                $resolvedRows[] = $row;
+            }
+        }
+
+        return $this->mergeMeituanBusinessDisplayHotels($resolvedRows, $context, false);
     }
 
     private function extractMeituanBusinessRankRows($responseData): array
@@ -885,6 +1124,7 @@ trait BusinessDisplayConcern
             'roomRevenue' => 0.0,
             'salesRoomNights' => 0.0,
             'sales' => 0.0,
+            'orderCount' => 0,
             'viewConversion' => 0.0,
             'payConversion' => 0.0,
             'exposure' => 0.0,
@@ -899,6 +1139,7 @@ trait BusinessDisplayConcern
             'hasVipTag' => false,
             'metricSourceStatus' => [],
             'metricRankPercent' => [],
+            'metricRankValue' => [],
             'metricDerived' => [],
             'sourceLabel' => '美团榜单返回',
             'sourceStatusText' => '美团榜单返回',
@@ -908,6 +1149,8 @@ trait BusinessDisplayConcern
 
     private function applyMeituanPercentDerivedMetrics(array $hotelMap, array $context = []): array
     {
+        $context = $this->withMeituanStoredSelfTrafficMetricValues($context);
+
         $selfKey = null;
         foreach ($hotelMap as $key => $row) {
             if (is_array($row) && !empty($row['isSelf'])) {
@@ -966,23 +1209,82 @@ trait BusinessDisplayConcern
             unset($row);
         }
 
+        $hotelMap = $this->applyMeituanRankValueDerivedMoneyMetrics($hotelMap, $selfKey, $context);
+
         return $this->applyMeituanPercentScaleDerivedMetrics($hotelMap);
+    }
+
+    private function applyMeituanRankValueDerivedMoneyMetrics(array $hotelMap, string $selfKey, array $context = []): array
+    {
+        if (!isset($hotelMap[$selfKey]) || !is_array($hotelMap[$selfKey])) {
+            return $hotelMap;
+        }
+
+        foreach (['roomRevenue', 'sales'] as $field) {
+            $selfValue = $this->meituanSelfMetricValue($field, $hotelMap[$selfKey], $context);
+            $selfRankValue = $this->meituanMetricRankValue($hotelMap[$selfKey], $field);
+            if ($selfValue === null || $selfValue <= 0 || $selfRankValue === null || $selfRankValue <= 0) {
+                continue;
+            }
+
+            foreach ($hotelMap as &$row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                if ($this->isMeituanSelfAnchoredDerivedMetric($row, $field)
+                    || $this->shouldPreserveMeituanMetricForSelfPercentDerivation($row, $field)
+                ) {
+                    continue;
+                }
+
+                $rowRankValue = $this->meituanMetricRankValue($row, $field);
+                if ($rowRankValue === null || $rowRankValue <= 0) {
+                    continue;
+                }
+
+                $derivedValue = $this->roundMeituanDerivedMetric($field, $selfValue * $rowRankValue / $selfRankValue);
+                $row[$field] = $derivedValue;
+                $row['metricSourceStatus'][$field] = 'meituan_self_rank_value_derived';
+                $row['metricDerived'][$field] = [
+                    'method' => 'self_value_times_row_rank_value_div_self_rank_value',
+                    'self_value' => $selfValue,
+                    'self_rank_value' => $selfRankValue,
+                    'row_rank_value' => $rowRankValue,
+                ];
+
+                if (is_array($row['rankHistory'] ?? null)) {
+                    foreach ($row['rankHistory'] as &$history) {
+                        if (is_array($history) && ($history['metric'] ?? '') === $field) {
+                            $history['value'] = $derivedValue;
+                            $history['sourceLabel'] = 'meituan_self_rank_value_derived';
+                            $history['derived'] = $row['metricDerived'][$field];
+                        }
+                    }
+                    unset($history);
+                }
+            }
+            unset($row);
+        }
+
+        return $hotelMap;
     }
 
     private function injectMeituanSelfActualMetrics(array $hotelMap, string $selfKey, array $context): array
     {
         $values = $this->normalizeMeituanSelfMetricValues($context['self_metric_values'] ?? $context['selfMetricValues'] ?? []);
+        $sourceStatuses = is_array($context['self_metric_source_status'] ?? null) ? $context['self_metric_source_status'] : [];
         if (empty($values) || !isset($hotelMap[$selfKey]) || !is_array($hotelMap[$selfKey])) {
             return $hotelMap;
         }
 
-        foreach (['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'viewConversion', 'payConversion', 'exposure', 'views'] as $field) {
+        foreach (['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'orderCount', 'viewConversion', 'payConversion', 'exposure', 'views'] as $field) {
             $value = isset($values[$field]) ? (float)$values[$field] : 0.0;
             if ($value <= 0) {
                 continue;
             }
+            $sourceStatus = (string)($sourceStatuses[$field] ?? 'meituan_business_detail_returned');
             $hotelMap[$selfKey][$field] = $value;
-            $hotelMap[$selfKey]['metricSourceStatus'][$field] = 'meituan_business_detail_returned';
+            $hotelMap[$selfKey]['metricSourceStatus'][$field] = $sourceStatus;
             unset($hotelMap[$selfKey]['metricDerived'][$field]);
 
             if (is_array($hotelMap[$selfKey]['rankHistory'] ?? null)) {
@@ -1000,6 +1302,144 @@ trait BusinessDisplayConcern
         return $hotelMap;
     }
 
+    private function withMeituanStoredSelfTrafficMetricValues(array $context): array
+    {
+        $selfValues = $this->normalizeMeituanSelfMetricValues($context['self_metric_values'] ?? $context['selfMetricValues'] ?? []);
+        $storedValues = $this->normalizeMeituanSelfMetricValues($context['stored_self_metric_values'] ?? $context['storedSelfMetricValues'] ?? []);
+        if (empty($storedValues)) {
+            $storedValues = $this->fetchMeituanStoredSelfTrafficMetricValues($context);
+        }
+        if (empty($storedValues)) {
+            if (!empty($selfValues)) {
+                $context['self_metric_values'] = $selfValues;
+            }
+            return $context;
+        }
+
+        $sourceStatuses = is_array($context['self_metric_source_status'] ?? null) ? $context['self_metric_source_status'] : [];
+        foreach (['exposure', 'views'] as $field) {
+            $value = isset($storedValues[$field]) ? (float)$storedValues[$field] : 0.0;
+            if ($value <= 0 || isset($selfValues[$field])) {
+                continue;
+            }
+            $selfValues[$field] = $value;
+            $sourceStatuses[$field] = 'meituan_stored_self_traffic';
+        }
+
+        if (!empty($selfValues)) {
+            $context['self_metric_values'] = $selfValues;
+        }
+        if (!empty($sourceStatuses)) {
+            $context['self_metric_source_status'] = $sourceStatuses;
+        }
+        return $context;
+    }
+
+    private function fetchMeituanStoredSelfTrafficMetricValues(array $context): array
+    {
+        $systemHotelId = (int)($context['system_hotel_id'] ?? $context['systemHotelId'] ?? 0);
+        if ($systemHotelId <= 0) {
+            return [];
+        }
+
+        [$startDate, $endDate] = $this->resolveMeituanStoredSelfTrafficDateRange($context);
+        if ($startDate === '' || $endDate === '') {
+            return [];
+        }
+
+        try {
+            $columns = $this->getOnlineDailyDataColumns();
+            if (!isset($columns['system_hotel_id'], $columns['data_date'])
+                || (!isset($columns['list_exposure']) && !isset($columns['detail_exposure']))
+            ) {
+                return [];
+            }
+
+            $fields = [
+                isset($columns['list_exposure']) ? 'SUM(COALESCE(list_exposure, 0)) AS exposure' : '0 AS exposure',
+                isset($columns['detail_exposure']) ? 'SUM(COALESCE(detail_exposure, 0)) AS views' : '0 AS views',
+            ];
+            $query = Db::name('online_daily_data')
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('data_date', '>=', $startDate)
+                ->where('data_date', '<=', $endDate);
+
+            if (isset($columns['source'], $columns['platform'])) {
+                $query->where(function ($q) {
+                    $q->where('source', 'meituan')->whereOr('platform', 'Meituan');
+                });
+            } elseif (isset($columns['source'])) {
+                $query->where('source', 'meituan');
+            } elseif (isset($columns['platform'])) {
+                $query->where('platform', 'Meituan');
+            }
+            if (isset($columns['data_type'])) {
+                $query->whereIn('data_type', ['traffic', 'traffic_analysis', 'flow', 'flow_analysis']);
+            }
+            if (isset($columns['compare_type'])) {
+                $query->whereRaw("(`compare_type` = 'self' OR `compare_type` = '' OR `compare_type` IS NULL)");
+            }
+
+            $row = $query->field(implode(',', $fields))->find();
+            if (!is_array($row)) {
+                return [];
+            }
+
+            $values = [];
+            foreach (['exposure', 'views'] as $field) {
+                $value = (float)($row[$field] ?? 0);
+                if ($value > 0) {
+                    $values[$field] = $value;
+                }
+            }
+            return $values;
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function resolveMeituanStoredSelfTrafficDateRange(array $context): array
+    {
+        $startDate = $this->normalizeMeituanStoredTrafficDate($context['start_date'] ?? $context['startDate'] ?? '');
+        $endDate = $this->normalizeMeituanStoredTrafficDate($context['end_date'] ?? $context['endDate'] ?? '');
+        if ($startDate !== '' || $endDate !== '') {
+            if ($startDate === '') {
+                $startDate = $endDate;
+            }
+            if ($endDate === '') {
+                $endDate = $startDate;
+            }
+            return strtotime($startDate) <= strtotime($endDate) ? [$startDate, $endDate] : [$endDate, $startDate];
+        }
+
+        $dataDate = $this->normalizeMeituanStoredTrafficDate($context['data_date'] ?? $context['dataDate'] ?? '');
+        if ($dataDate !== '') {
+            return [$dataDate, $dataDate];
+        }
+
+        $dateRange = trim((string)($context['date_range'] ?? $context['dateRange'] ?? ''));
+        return match ($dateRange) {
+            '0' => [date('Y-m-d'), date('Y-m-d')],
+            '7' => [date('Y-m-d', strtotime('-7 days')), date('Y-m-d')],
+            '30' => [date('Y-m-d', strtotime('-30 days')), date('Y-m-d')],
+            '1' => [date('Y-m-d', strtotime('-1 day')), date('Y-m-d', strtotime('-1 day'))],
+            default => ['', ''],
+        };
+    }
+
+    private function normalizeMeituanStoredTrafficDate($value): string
+    {
+        $text = trim((string)($value ?? ''));
+        if ($text === '') {
+            return '';
+        }
+        if (preg_match('/^\d{8}$/', $text)) {
+            $text = substr($text, 0, 4) . '-' . substr($text, 4, 2) . '-' . substr($text, 6, 2);
+        }
+        $timestamp = strtotime($text);
+        return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+    }
+
     private function shouldPreserveMeituanMetricForSelfPercentDerivation(array $row, string $field): bool
     {
         $value = (float)($row[$field] ?? 0);
@@ -1010,7 +1450,16 @@ trait BusinessDisplayConcern
             return false;
         }
         $status = (string)($row['metricSourceStatus'][$field] ?? '');
+        if (in_array($field, ['roomRevenue', 'sales'], true)) {
+            return $this->isMeituanActualBusinessMetricSource($row, $field, $status);
+        }
         return $this->isMeituanMetricSourceUsable($status);
+    }
+
+    private function meituanMetricRankValue(array $row, string $field): ?float
+    {
+        $values = is_array($row['metricRankValue'] ?? null) ? $row['metricRankValue'] : [];
+        return isset($values[$field]) && is_numeric($values[$field]) ? (float)$values[$field] : null;
     }
 
     private function applyMeituanPercentScaleDerivedMetrics(array $hotelMap): array
@@ -1076,6 +1525,8 @@ trait BusinessDisplayConcern
             'actual_business_value',
             'manual_actual_business_value',
             'meituan_business_detail_returned',
+            'meituan_stored_self_traffic',
+            'meituan_self_rank_value_derived',
             '美团榜单返回',
             '美团榜单入库',
             '按本店值和美团百分比推导',
@@ -1109,7 +1560,64 @@ trait BusinessDisplayConcern
         }
         $value = (float)($row[$field] ?? 0);
         $status = (string)($row['metricSourceStatus'][$field] ?? '');
+        if (in_array($field, ['roomRevenue', 'sales'], true)) {
+            if ($value <= 0) {
+                return '';
+            }
+            if ($this->isMeituanActualBusinessMetricSource($row, $field, $status)) {
+                return '¥';
+            }
+            return $this->isMeituanSelfAnchoredDerivedMetric($row, $field) ? '¥' : '';
+        }
         return $value > 0 && $this->isMeituanMetricSourceUsable($status) ? '¥' : '';
+    }
+
+    private function isMeituanActualBusinessMetricSource(array $row, string $field, ?string $status = null): bool
+    {
+        $derived = is_array($row['metricDerived'][$field] ?? null) ? $row['metricDerived'][$field] : null;
+        if ($derived !== null) {
+            return false;
+        }
+        $status = $status ?? (string)($row['metricSourceStatus'][$field] ?? '');
+        return in_array($status, [
+            'actual_business_value',
+            'manual_actual_business_value',
+            'meituan_business_detail_returned',
+        ], true);
+    }
+
+    private function isMeituanSelfAnchoredDerivedMetric(array $row, string $field): bool
+    {
+        $derived = is_array($row['metricDerived'][$field] ?? null) ? $row['metricDerived'][$field] : null;
+        if ($derived === null) {
+            return false;
+        }
+        $method = (string)($derived['method'] ?? '');
+        if ($method === 'self_value_times_row_percent_div_self_percent') {
+            return (float)($derived['self_value'] ?? 0) > 0
+                && (float)($derived['self_percent'] ?? 0) > 0
+                && (float)($derived['row_percent'] ?? 0) >= 0;
+        }
+        if ($method === 'self_value_times_row_rank_value_div_self_rank_value') {
+            return (float)($derived['self_value'] ?? 0) > 0
+                && (float)($derived['self_rank_value'] ?? 0) > 0
+                && (float)($derived['row_rank_value'] ?? 0) > 0;
+        }
+        return false;
+    }
+
+    private function isMeituanDisplayableMoneyMetricSource(array $row, string $field, ?string $status = null): bool
+    {
+        if ($this->isMeituanActualBusinessMetricSource($row, $field, $status)
+            || $this->isMeituanSelfAnchoredDerivedMetric($row, $field)
+        ) {
+            return true;
+        }
+        if ($this->isMeituanPercentScaleDerivedMetric($row, $field)) {
+            return false;
+        }
+        $status = $status ?? (string)($row['metricSourceStatus'][$field] ?? '');
+        return (float)($row[$field] ?? 0) > 0 && $this->isMeituanMetricSourceUsable($status);
     }
 
     private function meituanDisplayMetricIndexPrefix(array $row, string $field): string
@@ -1130,12 +1638,18 @@ trait BusinessDisplayConcern
     {
         $value = (float)($row[$field] ?? 0);
         $status = (string)($row['metricSourceStatus'][$field] ?? '');
+        if ($format === 'money'
+            && in_array($field, ['roomRevenue', 'sales'], true)
+            && $this->isMeituanPercentScaleDerivedMetric($row, $field)
+        ) {
+            return '-';
+        }
         if ($value <= 0 && !$this->isMeituanMetricSourceUsable($status)) {
             return '-';
         }
 
         if ($format === 'money') {
-            return $this->formatMeituanDisplayNumber($value, 2);
+            return $this->formatMeituanDisplayNumber($value, 0);
         }
 
         return $this->formatMeituanDisplayNumber($value, 0);
@@ -1465,8 +1979,8 @@ trait BusinessDisplayConcern
                 && $this->canUseMeituanMetricPairForAveragePrice($metricSourceStatus, $metricDerived, 'roomRevenue', 'roomNights');
             $canUseSalesPriceBasis = $hasSalesPriceInputs
                 && $this->canUseMeituanMetricPairForAveragePrice($metricSourceStatus, $metricDerived, 'sales', 'salesRoomNights');
-            $avgRoomPrice = $hasRoomPriceInputs ? round($roomRevenue / $roomNights, 2) : 0.0;
-            $avgSalesPrice = $hasSalesPriceInputs ? round($sales / $salesRoomNights, 2) : 0.0;
+            $avgRoomPrice = $hasRoomPriceInputs ? (float)(int)round($roomRevenue / $roomNights) : 0.0;
+            $avgSalesPrice = $hasSalesPriceInputs ? (float)(int)round($sales / $salesRoomNights) : 0.0;
             if ($hasRoomPriceInputs && !$canUseRoomPriceBasis) {
                 $metricSourceStatus['avgRoomPrice'] = '按美团榜单指标相除';
                 $metricDerived['avgRoomPrice'] = [
@@ -1488,14 +2002,12 @@ trait BusinessDisplayConcern
             $orderCount = (int)round((float)($row['orderCount'] ?? 0));
             if ($orderCount <= 0 && $views > 0 && $payConversion > 0) {
                 $orderCount = (int)round($views * $payConversion);
-            }
-            if ($orderCount <= 0 && $salesRoomNights > 0 && $views > 0) {
-                $orderCount = (int)round($salesRoomNights);
-                $metricSourceStatus['orderCount'] = '按销售间夜代理估算';
+                $metricSourceStatus['orderCount'] = '按浏览和支付转化率估算';
                 $metricDerived['orderCount'] = [
-                    'method' => 'sales_room_nights_as_order_count_proxy',
-                    'sales_room_nights' => $salesRoomNights,
-                    'source_scope' => 'meituan_rank_percent_only',
+                    'method' => 'views_times_pay_conversion',
+                    'views' => $views,
+                    'pay_conversion' => $payConversion,
+                    'source_scope' => 'meituan_rank_formula',
                 ];
             }
             if ($viewConversion <= 0 && $exposure > 0 && $views > 0) {
@@ -1556,8 +2068,8 @@ trait BusinessDisplayConcern
             $row['salesRoomNightsText'] = $this->meituanDisplayMetricText($row, 'salesRoomNights');
             $row['salesText'] = $this->meituanDisplayMetricText($row, 'sales', 'money');
             $row['salesPrefix'] = $this->meituanDisplayMetricCurrencyPrefix($row, 'sales');
-            $row['avgRoomPricePrefix'] = $this->meituanAveragePriceCurrencyPrefix($row, 'roomRevenue');
-            $row['avgSalesPricePrefix'] = $this->meituanAveragePriceCurrencyPrefix($row, 'sales');
+            $row['avgRoomPricePrefix'] = $avgRoomPrice > 0 ? $this->meituanAveragePriceCurrencyPrefix($row, 'roomRevenue') : '';
+            $row['avgSalesPricePrefix'] = $avgSalesPrice > 0 ? $this->meituanAveragePriceCurrencyPrefix($row, 'sales') : '';
             $row['exposureText'] = $this->meituanDisplayMetricText($row, 'exposure');
             $row['exposurePrefix'] = $this->meituanDisplayMetricIndexPrefix($row, 'exposure');
             $row['viewsText'] = $this->meituanDisplayMetricText($row, 'views');
@@ -1592,7 +2104,7 @@ trait BusinessDisplayConcern
             $row['displayMetricStatus'] = [
                 'avgRoomPrice' => $this->meituanAveragePriceDisplayStatus($roomNights, $roomRevenue, $canUseRoomPriceBasis, 'missing_room_nights', 'missing_room_revenue'),
                 'avgSalesPrice' => $this->meituanAveragePriceDisplayStatus($salesRoomNights, $sales, $canUseSalesPriceBasis, 'missing_sales_room_nights', 'missing_sales'),
-                'orderCount' => $orderCount > 0 ? 'ok' : 'missing_views_or_pay_conversion',
+                'orderCount' => $orderCount > 0 ? 'ok' : 'missing_order_count',
                 'absoluteConversion' => $absoluteConversion > 0 ? 'ok' : 'missing_conversion',
             ];
         }
@@ -1954,9 +2466,9 @@ trait BusinessDisplayConcern
 
         $hotelCount = count($rows);
         $totalRoomNights = $this->sumBusinessRows($rows, 'roomNights');
-        $totalRoomRevenue = $this->sumBusinessRows($rows, 'roomRevenue');
+        $totalRoomRevenue = $this->sumMeituanDisplayableMoneyRows($rows, 'roomRevenue');
         $totalSalesRoomNights = $this->sumBusinessRows($rows, 'salesRoomNights');
-        $totalSales = $this->sumBusinessRows($rows, 'sales');
+        $totalSales = $this->sumMeituanDisplayableMoneyRows($rows, 'sales');
         $totalExposure = $this->sumBusinessRows($rows, 'exposure');
         $totalViews = $this->sumBusinessRows($rows, 'views');
         $totalOrderCount = (int)$this->sumBusinessRows($rows, 'orderCount');
@@ -2087,7 +2599,7 @@ trait BusinessDisplayConcern
             $amount += $rowAmount;
             $quantity += $rowQuantity;
         }
-        return $quantity > 0 ? round($amount / $quantity, 2) : 0.0;
+        return $quantity > 0 ? (float)(int)round($amount / $quantity) : 0.0;
     }
 
     private function buildMeituanPlatformTagSummary(array $rows): array
@@ -2491,6 +3003,18 @@ trait BusinessDisplayConcern
         return $this->sumCtripBusinessRows($rows, $field);
     }
 
+    private function sumMeituanDisplayableMoneyRows(array $rows, string $field): float
+    {
+        $sum = 0.0;
+        foreach ($rows as $row) {
+            if (!is_array($row) || !$this->isMeituanDisplayableMoneyMetricSource($row, $field)) {
+                continue;
+            }
+            $sum += (float)($row[$field] ?? 0);
+        }
+        return $sum;
+    }
+
     private function avgCtripBusinessRows(array $rows, string $field): float
     {
         $values = [];
@@ -2765,6 +3289,7 @@ trait BusinessDisplayConcern
             'date_range' => $this->request->post('date_range', ''),
             'rank_type' => (string)$this->request->post('rank_type', ''),
             'target_poi_id' => (string)$this->request->post('target_poi_id', $this->request->post('poi_id', '')),
+            'system_hotel_id' => (int)$this->request->post('system_hotel_id', $this->request->post('hotel_id', 0)),
             'start_date' => (string)$this->request->post('start_date', ''),
             'end_date' => (string)$this->request->post('end_date', ''),
             'self_metric_values' => $this->requestMeituanSelfMetricValues(),
@@ -2783,6 +3308,7 @@ trait BusinessDisplayConcern
             'roomRevenue' => ['self_room_revenue', 'selfRoomRevenue'],
             'salesRoomNights' => ['self_sales_room_nights', 'selfSalesRoomNights'],
             'sales' => ['self_sales', 'selfSales', 'self_sales_amount', 'selfSalesAmount'],
+            'orderCount' => ['self_order_count', 'selfOrderCount', 'self_pay_order_count', 'selfPayOrderCount'],
             'viewConversion' => ['self_view_conversion', 'selfViewConversion'],
             'payConversion' => ['self_pay_conversion', 'selfPayConversion'],
             'exposure' => ['self_exposure', 'selfExposure'],
@@ -2799,6 +3325,9 @@ trait BusinessDisplayConcern
                 }
                 $number = $this->nullableNumberFromKeys([$key => $raw], [$key]);
                 if ($number !== null) {
+                    if (in_array($field, ['viewConversion', 'payConversion'], true)) {
+                        $number = $this->normalizeMeituanRatioMetric($number);
+                    }
                     $values[$field] = $number;
                     break;
                 }

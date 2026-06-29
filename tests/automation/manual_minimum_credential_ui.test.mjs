@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import vm from 'node:vm';
 
 const html = readFileSync('public/index.html', 'utf8');
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
 const platformAutoSettingsPanels = readFileSync('public/components/online-data/platform-auto-settings-panels.js', 'utf8');
 const ctripProfileFieldConfigPanel = readFileSync('public/components/online-data/ctrip-profile-field-config-panel.js', 'utf8');
+const meituanStaticSandbox = { console, window: {} };
+vm.runInNewContext(`${meituanStatic}\nthis.__meituanStatic = window.SUXI_MEITUAN_STATIC;`, meituanStaticSandbox);
+const meituanStaticApi = meituanStaticSandbox.__meituanStatic;
 
 const sliceFrom = (needle, endNeedle) => {
   const start = html.indexOf(needle);
@@ -113,9 +117,39 @@ test('Meituan ranking money cells use backend source prefixes', () => {
   assert.match(rankingTable, /\(hotel\.salesPrefix \|\| ''\) \+ hotel\.salesText/);
   assert.match(rankingTable, /\(hotel\.exposurePrefix \|\| ''\) \+ hotel\.exposureText/);
   assert.match(rankingTable, /\(hotel\.viewsPrefix \|\| ''\) \+ hotel\.viewsText/);
-  assert.match(displayPayload, /self_metric_values:\s*mergeMeituanSelfMetricValues/);
-  assert.match(displayPayload, /results\.map\(result => result\.selfMetricValues\)/);
+  assert.match(displayPayload, /display_groups:\s*buildMeituanDisplayModelGroups/);
   assert.match(fetchTasks, /include_self_trade_metrics:\s*true/);
+  assert.match(fetchTasks, /include_self_traffic_metrics:\s*true/);
+  assert.match(fetchTasks, /include_self_business_metrics:\s*true/);
+});
+
+test('Meituan display model keeps self metric anchors scoped by date range', () => {
+  const payload = meituanStaticApi.buildMeituanDisplayModelPayload({
+    form: {
+      hotelId: 58,
+      poiId: 'SELF',
+      dateRanges: ['7', '30'],
+      selfMetricValues: {},
+    },
+    results: [
+      {
+        dateRange: '7',
+        displayHotels: [{ poiId: 'SELF', hotelName: 'Self Hotel', dateRange: '7' }],
+        selfMetricValues: { exposure: 700, salesRoomNights: 70 },
+      },
+      {
+        dateRange: '30',
+        displayHotels: [{ poiId: 'SELF', hotelName: 'Self Hotel', dateRange: '30' }],
+        selfMetricValues: { exposure: 3000, salesRoomNights: 300 },
+      },
+    ],
+  });
+
+  assert.equal(JSON.stringify(payload.display_groups.map(item => item.date_range)), JSON.stringify(['7', '30']));
+  assert.equal(payload.system_hotel_id, 58);
+  assert.equal(JSON.stringify(payload.display_groups[0].self_metric_values), JSON.stringify({ exposure: 700, salesRoomNights: 70 }));
+  assert.equal(JSON.stringify(payload.display_groups[1].self_metric_values), JSON.stringify({ exposure: 3000, salesRoomNights: 300 }));
+  assert.equal(payload.self_metric_values, undefined);
 });
 
 test('Meituan config saves cookie-only and no longer treats room counts as credentials', () => {
