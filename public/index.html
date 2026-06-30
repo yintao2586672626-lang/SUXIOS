@@ -29,7 +29,7 @@
         })();
     </script>
     <link href="tailwind.min.css?v=20260628-static-router-fix" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260628-static-router-fix">
+    <link rel="stylesheet" href="style.css?v=20260630-luxury-hotel-cockpit">
     <link rel="stylesheet" href="ai-custom.css?v=20260628-static-router-fix">
     <script>
         (() => {
@@ -60,9 +60,10 @@
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
     <script src="data-health-static.js?v=20260628-static-router-fix"></script>
     <script src="revenue-ai-static.js?v=20260628-ctrip-generate-result"></script>
-    <script src="system-static.js?v=20260628-static-router-fix"></script>
+    <script src="system-static.js?v=20260630-data-center-label"></script>
     <script src="compass-static.js?v=20260628-static-router-fix"></script>
     <script src="home-static.js?v=20260628-static-router-fix"></script>
+    <script src="dual-ota-home-static.js?v=20260630-dual-ota-home"></script>
 </head>
 <body class="bg-gray-100">
     <div id="app" v-cloak>
@@ -179,6 +180,11 @@
                 </form>
 
                 <form v-else @submit.prevent="handleRegister" class="space-y-5">
+                    <div class="rounded-lg border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100 flex items-start gap-3">
+                        <i class="fas fa-shield-alt mt-0.5"></i>
+                        <span>注册后需超级管理员审核启用，审核通过后才能登录。</span>
+                    </div>
+
                     <div class="input-group">
                         <label class="input-label block text-sm font-medium mb-2">
                             <i class="fas fa-user-plus mr-2"></i>注册账号
@@ -254,7 +260,7 @@
                         </template>
                         <template v-else>
                             <i class="fas fa-user-plus"></i>
-                            <span>创建账号</span>
+                            <span>提交注册申请</span>
                         </template>
                     </button>
                 </form>
@@ -3939,39 +3945,42 @@
                                 <button type="button" @click="applyHotelQuickFilter('', '')"
                                     :class="filterHotelAccountHealth === '' && filterHotelStatus === '' ? 'border-blue-200 bg-blue-50/70 ring-1 ring-blue-100' : 'border-gray-100 bg-gray-50 hover:bg-gray-100'"
                                     class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
-                                    <span class="text-xs text-gray-500">总</span>
+                                    <span class="text-xs text-gray-500">门店总数</span>
                                     <span class="text-lg font-semibold text-gray-900">{{ hotelBindingOverview.total }}</span>
                                 </button>
                                 <button type="button" @click="applyHotelQuickFilter('error', '1')"
                                     :class="filterHotelAccountHealth === 'error' ? 'border-red-200 bg-red-50/80 ring-1 ring-red-100' : 'border-red-100 bg-red-50/50 hover:bg-red-50'"
                                     class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
-                                    <span class="text-xs text-red-700">异常</span>
+                                    <span class="text-xs text-red-700">账号异常</span>
                                     <span class="text-lg font-semibold text-red-700">{{ hotelBindingOverview.error }}</span>
                                 </button>
                                 <button type="button" @click="applyHotelQuickFilter('todo', '1')"
                                     :class="filterHotelAccountHealth === 'todo' ? 'border-amber-200 bg-amber-50/80 ring-1 ring-amber-100' : 'border-amber-100 bg-amber-50/50 hover:bg-amber-50'"
                                     class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
-                                    <span class="text-xs text-amber-700">待办</span>
+                                    <span class="text-xs text-amber-700">需处理</span>
                                     <span class="text-lg font-semibold text-amber-700">{{ hotelBindingOverview.todo }}</span>
                                 </button>
                                 <button type="button" @click="applyHotelQuickFilter('ctrip', '1')"
                                     :class="filterHotelAccountHealth === 'ctrip' ? 'border-blue-200 bg-blue-50/80 ring-1 ring-blue-100' : 'border-blue-100 bg-blue-50/50 hover:bg-blue-50'"
                                     class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
-                                    <span class="text-xs text-blue-700">携程</span>
+                                    <span class="text-xs text-blue-700">携程可采</span>
                                     <span class="text-lg font-semibold text-blue-700">{{ hotelBindingOverview.ctripBound }}</span>
                                 </button>
                                 <button type="button" @click="applyHotelQuickFilter('meituan', '1')"
                                     :class="filterHotelAccountHealth === 'meituan' ? 'border-orange-200 bg-orange-50/80 ring-1 ring-orange-100' : 'border-orange-100 bg-orange-50/50 hover:bg-orange-50'"
                                     class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
-                                    <span class="text-xs text-orange-700">美团</span>
+                                    <span class="text-xs text-orange-700">美团可采</span>
                                     <span class="text-lg font-semibold text-orange-700">{{ hotelBindingOverview.meituanBound }}</span>
                                 </button>
                                 <button type="button" @click="applyHotelQuickFilter('competitor', '1')"
                                     :class="filterHotelAccountHealth === 'competitor' ? 'border-indigo-200 bg-indigo-50/80 ring-1 ring-indigo-100' : 'border-indigo-100 bg-indigo-50/50 hover:bg-indigo-50'"
                                     class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
-                                    <span class="text-xs text-indigo-700">竞对可信</span>
+                                    <span class="text-xs text-indigo-700">竞对可用</span>
                                     <span class="text-lg font-semibold text-indigo-700">{{ hotelBindingOverview.competitorReady }}</span>
                                 </button>
+                            </div>
+                            <div class="text-xs text-gray-500 leading-relaxed">
+                                说明：需处理=营业中门店还有账号绑定、采集配置或竞对数据问题；竞对可用=已有美团竞对榜单入库，可用于同商圈对比。这里只代表 OTA 渠道状态。
                             </div>
                             <div class="flex flex-wrap gap-3 items-center">
                                 <div class="flex-1 min-w-[220px]">
@@ -3997,115 +4006,152 @@
                         <div v-if="filteredHotels.length > 0" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                             <div class="px-4 py-3 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                                 <div>
-                                    <div class="text-sm font-semibold text-gray-900">门店账号台账 · {{ filteredHotels.length }}</div>
-                                    <div class="text-xs text-gray-500 mt-0.5">问题优先；点红/黄标签处理。</div>
+                                    <div class="text-sm font-semibold text-gray-900">OTA采集接入状态 · {{ filteredHotels.length }}</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">先看门店信息，再看携程/美团是否绑定、是否登录。</div>
                                 </div>
-                                <div class="text-xs text-gray-500">门店不匹配阻止入库。</div>
+                                <div class="text-xs text-gray-500">门店不匹配会阻止 OTA 数据入库。</div>
                             </div>
 
                             <div class="hidden xl:block overflow-x-auto">
                                 <table class="w-full table-fixed text-sm">
                                     <thead class="bg-gray-50 text-xs text-gray-500">
                                         <tr>
-                                            <th class="px-4 py-3 text-left font-medium">门店</th>
-                                            <th class="px-4 py-3 text-left font-medium">账号</th>
-                                            <th class="px-4 py-3 text-left font-medium">采集</th>
-                                            <th class="px-4 py-3 text-left font-medium">模块</th>
+                                            <th class="px-4 py-3 text-left font-medium">门店信息</th>
+                                            <th class="px-4 py-3 text-left font-medium">携程</th>
+                                            <th class="px-4 py-3 text-left font-medium">美团</th>
+                                            <th class="px-4 py-3 text-left font-medium">当前问题</th>
                                             <th class="px-4 py-3 text-right font-medium">操作</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-100">
                                         <tr v-for="hotel in filteredHotels" :key="hotel.id" class="hover:bg-gray-50/70 transition-colors align-top">
-                                            <td class="px-4 py-4 w-[24%]">
-                                                <div class="flex flex-wrap items-center gap-2 min-w-0">
-                                                    <span class="font-semibold text-gray-900 truncate max-w-[220px]" :title="hotel.name">{{ hotel.name }}</span>
-                                                    <span :class="String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'"
-                                                        class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                        {{ String(hotel.status) === '1' ? '营业中' : '已停用' }}
-                                                    </span>
-                                                    <span :class="hotelAccountHealthClass(hotel)"
-                                                        class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                        {{ hotelAccountHealthText(hotel) }}
-                                                    </span>
-                                                    <span :class="competitorSummaryReadinessClass(hotelCompetitorReadiness(hotel))"
-                                                        class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                        {{ hotelCompetitorReadiness(hotel).label }}
-                                                    </span>
-                                                    <button v-if="user?.is_super_admin && !['正常', '-'].includes(hotelNextAction(hotel).text)" type="button"
-                                                        @click.stop="openHotelNextAction(hotel)"
-                                                        :class="hotelNextAction(hotel).className"
-                                                        class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-                                                        {{ hotelNextAction(hotel).text }}
-                                                    </button>
-                                                    <span v-else-if="!['正常', '-'].includes(hotelNextAction(hotel).text)" :class="hotelNextAction(hotel).className"
-                                                        class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                        {{ hotelNextAction(hotel).text }}
-                                                    </span>
-                                                </div>
-                                                <div class="mt-2 flex flex-wrap gap-1.5 text-xs text-gray-500">
-                                                    <span class="rounded bg-gray-50 border border-gray-100 px-2 py-0.5">编码 {{ hotel.code || '未设置' }}</span>
-                                                    <span class="rounded bg-gray-50 border border-gray-100 px-2 py-0.5">ID {{ hotel.id || '-' }}</span>
-                                                    <span v-if="hotel.contact_person" class="rounded bg-gray-50 border border-gray-100 px-2 py-0.5">负责人 {{ hotel.contact_person }}</span>
-                                                </div>
-                                            </td>
-                                            <td class="px-4 py-4 w-[24%]">
-                                                <div class="space-y-1.5">
-                                                    <div v-for="account in hotelPlatformBindingRows(hotel)" :key="`${hotel.id}-${account.platform}-account`"
-                                                        class="flex items-center gap-2 min-w-0 text-xs">
-                                                        <span :class="account.iconClass" class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 text-[11px]">
-                                                            <i :class="account.icon"></i>
+                                            <td class="px-4 py-4 w-[26%]">
+                                                <div class="min-w-0">
+                                                    <div class="flex items-center gap-2 min-w-0">
+                                                        <span class="font-semibold text-gray-900 truncate max-w-[220px]" :title="hotel.name">{{ hotel.name }}</span>
+                                                        <span :class="String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'"
+                                                            class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
+                                                            {{ String(hotel.status) === '1' ? '营业中' : '已停用' }}
                                                         </span>
-                                                        <span class="w-8 shrink-0 font-semibold text-gray-800">{{ account.label }}</span>
-                                                        <span :class="account.statusClass" class="shrink-0 px-1.5 py-0.5 rounded-md border text-[11px] leading-4 whitespace-nowrap">{{ account.statusText }}</span>
-                                                        <span class="min-w-0 flex-1 truncate text-gray-500" :title="account.accountStoreText">{{ account.accountStoreText }}</span>
                                                     </div>
-                                                </div>
-                                            </td>
-                                            <td class="px-4 py-4 w-[25%]">
-                                                <div class="space-y-2">
-                                                    <div v-for="account in hotelPlatformBindingRows(hotel)" :key="`${hotel.id}-${account.platform}-capture`" class="min-w-0">
-                                                        <div class="flex items-center justify-between gap-2">
-                                                            <div class="min-w-0">
-                                                                <div class="text-xs text-gray-400">{{ account.label }}</div>
-                                                                <div class="text-xs text-gray-800 truncate">{{ account.lastCaptureText }}</div>
-                                                                <div v-if="account.captureStatusText === '最近采集失败'" class="text-[11px] text-gray-400 truncate">成功 {{ account.lastSuccessText }}</div>
-                                                            </div>
-                                                            <span :class="account.captureStatusClass" class="rounded-md border px-2 py-0.5 text-xs whitespace-nowrap">{{ account.captureStatusText }}</span>
+                                                    <div class="mt-2 space-y-1 text-xs">
+                                                        <div class="rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                                                            <span class="text-gray-400">ID</span>
+                                                            <span class="ml-1 font-semibold text-gray-800">{{ hotel.id || '-' }}</span>
                                                         </div>
-                                                        <div v-if="account.reasonText" class="mt-1 truncate text-xs"
-                                                            :class="account.statusCode === 'login_expired' || account.statusCode === 'mismatch' || account.captureStatusText === '最近采集失败' ? 'text-red-600' : 'text-amber-700'"
-                                                            :title="account.reasonText">
-                                                            {{ account.reasonText }}
+                                                        <div class="rounded-md border border-gray-100 bg-gray-50 px-2 py-1 min-w-0">
+                                                            <span class="text-gray-400">负责人</span>
+                                                            <span class="ml-1 font-semibold text-gray-800 truncate" :title="hotelOwnerText(hotel)">{{ hotelOwnerText(hotel) }}</span>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            </td>
-                                            <td class="px-4 py-4 w-[12%]">
-                                                <div class="space-y-2">
-                                                    <div v-for="account in hotelPlatformBindingRows(hotel)" :key="`${hotel.id}-${account.platform}-modules`" class="flex items-start gap-2">
-                                                        <div class="w-8 shrink-0 text-xs text-gray-400 leading-6">{{ account.label }}</div>
-                                                        <span :class="hotelPlatformModuleClass(account)"
-                                                            class="rounded border px-2 py-0.5 text-xs">{{ hotelPlatformModuleText(account) }}</span>
+                                                    <div class="mt-1.5 flex flex-wrap gap-1.5 text-xs">
+                                                        <span class="rounded-md bg-gray-50 border border-gray-100 px-2 py-0.5 text-gray-500">编码 {{ hotel.code || '未设置' }}</span>
+                                                        <span :class="hotelAccountHealthClass(hotel)" class="rounded-md border px-2 py-0.5 whitespace-nowrap">
+                                                            {{ hotelAccountHealthText(hotel) }}
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td class="px-4 py-4 w-[15%] text-right">
-                                                <div v-if="canManageOwnHotels()" class="flex flex-wrap justify-end gap-1.5">
-                                                    <button type="button" @click="openHotelModal(hotel, { expandOta: true })"
-                                                        class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs font-medium text-blue-700 hover:bg-blue-100">
-                                                        账号
+                                            <td class="px-4 py-4 w-[20%]">
+                                                <div v-for="account in [hotelPlatformRow(hotel, 'ctrip')]" :key="`${hotel.id}-ctrip-status`"
+                                                    class="rounded-lg border border-blue-100 bg-blue-50/30 p-3 text-xs">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <div class="flex items-center gap-2 min-w-0">
+                                                            <span :class="account.iconClass" class="w-7 h-7 rounded-md flex items-center justify-center shrink-0 text-xs">
+                                                                <i :class="account.icon"></i>
+                                                            </span>
+                                                            <span class="font-semibold text-gray-900">{{ account.label }}</span>
+                                                        </div>
+                                                        <span :class="account.statusClass" class="shrink-0 px-2 py-0.5 rounded-md border text-[11px] whitespace-nowrap">{{ hotelPlatformLoginText(account) }}</span>
+                                                    </div>
+                                                    <div class="mt-2 flex flex-wrap gap-1.5">
+                                                        <span class="rounded-md bg-white/80 border border-blue-50 px-2 py-1 whitespace-nowrap">
+                                                            <span class="text-gray-400">绑定</span>
+                                                            <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformBindingText(account) }}</span>
+                                                        </span>
+                                                        <span class="rounded-md bg-white/80 border border-blue-50 px-2 py-1 whitespace-nowrap">
+                                                            <span class="text-gray-400">登录</span>
+                                                            <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformLoginText(account) }}</span>
+                                                        </span>
+                                                    </div>
+                                                    <div class="mt-2 truncate text-[11px] text-gray-500" :title="account.accountStoreText">平台门店：{{ account.accountStoreText || '-' }}</div>
+                                                    <div class="mt-1 flex items-center justify-between gap-2 text-[11px]">
+                                                        <span class="text-gray-500 truncate">最近采集 {{ account.lastCaptureText }}</span>
+                                                        <span :class="account.captureStatusClass" class="rounded-md border px-1.5 py-0.5 whitespace-nowrap">{{ account.captureStatusText }}</span>
+                                                    </div>
+                                                    <div class="mt-1 text-[11px] text-gray-500">模块 {{ hotelPlatformModuleText(account) }}</div>
+                                                </div>
+                                            </td>
+                                            <td class="px-4 py-4 w-[20%]">
+                                                <div v-for="account in [hotelPlatformRow(hotel, 'meituan')]" :key="`${hotel.id}-meituan-status`"
+                                                    class="rounded-lg border border-orange-100 bg-orange-50/30 p-3 text-xs">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <div class="flex items-center gap-2 min-w-0">
+                                                            <span :class="account.iconClass" class="w-7 h-7 rounded-md flex items-center justify-center shrink-0 text-xs">
+                                                                <i :class="account.icon"></i>
+                                                            </span>
+                                                            <span class="font-semibold text-gray-900">{{ account.label }}</span>
+                                                        </div>
+                                                        <span :class="account.statusClass" class="shrink-0 px-2 py-0.5 rounded-md border text-[11px] whitespace-nowrap">{{ hotelPlatformLoginText(account) }}</span>
+                                                    </div>
+                                                    <div class="mt-2 flex flex-wrap gap-1.5">
+                                                        <span class="rounded-md bg-white/80 border border-orange-50 px-2 py-1 whitespace-nowrap">
+                                                            <span class="text-gray-400">绑定</span>
+                                                            <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformBindingText(account) }}</span>
+                                                        </span>
+                                                        <span class="rounded-md bg-white/80 border border-orange-50 px-2 py-1 whitespace-nowrap">
+                                                            <span class="text-gray-400">登录</span>
+                                                            <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformLoginText(account) }}</span>
+                                                        </span>
+                                                    </div>
+                                                    <div class="mt-2 truncate text-[11px] text-gray-500" :title="account.accountStoreText">平台门店：{{ account.accountStoreText || '-' }}</div>
+                                                    <div class="mt-1 flex items-center justify-between gap-2 text-[11px]">
+                                                        <span class="text-gray-500 truncate">最近采集 {{ account.lastCaptureText }}</span>
+                                                        <span :class="account.captureStatusClass" class="rounded-md border px-1.5 py-0.5 whitespace-nowrap">{{ account.captureStatusText }}</span>
+                                                    </div>
+                                                    <div class="mt-1 text-[11px] text-gray-500">模块 {{ hotelPlatformModuleText(account) }}</div>
+                                                </div>
+                                            </td>
+                                            <td class="px-4 py-4 w-[18%]">
+                                                <div v-if="hotelIssueRows(hotel).length" class="space-y-1.5">
+                                                    <div v-for="issue in hotelIssueRows(hotel)" :key="`${hotel.id}-${issue.key}`"
+                                                        :class="issue.className"
+                                                        class="rounded-md border px-2.5 py-1.5 text-xs">
+                                                        <div class="font-semibold">{{ issue.label }}</div>
+                                                        <div class="mt-0.5 leading-4">{{ issue.text }}</div>
+                                                    </div>
+                                                </div>
+                                                <div v-else class="rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700">
+                                                    账号、登录和采集链路正常
+                                                </div>
+                                            </td>
+                                            <td class="px-4 py-4 w-[16%] text-right">
+                                                <div v-if="canManageOwnHotels()" class="space-y-2">
+                                                    <button v-if="!['正常', '-'].includes(hotelNextAction(hotel).text)" type="button"
+                                                        @click="openHotelNextAction(hotel)"
+                                                        :class="hotelNextAction(hotel).className"
+                                                        class="w-full rounded-lg border px-3 py-2 text-xs font-semibold hover:shadow-sm">
+                                                        处理：{{ hotelNextAction(hotel).text }}
                                                     </button>
-                                                    <button v-if="user?.is_super_admin" type="button" @click="openHotelManualFetchConfig(hotel, 'ctrip')"
-                                                        class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-white text-xs text-blue-700 hover:bg-blue-50">
-                                                        携程配置
+                                                    <button v-else type="button" @click="openHotelModal(hotel, { expandOta: true })"
+                                                        class="w-full rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100">
+                                                        维护账号
                                                     </button>
-                                                    <button v-if="user?.is_super_admin" type="button" @click="openHotelManualFetchConfig(hotel, 'meituan')"
-                                                        class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-orange-100 bg-white text-xs text-orange-700 hover:bg-orange-50">
-                                                        美团配置
-                                                    </button>
-                                                    <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">编辑</button>
-                                                    <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
-                                                    <button type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-red-100 bg-white text-xs text-red-600 hover:bg-red-50">删除</button>
+                                                    <div v-if="user?.is_super_admin" class="grid grid-cols-2 gap-1.5">
+                                                        <button type="button" @click="openHotelManualFetchConfig(hotel, 'ctrip')"
+                                                            class="whitespace-nowrap rounded-lg border border-blue-100 bg-white px-2 py-1.5 text-xs text-blue-700 hover:bg-blue-50">
+                                                            携程配置
+                                                        </button>
+                                                        <button type="button" @click="openHotelManualFetchConfig(hotel, 'meituan')"
+                                                            class="whitespace-nowrap rounded-lg border border-orange-100 bg-white px-2 py-1.5 text-xs text-orange-700 hover:bg-orange-50">
+                                                            美团配置
+                                                        </button>
+                                                    </div>
+                                                    <div class="flex flex-wrap justify-end gap-1.5">
+                                                        <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">编辑</button>
+                                                        <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
+                                                        <button type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-red-100 bg-white text-xs text-red-600 hover:bg-red-50">删除</button>
+                                                    </div>
                                                 </div>
                                             </td>
                                         </tr>
@@ -4139,27 +4185,36 @@
                                                     {{ hotelNextAction(hotel).text }}
                                                 </span>
                                             </div>
-                                            <div class="mt-2 flex flex-wrap gap-1.5 text-xs text-gray-500">
-                                                <span class="rounded bg-gray-50 border border-gray-100 px-2 py-0.5">编码 {{ hotel.code || '未设置' }}</span>
-                                                <span class="rounded bg-gray-50 border border-gray-100 px-2 py-0.5">ID {{ hotel.id || '-' }}</span>
+                                            <div class="mt-2 space-y-1 text-xs">
+                                                <div class="rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                                                    <span class="text-gray-400">ID</span>
+                                                    <span class="ml-1 font-semibold text-gray-800">{{ hotel.id || '-' }}</span>
+                                                </div>
+                                                <div class="rounded-md border border-gray-100 bg-gray-50 px-2 py-1 min-w-0">
+                                                    <span class="text-gray-400">负责人</span>
+                                                    <span class="ml-1 font-semibold text-gray-800 truncate" :title="hotelOwnerText(hotel)">{{ hotelOwnerText(hotel) }}</span>
+                                                </div>
+                                                <div class="rounded-md border border-gray-100 bg-gray-50 px-2 py-1 text-gray-500">
+                                                    编码 {{ hotel.code || '未设置' }}
+                                                </div>
                                             </div>
                                         </div>
-                                        <div v-if="canManageOwnHotels()" class="shrink-0 max-w-[160px] flex flex-wrap justify-end gap-1">
-                                            <button type="button" @click="openHotelModal(hotel, { expandOta: true })"
-                                                class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs font-medium text-blue-700 hover:bg-blue-100">
-                                                账号
+                                        <div v-if="canManageOwnHotels()" class="shrink-0 w-[128px] space-y-1.5">
+                                            <button v-if="!['正常', '-'].includes(hotelNextAction(hotel).text)" type="button"
+                                                @click="openHotelNextAction(hotel)"
+                                                :class="hotelNextAction(hotel).className"
+                                                class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold">
+                                                {{ hotelNextAction(hotel).text }}
                                             </button>
-                                            <button v-if="user?.is_super_admin" type="button" @click="openHotelManualFetchConfig(hotel, 'ctrip')"
-                                                class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-white text-xs text-blue-700">
-                                                携程配置
+                                            <button v-else type="button" @click="openHotelModal(hotel, { expandOta: true })"
+                                                class="w-full whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs font-medium text-blue-700">
+                                                维护账号
                                             </button>
-                                            <button v-if="user?.is_super_admin" type="button" @click="openHotelManualFetchConfig(hotel, 'meituan')"
-                                                class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-orange-100 bg-white text-xs text-orange-700">
-                                                美团配置
-                                            </button>
-                                            <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">编辑</button>
-                                            <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
-                                            <button type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-red-100 bg-white text-xs text-red-600">删除</button>
+                                            <div class="flex flex-wrap justify-end gap-1">
+                                                <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">编辑</button>
+                                                <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
+                                                <button type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-red-100 bg-white text-xs text-red-600">删除</button>
+                                            </div>
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -4172,15 +4227,26 @@
                                                     </span>
                                                     <div class="min-w-0">
                                                         <div class="text-xs font-semibold text-gray-800">{{ account.label }}</div>
-                                                        <div class="text-xs text-gray-500 truncate">{{ account.accountStoreText }}</div>
+                                                        <div class="text-xs text-gray-500 truncate">平台门店：{{ account.accountStoreText || '-' }}</div>
                                                     </div>
                                                 </div>
-                                                <span :class="account.statusClass" class="px-2 py-0.5 rounded-md border text-xs whitespace-nowrap">{{ account.statusText }}</span>
+                                                <span :class="account.statusClass" class="px-2 py-0.5 rounded-md border text-xs whitespace-nowrap">{{ hotelPlatformLoginText(account) }}</span>
+                                            </div>
+                                            <div class="mt-2 flex flex-wrap gap-1.5 text-xs">
+                                                <span class="rounded-md bg-white border border-gray-100 px-2 py-1 whitespace-nowrap">
+                                                    <span class="text-gray-400">绑定</span>
+                                                    <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformBindingText(account) }}</span>
+                                                </span>
+                                                <span class="rounded-md bg-white border border-gray-100 px-2 py-1 whitespace-nowrap">
+                                                    <span class="text-gray-400">登录</span>
+                                                    <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformLoginText(account) }}</span>
+                                                </span>
                                             </div>
                                             <div class="mt-2 flex items-center justify-between gap-2 text-xs">
                                                 <span class="text-gray-500">采集 {{ account.lastCaptureText }}</span>
                                                 <span :class="account.captureStatusClass" class="rounded-md border px-2 py-0.5 whitespace-nowrap">{{ account.captureStatusText }}</span>
                                             </div>
+                                            <div class="mt-1 text-[11px] text-gray-500">模块 {{ hotelPlatformModuleText(account) }}</div>
                                             <div v-if="account.captureStatusText === '最近采集失败'" class="mt-1 text-[11px] text-gray-400 truncate">成功 {{ account.lastSuccessText }}</div>
                                             <div v-if="account.reasonText" class="mt-1 truncate text-xs"
                                                 :class="account.statusCode === 'login_expired' || account.statusCode === 'mismatch' || account.captureStatusText === '最近采集失败' ? 'text-red-600' : 'text-amber-700'"
@@ -4273,25 +4339,29 @@
                         </div>
                     </div>
 
-                    <!-- 酒店收益管理研究中心 -->
-                    <div v-if="currentPage === 'revenue-research-center'" class="max-w-7xl mx-auto space-y-6">
+                    <!-- 收益分析 -->
+                    <div v-if="currentPage === 'revenue-research-center'" class="max-w-7xl mx-auto space-y-4">
                         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
                             <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                                 <div>
-                                    <div class="text-sm font-medium text-blue-600 mb-1">酒店收益管理研究中心</div>
-                                    <h2 class="text-2xl font-bold text-gray-900">模型与算法建议</h2>
-                                    <p class="text-sm text-gray-500 mt-2 max-w-4xl leading-relaxed">
-                                        从算法角度看，真正应该追求的不是“模型最复杂”，而是“模型能嵌进运营动作”。酒店收益管理研究长期把需求预测、细分定价、动态价格、取消预测与净需求管理视为核心；在线实验和因果推断方法则适合评估活动、定价策略和流量分配的增量效果。
+                                    <div class="text-sm font-medium text-blue-600 mb-1">收益分析</div>
+                                    <h2 class="text-2xl font-bold text-gray-900">已有信息预测</h2>
+                                    <p class="text-sm text-gray-500 mt-2 max-w-3xl leading-relaxed">
+                                        只读取本地已有 OTA 与经营记录；缺字段、未接入、置信度不足直接显示，不推断全酒店经营结果。
                                     </p>
                                 </div>
-                                <div class="grid grid-cols-2 gap-2 text-sm">
+                                <div class="grid grid-cols-3 gap-2 text-sm">
                                     <div class="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
-                                        <div class="text-blue-500 text-xs mb-1">覆盖范围</div>
-                                        <div class="font-semibold text-blue-900">进阶产品</div>
+                                        <div class="text-blue-500 text-xs mb-1">口径</div>
+                                        <div class="font-semibold text-blue-900">OTA/本地经营</div>
                                     </div>
                                     <div class="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
-                                        <div class="text-gray-400 text-xs mb-1">评价口径</div>
-                                        <div class="font-semibold text-gray-800">OTA 场景指标</div>
+                                        <div class="text-gray-400 text-xs mb-1">输出</div>
+                                        <div class="font-semibold text-gray-800">缺口/风险/动作</div>
+                                    </div>
+                                    <div class="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3">
+                                        <div class="text-amber-600 text-xs mb-1">边界</div>
+                                        <div class="font-semibold text-amber-900">不自动写 OTA</div>
                                     </div>
                                 </div>
                             </div>
@@ -4300,8 +4370,8 @@
                         <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                             <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 mb-5">
                                 <div>
-                                    <h3 class="font-semibold text-gray-900">经营预测工作台</h3>
-                                    <p class="text-xs text-gray-500 mt-1">点击产品方向后，系统自动读取本地经营数据和已有信息，默认调用 DeepSeek 生成酒店生意预测、风险信号和运营动作。</p>
+                                    <h3 class="font-semibold text-gray-900">可执行分析</h3>
+                                    <p class="text-xs text-gray-500 mt-1">选择门店和分析方向后，仅基于现有可读数据生成预测；无数据时返回缺口。</p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2">
                                     <select v-model="revenueResearchHotelId" class="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 min-w-[180px]">
@@ -4309,13 +4379,13 @@
                                         <option v-for="hotel in revenueResearchHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                     </select>
                                     <span class="px-3 py-2 rounded-lg border border-blue-100 bg-blue-50 text-sm text-blue-700">
-                                        <i class="fas fa-bolt mr-1.5"></i>默认模型 DeepSeek
+                                        <i class="fas fa-database mr-1.5"></i>读取已有信息
                                     </span>
                                 </div>
                             </div>
 
-                            <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                                <div v-for="product in revenueResearchProducts" :key="product.key" class="rounded-xl border border-gray-100 bg-gray-50/60 p-4">
+                            <div class="columns-1 gap-4 xl:columns-2">
+                                <div v-for="product in revenueResearchProducts" :key="product.key" class="mb-4 break-inside-avoid rounded-xl border border-gray-100 bg-gray-50/60 p-4">
                                     <div class="flex items-start justify-between gap-3 mb-3">
                                         <div>
                                             <div class="font-semibold text-gray-900">{{ product.name }}</div>
@@ -4326,22 +4396,11 @@
                                         </span>
                                     </div>
 
-                                    <div class="space-y-2 text-xs text-gray-600">
-                                        <div class="rounded-lg bg-white border border-gray-100 p-3">
-                                            <div class="font-medium text-gray-800 mb-1">预测参考</div>
-                                            <div class="leading-relaxed">{{ product.searchQuery }}</div>
-                                        </div>
-                                        <div class="rounded-lg bg-white border border-gray-100 p-3">
-                                            <div class="font-medium text-gray-800 mb-1">AI 任务</div>
-                                            <div class="leading-relaxed">{{ product.aiTask }}</div>
-                                        </div>
-                                        <div class="rounded-lg bg-white border border-gray-100 p-3">
-                                            <div class="font-medium text-gray-800 mb-1">系统落点</div>
-                                            <div class="leading-relaxed">{{ product.moduleLabel }}</div>
-                                        </div>
+                                    <div class="rounded-lg bg-white border border-gray-100 px-3 py-2 text-xs text-gray-600">
+                                        <span class="font-medium text-gray-800">落点：</span>{{ product.moduleLabel || '暂未接入' }}
                                     </div>
 
-                                    <div class="flex flex-wrap gap-2 mt-4">
+                                    <div class="mt-4 flex flex-wrap gap-2">
                                         <button @click="runRevenueResearchProduct(product)" :disabled="revenueResearchRunFor(product.key).loading" :data-testid="'button-revenue-research-run-' + product.key"
                                             :class="['px-3 py-2 rounded-lg text-sm text-white transition', revenueResearchRunFor(product.key).loading ? 'bg-blue-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700']">
                                             <i :class="[revenueResearchRunFor(product.key).loading ? 'fas fa-spinner fa-spin' : 'fas fa-play', 'mr-1.5']"></i>{{ revenueResearchRunFor(product.key).loading ? '预测中...' : '开始预测' }}
@@ -4352,10 +4411,10 @@
                                         </button>
                                     </div>
 
-                                    <div v-if="revenueResearchRunFor(product.key).loading || revenueResearchRunFor(product.key).result || revenueResearchRunFor(product.key).error" class="mt-4 rounded-xl border border-gray-100 bg-white p-4 space-y-4">
-                                        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    <div v-if="revenueResearchRunFor(product.key).loading || revenueResearchRunFor(product.key).result || revenueResearchRunFor(product.key).error" class="mt-4 rounded-xl border border-gray-100 bg-white p-3 space-y-3">
+                                        <div class="grid grid-cols-2 gap-2">
                                             <div v-for="(step, index) in revenueResearchSteps" :key="step"
-                                                :class="['rounded-lg border px-3 py-2 text-xs', revenueResearchStepClass(revenueResearchRunFor(product.key), index)]">
+                                                :class="['rounded-lg border px-2.5 py-1.5 text-xs', revenueResearchStepClass(revenueResearchRunFor(product.key), index)]">
                                                 <i :class="[revenueResearchStepIcon(revenueResearchRunFor(product.key), index), 'mr-1.5']"></i>{{ step }}
                                             </div>
                                         </div>
@@ -4377,7 +4436,7 @@
                                                 <div class="mt-1">{{ revenueResearchMissingText(revenueResearchRunFor(product.key).result.readiness) }}</div>
                                                 <div class="mt-1 text-blue-700">下一步：{{ revenueResearchRunFor(product.key).result.readiness.next_action }}</div>
                                             </div>
-                                            <p class="text-sm text-gray-700 leading-relaxed">{{ revenueResearchRunFor(product.key).result.result?.summary || '已生成经营预测。' }}</p>
+                                            <p class="line-clamp-4 text-sm leading-relaxed text-gray-700" :title="revenueResearchRunFor(product.key).result.result?.summary || '已生成经营预测。'">{{ revenueResearchRunFor(product.key).result.result?.summary || '已生成经营预测。' }}</p>
                                             <div v-if="revenueResearchForecastCards(revenueResearchRunFor(product.key).result).length" class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                                 <div v-for="card in revenueResearchForecastCards(revenueResearchRunFor(product.key).result)" :key="card.label" class="rounded-lg bg-blue-50 border border-blue-100 p-3">
                                                     <div class="text-xs text-blue-700 mb-1">{{ card.label }}</div>
@@ -4419,13 +4478,8 @@
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div v-if="(revenueResearchRunFor(product.key).result.web_sources || []).length" class="rounded-lg bg-blue-50 border border-blue-100 p-3">
-                                                <div class="font-medium text-blue-900 text-xs mb-2">联网引用</div>
-                                                <div class="flex flex-col gap-1">
-                                                    <a v-for="source in (revenueResearchRunFor(product.key).result.web_sources || []).slice(0, 4)" :key="source.url" :href="source.url" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-700 hover:underline truncate">
-                                                        {{ source.title || source.url }}
-                                                    </a>
-                                                </div>
+                                            <div v-if="(revenueResearchRunFor(product.key).result.web_sources || []).length" class="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700">
+                                                外部引用 {{ revenueResearchRunFor(product.key).result.web_sources.length }} 条；默认判断仍以本地已有信息和缺口状态为准。
                                             </div>
                                             <div class="rounded-lg bg-slate-50 border border-slate-100 p-3 text-xs text-slate-700">
                                                 预测口径：{{ revenueResearchRunFor(product.key).result.business_forecast?.method || '本地经营数据 + AI 分析' }}；置信度：{{ revenueResearchRunFor(product.key).result.business_forecast?.confidence || '待补数据' }}
@@ -4434,101 +4488,6 @@
                                     </div>
                                 </div>
                             </div>
-                        </div>
-
-                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                            <div class="px-5 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-                                <div>
-                                    <h3 class="font-semibold text-gray-900">进阶产品算法清单</h3>
-                                    <p class="text-xs text-gray-500 mt-1">每一项都按酒店 OTA 场景给出输入特征、评价指标和优先采用条件。</p>
-                                </div>
-                                <span class="text-xs text-gray-400">8 个产品方向</span>
-                            </div>
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-sm table-fixed" style="min-width: 1420px;">
-                                    <colgroup>
-                                        <col style="width: 150px;">
-                                        <col style="width: 330px;">
-                                        <col style="width: 330px;">
-                                        <col style="width: 230px;">
-                                        <col style="width: 380px;">
-                                    </colgroup>
-                                    <thead class="bg-gray-50 text-gray-500">
-                                        <tr>
-                                            <th class="px-4 py-3 text-left font-medium">进阶产品</th>
-                                            <th class="px-4 py-3 text-left font-medium">可选算法与方法</th>
-                                            <th class="px-4 py-3 text-left font-medium">关键输入特征</th>
-                                            <th class="px-4 py-3 text-left font-medium">推荐评价指标</th>
-                                            <th class="px-4 py-3 text-left font-medium">何时优先采用</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-gray-100 bg-white text-gray-600">
-                                        <tr class="hover:bg-blue-50/30">
-                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">需求预测</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">基线先做 Seasonal Naive、ETS/SARIMAX/Prophet；主力做 XGBoost/LightGBM；多酒店场景建议层级预测；高频大样本后再考虑 TFT/LSTM。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">stay_date、lead_time、预订节奏、房价、库存、限制条件、节假日、竞对调价、市场热度、点评分、取消修正。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">WAPE、sMAPE、RMSE、Bias、分提前期误差、分入住日误差。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">当已经有连续 6-12 个月日级订单、价格和库存快照时。文献显示 ML、聚类 stay-date 思路和市场驱动框架都适合酒店需求预测。</td>
-                                        </tr>
-                                        <tr class="hover:bg-blue-50/30">
-                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">取消率预测</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">Logistic Regression 做可解释基线；XGBoost/LightGBM/CatBoost 做主力；若要预测“何时取消”，可加 Survival/Hazard 模型。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">提前预订天数、取消规则、是否可免费取消、房价、价型、房型、节假日、入住天数、历史取消率、设备/渠道、是否协议价。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">PR-AUC、ROC-AUC、Recall@TopK、Brier Score、预警命中率、可回收间夜。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">当取消率高、免费取消较多、旺季错失收益明显时优先。研究已明确取消预测能直连净需求管理与超售控制。</td>
-                                        </tr>
-                                        <tr class="hover:bg-blue-50/30">
-                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">价格弹性与收益管理</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">先做对数需求回归和分客群弹性；样本稀疏时用层级贝叶斯；竞价和活动效果可加 Causal Forest；调价执行层可接约束优化或 contextual bandit。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">价格、竞对价格、历史销量、库存、节假日、入住提前期、房型容量、市场热度、点评质量。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">弹性稳定性、增量 RevPAR、增量毛利、约束违例率、策略 regret。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">当价格日调、人治经验强、不同周末/节假日表现差异大时优先。文献显示酒店动态定价与弹性仿真、约束优化可直接服务收益管理。</td>
-                                        </tr>
-                                        <tr class="hover:bg-blue-50/30">
-                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">渠道归因与增量评估</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">站内先做规则归因；站外投放优先 A/B 测试；实验灵敏度用 CUPED；自然实验场景可用 DiD 或 BSTS。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">曝光、点击、访问、订单、活动开关、实验分组、历史协变量、广告成本。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">增量 lift、置信区间、MDE、CAC、ROI、因果估计稳定性。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">当准备评估“活动到底有没有带来增量”而不是只看相关性时优先。CUPED 可降低方差，DiD 适合非随机策略评估。</td>
-                                        </tr>
-                                        <tr class="hover:bg-blue-50/30">
-                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">客群细分</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">RFM 打底；K-Means/GMM 做可运营聚类；分布不规则可用 HDBSCAN；若目标是预测响应，则加 propensity/model-based segmentation。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">订单频次、最近一次入住、客单价、提前期、房型偏好、城市、设备、点评、退改行为。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">Silhouette、Calinski-Harabasz、分群稳定性、分群价值差、运营可解释性。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">当要做定向促销、差异化价格、复购运营时优先。客户价值研究普遍支持先分层、再做价值测量。</td>
-                                        </tr>
-                                        <tr class="hover:bg-blue-50/30">
-                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">LTV 预测</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">历史较短时可用 BG/NBD + Gamma-Gamma；行为维度丰富时以 Gradient Boosting/Survival Regression 为主；企业级可加分层贝叶斯。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">首单来源、订单频率、间隔、客单价、取消退款、点评质量、出行频率、设备/渠道、地区。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">MAE、RMSE、Decile Lift、Calibration、分群命中率。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">当要反推获客上限、会员权益或高价值客群优先级时优先。GA 也把用户终身价值作为单独分析对象。</td>
-                                        </tr>
-                                        <tr class="hover:bg-blue-50/30">
-                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">异常检测</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">规则阈值 + STL/ESD 做第一层；多变量再上 Isolation Forest 或 One-Class SVM；根因分析配合 SHAP/贡献拆解。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">小时订单、库存、价格、转换率、广告投放、服务质量、接口耗时、失败码。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">Precision、Recall、误报率、平均发现时间、平均恢复时间。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">当先需要一个可运营预警系统，而不是一个“学术最优分类器”时优先。</td>
-                                        </tr>
-                                        <tr class="hover:bg-blue-50/30">
-                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">服务质量与转化缺口识别</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">规则阈值 + 趋势对比 + 转化漏斗归因；样本足够后再接入多变量异常检测。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">服务质量分、PSI、曝光、访问、转化率、订单、广告消耗、接口状态。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">转化提升率、异常召回率、误报率、整改完成率、复核通过率。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">当不采集点评文本，但仍需要解释服务质量对 OTA 转化和收入的影响时优先。</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-                            <h3 class="font-semibold text-gray-900 mb-3">落地取向</h3>
-                            <p class="text-sm text-gray-600 leading-relaxed">
-                                更具体地说，需求预测不应只预测一个“总销量”，而要至少做入住日 × 提前期的二维预测；取消率预测不应只优化 AUC，而应优化“被预警订单能回收多少净间夜”；价格弹性模型不能只做静态回归，而要嵌入库存、竞对价格和日历限制；LTV 模型则需要和获客成本、复购触达一起使用，否则只是一个孤立分数。这个取向和酒店收益管理研究中“需求预测—取消修正—弹性定价—容量分配”的运营链条一致。
-                            </p>
                         </div>
                     </div>
 
@@ -4776,20 +4735,36 @@
                                             <td class="px-6 py-4">
                                                 <span :class="String(u?.status) === '1' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
                                                     class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
-                                                    {{ String(u?.status) === '1' ? '正常' : '停用' }}
+                                                    {{ String(u?.status) === '1' ? '正常' : '待审核/暂停' }}
                                                 </span>
                                             </td>
                                             <td class="px-6 py-4">
                                                 <div class="flex items-center gap-2">
+                                                    <button v-if="u && String(u?.status) !== '1' && (user?.is_super_admin)"
+                                                        @click="approveUser(u)"
+                                                        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 transition-colors text-xs font-medium"
+                                                        title="审核通过并启用账号">
+                                                        <i class="fas fa-check text-xs"></i>
+                                                        <span>审核通过</span>
+                                                    </button>
+                                                    <button v-if="u && String(u?.status) === '1' && u.id !== user?.id && (user?.is_super_admin)"
+                                                        @click="deactivateUser(u)"
+                                                        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors text-xs font-medium"
+                                                        title="暂停账号">
+                                                        <i class="fas fa-ban text-xs"></i>
+                                                        <span>暂停账户</span>
+                                                    </button>
                                                     <button v-if="u && (user?.is_super_admin)"
                                                         @click="openUserModal(u)"
-                                                        class="p-1.5 text-blue-500 hover:bg-blue-100 rounded transition-colors" title="编辑">
+                                                        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-xs font-medium" title="编辑">
                                                         <i class="fas fa-edit text-sm"></i>
+                                                        <span>编辑</span>
                                                     </button>
                                                     <button v-if="u && u.id !== user?.id && (user?.is_super_admin)"
                                                         @click="deleteUser(u)"
-                                                        class="p-1.5 text-red-500 hover:bg-red-100 rounded transition-colors" title="删除">
-                                                        <i class="fas fa-trash-alt text-sm"></i>
+                                                        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 transition-colors text-xs font-medium" title="删除账号">
+                                                        <i class="fas fa-trash-alt text-xs"></i>
+                                                        <span>删除</span>
                                                     </button>
                                                 </div>
                                             </td>
@@ -4906,15 +4881,14 @@
                     </div>
 
                     <!-- Revenue AI 首页壳 -->
-                    <div v-if="currentPage === 'compass'" class="compass-dashboard suxi-dashboard-scope">
+                    <div v-if="currentPage === 'ai-workbench' || currentPage === 'compass'" class="compass-dashboard suxi-dashboard-scope">
                         <div class="compass-shell-card suxi-panel mb-6 overflow-hidden">
-                            <div class="suxi-cockpit-header px-4 py-4 sm:px-5 lg:px-6" data-testid="home-cockpit-header">
-                                <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                            <div class="hidden" data-testid="home-cockpit-header">
+                                <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                                     <div class="min-w-0">
-                                        <div class="text-[11px] font-semibold tracking-[0.14em] text-blue-100/80">TODAY OPERATING WORKBENCH</div>
-                                        <div class="mt-1 text-xl sm:text-2xl font-semibold text-white leading-tight">今日经营工作台</div>
-                                        <div class="mt-2 max-w-3xl text-sm leading-6 text-blue-100">{{ homeMinimalWorkbench.boundaryText }}</div>
-                                        <div class="mt-3 grid grid-cols-1 gap-2 text-xs sm:flex sm:flex-wrap" data-testid="home-header-signal-row">
+                                        <div class="text-xl sm:text-2xl font-semibold text-white leading-tight">AI工作台<span class="sr-only">今日经营工作台</span></div>
+                                        <div class="mt-1 max-w-2xl text-sm leading-6 text-blue-100">{{ homeMinimalWorkbench.boundaryText }}</div>
+                                        <div class="mt-2 grid grid-cols-1 gap-2 text-xs sm:flex sm:flex-wrap" data-testid="home-header-signal-row">
                                             <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
                                                 <span class="text-blue-200">数据</span>
                                                 <span class="ml-1 font-semibold text-white">{{ compassDataReadiness.summaryText }}</span>
@@ -4923,64 +4897,338 @@
                                                 <span class="text-blue-200">动作</span>
                                                 <span class="ml-1 font-semibold text-white">{{ homeBoardActionRows[0]?.title || '复核数据' }}</span>
                                             </span>
+                                            <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">{{ homeMinimalWorkbench.latestText }}</span>
                                         </div>
                                     </div>
-                                    <div class="flex flex-col gap-2 w-full xl:w-auto lg:flex-row lg:items-center">
-                                        <select v-model="filterReportHotel" class="input-field w-full lg:w-56 bg-white text-gray-900 border-gray-300">
+                                    <div class="flex flex-col gap-2 w-full xl:w-auto sm:flex-row sm:items-center">
+                                        <select v-model="filterReportHotel" class="input-field w-full sm:w-48 bg-white text-gray-900 border-gray-300">
                                             <option value="">全部门店</option>
                                             <option v-for="hotel in compassHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                         </select>
-                                        <div class="rounded-lg border border-gray-700 bg-gray-800/90 px-3 py-1.5 text-xs text-gray-300 leading-5">
-                                            <span>{{ homeMinimalWorkbench.latestText }}</span>
-                                        </div>
                                         <button @click="refreshCompassDashboard" :disabled="compassLoading" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60 whitespace-nowrap">
                                             <i :class="compassLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ compassLoading ? '更新中' : '刷新状态' }}
                                         </button>
                                     </div>
                                 </div>
                             </div>
-                            <div class="px-4 py-4 lg:px-6 bg-slate-50 space-y-4">
-                                <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="home-executive-answer">
-                                    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div class="flex flex-col gap-3 bg-[#f2eadc] px-4 py-4 lg:px-6">
+                                <div v-if="currentPage === 'compass'" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="home-executive-answer">
+                                    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                                         <div class="min-w-0">
-                                            <div class="text-xs font-semibold text-slate-500">最小经营闭环</div>
-                                            <div class="mt-1 text-xl font-bold leading-tight text-slate-950">今天先抓：{{ homeExecutiveAnswer.primaryFocus }}</div>
-                                            <div class="mt-2 text-sm leading-6 text-slate-500">{{ homeExecutiveAnswer.scopeText }}</div>
+                                            <div class="text-xs font-semibold text-slate-500">今天只做一件事</div>
+                                            <div class="mt-1 text-2xl font-bold leading-tight text-slate-950">{{ homeExecutiveAnswer.primaryFocus }}</div>
+                                            <div class="mt-2 text-sm leading-6 text-slate-600">{{ homeMinimalWorkbench.nextStepText }}</div>
                                         </div>
-                                        <span :class="['w-fit rounded-full border px-3 py-1 text-xs font-semibold whitespace-nowrap', homeMinimalWorkbench.statusClass]">{{ homeMinimalWorkbench.statusLabel }}</span>
+                                        <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+                                            <span :class="['w-fit rounded-full border px-3 py-1 text-xs font-semibold whitespace-nowrap', homeMinimalWorkbench.statusClass]">{{ homeMinimalWorkbench.statusLabel }}</span>
+                                            <button type="button" @click="openHomeQuickEntry(homeMinimalWorkbench.primaryEntry)" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+                                                {{ homeMinimalWorkbench.primaryActionLabel }}<i class="fas fa-arrow-right ml-2 text-xs"></i>
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-4">
+                                    <div class="mt-4 flex flex-wrap gap-2">
                                         <button
                                             v-for="card in homeExecutiveAnswer.cards"
                                             :key="card.key"
                                             type="button"
                                             @click="openHomeQuickEntry(card.entry)"
-                                            class="min-h-[132px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left transition hover:border-blue-200 hover:bg-white hover:shadow-sm"
+                                            class="inline-flex max-w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-left transition hover:border-blue-200 hover:bg-white"
+                                            :title="`${card.label}：${card.value}；${card.note}`"
                                         >
-                                            <div class="flex items-start justify-between gap-3">
-                                                <div class="min-w-0">
-                                                    <div class="text-xs font-semibold text-slate-500">{{ card.label }}</div>
-                                                    <div class="mt-2 line-clamp-2 text-lg font-bold leading-6 text-slate-950" :title="card.value">{{ card.value }}</div>
-                                                </div>
-                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', card.badgeClass]">{{ card.badge }}</span>
-                                            </div>
-                                            <div class="mt-3 line-clamp-3 text-xs leading-5 text-slate-500" :title="card.note">{{ card.note }}</div>
+                                            <span class="text-[11px] font-semibold text-slate-500">{{ card.label }}</span>
+                                            <span class="max-w-[12rem] truncate text-xs font-bold text-slate-950">{{ card.value }}</span>
+                                            <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', card.badgeClass]">{{ card.badge }}</span>
                                         </button>
                                     </div>
-                                    <div class="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-3 text-sm leading-6 text-amber-900 lg:grid-cols-2">
-                                        <div>
-                                            <div class="text-xs font-semibold text-amber-700">当前阻断</div>
-                                            <div class="mt-1 font-semibold">{{ homeMinimalWorkbench.blockerText }}</div>
-                                            <div class="mt-1 text-xs leading-5 text-amber-700">{{ homeMinimalWorkbench.blockerNote }}</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-xs font-semibold text-amber-700">下一步</div>
-                                            <div class="mt-1 font-semibold">{{ homeMinimalWorkbench.nextStepText }}</div>
-                                            <div class="mt-1 text-xs leading-5 text-amber-700">缺失、未验证、待采集状态直接显示，不生成假预测或假建议。</div>
-                                        </div>
+                                    <div class="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                        <span class="font-semibold">阻断：</span>{{ homeMinimalWorkbench.blockerText }}
+                                        <span class="mx-2 text-amber-300">/</span>
+                                        <span>{{ homeMinimalWorkbench.blockerNote }}</span>
                                     </div>
                                 </div>
-                                <details class="suxi-evidence-fold" data-testid="home-full-detail-fold">
+                                <div v-if="currentPage === 'ai-workbench'" class="dual-ota-home order-first" data-testid="home-ai-workbench">
+                                    <section class="dual-ota-header" data-testid="dual-ota-dashboard-header">
+                                        <div class="dual-ota-brand">
+                                            <div class="dual-ota-logo">OS</div>
+                                            <div class="min-w-0">
+                                                <div class="dual-ota-kicker">SUXIOS MVP</div>
+                                                <h1>{{ dualOtaDashboard.brand.name }} | {{ dualOtaDashboard.brand.pageTitle }}</h1>
+                                                <p>{{ dualOtaDashboard.brand.subtitle }}</p>
+                                            </div>
+                                        </div>
+                                        <div class="dual-ota-connection-row">
+                                            <span v-for="connection in dualOtaDashboard.connections" :key="connection.name" :class="['dual-ota-status-pill', dualOtaConnectionClass(connection.status)]">
+                                                {{ connection.label }}
+                                            </span>
+                                        </div>
+                                    </section>
+
+                                    <div class="dual-ota-principle" data-testid="dual-ota-design-principle">
+                                        <i class="fas fa-shield-alt"></i>
+                                        <span>{{ dualOtaDashboard.principle }}</span>
+                                    </div>
+
+                                    <section v-if="!dualOtaHasConnectedPlatforms" class="dual-ota-empty" data-testid="dual-ota-empty-state">
+                                        <div>
+                                            <div class="dual-ota-section-index">EmptyState</div>
+                                            <h2>{{ dualOtaDashboard.emptyState.title }}</h2>
+                                            <ol>
+                                                <li v-for="step in dualOtaDashboard.emptyState.steps" :key="step">{{ step }}</li>
+                                            </ol>
+                                        </div>
+                                        <button type="button" class="dual-ota-primary-button" @click="openHomeQuickEntry({ page: 'online-data', tab: 'platform-auto' })">
+                                            {{ dualOtaDashboard.emptyState.cta }}
+                                        </button>
+                                    </section>
+
+                                    <template v-else>
+                                        <section class="dual-ota-hero-grid">
+                                            <article class="dual-ota-card dual-ota-ai-card" data-testid="dual-ota-ai-judgement-card">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <div class="dual-ota-section-index">AI 总判</div>
+                                                        <h2>{{ dualOtaDashboard.aiJudgement.title }}</h2>
+                                                    </div>
+                                                    <span class="dual-ota-evidence-badge">{{ dualOtaDashboard.aiJudgement.evidenceLevel }}</span>
+                                                </div>
+                                                <p class="dual-ota-ai-summary">{{ dualOtaDashboard.aiJudgement.summary }}</p>
+                                                <div class="dual-ota-output-format">
+                                                    <span>输出格式</span>
+                                                    <strong>{{ dualOtaDashboard.aiJudgement.outputFormat }}</strong>
+                                                </div>
+                                                <div class="dual-ota-boundary-note">
+                                                    只基于美团、携程、本店历史数据；不写商圈热度下降、竞对实时降价或自动调价承诺。
+                                                </div>
+                                            </article>
+
+                                            <article class="dual-ota-card" data-testid="dual-ota-data-trust-lighthouse">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <div class="dual-ota-section-index">数据边界</div>
+                                                        <h2>数据可信度灯塔</h2>
+                                                    </div>
+                                                    <i class="fas fa-lightbulb dual-ota-card-icon"></i>
+                                                </div>
+                                                <div class="dual-ota-trust-list">
+                                                    <div v-for="item in dualOtaDashboard.dataTrust" :key="item.name" :class="['dual-ota-trust-item', dualOtaTrustClass(item.status)]" :title="item.description">
+                                                        <div>
+                                                            <strong>{{ item.name }}</strong>
+                                                            <span>{{ item.label }}</span>
+                                                        </div>
+                                                        <div class="dual-ota-trust-tip">{{ item.description }}</div>
+                                                    </div>
+                                                </div>
+                                            </article>
+                                        </section>
+
+                                        <section class="dual-ota-card" data-testid="dual-ota-platform-revenue-structure">
+                                            <div class="dual-ota-card-head">
+                                                <div>
+                                                    <div class="dual-ota-section-index">01</div>
+                                                    <h2>{{ dualOtaDashboard.platformRevenue.title }}</h2>
+                                                    <p>{{ dualOtaDashboard.platformRevenue.subtitle }}</p>
+                                                </div>
+                                                <span class="dual-ota-soft-pill">OTA渠道口径</span>
+                                            </div>
+                                            <div class="dual-ota-revenue-grid">
+                                                <div v-for="platform in dualOtaDashboard.platformRevenue.platforms" :key="platform.id" class="dual-ota-platform-card">
+                                                    <div class="dual-ota-platform-card-top">
+                                                        <span>{{ platform.name }}</span>
+                                                        <strong>{{ platform.revenueText }}</strong>
+                                                    </div>
+                                                    <div class="dual-ota-platform-metrics">
+                                                        <span v-for="metric in platform.metrics" :key="`${platform.id}-${metric.label}`">
+                                                            <em>{{ metric.label }}</em>
+                                                            <b>{{ metric.value }}</b>
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">
+                                                <div class="dual-ota-contribution-track">
+                                                    <span v-for="platform in dualOtaDashboard.platformRevenue.platforms" :key="`${platform.id}-bar`" :class="['dual-ota-contribution-segment', `is-${platform.id}`]" :style="{ width: `${platform.contribution}%` }"></span>
+                                                </div>
+                                                <div class="dual-ota-contribution-text">{{ dualOtaDashboard.platformRevenue.contributionText }}</div>
+                                            </div>
+                                        </section>
+
+                                        <section class="dual-ota-card" data-testid="dual-ota-platform-loss-chain">
+                                            <div class="dual-ota-card-head">
+                                                <div>
+                                                    <div class="dual-ota-section-index">02</div>
+                                                    <h2>{{ dualOtaDashboard.lossChain.title }}</h2>
+                                                    <p>{{ dualOtaDashboard.lossChain.subtitle }}</p>
+                                                </div>
+                                                <div class="dual-ota-control-stack">
+                                                    <div class="dual-ota-segmented" aria-label="平台切换">
+                                                        <button v-for="option in dualOtaDashboard.lossChain.platformOptions" :key="option.value" type="button" :class="['dual-ota-toggle', dualOtaSelectedPlatform === option.value ? 'is-active' : '']" @click="dualOtaSelectedPlatform = option.value">
+                                                            {{ option.label }}
+                                                        </button>
+                                                    </div>
+                                                    <div class="dual-ota-segmented" aria-label="时间切换">
+                                                        <button v-for="option in dualOtaDashboard.lossChain.rangeOptions" :key="option.value" type="button" :class="['dual-ota-toggle', dualOtaSelectedRange === option.value ? 'is-active' : '']" @click="dualOtaSelectedRange = option.value">
+                                                            {{ option.label }}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="dual-ota-loss-chain">
+                                                <button v-for="(node, index) in dualOtaActiveLossNodes" :key="node.id" type="button" :class="['dual-ota-loss-node', dualOtaSeverityClass(node.severity), dualOtaSelectedLossNodeId === node.id ? 'is-selected' : '']" @click="setDualOtaLossNode(node.id)">
+                                                    <span class="dual-ota-node-index">{{ index + 1 }}</span>
+                                                    <span class="dual-ota-node-label">{{ node.label }}</span>
+                                                    <strong>{{ node.value }}</strong>
+                                                    <em>{{ node.delta }}</em>
+                                                </button>
+                                            </div>
+                                            <div class="dual-ota-drilldown">
+                                                <div>
+                                                    <strong>{{ dualOtaSelectedLossExplanation.title }}</strong>
+                                                    <p>{{ dualOtaSelectedLossExplanation.description }}</p>
+                                                </div>
+                                                <div>
+                                                    <span>证据字段</span>
+                                                    <p>{{ dualOtaSelectedLossExplanation.evidence }}</p>
+                                                </div>
+                                                <div>
+                                                    <span>今日动作</span>
+                                                    <p>{{ dualOtaSelectedLossExplanation.action }}</p>
+                                                </div>
+                                            </div>
+                                            <p class="dual-ota-hint">{{ dualOtaDashboard.lossChain.hint }}</p>
+                                        </section>
+
+                                        <div class="dual-ota-two-col">
+                                            <section class="dual-ota-card" data-testid="dual-ota-anomaly-ranking">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <div class="dual-ota-section-index">03</div>
+                                                        <h2>异常贡献排行</h2>
+                                                    </div>
+                                                    <span class="dual-ota-soft-pill">公式 + 证据 + 金额</span>
+                                                </div>
+                                                <div class="dual-ota-anomaly-list">
+                                                    <button v-for="anomaly in dualOtaDashboard.anomalies" :key="anomaly.rank" type="button" :class="['dual-ota-anomaly-row', `rank-${anomaly.rank}`, dualOtaSelectedAnomalyRank === anomaly.rank ? 'is-selected' : '']" @click="setDualOtaAnomaly(anomaly.rank)">
+                                                        <span>{{ anomaly.rank }}</span>
+                                                        <div>
+                                                            <strong>{{ anomaly.title }}</strong>
+                                                            <p>{{ anomaly.description }}</p>
+                                                        </div>
+                                                        <em>{{ anomaly.impactAmount }}</em>
+                                                    </button>
+                                                </div>
+                                                <div class="dual-ota-anomaly-detail">
+                                                    <div><span>问题</span><strong>{{ dualOtaSelectedAnomaly.title }}</strong></div>
+                                                    <div><span>证据字段</span><strong>{{ dualOtaSelectedAnomaly.evidenceFields.join(' / ') }}</strong></div>
+                                                    <div><span>计算公式</span><strong>{{ dualOtaSelectedAnomaly.formula }}</strong></div>
+                                                    <div><span>影响金额</span><strong>{{ dualOtaSelectedAnomaly.impactAmount }}</strong></div>
+                                                    <div><span>人工核验</span><strong>{{ dualOtaSelectedAnomaly.manualCheck }}</strong></div>
+                                                    <div><span>今日动作</span><strong>{{ dualOtaSelectedAnomaly.todayAction }}</strong></div>
+                                                </div>
+                                                <p class="dual-ota-hint">每条异常都必须带公式、证据字段、影响金额；不输出没有证据的异常。</p>
+                                            </section>
+
+                                            <section class="dual-ota-card" data-testid="dual-ota-order-pace-heatmap">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <div class="dual-ota-section-index">04</div>
+                                                        <h2>{{ dualOtaDashboard.orderPaceHeatmap.title }}</h2>
+                                                        <p>{{ dualOtaDashboard.orderPaceHeatmap.subtitle }}</p>
+                                                    </div>
+                                                </div>
+                                                <div class="dual-ota-heatmap-wrap">
+                                                    <div class="dual-ota-heatmap">
+                                                        <div class="dual-ota-heatmap-row" v-for="(row, rowIndex) in dualOtaDashboard.orderPaceHeatmap.rows" :key="row">
+                                                            <span class="dual-ota-heatmap-label">{{ row }}</span>
+                                                            <div class="dual-ota-heatmap-cells" :style="{ gridTemplateColumns: `repeat(${dualOtaDashboard.orderPaceHeatmap.columns.length}, minmax(18px, 1fr))` }">
+                                                                <span v-for="(value, colIndex) in dualOtaDashboard.orderPaceHeatmap.values[rowIndex]" :key="`${row}-${colIndex}`" :class="['dual-ota-heat-cell', dualOtaHeatClass(value)]" :title="`入住日 ${dualOtaDashboard.orderPaceHeatmap.columns[colIndex]}，节奏值 ${value}`">
+                                                                    {{ value }}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="dual-ota-judgement-points">
+                                                        <strong>判断口径</strong>
+                                                        <span v-for="point in dualOtaDashboard.orderPaceHeatmap.judgementPoints" :key="point">{{ point }}</span>
+                                                    </div>
+                                                </div>
+                                            </section>
+                                        </div>
+
+                                        <div class="dual-ota-two-col dual-ota-action-memory">
+                                            <section class="dual-ota-card" data-testid="dual-ota-human-action-checklist">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <div class="dual-ota-section-index">05</div>
+                                                        <h2>人工操作清单</h2>
+                                                        <p>替代“自动动作框架”：AI生成任务，人审执行。</p>
+                                                    </div>
+                                                </div>
+                                                <div class="dual-ota-action-list">
+                                                    <div v-for="item in dualOtaActionItems" :key="item.id" :class="['dual-ota-action-row', item.checked ? 'is-checked' : '', dualOtaActionStatusClass(item.status)]">
+                                                        <label>
+                                                            <input type="checkbox" :checked="item.checked" @change="toggleDualOtaAction(item)">
+                                                            <span>
+                                                                <strong>{{ item.title }}</strong>
+                                                                <em>{{ item.description }}</em>
+                                                            </span>
+                                                        </label>
+                                                        <select v-model="item.status" @change="syncDualOtaActionStatus(item)" aria-label="任务状态">
+                                                            <option value="pending">待处理</option>
+                                                            <option value="done">已执行</option>
+                                                            <option value="paused">暂缓</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="dual-ota-action-buttons">
+                                                    <button type="button" class="dual-ota-secondary-button" @click="copyDualOtaAdvice">复制建议</button>
+                                                    <button type="button" class="dual-ota-secondary-button" @click="openDualOtaBackendPlaceholder">打开后台</button>
+                                                    <button type="button" class="dual-ota-primary-button" @click="recordDualOtaExecution">记录执行</button>
+                                                </div>
+                                                <p class="dual-ota-hint">当前版本强调“人审执行”，不自动修改 OTA 价格。</p>
+                                            </section>
+
+                                            <section class="dual-ota-card" data-testid="dual-ota-review-memory-library">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <div class="dual-ota-section-index">06</div>
+                                                        <h2>复盘记忆库</h2>
+                                                        <p>长期壁垒：只靠本店数据，也能越用越懂这家店。</p>
+                                                    </div>
+                                                </div>
+                                                <div class="dual-ota-memory-list">
+                                                    <button v-for="record in dualOtaReviewMemory" :key="record.id" type="button" :class="['dual-ota-memory-row', dualOtaExpandedMemoryId === record.id ? 'is-open' : '']" @click="toggleDualOtaMemory(record.id)">
+                                                        <span>{{ record.type }}</span>
+                                                        <strong>{{ record.content }}</strong>
+                                                        <i class="fas fa-chevron-down"></i>
+                                                        <em v-if="dualOtaExpandedMemoryId === record.id">{{ record.detail }}</em>
+                                                    </button>
+                                                </div>
+                                                <div v-if="dualOtaLastRecordText" class="dual-ota-record-note">{{ dualOtaLastRecordText }}</div>
+                                            </section>
+                                        </div>
+
+                                        <section class="dual-ota-card dual-ota-deprioritized" data-testid="dual-ota-deprioritized-modules">
+                                            <div class="dual-ota-card-head">
+                                                <div>
+                                                    <div class="dual-ota-section-index">边界</div>
+                                                    <h2>首屏不要放</h2>
+                                                </div>
+                                            </div>
+                                            <div class="dual-ota-deprioritized-list">
+                                                <span v-for="item in dualOtaDashboard.deprioritizedModules" :key="item.name">
+                                                    <strong>{{ item.name }}</strong>
+                                                    <em>{{ item.reason }}</em>
+                                                </span>
+                                            </div>
+                                        </section>
+
+                                        <footer class="dual-ota-footer">
+                                            <strong>{{ dualOtaDashboard.positioning }}</strong>
+                                            <span>{{ dualOtaDashboard.brand.version }}</span>
+                                        </footer>
+                                    </template>
+                                </div>
+                                <details v-if="currentPage === 'compass'" class="suxi-evidence-fold" data-testid="home-full-detail-fold">
                                     <summary>
                                         <span>完整明细</span>
                                         <span>数据依据、收益闭环和动作审核默认收起</span>
@@ -17031,7 +17279,7 @@
                         <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
                         <select v-model="userForm.status" class="w-full px-4 py-2 border rounded-lg">
                             <option :value="1">正常</option>
-                            <option :value="0">禁用</option>
+                            <option :value="0">待审核/暂停</option>
                         </select>
                     </div>
                     <div class="flex justify-end space-x-3 pt-4">
@@ -17040,6 +17288,96 @@
                         <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">保存</button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <!-- 用户删除确认弹框 -->
+        <div v-if="showUserDeleteModal" class="fixed inset-0 z-[60] flex items-center justify-center modal-overlay px-4" @click.self="closeUserDeleteModal">
+            <div class="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-100">
+                <div class="border-b border-red-100 bg-red-50 px-5 py-4">
+                    <div class="flex items-start gap-3">
+                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-700">
+                            <i class="fas fa-user-times"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <h3 class="text-base font-semibold text-gray-900">删除账号</h3>
+                            <p class="mt-1 text-sm text-gray-600">删除会移除该账号登录入口；有关联数据时需超级管理员确认强制删除。</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="px-5 py-4 space-y-4">
+                    <div class="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                        <div class="text-xs text-gray-400 mb-1">账号</div>
+                        <div class="font-semibold text-gray-900">{{ userDeleteName }}</div>
+                        <div class="mt-1 text-xs text-gray-500">用户名：{{ userDeleteTarget?.username || '-' }}</div>
+                    </div>
+                    <div v-if="userDeleteReferences.length" class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                        <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-900">
+                            <i class="fas fa-link"></i>
+                            <span>存在关联数据</span>
+                        </div>
+                        <div class="space-y-2">
+                            <div v-for="item in userDeleteReferences" :key="`${item.table}-${item.label}`" class="flex items-center justify-between gap-3 rounded-lg bg-white/80 px-3 py-2 text-sm">
+                                <span class="text-gray-700">{{ item.label || item.table || '关联数据' }}</span>
+                                <span class="font-semibold text-amber-700">{{ item.count || 0 }} 条</span>
+                            </div>
+                        </div>
+                        <p class="mt-3 text-xs text-amber-800">强制删除会解除可安全解除的用户关联；不可解除的数据会阻止删除。</p>
+                    </div>
+                    <div v-if="userDeleteError" class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {{ userDeleteError }}
+                    </div>
+                </div>
+                <div class="flex items-center justify-end gap-3 border-t border-gray-100 bg-gray-50 px-5 py-4">
+                    <button type="button" @click="closeUserDeleteModal" :disabled="userDeleteLoading"
+                        class="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-60">
+                        取消
+                    </button>
+                    <button type="button" @click="confirmDeleteUser" :disabled="userDeleteLoading || (userDeleteReferences.length > 0 && !userDeleteCanForce)"
+                        class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60">
+                        <i :class="userDeleteLoading ? 'fas fa-spinner fa-spin' : 'fas fa-trash-alt'"></i>
+                        <span>{{ userDeleteLoading ? '处理中...' : userDeletePrimaryText }}</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 用户状态确认弹框 -->
+        <div v-if="showUserStatusConfirmModal" class="fixed inset-0 z-[60] flex items-center justify-center modal-overlay px-4" @click.self="closeUserStatusConfirm">
+            <div class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-100">
+                <div :class="userStatusConfirmAction === 'approve' ? 'bg-green-50 border-green-100' : 'bg-amber-50 border-amber-100'" class="border-b px-5 py-4">
+                    <div class="flex items-start gap-3">
+                        <div :class="userStatusConfirmAction === 'approve' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'" class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl">
+                            <i :class="userStatusConfirmAction === 'approve' ? 'fas fa-user-check' : 'fas fa-user-slash'"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <h3 class="text-base font-semibold text-gray-900">{{ userStatusConfirmTitle }}</h3>
+                            <p class="mt-1 text-sm text-gray-600">{{ userStatusConfirmDescription }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="px-5 py-4 space-y-4">
+                    <div class="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                        <div class="text-xs text-gray-400 mb-1">账号</div>
+                        <div class="font-semibold text-gray-900">{{ userStatusConfirmName }}</div>
+                        <div class="mt-1 text-xs text-gray-500">用户名：{{ userStatusConfirmTarget?.username || '-' }}</div>
+                    </div>
+                    <div v-if="userStatusConfirmError" class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {{ userStatusConfirmError }}
+                    </div>
+                </div>
+                <div class="flex items-center justify-end gap-3 border-t border-gray-100 bg-gray-50 px-5 py-4">
+                    <button type="button" @click="closeUserStatusConfirm" :disabled="userStatusConfirmLoading"
+                        class="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-60">
+                        取消
+                    </button>
+                    <button type="button" @click="confirmUserStatusChange" :disabled="userStatusConfirmLoading"
+                        :class="userStatusConfirmAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700'"
+                        class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-white disabled:opacity-60">
+                        <i :class="userStatusConfirmLoading ? 'fas fa-spinner fa-spin' : (userStatusConfirmAction === 'approve' ? 'fas fa-check' : 'fas fa-ban')"></i>
+                        <span>{{ userStatusConfirmLoading ? '处理中...' : userStatusConfirmPrimaryText }}</span>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -18741,7 +19079,7 @@
                     formOperationSupportLoadTimer = null;
                 }
             };
-            const shouldDeferFormOperationSupportLoad = () => currentPage.value === 'compass' || isCoreOtaPageVisible();
+            const shouldDeferFormOperationSupportLoad = () => isCompassDataPage() || isCoreOtaPageVisible();
             const scheduleFormOperationSupportLoad = (delayMs = null) => {
                 if (!token.value) return;
                 clearFormOperationSupportLoadTimer();
@@ -18780,7 +19118,8 @@
                 postFetchRefreshTimers.set(timerKey, timer);
                 return Promise.resolve();
             };
-            const currentPage = ref('compass');
+            const currentPage = ref('ai-workbench');
+            const isCompassDataPage = (page = currentPage.value) => ['ai-workbench', 'compass'].includes(page);
             const lifecycleLoading = ref(false);
             const lifecycleOverview = ref(null);
             const investmentDecisionLoading = ref(false);
@@ -20936,6 +21275,120 @@
             const competitorDisplaySummary = requireHomeStatic('competitorDisplaySummary');
             const competitorSummarySourceNotice = requireHomeStatic('competitorSummarySourceNotice');
             const competitorSummaryReadinessClass = requireHomeStatic('competitorSummaryReadinessClass');
+            const dualOtaHomeStatic = window.SUXI_DUAL_OTA_HOME;
+            if (!dualOtaHomeStatic || typeof dualOtaHomeStatic.cloneDashboardData !== 'function') {
+                throw new Error('缺少双 OTA 首页静态数据：dual-ota-home-static.js 未加载');
+            }
+            const dualOtaDashboard = ref(dualOtaHomeStatic.cloneDashboardData());
+            const dualOtaSelectedPlatform = ref(dualOtaDashboard.value.lossChain.activePlatform || 'combined');
+            const dualOtaSelectedRange = ref(dualOtaDashboard.value.lossChain.activeRange || 'yesterday');
+            const dualOtaSelectedLossNodeId = ref(dualOtaDashboard.value.lossChain.nodes?.[0]?.id || '');
+            const dualOtaSelectedAnomalyRank = ref(dualOtaDashboard.value.anomalies?.[0]?.rank || 1);
+            const dualOtaActionItems = ref((dualOtaDashboard.value.actionChecklist || []).map(item => ({ ...item, checked: item.status === 'done' })));
+            const dualOtaReviewMemory = ref((dualOtaDashboard.value.reviewMemory || []).map(item => ({ ...item })));
+            const dualOtaExpandedMemoryId = ref(dualOtaReviewMemory.value[0]?.id || '');
+            const dualOtaLastRecordText = ref('');
+            const dualOtaHasConnectedPlatforms = computed(() => {
+                const requiredPlatforms = ['美团', '携程'];
+                const connections = Array.isArray(dualOtaDashboard.value.connections) ? dualOtaDashboard.value.connections : [];
+                return requiredPlatforms.every(name => connections.some(item => item.name === name && item.status === 'connected'));
+            });
+            const dualOtaActiveLossNodes = computed(() => {
+                const scenarios = dualOtaDashboard.value.lossChain?.scenarios || {};
+                const platformScenario = scenarios[dualOtaSelectedPlatform.value] || {};
+                return platformScenario[dualOtaSelectedRange.value] || dualOtaDashboard.value.lossChain?.nodes || [];
+            });
+            const dualOtaSelectedLossExplanation = computed(() => {
+                const explanations = dualOtaDashboard.value.lossChain?.nodeExplanations || {};
+                const selected = explanations[dualOtaSelectedLossNodeId.value];
+                if (selected) return selected;
+                const firstNodeId = dualOtaActiveLossNodes.value[0]?.id || '';
+                return explanations[firstNodeId] || { title: '暂无解释', description: '该节点暂无 mock 解释。', evidence: '未知', action: '待补充' };
+            });
+            const dualOtaSelectedAnomaly = computed(() => {
+                const anomalies = Array.isArray(dualOtaDashboard.value.anomalies) ? dualOtaDashboard.value.anomalies : [];
+                return anomalies.find(item => item.rank === dualOtaSelectedAnomalyRank.value) || anomalies[0] || {
+                    title: '暂无异常',
+                    evidenceFields: [],
+                    formula: '暂无',
+                    impactAmount: '暂无',
+                    manualCheck: '待补充',
+                    todayAction: '待补充',
+                };
+            });
+            const dualOtaConnectionClass = (status) => {
+                if (status === 'connected') return 'is-connected';
+                if (status === 'disabled') return 'is-disabled';
+                return 'is-conditional';
+            };
+            const dualOtaTrustClass = (status) => {
+                if (status === 'available') return 'is-available';
+                if (status === 'conditional') return 'is-conditional';
+                return 'is-muted';
+            };
+            const dualOtaSeverityClass = (severity) => {
+                if (severity === 'critical') return 'is-critical';
+                if (severity === 'warning') return 'is-warning';
+                return 'is-normal';
+            };
+            const dualOtaHeatClass = (value) => {
+                const level = Number(value || 0);
+                if (level >= 4) return 'is-strong';
+                if (level >= 3) return 'is-good';
+                if (level >= 2) return 'is-medium';
+                if (level >= 1) return 'is-low';
+                return 'is-empty';
+            };
+            const dualOtaActionStatusClass = (status) => {
+                if (status === 'done') return 'is-done';
+                if (status === 'paused') return 'is-paused';
+                return 'is-pending';
+            };
+            const setDualOtaLossNode = (nodeId) => {
+                dualOtaSelectedLossNodeId.value = nodeId;
+            };
+            const setDualOtaAnomaly = (rank) => {
+                dualOtaSelectedAnomalyRank.value = rank;
+            };
+            const syncDualOtaActionStatus = (item) => {
+                item.checked = item.status === 'done';
+            };
+            const toggleDualOtaAction = (item) => {
+                item.checked = !item.checked;
+                item.status = item.checked ? 'done' : 'pending';
+            };
+            const copyDualOtaAdvice = () => {
+                const anomaly = dualOtaSelectedAnomaly.value;
+                const text = [
+                    `问题：${anomaly.title}`,
+                    `证据：${(anomaly.evidenceFields || []).join(' / ')}`,
+                    `影响金额：${anomaly.impactAmount}`,
+                    `人工核验：${anomaly.manualCheck}`,
+                    `今日动作：${anomaly.todayAction}`,
+                    `边界：当前版本不自动改价，不依赖外部市场数据。`,
+                ].join('\n');
+                copyToClipboard(text || dualOtaDashboard.value.copyText);
+            };
+            const openDualOtaBackendPlaceholder = () => {
+                showToast('请在 OTA 后台执行，当前版本不自动改价。', 'info');
+            };
+            const recordDualOtaExecution = () => {
+                const doneItems = dualOtaActionItems.value.filter(item => item.checked || item.status === 'done');
+                const titles = doneItems.length ? doneItems.map(item => item.title).join(' / ') : '今日待执行动作';
+                const record = {
+                    id: `mock-execution-${Date.now()}`,
+                    type: '执行',
+                    content: `已记录：${titles}`,
+                    detail: '该记录来自首页 mock 交互；后续接真实接口后应写入执行证据与次日复盘。',
+                };
+                dualOtaReviewMemory.value.unshift(record);
+                dualOtaExpandedMemoryId.value = record.id;
+                dualOtaLastRecordText.value = 'mock 复盘记忆已更新：建议 → 执行 → 结果 → 沉淀链路保留。';
+                showToast('执行记录已写入复盘记忆库（mock）');
+            };
+            const toggleDualOtaMemory = (recordId) => {
+                dualOtaExpandedMemoryId.value = dualOtaExpandedMemoryId.value === recordId ? '' : recordId;
+            };
             const defaultHomeQuickEntryOrder = requireCompassStatic('defaultHomeQuickEntryOrder');
             const defaultHomeQuickEntryHidden = requireCompassStatic('defaultHomeQuickEntryHidden');
             const compassLayout = ref({
@@ -21465,6 +21918,8 @@
                 const answer = homeExecutiveAnswer.value || {};
                 const readiness = compassDataReadiness.value || {};
                 const readinessPercent = Number(readiness.percent || 0);
+                const answerCards = Array.isArray(answer.cards) ? answer.cards : [];
+                const primaryActionCard = answerCards.find(card => card?.key === 'action') || answerCards[0] || null;
                 const statusClass = readinessPercent >= 100
                     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                     : (readinessPercent > 0
@@ -21479,7 +21934,36 @@
                     blockerText: answer.blockerText || readiness.missingText || '待核验证据',
                     blockerNote: answer.blockerNote || '先补齐缺失事实，再进入收益判断和 AI 动作。',
                     nextStepText: answer.nextStepText || readiness.nextAction || '先补数据，再复核动作建议。',
+                    primaryEntry: primaryActionCard?.entry || { page: 'online-data', tab: 'data-health' },
+                    primaryActionLabel: primaryActionCard?.key === 'action' ? '去处理' : '查看数据',
                 };
+            });
+            const homeAiWorkbenchMetricFallback = {
+                key: 'revenue',
+                label: '收入样本',
+                value: '待同步',
+                sub: '缺少可验证经营样本时只显示缺口，不倒推全酒店营收。',
+                status: '待同步',
+                ready: false,
+                toneClass: 'bg-gray-50 text-gray-500 border-gray-200',
+                entry: { page: 'revenue-research-center' },
+            };
+            const homeAiWorkbenchPrimaryMetric = computed(() => {
+                const cards = Array.isArray(homeOperatingResultCards.value) ? homeOperatingResultCards.value : [];
+                return cards.find(card => card?.key === 'revenue') || cards[0] || homeAiWorkbenchMetricFallback;
+            });
+            const homeAiWorkbenchSecondaryMetrics = computed(() => {
+                const cards = Array.isArray(homeOperatingResultCards.value) ? homeOperatingResultCards.value : [];
+                const primaryKey = homeAiWorkbenchPrimaryMetric.value?.key;
+                return cards
+                    .filter(card => card && card.key !== primaryKey)
+                    .slice(0, 3);
+            });
+            const homeAiWorkbenchReadySummary = computed(() => {
+                const cards = Array.isArray(homeOperatingResultCards.value) ? homeOperatingResultCards.value : [];
+                const total = cards.length || 4;
+                const ready = cards.filter(card => !!card?.ready).length;
+                return `${ready}/${total}项经营指标可用`;
             });
             const dailyOpsPrimaryActions = requireCompassStatic('dailyOpsPrimaryActions');
             const autoFetchStaticScript = 'auto-fetch-static.js';
@@ -25267,7 +25751,7 @@
             const scheduleInitialCompassLoad = (options = {}) => {
                 const delayMs = Number(options.delayMs ?? 700);
                 scheduleDelayedPageTask(() => {
-                    if (!token.value || currentPage.value !== 'compass') return null;
+                    if (!token.value || !isCompassDataPage()) return null;
                     const runOptions = options.force ? { force: true } : {};
                     return runPageLoadOnce('compass', 'main', () => loadCompassData(), runOptions);
                 }, delayMs);
@@ -25631,7 +26115,7 @@
                 schedulePageControlTestIdObserverStart(520);
                 scheduleFormOperationSupportLoad();
                 deferUiTask(() => runPendingPublicSystemConfigRefresh(), 600);
-                if (newPage !== 'compass') {
+                if (!isCompassDataPage(newPage)) {
                     clearHomeSecondaryPanelsReadyTimer();
                     homeSecondaryPanelsReady.value = false;
                     destroyHomeTrendChart();
@@ -25662,7 +26146,7 @@
                     ctripEbookingBusinessDetailsReady.value = false;
                     ctripEbookingDiagnosticsPanelsReady.value = false;
                 }
-                if (newPage === 'compass') {
+                if (isCompassDataPage(newPage)) {
                     homeSecondaryPanelsReady.value = false;
                     scheduleHomeSecondaryPanelsReady();
                     runPageLoadOnce(newPage, 'main', () => loadCompassData());
@@ -26054,11 +26538,129 @@
                 }, observerDelay);
             };
 
-            // 可见菜单项 - 根据用户权限过滤
-            const visibleMenuItems = computed(() => filterVisibleMenuItems(menuItems.value, user.value));
+            const cloneMenuItem = (item, overrides = {}) => {
+                if (!item) return null;
+                const cloned = { ...item, ...overrides };
+                if (Array.isArray(item.children)) {
+                    cloned.children = item.children.map(child => cloneMenuItem(child)).filter(Boolean);
+                }
+                if (Array.isArray(overrides.children)) {
+                    cloned.children = overrides.children.filter(Boolean);
+                }
+                return cloned;
+            };
+            const flattenMenuItems = (items = [], result = []) => {
+                (Array.isArray(items) ? items : []).forEach((item) => {
+                    if (!item) return;
+                    result.push(item);
+                    if (Array.isArray(item.children)) {
+                        flattenMenuItems(item.children, result);
+                    }
+                });
+                return result;
+            };
+            const findMenuEntry = (items = [], path, tab = undefined) => {
+                const all = flattenMenuItems(items, []);
+                return all.find((item) => {
+                    if (!item || item.path !== path) return false;
+                    if (tab === undefined) return item.tab === undefined;
+                    return item.tab === tab;
+                }) || null;
+            };
+            const findMenuGroupByPath = (items = [], path) => flattenMenuItems(items, []).find(item => item?.path === path && Array.isArray(item.children)) || null;
+            const buildLeanNavigationItems = (items = []) => {
+                const dataHealthEntry = findMenuEntry(items, 'online-data', 'data-health');
+                const platformAutoEntry = findMenuEntry(items, 'online-data', 'platform-auto');
+                const ctripEntry = findMenuEntry(items, 'ctrip-ebooking');
+                const meituanEntry = findMenuEntry(items, 'meituan-ebooking');
+                const compassEntry = findMenuEntry(items, 'compass');
+                const revenueEntry = findMenuEntry(items, 'revenue-research-center');
+                const investmentEntry = findMenuEntry(items, 'investment-decision');
+                const aiDailyEntry = findMenuEntry(items, 'ai-daily-report');
+                const opsTrackEntry = findMenuEntry(items, 'ops-track');
+                const hotelEntry = findMenuEntry(items, 'hotels');
+                const knowledgeEntry = findMenuEntry(items, 'knowledge-center');
+                const imageOptimizerEntry = findMenuEntry(items, 'hotel-image-optimizer');
+                const agentCenterEntry = findMenuEntry(items, 'agent-center');
+                const lifecycleGroup = findMenuGroupByPath(items, 'lifecycle-auxiliary');
+                const lifecycleMoreGroup = cloneMenuItem(lifecycleGroup, { name: '筹建/扩张/转让' });
+                if (Array.isArray(lifecycleMoreGroup?.children)) {
+                    const directMorePaths = new Set(['investment-decision', 'hotel-image-optimizer', 'agent-center']);
+                    lifecycleMoreGroup.children = lifecycleMoreGroup.children.filter(item => !directMorePaths.has(item?.path));
+                }
+                const systemEntries = [
+                    findMenuEntry(items, 'users'),
+                    findMenuEntry(items, 'roles'),
+                    findMenuEntry(items, 'operation-logs'),
+                    findMenuEntry(items, 'system-config'),
+                    findMenuEntry(items, 'ai-model-config'),
+                    findMenuEntry(items, 'ai-governance'),
+                    findMenuEntry(items, 'data-config'),
+                ].map(item => cloneMenuItem(item)).filter(Boolean);
+                const aiWorkbenchEntry = cloneMenuItem(compassEntry, {
+                    name: 'AI工作台',
+                    icon: 'fas fa-brain',
+                    path: 'ai-workbench',
+                    title: 'AI工作台',
+                    testid: 'nav-lean-ai-workbench',
+                });
+                const leanItems = [
+                    aiWorkbenchEntry,
+                    {
+                        name: '经营闭环',
+                        icon: 'fas fa-chart-line',
+                        testid: 'nav-lean-business-loop',
+                        children: [
+                            cloneMenuItem(compassEntry, { name: '经营概览' }),
+                            cloneMenuItem(revenueEntry, { name: '收益分析' }),
+                        ].filter(Boolean),
+                    },
+                    {
+                        name: 'OTA数据',
+                        icon: 'fas fa-cloud-download-alt',
+                        testid: 'nav-lean-ota-data',
+                        children: [
+                            cloneMenuItem(dataHealthEntry, { name: '数据中心' }),
+                            cloneMenuItem(ctripEntry, { name: '携程' }),
+                            cloneMenuItem(meituanEntry, { name: '美团' }),
+                            cloneMenuItem(platformAutoEntry, { name: '自动获取' }),
+                        ].filter(Boolean),
+                    },
+                    {
+                        name: '运营执行',
+                        icon: 'fas fa-tasks',
+                        testid: 'nav-lean-operation',
+                        children: [
+                            cloneMenuItem(aiDailyEntry, { name: 'AI经营日报' }),
+                            cloneMenuItem(opsTrackEntry, { name: '执行跟踪' }),
+                        ].filter(Boolean),
+                    },
+                    cloneMenuItem(hotelEntry, {
+                        name: '门店管理',
+                        icon: 'fas fa-hotel',
+                        testid: 'nav-lean-hotel-management',
+                    }),
+                    {
+                        name: '更多功能开发中',
+                        icon: 'fas fa-ellipsis-h',
+                        testid: 'nav-lean-more',
+                        children: [
+                            cloneMenuItem(knowledgeEntry, { name: '知识中心' }),
+                            cloneMenuItem(investmentEntry, { name: '投决辅助' }),
+                            cloneMenuItem(imageOptimizerEntry, { name: '图片优化助手' }),
+                            cloneMenuItem(agentCenterEntry, { name: '酒店AI工具箱' }),
+                            lifecycleMoreGroup,
+                            systemEntries.length ? { name: '系统管理', icon: 'fas fa-cog', children: systemEntries } : null,
+                        ].filter(Boolean),
+                    },
+                ];
+                return leanItems.filter(item => item?.path || (Array.isArray(item.children) && item.children.length > 0));
+            };
+            // 可见菜单项 - 先按权限过滤，再压缩为主链路导航；低频入口保留在“更多功能开发中”。
+            const visibleMenuItems = computed(() => buildLeanNavigationItems(filterVisibleMenuItems(menuItems.value, user.value)));
 
-            // 展开的子菜单
-            const expandedMenus = ref(['收益管理', '线上数据', '运营执行']);
+            // 展开的子菜单：默认收起，避免低频入口挤占首屏。
+            const expandedMenus = ref([]);
 
             // 切换子菜单展开状态
             const toggleSubmenu = (menuName) => {
@@ -26116,6 +26718,8 @@
             };
 
             const pageTitle = computed(() => {
+                if (currentPage.value === 'ai-workbench') return 'AI工作台';
+                if (currentPage.value === 'compass') return '经营概览';
                 const item = findMenuItemByPath(menuItems.value, currentPage.value);
                 return item ? (item.title || getMenuItemName(item)) : '';
             });
@@ -26316,6 +26920,17 @@
             const hotelDeleteReferences = ref([]);
             const hotelDeleteCanForce = ref(false);
             const showUserModal = ref(false);
+            const showUserStatusConfirmModal = ref(false);
+            const userStatusConfirmTarget = ref(null);
+            const userStatusConfirmAction = ref('approve');
+            const userStatusConfirmLoading = ref(false);
+            const userStatusConfirmError = ref('');
+            const showUserDeleteModal = ref(false);
+            const userDeleteTarget = ref(null);
+            const userDeleteLoading = ref(false);
+            const userDeleteError = ref('');
+            const userDeleteReferences = ref([]);
+            const userDeleteCanForce = ref(false);
             const showPermissionModal = ref(false);
             const showSystemConfigModal = ref(false);
             const showDataConfigModal = ref(false);
@@ -30752,7 +31367,7 @@
             };
 
             const loadHomeTrends = async () => {
-                if (!token.value || currentPage.value !== 'compass') return;
+                if (!token.value || !isCompassDataPage()) return;
                 if (homeTrendRange.value === 'custom' && (!homeTrendCustomRange.value.start_date || !homeTrendCustomRange.value.end_date)) {
                     showToast('请选择完整的趋势日期范围', 'error');
                     return;
@@ -30799,7 +31414,7 @@
             };
 
             const loadMacroSignals = async () => {
-                if (!token.value || currentPage.value !== 'compass' || macroSignalLoading.value) return;
+                if (!token.value || !isCompassDataPage() || macroSignalLoading.value) return;
                 macroSignalLoading.value = true;
                 activeMacroSignal.value = '';
                 macroSignalDetail.value = null;
@@ -31200,7 +31815,7 @@
                     if (res.code === 200) {
                         loginForm.value.username = payload.username;
                         loginForm.value.password = '';
-                        registerSuccess.value = '注册成功，请登录';
+                        registerSuccess.value = res.message || res.msg || '注册申请已提交，等待超级管理员审核启用后才能登录';
                         resetRegisterForm();
                         setTimeout(() => {
                             registerMode.value = false;
@@ -31263,7 +31878,7 @@
 
                         isLoggedIn.value = true;
                         showToast(`欢迎回来，${res.data.user.realname || res.data.user.username}！`, 'success');
-                        currentPage.value = 'compass';
+                        currentPage.value = 'ai-workbench';
                         loadData();
                         scheduleInitialCompassLoad({ force: true, delayMs: 4500 });
                         scheduleHomeSecondaryPanelsReady();
@@ -31663,6 +32278,77 @@
                 });
             };
 
+            const hotelOwnerText = (hotel = {}) => firstNonEmptyText(
+                hotel.contact_person,
+                hotel.manager_name,
+                hotel.owner_name,
+                hotel.owner
+            ) || '未设置';
+
+            const hotelPlatformRow = (hotel = {}, platform = '') => {
+                const key = String(platform || '').toLowerCase();
+                return hotelPlatformBindingRows(hotel).find(row => row.platform === key) || {};
+            };
+
+            const hotelPlatformBindingText = (account = {}) => {
+                if (account.level === 'missing' || account.statusCode === 'unbound') return '未绑定';
+                return '已绑定';
+            };
+
+            const hotelPlatformLoginText = (account = {}) => ({
+                logged_in: '已登录',
+                waiting_login: '待登录',
+                login_expired: '登录失效',
+                unbound: '未绑定',
+                missing_config: '账号缺项',
+                mismatch: '门店不匹配',
+            }[String(account.statusCode || '')] || account.statusText || '-');
+
+            const hotelPlatformIssueText = (account = {}) => {
+                if (account.reasonText) return account.reasonText;
+                const label = account.label || '渠道';
+                const code = String(account.statusCode || '');
+                if (code === 'unbound') return `${label}未绑定账号`;
+                if (code === 'waiting_login') return `${label}已绑定但未登录`;
+                if (code === 'missing_config') return `${label}账号信息缺项`;
+                if (code === 'login_expired') return `${label}登录失效`;
+                if (code === 'mismatch') return `${label}门店不匹配`;
+                if (account.level !== 'ready') return `${label}未达到可采集状态`;
+                return '';
+            };
+
+            const hotelIssueRows = (hotel = {}) => {
+                if (String(hotel?.status) !== '1') {
+                    return [{
+                        key: 'hotel-inactive',
+                        label: '门店',
+                        text: '门店已停用，不参与 OTA 采集',
+                        className: 'bg-gray-50 text-gray-500 border-gray-200',
+                    }];
+                }
+
+                const rows = hotelPlatformBindingRows(hotel)
+                    .map(account => ({
+                        key: account.platform || account.label,
+                        label: account.label,
+                        text: hotelPlatformIssueText(account),
+                        className: account.reasonClass || account.statusClass || 'bg-gray-50 text-gray-600 border-gray-200',
+                    }))
+                    .filter(row => row.text);
+
+                const competitor = hotelCompetitorReadiness(hotel);
+                if (!['ok', 'success'].includes(String(competitor?.status || ''))) {
+                    rows.push({
+                        key: 'competitor',
+                        label: '竞对',
+                        text: competitor?.label || '竞对数据待确认',
+                        className: competitorSummaryReadinessClass(competitor),
+                    });
+                }
+
+                return rows;
+            };
+
             const hotelAccountHealthKey = (hotel = {}) => {
                 if (String(hotel?.status) !== '1') return 'inactive';
                 const rows = hotelPlatformBindingRows(hotel);
@@ -31675,11 +32361,11 @@
             };
 
             const hotelAccountHealthText = (hotel = {}) => ({
-                error: '异常',
-                todo: '待办',
-                ready: '可采',
+                error: '账号异常',
+                todo: '需处理',
+                ready: '可采集',
                 inactive: '停用',
-            }[hotelAccountHealthKey(hotel)] || '待办');
+            }[hotelAccountHealthKey(hotel)] || '需处理');
 
             const hotelAccountHealthClass = (hotel = {}) => ({
                 error: 'bg-red-50 text-red-700 border-red-200',
@@ -35833,7 +36519,7 @@
             };
 
             const loadHolidayRevenueCountdown = async () => {
-                if (!token.value || currentPage.value !== 'compass') return;
+                if (!token.value || !isCompassDataPage()) return;
                 holidayRevenueLoading.value = true;
                 try {
                     const params = new URLSearchParams({
@@ -35855,7 +36541,7 @@
 
             const loadCompetitorSummary = async (options = {}) => {
                 if (!token.value) return;
-                if (options.requireCompass === true && currentPage.value !== 'compass') return;
+                if (options.requireCompass === true && !isCompassDataPage()) return;
                 const force = options.force === true;
                 const cacheMs = force ? 0 : Number(options.cacheMs || 0);
                 let includeByHotel = false;
@@ -35920,7 +36606,7 @@
             const loadRevenueAiOverview = async () => {
                 const overviewRequest = revenueAiResolveOverviewRequest({
                     hasToken: !!token.value,
-                    currentPage: currentPage.value,
+                    currentPage: isCompassDataPage() ? 'compass' : currentPage.value,
                     businessDate: revenueAiBusinessDate.value,
                     hotelId: filterReportHotel.value,
                 });
@@ -35967,14 +36653,14 @@
                         compassAlerts.value = res.data.alerts || [];
                         compassHolidays.value = res.data.holidays || [];
                         scheduleDelayedPageTask(() => {
-                            if (currentPage.value !== 'compass') return null;
+                            if (!isCompassDataPage()) return null;
                             loadWeatherForCity();
                             return null;
                         }, COMPASS_WEATHER_REFRESH_DELAY_MS);
                     }
                     compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
                     deferUiTask(async () => {
-                        if (currentPage.value !== 'compass') return null;
+                        if (!isCompassDataPage()) return null;
                         const compassBackgroundJobs = [
                             () => loadHolidayRevenueCountdown(),
                             () => loadMacroSignals(),
@@ -35982,10 +36668,10 @@
                             () => loadCompetitorSummary({ requireCompass: true })
                         ];
                         for (const job of compassBackgroundJobs) {
-                            if (currentPage.value !== 'compass') return null;
+                            if (!isCompassDataPage()) return null;
                             await job();
                         }
-                        if (currentPage.value === 'compass') {
+                        if (isCompassDataPage()) {
                             compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
                         }
                         return null;
@@ -36008,7 +36694,7 @@
             };
 
             watch(filterReportHotel, () => {
-                if (currentPage.value === 'compass') {
+                if (isCompassDataPage()) {
                     selectedWeatherCity.value = '';
                     externalWeatherForecast.value = [];
                     externalWeatherCity.value = '';
@@ -36018,7 +36704,7 @@
             });
 
             watch(weatherLocationName, () => {
-                if (currentPage.value === 'compass') {
+                if (isCompassDataPage()) {
                     loadWeatherForCity();
                 }
             });
@@ -39291,39 +39977,127 @@
                 }
             };
 
+            const userStatusConfirmName = computed(() => {
+                const target = userStatusConfirmTarget.value || {};
+                return target.realname || target.username || `用户 #${target.id || '-'}`;
+            });
+            const userStatusConfirmTitle = computed(() => (
+                userStatusConfirmAction.value === 'approve' ? '审核通过账号' : '暂停账号'
+            ));
+            const userStatusConfirmDescription = computed(() => (
+                userStatusConfirmAction.value === 'approve'
+                    ? '通过后该账号状态变为正常，可以登录系统。'
+                    : '暂停后该账号不能再登录系统，后续可重新审核通过。'
+            ));
+            const userStatusConfirmPrimaryText = computed(() => (
+                userStatusConfirmAction.value === 'approve' ? '确认审核通过' : '确认暂停'
+            ));
+
+            const openUserStatusConfirm = (u, action) => {
+                if (!user.value?.is_super_admin) {
+                    showToast('只有超级管理员可以审核或暂停账号', 'error');
+                    return;
+                }
+                if (!u || !u.id) return;
+                if (action === 'deactivate' && u.id === user.value?.id) {
+                    showToast('不能停用当前登录账号', 'error');
+                    return;
+                }
+                userStatusConfirmTarget.value = u;
+                userStatusConfirmAction.value = action === 'deactivate' ? 'deactivate' : 'approve';
+                userStatusConfirmError.value = '';
+                showUserStatusConfirmModal.value = true;
+            };
+
+            const closeUserStatusConfirm = () => {
+                if (userStatusConfirmLoading.value) return;
+                showUserStatusConfirmModal.value = false;
+                userStatusConfirmTarget.value = null;
+                userStatusConfirmError.value = '';
+            };
+
+            const confirmUserStatusChange = async () => {
+                const target = userStatusConfirmTarget.value;
+                if (!target || !target.id) return;
+                const isApprove = userStatusConfirmAction.value === 'approve';
+                const nextStatus = isApprove ? 1 : 0;
+                userStatusConfirmLoading.value = true;
+                userStatusConfirmError.value = '';
+                try {
+                    const res = await request(`/users/${target.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ status: nextStatus }),
+                    });
+                    if (res.code === 200) {
+                        showToast(isApprove ? '审核通过，账号已启用' : '账号已暂停');
+                        showUserStatusConfirmModal.value = false;
+                        userStatusConfirmTarget.value = null;
+                        await loadUsers();
+                    } else {
+                        userStatusConfirmError.value = res.message || res.msg || (isApprove ? '审核失败' : '停用失败');
+                    }
+                } catch (err) {
+                    console.error(isApprove ? '审核用户失败:' : '暂停用户失败:', err);
+                    userStatusConfirmError.value = err.message || '网络错误，请重试';
+                } finally {
+                    userStatusConfirmLoading.value = false;
+                }
+            };
+
+            const approveUser = (u) => openUserStatusConfirm(u, 'approve');
+            const deactivateUser = (u) => openUserStatusConfirm(u, 'deactivate');
+
             const formatUserDeleteReferences = (references = []) => {
                 return references.map(item => `${item.label || item.table} ${item.count}`).join('、');
             };
 
-            const forceDeleteUser = async (u, references = []) => {
-                const referenceText = formatUserDeleteReferences(references);
-                if (!confirm(`用户"${u.username}"存在关联数据${referenceText ? `：${referenceText}` : ''}。确定强制删除该用户吗？历史日志会保留，但会解除用户关联。`)) {
-                    return false;
-                }
+            const userDeleteName = computed(() => {
+                const target = userDeleteTarget.value || {};
+                return target.realname || target.username || `用户 #${target.id || '-'}`;
+            });
+            const userDeletePrimaryText = computed(() => (
+                userDeleteReferences.value.length > 0 ? '确认强制删除' : '确认删除'
+            ));
 
-                const res = await request(`/users/${u.id}`, {
-                    method: 'DELETE',
-                    body: JSON.stringify({ force: true }),
-                });
-                if (res.code === 200) {
-                    showToast('强制删除成功');
-                    await loadUsers();
-                    return true;
+            const deleteUser = (u) => {
+                if (!u || !u.id) return;
+                if (u.id === user.value?.id) {
+                    showToast('不能删除当前登录账号', 'error');
+                    return;
                 }
-
-                showToast(res.message || res.msg || '强制删除失败', 'error');
-                return false;
+                userDeleteTarget.value = u;
+                userDeleteError.value = '';
+                userDeleteReferences.value = [];
+                userDeleteCanForce.value = false;
+                showUserDeleteModal.value = true;
             };
 
-            const deleteUser = async (u) => {
-                if (!confirm(`确定要删除用户"${u.username}"吗？`)) return;
+            const closeUserDeleteModal = () => {
+                if (userDeleteLoading.value) return;
+                showUserDeleteModal.value = false;
+                userDeleteTarget.value = null;
+                userDeleteError.value = '';
+                userDeleteReferences.value = [];
+                userDeleteCanForce.value = false;
+            };
+
+            const confirmDeleteUser = async () => {
+                const target = userDeleteTarget.value;
+                if (!target || !target.id) return;
+                const forceDelete = userDeleteReferences.value.length > 0 && userDeleteCanForce.value;
+                userDeleteLoading.value = true;
+                userDeleteError.value = '';
                 try {
-                    const res = await request(`/users/${u.id}`, { method: 'DELETE' });
+                    const options = forceDelete
+                        ? { method: 'DELETE', body: JSON.stringify({ force: true }) }
+                        : { method: 'DELETE' };
+                    const res = await request(`/users/${target.id}`, options);
                     if (res.code === 200) {
-                        showToast('删除成功');
-                        loadUsers();
+                        showToast(forceDelete ? '强制删除成功' : '删除成功');
+                        closeUserDeleteModal();
+                        await loadUsers();
                     } else {
-                        showToast(res.message || res.msg || '删除失败', 'error');
+                        userDeleteError.value = res.message || res.msg || '删除失败';
                     }
                 } catch (err) {
                     console.error('删除用户失败:', err);
@@ -39331,21 +40105,11 @@
                     const references = Array.isArray(data?.data?.references) ? data.data.references : [];
                     const referenceText = formatUserDeleteReferences(references);
                     const canForceDelete = data?.code === 409 && data?.data?.can_force_delete === true && user.value?.is_super_admin;
-
-                    if (canForceDelete) {
-                        try {
-                            const forced = await forceDeleteUser(u, references);
-                            if (forced) return;
-                        } catch (forceErr) {
-                            const forceData = forceErr?.data || {};
-                            const forceReferences = Array.isArray(forceData?.data?.references) ? forceData.data.references : [];
-                            const forceReferenceText = formatUserDeleteReferences(forceReferences);
-                            showToast(`${forceData.message || forceData.msg || forceErr.message || '强制删除失败'}${forceReferenceText ? `：${forceReferenceText}` : ''}`, 'error');
-                            return;
-                        }
-                    }
-
-                    showToast(`${data.message || data.msg || err.message || '删除失败'}${referenceText ? `：${referenceText}` : ''}`, 'error');
+                    userDeleteReferences.value = references;
+                    userDeleteCanForce.value = canForceDelete;
+                    userDeleteError.value = `${data.message || data.msg || err.message || '删除失败'}${referenceText ? `：${referenceText}` : ''}`;
+                } finally {
+                    userDeleteLoading.value = false;
                 }
             };
 
@@ -39703,7 +40467,7 @@
                             }
                             isLoggedIn.value = true;
                             loadData();
-                            if (currentPage.value === 'compass') {
+                            if (isCompassDataPage()) {
                                 scheduleInitialCompassLoad({ force: true, delayMs: 4500 });
                                 scheduleHomeSecondaryPanelsReady();
                             }
@@ -41277,7 +42041,9 @@
                 openingTaskDueLabel, openingTaskDueClass, openingTaskProgressPercent, openingTaskProgressStage, openingTaskProgressTextClass, handleOpeningTaskProgressInput, handleOpeningTaskStatusChange, setOpeningTaskProgress, saveOpeningTaskProgress,
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
-                homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
+                homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
+                dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly,
+                dualOtaConnectionClass, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
                 revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
                 macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
@@ -41300,7 +42066,7 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, getHotelNameById, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, getHotelNameById, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
@@ -41329,14 +42095,14 @@
                 showDataConfigModal, currentDataConfigType, dataConfigTitle, dataConfigMeta, testingConfig, savingConfig, dataConfigForm,
                 showDataConfigSpidertoken, showDataConfigCookie, showDataConfigPayload,
                 openDataConfigModal, saveDataConfig, testDataConfig,
-                showHotelModal, showHotelDeleteModal, hotelDeleteTarget, hotelDeleteLoading, hotelDeleteError, hotelDeleteReferences, hotelDeleteCanForce, showUserModal, showPermissionModal, showHotelOtaConfig,
+                showHotelModal, showHotelDeleteModal, hotelDeleteTarget, hotelDeleteLoading, hotelDeleteError, hotelDeleteReferences, hotelDeleteCanForce, showUserModal, showUserStatusConfirmModal, userStatusConfirmTarget, userStatusConfirmAction, userStatusConfirmLoading, userStatusConfirmError, userStatusConfirmName, userStatusConfirmTitle, userStatusConfirmDescription, userStatusConfirmPrimaryText, showUserDeleteModal, userDeleteTarget, userDeleteLoading, userDeleteError, userDeleteReferences, userDeleteCanForce, userDeleteName, userDeletePrimaryText, showPermissionModal, showHotelOtaConfig,
                 hotelForm, hotelBackgroundProfileForm, hotelCodeErrorText, hotelOtaConfig, hotelOtaConfigLoading, hotelOtaConfigStatusText, userForm,
                 getEmptyHotelBackgroundProfile, parseHotelDescriptionPayload, buildHotelDescriptionPayload, getHotelDescriptionProfileRows, hotelFormAccountHotel,
                 filteredHotels, filteredUsers,
                 permissionUser, userPermissions,
                 handleLogin, handleRegister, openRegisterForm, closeRegisterForm, handleLogout, forgotPassword, openDirectorEntry, closeDirectorEntry, verifyDirectorEntry, showToast,
                 openHotelModal, openHotelManagementForOta, saveHotel, openHotelDeleteModal, closeHotelDeleteModal, confirmDeleteHotel, deactivateHotelDeleteTarget, deleteHotel, hotelDeleteIdentityText, toggleHotelStatus,
-                openUserModal, saveUser, deleteUser,
+                openUserModal, saveUser, approveUser, deactivateUser, closeUserStatusConfirm, confirmUserStatusChange, deleteUser, closeUserDeleteModal, confirmDeleteUser,
                 rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, saveRole, deleteRole, togglePermission,
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,

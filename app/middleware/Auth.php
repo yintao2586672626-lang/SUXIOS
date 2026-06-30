@@ -95,7 +95,7 @@ class Auth
             'token_expired' => '登录已过期，请重新登录',
             'invalid_token' => '认证信息无效',
             'user_not_found' => '用户不存在',
-            'user_disabled' => '账号已被禁用',
+            'user_disabled' => '账号待审核或已停用，请联系超级管理员启用',
         ];
 
         return json([

@@ -6542,6 +6542,18 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-action {
     box-shadow: 0 0 0 3px rgba(220, 197, 145, 0.09) !important;
 }
 
+.login-bg .input-group .input-field:-webkit-autofill,
+.login-bg .input-group .input-field:-webkit-autofill:hover,
+.login-bg .input-group .input-field:-webkit-autofill:focus,
+.login-bg .input-group .input-field:-webkit-autofill:active {
+    border-color: rgba(220, 197, 145, 0.22) !important;
+    -webkit-box-shadow: 0 0 0 1000px #050b0b inset !important;
+    box-shadow: 0 0 0 1000px #050b0b inset !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    caret-color: #f8fafc !important;
+    transition: background-color 9999s ease-out 0s !important;
+}
+
 .login-bg .input-icon-prefix,
 .login-bg .password-toggle {
     color: rgba(220, 197, 145, 0.64) !important;
@@ -8730,5 +8742,2276 @@ aside.sidebar:not(.collapsed) {
     .suxi-dashboard-scope [data-testid="revenue-ai-status-strip"],
     .suxi-dashboard-scope [data-testid="revenue-ai-metric-cards"] {
         gap: 10px !important;
+    }
+}
+
+/* Premium internal background layer: coordinates with the login tone without reusing the lobby image. */
+:root {
+    --sx-luxury-bg: #06110d;
+    --sx-luxury-bg-deep: #020706;
+    --sx-luxury-ink: #13201e;
+    --sx-luxury-gold: #dcc591;
+    --sx-luxury-gold-soft: rgba(220, 197, 145, .32);
+    --sx-luxury-green: #143a31;
+    --sx-luxury-surface: rgba(255, 253, 247, .94);
+    --sx-luxury-surface-muted: rgba(249, 246, 235, .82);
+    --sx-luxury-border: rgba(202, 178, 123, .34);
+    --sx-luxury-border-soft: rgba(202, 178, 123, .20);
+    --sx-luxury-shadow: 0 24px 70px rgba(3, 12, 10, .26), 0 1px 0 rgba(255, 255, 255, .58) inset;
+}
+
+.suxi-app-shell {
+    background: var(--sx-luxury-bg) !important;
+}
+
+.suxi-app-shell main[data-testid="app-main"] {
+    position: relative;
+    background:
+        radial-gradient(circle at 18% -8%, rgba(185, 150, 91, .14), transparent 34%),
+        radial-gradient(circle at 88% 6%, rgba(31, 91, 99, .10), transparent 30%),
+        linear-gradient(180deg, #FBF7EF 0%, #F6F0E6 54%, #F1E8DA 100%) !important;
+    background-size: auto !important;
+    background-position: center !important;
+    background-attachment: scroll !important;
+    color: var(--sx-luxury-ink);
+}
+
+.suxi-app-shell main[data-testid="app-main"]::before {
+    content: "";
+    position: fixed;
+    inset: 0 0 0 var(--sx-shell-sidebar-offset, 15.5rem);
+    pointer-events: none;
+    background:
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, .018) 0 1px, transparent 1px 5px),
+        linear-gradient(90deg, rgba(220, 197, 145, .15), transparent 18%, transparent 100%);
+    mix-blend-mode: screen;
+    opacity: .56;
+}
+
+.suxi-app-shell:has(aside.sidebar.collapsed) main[data-testid="app-main"]::before {
+    --sx-shell-sidebar-offset: 4.5rem;
+}
+
+.suxi-app-shell aside.sidebar {
+    border-right: 1px solid rgba(220, 197, 145, .16) !important;
+    background:
+        linear-gradient(90deg, rgba(220, 197, 145, .09), transparent 18%),
+        linear-gradient(180deg, rgba(11, 28, 23, .98), rgba(4, 11, 12, .99)) !important;
+    box-shadow: 18px 0 54px rgba(2, 7, 6, .34), inset -1px 0 rgba(220, 197, 145, .10) !important;
+}
+
+.suxi-app-shell aside.sidebar::after {
+    background: linear-gradient(180deg, rgba(220, 197, 145, .42), rgba(255, 255, 255, .05), rgba(20, 184, 166, .14)) !important;
+}
+
+.suxi-app-shell .sidebar-item {
+    color: rgba(239, 244, 238, .78) !important;
+}
+
+.suxi-app-shell .sidebar-item i,
+.suxi-app-shell .text-blue-300 {
+    color: rgba(220, 197, 145, .78) !important;
+}
+
+.suxi-app-shell .sidebar-item:hover {
+    border-color: rgba(220, 197, 145, .18) !important;
+    background: rgba(220, 197, 145, .08) !important;
+    color: #fffaf0 !important;
+}
+
+.suxi-app-shell .sidebar-item.active {
+    border-color: rgba(220, 197, 145, .36) !important;
+    background:
+        linear-gradient(90deg, rgba(220, 197, 145, .18), rgba(15, 76, 63, .24)) !important;
+    box-shadow: inset 3px 0 0 rgba(220, 197, 145, .88), 0 10px 24px rgba(2, 7, 6, .20) !important;
+}
+
+.suxi-app-shell .user-avatar {
+    background: rgba(220, 197, 145, .16) !important;
+    border: 1px solid rgba(220, 197, 145, .18) !important;
+}
+
+.suxi-app-shell .header {
+    border-bottom: 1px solid rgba(220, 197, 145, .16) !important;
+    background:
+        linear-gradient(90deg, rgba(7, 17, 14, .92), rgba(16, 43, 35, .86)) !important;
+    box-shadow: 0 18px 46px rgba(2, 7, 6, .22) !important;
+    color: #f7f0df !important;
+    backdrop-filter: blur(14px);
+}
+
+.suxi-app-shell .header h1 {
+    color: #fffaf0 !important;
+    font-weight: 750 !important;
+}
+
+.suxi-app-shell .header .text-gray-400.text-sm.flex.items-center.bg-gray-100,
+.suxi-app-shell .header .relative button,
+.suxi-app-shell .header-locale-switch,
+.suxi-app-shell .locale-switch:not(.login-locale-switch) {
+    border-color: rgba(220, 197, 145, .20) !important;
+    background: rgba(255, 253, 247, .08) !important;
+    color: rgba(255, 250, 240, .78) !important;
+    box-shadow: none !important;
+}
+
+.suxi-app-shell .header-locale-switch label,
+.suxi-app-shell .locale-switch:not(.login-locale-switch) label {
+    color: rgba(255, 250, 240, .76) !important;
+}
+
+.suxi-app-shell .header-locale-switch select,
+.suxi-app-shell .locale-switch:not(.login-locale-switch) select {
+    border-color: rgba(220, 197, 145, .20) !important;
+    background: rgba(255, 253, 247, .88) !important;
+    color: #15231f !important;
+}
+
+.suxi-app-shell .header .text-blue-500,
+.suxi-app-shell .header .text-blue-600 {
+    color: rgba(220, 197, 145, .86) !important;
+}
+
+.suxi-app-shell .suxi-page-body {
+    padding: 22px !important;
+}
+
+.suxi-app-shell .page-enter,
+.suxi-app-shell .suxi-page-body.page-enter {
+    background: transparent !important;
+}
+
+.suxi-app-shell .suxi-page-body::before {
+    inset: 10px 12px auto 12px;
+    height: 280px;
+    border: 1px solid rgba(220, 197, 145, .16);
+    border-radius: 18px;
+    background:
+        linear-gradient(90deg, rgba(220, 197, 145, .14), transparent 24%),
+        linear-gradient(180deg, rgba(255, 253, 247, .08), transparent 76%) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+
+.suxi-app-shell main :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .bg-white.rounded-2xl, .card, .table-container) {
+    border-color: var(--sx-luxury-border) !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, .92), var(--sx-luxury-surface)) !important;
+    box-shadow: var(--sx-luxury-shadow) !important;
+}
+
+.suxi-dashboard-scope .compass-shell-card,
+.suxi-dashboard-scope .home-hero-panel,
+.suxi-dashboard-scope > .bg-white.rounded-xl {
+    border-color: rgba(220, 197, 145, .34) !important;
+    background:
+        linear-gradient(180deg, rgba(255, 253, 247, .82), rgba(244, 236, 223, .74)) !important;
+    box-shadow: 0 24px 74px rgba(3, 12, 10, .24), inset 0 1px 0 rgba(255, 255, 255, .62) !important;
+}
+
+.suxi-dashboard-scope .compass-shell-card > .flex.flex-col,
+.suxi-dashboard-scope .compass-shell-card > .space-y-4 {
+    background:
+        linear-gradient(180deg, rgba(244, 236, 223, .62), rgba(255, 253, 247, .42)) !important;
+}
+
+.suxi-dashboard-scope [data-testid="home-ai-workbench"],
+.suxi-dashboard-scope .home-hero-data-module,
+.suxi-dashboard-scope .home-observation-footer,
+.suxi-dashboard-scope .home-forecast-summary-action {
+    border-color: rgba(220, 197, 145, .34) !important;
+    background:
+        linear-gradient(180deg, rgba(255, 253, 247, .78), rgba(244, 236, 223, .62)) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope .compass-shell-card {
+    border-color: rgba(220, 197, 145, .26) !important;
+    background:
+        linear-gradient(180deg, rgba(8, 25, 21, .76), rgba(4, 13, 11, .9)) !important;
+    box-shadow: 0 28px 90px rgba(2, 7, 6, .42), inset 0 1px 0 rgba(255, 253, 247, .08) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope .compass-shell-card > .flex.flex-col {
+    background:
+        radial-gradient(ellipse at 8% 0%, rgba(220, 197, 145, .18), transparent 34%),
+        radial-gradient(ellipse at 90% 8%, rgba(31, 93, 76, .22), transparent 38%),
+        linear-gradient(135deg, rgba(10, 38, 33, .88), rgba(5, 16, 14, .94) 58%, rgba(2, 7, 6, .96)) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] {
+    position: relative !important;
+    border-color: rgba(220, 197, 145, .28) !important;
+    background:
+        linear-gradient(180deg, rgba(255, 253, 247, .08), rgba(255, 253, 247, .03)),
+        linear-gradient(135deg, rgba(12, 43, 37, .9), rgba(4, 13, 12, .96)) !important;
+    color: #f6ecd4 !important;
+    box-shadow: 0 24px 70px rgba(2, 7, 6, .34), inset 0 1px 0 rgba(255, 253, 247, .10) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(90deg, rgba(220, 197, 145, .12) 0, transparent 1px, transparent 11px),
+        radial-gradient(ellipse at 16% 12%, rgba(220, 197, 145, .14), transparent 34%),
+        radial-gradient(ellipse at 82% 18%, rgba(56, 124, 101, .14), transparent 38%);
+    opacity: .72;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] > * {
+    position: relative;
+    z-index: 1;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="bg-[#fffdf8]"],
+    [class*="bg-[#fffaf0]"],
+    [class*="bg-[#fff8ea]"],
+    [class*="bg-[#f4ecdf]"],
+    [class*="bg-white"],
+    [class*="bg-gray-50"],
+    [class*="bg-slate-50"]
+) {
+    background: rgba(255, 253, 247, .075) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="bg-[#fbefd2]"],
+    [class*="bg-[#f9edcf]"],
+    [class*="bg-[#f6eddd]"],
+    [class*="bg-[#ead9b8]"]
+) {
+    background: rgba(220, 197, 145, .15) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="border-[#dfcfb3]"],
+    [class*="border-[#dac7a8]"],
+    [class*="border-[#c99645]"],
+    [class*="border-[#d9b36f]"],
+    [class*="border-gray-200"],
+    [class*="border-slate-200"]
+) {
+    border-color: rgba(220, 197, 145, .24) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="border-t"][class*="border-dashed"],
+    [class*="border-t"][class*="pt-3"]
+) {
+    background: transparent !important;
+    border-color: rgba(220, 197, 145, .20) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] [class*="divide-[#dfcfb3]"] > * + * {
+    border-color: rgba(220, 197, 145, .22) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="text-[#1c160f]"],
+    [class*="text-[#2b2217]"],
+    [class*="text-[#3b2c1b]"],
+    [class*="text-[#6a5438]"]
+) {
+    color: #f6ecd4 !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="text-[#73644f]"],
+    [class*="text-[#776852]"],
+    [class*="text-[#8a8174]"],
+    [class*="text-[#9b8d79]"],
+    [class*="text-gray-500"],
+    [class*="text-slate-500"]
+) {
+    color: rgba(246, 236, 212, .66) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="text-[#8a6127]"],
+    [class*="text-[#9a6421]"],
+    [class*="text-[#b47a2a]"]
+) {
+    color: #e1c176 !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="text-[#00635f]"],
+    [class*="text-[#087066]"]
+) {
+    color: #91d4c3 !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] select,
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] button {
+    border-color: rgba(220, 197, 145, .24) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] select {
+    background: rgba(255, 253, 247, .12) !important;
+    color: #f6ecd4 !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] button:hover {
+    background: rgba(255, 253, 247, .12) !important;
+    border-color: rgba(220, 197, 145, .42) !important;
+}
+
+.suxi-app-shell main :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .bg-white.rounded-2xl, .card, .table-container):hover {
+    border-color: rgba(220, 197, 145, .48) !important;
+}
+
+.suxi-app-shell main :where(.bg-gray-50.rounded-xl, .bg-gray-50.rounded-lg, .bg-slate-50.rounded-xl, .bg-slate-50.rounded-lg),
+.suxi-app-shell main :where(.bg-gray-50, .bg-slate-50) {
+    border-color: var(--sx-luxury-border-soft) !important;
+    background: var(--sx-luxury-surface-muted) !important;
+}
+
+.suxi-app-shell main :where(.border-gray-100, .border-gray-200, .border-slate-100, .border-slate-200) {
+    border-color: rgba(202, 178, 123, .26) !important;
+}
+
+.suxi-app-shell main[data-current-page] .suxi-page-body > div > :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .card, .table-container):first-child::before {
+    background: linear-gradient(90deg, rgba(220, 197, 145, .86), rgba(20, 83, 70, .22), transparent) !important;
+}
+
+.suxi-app-shell main :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea, .input-field) {
+    border-color: rgba(202, 178, 123, .30) !important;
+    background: rgba(255, 253, 247, .88) !important;
+}
+
+.suxi-app-shell main :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea, .input-field):focus {
+    border-color: rgba(180, 137, 67, .62) !important;
+    box-shadow: 0 0 0 3px rgba(220, 197, 145, .18) !important;
+}
+
+.suxi-app-shell main :where(button, a)[class*="bg-blue-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-blue-600"],
+.suxi-app-shell main :where(button, a)[class*="bg-blue-700"],
+.suxi-app-shell main :where(button, a)[class*="from-blue-"],
+.suxi-app-shell main :where(button, a)[class*="bg-gradient-to-r"],
+.suxi-app-shell main :where(button, a)[class*="bg-purple-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-purple-600"],
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-600"] {
+    border-color: #9f7a3f !important;
+    background: linear-gradient(135deg, #c8ab6a, #9f7a3f) !important;
+    color: #10201b !important;
+    box-shadow: 0 12px 26px rgba(58, 39, 12, .16) !important;
+}
+
+.suxi-app-shell main :where(button, a)[class*="bg-blue-500"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-blue-600"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-blue-700"]:hover,
+.suxi-app-shell main :where(button, a)[class*="from-blue-"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-gradient-to-r"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-purple-500"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-purple-600"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-500"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-600"]:hover {
+    background: linear-gradient(135deg, #d7bd7a, #a67f43) !important;
+}
+
+@media (max-width: 640px) {
+    .suxi-app-shell main[data-testid="app-main"]::before {
+        inset: 0;
+    }
+
+    .suxi-app-shell .suxi-page-body {
+        padding: 10px !important;
+        padding-bottom: 88px !important;
+    }
+
+    .suxi-app-shell aside.sidebar.sidebar {
+        border-color: rgba(220, 197, 145, .22) !important;
+        background:
+            linear-gradient(90deg, rgba(11, 28, 23, .96), rgba(4, 11, 12, .98)) !important;
+    }
+}
+
+/* Luxury hotel operating cockpit theme: final visual layer for logged-in pages. */
+:root {
+    --color-bg: #F6F0E6;
+    --color-bg-soft: #FBF7EF;
+    --color-bg-elevated: #FFFFFF;
+    --color-surface: #FFFFFF;
+    --color-surface-warm: #FAF5EC;
+    --color-surface-muted: #F1E8DA;
+    --color-obsidian: #111418;
+    --color-charcoal: #1C2026;
+    --color-charcoal-soft: #2A2F36;
+    --color-sidebar: #111418;
+    --color-sidebar-hover: #1C2026;
+    --color-sidebar-active: #2A241C;
+    --color-gold: #B9965B;
+    --color-gold-hover: #A88449;
+    --color-gold-soft: #EFE3CB;
+    --color-gold-muted: #D8C29A;
+    --color-burgundy: #6E2F3A;
+    --color-burgundy-soft: #F1E4E6;
+    --color-truffle: #5B4A3F;
+    --color-truffle-soft: #E9DED3;
+    --color-teal-deep: #1F5B63;
+    --color-teal-soft: #E1EEF0;
+    --color-text: #1E252B;
+    --color-text-muted: #667085;
+    --color-text-subtle: #8A7F72;
+    --color-text-inverse: #F8F1E7;
+    --color-border: #E2D5C3;
+    --color-border-strong: #CDBA9E;
+    --color-border-dark: rgba(255, 255, 255, 0.12);
+    --color-success: #3E7B5E;
+    --color-success-soft: #E4F0EA;
+    --color-warning: #B98232;
+    --color-warning-soft: #F5E8D2;
+    --color-danger: #A85252;
+    --color-danger-soft: #F2DEDE;
+    --color-info: #3A6F8F;
+    --color-info-soft: #E2EEF4;
+    --shadow-card: 0 8px 24px rgba(33, 28, 20, 0.06);
+    --shadow-card-hover: 0 12px 32px rgba(33, 28, 20, 0.10);
+    --shadow-luxury: 0 16px 40px rgba(17, 20, 24, 0.10);
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 18px;
+    --radius-xl: 24px;
+}
+
+.suxi-app-shell,
+.suxi-app-shell main[data-current-page] {
+    --sx-page-bg: var(--color-bg);
+    --sx-surface: var(--color-surface);
+    --sx-surface-muted: var(--color-surface-warm);
+    --sx-surface-raised: var(--color-surface);
+    --sx-border: var(--color-border);
+    --sx-border-strong: var(--color-border-strong);
+    --sx-text: var(--color-text);
+    --sx-text-muted: var(--color-text-muted);
+    --sx-text-soft: var(--color-text-subtle);
+    --sx-accent: var(--color-teal-deep);
+    --sx-accent-dark: #17464d;
+    --sx-accent-soft: var(--color-teal-soft);
+    --sx-page-accent: var(--color-teal-deep);
+    --sx-page-accent-dark: #17464d;
+    --sx-page-accent-soft: var(--color-teal-soft);
+    --sx-page-glow-rgb: 185, 150, 91;
+    --sx-sidebar-bg: var(--color-sidebar);
+    --sx-sidebar-bg-deep: #0A0D10;
+    --sx-shadow-soft: var(--shadow-card);
+    --sx-shadow-lift: var(--shadow-card-hover);
+    --sx-danger: var(--color-danger);
+    --sx-success: var(--color-success);
+    --sx-warning: var(--color-warning);
+    --sx-luxury-bg: var(--color-bg);
+    --sx-luxury-bg-deep: var(--color-surface-muted);
+    --sx-luxury-ink: var(--color-text);
+    --sx-luxury-gold: var(--color-gold);
+    --sx-luxury-gold-soft: var(--color-gold-soft);
+    --sx-luxury-green: var(--color-teal-deep);
+    --sx-luxury-surface: var(--color-surface);
+    --sx-luxury-surface-muted: var(--color-surface-warm);
+    --sx-luxury-border: var(--color-border);
+    --sx-luxury-border-soft: rgba(226, 213, 195, .64);
+    --sx-luxury-shadow: var(--shadow-card);
+    background: var(--color-bg) !important;
+    color: var(--color-text);
+    font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+.suxi-app-shell :focus-visible {
+    outline-color: rgba(185, 150, 91, .52) !important;
+}
+
+.suxi-app-shell main[data-testid="app-main"] {
+    background:
+        radial-gradient(circle at 18% -8%, rgba(185, 150, 91, .14), transparent 34%),
+        radial-gradient(circle at 88% 6%, rgba(31, 91, 99, .10), transparent 30%),
+        linear-gradient(180deg, var(--color-bg-soft) 0%, var(--color-bg) 54%, var(--color-surface-muted) 100%) !important;
+    background-attachment: scroll !important;
+    background-size: auto !important;
+    color: var(--color-text);
+}
+
+.suxi-app-shell main[data-testid="app-main"]::before {
+    inset: 0 0 0 var(--sx-shell-sidebar-offset, 15.5rem);
+    background:
+        linear-gradient(90deg, rgba(185, 150, 91, .055), transparent 28%, transparent),
+        repeating-linear-gradient(0deg, rgba(91, 74, 63, .025) 0 1px, transparent 1px 7px) !important;
+    mix-blend-mode: normal !important;
+    opacity: .70 !important;
+}
+
+.suxi-app-shell .suxi-page-body {
+    padding: 24px !important;
+}
+
+.suxi-app-shell .suxi-page-body::before {
+    inset: 12px 16px auto 16px !important;
+    height: 240px !important;
+    border: 1px solid rgba(226, 213, 195, .58) !important;
+    border-radius: var(--radius-xl) !important;
+    background:
+        linear-gradient(120deg, rgba(255, 255, 255, .72), rgba(250, 245, 236, .40) 52%, transparent),
+        radial-gradient(circle at 18% 0%, rgba(185, 150, 91, .11), transparent 36%) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .80) !important;
+}
+
+.suxi-app-shell aside.sidebar {
+    border-right: 1px solid var(--color-border-dark) !important;
+    background:
+        linear-gradient(180deg, var(--color-sidebar) 0%, #0B0E12 100%) !important;
+    box-shadow: 14px 0 36px rgba(17, 20, 24, .16), inset -1px 0 rgba(255, 255, 255, .08) !important;
+}
+
+.suxi-app-shell aside.sidebar::after {
+    background: linear-gradient(180deg, rgba(216, 194, 154, .34), rgba(255, 255, 255, .06), rgba(216, 194, 154, .18)) !important;
+}
+
+.suxi-app-shell .sidebar-item {
+    border-radius: var(--radius-sm) !important;
+    color: rgba(248, 241, 231, .76) !important;
+}
+
+.suxi-app-shell .sidebar-item i,
+.suxi-app-shell .text-blue-300 {
+    color: rgba(239, 227, 203, .86) !important;
+}
+
+.suxi-app-shell .sidebar-item:hover {
+    border-color: rgba(216, 194, 154, .18) !important;
+    background: var(--color-sidebar-hover) !important;
+    color: var(--color-text-inverse) !important;
+}
+
+.suxi-app-shell .sidebar-item.active {
+    border-color: rgba(216, 194, 154, .42) !important;
+    background: linear-gradient(135deg, var(--color-sidebar-active), rgba(42, 36, 28, .74)) !important;
+    color: var(--color-text-inverse) !important;
+    box-shadow: inset 3px 0 0 var(--color-gold), 0 10px 24px rgba(0, 0, 0, .18) !important;
+}
+
+.suxi-app-shell aside.sidebar .sidebar-item.active,
+.suxi-app-shell aside.sidebar.collapsed .sidebar-item.active {
+    border-color: rgba(216, 194, 154, .42) !important;
+    background: linear-gradient(135deg, var(--color-sidebar-active), rgba(42, 36, 28, .78)) !important;
+    color: var(--color-text-inverse) !important;
+    box-shadow: inset 3px 0 0 var(--color-gold), 0 10px 24px rgba(0, 0, 0, .18) !important;
+}
+
+.suxi-app-shell aside.sidebar .sidebar-item.active i {
+    color: var(--color-text-inverse) !important;
+}
+
+.suxi-app-shell .user-avatar {
+    border: 1px solid rgba(216, 194, 154, .32) !important;
+    background: rgba(185, 150, 91, .18) !important;
+    color: var(--color-text-inverse) !important;
+}
+
+.suxi-app-shell .header {
+    border-bottom: 1px solid rgba(17, 20, 24, .16) !important;
+    background: linear-gradient(90deg, var(--color-obsidian), var(--color-charcoal)) !important;
+    box-shadow: var(--shadow-luxury) !important;
+    color: var(--color-text-inverse) !important;
+    backdrop-filter: blur(12px);
+}
+
+.suxi-app-shell .header h1 {
+    color: var(--color-text-inverse) !important;
+    font-weight: 700 !important;
+    letter-spacing: 0 !important;
+}
+
+.suxi-app-shell .header .text-gray-400.text-sm.flex.items-center.bg-gray-100,
+.suxi-app-shell .header .relative button,
+.suxi-app-shell .header-locale-switch,
+.suxi-app-shell .locale-switch:not(.login-locale-switch) {
+    border-color: rgba(226, 213, 195, .42) !important;
+    background: rgba(251, 247, 239, .94) !important;
+    color: var(--color-obsidian) !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .10) !important;
+}
+
+.suxi-app-shell .header-locale-switch label,
+.suxi-app-shell .locale-switch:not(.login-locale-switch) label {
+    color: var(--color-text-muted) !important;
+}
+
+.suxi-app-shell .header-locale-switch select,
+.suxi-app-shell .locale-switch:not(.login-locale-switch) select {
+    border-color: rgba(226, 213, 195, .76) !important;
+    background: var(--color-bg-soft) !important;
+    color: var(--color-text) !important;
+}
+
+.suxi-app-shell .header .text-blue-500,
+.suxi-app-shell .header .text-blue-600 {
+    color: var(--color-gold-muted) !important;
+}
+
+.suxi-app-shell main :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .bg-white.rounded-2xl, .card, .table-container),
+.suxi-app-shell main .bg-white.rounded-xl,
+.suxi-app-shell main .bg-white.rounded-lg,
+.suxi-app-shell main .bg-white.rounded-2xl,
+.suxi-app-shell main .card,
+.suxi-app-shell main .table-container {
+    border-color: var(--color-border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--color-surface) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+.suxi-app-shell main :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .bg-white.rounded-2xl, .card, .table-container):hover {
+    border-color: var(--color-border-strong) !important;
+    box-shadow: var(--shadow-card-hover) !important;
+}
+
+.suxi-app-shell main :where(.bg-gray-50.rounded-xl, .bg-gray-50.rounded-lg, .bg-slate-50.rounded-xl, .bg-slate-50.rounded-lg),
+.suxi-app-shell main :where(.bg-gray-50, .bg-slate-50) {
+    border-color: rgba(226, 213, 195, .70) !important;
+    background: var(--color-surface-warm) !important;
+}
+
+.suxi-app-shell main :where(.border-gray-100, .border-gray-200, .border-slate-100, .border-slate-200),
+.suxi-app-shell main :where(.divide-y > :not([hidden]) ~ :not([hidden])) {
+    border-color: var(--color-border) !important;
+}
+
+.suxi-app-shell main :where(.text-gray-400, .text-gray-500, .text-slate-500) {
+    color: var(--color-text-muted) !important;
+}
+
+.suxi-app-shell main :where(.text-gray-600, .text-slate-600) {
+    color: var(--color-text-subtle) !important;
+}
+
+.suxi-app-shell main :where(.text-gray-800, .text-gray-900, .text-slate-900, .text-slate-950) {
+    color: var(--color-text) !important;
+}
+
+.suxi-app-shell main :where(.bg-blue-50, .bg-cyan-50, .bg-indigo-50) {
+    border-color: rgba(58, 111, 143, .18) !important;
+    background: var(--color-info-soft) !important;
+}
+
+.suxi-app-shell main :where(.text-blue-500, .text-blue-600, .text-blue-700, .text-cyan-600, .text-cyan-700, .text-indigo-600, .text-indigo-700) {
+    color: var(--color-info) !important;
+}
+
+.suxi-app-shell main :where(.border-blue-100, .border-blue-200, .border-cyan-100, .border-cyan-200, .border-indigo-100, .border-indigo-200) {
+    border-color: rgba(58, 111, 143, .24) !important;
+}
+
+.suxi-app-shell main :where(.bg-green-50, .bg-green-100, .bg-emerald-50, .bg-emerald-100) {
+    border-color: rgba(62, 123, 94, .18) !important;
+    background: var(--color-success-soft) !important;
+}
+
+.suxi-app-shell main :where(.text-green-500, .text-green-600, .text-green-700, .text-green-800, .text-emerald-600, .text-emerald-700, .text-emerald-800) {
+    color: var(--color-success) !important;
+}
+
+.suxi-app-shell main :where(.border-green-100, .border-green-200, .border-emerald-100, .border-emerald-200) {
+    border-color: rgba(62, 123, 94, .24) !important;
+}
+
+.suxi-app-shell main :where(.bg-yellow-50, .bg-yellow-100, .bg-amber-50, .bg-amber-100, .bg-orange-50, .bg-orange-100) {
+    border-color: rgba(185, 130, 50, .20) !important;
+    background: var(--color-warning-soft) !important;
+}
+
+.suxi-app-shell main :where(.text-yellow-700, .text-yellow-800, .text-amber-600, .text-amber-700, .text-amber-800, .text-orange-600, .text-orange-700, .text-orange-800) {
+    color: var(--color-warning) !important;
+}
+
+.suxi-app-shell main :where(.border-yellow-100, .border-yellow-200, .border-amber-100, .border-amber-200, .border-orange-100, .border-orange-200) {
+    border-color: rgba(185, 130, 50, .26) !important;
+}
+
+.suxi-app-shell main :where(.bg-red-50, .bg-red-100) {
+    border-color: rgba(168, 82, 82, .22) !important;
+    background: var(--color-danger-soft) !important;
+}
+
+.suxi-app-shell main :where(.text-red-500, .text-red-600, .text-red-700, .text-red-800) {
+    color: var(--color-danger) !important;
+}
+
+.suxi-app-shell main :where(.border-red-100, .border-red-200) {
+    border-color: rgba(168, 82, 82, .26) !important;
+}
+
+.suxi-app-shell main :where(.bg-purple-50, .bg-violet-50, .bg-pink-50) {
+    border-color: rgba(110, 47, 58, .18) !important;
+    background: var(--color-burgundy-soft) !important;
+}
+
+.suxi-app-shell main :where(.text-purple-500, .text-purple-600, .text-purple-700, .text-violet-600, .text-pink-600) {
+    color: var(--color-burgundy) !important;
+}
+
+.suxi-app-shell main :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea, .input-field) {
+    border-color: var(--color-border) !important;
+    border-radius: var(--radius-sm) !important;
+    background: rgba(255, 255, 255, .94) !important;
+    color: var(--color-text) !important;
+}
+
+.suxi-app-shell main :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea, .input-field):focus {
+    border-color: var(--color-gold) !important;
+    box-shadow: 0 0 0 3px rgba(185, 150, 91, .18) !important;
+}
+
+.suxi-app-shell main :where(button, a)[class*="bg-blue-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-blue-600"],
+.suxi-app-shell main :where(button, a)[class*="bg-blue-700"],
+.suxi-app-shell main :where(button, a)[class*="from-blue-"],
+.suxi-app-shell main :where(button, a)[class*="bg-gradient-to-r"],
+.suxi-app-shell main :where(button, a)[class*="bg-purple-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-purple-600"],
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-600"] {
+    border-color: var(--color-teal-deep) !important;
+    background: var(--color-teal-deep) !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 8px 20px rgba(31, 91, 99, .16) !important;
+}
+
+.suxi-app-shell main :where(button, a)[class*="bg-blue-500"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-blue-600"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-blue-700"]:hover,
+.suxi-app-shell main :where(button, a)[class*="from-blue-"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-gradient-to-r"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-purple-500"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-purple-600"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-500"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-600"]:hover {
+    border-color: #17464d !important;
+    background: #17464d !important;
+    box-shadow: var(--shadow-card-hover) !important;
+}
+
+.suxi-app-shell main :where(button, a)[class*="bg-green-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-green-600"],
+.suxi-app-shell main :where(button, a)[class*="bg-emerald-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-emerald-600"] {
+    border-color: var(--color-success) !important;
+    background: var(--color-success) !important;
+    color: #FFFFFF !important;
+}
+
+.suxi-app-shell main :where(button, a)[class*="bg-yellow-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-amber-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-orange-500"] {
+    border-color: var(--color-gold) !important;
+    background: var(--color-gold) !important;
+    color: var(--color-obsidian) !important;
+}
+
+.suxi-app-shell main :where(.btn-secondary, button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]) {
+    border-color: var(--color-border) !important;
+    background: var(--color-surface) !important;
+    color: var(--color-text) !important;
+}
+
+.suxi-app-shell main :where(.btn-secondary, button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]):hover {
+    border-color: var(--color-border-strong) !important;
+    background: var(--color-bg-soft) !important;
+    color: var(--color-text) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+.suxi-dashboard-scope .compass-shell-card,
+.suxi-dashboard-scope .home-hero-panel,
+.suxi-dashboard-scope > .bg-white.rounded-xl {
+    border-color: var(--color-border) !important;
+    border-radius: var(--radius-lg) !important;
+    background: rgba(255, 255, 255, .86) !important;
+    box-shadow: var(--shadow-luxury) !important;
+}
+
+.suxi-dashboard-scope .compass-shell-card > .flex.flex-col,
+.suxi-dashboard-scope .compass-shell-card > .space-y-4 {
+    background: linear-gradient(180deg, rgba(250, 245, 236, .92), rgba(251, 247, 239, .76)) !important;
+}
+
+.suxi-dashboard-scope [data-testid="home-ai-workbench"],
+.suxi-dashboard-scope .home-hero-data-module,
+.suxi-dashboard-scope .home-observation-footer,
+.suxi-dashboard-scope .home-forecast-summary-action {
+    border-color: var(--color-border) !important;
+    background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-surface-warm) 100%) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope .compass-shell-card {
+    border-color: var(--color-border) !important;
+    background: rgba(255, 255, 255, .78) !important;
+    box-shadow: var(--shadow-luxury) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope .compass-shell-card > .flex.flex-col {
+    background:
+        radial-gradient(circle at 10% 0%, rgba(185, 150, 91, .14), transparent 30%),
+        linear-gradient(180deg, rgba(250, 245, 236, .96), rgba(246, 240, 230, .84)) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] {
+    position: relative !important;
+    padding: 20px !important;
+    border-color: var(--color-border) !important;
+    border-radius: var(--radius-lg) !important;
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, .98) 0%, rgba(250, 245, 236, .98) 100%) !important;
+    color: var(--color-text) !important;
+    box-shadow: var(--shadow-luxury) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+        linear-gradient(90deg, rgba(185, 150, 91, .10), transparent 22%, transparent),
+        radial-gradient(circle at 84% 8%, rgba(31, 91, 99, .08), transparent 28%) !important;
+    opacity: .82 !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] > * {
+    position: relative;
+    z-index: 1;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] .font-serif {
+    font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif !important;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0 !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="bg-[#fffdf8]"],
+    [class*="bg-[#fffaf0]"],
+    [class*="bg-[#fff8ea]"],
+    [class*="bg-[#f4ecdf]"],
+    [class*="bg-white"],
+    [class*="bg-gray-50"],
+    [class*="bg-slate-50"]
+) {
+    background: var(--color-surface) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="bg-[#fbefd2]"],
+    [class*="bg-[#f9edcf]"],
+    [class*="bg-[#f6eddd]"],
+    [class*="bg-[#ead9b8]"]
+) {
+    background: var(--color-gold-soft) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="bg-[#1b7a54]"],
+    [class*="bg-[#087066]"]
+) {
+    background: var(--color-teal-deep) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="bg-[#b98537]"],
+    [class*="bg-[#b47a2a]"]
+) {
+    background: var(--color-gold) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="border-[#dfcfb3]"],
+    [class*="border-[#dac7a8]"],
+    [class*="border-[#c99645]"],
+    [class*="border-[#d9b36f]"],
+    [class*="border-gray-200"],
+    [class*="border-slate-200"]
+) {
+    border-color: var(--color-border) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] [class*="divide-[#dfcfb3]"] > * + *,
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="border-t"][class*="border-dashed"],
+    [class*="border-t"][class*="pt-3"]
+) {
+    border-color: var(--color-border) !important;
+    background: transparent !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="text-[#1c160f]"],
+    [class*="text-[#2b2217]"],
+    [class*="text-[#3b2c1b]"]
+) {
+    color: var(--color-text) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="text-[#6a5438]"],
+    [class*="text-[#73644f]"],
+    [class*="text-[#776852]"],
+    [class*="text-[#8a8174]"],
+    [class*="text-[#9b8d79]"],
+    [class*="text-gray-500"],
+    [class*="text-slate-500"]
+) {
+    color: var(--color-text-muted) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="text-[#8a6127]"],
+    [class*="text-[#9a6421]"],
+    [class*="text-[#b47a2a]"]
+) {
+    color: #8F6D32 !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(
+    [class*="text-[#00635f]"],
+    [class*="text-[#087066]"]
+) {
+    color: var(--color-teal-deep) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] > .grid.grid-cols-1 {
+    border-color: var(--color-border) !important;
+    background: linear-gradient(135deg, #FFFFFF 0%, var(--color-surface-warm) 100%) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] > .grid.grid-cols-1 > button:first-child {
+    background:
+        radial-gradient(circle at 92% 0%, rgba(185, 150, 91, .12), transparent 30%),
+        linear-gradient(135deg, #FFFFFF 0%, var(--color-surface-warm) 100%) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] > .grid.grid-cols-1 > button:first-child [class*="text-5xl"],
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] > .grid.grid-cols-1 > button:first-child [class*="text-6xl"] {
+    color: var(--color-gold) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] button {
+    border-color: var(--color-border) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] button:hover {
+    border-color: var(--color-border-strong) !important;
+    background: var(--color-bg-soft) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] select {
+    border-color: var(--color-border) !important;
+    background: var(--color-surface) !important;
+    color: var(--color-text) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] button.relative {
+    background: var(--color-surface-warm) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] button.relative > span.absolute {
+    background: var(--color-gold-soft) !important;
+    color: #8F6D32 !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] button[class*="min-h-[128px]"] {
+    background: var(--color-surface) !important;
+    border-color: var(--color-border) !important;
+    color: var(--color-text) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] button[class*="min-h-[128px]"] > div:nth-child(2) {
+    color: var(--color-gold) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] button[class*="min-h-[128px]"] span.block {
+    background: var(--color-gold) !important;
+}
+
+main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] :where(.rounded-full.border) {
+    border-color: color-mix(in srgb, currentColor 26%, var(--color-border)) !important;
+}
+
+@media (max-width: 640px) {
+    .suxi-app-shell main[data-testid="app-main"]::before {
+        inset: 0 !important;
+    }
+
+    .suxi-app-shell .suxi-page-body {
+        padding: 12px !important;
+        padding-bottom: 88px !important;
+    }
+
+    .suxi-app-shell aside.sidebar.sidebar {
+        border-color: var(--color-border-dark) !important;
+        background: linear-gradient(180deg, var(--color-sidebar), #0B0E12) !important;
+    }
+
+    main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-ai-workbench"] {
+        padding: 14px !important;
+        border-radius: var(--radius-md) !important;
+    }
+}
+
+/* Logged-in mobile usability and card-density correction. */
+@media (max-width: 640px) {
+    .suxi-app-shell aside.sidebar.sidebar {
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
+        height: 64px !important;
+        max-height: 64px !important;
+        border-radius: 16px !important;
+    }
+
+    .suxi-app-shell aside.sidebar.sidebar nav[data-testid="app-nav"] {
+        gap: 8px !important;
+        padding: 9px 10px !important;
+    }
+
+    .suxi-app-shell aside.sidebar.sidebar .sidebar-item {
+        width: 44px !important;
+        min-width: 44px !important;
+        height: 44px !important;
+        min-height: 44px !important;
+    }
+
+    .suxi-app-shell main[data-testid="app-main"] {
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 124px) !important;
+        scroll-padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 124px) !important;
+    }
+
+    .suxi-app-shell .suxi-page-body {
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 132px) !important;
+    }
+
+    .suxi-app-shell .header .relative button {
+        width: 44px !important;
+        height: 44px !important;
+    }
+
+    .suxi-app-shell .header-locale-switch,
+    .suxi-app-shell .locale-switch:not(.login-locale-switch) {
+        min-height: 44px !important;
+    }
+
+    .suxi-app-shell main[data-testid="app-main"] :where(
+        button,
+        [role="button"],
+        a,
+        select,
+        input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+        textarea
+    ) {
+        min-height: 44px;
+        touch-action: manipulation;
+    }
+
+    .suxi-app-shell main[data-testid="app-main"] :where(button, [role="button"], a) {
+        min-width: 44px;
+    }
+
+    .suxi-app-shell main[data-testid="app-main"] :where(button, a)[class*="w-7"],
+    .suxi-app-shell main[data-testid="app-main"] :where(button, a)[class*="w-8"],
+    .suxi-app-shell main[data-testid="app-main"] :where(button, a)[class*="w-9"],
+    .suxi-app-shell main[data-testid="app-main"] :where(button, a)[class*="h-7"],
+    .suxi-app-shell main[data-testid="app-main"] :where(button, a)[class*="h-8"],
+    .suxi-app-shell main[data-testid="app-main"] :where(button, a)[class*="h-9"] {
+        width: 44px !important;
+        min-width: 44px !important;
+        height: 44px !important;
+        min-height: 44px !important;
+    }
+
+    .suxi-app-shell main[data-current-page="online-data"] .suxi-page-body > div > .rounded-xl {
+        border-radius: 10px !important;
+    }
+}
+
+.suxi-app-shell main[data-current-page="compass"] .compass-dashboard :where(
+    [class*="rounded-2xl"],
+    [class*="rounded-xl"]
+) :where(
+    div,
+    button[class*="text-left"],
+    button[class*="min-h"]
+):where(
+    [class*="rounded-2xl"],
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+):where([class*="border"]),
+.suxi-app-shell main[data-current-page="online-data"] [data-testid="online-data-health-panel"] :where(
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+) :where(
+    div,
+    button[class*="text-left"],
+    button[class*="min-h"]
+):where(
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+):where([class*="border"]) {
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+.suxi-app-shell main[data-current-page="compass"] .compass-dashboard :where(
+    [class*="rounded-2xl"],
+    [class*="rounded-xl"]
+) :where(
+    div,
+    button[class*="text-left"],
+    button[class*="min-h"]
+):where(
+    [class*="rounded-2xl"],
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+):where([class*="bg-white"], [class*="bg-gray-50"], [class*="bg-slate-50"]),
+.suxi-app-shell main[data-current-page="online-data"] [data-testid="online-data-health-panel"] :where(
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+) :where(
+    div,
+    button[class*="text-left"],
+    button[class*="min-h"]
+):where(
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+):where([class*="bg-white"], [class*="bg-gray-50"], [class*="bg-slate-50"]) {
+    background: rgba(248, 250, 252, .72) !important;
+}
+
+.suxi-app-shell main[data-current-page="compass"] .compass-dashboard :where(
+    [data-testid="revenue-ai-status-strip"],
+    [data-testid="revenue-ai-metric-cards"],
+    .home-trend-tabs,
+    .macro-signal-metrics
+) :where(button, [role="button"]),
+.suxi-app-shell main[data-current-page="online-data"] [data-testid="online-data-health-panel"] :where(
+    [data-testid="data-health-command-center"],
+    [data-testid="hotel-portrait-panel"],
+    [data-testid="dashboard-data-sources"],
+    [data-testid="data-health-drilldown"],
+    [data-testid="mixed-collection-lifecycle-panel"]
+) :where(button, [role="button"]) {
+    min-height: 44px;
+}
+
+@media (max-width: 640px) {
+    main[data-testid="app-main"] > .suxi-page-body.suxi-page-body {
+        padding: 12px 12px calc(env(safe-area-inset-bottom, 0px) + 132px) 12px !important;
+    }
+
+    main[data-testid="app-main"][data-current-page="ctrip-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .flex.flex-wrap.border-b.mb-6 > button,
+    main[data-testid="app-main"][data-current-page="meituan-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .flex.flex-wrap.border-b.mb-6 > button {
+        min-height: 44px !important;
+        padding-top: 10px !important;
+        padding-bottom: 10px !important;
+    }
+}
+
+main[data-current-page="compass"] .compass-dashboard .compass-shell-card :where(
+    [class*="rounded-2xl"],
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+):where([class*="border"], [class*="shadow"]),
+main[data-current-page="compass"] .compass-dashboard :where(
+    [class*="rounded-2xl"],
+    [class*="rounded-xl"],
+    .suxi-panel,
+    .card
+) :where(
+    [class*="rounded-2xl"],
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+):where([class*="border"], [class*="shadow"]),
+main[data-current-page="online-data"] [data-testid="online-data-health-panel"] :where(
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+) :where(
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+):where([class*="border"], [class*="shadow"]) {
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+main[data-current-page="compass"] .compass-dashboard .compass-shell-card :where(
+    [class*="rounded-2xl"],
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+):where([class*="bg-white"], [class*="bg-gray-50"], [class*="bg-slate-50"]),
+main[data-current-page="online-data"] [data-testid="online-data-health-panel"] :where(
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+) :where(
+    [class*="rounded-xl"],
+    [class*="rounded-lg"]
+):where([class*="bg-white"], [class*="bg-gray-50"], [class*="bg-slate-50"]) {
+    background: rgba(248, 250, 252, .76) !important;
+}
+
+main[data-current-page="online-data"] .suxi-page-body > div > .rounded-xl.border.bg-gray-50.shadow-sm.overflow-hidden {
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+main[data-current-page="online-data"] .suxi-page-body > div > .rounded-xl.border.bg-gray-50.shadow-sm.overflow-hidden > .px-5.py-4.border-b {
+    border: 0 !important;
+    border-radius: 10px 10px 0 0 !important;
+    background: rgba(255, 255, 255, .84) !important;
+}
+
+main[data-current-page="online-data"] [data-testid="online-data-health-panel"] :where(
+    button[class*="rounded-lg"],
+    button[class*="rounded-xl"]
+) {
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+/* 双 OTA 可交付版经营台：仅作用于登录后 ai-workbench 首页。 */
+main[data-current-page="ai-workbench"] .dual-ota-home {
+    --dual-bg: #F7F1E8;
+    --dual-surface: #FFFDF8;
+    --dual-surface-plain: #FFFFFF;
+    --dual-text: #14213D;
+    --dual-muted: #6B7280;
+    --dual-teal: #0F6B5F;
+    --dual-teal-soft: rgba(15, 107, 95, .10);
+    --dual-gold: #C7842A;
+    --dual-gold-soft: rgba(199, 132, 42, .12);
+    --dual-risk: #D96B5F;
+    --dual-risk-soft: rgba(217, 107, 95, .12);
+    --dual-success: #1C8A5A;
+    --dual-border: rgba(199, 132, 42, .22);
+    --dual-border-strong: rgba(15, 107, 95, .28);
+    position: relative !important;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 18px !important;
+    border: 1px solid var(--dual-border) !important;
+    border-radius: 18px !important;
+    background: var(--dual-bg) !important;
+    color: var(--dual-text) !important;
+    box-shadow: 0 16px 44px rgba(20, 33, 61, .08) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home::before {
+    display: none !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home > * {
+    position: relative;
+    z-index: 1;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home :where(h1, h2, h3, p) {
+    margin: 0;
+    letter-spacing: 0;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home button,
+main[data-current-page="ai-workbench"] .dual-ota-home select {
+    font: inherit;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 18px;
+    border: 1px solid var(--dual-border) !important;
+    border-radius: 18px;
+    background: var(--dual-surface) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-brand {
+    display: flex;
+    align-items: flex-start;
+    min-width: 0;
+    gap: 14px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--dual-border-strong);
+    border-radius: 14px;
+    background: var(--dual-teal);
+    color: #FFFFFF;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-kicker,
+main[data-current-page="ai-workbench"] .dual-ota-section-index {
+    color: var(--dual-teal);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-header h1 {
+    margin-top: 4px;
+    color: var(--dual-text);
+    font-size: clamp(24px, 3vw, 34px);
+    font-weight: 850;
+    line-height: 1.12;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-header p,
+main[data-current-page="ai-workbench"] .dual-ota-card-head p,
+main[data-current-page="ai-workbench"] .dual-ota-hint {
+    margin-top: 6px;
+    color: var(--dual-muted);
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-connection-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-status-pill,
+main[data-current-page="ai-workbench"] .dual-ota-soft-pill,
+main[data-current-page="ai-workbench"] .dual-ota-evidence-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 6px 10px;
+    border: 1px solid var(--dual-border);
+    border-radius: 999px;
+    background: var(--dual-surface-plain);
+    color: var(--dual-text);
+    font-size: 12px;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-status-pill.is-connected {
+    border-color: rgba(28, 138, 90, .24);
+    background: rgba(28, 138, 90, .10);
+    color: #146C48;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-status-pill.is-disabled {
+    border-color: rgba(107, 114, 128, .22);
+    background: rgba(107, 114, 128, .08);
+    color: #6B7280;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-evidence-badge {
+    border-color: rgba(199, 132, 42, .36);
+    background: var(--dual-gold-soft);
+    color: #8B5E1F;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-principle {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid rgba(15, 107, 95, .18);
+    border-radius: 14px;
+    background: rgba(15, 107, 95, .08);
+    color: var(--dual-teal);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.65;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-hero-grid,
+main[data-current-page="ai-workbench"] .dual-ota-two-col {
+    display: grid;
+    grid-template-columns: minmax(0, 1.22fr) minmax(320px, .78fr);
+    gap: 16px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-card,
+main[data-current-page="ai-workbench"] .dual-ota-empty {
+    border: 1px solid var(--dual-border) !important;
+    border-radius: 18px !important;
+    background: var(--dual-surface) !important;
+    color: var(--dual-text) !important;
+    box-shadow: 0 8px 24px rgba(20, 33, 61, .06) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-card {
+    padding: 18px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-card-head h2 {
+    margin-top: 3px;
+    color: var(--dual-text);
+    font-size: 19px;
+    font-weight: 850;
+    line-height: 1.25;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-card-icon {
+    color: var(--dual-gold);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-ai-summary {
+    max-width: 880px;
+    color: var(--dual-text);
+    font-size: clamp(18px, 2.2vw, 26px);
+    font-weight: 820;
+    line-height: 1.45;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-output-format,
+main[data-current-page="ai-workbench"] .dual-ota-boundary-note {
+    margin-top: 14px;
+    padding: 12px;
+    border-radius: 14px;
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-output-format {
+    border: 1px solid var(--dual-border);
+    background: #FFFFFF;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-output-format span {
+    display: block;
+    color: var(--dual-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-output-format strong {
+    display: block;
+    margin-top: 3px;
+    color: var(--dual-teal);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-boundary-note {
+    border: 1px dashed rgba(107, 114, 128, .28);
+    background: rgba(107, 114, 128, .06);
+    color: var(--dual-muted);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-trust-list {
+    display: grid;
+    gap: 10px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-trust-item {
+    position: relative;
+    min-height: 62px;
+    padding: 12px;
+    border: 1px solid var(--dual-border);
+    border-radius: 14px;
+    background: #FFFFFF;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-trust-item strong,
+main[data-current-page="ai-workbench"] .dual-ota-trust-item span {
+    display: block;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-trust-item strong {
+    color: var(--dual-text);
+    font-size: 13px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-trust-item span {
+    margin-top: 4px;
+    font-size: 12px;
+    font-weight: 750;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-trust-item.is-available span {
+    color: var(--dual-success);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-trust-item.is-conditional span {
+    color: var(--dual-gold);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-trust-item.is-muted {
+    background: rgba(107, 114, 128, .06);
+    color: var(--dual-muted);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-trust-tip {
+    display: none;
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    top: calc(100% - 4px);
+    z-index: 8;
+    padding: 9px 10px;
+    border: 1px solid var(--dual-border);
+    border-radius: 10px;
+    background: #FFFFFF;
+    color: var(--dual-muted);
+    box-shadow: 0 10px 24px rgba(20, 33, 61, .12);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-trust-item:hover .dual-ota-trust-tip {
+    display: block;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-revenue-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-platform-card {
+    padding: 14px;
+    border: 1px solid var(--dual-border);
+    border-radius: 14px;
+    background: #FFFFFF;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-platform-card-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-platform-card-top span {
+    color: var(--dual-muted);
+    font-size: 13px;
+    font-weight: 750;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-platform-card-top strong {
+    color: var(--dual-text);
+    font-size: clamp(26px, 3.4vw, 38px);
+    font-weight: 850;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-platform-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-platform-metrics span {
+    min-width: 0;
+    padding: 8px;
+    border-radius: 10px;
+    background: var(--dual-bg);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-platform-metrics em,
+main[data-current-page="ai-workbench"] .dual-ota-platform-metrics b {
+    display: block;
+    font-style: normal;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-platform-metrics em {
+    color: var(--dual-muted);
+    font-size: 11px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-platform-metrics b {
+    margin-top: 2px;
+    color: var(--dual-text);
+    font-size: 13px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-contribution {
+    margin-top: 14px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-contribution-track {
+    display: flex;
+    overflow: hidden;
+    height: 14px;
+    border-radius: 999px;
+    background: rgba(107, 114, 128, .10);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-contribution-segment.is-meituan {
+    background: var(--dual-gold);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-contribution-segment.is-ctrip {
+    background: var(--dual-teal);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-contribution-text {
+    margin-top: 9px;
+    color: var(--dual-muted);
+    font-size: 13px;
+    font-weight: 760;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-control-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-segmented {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-toggle {
+    min-height: 34px;
+    padding: 7px 12px;
+    border: 1px solid var(--dual-border) !important;
+    border-radius: 999px !important;
+    background: #FFFFFF !important;
+    color: var(--dual-muted) !important;
+    font-size: 12px;
+    font-weight: 760;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-toggle.is-active {
+    border-color: rgba(15, 107, 95, .42) !important;
+    background: var(--dual-teal) !important;
+    color: #FFFFFF !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-loss-chain {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-loss-node {
+    position: relative;
+    min-height: 126px;
+    padding: 14px;
+    border: 1px solid var(--dual-border) !important;
+    border-radius: 14px !important;
+    background: #FFFFFF !important;
+    text-align: left;
+    color: var(--dual-text) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-loss-node::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: -11px;
+    width: 10px;
+    height: 1px;
+    background: var(--dual-border);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-loss-node:last-child::after {
+    display: none;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-warning {
+    border-color: rgba(199, 132, 42, .42) !important;
+    background: var(--dual-gold-soft) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-critical {
+    border-color: rgba(217, 107, 95, .42) !important;
+    background: var(--dual-risk-soft) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-selected {
+    outline: 2px solid rgba(15, 107, 95, .32);
+    outline-offset: 2px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-node-index {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(20, 33, 61, .08);
+    color: var(--dual-muted);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-node-label,
+main[data-current-page="ai-workbench"] .dual-ota-loss-node em {
+    display: block;
+    color: var(--dual-muted);
+    font-style: normal;
+    font-size: 12px;
+    font-weight: 720;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-loss-node strong {
+    display: block;
+    margin-top: 18px;
+    color: var(--dual-text);
+    font-size: 28px;
+    line-height: 1;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-loss-node em {
+    margin-top: 12px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-drilldown {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-drilldown > div {
+    padding: 12px;
+    border: 1px solid var(--dual-border);
+    border-radius: 12px;
+    background: #FFFFFF;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-drilldown span {
+    display: block;
+    color: var(--dual-muted);
+    font-size: 12px;
+    font-weight: 750;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-drilldown strong,
+main[data-current-page="ai-workbench"] .dual-ota-drilldown p {
+    color: var(--dual-text);
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-list {
+    display: grid;
+    gap: 10px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-row {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--dual-border) !important;
+    border-radius: 14px !important;
+    background: #FFFFFF !important;
+    color: var(--dual-text) !important;
+    text-align: left;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-row > span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    background: rgba(20, 33, 61, .08);
+    color: var(--dual-text);
+    font-weight: 850;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-row.rank-1 > span {
+    background: var(--dual-risk-soft);
+    color: #A74940;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-row.rank-2 > span {
+    background: var(--dual-gold-soft);
+    color: #8B5E1F;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-row strong,
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-row p {
+    display: block;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-row p {
+    margin-top: 3px;
+    color: var(--dual-muted);
+    font-size: 12px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-row em {
+    color: var(--dual-gold);
+    font-style: normal;
+    font-weight: 850;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-row.is-selected {
+    border-color: rgba(15, 107, 95, .38) !important;
+    box-shadow: inset 0 0 0 1px rgba(15, 107, 95, .18);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-detail {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-detail div {
+    padding: 10px;
+    border-radius: 10px;
+    background: var(--dual-bg);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-detail span,
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-detail strong {
+    display: block;
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-detail span {
+    color: var(--dual-muted);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-anomaly-detail strong {
+    margin-top: 3px;
+    color: var(--dual-text);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-heatmap-wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 180px;
+    gap: 14px;
+    align-items: start;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-heatmap {
+    display: grid;
+    gap: 9px;
+    min-width: 0;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-heatmap-row {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-heatmap-label {
+    color: var(--dual-muted);
+    font-size: 12px;
+    font-weight: 750;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-heatmap-cells {
+    display: grid;
+    gap: 4px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-heat-cell {
+    min-width: 18px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 7px;
+    color: var(--dual-text);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-heat-cell.is-empty {
+    background: rgba(107, 114, 128, .10);
+    color: #9CA3AF;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-heat-cell.is-low {
+    background: rgba(199, 132, 42, .16);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-heat-cell.is-medium {
+    background: rgba(199, 132, 42, .28);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-heat-cell.is-good {
+    background: rgba(15, 107, 95, .22);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-heat-cell.is-strong {
+    background: var(--dual-teal);
+    color: #FFFFFF;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-judgement-points {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--dual-border);
+    border-radius: 12px;
+    background: #FFFFFF;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-judgement-points strong {
+    color: var(--dual-text);
+    font-size: 13px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-judgement-points span {
+    color: var(--dual-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-action-list,
+main[data-current-page="ai-workbench"] .dual-ota-memory-list {
+    display: grid;
+    gap: 10px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-action-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 112px;
+    gap: 10px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--dual-border);
+    border-radius: 14px;
+    background: #FFFFFF;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-action-row.is-done {
+    border-color: rgba(28, 138, 90, .25);
+    background: rgba(28, 138, 90, .08);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-action-row.is-paused {
+    border-color: rgba(107, 114, 128, .20);
+    background: rgba(107, 114, 128, .06);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-action-row label {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-action-row input {
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    accent-color: var(--dual-teal);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-action-row strong,
+main[data-current-page="ai-workbench"] .dual-ota-action-row em {
+    display: block;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-action-row strong {
+    color: var(--dual-text);
+    font-size: 13px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-action-row em {
+    margin-top: 3px;
+    color: var(--dual-muted);
+    font-size: 12px;
+    font-style: normal;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-action-row select {
+    width: 100%;
+    min-height: 36px;
+    border: 1px solid var(--dual-border) !important;
+    border-radius: 10px;
+    background: #FFFFFF;
+    color: var(--dual-text);
+    font-size: 12px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-primary-button,
+main[data-current-page="ai-workbench"] .dual-ota-secondary-button {
+    min-height: 38px;
+    padding: 8px 13px;
+    border-radius: 10px !important;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-primary-button {
+    border: 1px solid var(--dual-teal) !important;
+    background: var(--dual-teal) !important;
+    color: #FFFFFF !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-primary-button:hover {
+    border-color: #0B5A51 !important;
+    background: #0B5A51 !important;
+    color: #FFFFFF !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-secondary-button {
+    border: 1px solid var(--dual-border) !important;
+    background: #FFFFFF !important;
+    color: var(--dual-text) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-secondary-button:hover {
+    border-color: var(--dual-border-strong) !important;
+    background: var(--dual-bg) !important;
+    color: var(--dual-text) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-memory-row {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) 18px;
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--dual-border) !important;
+    border-radius: 14px !important;
+    background: #FFFFFF !important;
+    color: var(--dual-text) !important;
+    text-align: left;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-memory-row span {
+    display: inline-flex;
+    justify-content: center;
+    padding: 5px 7px;
+    border-radius: 999px;
+    background: var(--dual-gold-soft);
+    color: #8B5E1F;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-memory-row strong {
+    min-width: 0;
+    color: var(--dual-text);
+    font-size: 13px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-memory-row i {
+    color: var(--dual-muted);
+    transition: transform .18s ease;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-memory-row.is-open i {
+    transform: rotate(180deg);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-memory-row em {
+    grid-column: 2 / 4;
+    color: var(--dual-muted);
+    font-size: 12px;
+    font-style: normal;
+    line-height: 1.6;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-record-note {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(28, 138, 90, .20);
+    border-radius: 12px;
+    background: rgba(28, 138, 90, .08);
+    color: #146C48;
+    font-size: 12px;
+    font-weight: 750;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-deprioritized-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-deprioritized-list span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 8px 11px;
+    border: 1px solid rgba(107, 114, 128, .20);
+    border-radius: 999px;
+    background: rgba(107, 114, 128, .06);
+    color: var(--dual-muted);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-deprioritized-list strong,
+main[data-current-page="ai-workbench"] .dual-ota-deprioritized-list em {
+    font-size: 12px;
+    font-style: normal;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-deprioritized-list strong {
+    color: #4B5563;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 4px 2px;
+    color: var(--dual-muted);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-footer strong {
+    color: var(--dual-text);
+    font-size: 13px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-empty {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 18px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-empty h2 {
+    color: var(--dual-text);
+    font-size: 22px;
+    font-weight: 850;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-empty ol {
+    display: grid;
+    gap: 6px;
+    margin: 14px 0 0;
+    padding-left: 18px;
+    color: var(--dual-muted);
+    font-size: 13px;
+}
+
+@media (max-width: 1280px) {
+    main[data-current-page="ai-workbench"] .dual-ota-hero-grid,
+    main[data-current-page="ai-workbench"] .dual-ota-two-col {
+        grid-template-columns: 1fr;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-loss-chain {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-loss-node::after {
+        display: none;
+    }
+}
+
+@media (max-width: 1024px) {
+    main[data-current-page="ai-workbench"] .dual-ota-header,
+    main[data-current-page="ai-workbench"] .dual-ota-card-head,
+    main[data-current-page="ai-workbench"] .dual-ota-footer,
+    main[data-current-page="ai-workbench"] .dual-ota-empty {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-connection-row,
+    main[data-current-page="ai-workbench"] .dual-ota-control-stack,
+    main[data-current-page="ai-workbench"] .dual-ota-segmented {
+        justify-content: flex-start;
+        align-items: flex-start;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-heatmap-wrap,
+    main[data-current-page="ai-workbench"] .dual-ota-drilldown {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 720px) {
+    main[data-current-page="ai-workbench"] .dual-ota-home {
+        gap: 12px;
+        padding: 12px !important;
+        border-radius: 14px !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-header,
+    main[data-current-page="ai-workbench"] .dual-ota-card,
+    main[data-current-page="ai-workbench"] .dual-ota-empty {
+        padding: 14px;
+        border-radius: 14px !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-brand {
+        flex-direction: column;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-revenue-grid,
+    main[data-current-page="ai-workbench"] .dual-ota-platform-metrics,
+    main[data-current-page="ai-workbench"] .dual-ota-loss-chain,
+    main[data-current-page="ai-workbench"] .dual-ota-anomaly-detail {
+        grid-template-columns: 1fr;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-action-row {
+        grid-template-columns: 1fr;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-memory-row {
+        grid-template-columns: 44px minmax(0, 1fr) 18px;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-heatmap-row {
+        grid-template-columns: 42px minmax(260px, 1fr);
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-heatmap {
+        overflow-x: auto;
+        padding-bottom: 4px;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-status-pill,
+    main[data-current-page="ai-workbench"] .dual-ota-toggle,
+    main[data-current-page="ai-workbench"] .dual-ota-primary-button,
+    main[data-current-page="ai-workbench"] .dual-ota-secondary-button,
+    main[data-current-page="ai-workbench"] .dual-ota-action-row select {
+        min-height: 44px;
     }
 }

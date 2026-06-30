@@ -104,7 +104,7 @@ if (!fs.existsSync(indexPath)) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
   }
 
-  if (!content.includes('system-static.js?v=20260628-static-router-fix')
+  if (!content.includes('system-static.js?v=20260630-data-center-label')
     || !systemStaticContent.includes('const getHotelCodeNumber = (code) => {')
     || !systemStaticContent.includes('const formatHotelCode = (num) =>')
     || !systemStaticContent.includes('const normalizeOtaConfigHotelName = (value = \'\') =>')
@@ -704,13 +704,13 @@ if (!fs.existsSync(indexPath)) {
     || /\/online-data\/fetch-ctrip-ads/.test(testDataConfigSource)) {
     failures.push('public/index.html must not re-inline data-source config test endpoint selection; use auto-fetch-static.js runDataConfigTestFlow.');
   }
-  const compassPageGuardCount = (content.match(/if \(!token\.value \|\| currentPage\.value !== ['"]compass['"]\) return;/g) || []).length;
+  const compassPageGuardCount = (content.match(/if \(!token\.value \|\| !isCompassDataPage\(\)\) return;/g) || []).length;
   if (compassPageGuardCount < 2
-    || !content.includes("if (!token.value || currentPage.value !== 'compass' || macroSignalLoading.value) return;")
-    || !content.includes("if (options.requireCompass === true && currentPage.value !== 'compass') return;")
-    || !content.includes("if (currentPage.value !== 'compass') return null;")
+    || !content.includes("if (!token.value || !isCompassDataPage() || macroSignalLoading.value) return;")
+    || !content.includes("if (options.requireCompass === true && !isCompassDataPage()) return;")
+    || !content.includes("if (!isCompassDataPage()) return null;")
     || !content.includes('loadCompetitorSummary({ requireCompass: true })')) {
-    failures.push('public/index.html compass background refreshes must stop after the user leaves the compass page.');
+    failures.push('public/index.html compass-data background refreshes must stop after the user leaves AI workbench/compass pages.');
   }
   if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\)[\s\S]*loadMeituanConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\)/.test(content)) {
     failures.push('public/index.html must keep a lightweight cached manual-fetch config prewarm that loads saved Ctrip/Meituan config lists without opening the full platform-auto panel.');
@@ -2419,7 +2419,7 @@ if (!fs.existsSync(indexPath)) {
   if (/<script\s+src=["']form-operation-support\.js["']/.test(content)
     || !content.includes("const formOperationSupportScript = 'form-operation-support.js';")
     || !content.includes('const scheduleFormOperationSupportLoad = (delayMs = null) => {')
-    || !content.includes("const shouldDeferFormOperationSupportLoad = () => currentPage.value === 'compass' || isCoreOtaPageVisible();")
+    || !content.includes('const shouldDeferFormOperationSupportLoad = () => isCompassDataPage() || isCoreOtaPageVisible();')
     || !content.includes('const pageDelay = shouldDeferFormOperationSupportLoad() ? 6400 : 5200;')
     || !content.includes('if (shouldDeferFormOperationSupportLoad()) return;')
     || !content.includes('scheduleFormOperationSupportLoad();')) {

@@ -258,7 +258,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             requireSuper: false,
             permissions: [],
             children: [
-                { name: '数据健康总览', path: 'online-data', tab: 'data-health', icon: 'fas fa-heartbeat', requireSuper: false, permissions: ['can_view_online_data'] },
+                { name: '数据中心', path: 'online-data', tab: 'data-health', icon: 'fas fa-heartbeat', requireSuper: false, permissions: ['can_view_online_data'] },
                 { name: '携程ebooking', path: 'ctrip-ebooking', icon: 'fas fa-plane', requireSuper: false, permissions: ['can_view_online_data'] },
                 { name: '美团ebooking', path: 'meituan-ebooking', icon: 'fas fa-store', requireSuper: false, permissions: ['can_view_online_data'] },
                 { name: '平台数据自动获取', path: 'online-data', tab: 'platform-auto', icon: 'fas fa-robot', testid: 'nav-platform-auto-fetch', requireSuper: false, permissions: ['can_view_online_data'] },

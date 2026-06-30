@@ -18,8 +18,9 @@ class Auth extends Base
     /**
      * Public self-registration.
      *
-     * New accounts are always created with the lowest enabled role level and
-     * never accept role_id/status from the public request.
+     * New accounts are always created with the lowest enabled role level,
+     * kept disabled until admin approval, and never accept role_id/status
+     * from the public request.
      */
     public function register(): Response
     {
@@ -95,7 +96,7 @@ class Auth extends Base
             $user->phone = $phone;
             $user->role_id = (int)$role->id;
             $user->hotel_id = $resolvedHotelId;
-            $user->status = User::STATUS_ENABLED;
+            $user->status = User::STATUS_DISABLED;
             $user->save();
 
             if ($resolvedHotelId !== null) {
@@ -117,7 +118,7 @@ class Auth extends Base
 
             LoginLog::record((int)$user->id, $username, 'register', 'success', null, $ip, $userAgent);
             try {
-                OperationLog::record('auth', 'register', '用户自助注册: ' . $username, (int)$user->id, $resolvedHotelId);
+                OperationLog::record('auth', 'register', '用户自助注册待审核: ' . $username, (int)$user->id, $resolvedHotelId);
             } catch (\Throwable $logError) {
                 // Audit logging must not turn a completed registration into a failed account creation.
             }
@@ -129,7 +130,8 @@ class Auth extends Base
                 'role_id' => (int)$user->role_id,
                 'role_name' => $role->display_name,
                 'hotel_id' => $resolvedHotelId,
-            ], '注册成功');
+                'status' => (int)$user->status,
+            ], '注册申请已提交，等待超级管理员审核启用后才能登录');
         } catch (\Throwable $e) {
             try {
                 LoginLog::record(null, $username, 'register', 'failed', $e->getMessage(), $ip, $userAgent);
@@ -186,8 +188,8 @@ class Auth extends Base
         // 账号被禁用
         if ($user->status != User::STATUS_ENABLED) {
             // 记录失败日志
-            LoginLog::record($user->id, $username, 'login', 'failed', '账号已被禁用', $ip, $userAgent, $clientInfo);
-            return $this->error('账号已被禁用，请联系管理员');
+            LoginLog::record($user->id, $username, 'login', 'failed', '账号待审核或已停用', $ip, $userAgent, $clientInfo);
+            return $this->error('账号待超级管理员审核或已停用，请联系超级管理员启用');
         }
 
         // 更新用户登录信息
