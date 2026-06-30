@@ -29,7 +29,7 @@
         })();
     </script>
     <link href="tailwind.min.css?v=20260628-static-router-fix" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260630-luxury-hotel-cockpit">
+    <link rel="stylesheet" href="style.css?v=20260701-ai-workbench-v15-platform-switch">
     <link rel="stylesheet" href="ai-custom.css?v=20260628-static-router-fix">
     <script>
         (() => {
@@ -63,7 +63,7 @@
     <script src="system-static.js?v=20260630-data-center-label"></script>
     <script src="compass-static.js?v=20260628-static-router-fix"></script>
     <script src="home-static.js?v=20260628-static-router-fix"></script>
-    <script src="dual-ota-home-static.js?v=20260630-dual-ota-home"></script>
+    <script src="dual-ota-home-static.js?v=20260701-ai-workbench-v15-platform-switch"></script>
 </head>
 <body class="bg-gray-100">
     <div id="app" v-cloak>
@@ -4886,7 +4886,7 @@
                             <div class="hidden" data-testid="home-cockpit-header">
                                 <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                                     <div class="min-w-0">
-                                        <div class="text-xl sm:text-2xl font-semibold text-white leading-tight">AI工作台<span class="sr-only">今日经营工作台</span></div>
+                                        <div class="text-xl sm:text-2xl font-semibold text-white leading-tight">AI工作台</div>
                                         <div class="mt-1 max-w-2xl text-sm leading-6 text-blue-100">{{ homeMinimalWorkbench.boundaryText }}</div>
                                         <div class="mt-2 grid grid-cols-1 gap-2 text-xs sm:flex sm:flex-wrap" data-testid="home-header-signal-row">
                                             <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
@@ -4949,21 +4949,27 @@
                                 <div v-if="currentPage === 'ai-workbench'" class="dual-ota-home order-first" data-testid="home-ai-workbench">
                                     <section class="dual-ota-header" data-testid="dual-ota-dashboard-header">
                                         <div class="dual-ota-brand">
-                                            <div class="dual-ota-logo">OS</div>
                                             <div class="min-w-0">
-                                                <div class="dual-ota-kicker">SUXIOS MVP</div>
-                                                <h1>{{ dualOtaDashboard.brand.name }} | {{ dualOtaDashboard.brand.pageTitle }}</h1>
-                                                <p>{{ dualOtaDashboard.brand.subtitle }}</p>
+                                                <h1>{{ dualOtaDashboard.brand.name }}</h1>
+                                                <p v-if="dualOtaDashboard.brand.subtitle">{{ dualOtaDashboard.brand.subtitle }}</p>
                                             </div>
                                         </div>
-                                        <div class="dual-ota-connection-row">
-                                            <span v-for="connection in dualOtaDashboard.connections" :key="connection.name" :class="['dual-ota-status-pill', dualOtaConnectionClass(connection.status)]">
-                                                {{ connection.label }}
-                                            </span>
+                                        <div class="dual-ota-header-actions">
+                                            <div class="dual-ota-top-range-row" aria-label="时间范围">
+                                                <button
+                                                    v-for="option in dualOtaDashboard.timeRanges"
+                                                    :key="option.value"
+                                                    type="button"
+                                                    :class="['dual-ota-range-button', dualOtaSelectedRange === option.value ? 'is-active' : '']"
+                                                    @click="setDualOtaRange(option.value)"
+                                                >
+                                                    {{ option.label }}
+                                                </button>
+                                            </div>
                                         </div>
                                     </section>
 
-                                    <div class="dual-ota-principle" data-testid="dual-ota-design-principle">
+                                    <div v-if="dualOtaDashboard.principle" class="dual-ota-principle" data-testid="dual-ota-design-principle">
                                         <i class="fas fa-shield-alt"></i>
                                         <span>{{ dualOtaDashboard.principle }}</span>
                                     </div>
@@ -4982,242 +4988,111 @@
                                     </section>
 
                                     <template v-else>
-                                        <section class="dual-ota-hero-grid">
-                                            <article class="dual-ota-card dual-ota-ai-card" data-testid="dual-ota-ai-judgement-card">
-                                                <div class="dual-ota-card-head">
-                                                    <div>
-                                                        <div class="dual-ota-section-index">AI 总判</div>
-                                                        <h2>{{ dualOtaDashboard.aiJudgement.title }}</h2>
-                                                    </div>
-                                                    <span class="dual-ota-evidence-badge">{{ dualOtaDashboard.aiJudgement.evidenceLevel }}</span>
-                                                </div>
-                                                <p class="dual-ota-ai-summary">{{ dualOtaDashboard.aiJudgement.summary }}</p>
-                                                <div class="dual-ota-output-format">
-                                                    <span>输出格式</span>
-                                                    <strong>{{ dualOtaDashboard.aiJudgement.outputFormat }}</strong>
-                                                </div>
-                                                <div class="dual-ota-boundary-note">
-                                                    只基于美团、携程、本店历史数据；不写商圈热度下降、竞对实时降价或自动调价承诺。
-                                                </div>
-                                            </article>
-
-                                            <article class="dual-ota-card" data-testid="dual-ota-data-trust-lighthouse">
-                                                <div class="dual-ota-card-head">
-                                                    <div>
-                                                        <div class="dual-ota-section-index">数据边界</div>
-                                                        <h2>数据可信度灯塔</h2>
-                                                    </div>
-                                                    <i class="fas fa-lightbulb dual-ota-card-icon"></i>
-                                                </div>
-                                                <div class="dual-ota-trust-list">
-                                                    <div v-for="item in dualOtaDashboard.dataTrust" :key="item.name" :class="['dual-ota-trust-item', dualOtaTrustClass(item.status)]" :title="item.description">
-                                                        <div>
-                                                            <strong>{{ item.name }}</strong>
-                                                            <span>{{ item.label }}</span>
-                                                        </div>
-                                                        <div class="dual-ota-trust-tip">{{ item.description }}</div>
-                                                    </div>
-                                                </div>
-                                            </article>
-                                        </section>
-
-                                        <section class="dual-ota-card" data-testid="dual-ota-platform-revenue-structure">
+                                        <section v-if="dualOtaDashboard.systemOverview" class="dual-ota-card dual-ota-system-overview" data-testid="dual-ota-system-overview">
                                             <div class="dual-ota-card-head">
-                                                <div>
-                                                    <div class="dual-ota-section-index">01</div>
-                                                    <h2>{{ dualOtaDashboard.platformRevenue.title }}</h2>
-                                                    <p>{{ dualOtaDashboard.platformRevenue.subtitle }}</p>
+                                                <div v-if="dualOtaDashboard.systemOverview.description">
+                                                    <p>{{ dualOtaDashboard.systemOverview.description }}</p>
                                                 </div>
-                                                <span class="dual-ota-soft-pill">OTA渠道口径</span>
+                                                <span class="dual-ota-evidence-badge">{{ dualOtaDashboard.systemOverview.sourceStatus }}</span>
                                             </div>
-                                            <div class="dual-ota-revenue-grid">
-                                                <div v-for="platform in dualOtaDashboard.platformRevenue.platforms" :key="platform.id" class="dual-ota-platform-card">
-                                                    <div class="dual-ota-platform-card-top">
-                                                        <span>{{ platform.name }}</span>
-                                                        <strong>{{ platform.revenueText }}</strong>
+                                            <div v-if="dualOtaDashboard.systemOverview.storeScope" class="dual-ota-store-scope dual-ota-store-picker" data-testid="dual-ota-store-scope">
+                                                <div class="dual-ota-store-scope-head">
+                                                    <strong>{{ dualOtaDashboard.systemOverview.storeScope.title }}</strong>
+                                                    <span v-if="dualOtaDashboard.systemOverview.storeScope.warning">{{ dualOtaDashboard.systemOverview.storeScope.warning }}</span>
+                                                </div>
+                                                <div class="dual-ota-store-scope-list" role="list" aria-label="平台切换">
+                                                    <button v-for="row in dualOtaDashboard.systemOverview.storeScope.rows" :key="row.label" type="button" role="listitem" :class="['dual-ota-store-option', dualOtaSelectedStoreScope === row.value ? 'is-selected' : '']" :aria-pressed="dualOtaSelectedStoreScope === row.value ? 'true' : 'false'" @click="setDualOtaStoreScope(row.value)">
+                                                        <strong>{{ row.label }}</strong>
+                                                        <small v-if="row.source">{{ row.source }}</small>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="dual-ota-system-grid">
+                                                <div v-for="group in dualOtaDashboard.systemOverview.groups" :key="group.title" class="dual-ota-system-column">
+                                                    <div class="dual-ota-system-column-head">
+                                                        <h3>{{ group.title }}</h3>
+                                                        <span>{{ group.subtitle }}</span>
                                                     </div>
-                                                    <div class="dual-ota-platform-metrics">
-                                                        <span v-for="metric in platform.metrics" :key="`${platform.id}-${metric.label}`">
+                                                    <div class="dual-ota-system-metrics">
+                                                        <span v-for="metric in group.metrics" :key="`${group.title}-${metric.label}`" :class="['dual-ota-system-metric', metric.tone ? `is-${metric.tone}` : '']">
                                                             <em>{{ metric.label }}</em>
-                                                            <b>{{ metric.value }}</b>
+                                                            <strong>{{ metric.value }}</strong>
+                                                            <small>{{ metric.note }}</small>
                                                         </span>
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">
-                                                <div class="dual-ota-contribution-track">
-                                                    <span v-for="platform in dualOtaDashboard.platformRevenue.platforms" :key="`${platform.id}-bar`" :class="['dual-ota-contribution-segment', `is-${platform.id}`]" :style="{ width: `${platform.contribution}%` }"></span>
-                                                </div>
-                                                <div class="dual-ota-contribution-text">{{ dualOtaDashboard.platformRevenue.contributionText }}</div>
+                                            <div class="dual-ota-boundary-note">
+                                                {{ dualOtaDashboard.systemOverview.sourceNote }}
                                             </div>
                                         </section>
 
-                                        <section class="dual-ota-card" data-testid="dual-ota-platform-loss-chain">
-                                            <div class="dual-ota-card-head">
-                                                <div>
-                                                    <div class="dual-ota-section-index">02</div>
-                                                    <h2>{{ dualOtaDashboard.lossChain.title }}</h2>
-                                                    <p>{{ dualOtaDashboard.lossChain.subtitle }}</p>
+                                        <section class="dual-ota-module-grid dual-ota-module-grid-top">
+                                            <article class="dual-ota-card" data-testid="dual-ota-platform-revenue-structure">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <div class="dual-ota-section-index">01</div>
+                                                        <h2>{{ dualOtaDashboard.platformRevenue.title }}</h2>
+                                                        <p>{{ dualOtaDashboard.platformRevenue.subtitle }}</p>
+                                                    </div>
+                                                </div>
+                                                <div class="dual-ota-revenue-grid">
+                                                    <div v-for="platform in dualOtaDashboard.platformRevenue.platforms" :key="platform.id" class="dual-ota-platform-card">
+                                                        <div class="dual-ota-platform-card-top">
+                                                            <span>{{ platform.name }}</span>
+                                                            <strong>{{ platform.revenueText }}</strong>
+                                                        </div>
+                                                        <p>{{ platform.metricsText }}</p>
+                                                    </div>
+                                                </div>
+                                                <div class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">
+                                                    <div class="dual-ota-contribution-text">{{ dualOtaDashboard.platformRevenue.contributionText }}</div>
+                                                    <div class="dual-ota-contribution-track">
+                                                        <span v-for="platform in dualOtaDashboard.platformRevenue.platforms" :key="`${platform.id}-bar`" :class="['dual-ota-contribution-segment', `is-${platform.id}`]" :style="{ width: `${platform.contribution}%` }"></span>
+                                                    </div>
+                                                </div>
+                                            </article>
+
+                                            <article class="dual-ota-card" data-testid="dual-ota-platform-loss-chain">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <div class="dual-ota-section-index">02</div>
+                                                        <h2>{{ dualOtaDashboard.lossChain.title }}</h2>
+                                                        <p>{{ dualOtaDashboard.lossChain.subtitle }}</p>
+                                                    </div>
+                                                </div>
+                                                <div class="dual-ota-loss-chain">
+                                                    <button v-for="node in dualOtaActiveLossNodes" :key="node.id" type="button" :class="['dual-ota-loss-node', dualOtaSeverityClass(node.severity), dualOtaSelectedLossNodeId === node.id ? 'is-selected' : '']" @click="setDualOtaLossNode(node.id)" :title="dualOtaDashboard.lossChain.nodeExplanations[node.id]?.description || ''">
+                                                        <span class="dual-ota-node-label">{{ node.label }}</span>
+                                                        <strong>{{ node.value }}</strong>
+                                                        <em>{{ node.delta }}</em>
+                                                    </button>
                                                 </div>
                                                 <div class="dual-ota-control-stack">
                                                     <div class="dual-ota-segmented" aria-label="平台切换">
-                                                        <button v-for="option in dualOtaDashboard.lossChain.platformOptions" :key="option.value" type="button" :class="['dual-ota-toggle', dualOtaSelectedPlatform === option.value ? 'is-active' : '']" @click="dualOtaSelectedPlatform = option.value">
+                                                        <button v-for="option in dualOtaDashboard.lossChain.platformOptions" :key="option.value" type="button" :class="['dual-ota-toggle', dualOtaSelectedPlatform === option.value ? 'is-active' : '']" @click="setDualOtaPlatform(option.value)">
                                                             {{ option.label }}
                                                         </button>
                                                     </div>
                                                     <div class="dual-ota-segmented" aria-label="时间切换">
-                                                        <button v-for="option in dualOtaDashboard.lossChain.rangeOptions" :key="option.value" type="button" :class="['dual-ota-toggle', dualOtaSelectedRange === option.value ? 'is-active' : '']" @click="dualOtaSelectedRange = option.value">
+                                                        <button v-for="option in dualOtaDashboard.lossChain.rangeOptions" :key="option.value" type="button" :class="['dual-ota-toggle', dualOtaSelectedRange === option.value ? 'is-active' : '']" @click="setDualOtaRange(option.value)">
                                                             {{ option.label }}
                                                         </button>
                                                     </div>
                                                 </div>
-                                            </div>
-                                            <div class="dual-ota-loss-chain">
-                                                <button v-for="(node, index) in dualOtaActiveLossNodes" :key="node.id" type="button" :class="['dual-ota-loss-node', dualOtaSeverityClass(node.severity), dualOtaSelectedLossNodeId === node.id ? 'is-selected' : '']" @click="setDualOtaLossNode(node.id)">
-                                                    <span class="dual-ota-node-index">{{ index + 1 }}</span>
-                                                    <span class="dual-ota-node-label">{{ node.label }}</span>
-                                                    <strong>{{ node.value }}</strong>
-                                                    <em>{{ node.delta }}</em>
-                                                </button>
-                                            </div>
-                                            <div class="dual-ota-drilldown">
-                                                <div>
+                                                <p class="dual-ota-hint">{{ dualOtaDashboard.lossChain.hint }}</p>
+                                                <div class="dual-ota-mini-drilldown">
                                                     <strong>{{ dualOtaSelectedLossExplanation.title }}</strong>
-                                                    <p>{{ dualOtaSelectedLossExplanation.description }}</p>
+                                                    <span>{{ dualOtaSelectedLossExplanation.evidence }}</span>
                                                 </div>
-                                                <div>
-                                                    <span>证据字段</span>
-                                                    <p>{{ dualOtaSelectedLossExplanation.evidence }}</p>
-                                                </div>
-                                                <div>
-                                                    <span>今日动作</span>
-                                                    <p>{{ dualOtaSelectedLossExplanation.action }}</p>
-                                                </div>
-                                            </div>
-                                            <p class="dual-ota-hint">{{ dualOtaDashboard.lossChain.hint }}</p>
+                                            </article>
                                         </section>
 
-                                        <div class="dual-ota-two-col">
-                                            <section class="dual-ota-card" data-testid="dual-ota-anomaly-ranking">
-                                                <div class="dual-ota-card-head">
-                                                    <div>
-                                                        <div class="dual-ota-section-index">03</div>
-                                                        <h2>异常贡献排行</h2>
-                                                    </div>
-                                                    <span class="dual-ota-soft-pill">公式 + 证据 + 金额</span>
-                                                </div>
-                                                <div class="dual-ota-anomaly-list">
-                                                    <button v-for="anomaly in dualOtaDashboard.anomalies" :key="anomaly.rank" type="button" :class="['dual-ota-anomaly-row', `rank-${anomaly.rank}`, dualOtaSelectedAnomalyRank === anomaly.rank ? 'is-selected' : '']" @click="setDualOtaAnomaly(anomaly.rank)">
-                                                        <span>{{ anomaly.rank }}</span>
-                                                        <div>
-                                                            <strong>{{ anomaly.title }}</strong>
-                                                            <p>{{ anomaly.description }}</p>
-                                                        </div>
-                                                        <em>{{ anomaly.impactAmount }}</em>
-                                                    </button>
-                                                </div>
-                                                <div class="dual-ota-anomaly-detail">
-                                                    <div><span>问题</span><strong>{{ dualOtaSelectedAnomaly.title }}</strong></div>
-                                                    <div><span>证据字段</span><strong>{{ dualOtaSelectedAnomaly.evidenceFields.join(' / ') }}</strong></div>
-                                                    <div><span>计算公式</span><strong>{{ dualOtaSelectedAnomaly.formula }}</strong></div>
-                                                    <div><span>影响金额</span><strong>{{ dualOtaSelectedAnomaly.impactAmount }}</strong></div>
-                                                    <div><span>人工核验</span><strong>{{ dualOtaSelectedAnomaly.manualCheck }}</strong></div>
-                                                    <div><span>今日动作</span><strong>{{ dualOtaSelectedAnomaly.todayAction }}</strong></div>
-                                                </div>
-                                                <p class="dual-ota-hint">每条异常都必须带公式、证据字段、影响金额；不输出没有证据的异常。</p>
-                                            </section>
-
-                                            <section class="dual-ota-card" data-testid="dual-ota-order-pace-heatmap">
-                                                <div class="dual-ota-card-head">
-                                                    <div>
-                                                        <div class="dual-ota-section-index">04</div>
-                                                        <h2>{{ dualOtaDashboard.orderPaceHeatmap.title }}</h2>
-                                                        <p>{{ dualOtaDashboard.orderPaceHeatmap.subtitle }}</p>
-                                                    </div>
-                                                </div>
-                                                <div class="dual-ota-heatmap-wrap">
-                                                    <div class="dual-ota-heatmap">
-                                                        <div class="dual-ota-heatmap-row" v-for="(row, rowIndex) in dualOtaDashboard.orderPaceHeatmap.rows" :key="row">
-                                                            <span class="dual-ota-heatmap-label">{{ row }}</span>
-                                                            <div class="dual-ota-heatmap-cells" :style="{ gridTemplateColumns: `repeat(${dualOtaDashboard.orderPaceHeatmap.columns.length}, minmax(18px, 1fr))` }">
-                                                                <span v-for="(value, colIndex) in dualOtaDashboard.orderPaceHeatmap.values[rowIndex]" :key="`${row}-${colIndex}`" :class="['dual-ota-heat-cell', dualOtaHeatClass(value)]" :title="`入住日 ${dualOtaDashboard.orderPaceHeatmap.columns[colIndex]}，节奏值 ${value}`">
-                                                                    {{ value }}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div class="dual-ota-judgement-points">
-                                                        <strong>判断口径</strong>
-                                                        <span v-for="point in dualOtaDashboard.orderPaceHeatmap.judgementPoints" :key="point">{{ point }}</span>
-                                                    </div>
-                                                </div>
-                                            </section>
-                                        </div>
-
-                                        <div class="dual-ota-two-col dual-ota-action-memory">
-                                            <section class="dual-ota-card" data-testid="dual-ota-human-action-checklist">
-                                                <div class="dual-ota-card-head">
-                                                    <div>
-                                                        <div class="dual-ota-section-index">05</div>
-                                                        <h2>人工操作清单</h2>
-                                                        <p>替代“自动动作框架”：AI生成任务，人审执行。</p>
-                                                    </div>
-                                                </div>
-                                                <div class="dual-ota-action-list">
-                                                    <div v-for="item in dualOtaActionItems" :key="item.id" :class="['dual-ota-action-row', item.checked ? 'is-checked' : '', dualOtaActionStatusClass(item.status)]">
-                                                        <label>
-                                                            <input type="checkbox" :checked="item.checked" @change="toggleDualOtaAction(item)">
-                                                            <span>
-                                                                <strong>{{ item.title }}</strong>
-                                                                <em>{{ item.description }}</em>
-                                                            </span>
-                                                        </label>
-                                                        <select v-model="item.status" @change="syncDualOtaActionStatus(item)" aria-label="任务状态">
-                                                            <option value="pending">待处理</option>
-                                                            <option value="done">已执行</option>
-                                                            <option value="paused">暂缓</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                                <div class="dual-ota-action-buttons">
-                                                    <button type="button" class="dual-ota-secondary-button" @click="copyDualOtaAdvice">复制建议</button>
-                                                    <button type="button" class="dual-ota-secondary-button" @click="openDualOtaBackendPlaceholder">打开后台</button>
-                                                    <button type="button" class="dual-ota-primary-button" @click="recordDualOtaExecution">记录执行</button>
-                                                </div>
-                                                <p class="dual-ota-hint">当前版本强调“人审执行”，不自动修改 OTA 价格。</p>
-                                            </section>
-
-                                            <section class="dual-ota-card" data-testid="dual-ota-review-memory-library">
-                                                <div class="dual-ota-card-head">
-                                                    <div>
-                                                        <div class="dual-ota-section-index">06</div>
-                                                        <h2>复盘记忆库</h2>
-                                                        <p>长期壁垒：只靠本店数据，也能越用越懂这家店。</p>
-                                                    </div>
-                                                </div>
-                                                <div class="dual-ota-memory-list">
-                                                    <button v-for="record in dualOtaReviewMemory" :key="record.id" type="button" :class="['dual-ota-memory-row', dualOtaExpandedMemoryId === record.id ? 'is-open' : '']" @click="toggleDualOtaMemory(record.id)">
-                                                        <span>{{ record.type }}</span>
-                                                        <strong>{{ record.content }}</strong>
-                                                        <i class="fas fa-chevron-down"></i>
-                                                        <em v-if="dualOtaExpandedMemoryId === record.id">{{ record.detail }}</em>
-                                                    </button>
-                                                </div>
-                                                <div v-if="dualOtaLastRecordText" class="dual-ota-record-note">{{ dualOtaLastRecordText }}</div>
-                                            </section>
-                                        </div>
-
                                         <section class="dual-ota-card dual-ota-deprioritized" data-testid="dual-ota-deprioritized-modules">
-                                            <div class="dual-ota-card-head">
-                                                <div>
-                                                    <div class="dual-ota-section-index">边界</div>
-                                                    <h2>首屏不要放</h2>
-                                                </div>
-                                            </div>
                                             <div class="dual-ota-deprioritized-list">
                                                 <span v-for="item in dualOtaDashboard.deprioritizedModules" :key="item.name">
                                                     <strong>{{ item.name }}</strong>
-                                                    <em>{{ item.reason }}</em>
+                                                    <em v-if="item.reason">{{ item.reason }}</em>
                                                 </span>
                                             </div>
                                         </section>
@@ -7994,11 +7869,11 @@
                                         <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                                             <div>
                                                 <h4 class="text-lg font-semibold text-gray-900">携程评价订单匹配</h4>
-                                                <p class="text-sm text-gray-500 mt-1">携程 OTA 渠道口径 · 基于已授权导入的评价、IM 会话和订单池做反查，不启用实时点评采集。</p>
+                                                <p class="text-sm text-gray-500 mt-1">携程 OTA 渠道口径 · 自动读取已授权缓存，识别点评客人并给出订单状态。</p>
                                                 <div class="mt-3 flex flex-wrap gap-2 text-xs">
-                                                    <span class="px-2 py-1 rounded border border-emerald-100 bg-emerald-50 text-emerald-700">IM 身份锁定</span>
-                                                    <span class="px-2 py-1 rounded border border-blue-100 bg-blue-50 text-blue-700">订单池匹配</span>
-                                                    <span class="px-2 py-1 rounded border border-amber-100 bg-amber-50 text-amber-700">人工绑定留痕</span>
+                                                    <span class="px-2 py-1 rounded border border-emerald-100 bg-emerald-50 text-emerald-700">自动处理</span>
+                                                    <span class="px-2 py-1 rounded border border-blue-100 bg-blue-50 text-blue-700">状态汇总</span>
+                                                    <span class="px-2 py-1 rounded border border-amber-100 bg-amber-50 text-amber-700">异常待核</span>
                                                 </div>
                                             </div>
                                             <div class="w-full xl:w-80">
@@ -8014,155 +7889,151 @@
                                     <div class="border rounded-lg bg-white p-4 space-y-4">
                                         <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                                             <div>
-                                                <h5 class="font-semibold text-gray-900">自动匹配流水线</h5>
-                                                <p class="text-sm text-gray-500 mt-1">系统自动扫描携程原始采集记录和匹配缓存，导入可识别的评价、IM 会话、订单池，并批量写入匹配结果。</p>
+                                                <h5 class="font-semibold text-gray-900">携程点评-订单匹配台</h5>
+                                                <p class="text-sm text-gray-500 mt-1">点击单条点评直接查订单；主流程只展示订单、客人和状态。</p>
                                             </div>
                                             <div class="flex flex-wrap gap-2">
-                                                <button type="button" @click="copyCtripReviewOrdererAssistScript" :disabled="!!ctripReviewMatchLoading"
-                                                    class="px-4 py-2 border border-emerald-300 text-emerald-700 rounded-lg text-sm hover:bg-emerald-50 disabled:text-gray-400 whitespace-nowrap">
-                                                    <i class="fas fa-copy mr-1"></i>复制页面显示脚本
-                                                </button>
                                                 <button type="button" @click="checkCtripReviewMatchClosure" :disabled="!!ctripReviewMatchLoading"
                                                     class="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-white disabled:text-gray-400 whitespace-nowrap">
-                                                    <i class="fas fa-check-circle mr-1"></i>{{ ctripReviewMatchLoading === '验证完成状态' ? '验证中' : '验证完成状态' }}
+                                                    <i class="fas fa-check-circle mr-1"></i>{{ ctripReviewMatchLoading === '验证完成状态' ? '刷新中' : '刷新状态' }}
                                                 </button>
                                                 <button type="button" @click="runCtripReviewMatchAutomation" :disabled="!!ctripReviewMatchLoading"
                                                     class="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:bg-gray-400 whitespace-nowrap">
-                                                    <i class="fas fa-robot mr-1"></i>{{ ctripReviewMatchLoading === '自动匹配' ? '自动匹配中' : '一键自动匹配' }}
+                                                    <i class="fas fa-link mr-1"></i>{{ ctripReviewMatchLoading === '自动匹配' ? '匹配中' : '同步并匹配' }}
                                                 </button>
                                             </div>
                                         </div>
-                                        <div class="rounded-lg border border-gray-100 bg-gray-50 p-3 space-y-2">
-                                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-                                                <div>
-                                                    <div class="text-sm font-medium text-gray-900">授权 payload 导入</div>
-                                                    <div class="text-xs text-gray-500 mt-1">可粘贴已授权保存的携程评价、IM members、订单池 JSON；不触发实时点评采集。</div>
-                                                </div>
-                                                <div class="flex flex-wrap gap-2">
-                                                    <button type="button" @click="fillCtripReviewMatchPayloadTemplate" :disabled="!!ctripReviewMatchLoading"
-                                                        class="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-white disabled:text-gray-400 whitespace-nowrap">
-                                                        <i class="fas fa-clipboard-list mr-1"></i>填入模板
-                                                    </button>
-                                                    <button type="button" @click="copyCtripReviewMatchCliCommand('preflight')" :disabled="!!ctripReviewMatchLoading"
-                                                        class="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-white disabled:text-gray-400 whitespace-nowrap">
-                                                        <i class="fas fa-search mr-1"></i>复制预检命令
-                                                    </button>
-                                                    <button type="button" @click="runCtripReviewMatchPreflight" :disabled="!!ctripReviewMatchLoading"
-                                                        class="px-3 py-2 border border-blue-300 text-blue-700 rounded-lg text-sm hover:bg-blue-50 disabled:text-gray-400 whitespace-nowrap">
-                                                        <i class="fas fa-filter mr-1"></i>只预检
-                                                    </button>
-                                                    <button type="button" @click="runCtripReviewMatchDryRun" :disabled="!!ctripReviewMatchLoading"
-                                                        class="px-3 py-2 border border-emerald-300 text-emerald-700 rounded-lg text-sm hover:bg-emerald-50 disabled:text-gray-400 whitespace-nowrap">
-                                                        <i class="fas fa-vial mr-1"></i>干跑匹配
-                                                    </button>
-                                                    <button type="button" @click="copyCtripReviewMatchCliCommand(false)" :disabled="!!ctripReviewMatchLoading"
-                                                        class="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-white disabled:text-gray-400 whitespace-nowrap">
-                                                        <i class="fas fa-terminal mr-1"></i>复制干跑命令
-                                                    </button>
-                                                    <button type="button" @click="copyCtripReviewMatchCliCommand(true)" :disabled="!!ctripReviewMatchLoading"
-                                                        class="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-white disabled:text-gray-400 whitespace-nowrap">
-                                                        <i class="fas fa-database mr-1"></i>复制入库命令
-                                                    </button>
-                                                    <button type="button" @click="runCtripReviewMatchAutomation" :disabled="!!ctripReviewMatchLoading"
-                                                        class="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-white disabled:text-gray-400 whitespace-nowrap">
-                                                        <i class="fas fa-file-import mr-1"></i>导入并匹配
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-gray-600">
-                                                <div class="rounded border border-white bg-white px-2 py-1">1. 替换评价 `reviews`</div>
-                                                <div class="rounded border border-white bg-white px-2 py-1">2. 替换 IM `INTERCEPTED_MEMBERS`</div>
-                                                <div class="rounded border border-white bg-white px-2 py-1">3. 替换订单 `orders`</div>
-                                            </div>
-                                            <div class="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">模板只用于字段结构；存在 `replace-with-*` 占位符时，系统会拒绝导入，避免样例数据入库。</div>
-                                            <textarea v-model="ctripReviewMatchForm.rawPayloadJson" rows="4"
-                                                class="w-full px-3 py-2 border rounded-lg font-mono text-xs bg-white"
-                                                placeholder='可选：粘贴完整授权 payload，如 {"reviews":[...],"INTERCEPTED_MEMBERS":{"groupId":{...}},"orders":[...]}'></textarea>
-                                        </div>
+
                                         <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
                                             <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                                <div class="text-xs text-gray-500">评价</div>
+                                                <div class="text-xs text-gray-500">点评</div>
                                                 <div class="text-lg font-semibold text-gray-900">{{ ctripReviewMatchResult?.data?.summary?.review_count ?? '-' }}</div>
+                                                <div class="text-[11px] text-gray-400 mt-1">已授权点评</div>
                                             </div>
                                             <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                                <div class="text-xs text-gray-500">IM会话</div>
+                                                <div class="text-xs text-gray-500">身份缓存</div>
                                                 <div class="text-lg font-semibold text-gray-900">{{ ctripReviewMatchResult?.data?.summary?.im_session_count ?? '-' }}</div>
+                                                <div class="text-[11px] text-gray-400 mt-1">客人身份</div>
                                             </div>
                                             <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
                                                 <div class="text-xs text-gray-500">订单池</div>
                                                 <div class="text-lg font-semibold text-gray-900">{{ ctripReviewMatchResult?.data?.summary?.order_count ?? '-' }}</div>
+                                                <div class="text-[11px] text-gray-400 mt-1">携程订单缓存</div>
                                             </div>
                                             <div class="rounded-lg border border-emerald-100 bg-emerald-50 p-3">
                                                 <div class="text-xs text-emerald-600">已匹配</div>
                                                 <div class="text-lg font-semibold text-emerald-700">{{ ctripReviewMatchResult?.data?.summary?.matched_count ?? '-' }}</div>
+                                                <div class="text-[11px] text-emerald-600 mt-1">已确认订单</div>
                                             </div>
                                             <div class="rounded-lg border border-blue-100 bg-blue-50 p-3">
-                                                <div class="text-xs text-blue-600">锁定客人</div>
+                                                <div class="text-xs text-blue-600">待确认</div>
                                                 <div class="text-lg font-semibold text-blue-700">{{ ctripReviewMatchResult?.data?.summary?.person_locked_count ?? '-' }}</div>
+                                                <div class="text-[11px] text-blue-600 mt-1">已锁客人</div>
                                             </div>
                                             <div class="rounded-lg border border-amber-100 bg-amber-50 p-3">
-                                                <div class="text-xs text-amber-600">待复核</div>
+                                                <div class="text-xs text-amber-600">需人工</div>
                                                 <div class="text-lg font-semibold text-amber-700">{{ ctripReviewMatchResult?.data?.summary?.needs_ops_count ?? '-' }}</div>
+                                                <div class="text-[11px] text-amber-600 mt-1">证据不足</div>
                                             </div>
                                         </div>
+
+                                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                                            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                                <div class="text-xs font-medium text-slate-700">边界</div>
+                                                <div class="text-sm text-slate-600 mt-1">只处理已授权 Profile 与入库数据，不展示匹配细节。</div>
+                                            </div>
+                                            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                                <div class="text-xs font-medium text-slate-700">当前状态</div>
+                                                <div class="text-sm text-slate-600 mt-1">{{ ctripReviewMatchResult?.data?.status || '未刷新' }}</div>
+                                            </div>
+                                        </div>
+
                                         <div v-if="ctripReviewMatchResult?.data?.missing_sources?.length" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                                            缺少数据源：{{ ctripReviewMatchResult.data.missing_sources.join(' / ') }}。{{ ctripReviewMatchResult.data.next_action }}
-                                        </div>
-                                        <div v-if="ctripReviewMatchResult?.data?.next_commands && Object.keys(ctripReviewMatchResult.data.next_commands).length" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 space-y-2">
-                                            <div class="font-medium text-gray-900">后续命令</div>
-                                            <div v-for="(command, key) in ctripReviewMatchResult.data.next_commands" :key="'ctrip-review-match-next-command-' + key" class="flex flex-col gap-2 rounded border border-gray-100 bg-gray-50 p-2 md:flex-row md:items-center">
-                                                <span class="w-20 shrink-0 text-xs font-medium uppercase text-gray-500">{{ key }}</span>
-                                                <code class="min-w-0 flex-1 break-all font-mono text-xs text-gray-700">{{ command }}</code>
-                                                <button type="button" @click="copyToClipboard(command)" class="shrink-0 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-600 hover:bg-gray-50">复制</button>
-                                            </div>
+                                            缺少数据：{{ ctripReviewMatchResult.data.missing_sources.join(' / ') }}。先同步点评、身份缓存和订单池，再执行匹配。
                                         </div>
                                         <div v-if="ctripReviewMatchResult?.data?.source_status" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                                            明细源状态：评价 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_reviews ?? 0 }} / IM {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_im_sessions ?? 0 }} / 订单 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_orders ?? 0 }} / 匹配 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_review_order_matches ?? '-' }}；
-                                            请求 payload {{ ctripReviewMatchResult.data.source_status.request_payloads_scanned ?? 0 }}，原始缓存 {{ ctripReviewMatchResult.data.source_status.raw_records_scanned ?? 0 }}；
-                                            写入 {{ ctripReviewMatchResult.data.source_status.storage_write === false ? '否' : '是' }}，事务 {{ ctripReviewMatchResult.data.source_status.transaction || '-' }}。
+                                            缓存状态：点评 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_reviews ?? 0 }} / 身份 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_im_sessions ?? 0 }} / 订单 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_orders ?? 0 }} / 结果 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_review_order_matches ?? '-' }}。
                                         </div>
-                                        <div v-if="Number(ctripReviewMatchResult?.data?.payload_preflight?.payloads_scanned || 0) > 0" class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700 space-y-1">
-                                            <div>授权 payload 预检：{{ ctripReviewMatchResult.data.payload_preflight.status || 'unknown' }}；评价 {{ ctripReviewMatchResult.data.payload_preflight.reviews_detected || 0 }} / IM {{ ctripReviewMatchResult.data.payload_preflight.im_sessions_detected || 0 }} / 订单 {{ ctripReviewMatchResult.data.payload_preflight.orders_detected || 0 }}。</div>
-                                            <div v-if="ctripReviewMatchResult.data.payload_preflight.blocking_gaps?.length">阻断缺口：{{ ctripReviewMatchResult.data.payload_preflight.blocking_gaps.join(' / ') }}</div>
-                                            <div v-if="ctripReviewMatchResult.data.payload_preflight.warning_gaps?.length">提醒缺口：{{ ctripReviewMatchResult.data.payload_preflight.warning_gaps.join(' / ') }}</div>
-                                        </div>
-                                        <div v-if="ctripReviewMatchResult?.data?.review_policy" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                                            点评边界：{{ ctripReviewMatchResult.data.review_policy }}
-                                        </div>
-                                        <div v-if="ctripReviewMatchResult?.data?.samples?.length" class="overflow-x-auto border rounded-lg">
-                                            <table class="min-w-full text-sm">
-                                                <thead class="bg-gray-50 text-gray-500">
-                                                    <tr>
-                                                        <th class="px-3 py-2 text-left">评价ID</th>
-                                                        <th class="px-3 py-2 text-left">用户名</th>
-                                                        <th class="px-3 py-2 text-left">状态</th>
-                                                        <th class="px-3 py-2 text-left">订单号</th>
-                                                        <th class="px-3 py-2 text-left">客人</th>
-                                                        <th class="px-3 py-2 text-left">原因</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <tr v-for="sample in ctripReviewMatchResult.data.samples" :key="sample.comment_id" class="border-t">
-                                                        <td class="px-3 py-2 font-mono text-xs">{{ sample.comment_id || '-' }}</td>
-                                                        <td class="px-3 py-2">{{ sample.source_username || '-' }}</td>
-                                                        <td class="px-3 py-2">{{ sample.status || '-' }}</td>
-                                                        <td class="px-3 py-2 font-mono text-xs">{{ sample.order_id || '-' }}</td>
-                                                        <td class="px-3 py-2">{{ sample.guest_name || '-' }}</td>
-                                                        <td class="px-3 py-2 text-gray-500">{{ sample.reason || '-' }}</td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+
+                                        <div class="border border-gray-100 rounded-lg overflow-hidden">
+                                            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 px-3 py-2 bg-gray-50 border-b">
+                                                <div>
+                                                    <div class="text-sm font-medium text-gray-900">点评订单查询</div>
+                                                    <div class="text-xs text-gray-500">点击点评右侧按钮查询订单，页面不展示候选过程。</div>
+                                                </div>
+                                                <span class="text-xs text-gray-400">最多显示 30 条</span>
+                                            </div>
+                                            <div v-if="ctripReviewMatchSamples.length" class="divide-y divide-gray-100 bg-white">
+                                                <article v-for="sample in ctripReviewMatchSamples" :key="sample.comment_id || sample.order_id || sample.updated_at" class="p-3">
+                                                    <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                                                        <div class="min-w-0 flex gap-3">
+                                                            <img v-if="sample.avatar_url" :src="sample.avatar_url" alt="" class="h-10 w-10 shrink-0 rounded-full border border-gray-100 object-cover">
+                                                            <div v-else class="h-10 w-10 shrink-0 rounded-full border border-gray-100 bg-gray-50 flex items-center justify-center text-xs text-gray-400">
+                                                                {{ (sample.source_username || '?').slice(0, 1) }}
+                                                            </div>
+                                                            <div class="min-w-0">
+                                                                <div class="flex flex-wrap items-center gap-2">
+                                                                    <div class="font-medium text-gray-900">{{ sample.source_username || '未取到用户名' }}</div>
+                                                                    <span v-if="sample.score" class="text-xs text-blue-600">{{ sample.score }} 分</span>
+                                                                    <span class="text-xs text-gray-400">{{ sample.review_date || sample.updated_at || '-' }}</span>
+                                                                </div>
+                                                                <p class="mt-1 text-sm text-gray-700 leading-6 break-words">{{ sample.content || '点评内容未入库' }}</p>
+                                                                <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                                                                    <span class="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">入住 {{ sample.checkin_date || '-' }}</span>
+                                                                    <span class="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">{{ sample.room_name || '房型缺失' }}</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="lg:w-64 shrink-0 space-y-2">
+                                                            <div class="flex flex-wrap gap-2">
+                                                                <span :class="ctripReviewMatchStatusClass(sample.status)">
+                                                                    {{ sample.status_text || ctripReviewMatchStatusLabel(sample.status) }}
+                                                                </span>
+                                                                <span v-if="sample.order_id" class="inline-flex items-center rounded border border-amber-100 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
+                                                                    订单：{{ sample.order_id }}
+                                                                </span>
+                                                                <span v-else-if="sample.candidate_order_id" class="inline-flex items-center rounded border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                                                                    候选：{{ sample.candidate_order_id }}<template v-if="sample.candidate_arrival_date"> / {{ sample.candidate_arrival_date }}</template>
+                                                                </span>
+                                                                <span v-if="sample.guest_name" class="inline-flex items-center rounded border border-emerald-100 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                                                                    客人：{{ sample.guest_name }}
+                                                                </span>
+                                                            </div>
+                                                            <button type="button" @click="lookupCtripReviewOrderMatch(sample)"
+                                                                :disabled="!!ctripReviewMatchLoading || !sample.comment_id"
+                                                                class="w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:bg-gray-400">
+                                                                <i class="fas fa-search mr-1"></i>{{ ctripReviewMatchLookupLoadingCommentId === sample.comment_id ? '查询中' : (sample.order_id ? '已查到订单' : (sample.candidate_order_id ? '复核候选订单' : '查订单')) }}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </article>
+                                            </div>
+                                            <div v-else class="p-6 text-sm text-gray-400 text-center">
+                                                暂无点评列表，先点“刷新状态”或“执行匹配”。
+                                            </div>
                                         </div>
                                     </div>
 
                                     <div class="flex justify-end">
                                         <button type="button" @click="showCtripReviewMatchManualPanel = !showCtripReviewMatchManualPanel"
                                             class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
-                                            <i class="fas fa-tools mr-1"></i>{{ showCtripReviewMatchManualPanel ? '收起手动补录' : '展开手动补录/复核' }}
+                                            <i class="fas fa-tools mr-1"></i>{{ showCtripReviewMatchManualPanel ? '收起高级补录' : '展开高级补录/复核' }}
                                         </button>
                                     </div>
 
                                     <div v-if="showCtripReviewMatchManualPanel" class="space-y-4">
+                                    <div class="border rounded-lg bg-white p-4">
+                                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                            <div>
+                                                <h5 class="font-semibold text-gray-900">高级补录/排障</h5>
+                                                <p class="text-xs text-gray-500 mt-1">仅用于授权页辅助采集或单条复核，默认不参与主流程展示。</p>
+                                            </div>
+                                            <button type="button" @click="copyCtripReviewOrdererAssistScript" :disabled="!!ctripReviewMatchLoading"
+                                                class="px-3 py-2 border border-emerald-300 text-emerald-700 rounded-lg text-sm hover:bg-emerald-50 disabled:text-gray-400 whitespace-nowrap">
+                                                <i class="fas fa-copy mr-1"></i>复制授权页辅助脚本
+                                            </button>
+                                        </div>
+                                    </div>
                                     <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
                                         <div class="border rounded-lg bg-white p-4 space-y-3">
                                             <div class="flex items-center justify-between gap-3">
@@ -8202,7 +8073,7 @@
                                             <div class="flex items-center justify-between gap-3">
                                                 <div>
                                                     <h5 class="font-semibold text-gray-900">2. IM 会话</h5>
-                                                    <p class="text-xs text-gray-500 mt-1">来自携程 queryMessageList，核心字段是 groupId 和 members。</p>
+                                                    <p class="text-xs text-gray-500 mt-1">来自已授权携程会话，核心字段是会话ID和成员身份。</p>
                                                 </div>
                                                 <button type="button" @click="saveCtripReviewImSession" :disabled="!!ctripReviewMatchLoading"
                                                     class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:bg-gray-400 whitespace-nowrap">
@@ -8229,7 +8100,7 @@
                                             </div>
                                             <textarea v-model="ctripReviewMatchForm.rawImSessionJson" rows="4"
                                                 class="w-full px-3 py-2 border rounded-lg font-mono text-xs"
-                                                placeholder='可选：粘贴 queryMessageList 会话 JSON，系统会优先读取其中的 members'></textarea>
+                                                placeholder='可选：粘贴携程会话 JSON，系统会优先读取其中的成员身份'></textarea>
                                             <textarea v-model="ctripReviewMatchForm.imMembersJson" rows="4"
                                                 class="w-full px-3 py-2 border rounded-lg font-mono text-xs"
                                                 placeholder='members JSON 数组，如 [{"uid":"379875...","nickName":"刘玉","avatar":"","roleType":"guest"}]'></textarea>
@@ -8301,10 +8172,18 @@
                                                 </div>
                                                 <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
                                                     <div class="text-xs text-gray-500">匹配状态</div>
-                                                    <div class="text-sm font-medium text-gray-900">{{ ctripReviewMatchResult?.data?.status || ctripReviewMatchResult?.data?.match_status || '-' }}</div>
+                                                    <div class="text-sm font-medium text-gray-900">{{ ctripReviewMatchResult?.data?.status_text || ctripReviewMatchResult?.data?.status || ctripReviewMatchResult?.data?.match_status || '-' }}</div>
                                                 </div>
                                             </div>
-                                            <pre v-if="ctripReviewMatchResult" class="text-xs text-gray-700 bg-gray-50 border rounded-lg p-3 whitespace-pre-wrap max-h-80 overflow-auto">{{ JSON.stringify(ctripReviewMatchResult, null, 2) }}</pre>
+                                            <div v-if="ctripReviewMatchResult" class="text-sm text-gray-600 bg-gray-50 border rounded-lg p-3">
+                                                <div>{{ ctripReviewMatchResult?.message || '已返回匹配结果' }}</div>
+                                                <div v-if="ctripReviewMatchResult?.data?.order_id" class="mt-1 text-gray-900">
+                                                    订单：{{ ctripReviewMatchResult.data.order_id }}<span v-if="ctripReviewMatchResult.data.guest_name"> / 客人：{{ ctripReviewMatchResult.data.guest_name }}</span>
+                                                </div>
+                                                <div v-else-if="ctripReviewMatchResult?.data?.candidate_order_id" class="mt-1 text-gray-900">
+                                                    候选订单：{{ ctripReviewMatchResult.data.candidate_order_id }}<span v-if="ctripReviewMatchResult.data.guest_name"> / 客人：{{ ctripReviewMatchResult.data.guest_name }}</span>
+                                                </div>
+                                            </div>
                                             <div v-else class="text-sm text-gray-400 bg-gray-50 border border-dashed rounded-lg p-6 text-center">
                                                 暂无匹配结果
                                             </div>
@@ -19821,6 +19700,7 @@
             const ctripCommentResult = ref(null);
             const ctripReviewMatchForm = ref(createCtripReviewMatchForm());
             const ctripReviewMatchLoading = ref('');
+            const ctripReviewMatchLookupLoadingCommentId = ref('');
             const ctripReviewMatchResult = ref(null);
             const showCtripReviewMatchManualPanel = ref(false);
             const ctripCommentBrowserCaptureForm = ref(createCtripCommentBrowserCaptureForm());
@@ -21282,6 +21162,8 @@
             const dualOtaDashboard = ref(dualOtaHomeStatic.cloneDashboardData());
             const dualOtaSelectedPlatform = ref(dualOtaDashboard.value.lossChain.activePlatform || 'combined');
             const dualOtaSelectedRange = ref(dualOtaDashboard.value.lossChain.activeRange || 'yesterday');
+            const dualOtaStoreScopeRows = Array.isArray(dualOtaDashboard.value.systemOverview?.storeScope?.rows) ? dualOtaDashboard.value.systemOverview.storeScope.rows : [];
+            const dualOtaSelectedStoreScope = ref(dualOtaStoreScopeRows.find(row => row.selected)?.value || dualOtaStoreScopeRows[0]?.value || '');
             const dualOtaSelectedLossNodeId = ref(dualOtaDashboard.value.lossChain.nodes?.[0]?.id || '');
             const dualOtaSelectedAnomalyRank = ref(dualOtaDashboard.value.anomalies?.[0]?.rank || 1);
             const dualOtaActionItems = ref((dualOtaDashboard.value.actionChecklist || []).map(item => ({ ...item, checked: item.status === 'done' })));
@@ -21320,6 +21202,39 @@
                 if (status === 'connected') return 'is-connected';
                 if (status === 'disabled') return 'is-disabled';
                 return 'is-conditional';
+            };
+            const dualOtaConnectionPlatformValue = (connection) => {
+                const name = String(connection?.name || connection?.label || '').trim();
+                if (name.includes('美团')) return 'meituan';
+                if (name.includes('携程')) return 'ctrip';
+                return '';
+            };
+            const setDualOtaPlatform = (platform) => {
+                const value = String(platform || '').trim();
+                const scenarios = dualOtaDashboard.value.lossChain?.scenarios || {};
+                if (!value || !scenarios[value]) return;
+                dualOtaSelectedPlatform.value = value;
+                dualOtaSelectedLossNodeId.value = dualOtaActiveLossNodes.value[0]?.id || dualOtaDashboard.value.lossChain?.nodes?.[0]?.id || '';
+            };
+            const setDualOtaRange = (range) => {
+                const value = String(range || '').trim();
+                const rangeOptions = [
+                    ...(dualOtaDashboard.value.timeRanges || []),
+                    ...(dualOtaDashboard.value.lossChain?.rangeOptions || []),
+                ];
+                if (!value || !rangeOptions.some(option => option.value === value)) return;
+                dualOtaSelectedRange.value = value;
+                dualOtaSelectedLossNodeId.value = dualOtaActiveLossNodes.value[0]?.id || dualOtaDashboard.value.lossChain?.nodes?.[0]?.id || '';
+            };
+            const setDualOtaStoreScope = (scope) => {
+                const value = String(scope || '').trim();
+                const rows = Array.isArray(dualOtaDashboard.value.systemOverview?.storeScope?.rows) ? dualOtaDashboard.value.systemOverview.storeScope.rows : [];
+                if (!rows.some(row => row.value === value)) return;
+                dualOtaSelectedStoreScope.value = value;
+                setDualOtaPlatform(value);
+            };
+            const switchDualOtaConnection = (connection) => {
+                setDualOtaPlatform(dualOtaConnectionPlatformValue(connection));
             };
             const dualOtaTrustClass = (status) => {
                 if (status === 'available') return 'is-available';
@@ -25935,6 +25850,13 @@
                     syncAdsConfig: syncCtripAdsDirectConfig,
                     hasSelectedHotel: () => !!selectedCtripHotelId.value,
                 }), 80);
+                if (tab === 'ctrip-review-match' && !ctripReviewMatchResult.value) {
+                    deferUiTask(() => {
+                        if (currentPage.value === 'ctrip-ebooking' && onlineDataTab.value === 'ctrip-review-match') {
+                            checkCtripReviewMatchClosure();
+                        }
+                    }, 220);
+                }
             };
             const openMeituanManualTab = (tab) => {
                 onlineDataTab.value = tab;
@@ -27484,9 +27406,14 @@
                     order,
                 };
             };
-            const buildCtripReviewMatchLookupPayload = () => {
+            const buildCtripReviewMatchLookupPayload = (sample = null) => {
                 const form = ctripReviewMatchForm.value;
                 const payload = buildCtripReviewMatchBasePayload();
+                const sampleCommentId = String(sample?.comment_id || sample?.commentId || '').trim();
+                if (sampleCommentId) {
+                    payload.commentId = sampleCommentId;
+                    return payload;
+                }
                 const rawReview = requireCtripReviewMatchObject(
                     parseCtripReviewMatchJsonValue(form.rawReviewJson, '评价信息', {}),
                     '评价信息'
@@ -27521,7 +27448,7 @@
                     ...buildCtripReviewMatchBasePayload(),
                     raw_limit: 30,
                     review_limit: 200,
-                    review_collection_policy: 'policy_disabled',
+                    review_collection_policy: 'explicit_review_match_only',
                 };
                 const rawPayload = parseCtripReviewMatchJsonValue(form.rawPayloadJson, '授权 payload', null);
                 if (rawPayload !== null) {
@@ -27534,6 +27461,69 @@
                     payload.dry_run = true;
                 }
                 return payload;
+            };
+            const ctripReviewMatchSamples = computed(() => {
+                const data = ctripReviewMatchResult.value?.data || {};
+                const samples = Array.isArray(data.review_cards) ? data.review_cards : data.samples;
+                if (!Array.isArray(samples)) return [];
+                return samples.map(sample => ({
+                    ...sample,
+                    comment_id: String(sample.comment_id || sample.commentId || '').trim(),
+                    source_username: String(sample.source_username || sample.sourceUsername || '').trim(),
+                    avatar_url: String(sample.avatar_url || sample.avatarUrl || '').trim(),
+                    review_date: String(sample.review_date || sample.reviewDate || '').trim(),
+                    checkin_date: String(sample.checkin_date || sample.checkinDate || '').trim(),
+                    room_name: String(sample.room_name || sample.roomName || '').trim(),
+                    content: String(sample.content || '').trim(),
+                    status: String(sample.status || sample.match_status || sample.matchStatus || 'unknown').trim(),
+                    status_text: String(sample.status_text || sample.statusText || '').trim(),
+                    confidence: String(sample.confidence || 'none').trim(),
+                    order_id: String(sample.order_id || sample.orderId || '').trim(),
+                    guest_name: String(sample.guest_name || sample.guestName || '').trim(),
+                    candidate_count: Number(sample.candidate_count || sample.candidateCount || 0),
+                    candidate_order_id: String(sample.candidate_order_id || sample.candidateOrderId || sample.candidate_order?.order_id || sample.candidateOrder?.orderId || '').trim(),
+                    candidate_guest_name: String(sample.candidate_guest_name || sample.candidateGuestName || sample.candidate_order?.guest_name || sample.candidateOrder?.guestName || '').trim(),
+                    candidate_arrival_date: String(sample.candidate_arrival_date || sample.candidateArrivalDate || sample.candidate_order?.arrival_date || sample.candidateOrder?.arrivalDate || '').trim(),
+                    updated_at: String(sample.updated_at || sample.updatedAt || '').trim(),
+                }));
+            });
+            const ctripReviewMatchStatusLabel = (status) => ({
+                found: '已匹配',
+                matched: '人工已绑定',
+                person_locked: '待确认',
+                needs_ops: '需人工',
+                out_of_coverage: '超范围',
+                unmatched: '未匹配',
+                unknown: '未知',
+            }[String(status || 'unknown')] || String(status || '未知'));
+            const ctripReviewMatchStatusClass = (status) => {
+                const normalized = String(status || 'unknown');
+                const base = 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border';
+                if (['found', 'matched'].includes(normalized)) {
+                    return `${base} border-emerald-100 bg-emerald-50 text-emerald-700`;
+                }
+                if (normalized === 'person_locked') {
+                    return `${base} border-blue-100 bg-blue-50 text-blue-700`;
+                }
+                if (normalized === 'needs_ops') {
+                    return `${base} border-amber-100 bg-amber-50 text-amber-700`;
+                }
+                if (normalized === 'out_of_coverage') {
+                    return `${base} border-slate-200 bg-slate-50 text-slate-600`;
+                }
+                return `${base} border-gray-200 bg-gray-50 text-gray-600`;
+            };
+            const applyCtripReviewMatchSample = (sample) => {
+                if (!sample || typeof sample !== 'object') return;
+                const form = ctripReviewMatchForm.value;
+                form.commentId = String(sample.comment_id || sample.commentId || form.commentId || '').trim();
+                form.userName = String(sample.source_username || sample.sourceUsername || form.userName || '').trim();
+                form.checkinTimeStr = String(sample.checkin_date || sample.checkinDate || form.checkinTimeStr || '').trim();
+                form.hotelRoomInfo = String(sample.room_name || sample.roomName || form.hotelRoomInfo || '').trim();
+                form.orderId = String(sample.order_id || sample.orderId || form.orderId || '').trim();
+                form.guestName = String(sample.guest_name || sample.guestName || form.guestName || '').trim();
+                showCtripReviewMatchManualPanel.value = true;
+                showToast('已带入单条复核表单', 'success');
             };
             const buildCtripReviewMatchPayloadTemplate = () => ({
                 system_hotel_id: Number(resolveCtripReviewMatchSystemHotelId() || 58),
@@ -27921,6 +27911,37 @@
                     ctripReviewMatchLoading.value = '';
                 }
             };
+            const mergeCtripReviewMatchLookupResult = (response) => {
+                const data = response?.data || {};
+                const commentId = String(data.comment_id || data.commentId || data.review?.comment_id || data.review?.commentId || '').trim();
+                if (!commentId || !ctripReviewMatchResult.value?.data) return;
+                const patch = {
+                    status: String(data.status || 'unknown').trim(),
+                    status_text: String(data.status_text || data.statusText || '').trim(),
+                    order_id: String(data.order_id || data.order?.order_id || '').trim(),
+                    guest_name: String(data.guest_name || data.identity?.guest_name || data.order?.guest_name || '').trim(),
+                    confidence: String(data.confidence || 'none').trim(),
+                    candidate_count: Number(data.candidate_count || data.candidateCount || 0),
+                    candidate_order_id: String(data.candidate_order_id || data.candidateOrderId || data.candidate_order?.order_id || data.candidateOrder?.orderId || '').trim(),
+                    candidate_guest_name: String(data.candidate_guest_name || data.candidateGuestName || data.candidate_order?.guest_name || data.candidateOrder?.guestName || '').trim(),
+                    candidate_arrival_date: String(data.candidate_arrival_date || data.candidateArrivalDate || data.candidate_order?.arrival_date || data.candidateOrder?.arrivalDate || '').trim(),
+                    updated_at: new Date().toLocaleString(),
+                };
+                const mergeRows = rows => Array.isArray(rows)
+                    ? rows.map(row => {
+                        const rowCommentId = String(row.comment_id || row.commentId || '').trim();
+                        return rowCommentId === commentId ? { ...row, ...patch } : row;
+                    })
+                    : rows;
+                ctripReviewMatchResult.value = {
+                    ...ctripReviewMatchResult.value,
+                    data: {
+                        ...ctripReviewMatchResult.value.data,
+                        review_cards: mergeRows(ctripReviewMatchResult.value.data.review_cards),
+                        samples: mergeRows(ctripReviewMatchResult.value.data.samples),
+                    },
+                };
+            };
             const saveCtripReviewImSession = () => runCtripReviewMatchAction(
                 '保存IM会话',
                 '/online-data/ctrip-review-matches/im-sessions',
@@ -27939,18 +27960,46 @@
                 buildCtripReviewMatchOrderPayload,
                 '携程订单已保存'
             );
-            const lookupCtripReviewOrderMatch = () => runCtripReviewMatchAction(
-                '自动反查订单',
-                '/online-data/ctrip-review-matches/lookup',
-                buildCtripReviewMatchLookupPayload,
-                '携程评价订单反查完成'
-            );
+            const lookupCtripReviewOrderMatch = async (sample = null) => {
+                if (ctripReviewMatchLoading.value) return;
+                const sampleCommentId = String(sample?.comment_id || sample?.commentId || '').trim();
+                ctripReviewMatchLoading.value = '自动反查订单';
+                ctripReviewMatchLookupLoadingCommentId.value = sampleCommentId;
+                try {
+                    const res = await request('/online-data/ctrip-review-matches/lookup', {
+                        method: 'POST',
+                        body: JSON.stringify(buildCtripReviewMatchLookupPayload(sample)),
+                    });
+                    const ok = Number(res?.code) === 200;
+                    if (sampleCommentId) {
+                        mergeCtripReviewMatchLookupResult(res);
+                    } else {
+                        ctripReviewMatchResult.value = res;
+                    }
+                    const data = res?.data || {};
+                    const message = data.status_text || res?.message || '携程评价订单反查完成';
+                    const displayOrderId = data.order_id || data.candidate_order_id || data.candidateOrderId || '';
+                    showToast(
+                        displayOrderId ? `${message}：${displayOrderId}${data.guest_name ? ` / ${data.guest_name}` : ''}` : message,
+                        ok ? 'success' : 'error'
+                    );
+                } catch (error) {
+                    const message = error.message || '自动反查订单失败';
+                    if (!sampleCommentId) {
+                        ctripReviewMatchResult.value = { code: 500, message, action: '自动反查订单' };
+                    }
+                    showToast(message, 'error');
+                } finally {
+                    ctripReviewMatchLoading.value = '';
+                    ctripReviewMatchLookupLoadingCommentId.value = '';
+                }
+            };
             const runCtripReviewMatchPreflight = () => runCtripReviewMatchAction(
                 '预检授权payload',
                 '/online-data/ctrip-review-matches/run',
                 () => ({
                     ...buildCtripReviewMatchAutomationPayload(true),
-                    review_collection_policy: 'policy_disabled',
+                    review_collection_policy: 'explicit_review_match_only',
                 }),
                 '携程评价匹配 payload 预检完成'
             );
@@ -27959,7 +28008,7 @@
                 '/online-data/ctrip-review-matches/run',
                 () => ({
                     ...buildCtripReviewMatchAutomationPayload(false, true),
-                    review_collection_policy: 'policy_disabled',
+                    review_collection_policy: 'explicit_review_match_only',
                 }),
                 '携程评价订单干跑匹配完成'
             );
@@ -27977,7 +28026,7 @@
                 '/online-data/ctrip-review-matches/run',
                 () => ({
                     ...buildCtripReviewMatchAutomationPayload(),
-                    review_collection_policy: 'policy_disabled',
+                    review_collection_policy: 'explicit_review_match_only',
                 }),
                 '携程评价订单自动匹配完成'
             ).then(() => {
@@ -27986,7 +28035,7 @@
                         ...ctripReviewMatchResult.value,
                         data: {
                             ...(ctripReviewMatchResult.value.data || {}),
-                            review_policy: '点评采集默认策略禁用；这里只处理已授权导入或已有缓存，不触发实时采集。',
+                            review_policy: '匹配动作只读取已授权点评/IM/订单数据；不进入默认采集，不自动操作携程后台。',
                         },
                     };
                 }
@@ -42042,8 +42091,8 @@
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
-                dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly,
-                dualOtaConnectionClass, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
+                dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaSelectedStoreScope, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly,
+                dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
                 revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
                 macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
@@ -42113,7 +42162,7 @@
                 runCtripReviewMatchPreflight,
                 runCtripReviewMatchDryRun,
                 checkCtripReviewMatchClosure,
-                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionTypeRows, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, browserAssistImporting, browserAssistImportResult, browserAssistImportFileName, browserAssistImportForm, browserAssistImportPackages, browserAssistImportWarnings, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, readBrowserAssistCaptureFile, copyBrowserAssistCollectorScript, importBrowserAssistCaptureFromText, clearBrowserAssistImportForm, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchResult, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionTypeRows, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, browserAssistImporting, browserAssistImportResult, browserAssistImportFileName, browserAssistImportForm, browserAssistImportPackages, browserAssistImportWarnings, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, readBrowserAssistCaptureFile, copyBrowserAssistCollectorScript, importBrowserAssistCaptureFromText, clearBrowserAssistImportForm, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldConfigPanelReady, ctripProfileFieldConfigPanelBody, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
