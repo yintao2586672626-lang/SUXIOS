@@ -220,8 +220,8 @@ test('Ctrip Profile probe uses login-state endpoint instead of starting a captur
 });
 
 test('Ctrip review order matching does not trigger default live review collection', () => {
-  assert.match(html, /不启用实时点评采集/);
-  assert.match(reviewAutomation, /review_collection_policy:\s*'policy_disabled'/);
-  assert.match(reviewAutomation, /点评采集默认策略禁用/);
+  assert.match(html, /携程点评-订单匹配台/);
+  assert.match(reviewAutomation, /review_collection_policy:\s*'explicit_review_match_only'/);
+  assert.match(reviewAutomation, /匹配动作只读取已授权点评\/IM\/订单数据/);
   assert.doesNotMatch(reviewAutomation, /capture-ctrip-browser|comment_review|capture_sections/);
 });

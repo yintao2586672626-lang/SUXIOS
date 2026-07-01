@@ -70,13 +70,150 @@ function ctrip_review_match_closure_finish(array $payload, int $exitCode): void
 }
 
 /**
+ * @return mixed
+ */
+function ctrip_review_match_closure_decode_json(string $json)
+{
+    $json = trim($json);
+    if ($json === '') {
+        return null;
+    }
+
+    try {
+        return json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+    } catch (JsonException $e) {
+        return null;
+    }
+}
+
+/**
+ * @param array<string, mixed> $data
+ * @param array<int, string> $keys
+ */
+function ctrip_review_match_closure_first_text(array $data, array $keys): string
+{
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $data)) {
+            continue;
+        }
+
+        $value = $data[$key];
+        if (is_scalar($value)) {
+            $text = trim((string)$value);
+            if ($text !== '') {
+                return $text;
+            }
+        }
+    }
+
+    return '';
+}
+
+function ctrip_review_match_closure_valid_group_key(string $key): bool
+{
+    $key = trim($key);
+    if ($key === '' || strlen($key) < 6) {
+        return false;
+    }
+
+    $blockedKeys = [
+        'members',
+        'memberlist',
+        'member_list',
+        'immembers',
+        'users',
+        'userlist',
+        'list',
+        'rows',
+        'data',
+        'result',
+        'reviews',
+        'orders',
+        'orderlist',
+        'order_list',
+        'commentlist',
+        'comment_list',
+        'responses',
+        'items',
+        'screenshots',
+        'pages',
+        'xhr_urls',
+        'unmatched_xhr_urls',
+        'endpoint_candidates',
+        'capture_audit',
+        'capture_gate',
+        'capture_gap_report',
+        'catalog',
+        'catalog_facts',
+        'standard_rows',
+        'raw_payload',
+        'payload_counts',
+        'payload_keys',
+    ];
+
+    return !in_array(strtolower($key), $blockedKeys, true);
+}
+
+/**
+ * @param array<string, mixed> $member
+ */
+function ctrip_review_match_closure_valid_member(array $member): bool
+{
+    $hasUid = ctrip_review_match_closure_first_text($member, ['uid', 'guestUid', 'guest_uid', 'userId', 'user_id', 'memberUid', 'member_uid']) !== '';
+    $hasName = ctrip_review_match_closure_first_text($member, ['nickName', 'nickname', 'nick_name', 'name', 'guestName', 'guest_name']) !== '';
+    $hasRole = ctrip_review_match_closure_first_text($member, ['roleType', 'role_type', 'role', 'userType', 'user_type']) !== '';
+    $hasAvatar = ctrip_review_match_closure_first_text($member, ['pic', 'avatar', 'avatarUrl', 'avatar_url']) !== '';
+
+    return $hasUid || ($hasName && ($hasRole || $hasAvatar));
+}
+
+/**
+ * @param mixed $members
+ */
+function ctrip_review_match_closure_valid_member_list($members): bool
+{
+    if (!is_array($members) || $members === []) {
+        return false;
+    }
+
+    foreach ($members as $member) {
+        if (is_array($member) && ctrip_review_match_closure_valid_member($member)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function ctrip_review_match_closure_valid_im_session_count(int $systemHotelId): int
+{
+    $rows = Db::name('ota_ctrip_im_sessions')
+        ->where('system_hotel_id', $systemHotelId)
+        ->field('group_id, members_json')
+        ->select()
+        ->toArray();
+
+    $count = 0;
+    foreach ($rows as $row) {
+        $groupId = (string)($row['group_id'] ?? '');
+        $members = ctrip_review_match_closure_decode_json((string)($row['members_json'] ?? ''));
+        if (!ctrip_review_match_closure_valid_group_key($groupId) || !ctrip_review_match_closure_valid_member_list($members)) {
+            continue;
+        }
+        $count++;
+    }
+
+    return $count;
+}
+
+/**
  * @return array<string, int>
  */
 function ctrip_review_match_closure_table_counts(int $systemHotelId): array
 {
     return [
         'ctrip_reviews' => (int)Db::name('ota_ctrip_reviews')->where('system_hotel_id', $systemHotelId)->count(),
-        'ctrip_im_sessions' => (int)Db::name('ota_ctrip_im_sessions')->where('system_hotel_id', $systemHotelId)->count(),
+        'ctrip_im_sessions' => ctrip_review_match_closure_valid_im_session_count($systemHotelId),
         'ctrip_orders' => (int)Db::name('ota_ctrip_orders')->where('system_hotel_id', $systemHotelId)->count(),
         'ctrip_review_order_matches' => (int)Db::name('ota_ctrip_review_order_matches')->where('system_hotel_id', $systemHotelId)->count(),
     ];

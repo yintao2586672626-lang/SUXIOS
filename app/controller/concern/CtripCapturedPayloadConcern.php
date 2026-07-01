@@ -227,7 +227,7 @@ trait CtripCapturedPayloadConcern
     private function extractCtripCapturedComments(array $payload): array
     {
         $rows = [];
-        foreach (['reviews', 'comments', 'commentList'] as $key) {
+        foreach (['reviews', 'comments', 'commentList', 'commentlist'] as $key) {
             if (array_key_exists($key, $payload)) {
                 $rows = array_merge($rows, $this->normalizeCtripCapturedCommentList($payload[$key]));
             }
@@ -283,13 +283,16 @@ trait CtripCapturedPayloadConcern
 
         $paths = [
             ['data', 'commentList'],
+            ['data', 'commentlist'],
             ['data', 'comments'],
             ['data', 'list'],
             ['data', 'rows'],
             ['result', 'commentList'],
+            ['result', 'commentlist'],
             ['result', 'comments'],
             ['result', 'list'],
             ['commentList'],
+            ['commentlist'],
             ['comments'],
             ['list'],
             ['rows'],

@@ -22,7 +22,7 @@ test('OTA browser assist static helper exposes the collector script generator', 
   assert.equal(typeof helper.buildOtaBrowserAssistCollectorScript, 'function');
 });
 
-test('generated collector script produces supplemental OTA contract JSON only from visible DOM text', () => {
+test('generated collector script produces supplemental OTA contract JSON without credential access', () => {
   const script = helper.buildOtaBrowserAssistCollectorScript();
 
   for (const marker of [
@@ -40,6 +40,10 @@ test('generated collector script produces supplemental OTA contract JSON only fr
     'selector_not_found',
     'metrics_not_found',
     'navigator.clipboard.writeText',
+    'platformIdentity',
+    'partnerId',
+    'poiId',
+    'performance.getEntriesByType',
     '实时访客量',
     '曝光人数',
     '剩余',

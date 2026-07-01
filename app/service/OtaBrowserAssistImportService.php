@@ -9,7 +9,7 @@ final class OtaBrowserAssistImportService
 {
     private const CONTRACT_VERSION = 'ota_browser_assist_collection_contract.v1';
     private const COLLECTION_MODE = 'browser_assist_dom';
-    private const KNOWN_SECTION_KEYS = ['ctrip', 'ctripStats', 'meituan', 'meituanStats', 'meituanHook', 'meituanPeerHook'];
+    private const KNOWN_SECTION_KEYS = ['ctrip', 'ctripStats', 'meituan', 'meituanStats', 'meituanHook', 'meituanPeerHook', 'platformIdentity'];
 
     private PlatformDataSyncService $syncService;
 
@@ -88,7 +88,8 @@ final class OtaBrowserAssistImportService
             $this->normalizeInventorySection($capture['meituan'] ?? null, 'meituan', 'meituan_inventory', $context, $warnings),
             $this->normalizeCtripStatsSection($capture['ctripStats'] ?? null, $context, $warnings),
             $this->normalizeMeituanStatsSection($capture['meituanStats'] ?? null, $context, $warnings),
-            $this->normalizeMeituanHookSection($this->resolveMeituanHookSection($capture), $context, $warnings)
+            $this->normalizeMeituanHookSection($this->resolveMeituanHookSection($capture), $context, $warnings),
+            $this->normalizePlatformIdentitySection($this->resolvePlatformIdentitySection($capture), $context, $warnings)
         );
 
         $packages = $this->buildPackages($rows, $context);
@@ -535,6 +536,104 @@ final class OtaBrowserAssistImportService
     }
 
     /**
+     * @param mixed $section
+     * @param array<string, mixed> $context
+     * @param array<int, array<string, mixed>> $warnings
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizePlatformIdentitySection($section, array $context, array &$warnings): array
+    {
+        if (!is_array($section)) {
+            return [];
+        }
+
+        $platform = strtolower($this->cleanText($this->firstNonEmpty($section['platform'] ?? null, $section['source'] ?? null, 'meituan')));
+        if ($platform !== 'meituan') {
+            $warnings[] = [
+                'platform' => $platform,
+                'module' => 'platform_identity',
+                'code' => 'unsupported_platform_identity',
+                'message' => 'Only Meituan partnerId/poiId identity evidence is importable from browser assist captures.',
+            ];
+            return [];
+        }
+
+        $partnerId = $this->cleanText($this->firstNonEmpty($section['partnerId'] ?? null, $section['partner_id'] ?? null));
+        $poiId = $this->cleanText($this->firstNonEmpty(
+            $section['poiId'] ?? null,
+            $section['poi_id'] ?? null,
+            $section['storeId'] ?? null,
+            $section['store_id'] ?? null,
+            $section['hotelId'] ?? null,
+            $section['hotel_id'] ?? null
+        ));
+        if ($partnerId === '' && $poiId === '') {
+            $warnings[] = [
+                'platform' => $platform,
+                'module' => 'platform_identity',
+                'code' => 'platform_identity_fields_missing',
+                'source_path' => 'platform_identity',
+                'message' => 'Meituan platform identity section had no partnerId or poiId.',
+            ];
+            return [];
+        }
+
+        $snapshot = $this->resolveSnapshot($section, $context);
+        $dataDate = $this->normalizeDate($section['data_date'] ?? $section['dataDate'] ?? $context['data_date'] ?? '')
+            ?: $this->normalizeDate($snapshot['snapshot_time'])
+            ?: $this->normalizeDate($context['generated_at'] ?? '');
+        $evidence = [];
+        if (isset($section['evidence']) && is_array($section['evidence'])) {
+            foreach (array_slice($section['evidence'], 0, 12) as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $clean = $this->sanitizeIdentityEvidence($item);
+                if ($clean !== []) {
+                    $evidence[] = $clean;
+                }
+            }
+        }
+
+        $row = [
+            'source' => $platform,
+            'platform' => $platform,
+            'data_type' => 'platform_identity',
+            'data_date' => $dataDate,
+            'data_period' => 'realtime_snapshot',
+            'snapshot_time' => $snapshot['snapshot_time'],
+            'snapshot_bucket' => $snapshot['snapshot_bucket'],
+            'system_hotel_id' => (int)($section['system_hotel_id'] ?? $section['systemHotelId'] ?? $context['system_hotel_id'] ?? 0),
+            'hotel_id' => $poiId !== '' ? $poiId : $this->cleanText($context['hotel_id'] ?? ''),
+            'hotel_name' => $this->cleanText($section['hotelName'] ?? $section['hotel_name'] ?? $context['hotel_name'] ?? ''),
+            'dimension' => 'meituan:platform_identity',
+            'data_value' => 1,
+            'partner_id' => $partnerId,
+            'poi_id' => $poiId,
+            'acquisition_method' => self::COLLECTION_MODE,
+            'source_contract' => self::CONTRACT_VERSION,
+            'raw_data' => [
+                'collection_mode' => self::COLLECTION_MODE,
+                'source_contract' => self::CONTRACT_VERSION,
+                'module' => 'platform_identity',
+                'snapshot_time_source' => $snapshot['source'],
+                'platform_identity' => $this->compact([
+                    'platform' => $platform,
+                    'partner_id' => $partnerId !== '' ? $partnerId : null,
+                    'poi_id' => $poiId !== '' ? $poiId : null,
+                    'evidence' => $evidence,
+                ]),
+                'field_facts' => [
+                    $this->fieldFact('meituan_partner_id', 'platform_identity', 'platform_identity.partnerId', 'online_daily_data.raw_data.platform_identity.partner_id', $partnerId),
+                    $this->fieldFact('meituan_poi_id', 'platform_identity', 'platform_identity.poiId', 'online_daily_data.hotel_id/raw_data.platform_identity.poi_id', $poiId),
+                ],
+            ],
+        ];
+
+        return [$this->attachEvidence($this->compact($row), $platform, 'platform_identity', 'platform_identity', 'browser_assist_platform_identity', $section)];
+    }
+
+    /**
      * @param array<string, mixed> $item
      * @param array<string, mixed> $context
      * @param array<int, array<string, mixed>> $warnings
@@ -878,6 +977,43 @@ final class OtaBrowserAssistImportService
             }
         }
         return $this->hasMeituanHookShape($capture) ? $capture : null;
+    }
+
+    /**
+     * @param array<string, mixed> $capture
+     * @return array<string, mixed>|null
+     */
+    private function resolvePlatformIdentitySection(array $capture): ?array
+    {
+        foreach (['platformIdentity', 'platform_identity', 'meituanIdentity', 'meituan_identity'] as $key) {
+            if (isset($capture[$key]) && is_array($capture[$key])) {
+                return $capture[$key];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     * @return array<string, mixed>
+     */
+    private function sanitizeIdentityEvidence(array $item): array
+    {
+        $fields = [];
+        if (isset($item['fields']) && is_array($item['fields'])) {
+            foreach ($item['fields'] as $field) {
+                $text = $this->cleanText($field);
+                if (in_array($text, ['partnerId', 'poiId', 'partner_id', 'poi_id'], true)) {
+                    $fields[] = $text;
+                }
+            }
+        }
+        return $this->compact([
+            'source' => $this->cleanText($item['source'] ?? ''),
+            'host' => $this->cleanText($item['host'] ?? ''),
+            'path' => $this->cleanText($item['path'] ?? ''),
+            'fields' => array_slice(array_values(array_unique($fields)), 0, 4),
+        ]);
     }
 
     /**
@@ -1315,6 +1451,7 @@ final class OtaBrowserAssistImportService
             'traffic_forecast' => 'traffic forecast',
             'peer_rank' => 'peer rank',
             'search_keyword' => 'search keyword',
+            'platform_identity' => 'platform identity',
         ][$dataType] ?? $dataType;
         return $platformLabel . ' browser assist ' . $dataTypeLabel;
     }

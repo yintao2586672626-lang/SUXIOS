@@ -155,6 +155,22 @@ final class PlatformDataSyncService
                 ['field' => 'product_status', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
             ],
         ],
+        [
+            'resource' => 'platformIdentity',
+            'data_type' => 'platform_identity',
+            'priority' => 'P1',
+            'platforms' => ['meituan'],
+            'scope' => 'ota_channel_platform_identity',
+            'default_enabled' => false,
+            'requires_explicit_authorization' => true,
+            'privacy_boundary' => 'platform_identifier_only_no_cookie_no_token',
+            'aliases' => ['platform_identity', 'platformIdentity', 'identity', 'partner_id', 'partnerId', 'poi_id', 'poiId'],
+            'periods' => ['realtime'],
+            'fields' => [
+                ['field' => 'partner_id', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'field_missing'],
+                ['field' => 'poi_id', 'storage_table' => 'online_daily_data', 'storage_field' => 'hotel_id/raw_data', 'missing_state' => 'field_missing'],
+            ],
+        ],
     ];
 
     private const NORMALIZED_FIELD_FACT_DEFINITIONS = [
@@ -310,6 +326,24 @@ final class PlatformDataSyncService
                 'storage_field' => 'order_submit_num',
                 'missing_state' => 'optional_missing',
                 'source_keys' => ['order_submit_num', 'orderSubmitNum', 'bookings', 'bookingCount', 'orderCount', 'orderQuantity'],
+            ],
+        ],
+        'platform_identity' => [
+            [
+                'metric_key' => 'meituan_partner_id',
+                'normalized_field' => 'raw_data',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'raw_data.platform_identity.partner_id',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['partner_id', 'partnerId'],
+            ],
+            [
+                'metric_key' => 'meituan_poi_id',
+                'normalized_field' => 'hotel_id',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'hotel_id',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['poi_id', 'poiId', 'store_id', 'storeId', 'hotel_id', 'hotelId'],
             ],
         ],
     ];
@@ -552,12 +586,13 @@ final class PlatformDataSyncService
                 'source_key' => $sourceKey,
                 'source_path' => $sourceKey !== '' ? $this->fieldFactSourcePath($row, $sourceKey) : '',
                 'storage_table' => (string)$definition['storage_table'],
-                'storage_field' => $this->normalizedStorageField($definition),
+                'storage_field' => (string)$definition['storage_field'],
                 'normalized_field' => $normalizedField,
                 'status' => $status,
                 'missing_state' => (string)$definition['missing_state'],
                 'stored_value_present' => $sourceKey !== '' && $this->normalizedFieldHasStoredValue($normalizedRow, $normalizedField),
             ];
+            $fact['storage_field'] = $this->normalizedStorageField($definition);
             if ($sourceKey !== '') {
                 $fact['capture_evidence'] = $this->fieldFactCaptureEvidence($row);
             }
@@ -2022,6 +2057,9 @@ final class PlatformDataSyncService
         }
         if (in_array($value, ['room_type', 'room_types', 'roomtype', 'roomtypes', 'product', 'products'], true)) {
             return 'room_type';
+        }
+        if (in_array($value, ['platform_identity', 'platformidentity', 'identity', 'partner_id', 'partnerid', 'poi_id', 'poiid'], true)) {
+            return 'platform_identity';
         }
         return $value !== '' ? $value : 'business';
     }

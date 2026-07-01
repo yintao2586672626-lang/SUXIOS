@@ -126,6 +126,42 @@ test('keeps missing browser assist fields explicit instead of inventing values',
   );
 });
 
+test('normalizes Meituan platform identity evidence without storing full request URLs', () => {
+  const result = normalizeBrowserAssistCapturePayload({
+    platformIdentity: {
+      platform: 'meituan',
+      updatedAt: '2026-06-30 10:20:00',
+      partnerId: '313720',
+      poiId: '888754073',
+      evidence: [
+        {
+          source: 'performance_resource',
+          host: 'eb.meituan.com',
+          path: '/api/v1/ebooking/diagnosis/analysis/detail',
+          fields: ['partnerId', 'poiId'],
+        },
+      ],
+    },
+  }, {
+    systemHotelId: 58,
+    generatedAt: '2026-06-30 10:30:00',
+  });
+
+  assert.equal(result.summary.row_count, 1);
+  assert.deepEqual(result.packages.map((item) => `${item.platform}:${item.data_type}`), ['meituan:platform_identity']);
+
+  const row = result.rows[0];
+  assert.equal(row.data_type, 'platform_identity');
+  assert.equal(row.hotel_id, '888754073');
+  assert.equal(row.partner_id, '313720');
+  assert.equal(row.poi_id, '888754073');
+  assert.equal(row.data_value, 1);
+  assert.equal(row.raw_data.platform_identity.evidence[0].host, 'eb.meituan.com');
+  assert.equal(row.raw_data.field_facts.find((fact) => fact.metric_key === 'meituan_partner_id').status, 'captured');
+  assert.equal(JSON.stringify(result).includes('diagnosisAnalysisType'), false);
+  assert.equal(JSON.stringify(result).includes('Cookie'), false);
+});
+
 test('normalizes Meituan hook payload into supplemental import packages', () => {
   const result = normalizeBrowserAssistCapturePayload({
     capture: {

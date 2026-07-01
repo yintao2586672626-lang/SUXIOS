@@ -1389,9 +1389,9 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const runCtripReviewMatchAutomation ='),
     content.indexOf('const bindCtripReviewOrderMatch =')
   );
-  if (!ctripReviewAutomationSource.includes("review_collection_policy: 'policy_disabled'")
+  if (!ctripReviewAutomationSource.includes("review_collection_policy: 'explicit_review_match_only'")
     || /capture-ctrip-browser|comment_review|capture_sections/.test(ctripReviewAutomationSource)) {
-    failures.push('public/index.html must not trigger default live review collection from Ctrip review order matching.');
+    failures.push('public/index.html must keep Ctrip review order matching scoped to the explicit match action, without default capture entrypoints.');
   }
   if (!content.includes('const competitorSummaryRequestPromises = new Map();')
     || !content.includes('const competitorSummaryResultCache = new Map();')

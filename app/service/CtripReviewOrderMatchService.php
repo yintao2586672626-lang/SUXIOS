@@ -78,14 +78,24 @@ final class CtripReviewOrderMatchService
      */
     public function matchReviewToOrder(array $review, array $imSessions, array $orders, array $options = []): array
     {
-        $reviewDate = $this->extractDate($review, ['checkinTimeStr', 'checkInDate', 'check_in_date', 'checkinDate', 'checkin_date', 'arrivalDate', 'arrival_date', 'stayDate', 'stay_date']);
+        $reviewDateInfo = $this->extractDateMatchInfo($review, ['checkinTimeStr', 'checkInDate', 'check_in_date', 'checkinDate', 'checkin_date', 'arrivalDate', 'arrival_date', 'stayDate', 'stay_date']);
+        $reviewDate = $reviewDateInfo['date'];
+        $reviewMonth = $reviewDateInfo['month'];
+        $reviewDatePrecision = $reviewDateInfo['precision'];
         $coverageStart = $this->normalizeDate((string)($options['coverage_start_date'] ?? ''));
-        if ($coverageStart !== '' && $reviewDate !== '' && $reviewDate < $coverageStart) {
+        if (
+            $coverageStart !== ''
+            && (
+                ($reviewDate !== '' && $reviewDate < $coverageStart)
+                || ($reviewDate === '' && $reviewMonth !== '' && $reviewMonth < substr($coverageStart, 0, 7))
+            )
+        ) {
             return [
                 'status' => 'out_of_coverage',
                 'reason' => 'review_before_order_coverage',
                 'confidence' => 'none',
                 'review_date' => $reviewDate,
+                'review_month' => $reviewMonth,
                 'coverage_start_date' => $coverageStart,
                 'scope' => 'ctrip_ota_channel',
             ];
@@ -114,14 +124,95 @@ final class CtripReviewOrderMatchService
             ];
         }
 
-        $dateFiltered = $this->filterOrdersByDate($personOrders, $reviewDate);
-        $roomFiltered = $this->filterOrdersByRoomPrefix($dateFiltered, $this->extractRoomName($review));
+        $reviewPublishedAt = $this->extractReviewPublishedAt($review);
+        $publishEligibleOrders = $this->filterOrdersByReviewPublishEligibility($personOrders, $reviewPublishedAt);
+        if ($reviewPublishedAt !== '' && $publishEligibleOrders === []) {
+            return [
+                'status' => 'person_locked',
+                'reason' => 'person_locked_publish_time_mismatch',
+                'confidence' => $identityResult['confidence'],
+                'match_method' => 'im_uid_publish_time_mismatch',
+                'person_name' => $identity['guest_name'],
+                'identity' => $identity,
+                'candidates' => array_map(fn(array $order): array => $this->normalizeOrderForResponse($order), $personOrders),
+                'evidence' => [
+                    'review_published_at' => $reviewPublishedAt,
+                    'review_rule' => 'checkout_day_after_14_00',
+                    'scope' => 'ctrip_ota_channel',
+                ],
+                'scope' => 'ctrip_ota_channel',
+            ];
+        }
+
+        $dateFiltered = $publishEligibleOrders;
+        if ($reviewDate !== '') {
+            $dateFiltered = $this->filterOrdersByDate($publishEligibleOrders, $reviewDate);
+        } elseif ($reviewMonth !== '') {
+            $dateFiltered = $this->filterOrdersByMonth($publishEligibleOrders, $reviewMonth);
+        }
+
+        if (($reviewDate !== '' || $reviewMonth !== '') && $dateFiltered === []) {
+            return [
+                'status' => 'person_locked',
+                'reason' => 'person_locked_date_mismatch',
+                'confidence' => $identityResult['confidence'],
+                'match_method' => 'im_uid_date_mismatch',
+                'person_name' => $identity['guest_name'],
+                'identity' => $identity,
+                'candidates' => array_map(fn(array $order): array => $this->normalizeOrderForResponse($order), $personOrders),
+                'scope' => 'ctrip_ota_channel',
+            ];
+        }
+
+        $roomName = $this->extractRoomName($review);
+        $roomFiltered = $this->filterOrdersByRoomPrefix($dateFiltered, $roomName);
+        if ($roomName !== '' && $roomFiltered === []) {
+            return [
+                'status' => 'person_locked',
+                'reason' => 'person_locked_room_mismatch',
+                'confidence' => $identityResult['confidence'],
+                'match_method' => 'im_uid_room_mismatch',
+                'person_name' => $identity['guest_name'],
+                'identity' => $identity,
+                'candidates' => array_map(fn(array $order): array => $this->normalizeOrderForResponse($order), $dateFiltered),
+                'scope' => 'ctrip_ota_channel',
+            ];
+        }
 
         if (count($roomFiltered) === 1) {
+            $matchMethod = $this->resolveOrderMatchMethod($reviewDate, $reviewMonth, $roomName);
+            if ($reviewDatePrecision !== 'day') {
+                return [
+                    'status' => 'person_locked',
+                    'reason' => 'person_locked_order_evidence_insufficient',
+                    'confidence' => $identityResult['confidence'],
+                    'match_method' => $matchMethod . '_candidate',
+                    'person_name' => $identity['guest_name'],
+                    'identity' => $identity,
+                    'candidates' => array_map(fn(array $order): array => $this->normalizeOrderForResponse($order), $roomFiltered),
+                    'evidence' => [
+                        'identity' => $identityResult['evidence'],
+                        'order_filter' => [
+                            'guest_uid' => $identity['guest_uid'],
+                            'review_date' => $reviewDate,
+                            'review_month' => $reviewMonth,
+                            'review_date_precision' => $reviewDatePrecision,
+                            'review_published_at' => $reviewPublishedAt,
+                            'review_rule' => $reviewPublishedAt !== '' ? 'checkout_day_after_14_00' : '',
+                            'review_room_name' => $roomName,
+                            'candidate_count' => 1,
+                            'auto_confirm_blocked_reason' => 'review_date_is_not_day_precision',
+                        ],
+                        'scope' => 'ctrip_ota_channel',
+                    ],
+                    'scope' => 'ctrip_ota_channel',
+                ];
+            }
+
             return [
                 'status' => 'found',
                 'confidence' => 'high',
-                'match_method' => $reviewDate !== '' && $this->extractRoomName($review) !== '' ? 'im_uid_date_room' : 'im_uid_order_unique',
+                'match_method' => $matchMethod,
                 'identity' => $identity,
                 'order' => $this->normalizeOrderForResponse($roomFiltered[0]),
                 'evidence' => [
@@ -129,7 +220,11 @@ final class CtripReviewOrderMatchService
                     'order_filter' => [
                         'guest_uid' => $identity['guest_uid'],
                         'review_date' => $reviewDate,
-                        'review_room_name' => $this->extractRoomName($review),
+                        'review_month' => $reviewMonth,
+                        'review_date_precision' => $reviewDatePrecision,
+                        'review_published_at' => $reviewPublishedAt,
+                        'review_rule' => $reviewPublishedAt !== '' ? 'checkout_day_after_14_00' : '',
+                        'review_room_name' => $roomName,
                     ],
                     'scope' => 'ctrip_ota_channel',
                 ],
@@ -163,7 +258,9 @@ final class CtripReviewOrderMatchService
                 if (!is_array($member)) {
                     continue;
                 }
-                $uid = strtolower(trim((string)($member['uid'] ?? $key)));
+                $keyText = trim((string)$key);
+                $keyUid = ($keyText !== '' && (!ctype_digit($keyText) || strlen($keyText) >= 6)) ? $keyText : '';
+                $uid = strtolower(trim((string)($member['uid'] ?? $member['guestUid'] ?? $member['guest_uid'] ?? $member['memberUid'] ?? $member['member_uid'] ?? $member['userId'] ?? $member['user_id'] ?? $keyUid)));
                 $nickName = trim((string)($member['nickName'] ?? $member['nickname'] ?? $member['name'] ?? ''));
                 if ($uid === '' || !$this->isEligibleGuestMember($member, $nickName)) {
                     continue;
@@ -256,7 +353,9 @@ final class CtripReviewOrderMatchService
      */
     private function matchCandidate(string $candidate, array $uidSet, array $members, string $strategy): ?array
     {
-        $uid = md5($candidate);
+        $rawUid = strtolower(trim($candidate));
+        $md5Uid = md5($rawUid);
+        $uid = isset($uidSet[$rawUid]) ? $rawUid : $md5Uid;
         if (!isset($uidSet[$uid])) {
             return null;
         }
@@ -307,16 +406,45 @@ final class CtripReviewOrderMatchService
      */
     private function extractDate(array $review, array $fields): string
     {
+        return $this->extractDateMatchInfo($review, $fields)['date'];
+    }
+
+    /**
+     * @param array<string, mixed> $review
+     * @param array<int, string> $fields
+     * @return array{date:string,month:string,precision:string}
+     */
+    private function extractDateMatchInfo(array $review, array $fields): array
+    {
         foreach ($fields as $field) {
             if (!isset($review[$field]) || trim((string)$review[$field]) === '') {
                 continue;
             }
-            $date = $this->normalizeDate((string)$review[$field]);
+            $raw = (string)$review[$field];
+            $date = $this->normalizeDate($raw);
             if ($date !== '') {
-                return $date;
+                return [
+                    'date' => $date,
+                    'month' => substr($date, 0, 7),
+                    'precision' => 'day',
+                ];
+            }
+
+            $month = $this->normalizeYearMonth($raw);
+            if ($month !== '') {
+                return [
+                    'date' => '',
+                    'month' => $month,
+                    'precision' => 'month',
+                ];
             }
         }
-        return '';
+
+        return [
+            'date' => '',
+            'month' => '',
+            'precision' => 'none',
+        ];
     }
 
     private function normalizeDate(string $value): string
@@ -328,6 +456,9 @@ final class CtripReviewOrderMatchService
         if (preg_match('/^20\d{2}$/', $text)) {
             return '';
         }
+        if ($this->normalizeYearMonth($text) !== '') {
+            return '';
+        }
         if (preg_match('/(20\d{2})[-\/.年](\d{1,2})[-\/.月](\d{1,2})/u', $text, $matches)) {
             return sprintf('%04d-%02d-%02d', (int)$matches[1], (int)$matches[2], (int)$matches[3]);
         }
@@ -337,6 +468,109 @@ final class CtripReviewOrderMatchService
 
         $timestamp = strtotime($text);
         return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+    }
+
+    private function normalizeYearMonth(string $value): string
+    {
+        $text = trim($value);
+        if ($text === '') {
+            return '';
+        }
+        if (preg_match('/^(20\d{2})[-\/.](\d{1,2})$/', $text, $matches)) {
+            return sprintf('%04d-%02d', (int)$matches[1], (int)$matches[2]);
+        }
+        if (preg_match('/^(20\d{2})\s*\x{5E74}\s*(\d{1,2})\s*\x{6708}\s*$/u', $text, $matches)) {
+            return sprintf('%04d-%02d', (int)$matches[1], (int)$matches[2]);
+        }
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $review
+     */
+    private function extractReviewPublishedAt(array $review): string
+    {
+        foreach (['publishTime', 'publish_time', 'publishedAt', 'published_at', 'addtime', 'addTime', 'commentTime', 'comment_time', 'reviewTime', 'review_time', 'createTime', 'create_time', 'submitTime', 'submit_time', 'date'] as $field) {
+            if (!isset($review[$field]) || trim((string)$review[$field]) === '') {
+                continue;
+            }
+            $publishedAt = $this->normalizeDateTime((string)$review[$field]);
+            if ($publishedAt !== '') {
+                return $publishedAt;
+            }
+        }
+        return '';
+    }
+
+    private function normalizeDateTime(string $value): string
+    {
+        $text = trim($value);
+        if ($text === '') {
+            return '';
+        }
+        $timezone = new \DateTimeZone('Asia/Shanghai');
+
+        if (preg_match('/\/Date\((\d{10,13})(?:[+-]\d{4})?\)\//', $text, $matches)) {
+            $timestamp = (int)$matches[1];
+            if ($timestamp > 9999999999) {
+                $timestamp = (int)floor($timestamp / 1000);
+            }
+            return (new \DateTimeImmutable('@' . $timestamp))
+                ->setTimezone($timezone)
+                ->format('Y-m-d H:i:s');
+        }
+
+        if (preg_match('/(20\d{2})\s*\x{5E74}\s*(\d{1,2})\s*\x{6708}\s*(\d{1,2})\s*\x{65E5}\s*(\d{1,2})[:\x{FF1A}](\d{1,2})(?:[:\x{FF1A}](\d{1,2}))?/u', $text, $matches)) {
+            return sprintf('%04d-%02d-%02d %02d:%02d:%02d', (int)$matches[1], (int)$matches[2], (int)$matches[3], (int)$matches[4], (int)$matches[5], (int)($matches[6] ?? 0));
+        }
+
+        if (preg_match('/(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})(?:[ T]+\s*)?(\d{1,2})[:\x{FF1A}](\d{1,2})(?:[:\x{FF1A}](\d{1,2}))?/u', $text, $matches)) {
+            return sprintf('%04d-%02d-%02d %02d:%02d:%02d', (int)$matches[1], (int)$matches[2], (int)$matches[3], (int)$matches[4], (int)$matches[5], (int)($matches[6] ?? 0));
+        }
+
+        $timestamp = strtotime($text);
+        if ($timestamp === false || !preg_match('/\d{1,2}[:\x{FF1A}]\d{1,2}/u', $text)) {
+            return '';
+        }
+        return (new \DateTimeImmutable('@' . $timestamp))
+            ->setTimezone($timezone)
+            ->format('Y-m-d H:i:s');
+    }
+
+    private function reviewEligibleAtForOrder(array $order): string
+    {
+        foreach (['departureDate', 'departure_date', 'departure', 'checkOutDate', 'check_out_date', 'checkOut', 'check_out', 'checkoutTime', 'checkout_time', 'checkOutTime', 'check_out_time'] as $field) {
+            if (!isset($order[$field])) {
+                continue;
+            }
+            $departureDate = $this->normalizeDate((string)$order[$field]);
+            if ($departureDate === '') {
+                continue;
+            }
+            $eligibleAt = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $departureDate . ' 14:00:00', new \DateTimeZone('Asia/Shanghai'));
+            if ($eligibleAt === false) {
+                continue;
+            }
+            return $eligibleAt->format('Y-m-d H:i:s');
+        }
+        return '';
+    }
+
+    private function resolveOrderMatchMethod(string $reviewDate, string $reviewMonth, string $roomName): string
+    {
+        if ($reviewDate !== '' && $roomName !== '') {
+            return 'im_uid_date_room';
+        }
+        if ($reviewMonth !== '' && $roomName !== '') {
+            return 'im_uid_month_room';
+        }
+        if ($reviewDate !== '') {
+            return 'im_uid_date_unique';
+        }
+        if ($reviewMonth !== '') {
+            return 'im_uid_month_unique';
+        }
+        return 'im_uid_order_unique';
     }
 
     /**
@@ -360,27 +594,65 @@ final class CtripReviewOrderMatchService
     private function filterOrdersForIdentity(array $orders, array $identity): array
     {
         $guestUid = strtolower((string)($identity['guest_uid'] ?? ''));
+        $matchedCandidate = strtolower((string)($identity['matched_candidate'] ?? ''));
         $guestName = trim((string)($identity['guest_name'] ?? ''));
 
-        return array_values(array_filter($orders, function (array $order) use ($guestUid, $guestName): bool {
+        return array_values(array_filter($orders, function (array $order) use ($guestUid, $matchedCandidate, $guestName): bool {
             $platform = strtolower(trim((string)($order['platform'] ?? $order['sourcePlatform'] ?? $order['source_platform'] ?? 'ctrip')));
             if ($platform !== '' && $platform !== 'ctrip') {
                 return false;
             }
 
             foreach (['guestUid', 'guest_uid', 'ctrip_guest_uid', 'memberUid', 'member_uid', 'uid'] as $field) {
-                if (isset($order[$field]) && strtolower(trim((string)$order[$field])) === $guestUid) {
+                if (isset($order[$field]) && $this->identityUidMatchesOrderUid((string)$order[$field], $guestUid, $matchedCandidate)) {
                     return true;
                 }
             }
 
-            foreach (['guestName', 'guest_name', 'customerName', 'customer_name', 'contactName', 'contact_name'] as $field) {
+            foreach (['guestName', 'guest_name', 'customerName', 'customer_name', 'contactName', 'contact_name', 'clientName', 'client_name'] as $field) {
                 if ($guestName !== '' && isset($order[$field]) && trim((string)$order[$field]) === $guestName) {
                     return true;
                 }
             }
 
             return false;
+        }));
+    }
+
+    private function identityUidMatchesOrderUid(string $orderUid, string $identityUid, string $matchedCandidate): bool
+    {
+        $orderUid = strtolower(trim($orderUid));
+        $identityUid = strtolower(trim($identityUid));
+        $matchedCandidate = strtolower(trim($matchedCandidate));
+        if ($orderUid === '') {
+            return false;
+        }
+
+        foreach (array_filter([$identityUid, $matchedCandidate]) as $candidate) {
+            if ($orderUid === $candidate || md5($orderUid) === $candidate || $orderUid === md5($candidate)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $orders
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterOrdersByReviewPublishEligibility(array $orders, string $reviewPublishedAt): array
+    {
+        if ($reviewPublishedAt === '') {
+            return $orders;
+        }
+
+        return array_values(array_filter($orders, function (array $order) use ($reviewPublishedAt): bool {
+            $eligibleAt = $this->reviewEligibleAtForOrder($order);
+            if ($eligibleAt === '') {
+                return true;
+            }
+            return $reviewPublishedAt >= $eligibleAt;
         }));
     }
 
@@ -395,7 +667,7 @@ final class CtripReviewOrderMatchService
         }
 
         $matched = array_values(array_filter($orders, function (array $order) use ($reviewDate): bool {
-            foreach (['arrivalDate', 'arrival_date', 'checkInDate', 'check_in_date', 'checkIn', 'check_in', 'checkinTime', 'checkin_time', 'checkInTime', 'check_in_time', 'stayDate', 'stay_date'] as $field) {
+            foreach (['arrivalDate', 'arrival_date', 'arrival', 'checkInDate', 'check_in_date', 'checkIn', 'check_in', 'checkinTime', 'checkin_time', 'checkInTime', 'check_in_time', 'stayDate', 'stay_date'] as $field) {
                 if (isset($order[$field]) && $this->normalizeDate((string)$order[$field]) === $reviewDate) {
                     return true;
                 }
@@ -403,7 +675,31 @@ final class CtripReviewOrderMatchService
             return false;
         }));
 
-        return $matched === [] ? $orders : $matched;
+        return $matched;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $orders
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterOrdersByMonth(array $orders, string $reviewMonth): array
+    {
+        if ($reviewMonth === '') {
+            return $orders;
+        }
+
+        return array_values(array_filter($orders, function (array $order) use ($reviewMonth): bool {
+            foreach (['arrivalDate', 'arrival_date', 'arrival', 'checkInDate', 'check_in_date', 'checkIn', 'check_in', 'checkinTime', 'checkin_time', 'checkInTime', 'check_in_time', 'stayDate', 'stay_date'] as $field) {
+                if (!isset($order[$field])) {
+                    continue;
+                }
+                $orderDate = $this->normalizeDate((string)$order[$field]);
+                if ($orderDate !== '' && substr($orderDate, 0, 7) === $reviewMonth) {
+                    return true;
+                }
+            }
+            return false;
+        }));
     }
 
     /**
@@ -426,7 +722,7 @@ final class CtripReviewOrderMatchService
             return false;
         }));
 
-        return $matched === [] ? $orders : $matched;
+        return $matched;
     }
 
     /**
@@ -437,9 +733,10 @@ final class CtripReviewOrderMatchService
     {
         return [
             'order_id' => (string)($order['orderId'] ?? $order['order_id'] ?? $order['orderNo'] ?? $order['order_no'] ?? $order['orderSn'] ?? $order['order_sn'] ?? $order['platform_order_id'] ?? $order['bookingOrderId'] ?? $order['booking_order_id'] ?? $order['reservationOrderId'] ?? $order['reservation_order_id'] ?? ''),
-            'guest_name' => (string)($order['guestName'] ?? $order['guest_name'] ?? $order['customerName'] ?? $order['customer_name'] ?? $order['contactName'] ?? $order['contact_name'] ?? ''),
+            'guest_name' => (string)($order['guestName'] ?? $order['guest_name'] ?? $order['customerName'] ?? $order['customer_name'] ?? $order['contactName'] ?? $order['contact_name'] ?? $order['clientName'] ?? $order['client_name'] ?? ''),
             'guest_uid' => (string)($order['guestUid'] ?? $order['guest_uid'] ?? $order['ctrip_guest_uid'] ?? $order['memberUid'] ?? $order['member_uid'] ?? $order['uid'] ?? ''),
-            'arrival_date' => $this->normalizeDate((string)($order['arrivalDate'] ?? $order['arrival_date'] ?? $order['checkInDate'] ?? $order['check_in_date'] ?? $order['checkIn'] ?? $order['check_in'] ?? $order['checkinTime'] ?? $order['checkin_time'] ?? $order['checkInTime'] ?? $order['check_in_time'] ?? $order['stayDate'] ?? $order['stay_date'] ?? '')),
+            'arrival_date' => $this->normalizeDate((string)($order['arrivalDate'] ?? $order['arrival_date'] ?? $order['arrival'] ?? $order['checkInDate'] ?? $order['check_in_date'] ?? $order['checkIn'] ?? $order['check_in'] ?? $order['checkinTime'] ?? $order['checkin_time'] ?? $order['checkInTime'] ?? $order['check_in_time'] ?? $order['stayDate'] ?? $order['stay_date'] ?? '')),
+            'departure_date' => $this->normalizeDate((string)($order['departureDate'] ?? $order['departure_date'] ?? $order['departure'] ?? $order['checkOutDate'] ?? $order['check_out_date'] ?? $order['checkOut'] ?? $order['check_out'] ?? $order['checkoutTime'] ?? $order['checkout_time'] ?? $order['checkOutTime'] ?? $order['check_out_time'] ?? '')),
             'room_name' => (string)($order['roomName'] ?? $order['room_name'] ?? $order['roomType'] ?? $order['room_type'] ?? $order['room_type_name'] ?? $order['productName'] ?? $order['product_name'] ?? $order['ratePlanName'] ?? $order['rate_plan_name'] ?? ''),
             'match_source' => 'ctrip_order_pool',
         ];

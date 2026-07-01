@@ -43,6 +43,55 @@ final class CtripReviewOrderMatchServiceTest extends TestCase
         self::assertSame('member_uid_md5_candidate', $result['match_method']);
     }
 
+    public function testMaskedReviewUsernameLocksGuestFromRawImMemberUid(): void
+    {
+        $service = new CtripReviewOrderMatchService();
+
+        $result = $service->matchReviewIdentity([
+            'commentId' => 'comment-raw-uid',
+            'userName' => 'M773721****',
+        ], [
+            [
+                'groupId' => 'group-raw',
+                'members' => [
+                    [
+                        'guestUid' => 'm7737213206',
+                        'nickName' => '王佳虹',
+                        'roleType' => 'guest',
+                    ],
+                ],
+            ],
+        ]);
+
+        self::assertSame('person_locked', $result['status']);
+        self::assertSame('m7737213206', $result['identity']['guest_uid']);
+        self::assertSame('王佳虹', $result['identity']['guest_name']);
+        self::assertSame('m7737213206', $result['identity']['matched_candidate']);
+    }
+
+    public function testSequentialMemberWithoutUidIsNotIndexedAsNumericArrayKey(): void
+    {
+        $service = new CtripReviewOrderMatchService();
+
+        $result = $service->matchReviewIdentity([
+            'commentId' => 'comment-no-uid',
+            'userName' => 'M773721****',
+        ], [
+            [
+                'groupId' => 'group-no-uid',
+                'members' => [
+                    [
+                        'nickName' => '王佳虹',
+                        'roleType' => 'guest',
+                    ],
+                ],
+            ],
+        ]);
+
+        self::assertSame('unmatched', $result['status']);
+        self::assertSame('im_member_cache_empty', $result['reason']);
+    }
+
     public function testReviewOrderMatchReturnsFoundWhenIdentityAndOrderEvidenceAlign(): void
     {
         $service = new CtripReviewOrderMatchService();
@@ -120,6 +169,44 @@ final class CtripReviewOrderMatchServiceTest extends TestCase
         self::assertSame('im_uid_date_room', $result['match_method']);
     }
 
+    public function testMd5IdentityCanMatchRawOrderGuestUidFromMatchedCandidate(): void
+    {
+        $service = new CtripReviewOrderMatchService();
+        $uid = md5('m7737213206');
+
+        $result = $service->matchReviewToOrder([
+            'commentId' => 'comment-raw-order-uid',
+            'userName' => 'M773721****',
+            'checkinTimeStr' => '2026-06-22',
+            'hotelRoomInfo' => '精选双床房',
+        ], [
+            [
+                'groupId' => 'group-md5',
+                'members' => [
+                    $uid => [
+                        'uid' => $uid,
+                        'nickName' => '王佳虹',
+                        'roleType' => 'guest',
+                    ],
+                ],
+            ],
+        ], [
+            [
+                'orderId' => '1128148740643954',
+                'guestUid' => 'm7737213206',
+                'guestName' => '',
+                'arrivalDate' => '2026-06-22',
+                'roomName' => '精选双床房<双早>',
+                'platform' => 'ctrip',
+            ],
+        ]);
+
+        self::assertSame('found', $result['status']);
+        self::assertSame('1128148740643954', $result['order']['order_id']);
+        self::assertSame('王佳虹', $result['identity']['guest_name']);
+        self::assertSame('m7737213206', $result['identity']['matched_candidate']);
+    }
+
     public function testPartialYearCoverageDateDoesNotBlockMatching(): void
     {
         $service = new CtripReviewOrderMatchService();
@@ -155,6 +242,202 @@ final class CtripReviewOrderMatchServiceTest extends TestCase
 
         self::assertSame('found', $result['status']);
         self::assertSame('CTRIP-ORDER-YEAR-COVERAGE', $result['order']['order_id']);
+    }
+
+    public function testMonthOnlyReviewDateOnlyProducesCandidateOrder(): void
+    {
+        $service = new CtripReviewOrderMatchService();
+        $uid = md5('3207250779');
+
+        $result = $service->matchReviewToOrder([
+            'commentId' => '1972322725',
+            'userName' => '320725****',
+            'checkinTimeStr' => '2026-06',
+            'hotelRoomInfo' => 'Room A',
+        ], [
+            [
+                'groupId' => 'group-zhang',
+                'members' => [
+                    $uid => [
+                        'uid' => $uid,
+                        'nickName' => 'Guest Zhang',
+                        'roleType' => 'guest',
+                    ],
+                ],
+            ],
+        ], [
+            [
+                'orderId' => '1128148273218642',
+                'guestName' => 'Guest Zhang',
+                'arrivalDate' => '2026-06-02',
+                'roomName' => 'Room A No Breakfast',
+                'platform' => 'ctrip',
+            ],
+        ]);
+
+        self::assertSame('person_locked', $result['status']);
+        self::assertSame('person_locked_order_evidence_insufficient', $result['reason']);
+        self::assertSame('1128148273218642', $result['candidates'][0]['order_id']);
+        self::assertSame('medium', $result['confidence']);
+        self::assertSame('im_uid_month_room_candidate', $result['match_method']);
+        self::assertSame('2026-06', $result['evidence']['order_filter']['review_month']);
+        self::assertSame('month', $result['evidence']['order_filter']['review_date_precision']);
+        self::assertSame('review_date_is_not_day_precision', $result['evidence']['order_filter']['auto_confirm_blocked_reason']);
+    }
+
+    public function testPreciseReviewDateMismatchDoesNotFallbackToUniqueRoomOrder(): void
+    {
+        $service = new CtripReviewOrderMatchService();
+        $uid = md5('3207250779');
+
+        $result = $service->matchReviewToOrder([
+            'commentId' => 'date-mismatch',
+            'userName' => '320725****',
+            'checkinTimeStr' => '2026-06-01',
+            'hotelRoomInfo' => 'Room A',
+        ], [
+            [
+                'groupId' => 'group-zhang',
+                'members' => [
+                    $uid => [
+                        'uid' => $uid,
+                        'nickName' => 'Guest Zhang',
+                        'roleType' => 'guest',
+                    ],
+                ],
+            ],
+        ], [
+            [
+                'orderId' => '1128148273218642',
+                'guestName' => 'Guest Zhang',
+                'arrivalDate' => '2026-06-02',
+                'roomName' => 'Room A No Breakfast',
+                'platform' => 'ctrip',
+            ],
+        ]);
+
+        self::assertSame('person_locked', $result['status']);
+        self::assertSame('person_locked_date_mismatch', $result['reason']);
+        self::assertSame('im_uid_date_mismatch', $result['match_method']);
+        self::assertCount(1, $result['candidates']);
+    }
+
+    public function testReviewPublishedBeforeCheckoutEligibilityDoesNotMatchOrder(): void
+    {
+        $service = new CtripReviewOrderMatchService();
+        $uid = md5('3207250779');
+
+        $result = $service->matchReviewToOrder([
+            'commentId' => 'publish-too-early',
+            'userName' => '320725****',
+            'checkinTimeStr' => '2026-06-02',
+            'addtime' => '2026年6月1日06:37:06',
+            'hotelRoomInfo' => 'Room A',
+        ], [
+            [
+                'groupId' => 'group-zhang',
+                'members' => [
+                    $uid => [
+                        'uid' => $uid,
+                        'nickName' => 'Guest Zhang',
+                        'roleType' => 'guest',
+                    ],
+                ],
+            ],
+        ], [
+            [
+                'orderId' => '1128148273218642',
+                'guestName' => 'Guest Zhang',
+                'arrivalDate' => '2026-06-02',
+                'departureDate' => '2026-06-03',
+                'roomName' => 'Room A No Breakfast',
+                'platform' => 'ctrip',
+            ],
+        ]);
+
+        self::assertSame('person_locked', $result['status']);
+        self::assertSame('person_locked_publish_time_mismatch', $result['reason']);
+        self::assertSame('im_uid_publish_time_mismatch', $result['match_method']);
+        self::assertSame('2026-06-01 06:37:06', $result['evidence']['review_published_at']);
+        self::assertSame('1128148273218642', $result['candidates'][0]['order_id']);
+        self::assertSame('2026-06-03', $result['candidates'][0]['departure_date']);
+    }
+
+    public function testReviewPublishedBeforeCheckoutDayTwoPmDoesNotMatchOrder(): void
+    {
+        $service = new CtripReviewOrderMatchService();
+        $uid = md5('3207250779');
+
+        $result = $service->matchReviewToOrder([
+            'commentId' => 'publish-before-two-pm',
+            'userName' => '320725****',
+            'checkinTimeStr' => '2026-06-02',
+            'addtime' => '2026-06-03 13:59:00',
+            'hotelRoomInfo' => 'Room A',
+        ], [
+            [
+                'groupId' => 'group-zhang',
+                'members' => [
+                    $uid => [
+                        'uid' => $uid,
+                        'nickName' => 'Guest Zhang',
+                        'roleType' => 'guest',
+                    ],
+                ],
+            ],
+        ], [
+            [
+                'orderId' => '1128148273218642',
+                'guestName' => 'Guest Zhang',
+                'arrivalDate' => '2026-06-02',
+                'departureDate' => '2026-06-03',
+                'roomName' => 'Room A No Breakfast',
+                'platform' => 'ctrip',
+            ],
+        ]);
+
+        self::assertSame('person_locked', $result['status']);
+        self::assertSame('person_locked_publish_time_mismatch', $result['reason']);
+        self::assertSame('im_uid_publish_time_mismatch', $result['match_method']);
+    }
+
+    public function testReviewPublishedAfterCheckoutDayTwoPmCanMatchOrder(): void
+    {
+        $service = new CtripReviewOrderMatchService();
+        $uid = md5('3207250779');
+
+        $result = $service->matchReviewToOrder([
+            'commentId' => 'publish-eligible',
+            'userName' => '320725****',
+            'checkinTimeStr' => '2026-06-02',
+            'addtime' => '2026-06-03 14:01:00',
+            'hotelRoomInfo' => 'Room A',
+        ], [
+            [
+                'groupId' => 'group-zhang',
+                'members' => [
+                    $uid => [
+                        'uid' => $uid,
+                        'nickName' => 'Guest Zhang',
+                        'roleType' => 'guest',
+                    ],
+                ],
+            ],
+        ], [
+            [
+                'orderId' => '1128148273218642',
+                'guestName' => 'Guest Zhang',
+                'arrivalDate' => '2026-06-02',
+                'departureDate' => '2026-06-03',
+                'roomName' => 'Room A No Breakfast',
+                'platform' => 'ctrip',
+            ],
+        ]);
+
+        self::assertSame('found', $result['status']);
+        self::assertSame('1128148273218642', $result['order']['order_id']);
+        self::assertSame('im_uid_date_room', $result['match_method']);
+        self::assertSame('checkout_day_after_14_00', $result['evidence']['order_filter']['review_rule']);
     }
 
     public function testReviewOrderMatchReturnsPersonLockedWhenSameGuestHasMultipleOrders(): void

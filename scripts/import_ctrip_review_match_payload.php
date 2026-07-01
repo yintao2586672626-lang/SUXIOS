@@ -394,6 +394,7 @@ try {
 
         $statusCounts = [];
         $samples = [];
+        $multiReviewResolution = ['resolved_count' => 0, 'assignments' => []];
         foreach ($reviews as $review) {
             $result = $service->matchReviewToOrder(
                 $review,
@@ -414,6 +415,9 @@ try {
                 ];
             }
         }
+        $multiReviewResolution = $bridge->callPrivate('resolveCtripReviewMultiReviewOrderAssignments', [$systemHotelId, $reviews, 'payload_import_multi_review']);
+        $statusCounts = $bridge->callPrivate('applyCtripReviewMultiReviewResolutionToStatusCounts', [$statusCounts, $multiReviewResolution]);
+        $samples = $bridge->callPrivate('applyCtripReviewMultiReviewResolutionToSamples', [$samples, $multiReviewResolution]);
 
         $sourceTables = [
             'ctrip_reviews' => count($reviews),
@@ -441,6 +445,7 @@ try {
                 'person_locked_count' => (int)($statusCounts['person_locked'] ?? 0),
                 'needs_ops_count' => (int)($statusCounts['needs_ops'] ?? 0),
                 'out_of_coverage_count' => (int)($statusCounts['out_of_coverage'] ?? 0),
+                'multi_review_resolved_count' => (int)($multiReviewResolution['resolved_count'] ?? 0),
             ],
             'status_counts' => $statusCounts,
             'missing_sources' => $missingSources,

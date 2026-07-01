@@ -115,6 +115,77 @@
         });
     };
 
+    var safeUrlEvidence = function (url) {
+        try {
+            var parsed = new URL(String(url || ''), window.location.href);
+            return {
+                host: parsed.hostname,
+                path: parsed.pathname
+            };
+        } catch (error) {
+            return { host: '', path: '' };
+        }
+    };
+
+    var identityFromUrl = function (url, source) {
+        try {
+            var parsed = new URL(String(url || ''), window.location.href);
+            var partnerId = clean(parsed.searchParams.get('partnerId') || parsed.searchParams.get('partner_id') || '');
+            var poiId = clean(parsed.searchParams.get('poiId') || parsed.searchParams.get('poi_id') || parsed.searchParams.get('storeId') || parsed.searchParams.get('store_id') || '');
+            if (!partnerId && !poiId) return null;
+            var evidence = safeUrlEvidence(parsed.href);
+            return {
+                source: source,
+                host: evidence.host,
+                path: evidence.path,
+                partnerId: partnerId,
+                poiId: poiId
+            };
+        } catch (error) {
+            return null;
+        }
+    };
+
+    var collectMeituanIdentity = function () {
+        var candidates = [];
+        var current = identityFromUrl(window.location.href, 'location_search');
+        if (current) candidates.push(current);
+        if (window.performance && typeof window.performance.getEntriesByType === 'function') {
+            window.performance.getEntriesByType('resource').slice(-120).forEach(function (entry) {
+                var name = String(entry && entry.name || '');
+                if (!/^https:\/\/(?:eb\.meituan\.com|meituan\.com|www\.meituan\.com)\/api\//i.test(name)) return;
+                var item = identityFromUrl(name, 'performance_resource');
+                if (item) candidates.push(item);
+            });
+        }
+
+        var partnerId = '';
+        var poiId = '';
+        var evidence = [];
+        candidates.forEach(function (item) {
+            if (!partnerId && item.partnerId) partnerId = item.partnerId;
+            if (!poiId && item.poiId) poiId = item.poiId;
+            evidence.push({
+                source: item.source,
+                host: item.host,
+                path: item.path,
+                fields: [
+                    item.partnerId ? 'partnerId' : '',
+                    item.poiId ? 'poiId' : ''
+                ].filter(Boolean)
+            });
+        });
+
+        if (!partnerId && !poiId) return null;
+        return {
+            platform: 'meituan',
+            updatedAt: formatDateTime(new Date()),
+            partnerId: partnerId,
+            poiId: poiId,
+            evidence: evidence.slice(0, 12)
+        };
+    };
+
     var uniqueVisibleNodes = function (selectors, root) {
         var seen = [];
         var nodes = [];
@@ -310,6 +381,8 @@
             capture.meituan = parseInventoryRows('meituan', warnings);
             var meituanStats = parseRealtimeMetrics('meituan', warnings);
             if (meituanStats) capture.meituanStats = meituanStats;
+            var meituanIdentity = collectMeituanIdentity();
+            if (meituanIdentity) capture.platformIdentity = meituanIdentity;
         } else {
             warnings.push({
                 platform: 'unknown',
@@ -385,7 +458,7 @@
         var body = document.createElement('div');
         body.style.cssText = 'padding:10px 12px;';
         var note = document.createElement('div');
-        note.textContent = '只读取当前已授权页面的可见文字，生成 OTA 渠道补充 JSON；选择器未命中会保留提醒。';
+        note.textContent = '只读取当前已授权页面的可见文字和必要平台标识，生成 OTA 渠道补充 JSON；不读取 Cookie，选择器未命中会保留提醒。';
         note.style.cssText = 'font-size:12px;line-height:1.5;margin-bottom:8px;';
         var actions = document.createElement('div');
         actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;';

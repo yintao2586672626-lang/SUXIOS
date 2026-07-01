@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
+use app\service\BrowserProfileCaptureRequestService;
 use app\service\CtripReviewOrderMatchService;
 use think\Response;
 use think\facade\Db;
@@ -68,6 +69,7 @@ trait CtripReviewOrderMatchConcern
                 ->where('group_id', $groupId)
                 ->find();
             if ($existing) {
+                $row = $this->mergeCtripReviewMatchImSessionRow($row, $existing);
                 Db::name('ota_ctrip_im_sessions')->where('id', (int)$existing['id'])->update($row);
                 $id = (int)$existing['id'];
             } else {
@@ -75,8 +77,14 @@ trait CtripReviewOrderMatchConcern
                 $id = (int)Db::name('ota_ctrip_im_sessions')->insertGetId($row);
             }
 
+            $orderCacheId = $this->upsertCtripReviewMatchOrderFromImSession($systemHotelId, $session);
             OperationLog::record('online_data', 'save_ctrip_review_im_session', '保存携程评价匹配 IM 会话: ' . $groupId, $this->currentUser->id ?? null, $systemHotelId);
-            return $this->success(['id' => $id, 'match_status' => $row['match_status']], '携程 IM 会话缓存已保存');
+            return $this->success([
+                'id' => $id,
+                'match_status' => $row['match_status'],
+                'order_cache_id' => $orderCacheId,
+                'order_cache_status' => $orderCacheId > 0 ? 'synced' : 'not_available',
+            ], '携程 IM 会话缓存已保存');
         } catch (\think\exception\HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
         } catch (\Throwable $e) {
@@ -158,12 +166,12 @@ trait CtripReviewOrderMatchConcern
                 'system_hotel_id' => $systemHotelId,
                 'order_id' => $orderId,
                 'guest_uid' => trim((string)($order['guestUid'] ?? $order['guest_uid'] ?? $order['ctrip_guest_uid'] ?? $order['memberUid'] ?? $order['member_uid'] ?? $order['uid'] ?? '')),
-                'guest_name' => trim((string)($order['guestName'] ?? $order['guest_name'] ?? $order['customerName'] ?? $order['customer_name'] ?? $order['contactName'] ?? $order['contact_name'] ?? '')),
-                'arrival_date' => $this->nullableCtripReviewMatchDate($order['arrivalDate'] ?? $order['arrival_date'] ?? $order['checkInDate'] ?? $order['check_in_date'] ?? $order['checkIn'] ?? $order['check_in'] ?? $order['checkinTime'] ?? $order['checkin_time'] ?? $order['checkInTime'] ?? $order['check_in_time'] ?? $order['stayDate'] ?? $order['stay_date'] ?? null),
-                'departure_date' => $this->nullableCtripReviewMatchDate($order['departureDate'] ?? $order['departure_date'] ?? $order['checkOutDate'] ?? $order['check_out_date'] ?? $order['checkOut'] ?? $order['check_out'] ?? $order['checkoutTime'] ?? $order['checkout_time'] ?? $order['checkOutTime'] ?? $order['check_out_time'] ?? null),
+                'guest_name' => trim((string)($order['guestName'] ?? $order['guest_name'] ?? $order['customerName'] ?? $order['customer_name'] ?? $order['contactName'] ?? $order['contact_name'] ?? $order['clientName'] ?? $order['client_name'] ?? '')),
+                'arrival_date' => $this->nullableCtripReviewMatchDate($order['arrivalDate'] ?? $order['arrival_date'] ?? $order['arrival'] ?? $order['checkInDate'] ?? $order['check_in_date'] ?? $order['checkIn'] ?? $order['check_in'] ?? $order['checkinTime'] ?? $order['checkin_time'] ?? $order['checkInTime'] ?? $order['check_in_time'] ?? $order['stayDate'] ?? $order['stay_date'] ?? null),
+                'departure_date' => $this->nullableCtripReviewMatchDate($order['departureDate'] ?? $order['departure_date'] ?? $order['departure'] ?? $order['checkOutDate'] ?? $order['check_out_date'] ?? $order['checkOut'] ?? $order['check_out'] ?? $order['checkoutTime'] ?? $order['checkout_time'] ?? $order['checkOutTime'] ?? $order['check_out_time'] ?? null),
                 'room_name' => trim((string)($order['roomName'] ?? $order['room_name'] ?? $order['roomType'] ?? $order['room_type'] ?? $order['room_type_name'] ?? $order['productName'] ?? $order['product_name'] ?? $order['ratePlanName'] ?? $order['rate_plan_name'] ?? '')),
                 'room_name_prefix' => $this->roomPrefix((string)($order['roomName'] ?? $order['room_name'] ?? $order['roomType'] ?? $order['room_type'] ?? $order['room_type_name'] ?? $order['productName'] ?? $order['product_name'] ?? $order['ratePlanName'] ?? $order['rate_plan_name'] ?? '')),
-                'order_status' => trim((string)($order['orderStatus'] ?? $order['order_status'] ?? $order['orderState'] ?? $order['order_state'] ?? $order['status'] ?? '')),
+                'order_status' => trim((string)($order['orderStatus'] ?? $order['order_status'] ?? $order['orderStatusDesc'] ?? $order['order_status_desc'] ?? $order['orderState'] ?? $order['order_state'] ?? $order['status'] ?? '')),
                 'source_platform' => 'ctrip',
                 'raw_order_json' => $this->encodeCtripReviewMatchJson($order),
                 'update_time' => date('Y-m-d H:i:s'),
@@ -216,7 +224,10 @@ trait CtripReviewOrderMatchConcern
 
             $this->saveCtripReviewMatchAttempt($systemHotelId, $review, $result, 'auto');
 
-            return $this->success($result, '携程评价订单反查完成');
+            return $this->success(
+                $this->buildCtripReviewOrderMatchPublicResult($review, $result),
+                '携程评价订单反查完成'
+            );
         } catch (\think\exception\HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
         } catch (\Throwable $e) {
@@ -341,14 +352,37 @@ trait CtripReviewOrderMatchConcern
                 $this->importCtripReviewMatchRequestPayload($systemHotelId, $data),
                 $this->importCtripReviewMatchRawRecords($systemHotelId, $rawLimit)
             );
+            $autoCaptureSummary = $this->emptyCtripReviewMatchAutoCaptureSummary();
 
             $reviews = $this->loadCtripReviewsForMatch($systemHotelId, $reviewLimit);
             $imSessions = $this->loadCtripReviewImSessions($systemHotelId);
             $orders = $this->loadCtripOrderPool($systemHotelId);
+            if (
+                !$dryRun
+                && $this->shouldAutoCaptureCtripReviewMatchReviews($data)
+            ) {
+                $autoCaptureSummary = $this->captureCtripReviewMatchReviewsFromAuthorizedProfile($systemHotelId, $data);
+                $importSummary = $this->mergeCtripReviewMatchImportSummary($importSummary, [
+                    'raw_records_scanned' => 0,
+                    'request_payloads_scanned' => (int)($autoCaptureSummary['payloads_scanned'] ?? 0),
+                    'reviews_upserted' => (int)($autoCaptureSummary['reviews_upserted'] ?? 0),
+                    'im_sessions_upserted' => (int)($autoCaptureSummary['im_sessions_upserted'] ?? 0),
+                    'orders_upserted' => (int)($autoCaptureSummary['orders_upserted'] ?? 0),
+                ]);
+                $reviews = $this->loadCtripReviewsForMatch($systemHotelId, $reviewLimit);
+                $imSessions = $this->loadCtripReviewImSessions($systemHotelId);
+                $orders = $this->loadCtripOrderPool($systemHotelId);
+            }
+            $imOrderCacheSynced = $this->syncCtripReviewOrdersFromImSessionCache($systemHotelId);
+            if ($imOrderCacheSynced > 0) {
+                $importSummary['orders_upserted'] = (int)($importSummary['orders_upserted'] ?? 0) + $imOrderCacheSynced;
+                $orders = $this->loadCtripOrderPool($systemHotelId);
+            }
             $coverageStartDate = $this->firstCtripOrderCoverageDate($systemHotelId);
             $service = new CtripReviewOrderMatchService();
             $statusCounts = [];
             $samples = [];
+            $multiReviewResolution = ['resolved_count' => 0, 'assignments' => []];
 
             foreach ($reviews as $review) {
                 $result = $service->matchReviewToOrder(
@@ -361,16 +395,33 @@ trait CtripReviewOrderMatchConcern
                 $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
                 $this->saveCtripReviewMatchAttempt($systemHotelId, $review, $result, 'automation');
                 if (count($samples) < 20) {
+                    $candidateOrder = $this->firstPublicCtripReviewCandidateOrder(
+                        is_array($result['candidates'] ?? null) ? $result['candidates'] : []
+                    );
+                    $candidateCount = is_array($result['candidates'] ?? null) ? count($result['candidates']) : 0;
                     $samples[] = [
                         'comment_id' => $this->extractCtripReviewCommentId($review),
                         'source_username' => $this->firstCtripReviewMatchText($review, ['userName', 'user_name', 'sourceUsername', 'source_username', 'username', 'nickName', 'nick_name', 'user_name_masked']),
                         'status' => $status,
+                        'status_text' => $this->publicCtripReviewMatchStatusText(
+                            $status,
+                            (string)($result['order']['order_id'] ?? ''),
+                            (string)($result['identity']['guest_name'] ?? $result['person_name'] ?? ''),
+                            $candidateCount
+                        ),
                         'order_id' => (string)($result['order']['order_id'] ?? ''),
                         'guest_name' => (string)($result['identity']['guest_name'] ?? $result['person_name'] ?? ''),
+                        'candidate_count' => $candidateCount,
+                        'candidate_order_id' => (string)($candidateOrder['order_id'] ?? ''),
+                        'candidate_guest_name' => (string)($candidateOrder['guest_name'] ?? ''),
+                        'candidate_arrival_date' => (string)($candidateOrder['arrival_date'] ?? ''),
                         'reason' => (string)($result['reason'] ?? ''),
                     ];
                 }
             }
+            $multiReviewResolution = $this->resolveCtripReviewMultiReviewOrderAssignments($systemHotelId, $reviews, 'automation_multi_review');
+            $statusCounts = $this->applyCtripReviewMultiReviewResolutionToStatusCounts($statusCounts, $multiReviewResolution);
+            $samples = $this->applyCtripReviewMultiReviewResolutionToSamples($samples, $multiReviewResolution);
 
             $missingSources = [];
             if (count($reviews) === 0) {
@@ -396,9 +447,11 @@ trait CtripReviewOrderMatchConcern
                     'person_locked_count' => (int)($statusCounts['person_locked'] ?? 0),
                     'needs_ops_count' => (int)($statusCounts['needs_ops'] ?? 0),
                     'out_of_coverage_count' => (int)($statusCounts['out_of_coverage'] ?? 0),
+                    'multi_review_resolved_count' => (int)($multiReviewResolution['resolved_count'] ?? 0),
                 ],
                 'status_counts' => $statusCounts,
                 'import' => $importSummary,
+                'auto_capture' => $autoCaptureSummary,
                 'payload_preflight' => $payloadPreflight,
                 'missing_sources' => $missingSources,
                 'source_status' => [
@@ -411,15 +464,18 @@ trait CtripReviewOrderMatchConcern
                     ],
                     'raw_records_scanned' => (int)($importSummary['raw_records_scanned'] ?? 0),
                     'request_payloads_scanned' => (int)($importSummary['request_payloads_scanned'] ?? 0),
+                    'auto_capture_status' => (string)($autoCaptureSummary['status'] ?? 'not_attempted'),
                     'request_payload_preflight_status' => (string)($payloadPreflight['status'] ?? 'unknown'),
-                    'policy' => 'authorized_import_or_existing_cache_only',
+                    'im_order_cache_synced' => $imOrderCacheSynced,
+                    'policy' => 'explicit_review_match_authorized_profile_or_existing_cache',
                     'storage_write' => !$dryRun,
                     'transaction' => $dryRun ? 'rolled_back' : 'not_wrapped',
                 ],
                 'samples' => $samples,
+                'review_cards' => $dryRun ? $samples : $this->loadCtripReviewMatchReviewCards($systemHotelId, 30),
                 'next_action' => $ready
                     ? '查看 matched/person_locked 样本，person_locked 需要运营确认订单'
-                    : '导入已授权的携程评价明细、IM members 和订单池缓存后，再重新运行自动匹配',
+                    : '请确认携程授权 Profile 登录有效，并补齐评价、IM 会话和订单明细后重新运行自动匹配',
             ];
 
             if ($dryRun) {
@@ -559,7 +615,7 @@ trait CtripReviewOrderMatchConcern
     {
         $sourceTables = [
             'ctrip_reviews' => (int)Db::name('ota_ctrip_reviews')->where('system_hotel_id', $systemHotelId)->count(),
-            'ctrip_im_sessions' => (int)Db::name('ota_ctrip_im_sessions')->where('system_hotel_id', $systemHotelId)->count(),
+            'ctrip_im_sessions' => count($this->loadCtripReviewImSessions($systemHotelId)),
             'ctrip_orders' => (int)Db::name('ota_ctrip_orders')->where('system_hotel_id', $systemHotelId)->count(),
             'ctrip_review_order_matches' => (int)Db::name('ota_ctrip_review_order_matches')->where('system_hotel_id', $systemHotelId)->count(),
         ];
@@ -603,6 +659,8 @@ trait CtripReviewOrderMatchConcern
                 'out_of_coverage_count' => (int)($statusCounts['out_of_coverage'] ?? 0),
             ],
             'status_counts' => $statusCounts,
+            'samples' => $this->loadCtripReviewMatchRecentSamples($systemHotelId, 20),
+            'review_cards' => $this->loadCtripReviewMatchReviewCards($systemHotelId, 30),
             'missing_sources' => array_values(array_unique($missingSources)),
             'source_status' => [
                 'scope' => 'ctrip_ota_channel',
@@ -622,6 +680,279 @@ trait CtripReviewOrderMatchConcern
                 ? '携程评价匹配闭环已由真实入库数据证明'
                 : '导入真实授权的携程评价明细、IM members 和订单池，并执行入库匹配后重跑闭环检查',
         ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function loadCtripReviewMatchRecentSamples(int $systemHotelId, int $limit = 20): array
+    {
+        $rows = Db::name('ota_ctrip_review_order_matches')
+            ->where('system_hotel_id', $systemHotelId)
+            ->field('comment_id, order_id, guest_name, match_status, confidence, candidate_orders_json, update_time')
+            ->order('update_time', 'desc')
+            ->order('id', 'desc')
+            ->limit(max(1, min(50, $limit)))
+            ->select()
+            ->toArray();
+        if ($rows === []) {
+            return [];
+        }
+
+        $commentIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): string => trim((string)($row['comment_id'] ?? '')),
+            $rows
+        ))));
+        $reviewsByCommentId = [];
+        if ($commentIds !== []) {
+            $reviewRows = Db::name('ota_ctrip_reviews')
+                ->where('system_hotel_id', $systemHotelId)
+                ->whereIn('comment_id', $commentIds)
+                ->field('comment_id, source_username, checkin_date, room_name, score')
+                ->select()
+                ->toArray();
+            foreach ($reviewRows as $reviewRow) {
+                $commentId = trim((string)($reviewRow['comment_id'] ?? ''));
+                if ($commentId !== '') {
+                    $reviewsByCommentId[$commentId] = $reviewRow;
+                }
+            }
+        }
+
+        return array_map(function (array $row) use ($reviewsByCommentId): array {
+            $commentId = trim((string)($row['comment_id'] ?? ''));
+            $review = $reviewsByCommentId[$commentId] ?? [];
+            $candidateOrder = $this->firstPublicCtripReviewCandidateOrder(
+                $this->decodeCtripReviewMatchJson((string)($row['candidate_orders_json'] ?? '[]'))
+            );
+            $candidateCount = $this->publicCtripReviewCandidateCount((string)($row['candidate_orders_json'] ?? '[]'));
+
+            return [
+                'comment_id' => $commentId,
+                'source_username' => (string)($review['source_username'] ?? ''),
+                'checkin_date' => (string)($review['checkin_date'] ?? ''),
+                'room_name' => (string)($review['room_name'] ?? ''),
+                'score' => $review['score'] ?? null,
+                'status' => (string)($row['match_status'] ?? 'unknown'),
+                'confidence' => (string)($row['confidence'] ?? 'none'),
+                'order_id' => (string)($row['order_id'] ?? ''),
+                'guest_name' => (string)($row['guest_name'] ?? ''),
+                'status_text' => $this->publicCtripReviewMatchStatusText(
+                    (string)($row['match_status'] ?? 'unknown'),
+                    (string)($row['order_id'] ?? ''),
+                    (string)($row['guest_name'] ?? ''),
+                    $candidateCount
+                ),
+                'candidate_count' => $candidateCount,
+                'candidate_order_id' => (string)($candidateOrder['order_id'] ?? ''),
+                'candidate_guest_name' => (string)($candidateOrder['guest_name'] ?? ''),
+                'candidate_arrival_date' => (string)($candidateOrder['arrival_date'] ?? ''),
+                'updated_at' => (string)($row['update_time'] ?? ''),
+            ];
+        }, $rows);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function loadCtripReviewMatchReviewCards(int $systemHotelId, int $limit = 30): array
+    {
+        $reviewRows = Db::name('ota_ctrip_reviews')
+            ->where('system_hotel_id', $systemHotelId)
+            ->field('comment_id, source_username, user_avatar_url, review_date, checkin_date, room_name, score, content, update_time')
+            ->order('review_date', 'desc')
+            ->order('id', 'desc')
+            ->limit(max(1, min(50, $limit)))
+            ->select()
+            ->toArray();
+        if ($reviewRows === []) {
+            return [];
+        }
+
+        $commentIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): string => trim((string)($row['comment_id'] ?? '')),
+            $reviewRows
+        ))));
+        $matchesByCommentId = [];
+        if ($commentIds !== []) {
+            $matchRows = Db::name('ota_ctrip_review_order_matches')
+                ->where('system_hotel_id', $systemHotelId)
+                ->whereIn('comment_id', $commentIds)
+                ->field('comment_id, order_id, guest_name, match_status, confidence, candidate_orders_json, update_time')
+                ->order('update_time', 'desc')
+                ->order('id', 'desc')
+                ->select()
+                ->toArray();
+            foreach ($matchRows as $matchRow) {
+                $commentId = trim((string)($matchRow['comment_id'] ?? ''));
+                if ($commentId !== '' && !isset($matchesByCommentId[$commentId])) {
+                    $matchesByCommentId[$commentId] = $matchRow;
+                }
+            }
+        }
+
+        return array_map(function (array $reviewRow) use ($matchesByCommentId): array {
+            $commentId = trim((string)($reviewRow['comment_id'] ?? ''));
+            $match = $matchesByCommentId[$commentId] ?? [];
+            $status = (string)($match['match_status'] ?? 'unmatched');
+            $orderId = (string)($match['order_id'] ?? '');
+            $guestName = (string)($match['guest_name'] ?? '');
+            $candidateOrder = $this->firstPublicCtripReviewCandidateOrder(
+                $this->decodeCtripReviewMatchJson((string)($match['candidate_orders_json'] ?? '[]'))
+            );
+            $candidateCount = $this->publicCtripReviewCandidateCount((string)($match['candidate_orders_json'] ?? '[]'));
+
+            return [
+                'comment_id' => $commentId,
+                'source_username' => (string)($reviewRow['source_username'] ?? ''),
+                'avatar_url' => (string)($reviewRow['user_avatar_url'] ?? ''),
+                'review_date' => (string)($reviewRow['review_date'] ?? ''),
+                'checkin_date' => (string)($reviewRow['checkin_date'] ?? ''),
+                'room_name' => (string)($reviewRow['room_name'] ?? ''),
+                'score' => $reviewRow['score'] ?? null,
+                'content' => $this->shortCtripReviewMatchText((string)($reviewRow['content'] ?? ''), 180),
+                'status' => $status,
+                'status_text' => $this->publicCtripReviewMatchStatusText($status, $orderId, $guestName, $candidateCount),
+                'order_id' => $orderId,
+                'guest_name' => $guestName,
+                'candidate_count' => $candidateCount,
+                'candidate_order_id' => (string)($candidateOrder['order_id'] ?? ''),
+                'candidate_guest_name' => (string)($candidateOrder['guest_name'] ?? ''),
+                'candidate_arrival_date' => (string)($candidateOrder['arrival_date'] ?? ''),
+                'confidence' => (string)($match['confidence'] ?? 'none'),
+                'updated_at' => (string)($match['update_time'] ?? $reviewRow['update_time'] ?? ''),
+            ];
+        }, $reviewRows);
+    }
+
+    /**
+     * @param array<string, mixed> $review
+     * @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    private function buildCtripReviewOrderMatchPublicResult(array $review, array $result): array
+    {
+        $order = is_array($result['order'] ?? null) ? $result['order'] : [];
+        $identity = is_array($result['identity'] ?? null) ? $result['identity'] : [];
+        $status = (string)($result['status'] ?? 'unknown');
+        $orderId = (string)($order['order_id'] ?? '');
+        $guestName = (string)($identity['guest_name'] ?? $result['person_name'] ?? $order['guest_name'] ?? '');
+        $candidateOrder = $this->firstPublicCtripReviewCandidateOrder(
+            is_array($result['candidates'] ?? null) ? $result['candidates'] : []
+        );
+        $candidateCount = is_array($result['candidates'] ?? null) ? count($result['candidates']) : 0;
+
+        return [
+            'status' => $status,
+            'status_text' => $this->publicCtripReviewMatchStatusText($status, $orderId, $guestName, $candidateCount),
+            'found' => in_array($status, ['found', 'matched'], true) && $orderId !== '',
+            'scope' => 'ctrip_ota_channel',
+            'comment_id' => $this->extractCtripReviewCommentId($review),
+            'order_id' => $orderId,
+            'guest_name' => $guestName,
+            'confidence' => (string)($result['confidence'] ?? 'none'),
+            'candidate_count' => $candidateCount,
+            'candidate_order_id' => (string)($candidateOrder['order_id'] ?? ''),
+            'candidate_guest_name' => (string)($candidateOrder['guest_name'] ?? ''),
+            'candidate_arrival_date' => (string)($candidateOrder['arrival_date'] ?? ''),
+            'candidate_order' => $candidateOrder,
+            'review' => $this->buildCtripReviewMatchPublicReview($review),
+            'order' => $orderId !== '' ? [
+                'order_id' => $orderId,
+                'guest_name' => $guestName,
+                'arrival_date' => (string)($order['arrival_date'] ?? ''),
+                'departure_date' => (string)($order['departure_date'] ?? ''),
+                'room_name' => (string)($order['room_name'] ?? ''),
+            ] : null,
+            'identity' => $guestName !== '' ? ['guest_name' => $guestName] : null,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $review
+     * @return array<string, mixed>
+     */
+    private function buildCtripReviewMatchPublicReview(array $review): array
+    {
+        return [
+            'comment_id' => $this->extractCtripReviewCommentId($review),
+            'source_username' => $this->firstCtripReviewMatchText($review, ['userName', 'user_name', 'sourceUsername', 'source_username', 'username', 'nickName', 'nick_name', 'user_name_masked']),
+            'avatar_url' => $this->firstCtripReviewMatchText($review, ['userIcon', 'user_icon', 'userAvatarUrl', 'user_avatar_url', 'avatarUrl', 'avatar_url']),
+            'review_date' => $this->firstCtripReviewMatchText($review, ['reviewDate', 'review_date', 'addtime', 'addTime', 'publishTime', 'publish_time', 'commentTime', 'comment_time']),
+            'checkin_date' => $this->firstCtripReviewMatchText($review, ['checkinTimeStr', 'checkInDate', 'check_in_date', 'checkinDate', 'checkin_date', 'arrivalDate', 'arrival_date', 'stayDate', 'stay_date']),
+            'room_name' => $this->firstCtripReviewMatchText($review, ['hotelRoomInfo', 'hotel_room_info', 'roomName', 'room_name', 'roomType', 'room_type', 'room_type_name', 'productName', 'product_name']),
+            'score' => $review['avgScore'] ?? $review['score'] ?? null,
+            'content' => $this->shortCtripReviewMatchText($this->firstCtripReviewMatchText($review, ['content', 'commentContent', 'comment_content', 'reviewContent', 'review_content']), 180),
+        ];
+    }
+
+    private function publicCtripReviewMatchStatusText(string $status, string $orderId = '', string $guestName = '', int $candidateCount = 0): string
+    {
+        if (in_array($status, ['found', 'matched'], true) && $orderId !== '') {
+            return '已查到订单';
+        }
+        if ($status === 'person_locked' && $candidateCount > 0) {
+            return '候选订单待复核';
+        }
+        if ($status === 'person_locked' && $guestName !== '') {
+            return '已识别客人，待确认订单';
+        }
+        if ($status === 'out_of_coverage') {
+            return '超出当前订单缓存范围';
+        }
+        if ($status === 'needs_ops') {
+            return '缺少可匹配数据';
+        }
+        if ($status === 'unmatched') {
+            return '未查到订单';
+        }
+        return '待查询';
+    }
+
+    /**
+     * @param array<int, mixed> $candidates
+     * @return array<string, string>|null
+     */
+    private function firstPublicCtripReviewCandidateOrder(array $candidates): ?array
+    {
+        foreach ($candidates as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+            $orderId = trim((string)($candidate['order_id'] ?? $candidate['orderId'] ?? $candidate['orderNo'] ?? $candidate['order_no'] ?? ''));
+            if ($orderId === '') {
+                continue;
+            }
+            return [
+                'order_id' => $orderId,
+                'guest_name' => (string)($candidate['guest_name'] ?? $candidate['guestName'] ?? ''),
+                'arrival_date' => $this->normalizeCtripReviewMatchDate($candidate['arrival_date'] ?? $candidate['arrivalDate'] ?? ''),
+                'departure_date' => $this->normalizeCtripReviewMatchDate($candidate['departure_date'] ?? $candidate['departureDate'] ?? ''),
+                'room_name' => (string)($candidate['room_name'] ?? $candidate['roomName'] ?? ''),
+            ];
+        }
+
+        return null;
+    }
+
+    private function publicCtripReviewCandidateCount(string $candidateJson): int
+    {
+        $candidates = $this->decodeCtripReviewMatchJson($candidateJson);
+        return is_array($candidates) ? count(array_filter($candidates, 'is_array')) : 0;
+    }
+
+    private function shortCtripReviewMatchText(string $text, int $limit): string
+    {
+        $text = trim(preg_replace('/\s+/u', ' ', $text) ?? '');
+        if ($text === '' || $limit <= 0) {
+            return '';
+        }
+        if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+            return mb_strlen($text, 'UTF-8') > $limit
+                ? mb_substr($text, 0, $limit, 'UTF-8') . '...'
+                : $text;
+        }
+        return strlen($text) > $limit ? substr($text, 0, $limit) . '...' : $text;
     }
 
     /**
@@ -676,6 +1007,144 @@ trait CtripReviewOrderMatchConcern
         }
 
         return $summary;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function emptyCtripReviewMatchAutoCaptureSummary(): array
+    {
+        return [
+            'status' => 'not_attempted',
+            'message' => '',
+            'output' => '',
+            'profile_id' => '',
+            'payloads_scanned' => 0,
+            'reviews_detected' => 0,
+            'im_sessions_detected' => 0,
+            'orders_detected' => 0,
+            'reviews_upserted' => 0,
+            'im_sessions_upserted' => 0,
+            'orders_upserted' => 0,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function shouldAutoCaptureCtripReviewMatchReviews(array $data): bool
+    {
+        $value = $data['auto_capture'] ?? $data['autoCapture'] ?? true;
+        if (is_bool($value)) {
+            return $value;
+        }
+        return !in_array(strtolower(trim((string)$value)), ['0', 'false', 'no', 'off', 'disabled'], true);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function captureCtripReviewMatchReviewsFromAuthorizedProfile(int $systemHotelId, array $data): array
+    {
+        $summary = $this->emptyCtripReviewMatchAutoCaptureSummary();
+        $summary['status'] = 'attempted';
+
+        $projectRoot = dirname(__DIR__, 3);
+        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_comment_browser_capture.mjs';
+        if (!is_file($scriptPath)) {
+            return array_merge($summary, [
+                'status' => 'failed',
+                'message' => '未找到携程评价授权 Profile 采集脚本',
+            ]);
+        }
+
+        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
+        if ($nodeBinary === '') {
+            return array_merge($summary, [
+                'status' => 'failed',
+                'message' => '未找到 Node.js，无法启动携程评价授权 Profile 采集',
+            ]);
+        }
+
+        $hotelId = BrowserProfileCaptureRequestService::resolveCtripHotelId($data);
+        $profileId = BrowserProfileCaptureRequestService::resolveCtripProfileId($data, $systemHotelId, $hotelId);
+        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_review_match';
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
+            return array_merge($summary, [
+                'status' => 'failed',
+                'message' => '无法创建携程评价匹配采集输出目录',
+                'profile_id' => $profileId,
+            ]);
+        }
+
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_review_match_comments_'
+            . BrowserProfileCaptureRequestService::safeFilePart($profileId)
+            . '_' . date('YmdHis') . '.json';
+        $timeoutSeconds = max(45, min(180, (int)($data['auto_capture_timeout_seconds'] ?? $data['autoCaptureTimeoutSeconds'] ?? 180)));
+        $loginTimeoutMs = max(30000, min(120000, (int)($data['login_timeout_ms'] ?? $data['loginTimeoutMs'] ?? 45000)));
+        $args = [
+            $nodeBinary,
+            $scriptPath,
+            '--profile-id=' . $profileId,
+            '--system-hotel-id=' . (string)$systemHotelId,
+            '--output=' . $outputPath,
+            '--report-dir=' . $outputDir,
+            '--login-timeout-ms=' . (string)$loginTimeoutMs,
+            '--headless=true',
+        ];
+        if ($hotelId !== '') {
+            $args[] = '--hotel-id=' . $hotelId;
+        }
+
+        $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $timeoutSeconds);
+        if (!$runResult['success']) {
+            return array_merge($summary, [
+                'status' => 'failed',
+                'message' => str_replace('美团', '携程', (string)($runResult['message'] ?? '携程评价授权 Profile 采集失败')),
+                'output' => $outputPath,
+                'profile_id' => $profileId,
+            ]);
+        }
+        if (!is_file($outputPath)) {
+            return array_merge($summary, [
+                'status' => 'failed',
+                'message' => '携程评价授权 Profile 采集未生成结果文件',
+                'output' => $outputPath,
+                'profile_id' => $profileId,
+            ]);
+        }
+
+        $payload = json_decode((string)file_get_contents($outputPath), true);
+        if (!is_array($payload)) {
+            return array_merge($summary, [
+                'status' => 'failed',
+                'message' => '携程评价授权 Profile 采集结果不是有效 JSON',
+                'output' => $outputPath,
+                'profile_id' => $profileId,
+            ]);
+        }
+
+        $payload['system_hotel_id'] = $payload['system_hotel_id'] ?? $systemHotelId;
+        $imported = $this->importCtripReviewMatchPayload($systemHotelId, $payload);
+        $reviewsDetected = count($this->extractCtripCapturedComments($payload));
+        $imSessionsDetected = count($this->extractCtripReviewMatchImSessionsFromPayload($payload));
+        $ordersDetected = count($this->extractCtripReviewMatchOrdersFromPayload($payload));
+        $detectedTotal = $reviewsDetected + $imSessionsDetected + $ordersDetected;
+
+        return array_merge($summary, [
+            'status' => $detectedTotal > 0 ? 'success' : 'empty',
+            'message' => $reviewsDetected > 0 ? '已读取授权评价数据' : '授权 Profile 已运行，但未读取到评价明细',
+            'output' => $outputPath,
+            'profile_id' => $profileId,
+            'payloads_scanned' => 1,
+            'reviews_detected' => $reviewsDetected,
+            'im_sessions_detected' => $imSessionsDetected,
+            'orders_detected' => $ordersDetected,
+            'reviews_upserted' => (int)($imported['reviews_upserted'] ?? 0),
+            'im_sessions_upserted' => (int)($imported['im_sessions_upserted'] ?? 0),
+            'orders_upserted' => (int)($imported['orders_upserted'] ?? 0),
+        ]);
     }
 
     /**
@@ -777,11 +1246,11 @@ trait CtripReviewOrderMatchConcern
                 }
                 if (
                     $this->firstCtripReviewMatchText($order, ['guestUid', 'guest_uid', 'ctrip_guest_uid', 'memberUid', 'member_uid', 'uid']) !== ''
-                    || $this->firstCtripReviewMatchText($order, ['guestName', 'guest_name', 'customerName', 'customer_name', 'contactName', 'contact_name']) !== ''
+                    || $this->firstCtripReviewMatchText($order, ['guestName', 'guest_name', 'customerName', 'customer_name', 'contactName', 'contact_name', 'clientName', 'client_name']) !== ''
                 ) {
                     $summary['orders_with_guest_identity']++;
                 }
-                $arrivalDate = $this->normalizeCtripReviewMatchDate($this->firstCtripReviewMatchText($order, ['arrivalDate', 'arrival_date', 'checkInDate', 'check_in_date', 'checkIn', 'check_in', 'checkinTime', 'checkin_time', 'checkInTime', 'check_in_time', 'stayDate', 'stay_date']));
+                $arrivalDate = $this->normalizeCtripReviewMatchDate($this->firstCtripReviewMatchText($order, ['arrivalDate', 'arrival_date', 'arrival', 'checkInDate', 'check_in_date', 'checkIn', 'check_in', 'checkinTime', 'checkin_time', 'checkInTime', 'check_in_time', 'stayDate', 'stay_date']));
                 if ($arrivalDate !== '') {
                     $summary['orders_with_arrival_date']++;
                 }
@@ -952,6 +1421,9 @@ trait CtripReviewOrderMatchConcern
             if ($this->upsertCtripReviewMatchImSession($systemHotelId, $session) > 0) {
                 $summary['im_sessions_upserted']++;
             }
+            if ($this->upsertCtripReviewMatchOrderFromImSession($systemHotelId, $session) > 0) {
+                $summary['orders_upserted']++;
+            }
         }
 
         foreach ($this->extractCtripReviewMatchOrdersFromPayload($payload) as $order) {
@@ -1063,6 +1535,20 @@ trait CtripReviewOrderMatchConcern
             'comment_list',
             'responses',
             'items',
+            'screenshots',
+            'pages',
+            'xhr_urls',
+            'unmatched_xhr_urls',
+            'endpoint_candidates',
+            'capture_audit',
+            'capture_gate',
+            'capture_gap_report',
+            'catalog',
+            'catalog_facts',
+            'standard_rows',
+            'raw_payload',
+            'payload_counts',
+            'payload_keys',
         ];
 
         return !in_array(strtolower($key), $blockedKeys, true);
@@ -1091,13 +1577,12 @@ trait CtripReviewOrderMatchConcern
      */
     private function looksLikeCtripReviewMatchMember(array $member): bool
     {
-        foreach (['uid', 'nickName', 'nickname', 'nick_name', 'name', 'roleType', 'role_type', 'pic', 'avatar', 'avatarUrl', 'avatar_url'] as $field) {
-            if (isset($member[$field]) && trim((string)$member[$field]) !== '') {
-                return true;
-            }
-        }
+        $hasUid = $this->firstCtripReviewMatchText($member, ['uid', 'guestUid', 'guest_uid', 'userId', 'user_id', 'memberUid', 'member_uid']) !== '';
+        $hasName = $this->firstCtripReviewMatchText($member, ['nickName', 'nickname', 'nick_name', 'name', 'guestName', 'guest_name']) !== '';
+        $hasRole = $this->firstCtripReviewMatchText($member, ['roleType', 'role_type', 'role', 'userType', 'user_type']) !== '';
+        $hasAvatar = $this->firstCtripReviewMatchText($member, ['pic', 'avatar', 'avatarUrl', 'avatar_url']) !== '';
 
-        return false;
+        return $hasUid || ($hasName && ($hasRole || $hasAvatar));
     }
 
     /**
@@ -1140,8 +1625,8 @@ trait CtripReviewOrderMatchConcern
     private function looksLikeCtripReviewMatchOrder(array $order): bool
     {
         return $this->firstCtripReviewMatchText($order, ['guestUid', 'guest_uid', 'ctrip_guest_uid', 'memberUid', 'member_uid', 'uid']) !== ''
-            || $this->firstCtripReviewMatchText($order, ['guestName', 'guest_name', 'customerName', 'customer_name', 'contactName', 'contact_name']) !== ''
-            || $this->firstCtripReviewMatchText($order, ['arrivalDate', 'arrival_date', 'checkInDate', 'check_in_date', 'checkIn', 'check_in', 'checkinTime', 'checkin_time', 'checkInTime', 'check_in_time', 'stayDate', 'stay_date']) !== ''
+            || $this->firstCtripReviewMatchText($order, ['guestName', 'guest_name', 'customerName', 'customer_name', 'contactName', 'contact_name', 'clientName', 'client_name']) !== ''
+            || $this->firstCtripReviewMatchText($order, ['arrivalDate', 'arrival_date', 'arrival', 'checkInDate', 'check_in_date', 'checkIn', 'check_in', 'checkinTime', 'checkin_time', 'checkInTime', 'check_in_time', 'stayDate', 'stay_date']) !== ''
             || $this->firstCtripReviewMatchText($order, ['roomName', 'room_name', 'roomType', 'room_type', 'room_type_name', 'productName', 'product_name', 'ratePlanName', 'rate_plan_name']) !== '';
     }
 
@@ -1227,12 +1712,37 @@ trait CtripReviewOrderMatchConcern
             ->where('group_id', $groupId)
             ->find();
         if ($existing) {
+            $row = $this->mergeCtripReviewMatchImSessionRow($row, $existing);
             Db::name('ota_ctrip_im_sessions')->where('id', (int)$existing['id'])->update($row);
             return (int)$existing['id'];
         }
 
         $row['create_time'] = date('Y-m-d H:i:s');
         return (int)Db::name('ota_ctrip_im_sessions')->insertGetId($row);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $existing
+     * @return array<string, mixed>
+     */
+    private function mergeCtripReviewMatchImSessionRow(array $row, array $existing): array
+    {
+        foreach (['session_id', 'guest_uid', 'guest_name', 'guest_avatar_url', 'room_name', 'room_name_prefix', 'order_id'] as $field) {
+            if (($row[$field] ?? '') === '' && trim((string)($existing[$field] ?? '')) !== '') {
+                $row[$field] = $existing[$field];
+            }
+        }
+        foreach (['arrival_date', 'departure_date', 'fetched_at'] as $field) {
+            if (($row[$field] ?? null) === null && !empty($existing[$field])) {
+                $row[$field] = $existing[$field];
+            }
+        }
+        $row['match_status'] = trim((string)($row['guest_name'] ?? '')) !== ''
+            ? (!empty($row['arrival_date']) ? 'usable' : 'degraded_missing_arrival_date')
+            : 'unusable_no_guest_member';
+
+        return $row;
     }
 
     /**
@@ -1250,12 +1760,12 @@ trait CtripReviewOrderMatchConcern
             'system_hotel_id' => $systemHotelId,
             'order_id' => $orderId,
             'guest_uid' => $this->firstCtripReviewMatchText($order, ['guestUid', 'guest_uid', 'ctrip_guest_uid', 'memberUid', 'member_uid', 'uid']),
-            'guest_name' => $this->firstCtripReviewMatchText($order, ['guestName', 'guest_name', 'customerName', 'customer_name', 'contactName', 'contact_name']),
-            'arrival_date' => $this->nullableCtripReviewMatchDate($this->firstCtripReviewMatchText($order, ['arrivalDate', 'arrival_date', 'checkInDate', 'check_in_date', 'checkIn', 'check_in', 'checkinTime', 'checkin_time', 'checkInTime', 'check_in_time', 'stayDate', 'stay_date'])),
-            'departure_date' => $this->nullableCtripReviewMatchDate($this->firstCtripReviewMatchText($order, ['departureDate', 'departure_date', 'checkOutDate', 'check_out_date', 'checkOut', 'check_out', 'checkoutTime', 'checkout_time', 'checkOutTime', 'check_out_time'])),
+            'guest_name' => $this->firstCtripReviewMatchText($order, ['guestName', 'guest_name', 'customerName', 'customer_name', 'contactName', 'contact_name', 'clientName', 'client_name']),
+            'arrival_date' => $this->nullableCtripReviewMatchDate($this->firstCtripReviewMatchText($order, ['arrivalDate', 'arrival_date', 'arrival', 'checkInDate', 'check_in_date', 'checkIn', 'check_in', 'checkinTime', 'checkin_time', 'checkInTime', 'check_in_time', 'stayDate', 'stay_date'])),
+            'departure_date' => $this->nullableCtripReviewMatchDate($this->firstCtripReviewMatchText($order, ['departureDate', 'departure_date', 'departure', 'checkOutDate', 'check_out_date', 'checkOut', 'check_out', 'checkoutTime', 'checkout_time', 'checkOutTime', 'check_out_time'])),
             'room_name' => $roomName,
             'room_name_prefix' => $this->roomPrefix($roomName),
-            'order_status' => $this->firstCtripReviewMatchText($order, ['orderStatus', 'order_status', 'orderState', 'order_state', 'status']),
+            'order_status' => $this->firstCtripReviewMatchText($order, ['orderStatus', 'order_status', 'orderStatusDesc', 'order_status_desc', 'orderState', 'order_state', 'status']),
             'source_platform' => 'ctrip',
             'raw_order_json' => $this->encodeCtripReviewMatchJson($order),
             'update_time' => date('Y-m-d H:i:s'),
@@ -1266,12 +1776,96 @@ trait CtripReviewOrderMatchConcern
             ->where('order_id', $orderId)
             ->find();
         if ($existing) {
+            $row = $this->mergeCtripReviewMatchOrderRow($row, $existing);
             Db::name('ota_ctrip_orders')->where('id', (int)$existing['id'])->update($row);
             return (int)$existing['id'];
         }
 
         $row['create_time'] = date('Y-m-d H:i:s');
         return (int)Db::name('ota_ctrip_orders')->insertGetId($row);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $existing
+     * @return array<string, mixed>
+     */
+    private function mergeCtripReviewMatchOrderRow(array $row, array $existing): array
+    {
+        foreach (['guest_uid', 'guest_name', 'room_name', 'room_name_prefix', 'order_status', 'source_platform'] as $field) {
+            if (($row[$field] ?? '') === '' && trim((string)($existing[$field] ?? '')) !== '') {
+                $row[$field] = $existing[$field];
+            }
+        }
+        foreach (['arrival_date', 'departure_date'] as $field) {
+            if (($row[$field] ?? null) === null && !empty($existing[$field])) {
+                $row[$field] = $existing[$field];
+            }
+        }
+        if (($row['raw_order_json'] ?? '') === '' && trim((string)($existing['raw_order_json'] ?? '')) !== '') {
+            $row['raw_order_json'] = $existing['raw_order_json'];
+        }
+
+        return $row;
+    }
+
+    /**
+     * @param array<string, mixed> $session
+     */
+    private function upsertCtripReviewMatchOrderFromImSession(int $systemHotelId, array $session): int
+    {
+        $orderId = $this->firstCtripReviewMatchText($session, ['orderId', 'order_id', 'orderNo', 'order_no', 'orderSn', 'order_sn', 'platform_order_id', 'bookingOrderId', 'booking_order_id', 'reservationOrderId', 'reservation_order_id']);
+        if ($orderId === '') {
+            return 0;
+        }
+
+        $members = $session['members'] ?? [];
+        $service = new CtripReviewOrderMatchService();
+        $memberIndex = is_array($members) ? $service->buildMemberIndex([['members' => $members]]) : [];
+        $guest = $memberIndex === [] ? [] : (array)reset($memberIndex);
+        $roomName = $this->firstCtripReviewMatchText($session, ['roomName', 'room_name', 'roomNamePrefix', 'room_name_prefix', 'roomType', 'room_type', 'room_type_name', 'productName', 'product_name', 'ratePlanName', 'rate_plan_name']);
+
+        return $this->upsertCtripReviewMatchOrder($systemHotelId, [
+            'orderId' => $orderId,
+            'guestUid' => $this->firstCtripReviewMatchText($session, ['guestUid', 'guest_uid', 'ctrip_guest_uid', 'memberUid', 'member_uid', 'uid']) ?: (string)($guest['uid'] ?? ''),
+            'guestName' => $this->firstCtripReviewMatchText($session, ['guestName', 'guest_name', 'customerName', 'customer_name', 'contactName', 'contact_name', 'clientName', 'client_name']) ?: (string)($guest['nick_name'] ?? ''),
+            'arrivalDate' => $this->firstCtripReviewMatchText($session, ['arrivalDate', 'arrival_date', 'arrival', 'checkInDate', 'check_in_date', 'checkIn', 'check_in', 'checkinTime', 'checkin_time', 'checkInTime', 'check_in_time', 'checkDate', 'check_date', 'stayDate', 'stay_date']),
+            'departureDate' => $this->firstCtripReviewMatchText($session, ['departureDate', 'departure_date', 'departure', 'checkOutDate', 'check_out_date', 'checkOut', 'check_out', 'checkoutTime', 'checkout_time', 'checkOutTime', 'check_out_time']),
+            'roomName' => $roomName,
+            'orderStatus' => $this->firstCtripReviewMatchText($session, ['orderStatus', 'order_status', 'orderStatusDesc', 'order_status_desc', 'orderState', 'order_state', 'status']),
+            '_source' => 'ctrip_im_session_cache',
+            '_session' => $session,
+        ]);
+    }
+
+    private function syncCtripReviewOrdersFromImSessionCache(int $systemHotelId): int
+    {
+        $rows = Db::name('ota_ctrip_im_sessions')
+            ->where('system_hotel_id', $systemHotelId)
+            ->where('order_id', '<>', '')
+            ->select()
+            ->toArray();
+
+        $count = 0;
+        foreach ($rows as $row) {
+            $members = $this->decodeCtripReviewMatchJson((string)($row['members_json'] ?? '[]'));
+            $session = [
+                'groupId' => (string)($row['group_id'] ?? ''),
+                'sessionId' => (string)($row['session_id'] ?? ''),
+                'orderId' => (string)($row['order_id'] ?? ''),
+                'guestUid' => (string)($row['guest_uid'] ?? ''),
+                'guestName' => (string)($row['guest_name'] ?? ''),
+                'arrivalDate' => (string)($row['arrival_date'] ?? ''),
+                'departureDate' => (string)($row['departure_date'] ?? ''),
+                'roomName' => (string)($row['room_name'] ?? ''),
+                'members' => $members,
+            ];
+            if ($this->upsertCtripReviewMatchOrderFromImSession($systemHotelId, $session) > 0) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     /**
@@ -1345,6 +1939,8 @@ trait CtripReviewOrderMatchConcern
             'userName' => (string)$row['source_username'],
             'userIcon' => (string)$row['user_avatar_url'],
             'checkinTimeStr' => (string)($row['checkin_date'] ?? ''),
+            'reviewDate' => (string)($row['review_date'] ?? ''),
+            'addtime' => (string)($row['review_date'] ?? ''),
             'hotelRoomInfo' => (string)$row['room_name'],
             'avgScore' => $row['score'] ?? null,
             'content' => (string)$row['content'],
@@ -1364,12 +1960,17 @@ trait CtripReviewOrderMatchConcern
             ->select()
             ->toArray();
 
-        return array_map(static function (array $row): array {
+        return array_map(function (array $row): array {
+            $rawReview = $this->decodeCtripReviewMatchJson((string)($row['raw_review_json'] ?? '{}'));
+            $rawCheckinTime = $this->firstCtripReviewMatchText($rawReview, ['checkinTimeStr', 'checkInDate', 'check_in_date', 'checkinDate', 'arrivalDate', 'arrival_date', 'stayDate', 'stay_date']);
+            $rawPublishTime = $this->firstCtripReviewMatchText($rawReview, ['publishTime', 'publish_time', 'publishedAt', 'published_at', 'addtime', 'addTime', 'commentTime', 'comment_time', 'reviewTime', 'review_time', 'createTime', 'create_time', 'submitTime', 'submit_time', 'date']);
+
             return [
                 'commentId' => (string)$row['comment_id'],
                 'userName' => (string)$row['source_username'],
                 'userIcon' => (string)$row['user_avatar_url'],
-                'checkinTimeStr' => (string)($row['checkin_date'] ?? ''),
+                'checkinTimeStr' => $rawCheckinTime !== '' ? $rawCheckinTime : (string)($row['checkin_date'] ?? ''),
+                'addtime' => $rawPublishTime !== '' ? $rawPublishTime : (string)($row['review_date'] ?? ''),
                 'hotelRoomInfo' => (string)$row['room_name'],
                 'avgScore' => $row['score'] ?? null,
                 'content' => (string)$row['content'],
@@ -1387,15 +1988,23 @@ trait CtripReviewOrderMatchConcern
             ->select()
             ->toArray();
 
-        return array_map(function (array $row): array {
-            return [
+        $sessions = [];
+        foreach ($rows as $row) {
+            $groupId = (string)$row['group_id'];
+            $members = $this->decodeCtripReviewMatchJson((string)$row['members_json']);
+            if (!$this->looksLikeCtripReviewMatchGroupKey($groupId) || !is_array($members) || !$this->looksLikeCtripReviewMatchMemberList($members)) {
+                continue;
+            }
+            $sessions[] = [
                 'groupId' => (string)$row['group_id'],
                 'sessionId' => (string)$row['session_id'],
                 'arrivalDate' => (string)($row['arrival_date'] ?? ''),
                 'roomName' => (string)$row['room_name'],
-                'members' => $this->decodeCtripReviewMatchJson((string)$row['members_json']),
+                'members' => $members,
             ];
-        }, $rows);
+        }
+
+        return $sessions;
     }
 
     /**
@@ -1432,6 +2041,234 @@ trait CtripReviewOrderMatchConcern
             ->value('arrival_date');
 
         return $date ? $this->normalizeCtripReviewMatchDate($date) : '';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $reviews
+     * @return array{resolved_count:int, assignments:array<int, array<string, string>>}
+     */
+    private function resolveCtripReviewMultiReviewOrderAssignments(int $systemHotelId, array $reviews, string $source): array
+    {
+        $commentIds = [];
+        foreach ($reviews as $review) {
+            $commentId = $this->extractCtripReviewCommentId($review);
+            if ($commentId !== '') {
+                $commentIds[] = $commentId;
+            }
+        }
+        $commentIds = array_values(array_unique($commentIds));
+        if ($commentIds === []) {
+            return ['resolved_count' => 0, 'assignments' => []];
+        }
+
+        $rows = Db::name('ota_ctrip_review_order_matches')->alias('m')
+            ->leftJoin('ota_ctrip_reviews r', 'r.system_hotel_id = m.system_hotel_id AND r.comment_id = m.comment_id')
+            ->where('m.system_hotel_id', $systemHotelId)
+            ->whereIn('m.comment_id', $commentIds)
+            ->where('m.match_status', 'person_locked')
+            ->field('m.id,m.comment_id,m.guest_uid,m.guest_name,m.candidate_orders_json,m.evidence_json,r.source_username,r.review_date,r.checkin_date,r.room_name')
+            ->select()
+            ->toArray();
+
+        $groups = [];
+        foreach ($rows as $row) {
+            $candidateOrders = $this->normalizeCtripReviewCandidateOrders(
+                $this->decodeCtripReviewMatchJson((string)($row['candidate_orders_json'] ?? '[]'))
+            );
+            if (count($candidateOrders) < 2) {
+                continue;
+            }
+            $candidateKey = implode('|', array_keys($candidateOrders));
+            $groupKey = md5(implode('|', [
+                trim((string)($row['source_username'] ?? '')),
+                trim((string)($row['guest_name'] ?? '')),
+                $candidateKey,
+                $this->roomPrefix((string)($row['room_name'] ?? '')),
+            ]));
+            if (!isset($groups[$groupKey])) {
+                $groups[$groupKey] = [
+                    'candidate_orders' => $candidateOrders,
+                    'rows' => [],
+                ];
+            }
+            $row['_match_date'] = $this->normalizeCtripReviewMatchDate($row['checkin_date'] ?? '') ?: $this->normalizeCtripReviewMatchDate($row['review_date'] ?? '');
+            $groups[$groupKey]['rows'][] = $row;
+        }
+
+        $assignments = [];
+        foreach ($groups as $group) {
+            $groupRows = $group['rows'];
+            $candidateOrders = $group['candidate_orders'];
+            if (count($groupRows) < 2 || count($groupRows) !== count($candidateOrders)) {
+                continue;
+            }
+            usort($groupRows, static function (array $left, array $right): int {
+                return strcmp((string)($left['_match_date'] ?? ''), (string)($right['_match_date'] ?? ''))
+                    ?: strcmp((string)($left['comment_id'] ?? ''), (string)($right['comment_id'] ?? ''));
+            });
+            $candidateList = array_values($candidateOrders);
+            usort($candidateList, static function (array $left, array $right): int {
+                return strcmp((string)($left['arrival_date'] ?? ''), (string)($right['arrival_date'] ?? ''))
+                    ?: strcmp((string)($left['order_id'] ?? ''), (string)($right['order_id'] ?? ''));
+            });
+
+            $pairs = [];
+            foreach ($groupRows as $index => $row) {
+                $candidate = $candidateList[$index] ?? null;
+                if (!is_array($candidate)) {
+                    $pairs = [];
+                    break;
+                }
+                $reviewDate = (string)($row['_match_date'] ?? '');
+                $arrivalDate = (string)($candidate['arrival_date'] ?? '');
+                if (!$this->isCtripReviewOrderSequenceDateCompatible($reviewDate, $arrivalDate)) {
+                    $pairs = [];
+                    break;
+                }
+                $pairs[] = [$row, $candidate, $index + 1];
+            }
+            if ($pairs === []) {
+                continue;
+            }
+
+            foreach ($pairs as [$row, $candidate, $sequenceIndex]) {
+                $evidence = $this->decodeCtripReviewMatchJson((string)($row['evidence_json'] ?? '{}'));
+                $assignment = [
+                    'comment_id' => (string)$row['comment_id'],
+                    'order_id' => (string)$candidate['order_id'],
+                    'guest_name' => (string)($candidate['guest_name'] ?: $row['guest_name']),
+                    'match_status' => 'found',
+                    'match_method' => 'im_uid_multi_review_order_sequence',
+                ];
+                Db::name('ota_ctrip_review_order_matches')
+                    ->where('id', (int)$row['id'])
+                    ->update([
+                        'order_id' => $assignment['order_id'],
+                        'guest_uid' => (string)($row['guest_uid'] ?? $candidate['guest_uid'] ?? ''),
+                        'guest_name' => $assignment['guest_name'],
+                        'match_status' => 'found',
+                        'match_method' => $assignment['match_method'],
+                        'confidence' => 'medium',
+                        'candidate_orders_json' => $this->encodeCtripReviewMatchJson([]),
+                        'evidence_json' => $this->encodeCtripReviewMatchJson([
+                            'source' => $source,
+                            'scope' => 'ctrip_ota_channel',
+                            'assignment' => [
+                                'sequence_index' => $sequenceIndex,
+                                'review_date' => (string)($row['_match_date'] ?? ''),
+                                'arrival_date' => (string)($candidate['arrival_date'] ?? ''),
+                                'candidate_order_count' => count($candidateOrders),
+                                'rule' => 'same_person_same_candidate_orders_date_sequence',
+                            ],
+                            'previous_evidence' => $evidence,
+                        ]),
+                        'update_time' => date('Y-m-d H:i:s'),
+                    ]);
+                $assignments[] = $assignment;
+            }
+        }
+
+        return [
+            'resolved_count' => count($assignments),
+            'assignments' => $assignments,
+        ];
+    }
+
+    /**
+     * @param array<int, mixed> $candidates
+     * @return array<string, array<string, string>>
+     */
+    private function normalizeCtripReviewCandidateOrders(array $candidates): array
+    {
+        $orders = [];
+        foreach ($candidates as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+            $orderId = trim((string)($candidate['order_id'] ?? $candidate['orderId'] ?? $candidate['orderNo'] ?? $candidate['order_no'] ?? ''));
+            if ($orderId === '') {
+                continue;
+            }
+            $orders[$orderId] = [
+                'order_id' => $orderId,
+                'guest_uid' => (string)($candidate['guest_uid'] ?? $candidate['guestUid'] ?? ''),
+                'guest_name' => (string)($candidate['guest_name'] ?? $candidate['guestName'] ?? ''),
+                'arrival_date' => $this->normalizeCtripReviewMatchDate($candidate['arrival_date'] ?? $candidate['arrivalDate'] ?? ''),
+                'room_name' => (string)($candidate['room_name'] ?? $candidate['roomName'] ?? ''),
+            ];
+        }
+        ksort($orders);
+        return $orders;
+    }
+
+    private function isCtripReviewOrderSequenceDateCompatible(string $reviewDate, string $arrivalDate): bool
+    {
+        $reviewDate = $this->normalizeCtripReviewMatchDate($reviewDate);
+        $arrivalDate = $this->normalizeCtripReviewMatchDate($arrivalDate);
+        if ($reviewDate === '' || $arrivalDate === '') {
+            return false;
+        }
+        if (substr($reviewDate, 0, 7) === substr($arrivalDate, 0, 7)) {
+            return true;
+        }
+        $reviewTime = strtotime($reviewDate);
+        $arrivalTime = strtotime($arrivalDate);
+        if ($reviewTime === false || $arrivalTime === false) {
+            return false;
+        }
+        return abs($reviewTime - $arrivalTime) <= 31 * 86400;
+    }
+
+    /**
+     * @param array<string, int> $statusCounts
+     * @param array<string, mixed> $resolution
+     * @return array<string, int>
+     */
+    private function applyCtripReviewMultiReviewResolutionToStatusCounts(array $statusCounts, array $resolution): array
+    {
+        $resolvedCount = max(0, (int)($resolution['resolved_count'] ?? 0));
+        if ($resolvedCount === 0) {
+            return $statusCounts;
+        }
+        $statusCounts['person_locked'] = max(0, (int)($statusCounts['person_locked'] ?? 0) - $resolvedCount);
+        $statusCounts['found'] = (int)($statusCounts['found'] ?? 0) + $resolvedCount;
+        return array_filter($statusCounts, static fn(int $count): bool => $count > 0);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $samples
+     * @param array<string, mixed> $resolution
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyCtripReviewMultiReviewResolutionToSamples(array $samples, array $resolution): array
+    {
+        $assignments = [];
+        foreach (($resolution['assignments'] ?? []) as $assignment) {
+            if (!is_array($assignment) || (string)($assignment['comment_id'] ?? '') === '') {
+                continue;
+            }
+            $assignments[(string)$assignment['comment_id']] = $assignment;
+        }
+        if ($assignments === []) {
+            return $samples;
+        }
+        foreach ($samples as &$sample) {
+            $commentId = (string)($sample['comment_id'] ?? '');
+            if (!isset($assignments[$commentId])) {
+                continue;
+            }
+            $sample['status'] = 'found';
+            $sample['status_text'] = $this->publicCtripReviewMatchStatusText('found', (string)($assignments[$commentId]['order_id'] ?? ''), (string)($assignments[$commentId]['guest_name'] ?? ''));
+            $sample['order_id'] = (string)($assignments[$commentId]['order_id'] ?? '');
+            $sample['guest_name'] = (string)($assignments[$commentId]['guest_name'] ?? $sample['guest_name'] ?? '');
+            $sample['candidate_count'] = 0;
+            $sample['candidate_order_id'] = '';
+            $sample['candidate_guest_name'] = '';
+            $sample['candidate_arrival_date'] = '';
+            $sample['reason'] = '';
+        }
+        unset($sample);
+        return $samples;
     }
 
     /**
@@ -1572,11 +2409,36 @@ trait CtripReviewOrderMatchConcern
         if (preg_match('/^20\d{2}$/', $text)) {
             return '';
         }
+        if ($this->normalizeCtripReviewMatchYearMonth($text) !== '') {
+            return '';
+        }
+        if (preg_match('/\/Date\((\d{10,13})(?:[+-]\d{4})?\)\//', $text, $matches)) {
+            $timestamp = (int)$matches[1];
+            if ($timestamp > 9999999999) {
+                $timestamp = (int)floor($timestamp / 1000);
+            }
+            return date('Y-m-d', $timestamp);
+        }
         if (preg_match('/(20\d{2})[-\/.年](\d{1,2})[-\/.月](\d{1,2})/u', $text, $matches)) {
             return sprintf('%04d-%02d-%02d', (int)$matches[1], (int)$matches[2], (int)$matches[3]);
         }
         $timestamp = strtotime($text);
         return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+    }
+
+    private function normalizeCtripReviewMatchYearMonth($value): string
+    {
+        $text = trim((string)$value);
+        if ($text === '') {
+            return '';
+        }
+        if (preg_match('/^(20\d{2})[-\/.](\d{1,2})$/', $text, $matches)) {
+            return sprintf('%04d-%02d', (int)$matches[1], (int)$matches[2]);
+        }
+        if (preg_match('/^(20\d{2})\s*年\s*(\d{1,2})\s*月\s*$/u', $text, $matches)) {
+            return sprintf('%04d-%02d', (int)$matches[1], (int)$matches[2]);
+        }
+        return '';
     }
 
     private function roomPrefix(string $roomName): string

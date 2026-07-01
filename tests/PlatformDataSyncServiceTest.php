@@ -112,7 +112,7 @@ final class PlatformDataSyncServiceTest extends TestCase
 
         $resources = array_column($service->collectionResourceDefinitions(), null, 'resource');
 
-        foreach (['businessData', 'peerRank', 'flowData', 'trafficForecast', 'flowAnalysis', 'searchKeywords', 'reviewData', 'roomTypes'] as $resource) {
+        foreach (['businessData', 'peerRank', 'flowData', 'trafficForecast', 'flowAnalysis', 'searchKeywords', 'reviewData', 'roomTypes', 'platformIdentity'] as $resource) {
             self::assertArrayHasKey($resource, $resources);
             self::assertNotEmpty($resources[$resource]['fields']);
             self::assertNotEmpty($resources[$resource]['aliases']);
@@ -126,11 +126,15 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('search_keyword', $resources['searchKeywords']['data_type']);
         self::assertSame('review', $resources['reviewData']['data_type']);
         self::assertSame('room_type', $resources['roomTypes']['data_type']);
+        self::assertSame('platform_identity', $resources['platformIdentity']['data_type']);
         self::assertFalse($resources['trafficForecast']['default_enabled']);
         self::assertFalse($resources['flowAnalysis']['default_enabled']);
         self::assertFalse($resources['reviewData']['default_enabled']);
+        self::assertFalse($resources['platformIdentity']['default_enabled']);
         self::assertTrue($resources['reviewData']['requires_explicit_authorization']);
+        self::assertTrue($resources['platformIdentity']['requires_explicit_authorization']);
         self::assertSame('room_type_catalog_only_no_room_status_or_mapping', $resources['roomTypes']['privacy_boundary']);
+        self::assertSame('platform_identifier_only_no_cookie_no_token', $resources['platformIdentity']['privacy_boundary']);
     }
 
     public function testUnifiedResourceAliasesNormalizeIntoCanonicalDataTypes(): void
@@ -145,6 +149,7 @@ final class PlatformDataSyncServiceTest extends TestCase
             'searchKeywords' => 'search_keyword',
             'roomTypes' => 'room_type',
             'reviewData' => 'review',
+            'platformIdentity' => 'platform_identity',
         ];
 
         foreach ($cases as $alias => $expected) {

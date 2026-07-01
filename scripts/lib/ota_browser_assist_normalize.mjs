@@ -4,7 +4,7 @@ import { attachOtaCaptureEvidence } from './ota_capture_standard.mjs';
 
 const CONTRACT_VERSION = 'ota_browser_assist_collection_contract.v1';
 const COLLECTION_MODE = 'browser_assist_dom';
-const KNOWN_SECTION_KEYS = ['ctrip', 'ctripStats', 'meituan', 'meituanStats', 'meituanHook', 'meituanPeerHook'];
+const KNOWN_SECTION_KEYS = ['ctrip', 'ctripStats', 'meituan', 'meituanStats', 'meituanHook', 'meituanPeerHook', 'platformIdentity'];
 
 const PLATFORM_LABELS = {
   ctrip: 'Ctrip',
@@ -19,6 +19,7 @@ const DATA_TYPE_LABELS = {
   traffic_forecast: 'traffic forecast',
   peer_rank: 'peer rank',
   search_keyword: 'search keyword',
+  platform_identity: 'platform identity',
 };
 
 export function normalizeBrowserAssistCapturePayload(input, options = {}) {
@@ -40,6 +41,7 @@ export function normalizeBrowserAssistCapturePayload(input, options = {}) {
     ...normalizeCtripStatsSection(payload.ctripStats, context, warnings),
     ...normalizeMeituanStatsSection(payload.meituanStats, context, warnings),
     ...normalizeMeituanHookSection(resolveMeituanHookSection(payload), context, warnings),
+    ...normalizePlatformIdentitySection(resolvePlatformIdentitySection(payload), context, warnings),
   ];
 
   const packages = buildImportPackages(rows, context);
@@ -434,6 +436,77 @@ function normalizeMeituanHookSection(section, context, warnings) {
   return rows;
 }
 
+function normalizePlatformIdentitySection(section, context, warnings) {
+  if (!section || typeof section !== 'object' || Array.isArray(section)) {
+    return [];
+  }
+  const platform = cleanText(firstDefined(section.platform, section.source)).toLowerCase() || 'meituan';
+  if (platform !== 'meituan') {
+    warnings.push({
+      platform,
+      module: 'platform_identity',
+      code: 'unsupported_platform_identity',
+      message: 'Only Meituan partnerId/poiId identity evidence is importable from browser assist captures.',
+    });
+    return [];
+  }
+
+  const partnerId = cleanText(firstDefined(section.partnerId, section.partner_id));
+  const poiId = cleanText(firstDefined(section.poiId, section.poi_id, section.storeId, section.store_id, section.hotelId, section.hotel_id));
+  if (!partnerId && !poiId) {
+    warnings.push({
+      platform,
+      module: 'platform_identity',
+      code: 'platform_identity_fields_missing',
+      source_path: 'platform_identity',
+      message: 'Meituan platform identity section had no partnerId or poiId.',
+    });
+    return [];
+  }
+
+  const snapshot = resolveSnapshot(section, context);
+  const dataDate = normalizeDate(firstDefined(section.data_date, section.dataDate, context.dataDate))
+    || dateFromDateTime(snapshot.snapshotTime)
+    || normalizeDate(context.generatedAt);
+  const evidence = Array.isArray(section.evidence) ? section.evidence.slice(0, 12).map(sanitizeIdentityEvidence).filter(Boolean) : [];
+  const row = compactObject({
+    source: platform,
+    platform,
+    data_type: 'platform_identity',
+    data_date: dataDate,
+    data_period: 'realtime_snapshot',
+    snapshot_time: snapshot.snapshotTime,
+    snapshot_bucket: snapshot.snapshotBucket,
+    system_hotel_id: toInteger(firstDefined(section.system_hotel_id, section.systemHotelId, context.systemHotelId)) || undefined,
+    hotel_id: poiId || cleanText(firstDefined(context.hotelId)),
+    hotel_name: cleanText(firstDefined(section.hotelName, section.hotel_name, context.hotelName)) || undefined,
+    dimension: 'meituan:platform_identity',
+    data_value: 1,
+    partner_id: partnerId || undefined,
+    poi_id: poiId || undefined,
+    acquisition_method: COLLECTION_MODE,
+    source_contract: CONTRACT_VERSION,
+    raw_data: {
+      collection_mode: COLLECTION_MODE,
+      source_contract: CONTRACT_VERSION,
+      module: 'platform_identity',
+      snapshot_time_source: snapshot.source,
+      platform_identity: compactObject({
+        platform,
+        partner_id: partnerId || null,
+        poi_id: poiId || null,
+        evidence,
+      }),
+      field_facts: [
+        fieldFact('meituan_partner_id', 'platform_identity', 'platform_identity.partnerId', 'online_daily_data.raw_data.platform_identity.partner_id', partnerId),
+        fieldFact('meituan_poi_id', 'platform_identity', 'platform_identity.poiId', 'online_daily_data.hotel_id/raw_data.platform_identity.poi_id', poiId),
+      ],
+    },
+  });
+
+  return [attachEvidence(row, platform, 'platform_identity', 'platform_identity', 'browser_assist_platform_identity', section)];
+}
+
 function normalizeMeituanHookPeerItem(key, item, context, warnings) {
   const data = hookData(item);
   const sections = Array.isArray(data.peerRankData) ? data.peerRankData : [];
@@ -773,6 +846,28 @@ function isMeituanHookForecastItem(key, item) {
 
 function isMeituanHookKeywordItem(key, item) {
   return key === 'KEYWORDS' || cleanText(item.source).toLowerCase() === 'keywords';
+}
+
+function resolvePlatformIdentitySection(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  return payload.platformIdentity || payload.platform_identity || payload.meituanIdentity || payload.meituan_identity || null;
+}
+
+function sanitizeIdentityEvidence(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return null;
+  }
+  const fields = Array.isArray(item.fields)
+    ? item.fields.map(cleanText).filter((field) => ['partnerId', 'poiId', 'partner_id', 'poi_id'].includes(field)).slice(0, 4)
+    : [];
+  return compactObject({
+    source: cleanText(item.source),
+    host: cleanText(item.host),
+    path: cleanText(item.path),
+    fields,
+  });
 }
 
 function hookData(item) {
