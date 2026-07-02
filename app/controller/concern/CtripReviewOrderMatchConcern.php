@@ -16,6 +16,12 @@ trait CtripReviewOrderMatchConcern
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
+        return $this->reviewRiskPolicyBlockedResponse('ctrip_review_im_session_storage', [
+            'identity_reverse_lookup',
+            'anonymous_user_matching',
+            'over_collection_risk',
+        ]);
+
         try {
             $data = $this->requestData();
             $systemHotelId = $this->resolveCtripReviewMatchHotelId($data);
@@ -97,6 +103,11 @@ trait CtripReviewOrderMatchConcern
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
+        return $this->reviewRiskPolicyBlockedResponse('ctrip_review_storage_for_identity_match', [
+            'identity_reverse_lookup',
+            'anonymous_user_matching',
+        ]);
+
         try {
             $data = $this->requestData();
             $systemHotelId = $this->resolveCtripReviewMatchHotelId($data);
@@ -148,6 +159,12 @@ trait CtripReviewOrderMatchConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+
+        return $this->reviewRiskPolicyBlockedResponse('ctrip_order_storage_for_review_match', [
+            'identity_reverse_lookup',
+            'anonymous_user_matching',
+            'over_collection_risk',
+        ]);
 
         try {
             $data = $this->requestData();
@@ -202,6 +219,11 @@ trait CtripReviewOrderMatchConcern
         $this->checkPermission();
         $this->checkActionPermission('can_view_online_data');
 
+        return $this->reviewRiskPolicyBlockedResponse('ctrip_review_order_lookup', [
+            'identity_reverse_lookup',
+            'anonymous_user_matching',
+        ]);
+
         try {
             $data = $this->requestData();
             $systemHotelId = $this->resolveCtripReviewMatchHotelId($data);
@@ -239,6 +261,12 @@ trait CtripReviewOrderMatchConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_view_online_data');
+
+        return $this->reviewRiskPolicyBlockedResponse('ctrip_review_orderer_identity_preview', [
+            'identity_reverse_lookup',
+            'anonymous_user_matching',
+            'masked_data_reconstruction_risk',
+        ]);
 
         try {
             $data = $this->requestData();
@@ -306,6 +334,13 @@ trait CtripReviewOrderMatchConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+
+        return $this->reviewRiskPolicyBlockedResponse('ctrip_review_order_match_automation', [
+            'identity_reverse_lookup',
+            'anonymous_user_matching',
+            'masked_data_reconstruction_risk',
+            'automation_risk',
+        ]);
 
         $dryRunTransactionStarted = false;
         try {
@@ -522,6 +557,11 @@ trait CtripReviewOrderMatchConcern
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
+        return $this->reviewRiskPolicyBlockedResponse('ctrip_review_order_manual_bind', [
+            'identity_reverse_lookup',
+            'anonymous_user_matching',
+        ]);
+
         try {
             $data = $this->requestData();
             $systemHotelId = $this->resolveCtripReviewMatchHotelId($data);
@@ -585,6 +625,12 @@ trait CtripReviewOrderMatchConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+
+        return $this->reviewRiskPolicyBlockedResponse('ctrip_review_order_match_closure_check', [
+            'identity_reverse_lookup',
+            'anonymous_user_matching',
+            'review_match_closure_overclaim',
+        ]);
 
         try {
             $data = $this->requestData();

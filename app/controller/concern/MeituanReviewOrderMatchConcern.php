@@ -15,6 +15,11 @@ trait MeituanReviewOrderMatchConcern
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
+        return $this->reviewRiskPolicyBlockedResponse('meituan_review_storage_for_order_match', [
+            'identity_reverse_lookup',
+            'anonymous_user_matching',
+        ]);
+
         try {
             $data = $this->requestData();
             $systemHotelId = $this->resolveMeituanReviewMatchHotelId($data);
@@ -68,6 +73,12 @@ trait MeituanReviewOrderMatchConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+
+        return $this->reviewRiskPolicyBlockedResponse('meituan_order_storage_for_review_match', [
+            'identity_reverse_lookup',
+            'phone_acquisition',
+            'anonymous_user_matching',
+        ]);
 
         try {
             $data = $this->requestData();
@@ -131,6 +142,12 @@ trait MeituanReviewOrderMatchConcern
         $this->checkPermission();
         $this->checkActionPermission('can_view_online_data');
 
+        return $this->reviewRiskPolicyBlockedResponse('meituan_review_order_lookup', [
+            'identity_reverse_lookup',
+            'phone_acquisition',
+            'anonymous_user_matching',
+        ]);
+
         try {
             $data = $this->requestData();
             $systemHotelId = $this->resolveMeituanReviewMatchHotelId($data);
@@ -164,6 +181,12 @@ trait MeituanReviewOrderMatchConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+
+        return $this->reviewRiskPolicyBlockedResponse('meituan_review_order_manual_bind', [
+            'identity_reverse_lookup',
+            'phone_acquisition',
+            'anonymous_user_matching',
+        ]);
 
         try {
             $data = $this->requestData();
@@ -230,6 +253,12 @@ trait MeituanReviewOrderMatchConcern
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
+        return $this->reviewRiskPolicyBlockedResponse('meituan_review_order_manual_unbind', [
+            'identity_reverse_lookup',
+            'phone_acquisition',
+            'anonymous_user_matching',
+        ]);
+
         try {
             $data = $this->requestData();
             $systemHotelId = $this->resolveMeituanReviewMatchHotelId($data);
@@ -283,6 +312,11 @@ trait MeituanReviewOrderMatchConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_view_online_data');
+
+        return $this->reviewRiskPolicyBlockedResponse('meituan_order_phone_state', [
+            'phone_acquisition',
+            'identity_reverse_lookup',
+        ]);
 
         try {
             $data = $this->requestData();

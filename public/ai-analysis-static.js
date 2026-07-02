@@ -427,7 +427,10 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         if (!report) return '';
         const listHtml = (title, values) => `<h4>${htmlEscape(title)}</h4><ul>${normalizeAiAnalysisList(values).map(text => `<li>${htmlEscape(text)}</li>`).join('')}</ul>`;
         const problemHtml = `<h4>问题酒店</h4><ul>${normalizeAiProblemHotels(report.problem_hotels).map(hotel => `<li>${htmlEscape(formatAiProblemHotelText(hotel))}</li>`).join('')}</ul>`;
-        return `<section><h3>批量OTA AI综合诊断报告</h3><p><strong>优先级：</strong>${htmlEscape(aiAnalysisPriorityText(report.priority))}</p><p><strong>总体结论：</strong>${htmlEscape(report.overall_conclusion || '-')}</p>${listHtml('关键发现', report.key_findings)}${listHtml('竞对洞察', report.competitor_insights)}${problemHtml}${listHtml('建议动作', report.recommended_actions)}${listHtml(aiAnalysisDataNoticeTitle(report), aiAnalysisDataNoticeList(report))}${report.raw_text ? `<pre>${htmlEscape(report.raw_text)}</pre>` : ''}</section>`;
+        const fallbackHtml = report.fallback
+            ? `<p><strong>生成状态：</strong>AI综合汇总失败；当前内容为基础汇总，不作为自动执行依据。</p><p><strong>失败原因：</strong>${htmlEscape(report.fallback_reason || '汇总失败')}</p><p><strong>执行状态：</strong>${htmlEscape(report.action_gate_text || '已阻断，需人工复核后再创建动作。')}</p>`
+            : '';
+        return `<section><h3>批量OTA AI综合诊断报告</h3>${fallbackHtml}<p><strong>优先级：</strong>${htmlEscape(aiAnalysisPriorityText(report.priority))}</p><p><strong>总体结论：</strong>${htmlEscape(report.overall_conclusion || '-')}</p>${listHtml('关键发现', report.key_findings)}${listHtml('竞对洞察', report.competitor_insights)}${problemHtml}${listHtml(report.fallback ? '待人工复核动作' : '建议动作', report.recommended_actions)}${listHtml(aiAnalysisDataNoticeTitle(report), aiAnalysisDataNoticeList(report))}${report.raw_text ? `<pre>${htmlEscape(report.raw_text)}</pre>` : ''}</section>`;
     };
 
     const buildCapturedFallbackSummaryReport = ({
@@ -443,6 +446,10 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         const report = mergeCapturedGroupReports(reports, completedHotels, 'AI综合汇总失败，已自动生成基础综合报告。');
         report.fallback = true;
         report.fallback_reason = maskAiAnalysisError(reason);
+        report.decision_allowed = false;
+        report.decision_status = 'blocked_by_ai_summary_failure';
+        report.execution_blocked = true;
+        report.action_gate_text = 'AI综合汇总失败，基础报告仅供排查，不可直接创建执行动作。';
         report.summary = {
             selected_hotel_count: selectedCount,
             success_hotel_count: completedHotels,
@@ -450,10 +457,13 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
             hotel_count: completedHotels,
             group_count: groupCount,
             failed_group_count: failedGroups.length,
+            decision_allowed: false,
+            decision_status: 'blocked_by_ai_summary_failure',
         };
         report.data_anomalies = [
             ...normalizeAiAnalysisList(report.data_anomalies).filter(text => text !== '暂无'),
             'AI综合汇总失败，已自动生成基础综合报告。',
+            '基础报告不可直接作为执行依据，需人工复核失败原因和成功分组结果。',
         ];
         return report;
     };

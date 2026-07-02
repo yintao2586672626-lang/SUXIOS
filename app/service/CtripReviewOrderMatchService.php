@@ -15,6 +15,12 @@ final class CtripReviewOrderMatchService
      */
     public function matchReviewIdentity(array $review, array $imSessions): array
     {
+        return (new OtaReviewRiskPolicyService())->blockedOperation('ctrip_review_identity_match_service', [
+            'identity_reverse_lookup',
+            'anonymous_user_matching',
+            'masked_data_reconstruction_risk',
+        ]);
+
         $username = $this->extractReviewUsername($review);
         if ($username === '') {
             return [
@@ -78,6 +84,12 @@ final class CtripReviewOrderMatchService
      */
     public function matchReviewToOrder(array $review, array $imSessions, array $orders, array $options = []): array
     {
+        return (new OtaReviewRiskPolicyService())->blockedOperation('ctrip_review_order_match_service', [
+            'identity_reverse_lookup',
+            'anonymous_user_matching',
+            'masked_data_reconstruction_risk',
+        ]);
+
         $reviewDateInfo = $this->extractDateMatchInfo($review, ['checkinTimeStr', 'checkInDate', 'check_in_date', 'checkinDate', 'checkin_date', 'arrivalDate', 'arrival_date', 'stayDate', 'stay_date']);
         $reviewDate = $reviewDateInfo['date'];
         $reviewMonth = $reviewDateInfo['month'];

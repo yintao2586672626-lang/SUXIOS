@@ -1,4 +1,101 @@
 window.SUXI_DUAL_OTA_HOME = (() => {
+    const buildPendingMarketMetrics = (platformLabel, rankLabel) => ([
+        { label: '营收', value: '待接入', note: `${platformLabel}${rankLabel}待接入` },
+        { label: '订单', value: '待接入', note: `${platformLabel}${rankLabel}待接入` },
+        { label: '间夜', value: '待接入', note: `${platformLabel}${rankLabel}待接入` },
+        { label: 'ADR', value: '待接入', note: `${platformLabel}${rankLabel}待接入` },
+        { label: '转化率', value: '待接入', note: '需商圈样本' },
+        { label: '数据状态', value: '未核验', note: '不生成结论', tone: 'warning' },
+    ]);
+    const ctripCurrentMetrics = [
+        { label: '携程营收', value: '¥4,190', note: '样例拆分 88%' },
+        { label: '订单', value: '8', note: '平台收入样例' },
+        { label: '间夜', value: '13', note: '平台收入样例' },
+        { label: 'ADR', value: '¥322', note: '平台收入样例' },
+        { label: 'APP访客', value: '109', note: '排名 10/26' },
+        { label: '实时起价', value: '¥100', note: '排名 8/26' },
+        { label: '点评分', value: '4.7', note: '排名 9/26' },
+    ];
+    const meituanCurrentMetrics = [
+        { label: '美团营收', value: '¥549', note: '样例拆分 12%' },
+        { label: '订单', value: '1', note: '平台收入样例' },
+        { label: '间夜', value: '2', note: '平台收入样例' },
+        { label: 'ADR', value: '¥275', note: '平台收入样例' },
+        { label: '曝光量', value: '待同步', note: '本店美团字段' },
+        { label: '浏览量', value: '待同步', note: '本店美团字段' },
+        { label: '支付转化', value: '待同步', note: '本店美团字段' },
+    ];
+    const combinedCurrentMetrics = [
+        { label: '双平台收入', value: '¥4,739', note: '携程+美团样例' },
+        { label: '携程营收', value: '¥4,190', note: '占比 88%' },
+        { label: '美团营收', value: '¥549', note: '占比 12%' },
+        { label: '订单', value: '9', note: '平台收入样例' },
+        { label: '间夜', value: '15', note: '平台收入样例' },
+        { label: '同店结论', value: '未生成', note: '门店未统一', tone: 'warning' },
+    ];
+    const meituanMarketFirstMetrics = [
+        { label: '美团营收', value: '¥549', note: '商圈第一样例' },
+        { label: '曝光量', value: '2,147', note: '美团监控' },
+        { label: '浏览量', value: '220', note: '排名 3/17' },
+        { label: '支付订单', value: '26', note: '排名 3/17' },
+        { label: '入住间夜', value: '20', note: '排名 3' },
+        { label: '销售间夜', value: '27', note: '排名 4/17' },
+        { label: '曝光→浏览', value: '10.25%', note: '可算' },
+        { label: '浏览→支付', value: '11.82%', note: '可算', tone: 'good' },
+    ];
+    const systemOverviewGroupsByScope = {
+        combined: [
+            {
+                title: '本店数据',
+                subtitle: '兰熙酒店 / 双平台口径',
+                metrics: combinedCurrentMetrics,
+            },
+            {
+                title: '商圈平均',
+                subtitle: '同商圈 / 双平台平均',
+                metrics: buildPendingMarketMetrics('双平台', '平均'),
+            },
+            {
+                title: '商圈第一',
+                subtitle: '同商圈 / 双平台第一',
+                metrics: buildPendingMarketMetrics('双平台', '第一'),
+            },
+        ],
+        ctrip: [
+            {
+                title: '本店数据',
+                subtitle: '兰熙酒店 / 携程口径',
+                metrics: ctripCurrentMetrics,
+            },
+            {
+                title: '商圈平均',
+                subtitle: '同商圈 / 携程平均',
+                metrics: buildPendingMarketMetrics('携程', '平均'),
+            },
+            {
+                title: '商圈第一',
+                subtitle: '同商圈 / 携程第一',
+                metrics: buildPendingMarketMetrics('携程', '第一'),
+            },
+        ],
+        meituan: [
+            {
+                title: '本店数据',
+                subtitle: '兰熙酒店 / 美团口径',
+                metrics: meituanCurrentMetrics,
+            },
+            {
+                title: '商圈平均',
+                subtitle: '同商圈 / 美团平均',
+                metrics: buildPendingMarketMetrics('美团', '平均'),
+            },
+            {
+                title: '商圈第一',
+                subtitle: '华通铂悦酒店 / 美团口径',
+                metrics: meituanMarketFirstMetrics,
+            },
+        ],
+    };
     const dashboardData = {
         brand: {
             name: 'AI工作台',
@@ -27,53 +124,18 @@ window.SUXI_DUAL_OTA_HOME = (() => {
                 title: '平台切换',
                 warning: '',
                 rows: [
-                    { value: 'ctrip', label: '携程', selected: true },
+                    { value: 'combined', label: '双平台', selected: true },
+                    { value: 'ctrip', label: '携程' },
                     { value: 'meituan', label: '美团' },
                 ],
             },
-            groups: [
-                {
-                    title: '携程数据',
-                    subtitle: '兰熙酒店 / 携程口径',
-                    metrics: [
-                        { label: '携程营收', value: '¥4,190', note: '样例拆分 88%' },
-                        { label: '订单', value: '8', note: '平台收入样例' },
-                        { label: '间夜', value: '13', note: '平台收入样例' },
-                        { label: 'ADR', value: '¥322', note: '平台收入样例' },
-                        { label: 'APP访客', value: '109', note: '排名 10/26' },
-                        { label: '实时起价', value: '¥100', note: '排名 8/26' },
-                        { label: '点评分', value: '4.7', note: '排名 9/26' },
-                    ],
-                },
-                {
-                    title: '合计数据',
-                    subtitle: '总览 / 待同店核验',
-                    metrics: [
-                        { label: '合计收入', value: '¥4,739', note: '携程+美团样例' },
-                        { label: '新订单', value: '31', note: '兰熙巡查' },
-                        { label: '有效订单', value: '27', note: '兰熙巡查' },
-                        { label: '入住订单', value: '20', note: '兰熙巡查' },
-                        { label: '取消订单', value: '4', note: '需看取消原因', tone: 'warning' },
-                        { label: '在店间夜', value: '21', note: '兰熙巡查' },
-                        { label: '库存紧张度', value: '37.50%', note: '兰熙巡查' },
-                        { label: '同店结论', value: '未生成', note: '门店未统一', tone: 'warning' },
-                    ],
-                },
-                {
-                    title: '美团数据',
-                    subtitle: '华通铂悦酒店 / 美团口径',
-                    metrics: [
-                        { label: '美团营收', value: '¥549', note: '样例拆分 12%' },
-                        { label: '曝光量', value: '2,147', note: '美团监控' },
-                        { label: '浏览量', value: '220', note: '排名 3/17' },
-                        { label: '支付订单', value: '26', note: '排名 3/17' },
-                        { label: '入住间夜', value: '20', note: '排名 3' },
-                        { label: '销售间夜', value: '27', note: '排名 4/17' },
-                        { label: '曝光→浏览', value: '10.25%', note: '可算' },
-                        { label: '浏览→支付', value: '11.82%', note: '可算', tone: 'good' },
-                    ],
-                },
-            ],
+            groups: systemOverviewGroupsByScope.combined,
+            groupsByScope: systemOverviewGroupsByScope,
+            sourceNotesByScope: {
+                combined: '左列为本店双平台合并口径；中间为商圈双平台平均；右列为商圈双平台第一。商圈平均/第一待真实数据接入前不生成经营结论。',
+                ctrip: '左列只展示本店携程口径；中间为携程商圈平均；右列为携程商圈第一。商圈数据待真实接入前不生成经营结论。',
+                meituan: '左列只展示本店美团口径；中间为美团商圈平均；右列为美团商圈第一。商圈数据待真实接入前不生成经营结论。',
+            },
         },
         dataTrust: [
             {

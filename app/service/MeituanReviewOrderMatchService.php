@@ -13,6 +13,12 @@ final class MeituanReviewOrderMatchService
      */
     public function matchReviewToOrder(array $review, array $orders, array $options = []): array
     {
+        return (new OtaReviewRiskPolicyService())->blockedOperation('meituan_review_order_match_service', [
+            'identity_reverse_lookup',
+            'phone_acquisition',
+            'anonymous_user_matching',
+        ]);
+
         $coverageStart = $this->normalizeDate((string)($options['coverage_start_date'] ?? ''));
         $reviewDate = $this->extractDate($review, ['checkInDate', 'check_in_date', 'checkinDate', 'arrivalDate', 'arrival_date', 'consumeDate', 'consume_date']);
         if ($coverageStart !== '' && $reviewDate !== '' && $reviewDate < $coverageStart) {
@@ -105,6 +111,11 @@ final class MeituanReviewOrderMatchService
      */
     public function buildPhoneHandlingState(array $order, array $context = []): array
     {
+        return (new OtaReviewRiskPolicyService())->blockedOperation('meituan_order_phone_state_service', [
+            'phone_acquisition',
+            'identity_reverse_lookup',
+        ]);
+
         $appSessionStatus = strtolower(trim((string)($context['app_session_status'] ?? $order['app_session_status'] ?? 'unknown')));
         $appSessionReady = in_array($appSessionStatus, ['ready', 'authorized', 'available'], true);
         $phoneValue = $this->extractPhoneValue($order);
@@ -186,10 +197,10 @@ final class MeituanReviewOrderMatchService
             'departure_date' => $this->extractDate($order, ['checkOutDate', 'check_out_date', 'departureDate', 'departure_date']),
             'room_name' => $this->extractRoomName($order),
             'order_status' => $this->firstString($order, ['orderStatus', 'order_status', 'status']),
-            'phone_masked' => $phone['phone_masked'],
-            'phone_last4' => $phone['phone_last4'],
-            'phone_status' => $phone['phone_status'],
-            'phone_source' => $phone['phone_source'],
+            'phone_masked' => (string)($phone['phone_masked'] ?? ''),
+            'phone_last4' => (string)($phone['phone_last4'] ?? ''),
+            'phone_status' => (string)($phone['phone_status'] ?? $phone['status'] ?? OtaReviewRiskPolicyService::STATUS_BLOCKED),
+            'phone_source' => (string)($phone['phone_source'] ?? 'blocked_by_policy'),
             'raw_order_json' => json_encode($this->sanitizeOrderForStorage($order), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) ?: '{}',
         ];
     }

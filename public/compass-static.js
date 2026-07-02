@@ -33,6 +33,12 @@ window.SUXI_COMPASS_STATIC = (() => {
             level: 'gray',
             note: '等待线上数据同步后生成收益趋势',
             source: '来源：经营日报收入；无日报时取 OTA 成交额',
+            source_type: 'daily_report_with_ota_reference',
+            source_type_label: '经营日报 + OTA参考',
+            data_quality_status: 'mixed_unverified',
+            data_quality_label: '混合口径待复核',
+            decision_allowed: false,
+            decision_status: '需确认日报与OTA口径后决策',
             spark: [26, 34, 28, 42, 36, 48, 40, 52, 44],
         },
         {
@@ -43,6 +49,12 @@ window.SUXI_COMPASS_STATIC = (() => {
             level: 'gray',
             note: '数据依据不足，暂不生成趋势判断',
             source: '来源：OTA 订单数；无订单时取需求预测',
+            source_type: 'ota_with_forecast_reference',
+            source_type_label: 'OTA + 预测参考',
+            data_quality_status: 'derived_unverified',
+            data_quality_label: '衍生口径待复核',
+            decision_allowed: false,
+            decision_status: '需确认订单样本后决策',
             spark: [30, 30, 30, 30, 30, 30, 30, 30, 30],
         },
         {
@@ -53,6 +65,12 @@ window.SUXI_COMPASS_STATIC = (() => {
             level: 'gray',
             note: '等待竞对价格同步后判断价格劣势',
             source: '来源：经营日报/OTA 推算 ADR，对比竞对价格',
+            source_type: 'daily_report_ota_competitor',
+            source_type_label: '日报/OTA + 竞对',
+            data_quality_status: 'derived_unverified',
+            data_quality_label: '推算口径待复核',
+            decision_allowed: false,
+            decision_status: '需确认ADR与竞对价后决策',
             spark: [24, 38, 32, 46, 34, 50, 36, 54, 40],
         },
         {
@@ -63,6 +81,12 @@ window.SUXI_COMPASS_STATIC = (() => {
             level: 'gray',
             note: '等待 OTA 数据同步',
             source: '来源：OTA 曝光、访客、转化和订单数据',
+            source_type: 'ota_channel',
+            source_type_label: 'OTA渠道',
+            data_quality_status: 'ota_unverified',
+            data_quality_label: 'OTA样本待同步',
+            decision_allowed: false,
+            decision_status: '仅代表OTA渠道，需复核后决策',
             spark: [40, 36, 42, 38, 44, 40, 46, 42, 48],
         },
     ];
@@ -72,6 +96,17 @@ window.SUXI_COMPASS_STATIC = (() => {
         price: '来源：经营日报/OTA 推算 ADR，对比竞对价格',
         channel: '来源：OTA 曝光、访客、转化和订单数据',
     };
+    const homeTrendSourceMetaMap = defaultHomeTrendCards.reduce((acc, card) => {
+        acc[card.key] = {
+            source_type: card.source_type,
+            source_type_label: card.source_type_label,
+            data_quality_status: card.data_quality_status,
+            data_quality_label: card.data_quality_label,
+            decision_allowed: card.decision_allowed,
+            decision_status: card.decision_status,
+        };
+        return acc;
+    }, {});
     const dailyOpsPrimaryActions = [
         { label: '检查数据是否已同步', page: 'online-data', tab: 'data-health', icon: 'fas fa-heartbeat' },
         { label: '同步平台账号数据', page: 'online-data', tab: 'platform-auto', icon: 'fas fa-robot' },
@@ -157,6 +192,7 @@ window.SUXI_COMPASS_STATIC = (() => {
         homeTrendMetrics,
         defaultHomeTrendCards,
         homeTrendSourceMap,
+        homeTrendSourceMetaMap,
         dailyOpsPrimaryActions,
         dailyOpsReviewSteps,
         weatherMajorCities,

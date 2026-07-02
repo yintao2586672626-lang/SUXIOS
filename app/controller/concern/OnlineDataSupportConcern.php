@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\controller\concern;
 
+use app\service\OtaReviewRiskPolicyService;
 use think\Response;
 
 trait OnlineDataSupportConcern
@@ -33,6 +34,16 @@ trait OnlineDataSupportConcern
             'disabled' => true,
             'scope' => 'ota_comments',
         ]);
+    }
+
+    /**
+     * @param array<int, string> $riskCategories
+     */
+    private function reviewRiskPolicyBlockedResponse(string $operation, array $riskCategories = []): Response
+    {
+        $payload = (new OtaReviewRiskPolicyService())->blockedOperation($operation, $riskCategories);
+
+        return $this->error((string)$payload['message'], 422, $payload);
     }
 
     private function buildStreamSslOptions(): array

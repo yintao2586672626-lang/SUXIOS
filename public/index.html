@@ -61,9 +61,9 @@
     <script src="data-health-static.js?v=20260628-static-router-fix"></script>
     <script src="revenue-ai-static.js?v=20260628-ctrip-generate-result"></script>
     <script src="system-static.js?v=20260630-data-center-label"></script>
-    <script src="compass-static.js?v=20260628-static-router-fix"></script>
+    <script src="compass-static.js?v=20260702-home-trend-source-meta"></script>
     <script src="home-static.js?v=20260628-static-router-fix"></script>
-    <script src="dual-ota-home-static.js?v=20260701-ai-workbench-v15-platform-switch"></script>
+    <script src="dual-ota-home-static.js?v=20260702-market-benchmark-switch"></script>
 </head>
 <body class="bg-gray-100">
     <div id="app" v-cloak>
@@ -5008,7 +5008,7 @@
                                                 </div>
                                             </div>
                                             <div class="dual-ota-system-grid">
-                                                <div v-for="group in dualOtaDashboard.systemOverview.groups" :key="group.title" class="dual-ota-system-column">
+                                                <div v-for="group in dualOtaSystemOverviewGroups" :key="group.title" class="dual-ota-system-column">
                                                     <div class="dual-ota-system-column-head">
                                                         <h3>{{ group.title }}</h3>
                                                         <span>{{ group.subtitle }}</span>
@@ -5023,7 +5023,7 @@
                                                 </div>
                                             </div>
                                             <div class="dual-ota-boundary-note">
-                                                {{ dualOtaDashboard.systemOverview.sourceNote }}
+                                                {{ dualOtaSystemOverviewSourceNote }}
                                             </div>
                                         </section>
 
@@ -5037,7 +5037,7 @@
                                                     </div>
                                                 </div>
                                                 <div class="dual-ota-revenue-grid">
-                                                    <div v-for="platform in dualOtaDashboard.platformRevenue.platforms" :key="platform.id" class="dual-ota-platform-card">
+                                                    <div v-for="platform in dualOtaPlatformRevenuePlatforms" :key="platform.id" class="dual-ota-platform-card">
                                                         <div class="dual-ota-platform-card-top">
                                                             <span>{{ platform.name }}</span>
                                                             <strong>{{ platform.revenueText }}</strong>
@@ -5046,9 +5046,9 @@
                                                     </div>
                                                 </div>
                                                 <div class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">
-                                                    <div class="dual-ota-contribution-text">{{ dualOtaDashboard.platformRevenue.contributionText }}</div>
+                                                    <div class="dual-ota-contribution-text">{{ dualOtaPlatformRevenueContributionText }}</div>
                                                     <div class="dual-ota-contribution-track">
-                                                        <span v-for="platform in dualOtaDashboard.platformRevenue.platforms" :key="`${platform.id}-bar`" :class="['dual-ota-contribution-segment', `is-${platform.id}`]" :style="{ width: `${platform.contribution}%` }"></span>
+                                                        <span v-for="platform in dualOtaPlatformRevenuePlatforms" :key="`${platform.id}-bar`" :class="['dual-ota-contribution-segment', `is-${platform.id}`]" :style="{ width: `${platform.contribution}%` }"></span>
                                                     </div>
                                                 </div>
                                             </article>
@@ -6034,6 +6034,13 @@
                                     <span v-for="n in 9" :key="n" class="suxi-spark-bar" :style="{ height: card.spark[n - 1] + '%' }"></span>
                                 </div>
                                 <p class="mt-3 text-sm text-slate-500 leading-6">{{ card.note }}</p>
+                                <div class="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
+                                    <span v-if="card.sourceTypeLabel" class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600">{{ card.sourceTypeLabel }}</span>
+                                    <span v-if="card.dataQualityLabel" class="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-amber-700">{{ card.dataQualityLabel }}</span>
+                                    <span :class="['rounded-full border px-2 py-0.5', card.decisionAllowed ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500']">
+                                        {{ card.decisionAllowed ? '可进入决策' : '需复核后决策' }}
+                                    </span>
+                                </div>
                                 <div v-if="card.source" class="mt-3 flex items-start gap-1.5 text-xs text-gray-400 leading-relaxed">
                                     <i class="fas fa-database mt-0.5 text-gray-300"></i>
                                     <span>{{ card.source }}</span>
@@ -21198,6 +21205,31 @@
                     todayAction: '待补充',
                 };
             });
+            const dualOtaSystemOverviewGroups = computed(() => {
+                const overview = dualOtaDashboard.value.systemOverview || {};
+                const groupsByScope = overview.groupsByScope || {};
+                const selectedGroups = groupsByScope[dualOtaSelectedStoreScope.value];
+                if (Array.isArray(selectedGroups) && selectedGroups.length) return selectedGroups;
+                return Array.isArray(overview.groups) ? overview.groups : [];
+            });
+            const dualOtaSystemOverviewSourceNote = computed(() => {
+                const overview = dualOtaDashboard.value.systemOverview || {};
+                const notesByScope = overview.sourceNotesByScope || {};
+                return notesByScope[dualOtaSelectedStoreScope.value] || overview.sourceNote || '';
+            });
+            const dualOtaPlatformRevenuePlatforms = computed(() => {
+                const platforms = Array.isArray(dualOtaDashboard.value.platformRevenue?.platforms) ? dualOtaDashboard.value.platformRevenue.platforms : [];
+                if (dualOtaSelectedStoreScope.value === 'combined') return platforms;
+                const selected = platforms.find(platform => platform.id === dualOtaSelectedStoreScope.value);
+                return selected ? [{ ...selected, contribution: 100 }] : platforms;
+            });
+            const dualOtaPlatformRevenueContributionText = computed(() => {
+                const platformRevenue = dualOtaDashboard.value.platformRevenue || {};
+                if (dualOtaSelectedStoreScope.value === 'combined') return platformRevenue.contributionText || '';
+                const rows = Array.isArray(dualOtaDashboard.value.systemOverview?.storeScope?.rows) ? dualOtaDashboard.value.systemOverview.storeScope.rows : [];
+                const selectedLabel = rows.find(row => row.value === dualOtaSelectedStoreScope.value)?.label || '当前平台';
+                return `当前仅显示${selectedLabel}口径；商圈平均/第一见上方三列，未接入项保持未核验。`;
+            });
             const dualOtaConnectionClass = (status) => {
                 if (status === 'connected') return 'is-connected';
                 if (status === 'disabled') return 'is-disabled';
@@ -21432,16 +21464,26 @@
             });
             const defaultHomeTrendCards = requireCompassStatic('defaultHomeTrendCards');
             const homeTrendSourceMap = requireCompassStatic('homeTrendSourceMap');
+            const homeTrendSourceMetaMap = requireCompassStatic('homeTrendSourceMetaMap');
             const homeTrendAllCards = computed(() => {
                 const cards = Array.isArray(homeTrendData.value?.cards) && homeTrendData.value.cards.length
                     ? homeTrendData.value.cards
                     : defaultHomeTrendCards;
-                return cards.map(card => ({
-                    ...card,
-                    badgeClass: homeTrendBadgeClass(card.level),
-                    source: card.source || homeTrendSourceMap[card.key] || '',
-                    spark: Array.isArray(card.spark) && card.spark.length ? card.spark : [30, 30, 30, 30, 30, 30, 30, 30, 30],
-                }));
+                return cards.map(card => {
+                    const sourceMeta = homeTrendSourceMetaMap[card.key] || {};
+                    return {
+                        ...card,
+                        badgeClass: homeTrendBadgeClass(card.level),
+                        source: card.source || homeTrendSourceMap[card.key] || '',
+                        sourceType: card.source_type || sourceMeta.source_type || '',
+                        sourceTypeLabel: card.source_type_label || sourceMeta.source_type_label || '',
+                        dataQualityStatus: card.data_quality_status || sourceMeta.data_quality_status || '',
+                        dataQualityLabel: card.data_quality_label || sourceMeta.data_quality_label || '',
+                        decisionAllowed: card.decision_allowed === true || card.decision_allowed === 1 || card.decision_allowed === '1',
+                        decisionStatus: card.decision_status || sourceMeta.decision_status || '',
+                        spark: Array.isArray(card.spark) && card.spark.length ? card.spark : [30, 30, 30, 30, 30, 30, 30, 30, 30],
+                    };
+                });
             });
             const homeTrendCards = computed(() => homeTrendAllCards.value.filter(homeTrendCardHasData));
             const homeTrendInterpretation = computed(() => ({
@@ -42091,7 +42133,7 @@
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
-                dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaSelectedStoreScope, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly,
+                dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaSelectedStoreScope, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaSystemOverviewSourceNote, dualOtaPlatformRevenuePlatforms, dualOtaPlatformRevenueContributionText,
                 dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
                 revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,

@@ -223,11 +223,72 @@ OTA 渠道数据 -> 收益分析 -> AI 决策 -> 运营管理 -> 投资决策
 4. UI 只展示“已采集 / 缺字段 / 登录失效 / 接口未命中 / 仅估算”，不展示假成功。
 5. AI 只消费质量状态明确的数据；`signal_only` 和 `estimate_only` 不进入全酒店收益结论。
 
+## 4. 携程本地 helper v0.3.11 静态学习
+
+状态：只读静态审阅；未运行扩展；未接入生产自动采集。
+
+来源文件：
+
+| 文件 | 类型 | 主要内容 |
+| --- | --- | --- |
+| `D:/AIOS/ai插件/桂林测试/ctrip-local-helper-v0.3.11.zip` | Chrome MV3 扩展包 | 携程 eBooking IM 成员本地采集、点评页扫描、本地匹配记录、JSON/CSV 导出 |
+
+### 审阅结论
+
+| 项 | 结论 |
+| --- | --- |
+| 可学习 | 授权页面内 response 证据优先、采集进度/失败状态、TTL、扫描报告、置信度和原因码设计 |
+| 可吸收 | `source_path`、`collection_mode`、`quality_status`、`missing_state`、`possible_incomplete` 这类证据状态；不吸收身份反查执行能力 |
+| 不可直接吸收 | Chrome 扩展运行方式、`chrome.storage.local` 成员库、点评人与 IM 成员自动匹配、匿名/脱敏用户名反推、页面注入标签、未脱敏 JSON/CSV 导出 |
+| 最大风险 | 把 IM 成员索引与点评用户名拼接成“点评人身份确认”，这属于身份反查/匿名用户匹配风险，不能作为宿析OS执行功能 |
+
+### 外部 helper 的实际模式
+
+| 模块 | 静态行为 | 宿析OS边界 |
+| --- | --- | --- |
+| `manifest.json` | 权限包含 `downloads`、`scripting`、`storage`、`tabs`、`webNavigation`，host 限定 `ebooking.ctrip.com` | 不照搬扩展权限模型；系统侧继续使用授权 Profile / response 主链路 |
+| `interceptor.js` | 在页面内包裹 `fetch` / `XMLHttpRequest`，识别 `queryMessageList*` 响应并提取 members | 只学习 response 优先和 source path 记录；不得拦截或保存 Cookie、token、完整敏感响应 |
+| `content-bridge.js` | 点击/滚动 IM 会话列表，记录进度、超时、连续失败、可能不完整等状态 | 可学习状态机：`no_items`、`timeout`、`consecutive_failures_backoff`、`possible_incomplete` |
+| `background.js` | 将成员按 groupId 合并到本地扩展存储，TTL 180 天，可导出 JSON/CSV | 不保存可回指个人的成员索引；如需证据，仅保存脱敏、最小必要、可审计的状态 |
+| `comment-matcher.js` | 扫描点评页可见用户名并与本地成员索引做匹配，保存命中/未命中报告 | 仅作为 `identity_reverse_lookup` / `anonymous_user_matching` 风险识别，不产品化为匹配工具 |
+| `data.js` / `popup.js` | 展示采集质量、查询、导出、清空、手动运行匹配 | 不吸收插件 UI；宿析OS使用现有 OTA 数据健康、导入和风控提示界面 |
+
+### 可沉淀的安全契约
+
+| Field | Source | Selector or Path | Type | Unit | Missing State | Storage Target | Confidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `ctrip_im_response_seen` | authorized Ctrip IM page | `queryMessageList*` response hit | boolean | - | `ctrip_im_response_not_hit` | evidence status only | medium |
+| `ctrip_im_group_scan_status` | authorized Ctrip IM page | visible conversation scan status | enum | - | `ctrip_im_group_not_detected` | `raw_data.evidence_status.scan_status` | medium |
+| `ctrip_im_member_count` | authorized Ctrip IM response | `members` count after sanitization | integer | people | `ctrip_im_members_missing` | `raw_data.evidence_status.member_count` | medium |
+| `ctrip_review_scan_status` | authorized Ctrip comment page | visible review candidate scan | enum | - | `ctrip_review_candidates_missing` | `raw_data.evidence_status.review_scan_status` | low |
+| `ctrip_review_identity_risk` | cross-page matching attempt | IM member index + review username | enum | - | `identity_match_not_allowed` | risk log / AI guard only | high |
+| `possible_incomplete` | collector runtime | stop reason / scroll state / failure streak | boolean | - | `collector_completion_unknown` | `raw_data.evidence_status.possible_incomplete` | high |
+
+### 禁止落地为功能
+
+| 禁止项 | 原因 | 合规替代 |
+| --- | --- | --- |
+| 自动识别点评人身份 | 身份反查与匿名用户匹配风险 | 标记 `anonymous_unverified`，只做点评内容分类、服务整改和申诉证据清单 |
+| 脱敏用户名枚举或反推 | 可能还原匿名/脱敏个人信息 | 只记录“平台身份不可核验”，不输出枚举策略 |
+| 保存 IM 成员明细库 | 过度采集与个人信息最小化风险 | 如确需留证，仅保存汇总状态、来源、时间和脱敏计数 |
+| 未脱敏导出 JSON/CSV | 可能泄露成员、头像、会话、点评候选信息 | 使用本地脱敏 fixture，禁止提交原始平台导出 |
+| 用单条点评身份推断经营事实 | OTA 单条证据不能代表全酒店事实 | 只进入 OTA 点评运营风险和服务整改链路 |
+
+### 如果后续要产品化
+
+只能按“风险识别和证据状态”方向接入：
+
+1. 先建脱敏 fixture，字段只保留 `source_path`、`hit_status`、`member_count`、`stop_reason`、`possible_incomplete`、`captured_at`。
+2. `data_type` 不进入订单/收益事实，可使用 `ctrip_review_evidence_status` 或风险日志类合同。
+3. AI 输出只允许生成“证据不足 / 匿名不可核验 / 补证清单 / 服务整改 / 合规申诉材料”。
+4. 验证必须覆盖：无 IM 响应、无点评候选、连续失败、可能不完整、越界匹配请求被拦截。
+5. 不新增 Cookie、token、手机号、IM 成员明细、点评人身份、自动匹配结果的生产存储。
+
 ## 当前学习结论
 
 | 结论 | 说明 |
 | --- | --- |
-| 可学习 | 字段清单、URL 页面别名、Hook 接口、DOM 选择器线索、缺失状态设计 |
-| 可吸收 | response 优先的美团同行/流量合同，订单/房态的手工补充导入路径 |
-| 不可直接吸收 | 用户脚本运行方式、悬浮面板、GM 本地缓存、Cookie 控制传参、未脱敏导出 |
-| 最大风险 | 把外部脚本采集值误当生产闭环、把 OTA 渠道数据误当全酒店事实、把派生估算误当原始数据 |
+| 可学习 | 字段清单、URL 页面别名、Hook 接口、DOM 选择器线索、缺失状态、采集质量和风险原因码设计 |
+| 可吸收 | response 优先的美团同行/流量合同，订单/房态的手工补充导入路径，携程 helper 的证据状态和风险识别合同 |
+| 不可直接吸收 | 用户脚本/扩展运行方式、悬浮面板、GM 或 Chrome 本地缓存、Cookie 控制传参、点评人身份反查、匿名/脱敏用户名反推、未脱敏导出 |
+| 最大风险 | 把外部脚本采集值误当生产闭环、把 OTA 渠道数据误当全酒店事实、把派生估算或身份匹配误当原始事实 |
