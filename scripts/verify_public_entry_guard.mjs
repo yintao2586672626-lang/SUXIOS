@@ -134,8 +134,8 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
-  if (!content.includes('ctrip-static.js?v=20260628-static-router-fix')
-    || !content.includes('meituan-static.js?v=20260628-static-router-fix')) {
+  if (!content.includes('ctrip-static.js?v=20260703-ai-estimated-nights')
+    || !content.includes('meituan-static.js?v=20260703-ai-estimated-nights')) {
     failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance/metric exports change.');
   }
   if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';")

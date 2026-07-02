@@ -1973,6 +1973,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         if (field === 'ari') return row.ari || 0;
         if (field === 'sci') return row.sci || 0;
         if (field === 'bookOrderNum') return row.bookOrderNum || 0;
+        if (field === 'aiEstimatedTotalRoomNights') return row.aiEstimatedTotalRoomNights || 0;
         if (field === 'totalOrderNum') return row.totalOrderNum || 0;
         if (field === 'commentScore') return row.commentScore || 0;
         if (field === 'qunarCommentScore') return row.qunarCommentScore || 0;

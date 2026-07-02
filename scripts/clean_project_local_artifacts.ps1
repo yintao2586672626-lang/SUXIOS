@@ -103,6 +103,46 @@ function Remove-TargetBestEffort {
   return $failures
 }
 
+function Get-ProfileCacheTargets {
+  param([Parameter(Mandatory = $true)][string]$StoragePath)
+
+  $targets = @()
+  if (!(Test-Path -LiteralPath $StoragePath -PathType Container)) {
+    return $targets
+  }
+
+  $cacheRelativePaths = @(
+    "Default\Cache",
+    "Default\Code Cache",
+    "Default\Service Worker\CacheStorage",
+    "Default\Service Worker\ScriptCache",
+    "Default\GPUCache",
+    "Default\DawnGraphiteCache",
+    "Default\DawnWebGPUCache",
+    "GrShaderCache",
+    "ShaderCache",
+    "GraphiteDawnCache"
+  )
+
+  foreach ($profile in Get-ChildItem -LiteralPath $StoragePath -Force -Directory -ErrorAction SilentlyContinue) {
+    if (!($profile.Name -like "ctrip_profile_*" -or $profile.Name -like "meituan_profile_*")) {
+      continue
+    }
+
+    foreach ($relativePath in $cacheRelativePaths) {
+      $candidate = Join-Path $profile.FullName $relativePath
+      if (Test-Path -LiteralPath $candidate) {
+        $targets += $candidate
+      }
+    }
+
+    $targets += Get-ChildItem -LiteralPath $profile.FullName -Force -Recurse -File -Filter "BrowserMetrics*" -ErrorAction SilentlyContinue |
+      ForEach-Object { $_.FullName }
+  }
+
+  return $targets
+}
+
 $candidatePaths = @(
   "output",
   "runtime",
@@ -115,6 +155,7 @@ if (Test-Path -LiteralPath "storage") {
   $candidatePaths += Get-ChildItem -LiteralPath "storage" -Force -Directory -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -like "ctrip_profile_phpunit*" -or $_.Name -like "meituan_profile_phpunit*" } |
     ForEach-Object { $_.FullName }
+  $candidatePaths += Get-ProfileCacheTargets -StoragePath "storage"
   $candidatePaths += Get-ChildItem -LiteralPath "storage" -Force -File -Filter "*.log" -ErrorAction SilentlyContinue |
     ForEach-Object { $_.FullName }
 }

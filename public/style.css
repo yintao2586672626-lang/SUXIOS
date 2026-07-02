@@ -10291,6 +10291,10 @@ main[data-current-page="ai-workbench"] .dual-ota-revenue-grid {
     gap: 12px;
 }
 
+main[data-current-page="ai-workbench"] .dual-ota-revenue-grid.is-single {
+    grid-template-columns: 1fr;
+}
+
 main[data-current-page="ai-workbench"] .dual-ota-platform-card {
     padding: 14px;
     border: 1px solid var(--dual-border);
@@ -10439,12 +10443,12 @@ main[data-current-page="ai-workbench"] .dual-ota-loss-node:last-child::after {
 
 main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-warning {
     border-color: rgba(199, 132, 42, .42) !important;
-    background: var(--dual-gold-soft) !important;
+    background: #FFFFFF !important;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-critical {
     border-color: rgba(217, 107, 95, .42) !important;
-    background: var(--dual-risk-soft) !important;
+    background: #FFFFFF !important;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-selected {
@@ -11027,8 +11031,8 @@ main[data-current-page="ai-workbench"] .dual-ota-home {
     --dual-gold: #B67922;
     --dual-gold-soft: #F8EAC8;
     --dual-blue: #456DA3;
-    --dual-risk: #C9473C;
-    --dual-risk-soft: #F7DDD8;
+    --dual-risk: #8B5631;
+    --dual-risk-soft: #F3E4D2;
     --dual-border: #E2CDA9;
     --dual-border-soft: rgba(226, 205, 169, .72);
     gap: 18px !important;
@@ -11457,13 +11461,14 @@ main[data-current-page="ai-workbench"] .dual-ota-loss-node::after {
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-normal {
-    background: rgba(255, 253, 248, .76) !important;
+    background: #FFFFFF !important;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-warning,
 main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-critical {
-    border-color: rgba(201, 71, 60, .75) !important;
-    background: var(--dual-risk-soft) !important;
+    border-color: var(--dual-border) !important;
+    background: #FFFFFF !important;
+    box-shadow: inset 0 3px 0 rgba(139, 86, 49, .40) !important;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-node-index {
@@ -12076,10 +12081,51 @@ main[data-current-page="ai-workbench"] .dual-ota-system-overview {
     padding: 24px 28px !important;
 }
 
+main[data-current-page="ai-workbench"] .dual-ota-context-strip {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-context-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 0 1 360px;
+    width: min(360px, 100%);
+    padding: 8px 10px;
+    border: 1px solid rgba(226, 205, 169, .68);
+    border-radius: 10px;
+    background: rgba(255, 253, 248, .84);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-context-item label {
+    flex: 0 0 auto;
+    color: var(--dual-muted);
+    font-size: 12px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-context-select {
+    min-width: 0;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: var(--dual-text);
+    font-size: 14px;
+    font-weight: 850;
+    outline: 0;
+}
+
 main[data-current-page="ai-workbench"] .dual-ota-store-scope {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 14px;
     margin-top: 12px;
     padding: 12px 14px;
@@ -12088,30 +12134,13 @@ main[data-current-page="ai-workbench"] .dual-ota-store-scope {
     background: rgba(12, 122, 107, .06);
 }
 
-main[data-current-page="ai-workbench"] .dual-ota-store-scope-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-}
-
-main[data-current-page="ai-workbench"] .dual-ota-store-scope-head strong {
-    color: var(--dual-text);
-    font-size: 14px;
-    font-weight: 850;
-}
-
-main[data-current-page="ai-workbench"] .dual-ota-store-scope-head span {
-    color: #385447;
-    font-size: 12px;
-}
-
 main[data-current-page="ai-workbench"] .dual-ota-store-scope-list {
     display: grid;
-    grid-template-columns: repeat(2, minmax(72px, 1fr));
+    grid-template-columns: repeat(3, minmax(76px, 1fr));
     gap: 8px;
-    width: min(220px, 100%);
+    width: min(300px, 100%);
     margin-top: 0;
+    flex: 0 0 auto;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-store-option {
@@ -12279,6 +12308,33 @@ main[data-current-page="ai-workbench"] .dual-ota-system-overview .dual-ota-bound
     line-height: 1.5 !important;
 }
 
+main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-warning,
+main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-critical {
+    border-color: var(--dual-border) !important;
+    background: #FFFFFF !important;
+    box-shadow: inset 0 3px 0 rgba(139, 86, 49, .40) !important;
+    color: var(--dual-text) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-warning .dual-ota-node-label,
+main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-critical .dual-ota-node-label {
+    color: #7A6046 !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-warning em,
+main[data-current-page="ai-workbench"] .dual-ota-loss-node.is-critical em {
+    color: #8B5631 !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-deprioritized-list span {
+    border-color: rgba(139, 86, 49, .26) !important;
+    background: #FFF8EF !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-deprioritized-list strong {
+    color: #8B5631 !important;
+}
+
 main[data-current-page="ai-workbench"] .dual-ota-boundary-card {
     min-height: 178px;
 }
@@ -12306,10 +12362,27 @@ main[data-current-page="ai-workbench"] .dual-ota-deprioritized .dual-ota-card-he
 
 @media (max-width: 1180px) {
     main[data-current-page="ai-workbench"] .dual-ota-hero-grid,
-    main[data-current-page="ai-workbench"] .dual-ota-store-scope-list,
     main[data-current-page="ai-workbench"] .dual-ota-system-grid,
     main[data-current-page="ai-workbench"] .dual-ota-decision-actions {
         grid-template-columns: 1fr !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-context-strip {
+        align-items: stretch;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-context-item {
+        width: 100%;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-store-scope {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-store-scope-list {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        width: 100%;
     }
 
     main[data-current-page="ai-workbench"] .dual-ota-system-column {

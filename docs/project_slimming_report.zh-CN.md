@@ -1734,6 +1734,14 @@
 - 当前 self-audit：完整目录约 `252.67 MB`，不含 `.git` 约 `119.27 MB`，不含 `.git` 和依赖约 `90.08 MB`，Git 跟踪文件约 `19.04 MB / 620` 个；代码范围 `375` 个文件、`199,495` 行、非空 `183,469` 行。默认可清理目标为 `runtime` 约 `26.11 MB / 837` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`887` checks）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
 
+## 2026-07-03 保存点：本地缓存层瘦身与审计口径同步
+
+- `scripts/clean_project_local_artifacts.ps1` 新增 OTA 浏览器 profile 缓存层清理：仅纳入 `Default/Cache`、`Default/Code Cache`、Service Worker 缓存、GPU/Dawn/Shader 缓存和 `BrowserMetrics*` 文件；不纳入 Cookies、Local Storage、Session Storage、IndexedDB、Network，避免把可复用登录态当作普通缓存删除。
+- `scripts/project_self_audit.mjs` 同步识别上述缓存层，让 `npm.cmd run self:audit` 与 `npm.cmd run self:clean:dry-run` 使用同一批候选目标。
+- 本轮 dry-run 识别 `95` 个默认可清理目标，预计释放 `798.69 MB`；执行后停止占用 `runtime/codex/think-run-8080*.log` 的本地 PHP 8080 开发进程并重跑清理，最终默认可清理目标降至 `0.01 MB`。
+- 当前复测体积：完整 `HOTEL/` 目录 `178.68 MB`，不含 `.git` 为 `139.3 MB`，不含 `.git` 和依赖为 `110.1 MB`；`storage/` 从约 `486.68 MB` 降至 `22.03 MB`。
+- 本轮不删除业务代码、数据库备份、依赖目录、已跟踪证据文件或未跟踪 `reports/*.json`；OTA 渠道证据与全酒店经营事实边界不变。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

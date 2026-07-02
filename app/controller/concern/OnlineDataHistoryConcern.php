@@ -203,7 +203,30 @@ trait OnlineDataHistoryConcern
 
         $decodedRows = $this->decodeOnlineRawRows($rows);
         $displayHotels = $section === 'rank' ? $this->buildCtripBusinessDisplayHotels($decodedRows) : [];
+        $trafficFallback = null;
+        if ($section === 'rank' && !empty($displayHotels) && !$this->ctripBusinessDisplayHotelsHaveTraffic($displayHotels)) {
+            $fallback = $this->findLatestCtripRankRowsWithTraffic($latest, $hotelId, $currentUser, $columns);
+            if ($fallback !== null) {
+                $latest = $fallback['latest'];
+                $rows = $fallback['rows'];
+                $decodedRows = $fallback['decoded_rows'];
+                $displayHotels = $fallback['display_hotels'];
+                $fetchedAt = $fallback['fetched_at'];
+                $trafficFallback = [
+                    'reason' => 'latest_rank_without_traffic',
+                    'source' => 'latest_rank_batch_with_traffic',
+                    'replaced_data_date' => (string)($fallback['replaced_data_date'] ?? ''),
+                    'replaced_fetched_at' => (string)($fallback['replaced_fetched_at'] ?? ''),
+                    'fallback_data_date' => (string)($latest['data_date'] ?? ''),
+                    'fallback_fetched_at' => $fetchedAt,
+                ];
+            }
+        }
         $displayTrafficRows = $section === 'traffic' ? CtripTrafficDisplayService::buildCtripTrafficDisplayRows($decodedRows) : [];
+        $displaySummary = $section === 'rank' ? $this->buildCtripBusinessDisplaySummary($displayHotels) : $this->emptyCtripBusinessDisplaySummary();
+        if ($trafficFallback !== null) {
+            $displaySummary['source_notice'] = '当前最新批次未返回流量字段，已展示最近一组有流量的携程竞争圈数据。';
+        }
 
         return [
             'data_type' => $section,
@@ -216,10 +239,95 @@ trait OnlineDataHistoryConcern
             'total' => count($rows),
             'rows' => $decodedRows,
             'display_hotels' => $displayHotels,
-            'display_summary' => $section === 'rank' ? $this->buildCtripBusinessDisplaySummary($displayHotels) : $this->emptyCtripBusinessDisplaySummary(),
+            'display_summary' => $displaySummary,
             'display_traffic_rows' => $displayTrafficRows,
             'display_traffic_summary' => $section === 'traffic' ? CtripTrafficDisplayService::buildCtripTrafficDisplaySummary($displayTrafficRows) : CtripTrafficDisplayService::emptyCtripTrafficDisplaySummary(),
+            'traffic_fallback' => $trafficFallback,
         ];
+    }
+
+    private function ctripBusinessDisplayHotelsHaveTraffic(array $displayHotels): bool
+    {
+        foreach ($displayHotels as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            foreach (['totalDetailNum', 'qunarDetailVisitors', 'convertionRate', 'qunarDetailCR'] as $field) {
+                if ((float)($row[$field] ?? 0) > 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function findLatestCtripRankRowsWithTraffic(array $currentLatest, string $hotelId, $currentUser, array $columns): ?array
+    {
+        $query = Db::name('online_daily_data');
+        $this->applyCtripStorageFilter($query, $columns);
+        $this->applyCtripSectionTypeFilter($query, 'rank', $columns);
+        $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
+
+        $candidateRows = $this->orderOnlineDataByFetchTime($query, $columns)
+            ->limit(1000)
+            ->select()
+            ->toArray();
+        if (empty($candidateRows)) {
+            return null;
+        }
+
+        $currentBatchKey = $this->ctripLatestBatchKey($currentLatest, $columns, $hotelId === '');
+        $groups = [];
+        foreach ($candidateRows as $row) {
+            $key = $this->ctripLatestBatchKey($row, $columns, $hotelId === '');
+            if (!isset($groups[$key])) {
+                $groups[$key] = [];
+            }
+            $groups[$key][] = $row;
+        }
+
+        foreach ($groups as $key => $rows) {
+            if ($key === $currentBatchKey) {
+                continue;
+            }
+            $decodedRows = $this->decodeOnlineRawRows($rows);
+            $displayHotels = $this->buildCtripBusinessDisplayHotels($decodedRows);
+            if (!$this->ctripBusinessDisplayHotelsHaveTraffic($displayHotels)) {
+                continue;
+            }
+
+            $latest = $rows[0] ?? [];
+            return [
+                'latest' => is_array($latest) ? $latest : [],
+                'rows' => $rows,
+                'decoded_rows' => $decodedRows,
+                'display_hotels' => $displayHotels,
+                'fetched_at' => $this->maxOnlineRowsFetchedAt($rows, $columns),
+                'replaced_data_date' => (string)($currentLatest['data_date'] ?? ''),
+                'replaced_fetched_at' => $this->onlineRowFetchedAt($currentLatest, $columns),
+            ];
+        }
+
+        return null;
+    }
+
+    private function ctripLatestBatchKey(array $row, array $columns, bool $includeSystemHotel): string
+    {
+        if (isset($columns['sync_task_id']) && (int)($row['sync_task_id'] ?? 0) > 0) {
+            return 'task:' . (int)$row['sync_task_id'];
+        }
+        if (isset($columns['batch_no']) && trim((string)($row['batch_no'] ?? '')) !== '') {
+            return 'batch:' . trim((string)$row['batch_no']);
+        }
+
+        $parts = [
+            'date:' . (string)($row['data_date'] ?? ''),
+            'time:' . $this->onlineRowFetchedAt($row, $columns),
+        ];
+        if ($includeSystemHotel && isset($columns['system_hotel_id'])) {
+            $parts[] = 'hotel:' . (string)($row['system_hotel_id'] ?? '');
+        }
+        return implode('|', $parts);
     }
 
     private function emptyCtripLatestSection(string $section, string $label): array

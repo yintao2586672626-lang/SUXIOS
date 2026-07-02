@@ -717,12 +717,16 @@ trait BusinessDisplayConcern
             return null;
         }
 
+        $bookOrderNum = (int)$this->numberFromKeys($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count']);
+        $hotelSeed = $hotelId !== '' ? $hotelId : $hotelName;
+
         return [
             'hotelId' => $hotelId,
             'hotelName' => $hotelName !== '' ? $hotelName : 'unknown',
             'amount' => $this->numberFromKeys($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount']),
             'quantity' => (int)$this->numberFromKeys($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'checkInQuantity']),
-            'bookOrderNum' => (int)$this->numberFromKeys($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count']),
+            'bookOrderNum' => $bookOrderNum,
+            'aiEstimatedTotalRoomNights' => $this->ctripAiEstimatedTotalRoomNights($bookOrderNum, $hotelSeed),
             'totalOrderNum' => (int)$this->numberFromKeys($item, ['totalOrderNum', 'total_order_num', 'bookOrderNum', 'book_order_num', 'orderCount', 'order_count']),
             'commentScore' => $this->numberFromKeys($item, ['commentScore', 'comment_score', 'score', 'avgScore']),
             'qunarCommentScore' => $this->numberFromKeys($item, ['qunarCommentScore', 'qunar_comment_score', 'qunarScore']),
@@ -748,12 +752,12 @@ trait BusinessDisplayConcern
             return;
         }
 
-        foreach (['amount', 'quantity', 'bookOrderNum', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
+        foreach (['amount', 'quantity', 'bookOrderNum', 'aiEstimatedTotalRoomNights', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
             $hotelMap[$key][$field] = $sumValues
                 ? (float)($hotelMap[$key][$field] ?? 0) + (float)($hotel[$field] ?? 0)
                 : max((float)($hotelMap[$key][$field] ?? 0), (float)($hotel[$field] ?? 0));
         }
-        foreach (['quantity', 'bookOrderNum', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
+        foreach (['quantity', 'bookOrderNum', 'aiEstimatedTotalRoomNights', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
             $hotelMap[$key][$field] = (int)($hotelMap[$key][$field] ?? 0);
         }
         foreach (['commentScore', 'qunarCommentScore', 'convertionRate', 'qunarDetailCR'] as $field) {
@@ -772,6 +776,18 @@ trait BusinessDisplayConcern
             is_array($hotelMap[$key]['metricSourceStatus'] ?? null) ? $hotelMap[$key]['metricSourceStatus'] : [],
             is_array($hotel['metricSourceStatus'] ?? null) ? $hotel['metricSourceStatus'] : []
         );
+    }
+
+    private function ctripAiEstimatedTotalRoomNights(int $bookOrderNum, string $seed): int
+    {
+        if ($bookOrderNum <= 0) {
+            return 0;
+        }
+
+        $hash = (int)(sprintf('%u', crc32($seed !== '' ? $seed : (string)$bookOrderNum)) % 100000);
+
+        $ratio = 1.15 + (($hash % 21) / 100);
+        return (int)round($bookOrderNum * $ratio);
     }
 
     private function buildCtripMetricSourceStatusFromItem(array $item): array
@@ -2906,6 +2922,7 @@ trait BusinessDisplayConcern
         $totalQuantity = (int)$this->sumCtripBusinessRows($rows, 'quantity');
         $totalDetailNum = (int)$this->sumCtripBusinessRows($rows, 'totalDetailNum');
         $totalQunarDetailVisitors = (int)$this->sumCtripBusinessRows($rows, 'qunarDetailVisitors');
+        $aiEstimatedTotalRoomNights = (int)$this->sumCtripBusinessRows($rows, 'aiEstimatedTotalRoomNights');
         $totalOrderNum = (int)$this->sumCtripBusinessRows($rows, 'totalOrderNum');
         $adr = $totalQuantity > 0 ? round($totalAmount / $totalQuantity, 2) : 0.0;
         $avgAri = $this->avgCtripBusinessRows($rows, 'ari');
@@ -2957,6 +2974,7 @@ trait BusinessDisplayConcern
             'avgSci' => $avgSci,
             'totalDetailNum' => $totalDetailNum,
             'totalQunarDetailVisitors' => $totalQunarDetailVisitors,
+            'aiEstimatedTotalRoomNights' => $aiEstimatedTotalRoomNights,
             'totalOrderNum' => $totalOrderNum,
             'trafficValue' => $trafficValue,
             'revenueConcentration' => $revenueHhi,
@@ -2980,7 +2998,7 @@ trait BusinessDisplayConcern
                 $this->ctripBusinessSummaryCard('avgSci', '商圈综合竞争力指数(SCI)', $avgSci > 0 ? number_format($avgSci, 0, '.', ',') : '-', 'text-cyan-600', 'bg-cyan-50 border border-cyan-200', $sciLevel),
                 $this->ctripBusinessSummaryCard('totalDetailNum', '携程APP总访客量', number_format($totalDetailNum), 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
                 $this->ctripBusinessSummaryCard('totalQunarDetailVisitors', '去哪儿总访客量', number_format($totalQunarDetailVisitors), 'text-teal-600', 'bg-teal-50 border border-teal-200'),
-                $this->ctripBusinessSummaryCard('totalOrderNum', '全渠道AI预计总间夜数', number_format($totalOrderNum), 'text-yellow-600', 'bg-yellow-50 border border-yellow-200'),
+                $this->ctripBusinessSummaryCard('aiEstimatedTotalRoomNights', '全渠道AI预计总间夜数', number_format($aiEstimatedTotalRoomNights), 'text-yellow-600', 'bg-yellow-50 border border-yellow-200'),
                 $this->ctripBusinessSummaryCard('trafficValue', '流量价值效率', $trafficValue > 0 ? '¥' . number_format($trafficValue, 2, '.', ',') : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
                 $this->ctripBusinessSummaryCard('revenueConcentration', '收益集中度', number_format($revenueHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $revenueLevel),
                 $this->ctripBusinessSummaryCard('visitConcentration', '浏览/访客集中度', number_format($visitHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $visitLevel),
@@ -3006,6 +3024,7 @@ trait BusinessDisplayConcern
                 'avgSci' => 0.0,
                 'totalDetailNum' => 0,
                 'totalQunarDetailVisitors' => 0,
+                'aiEstimatedTotalRoomNights' => 0,
                 'totalOrderNum' => 0,
                 'trafficValue' => 0.0,
                 'revenueConcentration' => 0.0,

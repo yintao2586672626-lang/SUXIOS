@@ -221,10 +221,10 @@ window.SUXI_DUAL_OTA_HOME = (() => {
             ],
             nodeExplanations: {
                 exposure: {
-                    title: '入口流量够',
-                    description: '曝光正增长，先不归因入口不足。',
-                    evidence: '字段：曝光 / 日期 / 平台',
-                    action: '继续观察曝光字段完整性。',
+                    title: '曝光正常',
+                    description: '曝光仍在增长，收入问题暂不归因于入口流量不足。',
+                    evidence: '字段：曝光 / 浏览 / 日期 / 平台',
+                    action: '优先检查浏览、订单和房价环节。',
                 },
                 browse: {
                     title: '浏览承接弱',

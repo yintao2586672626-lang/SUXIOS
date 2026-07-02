@@ -417,6 +417,9 @@ function measureCleanupTargets() {
       if (entry.isDirectory() && /^(ctrip_profile_phpunit|meituan_profile_phpunit)/.test(entry.name)) {
         candidates.push(path.join('storage', entry.name));
       }
+      if (entry.isDirectory() && /^(ctrip_profile_|meituan_profile_)/.test(entry.name)) {
+        candidates.push(...collectProfileCacheCandidates(path.join('storage', entry.name)));
+      }
       if (entry.isFile() && entry.name.endsWith('.log')) {
         candidates.push(path.join('storage', entry.name));
       }
@@ -446,9 +449,10 @@ function measureCleanupTargets() {
     candidates.push(path.join('database', 'backups'));
   }
 
+  const uniqueCandidates = [...new Set(candidates.map((candidate) => normalizePath(candidate)))];
   const rows = [];
   let bytes = 0;
-  for (const candidate of candidates) {
+  for (const candidate of uniqueCandidates) {
     const absolutePath = path.resolve(repoRoot, candidate);
     if (!isInsideRepo(absolutePath) || !fs.existsSync(absolutePath)) {
       continue;
@@ -470,6 +474,48 @@ function measureCleanupTargets() {
     includes_sensitive_backups: includeSensitiveBackups,
     targets: rows.map(({ bytes: _bytes, ...row }) => row),
   };
+}
+
+function collectProfileCacheCandidates(profileRelativePath) {
+  const cacheRelativePaths = [
+    path.join('Default', 'Cache'),
+    path.join('Default', 'Code Cache'),
+    path.join('Default', 'Service Worker', 'CacheStorage'),
+    path.join('Default', 'Service Worker', 'ScriptCache'),
+    path.join('Default', 'GPUCache'),
+    path.join('Default', 'DawnGraphiteCache'),
+    path.join('Default', 'DawnWebGPUCache'),
+    'GrShaderCache',
+    'ShaderCache',
+    'GraphiteDawnCache',
+  ];
+  const candidates = [];
+  for (const relativePath of cacheRelativePaths) {
+    candidates.push(path.join(profileRelativePath, relativePath));
+  }
+
+  const profileAbsolutePath = path.join(repoRoot, profileRelativePath);
+  const stack = [profileAbsolutePath];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const absolutePath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(absolutePath);
+      } else if (entry.isFile() && entry.name.startsWith('BrowserMetrics')) {
+        candidates.push(path.relative(repoRoot, absolutePath));
+      }
+    }
+  }
+
+  return candidates;
 }
 
 function measurePath(absolutePath) {
