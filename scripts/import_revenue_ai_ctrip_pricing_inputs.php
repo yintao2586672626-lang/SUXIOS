@@ -604,6 +604,15 @@ function ctrip_pricing_import_lint_number(array &$issues, array $row, string $pa
     }
 }
 
+function ctrip_pricing_import_date(string $value): ?DateTimeImmutable
+{
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+    if (!$date instanceof DateTimeImmutable) {
+        return null;
+    }
+    return $date->format('Y-m-d') === $value ? $date : null;
+}
+
 /**
  * @param array<string, mixed> $payload
  * @return array<string, mixed>
@@ -720,8 +729,21 @@ function ctrip_pricing_import_lint_payload(array $payload, string $optionDate): 
             ctrip_pricing_import_lint_issue($issues, 'room_type_key_unmatched', $path . '.room_type_key', 'room_type_key must match a room_types key.');
         }
         $analysisDate = trim((string)($row['analysis_date'] ?? $businessDate));
-        if ($analysisDate !== '' && $businessDate !== '' && $analysisDate > $businessDate) {
-            ctrip_pricing_import_lint_issue($issues, 'analysis_date_in_future', $path . '.analysis_date', 'analysis_date must not be after business_date.');
+        $analysisDateValue = $analysisDate !== '' ? ctrip_pricing_import_date($analysisDate) : null;
+        $businessDateValue = $businessDate !== '' ? ctrip_pricing_import_date($businessDate) : null;
+        if ($analysisDate === '' || !$analysisDateValue instanceof DateTimeImmutable) {
+            ctrip_pricing_import_lint_issue($issues, 'analysis_date_invalid', $path . '.analysis_date', 'analysis_date must be YYYY-MM-DD.');
+        } elseif ($businessDateValue instanceof DateTimeImmutable) {
+            if ($analysisDateValue > $businessDateValue) {
+                ctrip_pricing_import_lint_issue($issues, 'analysis_date_in_future', $path . '.analysis_date', 'analysis_date must not be after business_date.');
+            }
+            $earliestRecentDate = $businessDateValue->modify('-6 days');
+            if ($analysisDateValue < $earliestRecentDate) {
+                ctrip_pricing_import_lint_issue($issues, 'analysis_date_outside_recent_7d', $path . '.analysis_date', 'analysis_date must be within the 7-day window ending at business_date.', [
+                    'earliest_allowed_date' => $earliestRecentDate->format('Y-m-d'),
+                    'latest_allowed_date' => $businessDateValue->format('Y-m-d'),
+                ]);
+            }
         }
         if (ctrip_pricing_import_string($row, 'competitor_name') === '' && (int)($row['competitor_hotel_id'] ?? 0) <= 0) {
             ctrip_pricing_import_lint_issue($issues, 'competitor_identity_missing', $path, 'competitor_name or competitor_hotel_id is required.');
