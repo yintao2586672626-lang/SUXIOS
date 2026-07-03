@@ -439,10 +439,26 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         cookieAlertRows = [],
         qualityTaskRows = [],
         highRiskActionRows = [],
+        todayCollectionReminderRows = [],
         platformText = dataHealthPlatformText,
     } = {}) => {
         const priorityWeight = { high: 0, medium: 1, low: 2, ok: 3 };
         const rows = [];
+        (Array.isArray(todayCollectionReminderRows) ? todayCollectionReminderRows : [])
+            .filter(row => row?.priority !== 'ok' && row?.status !== 'ready')
+            .forEach((row, index) => {
+                rows.push({
+                    key: row?.key || `ota-today-${index}-${row?.platform || ''}`,
+                    priority: row?.priority || 'high',
+                    source_label: row?.sourceLabel || '当日采集',
+                    platform_label: row?.platformLabel || row?.platform_label || platformText(row?.platform),
+                    title: row?.title || 'OTA 当日采集待处理',
+                    detail: row?.detail || row?.nextActionText || '目标日 OTA 入库证据不足，需先补齐采集证明。',
+                    action_type: 'today_collection',
+                    action_tab: row?.actionTab || '',
+                    button_text: row?.buttonText || '查看采集入口',
+                });
+            });
         (Array.isArray(cookieAlertRows) ? cookieAlertRows : []).forEach((row, index) => {
             rows.push({
                 key: `cookie-${index}-${row?.platform || ''}-${row?.hotel_id || ''}-${row?.config_id || row?.name || ''}`,
@@ -4104,6 +4120,122 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                 });
             })
             .filter(row => row.platform);
+    };
+    const buildOtaTodayCollectionReminderRows = ({
+        backendQuestionSource = {},
+        collectionReliability = {},
+        dashboardDataSources = {},
+        collectionSourceRows = null,
+        closureSummary = null,
+    } = {}) => {
+        const sourceRows = Array.isArray(collectionSourceRows)
+            ? collectionSourceRows
+            : buildPhase1EmployeeCollectionSourceRows({ backendQuestionSource, collectionReliability, dashboardDataSources });
+        const backendSummary = closureSummary && typeof closureSummary === 'object'
+            ? closureSummary
+            : (backendQuestionSource?.closure_summary && typeof backendQuestionSource.closure_summary === 'object'
+                ? backendQuestionSource.closure_summary
+                : (collectionReliability?.phase1_employee_questions?.closure_summary || dashboardDataSources?.phase1_employee_questions?.closure_summary || {}));
+        const topActionPlatform = String(backendSummary?.top_action_platform || backendSummary?.top_action_source_snapshot?.platform || '').toLowerCase();
+        const topActionEntryOptions = Array.isArray(backendSummary?.top_action_entry_options) ? backendSummary.top_action_entry_options : [];
+        const fallbackSnapshot = backendSummary?.top_action_source_snapshot && typeof backendSummary.top_action_source_snapshot === 'object'
+            ? normalizePhase1CollectionSourceSummaryRow({
+                platform: backendSummary.top_action_source_snapshot.platform,
+                storage_table: 'online_daily_data',
+                source_policy: 'read_existing_online_daily_data_only',
+                target_date_rows: backendSummary.top_action_source_snapshot.target_date_rows,
+                latest_available: backendSummary.top_action_source_snapshot.latest_available,
+                latest_available_reference_only: backendSummary.top_action_source_snapshot.latest_available_reference_only,
+            })
+            : null;
+        const rows = sourceRows.length ? sourceRows : (fallbackSnapshot?.platform ? [fallbackSnapshot] : []);
+
+        return rows
+            .filter(row => String(row?.platform || '').trim())
+            .map((row) => {
+                const platform = String(row.platform || '').toLowerCase();
+                const platformLabel = row.platformLabel || phase1EmployeePlatformText(platform);
+                const targetRows = Math.max(0, Number(row.targetDateRows ?? row.target_date_rows ?? row.source_rows ?? 0));
+                const isReady = targetRows > 0;
+                const matchingOptions = topActionEntryOptions
+                    .filter(option => {
+                        const optionPlatform = String(option?.platform || option?.target_platform || '').toLowerCase();
+                        return !optionPlatform || !platform || optionPlatform === platform || topActionPlatform === platform;
+                    });
+                const entryText = matchingOptions.map(phase1EmployeeActionEntryOptionText).filter(Boolean).join('、');
+                const entryRawText = matchingOptions.map(phase1EmployeeActionEntryOptionRawText).filter(Boolean).join('、');
+                const readinessText = matchingOptions.map(phase1EmployeeActionEntryOptionReadinessText).filter(Boolean).join('；');
+                const targetText = row.targetText || `目标日 ${targetRows} 行`;
+                const latestText = row.latestText || '最近可用：未查询到';
+                const status = isReady ? 'ready' : 'missing';
+                const nextActionText = isReady
+                    ? '继续复核字段可信、指标可信和 AI/运营后续门禁。'
+                    : (entryText
+                        ? `按现有入口补采：${entryText}`
+                        : `优先核对${platformLabel}浏览器 Profile、登录态和采集配置，再补齐目标日源数据。`);
+                const detail = isReady
+                    ? `${targetText}；当日 OTA 源数据已有入库行，但仍需继续校验字段和指标可信。`
+                    : `${targetText}；${latestText}。latest_available/历史样本只能作参考，不能替代目标日采集证明。`;
+                return {
+                    key: `ota-today-${platform || 'platform'}`,
+                    platform,
+                    platformLabel,
+                    status,
+                    statusText: isReady ? '当日已采到' : '当日未采到',
+                    className: isReady
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-amber-200 bg-amber-50 text-amber-700',
+                    priority: isReady ? 'ok' : 'high',
+                    sourceLabel: '当日采集',
+                    title: isReady ? `${platformLabel} 当日采集已入库` : `${platformLabel} 当日采集缺失`,
+                    detail,
+                    targetText,
+                    latestText,
+                    nextActionText,
+                    proofText: isReady
+                        ? '证明口径：online_daily_data 目标日源数据行数大于 0。'
+                        : '完成判定：online_daily_data 目标日源数据行数大于 0，并保留 data_source_id/sync_task_id/source_trace/raw_data 证据。',
+                    boundaryText: row.boundaryText || '只按 OTA 渠道目标日证据判断；不改变携程/美团采集逻辑。',
+                    entryText,
+                    entryRawText,
+                    readinessText,
+                    actionTab: '',
+                    buttonText: entryText ? '查看入口' : '核对采集配置',
+                };
+            });
+    };
+    const buildOtaTodayCollectionReminderSummary = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const missingRows = safeRows.filter(row => row?.status !== 'ready');
+        const readyRows = safeRows.filter(row => row?.status === 'ready');
+        if (!safeRows.length) {
+            return {
+                status: 'unknown',
+                statusText: '未返回证据',
+                className: 'border-gray-200 bg-gray-50 text-gray-500',
+                detailText: '尚未拿到携程/美团目标日源数据摘要，不能判断当日采集健康。',
+                pendingCount: 0,
+                readyCount: 0,
+            };
+        }
+        if (missingRows.length) {
+            return {
+                status: 'missing',
+                statusText: `${missingRows.length} 个平台缺当日证据`,
+                className: 'border-amber-200 bg-amber-50 text-amber-700',
+                detailText: `${missingRows.map(row => row.platformLabel).join('、')} 目标日 OTA 入库证据不足；latest_available 仅作参考。`,
+                pendingCount: missingRows.length,
+                readyCount: readyRows.length,
+            };
+        }
+        return {
+            status: 'ready',
+            statusText: '当日采集已具备',
+            className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+            detailText: `${readyRows.length} 个平台已有目标日入库行；继续复核字段可信、收益分析和 AI/运营门禁。`,
+            pendingCount: 0,
+            readyCount: readyRows.length,
+        };
     };
     const buildPhase1EmployeeFieldTrustRows = ({ backendQuestionSource = {}, collectionReliability = {}, dashboardDataSources = {} } = {}) => {
         const trustedQuestion = phase1EmployeeBackendQuestion(backendQuestionSource, 'trusted_fields');
