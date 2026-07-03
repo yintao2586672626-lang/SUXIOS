@@ -3788,7 +3788,7 @@ trait BusinessDisplayConcern
         }
 
         if (isset($columns['data_type'])) {
-            $query->where('data_type', 'business');
+            $query->where('data_type', 'peer_rank');
         }
     }
 

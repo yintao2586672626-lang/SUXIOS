@@ -6757,7 +6757,7 @@
                                             <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply"
                                                 class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                                                 <option value="">请选择目标酒店</option>
-                                                <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">
+                                                <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">
                                                     {{ hotel.name }}
                                                 </option>
                                             </select>
@@ -7041,7 +7041,7 @@
                                                     <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply"
                                                         class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500">
                                                         <option value="">请选择目标酒店</option>
-                                                        <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                        <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                     </select>
                                                     <button @click="refreshCtripHotelConfigOptions"
                                                         class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
@@ -7225,12 +7225,12 @@
                                     </div>
 
                                     <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-xs text-gray-400">可选，临时获取可不先保存配置</span></label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-xs text-gray-400">仅显示已配置酒店</span></label>
                                         <div class="flex gap-2">
                                             <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply"
                                                 class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                                                 <option value="">请选择目标酒店</option>
-                                                <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">
+                                                <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">
                                                     {{ hotel.name }}
                                                 </option>
                                             </select>
@@ -7480,7 +7480,7 @@
                                                 <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply"
                                                     class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
                                                     <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                    <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                 </select>
                                             </div>
                                             <div>
@@ -7598,7 +7598,7 @@
                                                 <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply"
                                                     class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                                                     <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                    <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                 </select>
                                             </div>
                                             <div>
@@ -7725,7 +7725,7 @@
                                                 <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply"
                                                     class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500">
                                                     <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                    <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                 </select>
                                             </div>
                                             <div>
@@ -9269,11 +9269,11 @@
                                     </div>
 
                                     <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-xs text-gray-400">可选，临时获取可不先保存配置</span></label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-xs text-gray-400">仅显示已配置酒店</span></label>
                                         <select v-model="meituanForm.hotelId"
                                             class="w-full px-3 py-2 border rounded-lg">
                                             <option value="">请选择目标酒店</option>
-                                            <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                            <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                         </select>
                                         <div v-if="meituanForm.hotelId && selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
                                             {{ getHotelNameById(meituanForm.hotelId) }}｜美团已配置｜上次更新 {{ formatConfigDate(selectedMeituanHotelConfig.update_time || selectedMeituanHotelConfig.created_at) || '-' }}
@@ -9655,7 +9655,7 @@
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
                                                 <select v-model="meituanForm.hotelId" @change="syncMeituanTrafficConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
                                                     <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                 </select>
                                                 <div v-if="meituanForm.hotelId && selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
                                                     {{ getHotelNameById(meituanForm.hotelId) }}｜已读取美团配置
@@ -9742,7 +9742,7 @@
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
                                                 <select v-model="meituanForm.hotelId" @change="syncMeituanOrderConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
                                                     <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                 </select>
                                             </div>
                                             <div>
@@ -9773,7 +9773,7 @@
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
                                                 <select v-model="meituanForm.hotelId" @change="syncMeituanOrderConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
                                                     <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                 </select>
                                                 <div v-if="meituanForm.hotelId && selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
                                                     {{ getHotelNameById(meituanForm.hotelId) }}：已读取美团配置
@@ -9864,7 +9864,7 @@
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
                                                 <select v-model="meituanForm.hotelId" @change="syncMeituanAdsConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
                                                     <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                 </select>
                                                 <div v-if="meituanForm.hotelId && selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
                                                     {{ getHotelNameById(meituanForm.hotelId) }}：已读取美团配置
@@ -33360,6 +33360,19 @@
                 return !!hotelId && (hasAnyPlatformFetchConfigByHotelId(hotelId) || autoFetchConfigProofPendingForHotelId(hotelId));
             };
 
+            const platformTargetHotelPool = computed(() => {
+                const pool = permittedHotels.value && permittedHotels.value.length ? permittedHotels.value : hotels.value;
+                return Array.isArray(pool) ? pool : [];
+            });
+
+            const ctripTargetHotelOptions = computed(() => {
+                return platformTargetHotelPool.value.filter(hotel => hasCtripFetchConfigByHotelId(hotel?.id));
+            });
+
+            const meituanTargetHotelOptions = computed(() => {
+                return platformTargetHotelPool.value.filter(hotel => hasMeituanFetchConfigByHotelId(hotel?.id));
+            });
+
             const ensureHotelOtaConfigLists = async () => {
                 const tasks = [];
                 if (!ctripConfigListLoaded.value && ctripConfigList.value.length === 0) tasks.push(loadCtripConfigList({
@@ -42849,13 +42862,13 @@
                 toNumber, toFixedSafe, safeDivide, formatNumber, calculateHhi, revenueConcentration, visitConcentration, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
                 fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, saveCtripReviewImSession, saveCtripReviewForMatch, saveCtripOrderForMatch, lookupCtripReviewOrderMatch, copyCtripReviewOrdererAssistScript, bindCtripReviewOrderMatch, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, fillCtripCookieApiCorePreset, fillDataConfigCtripCookieApiCorePreset, checkCtripProfileStatus, runCtripCookieApiCapture, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, importMeituanOrderCsvData, copyMeituanOrderCollectorScript, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, runMeituanBrowserSupplementCapture, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
                 // 携程配置管理
-                ctripConfigForm, ctripConfigList, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig, canFetchCtripManualData,
+                ctripConfigForm, ctripConfigList, ctripTargetHotelOptions, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig, canFetchCtripManualData,
                 ctripOverviewFetchActionLoading, ctripOverviewCoreFetchRunning,
                 showCtripCookieEditorModal, ctripCookieEditorLoading, ctripCookieEditorSaving, ctripCookieEditorForm,
                 ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount, ctripLatestSnapshotText, ctripLatestSnapshotClass,
                 loadCtripConfigList, openCtripManualTab, loadLatestCtripData, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, openCtripCookieCreateFromHealth, openCtripCookieEditorFromHealth, editCtripCookieFromHealth, saveCtripCookieFromHealth, closeCtripCookieEditor, deleteCtripCookieFromHealth, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, scheduleCtripHotelConfigApply, openCtripOverviewFetchTab, prepareCtripOverviewFetchAction, runCtripOverviewFetchAction, runCtripOverviewCoreFetchAction, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
                 // 美团配置管理
-                meituanConfigForm, meituanConfigList, meituanConfigListLoading, meituanConfigListLoaded, meituanConfigListLoadFailed, meituanBookmarklet, selectedMeituanHotelConfig, canFetchMeituanRankingData,
+                meituanConfigForm, meituanConfigList, meituanTargetHotelOptions, meituanConfigListLoading, meituanConfigListLoaded, meituanConfigListLoadFailed, meituanBookmarklet, selectedMeituanHotelConfig, canFetchMeituanRankingData,
                 meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanFetchInProgress, meituanFetchBackgroundAccepted, isMeituanPendingResult, isMeituanBackgroundResult, meituanSavedCount, meituanDataFetchTime,
                 meituanSortField, meituanSortOrder, sortMeituanTable,
                 loadMeituanConfigList, openMeituanManualTab, saveMeituanConfigItem, useMeituanConfig, editMeituanConfig, deleteMeituanConfigItem, generateMeituanBookmarklet, applyMeituanHotelConfig, goConfigureMeituanForSelectedHotel,

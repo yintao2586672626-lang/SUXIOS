@@ -283,6 +283,11 @@ requireText('public/ctrip-static.js', 'const runCtripCookieApiCaptureFlow', 'Ctr
 requireText('public/index.html', "sortCtripTable('aiEstimatedTotalRoomNights')", 'Ctrip sales table sorts the AI estimated room-night column by its own derived field');
 requireText('public/index.html', 'hotel.aiEstimatedTotalRoomNights ||', 'Ctrip sales table renders AI estimated room nights instead of reusing totalOrderNum');
 requireText('public/index.html', 'const ctripAiEstimatedRoomNights = (row = {}) => {', 'Ctrip display rows derive AI estimated total room nights for old snapshots');
+requireText('public/index.html', 'const ctripTargetHotelOptions = computed(() => {', 'Ctrip manual target hotel list is filtered to configured Ctrip data sources');
+requireText('public/index.html', '<option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">', 'Ctrip manual target selects do not list unbound hotels');
+requireText('public/index.html', 'const meituanTargetHotelOptions = computed(() => {', 'Meituan manual target hotel list is filtered to configured Meituan data sources');
+requireText('public/index.html', '<option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>', 'Meituan manual target selects do not list unbound hotels');
+requireText('public/index.html', '<span class="text-xs text-gray-400">仅显示已配置酒店</span>', 'manual OTA target hotel helper text matches the filtered list behavior');
 requireText('public/ctrip-static.js', "if (field === 'aiEstimatedTotalRoomNights') return row.aiEstimatedTotalRoomNights || 0;", 'Ctrip static sorter supports AI estimated room nights');
 requireText('app/controller/concern/BusinessDisplayConcern.php', "'aiEstimatedTotalRoomNights' => \$this->ctripAiEstimatedTotalRoomNights(\$bookOrderNum, \$hotelSeed),", 'Ctrip backend display rows expose AI estimated room nights from booking orders');
 requireText('app/controller/concern/BusinessDisplayConcern.php', '$ratio = 1.15 + (($hash % 21) / 100);', 'Ctrip backend AI estimated room-night ratio stays within the requested 1.15 to 1.35 band');
@@ -330,6 +335,8 @@ requireText('public/index.html', "requireMeituanStatic('runMeituanManualTabSwitc
 requireText('app/service/MeituanRankDataExtractionService.php', 'final class MeituanRankDataExtractionService', 'Meituan rank response extraction lives in a focused service');
 requireText('app/service/MeituanOnlineDataPersistenceService.php', 'final class MeituanOnlineDataPersistenceService', 'Meituan persistence lives in a focused service');
 requireText('app/service/MeituanOnlineDataPersistenceService.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence rank rows use extracted service');
+requireText('app/service/MeituanOnlineDataPersistenceService.php', "$rankDataType = 'peer_rank';", 'Meituan peerRankData persistence does not write rank rows as business metrics');
+requireText('app/controller/concern/BusinessDisplayConcern.php', "$query->where('data_type', 'peer_rank');", 'Meituan competitor summary reads peer_rank rows instead of business metric rows');
 requireOnlineDataControllerText('return (new MeituanOnlineDataPersistenceService())->parseAndSaveMeituanData(', 'OnlineData keeps only a compatibility wrapper for Meituan persistence');
 requireNoText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence is not re-inlined in OnlineData');
 requireText('app/service/MeituanManualFetchRequestService.php', 'final class MeituanManualFetchRequestService', 'Meituan manual fetch request parameter building lives in a focused service');

@@ -6,6 +6,32 @@ namespace app\service;
 final class OnlineDataFieldFactService
 {
     private const DEFINITIONS = [
+        'peer_rank' => [
+            [
+                'metric_key' => 'meituan_rank_value',
+                'normalized_field' => 'data_value',
+                'storage_field' => 'data_value',
+                'source_keys' => ['dataValue', 'data_value', 'percent', 'rankPercent', 'rank_percent'],
+            ],
+            [
+                'metric_key' => 'meituan_rank_position',
+                'normalized_field' => 'raw_data.rank',
+                'storage_field' => 'raw_data.rank',
+                'source_keys' => ['rank', 'ranking'],
+            ],
+            [
+                'metric_key' => 'meituan_rank_type',
+                'normalized_field' => 'raw_data.rankType',
+                'storage_field' => 'raw_data.rankType',
+                'source_keys' => ['rankType', 'rank_type'],
+            ],
+            [
+                'metric_key' => 'meituan_rank_dimension',
+                'normalized_field' => 'dimension',
+                'storage_field' => 'dimension',
+                'source_keys' => ['_dimName', 'dimName', 'dimension'],
+            ],
+        ],
         'business' => [
             [
                 'metric_key' => 'meituan_rank_value',

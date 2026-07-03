@@ -321,7 +321,7 @@ $meituanRankSource = $meituanRankExtraction['rows'][0] ?? [];
 $meituanRankRow = OnlineDataFieldFactService::attachToOnlineDailyRow(
     [
         'source' => 'meituan',
-        'data_type' => 'business',
+        'data_type' => 'peer_rank',
         'data_date' => '2026-06-14',
         'hotel_id' => 'demo',
         'hotel_name' => 'demo hotel',

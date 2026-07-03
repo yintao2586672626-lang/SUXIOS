@@ -1125,6 +1125,13 @@ if (!fs.existsSync(indexPath)) {
     || !/meituanConfigListLoaded && !selectedMeituanHotelConfig/.test(content)) {
     failures.push('public/index.html Meituan manual fetch must not show a slow pending match state and must keep failed/confirmed-missing states explicit.');
   }
+  if (!content.includes('const ctripTargetHotelOptions = computed(() => {')
+    || !content.includes('const meituanTargetHotelOptions = computed(() => {')
+    || !content.includes('v-for="hotel in ctripTargetHotelOptions"')
+    || !content.includes('v-for="hotel in meituanTargetHotelOptions"')
+    || !content.includes('仅显示已配置酒店')) {
+    failures.push('public/index.html manual OTA target hotel selects must only list platform-configured hotels.');
+  }
   if (!content.includes(':disabled="fetchingData || !canFetchMeituanRankingData()"')
     || !content.includes('const meituanManualFetchConfigProofPending = () => {')
     || !content.includes('const canFetchMeituanRankingData = () => {')

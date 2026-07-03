@@ -35,6 +35,7 @@ final class MeituanOnlineDataPersistenceService
 
             $savedCount = 0;
             $dataDate = $startDate ?: date('Y-m-d', strtotime('-1 day'));
+            $rankDataType = 'peer_rank';
 
             // 记录第一个数据项的字段结构
             if ($debugLog && !empty($dataList[0])) {
@@ -122,7 +123,7 @@ final class MeituanOnlineDataPersistenceService
                 $periodFilter = OnlineDailyDataPersistenceService::applyPeriodFields([
                     'data_date' => $itemDate,
                     'source' => 'meituan',
-                    'data_type' => 'business',
+                    'data_type' => $rankDataType,
                     'dimension' => $dimName,
                 ], $columns, $item);
 
@@ -179,7 +180,7 @@ final class MeituanOnlineDataPersistenceService
                     'qunar_comment_score' => 0,
                     'source' => 'meituan',
                     'dimension' => $dimName,
-                    'data_type' => 'business',
+                    'data_type' => $rankDataType,
                     'raw_data' => json_encode($rawData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 ];
                 $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);

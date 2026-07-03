@@ -204,6 +204,7 @@ for (const [needle, label] of [
 
 for (const [needle, label] of [
   ["$rawData['_source_path'] = $sourcePath;", 'Meituan rank persistence writes source path into raw_data'],
+  ["$rankDataType = 'peer_rank';", 'Meituan rank persistence stores peerRankData as peer_rank, not business metrics'],
   ['OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item)', 'Meituan rank persistence attaches field facts before storage'],
 ]) {
   check('app/service/MeituanOnlineDataPersistenceService.php', label, (source) => source.includes(needle), needle);

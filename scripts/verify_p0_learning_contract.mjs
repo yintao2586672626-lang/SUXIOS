@@ -152,7 +152,8 @@ const checks = [
   {
     name: 'Meituan VIP backfill script is explicit, scoped, and preserves capture timestamps',
     pass: backfillSource.includes('--execute')
-      && backfillSource.includes("data_type = 'business'")
+      && backfillSource.includes("data_type = 'peer_rank'")
+      && backfillSource.includes("raw_data LIKE '%peerRankData%'")
       && backfillSource.includes('platform hotel tags only')
       && backfillSource.includes("'platformTagText'")
       && backfillSource.includes("'hasVipTag'")

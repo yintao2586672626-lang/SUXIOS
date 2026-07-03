@@ -20,7 +20,7 @@ $pdo = new PDO($dsn, $env['DB_USER'] ?? 'root', $env['DB_PASS'] ?? '', [
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
 ]);
 
-$where = "(source = 'meituan' OR platform = 'Meituan') AND data_type = 'business' AND raw_data IS NOT NULL AND raw_data <> ''";
+$where = "(source = 'meituan' OR platform = 'Meituan') AND (data_type = 'peer_rank' OR (data_type = 'business' AND raw_data LIKE '%peerRankData%')) AND raw_data IS NOT NULL AND raw_data <> ''";
 $params = [];
 if ($hotelId !== '') {
     $where .= ' AND system_hotel_id = :hotel_id';
