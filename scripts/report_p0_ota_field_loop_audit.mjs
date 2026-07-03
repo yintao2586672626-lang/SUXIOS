@@ -278,16 +278,10 @@ function platformRow(platform, verifierPayload) {
     .filter((code) => code === 'runtime_field_fact_summary_ready' || code.startsWith(`${platform.platform}_`));
   const p0TrafficGateStatus = String(gate.status || '');
   const fieldFactStatus = String(platform?.field_fact_status || '');
-  let blockedMetricKeys = [
+  const blockedMetricKeys = [
     ...arrayOf(gate.p0_standard_fact_missing_metric_keys),
     ...arrayOf(gate.p0_standard_fact_incomplete_metric_keys),
   ].map(String);
-  if (p0TrafficGateStatus && p0TrafficGateStatus !== 'ready' && blockedMetricKeys.length === 0) {
-    blockedMetricKeys = [
-      ...arrayOf(gate.required_metric_keys),
-      ...arrayOf(gate.p0_standard_fact_complete_metric_keys),
-    ].map(String);
-  }
   return {
     platform: String(platform?.platform || ''),
     platform_p0_status: fieldFactStatus === 'ready' && p0TrafficGateStatus === 'ready' ? 'ready' : 'incomplete',
@@ -300,11 +294,43 @@ function platformRow(platform, verifierPayload) {
     missing_metric_keys: arrayOf(gate.p0_standard_fact_missing_metric_keys).map(String),
     incomplete_metric_keys: arrayOf(gate.p0_standard_fact_incomplete_metric_keys).map(String),
     blocked_metric_keys: [...new Set(blockedMetricKeys)].sort(),
+    gate_blockers: gateBlockers(gate),
     expected_payload_paths: arrayOf(gate.hotel_scoped_next_steps)
       .map((step) => String(step?.payload_candidate_path || '').trim())
       .filter(Boolean),
     issue_codes: [...new Set(issueCodes)],
   };
+}
+
+function gateBlockers(gate) {
+  const blockers = [];
+  const trafficFactStatus = String(gate?.traffic_field_fact_status || '').trim();
+  if (trafficFactStatus && !isReadyStatus(trafficFactStatus)) {
+    blockers.push(trafficFactStatus);
+  }
+
+  const platformIdentifierStatus = String(gate?.platform_hotel_identifier_status || '').trim();
+  if (platformIdentifierStatus && !isReadyStatus(platformIdentifierStatus)) {
+    blockers.push(`platform_hotel_identifier_${platformIdentifierStatus}`);
+  }
+
+  const trafficAvailabilityStatus = String(gate?.traffic_availability_status || '').trim();
+  if (trafficAvailabilityStatus && !isReadyStatus(trafficAvailabilityStatus)) {
+    blockers.push(`traffic_availability_${trafficAvailabilityStatus}`);
+  }
+
+  for (const step of arrayOf(gate?.hotel_scoped_next_steps)) {
+    const status = String(step?.payload_candidate_status || '').trim();
+    if (status && !isReadyStatus(status)) {
+      blockers.push(`payload_${status}`);
+    }
+  }
+
+  return [...new Set(blockers)].sort();
+}
+
+function isReadyStatus(status) {
+  return ['complete', 'passed', 'ready', 'success'].includes(String(status || '').trim());
 }
 
 function issueSummary(issues) {
@@ -394,11 +420,11 @@ function renderMarkdown(report) {
     `- payload scan: \`${report.verification.payload_scan_status}\` (${report.verification.payload_scan_policy})`,
     `- downstream gate: \`${report.downstream_gate.status}\``,
     '',
-    '| platform | P0 status | source rows | traffic rows | field facts | traffic gate | blocked metrics | issue codes |',
-    '| --- | --- | ---: | ---: | --- | --- | --- | --- |',
+    '| platform | P0 status | source rows | traffic rows | field facts | traffic gate | blocked metrics | gate blockers | issue codes |',
+    '| --- | --- | ---: | ---: | --- | --- | --- | --- | --- |',
   ];
   for (const row of report.platforms) {
-    lines.push(`| ${row.platform} | ${row.platform_p0_status} | ${row.target_date_rows} | ${row.target_date_traffic_rows} | ${row.field_fact_status || '-'} | ${row.p0_traffic_gate_status || '-'} | ${row.blocked_metric_keys.join(',') || '-'} | ${row.issue_codes.join(',') || '-'} |`);
+    lines.push(`| ${row.platform} | ${row.platform_p0_status} | ${row.target_date_rows} | ${row.target_date_traffic_rows} | ${row.field_fact_status || '-'} | ${row.p0_traffic_gate_status || '-'} | ${row.blocked_metric_keys.join(',') || '-'} | ${row.gate_blockers.join(',') || '-'} | ${row.issue_codes.join(',') || '-'} |`);
   }
 
   if (report.payload_candidates.expected_paths.length > 0) {

@@ -302,6 +302,8 @@ requireIncludes('scripts/report_p0_ota_field_loop_audit.mjs', 'P0 field-loop aud
   'not_run_by_default_no_reports_read',
   'paths_only_no_payload_content',
   'forbidden_claims_until_ready',
+  'gate_blockers',
+  'platform_hotel_identifier_status',
   'whole_hotel_truth_from_ota_only',
   'revenue_ai_final_decision',
   'operation_execution_completed',
