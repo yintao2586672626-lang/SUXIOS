@@ -48,13 +48,8 @@ function parseJsonFromOutput(text) {
   }
 }
 
-function quoteCmdArg(value) {
-  return `"${String(value).replace(/"/g, '""')}"`;
-}
-
-function runNpm(root, script, args) {
-  const command = ['npm.cmd', 'run', script, '--', ...args.map(quoteCmdArg)].join(' ');
-  const run = spawnSync('cmd.exe', ['/d', '/s', '/c', command], {
+function runProcess(root, script, command, args) {
+  const run = spawnSync(command, args, {
     cwd: root,
     encoding: 'utf8',
     windowsHide: true,
@@ -64,6 +59,7 @@ function runNpm(root, script, args) {
   const parsed = parseJsonFromOutput(stdout);
   return {
     script,
+    command,
     exit_code: typeof run.status === 'number' ? run.status : 1,
     status: parsed?.status || null,
     mode: parsed?.mode || null,
@@ -83,6 +79,7 @@ try {
   const fillableFile = path.join(bundleDir, 'pricing-input-fillable.json');
   const fillableArgFile = path.join(options.dir, 'pricing-input-fillable.json');
   const manifestFile = path.join(bundleDir, 'manifest.json');
+  const php = 'C:\\xampp\\php\\php.exe';
 
   if (!fs.existsSync(manifestFile)) {
     throw new Error('Bundle manifest is missing: ' + manifestFile);
@@ -100,34 +97,39 @@ try {
     {
       code: 'bundle_structure',
       script: 'verify:revenue-ai-ctrip-operator-bundle',
-      args: [`--dir=${bundleArgDir}`, `--date=${options.date}`, `--hotel-id=${options.hotelId}`],
+      command: process.execPath,
+      args: ['scripts/verify_revenue_ai_ctrip_operator_bundle.mjs', `--dir=${bundleArgDir}`, `--date=${options.date}`, `--hotel-id=${options.hotelId}`],
     },
     {
       code: 'lint_only',
       script: 'lint:revenue-ai-ctrip-pricing-inputs',
-      args: commonArgs,
+      command: php,
+      args: ['scripts/import_revenue_ai_ctrip_pricing_inputs.php', '--lint-only=1', ...commonArgs],
     },
     {
       code: 'validate_only_rollback',
       script: 'validate:revenue-ai-ctrip-pricing-inputs',
-      args: commonArgs,
+      command: php,
+      args: ['scripts/import_revenue_ai_ctrip_pricing_inputs.php', '--validate-only=1', ...commonArgs],
     },
     {
       code: 'dry_run_rollback',
       script: 'import:revenue-ai-ctrip-pricing-inputs',
-      args: commonArgs,
+      command: php,
+      args: ['scripts/import_revenue_ai_ctrip_pricing_inputs.php', ...commonArgs],
     },
     {
       code: 'pre_execute_gate_rollback',
       script: 'verify:revenue-ai-ctrip-pricing-file',
-      args: commonArgs,
+      command: php,
+      args: ['scripts/verify_revenue_ai_ctrip_pricing_input_pipeline.php', ...commonArgs],
     },
   ];
 
   const results = [];
   let stoppedAt = '';
   for (const step of steps) {
-    const result = runNpm(root, step.script, step.args);
+    const result = runProcess(root, step.script, step.command, step.args);
     results.push({ code: step.code, ...result });
     if (result.exit_code !== 0) {
       stoppedAt = step.code;
