@@ -14346,7 +14346,7 @@
                                         <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                             <div class="min-w-0">
                                                 <h4 class="text-base font-semibold text-gray-900">数据健康工作台</h4>
-                                                <p class="mt-1 text-xs leading-5 text-gray-500">默认只看 OTA 数据自动获取状态：哪些门店已有目标日数据、哪些需要补抓、哪些暂时无法获取；完整诊断再看账号画像和证据链明细。</p>
+                                                <p class="mt-1 text-xs leading-5 text-gray-500">看目标日 OTA 是否入库，能抓就直接抓，不能抓只保留原因。</p>
                                             </div>
                                             <div class="flex flex-wrap gap-2">
                                                 <button @click="loadDataHealthPanel('light', { force: true, source: '手动工作台刷新' })" :disabled="hotelDashboardLoading || collectionReliabilityLoading"
@@ -14384,7 +14384,7 @@
                                     </div>
                                     <div v-if="hotelDashboardLoading || collectionReliabilityLoading || dailyWorkbenchLoading || dailyWorkbenchPatrolLoading || phase3OperationEffectLoopLoading" data-testid="data-health-loading-banner" class="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
                                         <i class="fas fa-spinner fa-spin mt-0.5 text-blue-500"></i>
-                                        <span>数据健康正在刷新；下方保留上次结果或未知状态，接口返回前不要作为最终判断。</span>
+                                        <span>正在刷新；接口返回前保留上次状态。</span>
                                     </div>
                                     <div v-if="hotelDashboardError || collectionReliabilityError || dailyWorkbenchError || dailyWorkbenchPatrolError || phase3OperationEffectLoopError" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                                         <i class="fas fa-exclamation-triangle mt-0.5 text-red-500"></i>
@@ -14406,32 +14406,7 @@
                                                     class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
                                                     <i :class="dailyWorkbenchLoading ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ dailyWorkbenchLoading ? '刷新中' : '刷新状态' }}
                                                 </button>
-                                                <button v-if="dataHealthFullDiagnosticsLoaded" type="button" @click="runDailyWorkbenchPatrol" :disabled="dailyWorkbenchPatrolRunning || dailyWorkbenchLoading"
-                                                    class="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50">
-                                                    <i :class="dailyWorkbenchPatrolRunning ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-clipboard-check mr-1'"></i>{{ dailyWorkbenchPatrolRunning ? '生成中' : '生成巡检快照' }}
-                                                </button>
-                                                <button v-if="dataHealthFullDiagnosticsLoaded" type="button" @click="exportDailyWorkbenchPatrolReport" :disabled="!dailyWorkbenchPatrolLatest"
-                                                    class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-                                                    <i class="fas fa-file-download mr-1"></i>导出报告
-                                                </button>
                                             </div>
-                                        </div>
-                                        <div v-if="dataHealthFullDiagnosticsLoaded" data-testid="phase2-daily-workbench-patrol" class="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                                            <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                                                <div class="min-w-0">
-                                                    <div class="text-xs font-semibold text-slate-900">巡检留痕</div>
-                                                    <div class="mt-1 text-xs text-slate-600 truncate" :title="dailyWorkbenchPatrolLatestRawText">{{ dailyWorkbenchPatrolLatestText }}</div>
-                                                </div>
-                                                <div class="flex flex-wrap gap-2 text-[11px] text-slate-600">
-                                                    <span :class="['rounded-md border px-2 py-0.5', dailyWorkbenchPatrolHealthClass]">{{ dailyWorkbenchPatrolHealthText }}</span>
-                                                    <span :class="['rounded-md border px-2 py-0.5', dailyWorkbenchPatrolAutomationClass]">{{ dailyWorkbenchPatrolAutomationText }}</span>
-                                                    <span class="rounded-md border border-slate-200 bg-white px-2 py-0.5">{{ dailyWorkbenchPatrolNextActionText }}</span>
-                                                    <span class="rounded-md border border-slate-200 bg-white px-2 py-0.5">{{ dailyWorkbenchPatrolActionText }}</span>
-                                                    <span class="rounded-md border border-slate-200 bg-white px-2 py-0.5">只读快照</span>
-                                                    <span class="rounded-md border border-slate-200 bg-white px-2 py-0.5">OTA渠道口径</span>
-                                                </div>
-                                            </div>
-                                            <div class="mt-1 text-[11px] text-slate-500 leading-5">{{ dailyWorkbenchPatrolBoundaryText }}</div>
                                         </div>
                                         <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
                                             <div v-for="card in dataAcquisitionWorkbenchCards" :key="card.key" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 min-w-0">
@@ -14440,38 +14415,35 @@
                                                 <div class="mt-1 text-[11px] text-gray-400 truncate" :title="card.detail">{{ card.detail }}</div>
                                             </div>
                                         </div>
-                                        <div v-if="dataAcquisitionWorkbenchRows.length" class="mt-4 overflow-x-auto">
+                                        <div v-if="dataAcquisitionIssueGroups.length" class="mt-4 overflow-x-auto">
                                             <table class="min-w-full divide-y divide-gray-200 text-sm">
                                                 <thead class="bg-gray-50 text-left text-xs text-gray-500">
                                                     <tr>
-                                                        <th class="px-3 py-2 font-medium">门店</th>
-                                                        <th class="px-3 py-2 font-medium">状态</th>
                                                         <th class="px-3 py-2 font-medium">问题</th>
+                                                        <th class="px-3 py-2 font-medium">门店</th>
                                                         <th class="px-3 py-2 font-medium text-right">操作</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody class="divide-y divide-gray-100 bg-white">
-                                                    <tr v-for="row in dataAcquisitionWorkbenchRows" :key="row.hotelId">
-                                                        <td class="px-3 py-3 min-w-[11rem]">
-                                                            <div class="font-medium text-gray-900 truncate" :title="row.hotelName">{{ row.hotelName }}</div>
-                                                            <div class="mt-1 text-[11px] text-gray-500">{{ row.targetDate }} · OTA渠道口径</div>
-                                                        </td>
-                                                        <td class="px-3 py-3 whitespace-nowrap">
-                                                            <span :class="['rounded-md border px-2 py-0.5 text-[11px]', row.acquisitionStatusClass]">{{ row.acquisitionStatusText }}</span>
-                                                            <div class="mt-1 text-[11px] text-gray-500">{{ row.sourceRowsText }}</div>
+                                                    <tr v-for="group in dataAcquisitionIssueGroups" :key="group.key">
+                                                        <td class="px-3 py-3 min-w-[16rem]">
+                                                            <div class="flex flex-wrap items-center gap-2">
+                                                                <span :class="['rounded-md border px-2 py-0.5 text-[11px]', group.statusClass]">{{ group.issueText }}</span>
+                                                                <span class="text-xs text-gray-500">{{ group.count }} 家</span>
+                                                            </div>
+                                                            <div class="mt-1 text-[11px] text-gray-500 truncate" :title="group.detailRawText">{{ group.detailText }}</div>
                                                         </td>
                                                         <td class="px-3 py-3 min-w-[18rem]">
-                                                            <div class="text-xs text-gray-800 leading-5 line-clamp-2" :title="row.issueRawText">{{ row.issueText }}</div>
-                                                            <div class="mt-1 text-[11px] text-gray-500 truncate" :title="row.fieldIssueRawText">{{ row.fieldBriefText }}</div>
+                                                            <div class="text-xs text-gray-800 truncate" :title="group.hotelNamesRawText">{{ group.hotelNamesText }}</div>
+                                                            <div class="mt-1 text-[11px] text-gray-500">{{ group.targetDateText }}</div>
                                                         </td>
                                                         <td class="px-3 py-3 min-w-[9rem] text-right">
-                                                            <button v-if="row.showFetchButton && row.canCookieFetch" type="button" @click="triggerCookieConfigAutoFetch(row.hotelId)" :disabled="fetchingData" class="inline-flex items-center justify-center rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-400">
+                                                            <button v-if="group.canCookieFetch" type="button" @click="triggerCookieConfigAutoFetchGroup(group.hotelIds)" :disabled="fetchingData" class="inline-flex items-center justify-center rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-400">
                                                                 一键抓取
                                                             </button>
-                                                            <button v-else-if="row.showFetchButton" type="button" @click="openPlatformAutoTab()" class="inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                                                            <button v-else type="button" @click="openPlatformAutoTab()" class="inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
                                                                 去配置
                                                             </button>
-                                                            <span v-else class="text-xs text-gray-400">无需处理</span>
                                                         </td>
                                                     </tr>
                                                 </tbody>
@@ -14666,6 +14638,29 @@
                                             </div>
                                             <div v-if="phase1EmployeeClosureSummary.topActionSourceSnapshotText" class="mt-1 text-xs text-slate-600 leading-5" :title="phase1EmployeeClosureSummary.topActionSourceSnapshotText">当前证据：{{ phase1EmployeeClosureSummary.topActionSourceSnapshotText }}</div>
                                             <div class="mt-2 text-[11px] text-slate-500 leading-5">{{ phase1EmployeeClosureSummary.boundaryText }}</div>
+                                        </div>
+                                        <div v-if="otaTodayCollectionReminderRows.length" data-testid="ota-today-collection-health-reminder" class="mb-4 rounded-lg border border-amber-100 bg-amber-50 p-3">
+                                            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-2">
+                                                <div class="min-w-0">
+                                                    <div class="text-sm font-semibold text-gray-900">OTA 当日采集健康提醒</div>
+                                                    <div class="mt-1 text-xs text-amber-700 leading-5" :title="otaTodayCollectionReminderSummary.detailText">{{ otaTodayCollectionReminderSummary.detailText }}</div>
+                                                </div>
+                                                <span :class="['rounded-md border px-2.5 py-1 text-xs whitespace-nowrap', otaTodayCollectionReminderSummary.className]">{{ otaTodayCollectionReminderSummary.statusText }}</span>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                <div v-for="row in otaTodayCollectionReminderRows" :key="row.key" class="min-w-0 rounded-md border border-amber-100 bg-white px-3 py-2">
+                                                    <div class="flex items-center justify-between gap-3">
+                                                        <div class="text-xs font-semibold text-slate-900 truncate">{{ row.platformLabel }}</div>
+                                                        <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.statusText }}</span>
+                                                    </div>
+                                                    <div class="mt-1 text-xs text-slate-600 truncate" :title="row.targetText">{{ row.targetText }}</div>
+                                                    <div class="mt-1 text-xs text-slate-500 truncate" :title="row.latestText">{{ row.latestText }}</div>
+                                                    <div class="mt-1 text-xs text-blue-700 truncate" :title="row.nextActionText">处理：{{ row.nextActionText }}</div>
+                                                    <div class="mt-1 text-[11px] text-slate-500 truncate" :title="row.proofText">判定：{{ row.proofText }}</div>
+                                                    <div v-if="row.readinessText" class="mt-1 text-[11px] text-amber-700 truncate" :title="row.readinessText">入口状态：{{ row.readinessText }}</div>
+                                                    <div class="mt-1 text-[11px] text-slate-400 truncate" :title="row.boundaryText">{{ row.boundaryText }}</div>
+                                                </div>
+                                            </div>
                                         </div>
                                         <div v-if="phase1EmployeeCollectionSourceRows.length" data-testid="phase1-employee-collection-source-summary" class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
@@ -20257,6 +20252,8 @@
             const collectionHealthFailureReasonText = requireDataHealthStatic('collectionHealthFailureReasonText');
             const collectionHealthFailureNextActionText = requireDataHealthStatic('collectionHealthFailureNextActionText');
             const buildDataHealthTodayWorkOrders = requireDataHealthStatic('buildDataHealthTodayWorkOrders');
+            const buildOtaTodayCollectionReminderRows = requireDataHealthStatic('buildOtaTodayCollectionReminderRows');
+            const buildOtaTodayCollectionReminderSummary = requireDataHealthStatic('buildOtaTodayCollectionReminderSummary');
             const buildDataHealthDiagnosticBoundary = requireDataHealthStatic('buildDataHealthDiagnosticBoundary');
             const buildDataHealthCookieAlertRows = requireDataHealthStatic('buildDataHealthCookieAlertRows');
             const summarizeDataHealthCookieAlerts = requireDataHealthStatic('summarizeDataHealthCookieAlerts');
@@ -20570,6 +20567,12 @@
                 error: dataHealthOperationLogError.value,
                 rows: dataHealthHighRiskActionRows.value,
             }));
+            const otaTodayCollectionReminderRows = computed(() => buildOtaTodayCollectionReminderRows({
+                backendQuestionSource: collectionReliability.value?.phase1_employee_questions || dashboardDataSources.value?.phase1_employee_questions || {},
+                collectionReliability: collectionReliability.value || {},
+                dashboardDataSources: dashboardDataSources.value || {},
+            }));
+            const otaTodayCollectionReminderSummary = computed(() => buildOtaTodayCollectionReminderSummary(otaTodayCollectionReminderRows.value));
             const publicEndpointSecurityRows = computed(() => Array.isArray(publicEndpointSecurity.value?.endpoints) ? publicEndpointSecurity.value.endpoints : []);
             const publicEndpointSecuritySummary = computed(() => summarizePublicEndpointSecurity({
                 isSuperAdmin: !!user.value?.is_super_admin,
@@ -20579,6 +20582,7 @@
                 rows: publicEndpointSecurityRows.value,
             }));
             const dataHealthTodayWorkOrders = computed(() => buildDataHealthTodayWorkOrders({
+                todayCollectionReminderRows: otaTodayCollectionReminderRows.value,
                 cookieAlertRows: dataHealthCookieAlertRows.value,
                 qualityTaskRows: dataHealthQualityTaskRows.value,
                 highRiskActionRows: dataHealthHighRiskActionRows.value,
@@ -44032,7 +44036,7 @@
                 collectionHealthLifecycleRows, collectionHealthLifecycleReadyCount, collectionHealthFieldAssetSummary, collectionHealthFieldAssetStatus, collectionHealthFieldAssetCards, collectionHealthFieldAssetListText,
                 dataHealthDiagnosticBoundary, dataHealthRefreshModeText, dataHealthLastRefreshSource, dataHealthLastRefreshAt, dataHealthPendingDiagnosticText, collectionHealthFailureReasonRanking,
                 dataHealthDrilldownRows, openDataHealthDrilldown,
-                dataHealthCookieAlertRows, dataHealthCookieAlertSummary, dataHealthQualityTaskRows, dataHealthHighRiskActionRows, dataHealthHighRiskSummary, dataHealthTodayWorkOrders,
+                dataHealthCookieAlertRows, dataHealthCookieAlertSummary, dataHealthQualityTaskRows, dataHealthHighRiskActionRows, dataHealthHighRiskSummary, otaTodayCollectionReminderRows, otaTodayCollectionReminderSummary, dataHealthTodayWorkOrders,
                 dataHealthOperationLogLoading, dataHealthOperationLogError, dataHealthOperationLogScope, dataHealthPriorityClass, dataHealthPriorityText,
                 publicEndpointSecurity, publicEndpointSecurityLoading, publicEndpointSecurityError, publicEndpointSecurityRows, publicEndpointSecuritySummary, publicEndpointTokenText, publicEndpointPathText,
                 collectionHealthCtripCatalogGateText, collectionHealthCtripCatalogCards, collectionHealthCtripCatalogDiagnosticScope,

@@ -4926,6 +4926,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         buildPlatformBatchHealthSummaryCards,
         buildCollectionHealthFailureReasonRanking,
         buildDataHealthTodayWorkOrders,
+        buildOtaTodayCollectionReminderRows,
+        buildOtaTodayCollectionReminderSummary,
         buildDataHealthDiagnosticBoundary,
         buildDataHealthCookieAlertRows,
         summarizeDataHealthCookieAlerts,
