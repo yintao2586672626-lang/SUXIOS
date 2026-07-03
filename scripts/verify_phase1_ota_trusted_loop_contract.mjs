@@ -92,6 +92,7 @@ requirePackageScript('inspect:phase1-live-closure', 'C:\\xampp\\php\\php.exe scr
 requirePackageScript('verify:phase1-live-closure', 'C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php --strict');
 requirePackageScript('verify:online-data-field-fact-status', 'C:\\xampp\\php\\php.exe scripts\\verify_online_data_field_fact_status.php');
 requirePackageScript('verify:p0-ota-field-loop', 'C:\\xampp\\php\\php.exe scripts\\verify_p0_ota_field_loop_closure.php');
+requirePackageScript('report:p0-ota-field-loop-audit', 'node scripts/report_p0_ota_field_loop_audit.mjs');
 requirePackageScript('verify:p0-ota-traffic-importer', 'node scripts/verify_p0_ota_traffic_payload_importer.mjs && node --test tests/automation/p0_ota_traffic_payload_candidates.test.mjs');
 requirePackageScript('verify:p0-ota-ui-verifier-alignment', 'node scripts/verify_p0_ota_ui_verifier_alignment.mjs');
 requirePackageScript('inspect:p0-ota-traffic-payloads', 'node scripts/scan_p0_ota_traffic_payload_candidates.mjs');
@@ -293,6 +294,21 @@ requireIncludes('scripts/scan_p0_ota_traffic_payload_candidates.mjs', 'P0 traffi
   'source_trace_id/source_url_hash',
   'import:p0-ota-traffic-payload:execute',
   'verify:p0-ota-field-loop',
+]);
+
+requireFile('scripts/report_p0_ota_field_loop_audit.mjs');
+requireIncludes('scripts/report_p0_ota_field_loop_audit.mjs', 'P0 field-loop audit report stays report-only and does not read local reports by default', [
+  'not_run_by_default_to_avoid_reading_local_reports',
+  'not_run_by_default_no_reports_read',
+  'paths_only_no_payload_content',
+  'forbidden_claims_until_ready',
+  'whole_hotel_truth_from_ota_only',
+  'revenue_ai_final_decision',
+  'operation_execution_completed',
+  'investment_judgment_allowed',
+  'verify:p0-ota-field-loop',
+  'scan-payloads',
+  'process.exit(2)',
 ]);
 
 requireFile('scripts/verify_p0_ota_ui_verifier_alignment.mjs');

@@ -68,6 +68,7 @@
     "verify:phase1-live-closure-contract": "node scripts/verify_phase1_ota_live_closure_contract.mjs",
     "verify:phase1-live-action-queue": "node scripts/verify_phase1_live_action_queue_runtime.mjs",
     "verify:p0-ota-field-loop": "C:\\xampp\\php\\php.exe scripts\\verify_p0_ota_field_loop_closure.php",
+    "report:p0-ota-field-loop-audit": "node scripts/report_p0_ota_field_loop_audit.mjs",
     "report:p0-profile-next-steps": "node scripts/report_p0_profile_next_steps.mjs",
     "verify:p0-ota-traffic-importer": "node scripts/verify_p0_ota_traffic_payload_importer.mjs && node --test tests/automation/p0_ota_traffic_payload_candidates.test.mjs",
     "verify:p0-ota-ui-verifier-alignment": "node scripts/verify_p0_ota_ui_verifier_alignment.mjs",
