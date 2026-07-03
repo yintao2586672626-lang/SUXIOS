@@ -17,14 +17,16 @@ test('data health workbench is the first online data surface and keeps evidence 
   assert.match(onlinePage, /数据健康工作台/);
   assert.match(onlinePage, /数据自动获取/);
   assert.match(onlinePage, /dataAcquisitionWorkbenchRows/);
+  assert.match(onlinePage, /dataAcquisitionIssueGroups/);
   assert.match(onlinePage, /可抓取/);
   assert.match(onlinePage, /一键抓取/);
   assert.match(onlinePage, /triggerCookieConfigAutoFetch/);
+  assert.match(onlinePage, /triggerCookieConfigAutoFetchGroup/);
   assert.match(onlinePage, /triggerCookieConfigAutoFetchAll/);
   assert.match(onlinePage, /cookie_config/);
   assert.doesNotMatch(onlinePage, /当前卡点/);
   assert.doesNotMatch(onlinePage, /今天先处理的问题/);
-  assert.match(onlinePage, /异常 -> 动作 -> 证据 -> 复盘/);
+  assert.doesNotMatch(onlinePage, /优先处理动作/);
   assert.match(onlinePage, /查看完整诊断/);
   assert.match(onlinePage, /账号级驾驶舱/);
   assert.match(onlinePage, /单店酒店数据画像/);
@@ -35,7 +37,6 @@ test('data health workbench is the first online data surface and keeps evidence 
   assert.match(onlinePage, /画像完成数/);
   assert.match(onlinePage, /异常门店/);
   assert.match(onlinePage, /同步状态/);
-  assert.match(onlinePage, /今日行动建议/);
 });
 
 test('dashboard frontend calls dedicated dashboard APIs while old collection reliability remains available', () => {

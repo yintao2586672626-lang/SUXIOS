@@ -769,7 +769,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
     const buildMeituanDisplayModelPayload = ({ results = [], form = {} } = {}) => {
         const displayGroups = buildMeituanDisplayModelGroups({ results, form });
         return {
-            display_hotels: buildMeituanDisplayModelRows(results),
+            display_hotels: displayGroups.length > 0 ? [] : buildMeituanDisplayModelRows(results),
             display_groups: displayGroups,
             competitor_room_count: form.competitorRoomCount,
             target_poi_id: form.poiId,
@@ -1694,7 +1694,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
             const allHotels = useDisplayModel(modelRes.data || {});
             setDataFetchTime(getFetchTime());
-            setBusinessSummary(null);
             updateAiAnalysisHotelList();
 
             if (totalSavedCount > 0) {

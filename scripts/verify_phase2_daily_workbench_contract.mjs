@@ -277,9 +277,10 @@ excludesAll('scripts/verify_phase2_daily_workbench_runtime.php', 'runtime verifi
   'saveCookies',
 ]);
 
-includesAll('public/index.html', 'daily workbench frontend panel and patrol UI exist', frontend, [
+includesAll('public/index.html', 'daily workbench frontend panel keeps grouped acquisition actions', frontend, [
   'data-testid="phase2-daily-workbench"',
-  'data-testid="phase2-daily-workbench-patrol"',
+  'dataAcquisitionIssueGroups',
+  'triggerCookieConfigAutoFetchGroup',
   'dailyWorkbenchSummaryCards',
   'dailyWorkbenchRows',
   'normalizeDailyWorkbenchWorkflowStage',

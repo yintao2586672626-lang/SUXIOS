@@ -104,10 +104,11 @@ test('Meituan ranking uses selected hotel config without exposing temporary fiel
   assert.match(rankingPanel, /请选择目标酒店/);
   assert.match(rankingPanel, /默认建议只取昨日/);
   assert.match(rankingPanel, /历史自定义/);
-  assert.match(rankingPanel, /min-h-\[44px\]/);
-  assert.match(rankingPanel, /h-5 w-5 text-cyan-600/);
+  assert.match(rankingPanel, /px-4 py-3 text-base/);
+  assert.match(rankingPanel, /style="width: 20px; height: 20px;"/);
   assert.match(rankingPanel, /bg-cyan-50 border border-cyan-200/);
-  assert.match(rankingPanel, /bg-cyan-700 text-white/);
+  assert.match(rankingPanel, /border-blue-600 bg-blue-600 text-white/);
+  assert.match(rankingPanel, /border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed/);
   assert.match(rankingPanel, /:max="meituanRankMaxDate"/);
   assert.match(rankingPanel, /远期预测\/未来入住不属于此接口/);
   assert.match(html, /const meituanRankMaxDate = computed\(\(\) => formatDate\(new Date\(\)\)\);/);
@@ -163,13 +164,13 @@ test('Meituan business summary exposes market total and average cards', () => {
   );
   const rankingTable = sliceFrom('<!-- 美团竞对排名数据表格 -->', '<!-- 竞对排名表格 -->');
   const rankTable = sliceFrom(
-    '<table class="min-w-full bg-white border text-[15px] table-striped">',
+    '<table class="min-w-full bg-white border text-sm table-striped">',
     '<div data-testid="meituan-rank-summary-second-screen"'
   );
 
   assert.match(rankingTable, /商圈汇总与平均指标/);
-  assert.match(rankingTable, /text-\[26px\]/);
-  assert.match(rankingTable, /text-\[15px\]/);
+  assert.match(rankingTable, /text-2xl/);
+  assert.match(rankingTable, /text-base font-semibold/);
   assert.match(rankTable, /table-striped/);
   assert.match(rankTable, /bg-rose-50/);
   assert.match(rankTable, /bg-emerald-50/);
@@ -1077,8 +1078,8 @@ test('Online data health tab schedules light refresh outside the switch path', (
   assert.match(openOnlineDataEntryTab, /clearPlatformAutoSettingsPanelsReadyTimer\(\);\s*platformAutoSettingsPanelsReady\.value = false;/);
   assert.match(openOnlineDataEntryTab, /clearPlatformAutoSecondaryPanelsReadyTimer\(\);\s*platformAutoSecondaryPanelsReady\.value = false;/);
   assert.match(openOnlineDataEntryTab, /onlineDataTab\.value = targetTab;\s*currentPage\.value = 'online-data';/);
-  assert.match(html, /v-if="dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"/);
-  assert.match(html, /v-if="dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"/);
+  assert.match(html, /v-if="dataHealthFullDiagnosticsLoaded && dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"/);
+  assert.match(html, /v-if="dataHealthFullDiagnosticsLoaded && dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"/);
   assert.doesNotMatch(html, /data-testid="hotel-data-cockpit-pending"/);
   assert.match(html, /v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit"/);
   assert.match(html, /v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="data-health-drilldown"/);

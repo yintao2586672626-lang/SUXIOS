@@ -85,7 +85,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
 });
 
 test('Revenue AI entry cache-busts the business closure helper contract', () => {
-  assert.match(html, /<script src="revenue-ai-static\.js\?v=20260628-ctrip-generate-result"><\/script>/);
+  assert.match(html, /<script src="revenue-ai-static\.js\?v=20260704-revenue-ai-static-tools"><\/script>/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
   assert.match(html, /data-testid="revenue-ai-pricing-generation-preflight"/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);

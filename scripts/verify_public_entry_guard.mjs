@@ -273,7 +273,7 @@ if (!fs.existsSync(indexPath)) {
   } catch (error) {
     failures.push(`public/system-static.js navigation guard could not evaluate menu definitions: ${error.message}`);
   }
-  if (!content.includes('revenue-ai-static.js?v=20260628-ctrip-generate-result')
+  if (!content.includes('revenue-ai-static.js?v=20260704-revenue-ai-static-tools')
     || !revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
     || !revenueAiStaticContent.includes('buildRevenueAiBusinessClosure')
     || !revenueAiStaticContent.includes('buildRevenueAiGapRows')
@@ -282,6 +282,8 @@ if (!fs.existsSync(indexPath)) {
     || !revenueAiStaticContent.includes('resolveRevenueAiGapTarget')
     || !revenueAiStaticContent.includes('buildRevenueAiPricingGateRows')
     || !revenueAiStaticContent.includes('buildRevenueAiPriceSuggestionGenerateResult')
+    || !revenueAiStaticContent.includes('buildRevenueAiEvidenceWorkbenchRows')
+    || !revenueAiStaticContent.includes('buildRevenueAiEvidenceWorkbenchSummary')
     || !revenueAiStaticContent.includes('buildRevenueAiAgentActivityRows')
     || !revenueAiStaticContent.includes('buildRevenueAiExecutionSummary')
     || !revenueAiStaticContent.includes('buildRevenueAiExecutionRows')
@@ -348,6 +350,8 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("const revenueAiResolveGapTarget = requireRevenueAiStatic('resolveRevenueAiGapTarget');")
     || !content.includes("const revenueAiResolveDecisionBasisNavigation = requireRevenueAiStatic('resolveRevenueAiDecisionBasisNavigation');")
     || !content.includes("const revenueAiBuildPricingGateRows = requireRevenueAiStatic('buildRevenueAiPricingGateRows');")
+    || !content.includes("const revenueAiBuildEvidenceWorkbenchRows = requireRevenueAiStatic('buildRevenueAiEvidenceWorkbenchRows');")
+    || !content.includes("const revenueAiBuildEvidenceWorkbenchSummary = requireRevenueAiStatic('buildRevenueAiEvidenceWorkbenchSummary');")
     || !content.includes("const revenueAiBuildAgentActivityRows = requireRevenueAiStatic('buildRevenueAiAgentActivityRows');")
     || !content.includes("const revenueAiBuildExecutionSummary = requireRevenueAiStatic('buildRevenueAiExecutionSummary');")
     || !content.includes("const revenueAiBuildExecutionRows = requireRevenueAiStatic('buildRevenueAiExecutionRows');")
@@ -368,6 +372,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('data-testid="agent-price-suggestion-generate-result"')
     || content.includes("const revenueAiApiPath = requireRevenueAiStatic('normalizeRevenueAiApiPath');")
     || !content.includes('const revenueAiPricingGateRows = computed(() => revenueAiBuildPricingGateRows({')
+    || !content.includes('const revenueAiEvidenceWorkbenchRows = computed(() => revenueAiBuildEvidenceWorkbenchRows({')
     || !content.includes('const revenueAiAgentActivityRows = computed(() => revenueAiBuildAgentActivityRows({')
     || !content.includes('const revenueAiExecutionSummary = computed(() => revenueAiBuildExecutionSummary({')
     || !content.includes('const revenueAiBusinessDate = computed(() => revenueAiResolveBusinessDate({ overview: revenueAiOverview.value }));')
@@ -388,6 +393,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('data-testid="revenue-ai-review-queue"')
     || !content.includes('data-testid="revenue-ai-decision-basis"')
     || !content.includes('data-testid="revenue-ai-decision-basis-hidden"')
+    || !content.includes('data-testid="revenue-ai-evidence-workbench"')
     || !content.includes('@click="openRevenueAiDecisionBasis(basis)"')
     || !content.includes('data-testid="revenue-ai-review-queue-items"')
     || !content.includes('data-testid="revenue-ai-execution-pending"')
@@ -722,7 +728,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('let meituanConfigListLoadedAt = 0;')) {
     failures.push('public/index.html manual fetch tab switches must reuse recently loaded Ctrip/Meituan config lists without changing default full refresh behavior.');
   }
-  if (!/let ctripConfigListLoadingPromise = null;[\s\S]*const loadCtripConfigList = async[\s\S]*if \(ctripConfigListLoadingPromise\) \{[\s\S]*return ctripConfigListLoadingPromise;[\s\S]*finally \{[\s\S]*ctripConfigListLoadingPromise = null;/.test(content)) {
+  if (!/let ctripConfigListLoadingPromise = null;[\s\S]*const loadCtripConfigList = async[\s\S]*if \(ctripConfigListLoadingPromise\) \{[\s\S]*if \(!force\) \{[\s\S]*return ctripConfigListLoadingPromise;[\s\S]*await ctripConfigListLoadingPromise\.catch\(\(\) => \[\]\);[\s\S]*finally \{[\s\S]*ctripConfigListLoadingPromise = null;/.test(content)) {
     failures.push('public/index.html must deduplicate concurrent Ctrip config-list loads for manual-fetch prewarm and tab switching.');
   }
   if (!content.includes(':disabled="fetchingData || !canFetchCtripManualData()"')
@@ -1170,7 +1176,7 @@ if (!fs.existsSync(indexPath)) {
   if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*!ctripConfigListLoaded\.value && !ctripConfigList\.value\.length[\s\S]*!meituanConfigListLoaded\.value && !meituanConfigList\.value\.length/.test(content)) {
     failures.push('public/index.html manual online-data config prewarm must not refetch known-empty Ctrip or Meituan config lists.');
   }
-  if (!/const ensureHotelOtaConfigLists = async[\s\S]*!ctripConfigListLoaded\.value && ctripConfigList\.value\.length === 0[\s\S]*!meituanConfigListLoaded\.value && meituanConfigList\.value\.length === 0/.test(content)) {
+  if (!/const ensureHotelOtaConfigLists = async[\s\S]*const shouldLoadCtripConfigList = force \|\| \(!ctripConfigListLoaded\.value && !ctripConfigList\.value\.length\)[\s\S]*const shouldLoadMeituanConfigList = force \|\| \(!meituanConfigListLoaded\.value && !meituanConfigList\.value\.length\)/.test(content)) {
     failures.push('public/index.html hotel OTA config prewarm must not refetch known-empty Ctrip or Meituan config lists.');
   }
   const onlineDataDefaultLoader = content.slice(
@@ -1765,8 +1771,8 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("if (newPage !== 'online-data') {\n                    clearDataHealthSecondaryPanelsReadyTimer();\n                    dataHealthSecondaryPanelsReady.value = false;")
     || !content.includes("clearDataHealthDetailPanelsReadyTimer();\n                    dataHealthDetailPanelsReady.value = false;")
     || !content.includes("clearDataHealthEmployeePanelsReadyTimer();\n                    dataHealthEmployeePanelsReady.value = false;")
-    || !content.includes('<div v-if="dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"')
-    || !content.includes('<div v-if="dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"')
+    || !content.includes('<div v-if="dataHealthFullDiagnosticsLoaded && dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"')
+    || !content.includes('<div v-if="dataHealthFullDiagnosticsLoaded && dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"')
     || content.includes('data-testid="hotel-data-cockpit-pending"')
     || !content.includes('<div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit"')
     || !content.includes('<div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="data-health-drilldown"')
@@ -1803,7 +1809,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("const formatOnlineHistoryHotelOption = requireDataHealthStatic('formatOnlineHistoryHotelOption');")
     || !content.includes("const formatOnlineHistoryRaw = requireDataHealthStatic('formatOnlineHistoryRaw');")
     || !content.includes("const buildHotelDataDashboardRequests = requireDataHealthStatic('buildHotelDataDashboardRequests');")
-    || !content.includes('data-health-static.js?v=20260628-static-router-fix')
+    || !content.includes('data-health-static.js?v=20260704-data-health-static-tools')
     || !onlineHistorySource.includes('const params = buildOnlineHistoryQueryParams({')
     || !hotelDashboardSource.includes('const requests = buildHotelDataDashboardRequests({ selectedHotelId });')
     || hotelDashboardSource.includes('const accountParams = new URLSearchParams();')
@@ -2016,14 +2022,20 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html must delegate Phase1 employee question row construction, evidence, and normalization to data-health-static.js.');
   }
   if (!dataHealthStaticContent.includes('const buildPhase1EmployeeCollectionSourceRows = ({ backendQuestionSource = {}, collectionReliability = {}, dashboardDataSources = {} } = {}) => {')
+    || !dataHealthStaticContent.includes('const buildOtaTodayCollectionReminderRows = ({')
+    || !dataHealthStaticContent.includes('const buildOtaTodayCollectionReminderSummary = (rows = []) => {')
     || !dataHealthStaticContent.includes('const buildPhase1EmployeeFieldTrustRows = ({ backendQuestionSource = {}, collectionReliability = {}, dashboardDataSources = {} } = {}) => {')
     || !dataHealthStaticContent.includes('const buildPhase1EmployeeMissingFieldRows = ({ backendQuestionSource = {}, collectionHealthQuality = {}, otaDiagnosisDataGaps = [] } = {}) => {')
     || !dataHealthStaticContent.includes('const buildPhase1EmployeeMetricDomainRows = ({ backendQuestionSource = {}, collectionReliability = {}, dashboardDataSources = {} } = {}) => {')
     || !dataHealthStaticContent.includes('buildPhase1EmployeeCollectionSourceRows,')
+    || !dataHealthStaticContent.includes('buildOtaTodayCollectionReminderRows,')
+    || !dataHealthStaticContent.includes('buildOtaTodayCollectionReminderSummary,')
     || !dataHealthStaticContent.includes('buildPhase1EmployeeFieldTrustRows,')
     || !dataHealthStaticContent.includes('buildPhase1EmployeeMissingFieldRows,')
     || !dataHealthStaticContent.includes('buildPhase1EmployeeMetricDomainRows,')
     || !content.includes("const buildPhase1EmployeeCollectionSourceRows = requireDataHealthStatic('buildPhase1EmployeeCollectionSourceRows');")
+    || !content.includes("const buildOtaTodayCollectionReminderRows = requireDataHealthStatic('buildOtaTodayCollectionReminderRows');")
+    || !content.includes("const buildOtaTodayCollectionReminderSummary = requireDataHealthStatic('buildOtaTodayCollectionReminderSummary');")
     || !content.includes("const buildPhase1EmployeeFieldTrustRows = requireDataHealthStatic('buildPhase1EmployeeFieldTrustRows');")
     || !content.includes("const buildPhase1EmployeeMissingFieldRows = requireDataHealthStatic('buildPhase1EmployeeMissingFieldRows');")
     || !content.includes("const buildPhase1EmployeeMetricDomainRows = requireDataHealthStatic('buildPhase1EmployeeMetricDomainRows');")

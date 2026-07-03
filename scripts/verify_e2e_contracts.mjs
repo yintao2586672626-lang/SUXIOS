@@ -169,6 +169,7 @@ requireText('public/index.html', '<small v-else class="dual-ota-system-metric-sp
 requireText('public/index.html', 'const toggleDualOtaCompare = () => {', 'AI workbench exposes a local comparison display toggle');
 requireText('public/style.css', 'grid-template-columns: minmax(260px, 1fr) minmax(420px, 500px);', 'AI workbench keeps current-hotel selector and platform controls in a stable two-column strip');
 requireText('public/style.css', 'grid-template-columns: repeat(4, minmax(0, 1fr)) !important;', 'AI workbench keeps comparison switch and three platform buttons on one row');
+requireText('public/style.css', 'grid-auto-flow: column;', 'AI workbench keeps comparison switch and platform buttons in one horizontal flow');
 requireText('public/index.html', 'const dualOtaRatePreviousExtra = (value) => {', 'AI workbench normalizes previous-period rate metrics before comparison');
 requireText('public/index.html', 'ctripLatestComparison.value = payload?.rank?.comparison || null;', 'AI workbench stores Ctrip latest comparison snapshot from backend response');
 requireText('public/index.html', "const latestRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading latest Ctrip data');
@@ -884,7 +885,7 @@ requireText('public/index.html', 'const MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS = 15
 requireText('public/index.html', 'loadConfigList: () => loadCtripConfigList({\n                        cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,\n                    })', 'Ctrip manual tab switching avoids repeat config-list requests and implicit config application within the short cache window');
 requireText('public/index.html', 'loadConfigList: () => loadMeituanConfigList({\n                        cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,\n                    })', 'Meituan manual tab switching avoids repeat config-list requests and implicit config application within the short cache window');
 requireText('public/index.html', 'let ctripConfigListLoadingPromise = null;', 'entry deduplicates concurrent Ctrip config-list loads');
-requireText('public/index.html', 'if (ctripConfigListLoadingPromise) {\n                    return ctripConfigListLoadingPromise;', 'Ctrip config-list loader reuses in-flight requests');
+requireText('public/index.html', "if (ctripConfigListLoadingPromise) {\n                    if (!force) {\n                        return ctripConfigListLoadingPromise;\n                    }\n                    await ctripConfigListLoadingPromise.catch(() => []);", 'Ctrip config-list loader reuses ordinary in-flight requests and waits before force refresh');
 requireText('public/index.html', ':disabled="fetchingData || !canFetchCtripManualData()"', 'Ctrip ranking and traffic manual fetch buttons stay clickable while config proof is pending');
 requireText('public/index.html', 'const ctripManualFetchConfigProofPending = () => {', 'Ctrip manual fetch can recognize pending config proof');
 requireText('public/index.html', 'return !!ctripConfigListLoadingPromise', 'Ctrip manual fetch reuses an in-flight config-list proof request');
@@ -1008,8 +1009,8 @@ requireText('public/index.html', "const switchMeituanCaptureTab = async (tab, se
 requireNoText('public/index.html', "const res = await request('/online-data/get-meituan-config-list');\n                            if (res.code === 200) {\n                                meituanConfigList.value = Array.isArray(res.data) ? res.data : [];\n                            }", 'Meituan hotel selection does not bypass config-list loading flags and request dedupe');
 requireText('public/index.html', 'if (!ctripConfigListLoaded.value && !ctripConfigList.value.length)', 'manual online-data config prewarm does not refetch a known-empty Ctrip config list');
 requireText('public/index.html', 'if (!meituanConfigListLoaded.value && !meituanConfigList.value.length)', 'manual online-data config prewarm does not refetch a known-empty Meituan config list');
-requireText('public/index.html', "if (!ctripConfigListLoaded.value && ctripConfigList.value.length === 0) tasks.push(loadCtripConfigList({\n                    cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                    applySelectedConfig: false,", 'hotel OTA config prewarm does not refetch a known-empty Ctrip config list and reuses the short config-list cache');
-requireText('public/index.html', "if (!meituanConfigListLoaded.value && meituanConfigList.value.length === 0) tasks.push(loadMeituanConfigList({\n                    cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                    applySelectedConfig: false,", 'hotel OTA config prewarm does not refetch a known-empty Meituan config list and reuses the short config-list cache');
+requireText('public/index.html', "const shouldLoadCtripConfigList = force || (!ctripConfigListLoaded.value && !ctripConfigList.value.length);\n                if (shouldLoadCtripConfigList) {\n                    tasks.push(loadCtripConfigList({\n                        force,\n                        cacheMs: force ? 0 : MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,", 'hotel OTA config prewarm does not refetch a known-empty Ctrip config list and supports force refresh');
+requireText('public/index.html', "const shouldLoadMeituanConfigList = force || (!meituanConfigListLoaded.value && !meituanConfigList.value.length);\n                if (shouldLoadMeituanConfigList) {\n                    tasks.push(loadMeituanConfigList({\n                        force,\n                        cacheMs: force ? 0 : MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,", 'hotel OTA config prewarm does not refetch a known-empty Meituan config list and supports force refresh');
 requireText('public/index.html', "if (newTab === 'data')", 'manual online-data tab routes through the shared tab-load scheduler');
 requireText('public/index.html', 'const MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS = 60;', 'manual online-data config prewarm is delayed and excluded from the data-record first paint');
 requireText('public/index.html', "const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set(['ctrip', 'meituan', 'custom']);", 'manual online-data config prewarm is limited to legacy manual fetch tabs');
@@ -1072,8 +1073,8 @@ requireText('public/index.html', 'const scheduleDataHealthEmployeePanelsReady = 
 requireText('public/index.html', "if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') {\n                    dataHealthSecondaryPanelsReady.value = false;\n                    return;\n                }", 'data-health secondary diagnostics are scoped to the visible online-data health tab');
 requireText('public/index.html', "if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') {\n                    dataHealthDetailPanelsReady.value = false;\n                    return;\n                }", 'data-health detail diagnostics are scoped to the visible online-data health tab');
 requireText('public/index.html', "if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') {\n                    dataHealthEmployeePanelsReady.value = false;\n                    return;\n                }", 'data-health employee diagnostics are scoped to the visible online-data health tab');
-requireText('public/index.html', '<div v-if="dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"', 'data-health employee six-question panel waits for the employee readiness window');
-requireText('public/index.html', '<div v-if="dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"', 'data-health command center is not mounted during the immediate manual-entry switch window');
+requireText('public/index.html', '<div v-if="dataHealthFullDiagnosticsLoaded && dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"', 'data-health employee six-question panel waits for full diagnostics and the employee readiness window');
+requireText('public/index.html', '<div v-if="dataHealthFullDiagnosticsLoaded && dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"', 'data-health command center waits for full diagnostics and is not mounted during the immediate manual-entry switch window');
 requireNoText('public/index.html', 'data-testid="hotel-data-cockpit-pending"', 'data-health light workbench must not show a redundant full-diagnostic pending panel');
 requireText('public/index.html', '<div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit"', 'data-health full cockpit waits for explicit full diagnostics');
 requireText('public/index.html', 'data-testid="data-health-full-diagnostics-detail"', 'data-health low-level collection evidence is grouped behind full diagnostics');
@@ -1338,6 +1339,8 @@ requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeActionP
 requireText('public/index.html', "requireDataHealthStatic('phase1EmployeeSourceSnapshotText')", 'entry uses extracted Phase1 source snapshot text mapper');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeQuestionRows')", 'entry uses extracted Phase1 employee question rows builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeCollectionSourceRows')", 'entry uses extracted Phase1 collection source rows builder');
+requireText('public/index.html', "requireDataHealthStatic('buildOtaTodayCollectionReminderRows')", 'entry uses extracted OTA today collection reminder builder');
+requireText('public/index.html', "requireDataHealthStatic('buildOtaTodayCollectionReminderSummary')", 'entry uses extracted OTA today collection reminder summary builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeFieldTrustRows')", 'entry uses extracted Phase1 field trust rows builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeMissingFieldRows')", 'entry uses extracted Phase1 missing field rows builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeMetricDomainRows')", 'entry uses extracted Phase1 metric domain rows builder');
@@ -1345,7 +1348,7 @@ requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeAi
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeOperationSummary')", 'entry uses extracted Phase1 operation summary builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeClosureSummary')", 'entry uses extracted Phase1 closure summary builder');
 requireText('public/index.html', "requireDataHealthStatic('formatOnlineHistoryRaw')", 'entry uses extracted online history raw formatter');
-requireText('public/index.html', 'data-health-static.js?v=20260628-static-router-fix', 'entry bumps data-health static helper version after static router fix');
+requireText('public/index.html', 'data-health-static.js?v=20260704-data-health-static-tools', 'entry bumps data-health static helper version after data-health static tools update');
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryHotelOption', 'data-health static formats online history hotel options');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryRaw', 'data-health static formats online history raw payloads');
@@ -1400,6 +1403,8 @@ requireText('public/data-health-static.js', 'const buildPhase1AiDiagnosisEvidenc
 requireText('public/data-health-static.js', 'const phase1EmployeeCollectionDataTypeText', 'data-health static maps Phase1 collection data types');
 requireText('public/data-health-static.js', 'const normalizePhase1CollectionSourceSummaryRow', 'data-health static normalizes Phase1 collection source summary rows');
 requireText('public/data-health-static.js', 'const buildPhase1EmployeeCollectionSourceRows', 'data-health static builds Phase1 collection source rows');
+requireText('public/data-health-static.js', 'const buildOtaTodayCollectionReminderRows', 'data-health static builds OTA today collection reminder rows');
+requireText('public/data-health-static.js', 'const buildOtaTodayCollectionReminderSummary', 'data-health static builds OTA today collection reminder summary');
 requireText('public/data-health-static.js', 'const phase1FieldTrustStatusClass', 'data-health static maps Phase1 field trust status class');
 requireText('public/data-health-static.js', 'const normalizePhase1EmployeeFieldTrustRow', 'data-health static normalizes Phase1 field trust rows');
 requireText('public/data-health-static.js', 'const buildPhase1EmployeeFieldTrustRows', 'data-health static builds Phase1 field trust rows');
@@ -1420,6 +1425,8 @@ requireText('public/data-health-static.js', 'const buildPhase1EmployeeQuestionRo
 requireText('public/index.html', 'const params = buildOnlineHistoryQueryParams({', 'online history loader delegates query parameter construction');
 requireText('public/index.html', 'const requests = buildHotelDataDashboardRequests({ selectedHotelId });', 'hotel data dashboard loader delegates request URL construction');
 requireText('public/index.html', 'const phase1EmployeeQuestionRows = computed(() => buildPhase1EmployeeQuestionRows({', 'Phase1 employee questions delegate row construction');
+requireText('public/index.html', 'data-testid="ota-today-collection-health-reminder"', 'data-health UI exposes OTA today collection health reminder');
+requireText('public/index.html', 'todayCollectionReminderRows: otaTodayCollectionReminderRows.value', 'today work orders include OTA target-date collection reminders');
 requireText('public/data-health-static.js', 'const p0NextText = buildPhase1TrafficP0NextText(row);', 'Phase1 employee question evidence delegates traffic P0 next text construction');
 requireNoText('public/index.html', "const accountParams = new URLSearchParams();\n                    accountParams.append('days', '30');", 'hotel data dashboard request parameters are not re-inlined');
 requireNoText('public/index.html', 'const phase1HasAnyDataType = (types, needles)', 'Phase1 metric domain type matching is not re-inlined');
@@ -3261,14 +3268,18 @@ try {
         && successEntry.displayCount === 1
         && failedEntry.error === 'upstream failed'
         && Array.isArray(modelPayload.display_hotels)
-        && modelPayload.display_hotels.length === 1
+        && modelPayload.display_hotels.length === 0
+        && Array.isArray(modelPayload.display_groups)
+        && modelPayload.display_groups.length === 1
         && modelPayload.target_poi_id === 'poi-1'
         && modelPayload.competitor_room_count === '20'
         && flowResult.status === 'success'
         && requestedBodies.length === 4
         && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.cookies === 'mt-cookie' && body.async === false && body.background === false)
         && flowOnlineResult.length === requestedBodies.length
-        && flowDisplayPayload.display_hotels.length === requestedBodies.length
+        && flowDisplayPayload.display_hotels.length === 0
+        && flowDisplayPayload.display_groups.length === 1
+        && flowDisplayPayload.display_groups[0].display_hotels.length === requestedBodies.length
         && flowDisplayPayload.target_poi_id === 'poi-1'
         && flowSavedCount === requestedBodies.length * 2
         && flowFetchTime === '2026-06-11 12:00:00'
