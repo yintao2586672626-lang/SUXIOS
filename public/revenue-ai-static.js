@@ -4,8 +4,8 @@
     const revenueAiStatusTone = (status) => {
         const value = String(status || '').toLowerCase();
         if (['ok', 'success', 'ready', 'reviewed', 'ready_for_manual_generation', 'pricing_generation_candidates_ready'].includes(value)) return 'ok';
-        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'unverified', 'pending_review', 'pending_review_exists', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi', 'investment_precheck_waiting_decision_record', 'waiting_decision_record_readiness'].includes(value)) return 'warning';
-        if (['failed', 'unauthorized', 'blocked', 'error', 'investment_precheck_blocked_by_operation_roi', 'blocked_by_operation_roi'].includes(value)) return 'blocked';
+        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'unverified', 'pending_review', 'pending_review_exists', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi', 'investment_precheck_waiting_decision_record', 'waiting_decision_record_readiness', 'operation_intake_waiting_human_approval', 'operation_intake_ready_for_human_create', 'operation_intake_in_operation_flow', 'operation_intake_waiting_operation_progress'].includes(value)) return 'warning';
+        if (['failed', 'unauthorized', 'blocked', 'error', 'investment_precheck_blocked_by_operation_roi', 'blocked_by_operation_roi', 'blocked_by_p0_ota_gate', 'operation_intake_blocked_by_manual_review', 'operation_intake_blocked_by_operation_execution'].includes(value)) return 'blocked';
         return 'unknown';
     };
 
@@ -42,6 +42,13 @@
         not_loaded: '未接入',
         not_calculable: '不可计算',
         blocked: '待补数据',
+        blocked_by_p0_ota_gate: 'P0门禁未过',
+        operation_intake_blocked_by_manual_review: '待人工审核',
+        operation_intake_waiting_human_approval: '待人工创建执行',
+        operation_intake_ready_for_human_create: '可人工创建',
+        operation_intake_in_operation_flow: '已进入执行流',
+        operation_intake_waiting_operation_progress: '等待执行进展',
+        operation_intake_blocked_by_operation_execution: '执行闭环阻断',
         investment_precheck_blocked_by_operation_roi: 'ROI门禁未过',
         blocked_by_operation_roi: 'ROI门禁未过',
     }[String(status || '').toLowerCase()] || '状态未知');
@@ -1294,6 +1301,151 @@
         });
     };
 
+    const revenueAiEvidenceTarget = (payload = {}) => {
+        const targetFilter = payload.target_filter && typeof payload.target_filter === 'object' ? payload.target_filter : {};
+        return {
+            targetPage: payload.target_page || '',
+            targetTab: payload.target_tab || '',
+            targetAgentTab: payload.target_agent_tab || '',
+            targetRevenueTab: payload.target_revenue_tab || '',
+            targetFilter,
+            canOpenTarget: Boolean(payload.target_page),
+        };
+    };
+
+    const buildRevenueAiEvidenceWorkbenchRows = ({ overview = null, overviewError = '' } = {}) => {
+        if (overviewError) {
+            return [{
+                key: 'overview_request',
+                label: 'Revenue AI 总览',
+                status: 'failed',
+                statusLabel: revenueAiStatusLabel('failed'),
+                className: revenueAiStatusClass('failed'),
+                detailText: overviewError || revenueAiReasonText('overview_request_failed'),
+                nextActionText: '检查 Revenue AI 总览接口和登录状态。',
+                policyText: '接口失败时不生成 AI 结论。',
+                metaText: '--',
+                canOpenTarget: false,
+            }];
+        }
+
+        const primaryAction = Array.isArray(overview?.actions) ? (overview.actions[0] || {}) : {};
+        const p0Gate = overview?.p0_downstream_gate && typeof overview.p0_downstream_gate === 'object' ? overview.p0_downstream_gate : {};
+        const reviewQueue = primaryAction.review_queue && typeof primaryAction.review_queue === 'object'
+            ? primaryAction.review_queue
+            : (overview?.review_queue || {});
+        const aiToOperation = primaryAction.ai_to_operation_handoff && typeof primaryAction.ai_to_operation_handoff === 'object'
+            ? primaryAction.ai_to_operation_handoff
+            : (overview?.ai_to_operation_handoff || overview?.pricing_readiness?.ai_to_operation_handoff || {});
+        const operationPacket = aiToOperation.operation_intake_packet && typeof aiToOperation.operation_intake_packet === 'object'
+            ? aiToOperation.operation_intake_packet
+            : {};
+        const operationPreflight = operationPacket.operation_intake_preflight_contract && typeof operationPacket.operation_intake_preflight_contract === 'object'
+            ? operationPacket.operation_intake_preflight_contract
+            : (primaryAction.operation_intake_preflight_contract || {});
+        const executionSummary = overview?.execution_summary && typeof overview.execution_summary === 'object' ? overview.execution_summary : {};
+        const investmentHandoff = primaryAction.operation_to_investment_handoff && typeof primaryAction.operation_to_investment_handoff === 'object'
+            ? primaryAction.operation_to_investment_handoff
+            : (overview?.operation_to_investment_handoff || overview?.pricing_readiness?.operation_to_investment_handoff || {});
+        const investmentPrecheck = buildRevenueAiInvestmentPrecheckSummary({ overview, action: primaryAction });
+        const p0Status = p0Gate.status || (overview ? (overview.data_status || 'unknown') : 'not_loaded');
+        const reviewStatus = reviewQueue.status || (overview ? (Number(reviewQueue.pending_count || 0) > 0 ? 'pending_review' : 'empty') : 'not_loaded');
+        const operationStatus = aiToOperation.status || (overview ? 'operation_intake_blocked_by_manual_review' : 'not_loaded');
+        const executionStatus = executionSummary.status || (overview ? 'empty' : 'not_loaded');
+        const investmentStatus = investmentHandoff.status || investmentPrecheck.status || (overview ? 'investment_precheck_blocked_by_operation_roi' : 'not_loaded');
+
+        return [
+            {
+                key: 'ota_evidence_gate',
+                label: 'OTA 证据门禁',
+                status: p0Status,
+                statusLabel: revenueAiStatusLabel(p0Status),
+                className: revenueAiStatusClass(p0Status),
+                detailText: p0Gate.display || p0Gate.detail || revenueAiReasonText(p0Gate.reason || (overview ? 'blocked_by_data_credibility' : 'overview_not_loaded')),
+                nextActionText: p0Gate.required_gate_command || p0Gate.next_action || '先补齐目标日 OTA 入库证据和 P0 门禁。',
+                policyText: '只按目标日 OTA 渠道证据判断，不用 latest_available 或历史样本替代。',
+                metaText: p0Gate.source_scope || overview?.source_scope || 'OTA渠道口径',
+                ...revenueAiEvidenceTarget(p0Gate),
+            },
+            {
+                key: 'manual_review',
+                label: 'AI 建议人工审核',
+                status: reviewStatus,
+                statusLabel: revenueAiStatusLabel(reviewStatus),
+                className: revenueAiStatusClass(reviewStatus),
+                detailText: reviewQueue.display || `待审核 ${Number(reviewQueue.pending_count || 0)} / 已批准 ${Number(reviewQueue.approved_count || 0)}`,
+                nextActionText: reviewQueue.next_action || '在收益管理 Agent 审核队列中人工批准、修改后批准或拒绝。',
+                policyText: '人工审核必需；不自动写 OTA。',
+                metaText: `pending=${Number(reviewQueue.pending_count || 0)} / approved=${Number(reviewQueue.approved_count || 0)} / auto_write_ota=false`,
+                ...revenueAiEvidenceTarget(reviewQueue),
+            },
+            {
+                key: 'operation_intake',
+                label: 'AI 到运营交接',
+                status: operationStatus,
+                statusLabel: revenueAiStatusLabel(operationStatus),
+                className: revenueAiStatusClass(operationStatus),
+                detailText: [
+                    operationPacket.status ? `packet=${operationPacket.status}` : '',
+                    operationPreflight.status ? `preflight=${operationPreflight.status}` : '',
+                    operationPacket.candidate_blocked_reason || '',
+                ].filter(Boolean).join(' / ') || revenueAiReasonText('operation_intake_not_approved'),
+                nextActionText: aiToOperation.target_entry || operationPacket.target_entry || '/api/operation/execution-intents',
+                policyText: aiToOperation.protected_boundary || operationPreflight.protected_boundary || 'operation_intake_requires_approved_ai_review_and_price_target_no_auto_create',
+                metaText: `can_create=${aiToOperation.can_create_operation_execution === true ? 'true' : 'false'} / auto_create=${aiToOperation.auto_create_operation_execution === true ? 'true' : 'false'}`,
+                canOpenTarget: false,
+            },
+            {
+                key: 'operation_execution',
+                label: '运营执行与复盘',
+                status: executionStatus,
+                statusLabel: revenueAiStatusLabel(executionStatus),
+                className: revenueAiStatusClass(executionStatus),
+                detailText: executionSummary.display || revenueAiReasonText(executionSummary.reason || (overview ? 'operation_execution_empty' : 'overview_not_loaded')),
+                nextActionText: executionSummary.next_action || '审批执行意图、记录执行证据，并完成效果复盘。',
+                policyText: '没有执行证据和 ROI 复盘时，不进入投资判断。',
+                metaText: `total=${Number(executionSummary.total_count || 0)} / evidence=${Number(executionSummary.evidence_ready_count || 0)} / roi=${Number(executionSummary.roi_ready_count || 0)}`,
+                targetPage: 'ops-track',
+                canOpenTarget: true,
+            },
+            {
+                key: 'investment_precheck',
+                label: '运营到投决预检',
+                status: investmentStatus,
+                statusLabel: revenueAiStatusLabel(investmentStatus),
+                className: revenueAiStatusClass(investmentStatus),
+                detailText: investmentPrecheck.detailText || revenueAiReasonText(investmentHandoff.operation_roi_reason || 'operation_roi_missing'),
+                nextActionText: investmentHandoff.target_entry || investmentPrecheck.targetEntry || '/api/investment-decision/overview',
+                policyText: investmentHandoff.protected_boundary || investmentPrecheck.protectedBoundary || 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
+                metaText: `decision_allowed=${investmentHandoff.decision_allowed === true ? 'true' : 'false'} / can_create=${investmentHandoff.can_create_investment_decision === true ? 'true' : 'false'} / roi_ready=${Number(investmentHandoff.operation_roi_ready || investmentPrecheck.operationRoiReady || 0)}`,
+                targetPage: investmentHandoff.target_page || 'investment-decision',
+                canOpenTarget: false,
+            },
+        ];
+    };
+
+    const buildRevenueAiEvidenceWorkbenchSummary = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        if (!safeRows.length) {
+            return {
+                status: 'not_loaded',
+                statusLabel: revenueAiStatusLabel('not_loaded'),
+                className: revenueAiStatusClass('not_loaded'),
+                detailText: 'Revenue AI 证据链尚未加载。',
+            };
+        }
+        const blockedRows = safeRows.filter(row => revenueAiStatusTone(row?.status) === 'blocked');
+        const warningRows = safeRows.filter(row => revenueAiStatusTone(row?.status) === 'warning');
+        const readyRows = safeRows.filter(row => revenueAiStatusTone(row?.status) === 'ok');
+        const status = blockedRows.length ? 'blocked' : (warningRows.length ? 'warning' : 'ok');
+        return {
+            status,
+            statusLabel: blockedRows.length ? `${blockedRows.length} 个门禁阻断` : (warningRows.length ? `${warningRows.length} 个环节待复核` : '证据链可继续推进'),
+            className: revenueAiStatusClass(status),
+            detailText: `已读 ${safeRows.length} 个环节：${readyRows.length} 个就绪，${warningRows.length} 个待复核，${blockedRows.length} 个阻断。`,
+        };
+    };
+
     const buildRevenueAiPricingGateRows = ({ overview = null, overviewError = '' } = {}) => {
         if (overviewError) {
             return [{
@@ -2005,6 +2157,8 @@
         buildRevenueAiPricingGenerationPreflightSummary,
         buildRevenueAiPriceSuggestionGenerateResult,
         buildRevenueAiActionRows,
+        buildRevenueAiEvidenceWorkbenchRows,
+        buildRevenueAiEvidenceWorkbenchSummary,
         buildRevenueAiPricingGateRows,
         buildRevenueAiAgentActivitySummary,
         buildRevenueAiAgentActivityRows,
