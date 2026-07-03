@@ -224,8 +224,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                     collectionDetail = failedSource.last_error || failedSource.message || '最近同步失败，需查看同步日志';
                 } else if (partialSource) {
                     collectionLevel = 'medium';
-                    collectionText = '部分成功';
-                    collectionDetail = partialSource.last_error || latestSyncTime || '部分模块缺失，需复核字段和日志';
+                    collectionText = '部分模块成功';
+                    collectionDetail = partialSource.last_error || latestSyncTime || '有模块成功，但仍有模块缺失或未入库，需复核字段和日志';
                 } else if (readySource || latestSyncTime) {
                     collectionLevel = 'ok';
                     collectionText = '已采集';
@@ -302,28 +302,28 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const actionHint = String(row?.action_hint || '').trim();
         const text = `${raw} ${status} ${actionHint}`;
         if (row?.is_usable || ['ok', 'ready', 'valid', 'success', 'usable', 'active', 'logged_in'].includes(status)) {
-            return '授权可用，仍以目标日入库行为采集证明';
+            return '登录态可用，仍以目标日入库行为采集证明';
         }
         if (['waiting_config', 'missing', 'unbound', 'not_configured', 'profile_missing'].includes(status) || /未配置|缺失|待补|missing|unbound|not[_-]?configured|waiting[_-]?config/i.test(text)) {
-            return '授权配置待补齐';
+            return '登录或 Cookie/API 辅助配置待补齐';
         }
         if (['expired', 'failed', 'auth_failed', 'invalid', 'unauthorized', 'forbidden', 'login_required', 'blocked'].includes(status) || /cookie|login|auth|401|403|unauthorized|forbidden|expired|invalid|登录|授权|过期|失效|异常/i.test(text)) {
-            return '授权或登录状态异常，需要重新授权后再采集';
+            return '登录态或 Cookie/API 辅助异常，需要重新登录/更新后再采集';
         }
         if (raw && !collectionHealthAuthorizationMachineText(raw)) return raw;
-        return '授权状态待确认';
+        return '登录态待确认';
     };
     const collectionHealthAuthorizationActionHintText = (row = {}) => {
         const raw = String(row?.action_hint || '').trim();
         const text = `${raw} ${row?.message || ''} ${row?.status || ''}`;
         if (row?.is_usable || /ready|ok|success|usable|valid|已登录|可用|正常/i.test(text)) {
-            return '可作为授权上下文，仍需目标日入库证明';
+            return '可作为临时 Cookie/API 上下文，仍需目标日入库证明';
         }
         if (/missing|unbound|not[_-]?configured|waiting[_-]?config|未配置|缺失|待补/i.test(text)) {
-            return '补齐授权配置';
+            return '补齐登录或 Cookie/API 辅助配置';
         }
         if (/delete|remove|expired|failed|invalid|401|403|unauthorized|forbidden|cookie|login|auth|删除|重新|登录|授权|过期|失效/i.test(text)) {
-            return '重新授权或清理失效记录';
+            return '重新登录或清理失效记录';
         }
         if (raw && !collectionHealthAuthorizationMachineText(raw)) return raw;
         return '待复核';
@@ -333,8 +333,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const raw = String(type || '').trim();
         const normalized = raw.toLowerCase();
         const map = {
-            authorization: '授权/登录',
-            auth: '授权/登录',
+            authorization: '登录/Cookie',
+            auth: '登录/Cookie',
             cookie: '授权 Cookie',
             collection: '采集请求',
             capture: '采集请求',
@@ -353,7 +353,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const raw = String(reason || '').trim();
         if (!raw) return '失败原因待确认';
         if (/cookie|login|auth|401|403|登录|授权|过期|失效|unauthorized|forbidden/i.test(raw)) {
-            return '授权或登录状态异常，需要重新授权后再采集';
+            return '登录态或 Cookie/API 辅助异常，需要重新登录/更新后再采集';
         }
         if (/source[_\s-]*rows|target[_\s-]*date|no\s+same|no\s+data|empty|未采集|无数据|入库行缺失/i.test(raw)) {
             return '目标日 OTA 源数据缺失，不能证明当天已采到';
@@ -447,10 +447,10 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             rows.push({
                 key: `cookie-${index}-${row?.platform || ''}-${row?.hotel_id || ''}-${row?.config_id || row?.name || ''}`,
                 priority: row?.priority || 'medium',
-                source_label: '授权',
+                source_label: '登录/Cookie',
                 platform_label: row?.platform_label || platformText(row?.platform),
-                title: row?.title || 'OTA 授权待处理',
-                detail: row?.message || row?.action_text || 'Cookie 状态异常，需重新授权后再采集。',
+                title: row?.title || 'OTA 登录/Cookie 待处理',
+                detail: row?.message || row?.action_text || 'Cookie 状态异常，需重新登录或更新后再采集。',
                 action_type: 'cookie',
             });
         });
@@ -461,7 +461,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                 source_label: '数据质量',
                 platform_label: row?.platform_label || platformText(row?.platform),
                 title: row?.title || '数据质量任务待处理',
-                detail: row?.action || '复核授权、字段映射和平台返回。',
+                detail: row?.action || '复核登录/Cookie、字段映射和平台返回。',
                 action_type: row?.actionTab ? 'fetch' : 'history',
                 action_tab: row?.actionTab || '',
                 button_text: row?.actionLabel || '补抓数据',
@@ -494,7 +494,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         if (fullDiagnosticsLoaded) {
             return {
                 title: '完整诊断已加载',
-                detail: '当前已包含账号级驾驶舱、单店画像、数据源诊断、授权、采集失败、字段缺口和后台高风险动作；仍仅代表 OTA 渠道数据质量，不代表全酒店经营口径。',
+                detail: '当前已包含账号级驾驶舱、单店画像、数据源诊断、登录/Cookie、采集失败、字段缺口和后台高风险动作；仍仅代表 OTA 渠道数据质量，不代表全酒店经营口径。',
                 badges: ['账号级驾驶舱', '单店画像', '数据源诊断', 'OTA渠道口径'],
                 className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
             };
@@ -502,8 +502,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
         return {
             title: '当前为轻量刷新',
-            detail: '只展示平台授权、采集失败、字段缺口和高风险动作摘要；未拉取账号级驾驶舱、单店画像和数据源完整诊断，缺证据项保持未知状态。',
-            badges: ['授权状态', '失败原因', '字段缺口', '高风险动作'],
+            detail: '只展示登录/Cookie、采集失败、字段缺口和高风险动作摘要；未拉取账号级驾驶舱、单店画像和数据源完整诊断，缺证据项保持未知状态。',
+            badges: ['登录/Cookie状态', '失败原因', '字段缺口', '高风险动作'],
             className: 'border-amber-200 bg-amber-50 text-amber-800',
         };
     };
@@ -521,9 +521,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                 priority: status === 'failed' ? 'high' : 'medium',
                 status,
                 platform_label: platformText(row?.platform),
-                title: `${platformText(row?.platform)} / ${row?.name || row?.config_id || '未命名授权'}`,
-                message: row?.message || row?.action_hint || '授权状态待复核',
-                action_text: row?.next_action || row?.action_hint || '重新授权后刷新数据健康',
+                title: `${platformText(row?.platform)} / ${row?.name || row?.config_id || '未命名配置'}`,
+                message: row?.message || row?.action_hint || '登录/Cookie 状态待复核',
+                action_text: row?.next_action || row?.action_hint || '重新登录或更新后刷新数据健康',
             };
         });
 
@@ -690,7 +690,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const status = cron.token_configured === false ? 'high' : (failureCount > 0 ? 'medium' : 'ok');
         return {
             status,
-            text: status === 'high' ? '需处理' : (status === 'medium' ? '有失败' : '暂无风险'),
+            text: status === 'high' ? '高优先复核' : (status === 'medium' ? '有失败' : '暂无风险'),
             failureCount,
             rateLimitedCount,
             period: payload?.period || {},
@@ -754,7 +754,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         unknown: '未知',
         waiting_config: '待配置',
         failed: '失败',
-        partial_success: '部分成功',
+        partial_success: '部分模块成功',
         error: '异常',
         no_data: '暂无数据',
     }[status] || status || '未知');
@@ -782,7 +782,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         stale: '已过期',
         collecting: '采集中',
         failed: '采集失败',
-        partial_success: '部分成功',
+        partial_success: '部分模块成功',
         login_required: '需登录',
         manual_intervention_required: '需人工处理',
         unbound: '未绑定',
@@ -827,7 +827,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const type = String(item?.type || '').trim();
         return ({
             authorization: '授权/账号',
-            failure_reason: '授权告警',
+            failure_reason: '登录/Cookie告警',
             collection: '采集状态',
             collection_gap: '源数据缺口',
             field_quality: '字段质量',
@@ -836,8 +836,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
     const collectionHealthPendingActionText = (item) => {
         const code = String(item?.action_code || '').trim();
-        if (code.startsWith('ota_authorization_')) return '复核平台授权、账号/Profile 绑定，并按现有入口重跑同步';
-        if (code.startsWith('ota_collection_')) return '复查采集日志、平台响应和授权状态后，按现有手动或自动入口重试';
+        if (code.startsWith('ota_authorization_')) return '复核登录/Cookie、账号/Profile 绑定，并按现有入口重跑同步';
+        if (code.startsWith('ota_collection_')) return '复查采集日志、平台响应和登录/Cookie 状态后，按现有手动或自动入口重试';
         if (code === 'ota_same_period_source_rows_missing') return '补齐携程/美团同日期 OTA 入库数据，再复核字段、指标、AI 和执行动作';
         if (code.startsWith('ota_field_quality_')) return '复核缺失字段、原始响应路径和字段映射，缺口继续保留为 data_gaps';
         return String(item?.action || item?.next_action || '').trim() || '查看待处理动作并按数据健康明细复核';
@@ -847,7 +847,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const code = String(item?.action_code || '').trim();
         const platformText = collectionHealthPendingActionPlatformText(item?.platform);
         if (code.startsWith('ota_authorization_')) return `${platformText}授权或账号上下文需要复核`;
-        if (code.startsWith('ota_collection_')) return `${platformText}采集状态不是稳定成功，需要复查失败、部分成功或待配置原因`;
+        if (code.startsWith('ota_collection_')) return `${platformText}采集状态不是稳定成功，需要复查失败、部分模块成功或待配置原因`;
         if (code === 'ota_same_period_source_rows_missing') return '选定周期缺少可证明经营诊断的 OTA 同日期入库数据';
         if (code.startsWith('ota_field_quality_')) return `${platformText}字段质量存在缺口，不能把缺字段指标显示成可信`;
         return String(item?.reason || '').trim();
@@ -855,7 +855,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
     const collectionHealthPendingActionEvidenceText = (item) => {
         const code = String(item?.action_code || '').trim();
-        if (code.startsWith('ota_authorization_')) return '授权状态、账号/Profile 绑定、重跑同步日志';
+        if (code.startsWith('ota_authorization_')) return '登录/Cookie 状态、账号/Profile 绑定、重跑同步日志';
         if (code.startsWith('ota_collection_')) return '采集日志、平台响应状态、validation_flags、source_trace_id 或 raw_data';
         if (code === 'ota_same_period_source_rows_missing') return 'online_daily_data 同日期源数据行、data_source_id/sync_task_id、source_trace_id 或 raw_data';
         if (code.startsWith('ota_field_quality_')) return '缺失字段列表、raw_data.field_facts、source_path、metric_key、storage_field、source_trace_id、validation_flags';
@@ -900,14 +900,14 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const raw = String(status || '').trim();
         const normalized = raw.toLowerCase();
         return ({
-            logged_in: '已登录',
-            ok: '授权可用',
-            ok_or_unverified: '已有授权，登录态待复核',
+            logged_in: '登录态已验证',
+            ok: '登录态可用',
+            ok_or_unverified: '已有临时 Cookie/API 辅助内容，登录态待复核',
             login_required: '需要重新登录',
             expired: '登录已失效',
-            unknown: '授权待确认',
+            unknown: '登录态待确认',
             snapshot_ready: '诊断快照可用',
-        }[normalized] || (raw ? '授权待确认' : '授权待确认'));
+        }[normalized] || (raw ? '登录态待确认' : '登录态待确认'));
     };
 
     const collectionHealthCtripCatalogCodeText = (value) => {
@@ -926,7 +926,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             advertising: '广告投放',
             homepage: '首页快照',
             hotel_homepage: '酒店首页',
-            auth_session: '授权会话',
+            auth_session: '登录会话',
             response_count: '业务响应数',
             standard_rows: '标准入库行',
             endpoint_coverage: '采集规则覆盖',
@@ -942,7 +942,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         if (normalized.includes('quality') || normalized.includes('psi')) return '服务质量';
         if (normalized.includes('ad')) return '广告投放';
         if (normalized.includes('business') || normalized.includes('sales') || normalized.includes('overview')) return '收益经营';
-        if (normalized.includes('auth') || normalized.includes('login')) return '授权会话';
+        if (normalized.includes('auth') || normalized.includes('login')) return '登录会话';
         if (normalized.includes('endpoint')) return '采集规则覆盖';
         if (normalized.includes('field')) return '字段覆盖';
         if (normalized.includes('standard')) return '标准入库行';
@@ -1245,7 +1245,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const collectionHealthCtripCatalogAuthText = (catalog = {}) => {
         const authStatus = String(catalog.auth_status || '').toLowerCase();
         if (authStatus === 'login_required') return '需要重新登录';
-        return catalog.is_live_capture_ready ? '授权可用' : '待验证';
+        return catalog.is_live_capture_ready ? '登录态可用' : '待验证';
     };
 
     const collectionHealthCtripCatalogPendingFetchText = (catalog = {}) => `${catalog.capture_gap_missing_formal_endpoint_count || 0} 项`;
@@ -1259,7 +1259,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         pendingFieldText = '',
     } = {}) => [
         { label: '诊断口径', value: diagnosticScope },
-        { label: '授权状态', value: authText },
+        { label: '登录/Cookie 状态', value: authText },
         { label: '待补采集', value: pendingFetchText },
         { label: '待补字段', value: pendingFieldText },
     ];
@@ -1301,7 +1301,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         },
         {
             key: 'auth-status',
-            label: '授权状态',
+            label: '登录/Cookie 状态',
             valueText: collectionHealthCtripCatalogAuthStatusText(catalog.auth_status),
             rawText: String(catalog.auth_status || 'unknown'),
         },
@@ -1407,7 +1407,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const buildCollectionHealthCtripOverviewAuthState = (rows = []) => {
         const safeRows = Array.isArray(rows) ? rows : [];
         if (!safeRows.length) return { value: '未配置', status: 'waiting_config', className: 'text-amber-700' };
-        if (safeRows.some(row => row?.is_usable)) return { value: '已登录', status: 'ok', className: 'text-emerald-700' };
+        if (safeRows.some(row => row?.is_usable)) return { value: '登录态已验证', status: 'ok', className: 'text-emerald-700' };
         const status = String(safeRows[0]?.status || '').toLowerCase();
         if (['expired', 'failed', 'auth_failed'].includes(status) || safeRows.every(row => !row?.is_usable)) {
             return { value: '需重新登录', status: 'expired', className: 'text-red-700' };
@@ -1628,7 +1628,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             return { diagnosisType: 'config', module: action.module, reasonText: '配置问题：缺少携程 Cookie，先补充 Cookie 后再抓。', actionLabel: '检查配置', actionTab: '' };
         }
         if (authState.status === 'expired') {
-            return { diagnosisType: 'config', module: action.module, reasonText: '配置问题：携程 Cookie 不可用或过期，先重新授权。', actionLabel: '重新授权', actionTab: '' };
+            return { diagnosisType: 'config', module: action.module, reasonText: '配置问题：携程 Cookie 不可用或过期，先重新登录或更新 Cookie/API 辅助内容。', actionLabel: '更新 Cookie/API 辅助', actionTab: '' };
         }
         if (options.identityBlocked) {
             return {
@@ -2331,7 +2331,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
     const phase1EmployeeReadinessStatusText = (status) => ({
         ready: '可核对现有状态',
-        requires_user_context: '需要先提供授权上下文',
+        requires_user_context: '需要先提供 Cookie/Payload 上下文',
         profile_missing: '未找到本机 Profile',
         profile_found_login_unverified: '发现 Profile，但登录态未验证',
     }[String(status || '').trim()] || String(status || '').trim());
@@ -2678,7 +2678,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const stableDetails = ({
             manual_cookie_api: [
                 `用于已取得${platformText} Cookie/Payload/导出上下文时补齐目标日数据`,
-                '需用户提供授权上下文、门店标识和目标日期',
+                '需用户提供 Cookie/Payload 上下文、门店标识和目标日期',
                 `不代登录${platformBackendText}，不启动浏览器 Profile，不改变采集字段`,
             ],
             browser_profile: [
@@ -3487,7 +3487,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         target_date_rows_field_definitions_metric_trust_required: '目标日源数据 + 字段定义 + 指标可信证据',
         target_date_rows_plus_metric_trust_required: '目标日源数据 + 指标可信证据',
         generated_blocked_from_verified_missing_requirements: '由已验证缺口生成的阻断状态',
-        user_supplied_cookie_or_payload_required: '需要用户提供授权上下文',
+        user_supplied_cookie_or_payload_required: '需要用户提供 Cookie/Payload 上下文',
         storage_profile_directory_count: '只读本机 Profile 目录数量',
     }[String(value || '').trim()] || String(value || '').trim());
 
@@ -3511,7 +3511,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         read_platform_data_sources_metadata_only: '只读平台采集源元数据',
         requires_target_date_rows_field_definitions_metric_trust_and_data_quality: '需要目标日源数据、字段定义、指标可信和数据质量证据',
         generated_blocked_from_verified_missing_requirements: '由已验证缺口生成的阻断状态',
-        user_supplied_cookie_or_payload_required: '需要用户提供授权上下文',
+        user_supplied_cookie_or_payload_required: '需要用户提供 Cookie/Payload 上下文',
         storage_profile_directory_count: '只读本机 Profile 目录数量',
         read_local_profile_directory_names_only: '只读本机 Profile 目录名',
     }[String(value || '').trim()] || String(value || '').trim());

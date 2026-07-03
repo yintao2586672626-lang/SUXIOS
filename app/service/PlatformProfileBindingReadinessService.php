@@ -85,13 +85,13 @@ final class PlatformProfileBindingReadinessService
                 $identityActionMeta = ['run_meituan_ranking_capture', '执行美团榜单采集', 'meituan-ranking'];
             } elseif ($profileExists) {
                 $identityStatus = 'warning';
-                $identityDetail = 'Profile可用，但API榜单缺少 Partner ID';
+                $identityDetail = 'Profile目录已发现，但API榜单缺少 Partner ID';
                 $identityAction = '补充 Partner ID 以稳定采集榜单';
                 $identityActionMeta = ['complete_meituan_partner', '补 Partner ID', 'platform-sources'];
             } else {
                 $identityStatus = 'warning';
                 $identityDetail = '已有POI/Store，但 Partner ID 未配置';
-                $identityAction = '补充 Partner ID 或使用已登录Profile采集';
+                $identityAction = '补充 Partner ID 或检测 Profile 登录态后采集';
                 $identityActionMeta = ['complete_meituan_identity_or_login', '补 Partner ID 或登录Profile', 'platform-sources'];
             }
         }
@@ -134,7 +134,7 @@ final class PlatformProfileBindingReadinessService
             $trialActionMeta = ['open_sync_logs', '查看日志并重试采集', 'sync-logs'];
         } elseif (in_array($lastSyncStatus, ['partial_success'], true)) {
             $trialStatus = 'warning';
-            $trialDetail = '最近采集部分成功';
+            $trialDetail = '最近采集部分模块成功';
             $trialAction = '核对缺失模块后补采';
             $trialActionMeta = ['review_partial_capture', '查看缺失模块并补采', 'sync-logs'];
         } elseif ($lastCaptureTime !== '') {
@@ -192,10 +192,10 @@ final class PlatformProfileBindingReadinessService
     private static function statusText(string $statusCode): string
     {
         return match ($statusCode) {
-            'logged_in' => '已登录',
+            'logged_in' => '登录态已验证',
             'login_expired' => '登录失效',
             'capture_failed' => '采集失败',
-            'waiting_login' => '待登录',
+            'waiting_login' => '登录待验证',
             default => '未配置',
         };
     }
@@ -204,7 +204,7 @@ final class PlatformProfileBindingReadinessService
     {
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
-            'logged_in' => '可执行 Profile 自动采集',
+            'logged_in' => '登录态已验证；执行目标日同步并检查入库结果',
             'login_expired' => '重新登录' . $name . '平台账号',
             'capture_failed' => '查看最近同步日志后重新检测登录状态',
             'waiting_login' => '点击“登录' . $name . '”完成平台验证',
@@ -216,7 +216,7 @@ final class PlatformProfileBindingReadinessService
     {
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
-            'logged_in' => ['run_profile_capture', '执行试采集', 'platform-auto'],
+            'logged_in' => ['run_profile_capture', '同步并检查入库', 'platform-auto'],
             'login_expired' => ['login_platform_profile', '重新登录' . $name, 'profile-login'],
             'capture_failed' => ['open_sync_logs', '查看日志并检测登录', 'sync-logs'],
             'waiting_login' => ['login_platform_profile', '登录' . $name, 'profile-login'],

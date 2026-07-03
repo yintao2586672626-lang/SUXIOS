@@ -845,27 +845,27 @@ window.SUXI_SYSTEM_STATIC = (() => {
     const dataConfigProfiles = {
         'ctrip-ebooking': {
             description: '用于携程经营榜单抓取，核心参数为接口地址、Node ID、Cookie 和日期范围。',
-            requiredText: '接口地址 / 节点 / 平台授权',
+            requiredText: '接口地址 / 节点 / Cookie/API 辅助',
             outputText: '房价、销量、订单、排名',
         },
         'meituan-ebooking': {
-            description: '用于美团竞对排名抓取，核心参数为平台接口标识、门店标识、榜单类型、平台授权和日期范围。',
-            requiredText: '接口标识 / 门店标识 / 平台授权',
+            description: '用于美团竞对排名抓取，核心参数为平台接口标识、门店标识、榜单类型、Cookie/API 辅助和日期范围。',
+            requiredText: '接口标识 / 门店标识 / Cookie/API 辅助',
             outputText: '入住、销售、转化、流量榜',
         },
         'ctrip-traffic': {
             description: '用于携程流量分析抓取，支持携程/去哪儿平台、日期范围和额外 JSON 参数。',
-            requiredText: '接口地址 / 平台授权 / 平台',
+            requiredText: '接口地址 / Cookie/API 辅助 / 平台',
             outputText: '访问量、转化率、趋势',
         },
         'ctrip-cookie-api': {
-            description: '用于携程 Cookie API 直连诊断，支持接口清单、单个 Request URL、Cookie 或已登录 Profile。',
+            description: '用于携程 Cookie API 临时诊断，支持接口清单、单个 Request URL、Cookie 或已验证 Profile。',
             requiredText: 'Request URL 清单 / Cookie 或 Profile',
             outputText: '经营、流量、广告、商旅、质量等诊断行',
         },
         'meituan-traffic': {
-            description: '用于美团流量接口抓取，支持接口地址、平台接口标识、门店标识、平台授权、日期范围和额外参数。',
-            requiredText: '接口地址 / 接口标识 / 门店标识 / 平台授权',
+            description: '用于美团流量接口抓取，支持接口地址、平台接口标识、门店标识、Cookie/API 辅助、日期范围和额外参数。',
+            requiredText: '接口地址 / 接口标识 / 门店标识 / Cookie/API 辅助',
             outputText: '曝光、访问、转化',
         },
         'booking-ota': {
@@ -890,7 +890,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         },
         'meituan-comments': {
             description: '美团点评当前暂缓，不进入默认自动采集；该配置仅保留为显式手动兼容入口。',
-            requiredText: '接口标识 / 门店标识 / 平台授权',
+            requiredText: '接口标识 / 门店标识 / Cookie/API 辅助',
             outputText: '暂缓 / 手动启用',
         },
         'ctrip-ads': {
@@ -899,8 +899,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
             outputText: '曝光、点击、成交、费用',
         },
         'meituan-ads': {
-            description: '用于美团推广通广告接口抓取，支持广告接口地址、平台授权、店铺或门店标识、日期范围和请求参数。',
-            requiredText: '接口地址 / 平台授权 / 店铺或门店标识',
+            description: '用于美团推广通广告接口抓取，支持广告接口地址、Cookie/API 辅助、店铺或门店标识、日期范围和请求参数。',
+            requiredText: '接口地址 / Cookie/API 辅助 / 店铺或门店标识',
             outputText: '曝光、点击、转化',
         },
     };

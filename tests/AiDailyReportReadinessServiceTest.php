@@ -125,5 +125,28 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         self::assertSame('pending_execution_transfer', $rows[0]['report_readiness']['stage']);
         self::assertSame('pending_transfer', $rows[0]['recommended_actions'][0]['action_readiness']['stage']);
         self::assertSame(8, $rows[0]['yesterday_result']['metrics'][0]['value']);
+        self::assertSame([], $rows[0]['owner_communication_brief']);
+    }
+
+    public function testOwnerCommunicationBriefIsReturnedFromSnapshotOnly(): void
+    {
+        $service = new AiDailyReportService();
+
+        $rows = $service->enrichReportRows([[
+            'id' => 0,
+            'hotel_id' => 2,
+            'created_by' => 1,
+            'yesterday_result_json' => '{"metrics":[{"key":"orders","value":8}]}',
+            'abnormal_metrics_json' => '[]',
+            'competitor_changes_json' => '[]',
+            'data_gaps_json' => '[]',
+            'recommended_actions_json' => '[{"title":"Review price","can_create_execution_intent":true}]',
+            'source_refs_json' => '[{"key":"operation.full_data"}]',
+            'snapshot_json' => '{"owner_communication_brief":{"status":"available","non_execution":true,"source_policy":"daily_report_operating_data_plus_owner_negotiation_playbook_reference"}}',
+        ]]);
+
+        self::assertSame('available', $rows[0]['owner_communication_brief']['status']);
+        self::assertTrue($rows[0]['owner_communication_brief']['non_execution']);
+        self::assertArrayNotHasKey('owner_communication_brief', $rows[0]['recommended_actions'][0]);
     }
 }

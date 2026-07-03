@@ -1497,7 +1497,7 @@ trait AutoFetchConcern
             'browser_opened' => '浏览器已打开，等待人工登录',
             'running' => '正在检测登录状态',
             'syncing_after_login' => '登录已完成，正在同步目标日数据',
-            'logged_in' => '已登录',
+            'logged_in' => '登录态已验证',
             'failed' => '登录失败',
             default => '等待处理',
         };
@@ -1799,10 +1799,10 @@ trait AutoFetchConcern
     private function platformProfileStatusText(string $statusCode): string
     {
         return match ($statusCode) {
-            'logged_in' => '已登录',
+            'logged_in' => '登录态已验证',
             'login_expired' => '登录失效',
             'capture_failed' => '采集失败',
-            'waiting_login' => '待登录',
+            'waiting_login' => '登录待验证',
             default => '未配置',
         };
     }
@@ -1811,7 +1811,7 @@ trait AutoFetchConcern
     {
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
-            'logged_in' => '可执行 Profile 自动采集',
+            'logged_in' => '登录态已验证；执行目标日同步并检查入库结果',
             'login_expired' => '重新登录' . $name . '平台账号',
             'capture_failed' => '查看最近同步日志后重新检测登录状态',
             'waiting_login' => '点击“登录' . $name . '”完成平台验证',
@@ -1823,7 +1823,7 @@ trait AutoFetchConcern
     {
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
-            'logged_in' => ['run_profile_capture', '执行试采集', 'platform-auto'],
+            'logged_in' => ['run_profile_capture', '同步并检查入库', 'platform-auto'],
             'login_expired' => ['login_platform_profile', '重新登录' . $name, 'profile-login'],
             'capture_failed' => ['open_sync_logs', '查看日志并检测登录', 'sync-logs'],
             'waiting_login' => ['login_platform_profile', '登录' . $name, 'profile-login'],

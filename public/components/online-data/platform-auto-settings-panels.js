@@ -88,7 +88,7 @@
                     <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                         <div>
                             <div class="text-sm font-semibold text-slate-900">采集闭环</div>
-                            <div class="mt-1 text-xs text-slate-500">授权会话 -> 业务响应 -> 标准字段 -> 标准入库</div>
+                            <div class="mt-1 text-xs text-slate-500">登录会话 -> 业务响应 -> 标准字段 -> 标准入库</div>
                         </div>
                         <span class="inline-flex w-fit items-center rounded-md border border-blue-100 bg-white px-2 py-1 text-xs text-blue-700">OTA 渠道口径</span>
                     </div>

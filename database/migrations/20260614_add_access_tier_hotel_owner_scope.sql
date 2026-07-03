@@ -20,6 +20,13 @@ ALTER TABLE `user_hotel_permissions`
   ADD COLUMN IF NOT EXISTS `status` varchar(20) NOT NULL DEFAULT 'active' COMMENT 'active/disabled' AFTER `expires_at`,
   ADD COLUMN IF NOT EXISTS `created_by` int unsigned NOT NULL DEFAULT 0 COMMENT '授权创建人' AFTER `status`;
 
+DELETE uhp
+FROM `user_hotel_permissions` uhp
+LEFT JOIN `users` u ON u.`id` = uhp.`user_id`
+LEFT JOIN `hotels` h ON h.`id` = uhp.`hotel_id`
+WHERE u.`id` IS NULL
+   OR h.`id` IS NULL;
+
 UPDATE `roles`
 SET `name` = 'admin',
     `display_name` = '超级管理员',

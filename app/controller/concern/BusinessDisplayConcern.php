@@ -99,9 +99,14 @@ trait BusinessDisplayConcern
 
         // 美团API成功状态码通常是0
         if ($businessCode !== null && $businessCode !== 0 && $businessCode !== '0') {
+            $failure = $this->buildMeituanBusinessFailurePayload($businessCode, (string)$businessMsg, $httpCode);
             return [
                 'success' => false,
-                'error' => '美团API返回错误: ' . ($businessMsg ?: "状态码: $businessCode"),
+                'error' => $failure['error'],
+                'reason' => $failure['reason'],
+                'credential_status' => $failure['credential_status'],
+                'business_code' => $businessCode,
+                'business_message' => (string)$businessMsg,
                 'data' => $data,
                 'raw' => $response,
                 'http_code' => $httpCode,
@@ -113,6 +118,28 @@ trait BusinessDisplayConcern
             'data' => $data,
             'raw' => $response,
             'http_code' => $httpCode,
+        ];
+    }
+
+    private function buildMeituanBusinessFailurePayload($businessCode, string $businessMsg, int $httpCode): array
+    {
+        $message = trim($businessMsg);
+        $codeText = strtolower(trim((string)$businessCode));
+        $loginRequired = in_array($codeText, ['303', '401', '403'], true)
+            || preg_match('/未登录|尚未登录|重新登录|登录已过期|登录失效|login|required|unauthorized|forbidden/i', $message) === 1;
+
+        if ($loginRequired) {
+            return [
+                'reason' => 'login_required',
+                'credential_status' => 'login_required',
+                'error' => '美团登录态已失效，请重新登录美团后台后更新 Cookie/API 辅助内容',
+            ];
+        }
+
+        return [
+            'reason' => 'meituan_api_error',
+            'credential_status' => 'api_error',
+            'error' => '美团API返回错误: ' . ($message !== '' ? $message : "状态码: $businessCode"),
         ];
     }
 
@@ -1224,7 +1251,7 @@ trait BusinessDisplayConcern
 
         $hotelMap = $this->injectMeituanSelfActualMetrics($hotelMap, $selfKey, $context);
 
-        $fields = ['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'viewConversion', 'payConversion', 'exposure', 'views'];
+        $fields = ['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'orderCount', 'viewConversion', 'payConversion', 'exposure', 'views'];
         foreach ($fields as $field) {
             $selfValue = $this->meituanSelfMetricValue($field, $hotelMap[$selfKey], $context);
             $selfPercent = $this->meituanMetricRankPercent($hotelMap[$selfKey], $field);
@@ -1377,7 +1404,7 @@ trait BusinessDisplayConcern
         }
 
         $sourceStatuses = is_array($context['self_metric_source_status'] ?? null) ? $context['self_metric_source_status'] : [];
-        foreach (['exposure', 'views'] as $field) {
+        foreach (['exposure', 'views', 'orderCount', 'payConversion'] as $field) {
             $value = isset($storedValues[$field]) ? (float)$storedValues[$field] : 0.0;
             if ($value <= 0 || isset($selfValues[$field])) {
                 continue;
@@ -1418,6 +1445,7 @@ trait BusinessDisplayConcern
             $fields = [
                 isset($columns['list_exposure']) ? 'SUM(COALESCE(list_exposure, 0)) AS exposure' : '0 AS exposure',
                 isset($columns['detail_exposure']) ? 'SUM(COALESCE(detail_exposure, 0)) AS views' : '0 AS views',
+                isset($columns['order_submit_num']) ? 'SUM(COALESCE(order_submit_num, 0)) AS orderCount' : '0 AS orderCount',
             ];
             $query = Db::name('online_daily_data')
                 ->where('system_hotel_id', $systemHotelId)
@@ -1446,11 +1474,14 @@ trait BusinessDisplayConcern
             }
 
             $values = [];
-            foreach (['exposure', 'views'] as $field) {
+            foreach (['exposure', 'views', 'orderCount'] as $field) {
                 $value = (float)($row[$field] ?? 0);
                 if ($value > 0) {
                     $values[$field] = $value;
                 }
+            }
+            if (($values['orderCount'] ?? 0) > 0 && ($values['views'] ?? 0) > 0) {
+                $values['payConversion'] = round((float)$values['orderCount'] / (float)$values['views'], 4);
             }
             return $values;
         } catch (\Throwable $e) {
@@ -2618,9 +2649,11 @@ trait BusinessDisplayConcern
                 $this->businessSummaryCard('visitConcentration', '浏览/访客集中度', $visitHhi > 0 ? number_format($visitHhi, 2, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
                 $this->businessSummaryCard('operationFocus', '运营重心', $operationFocus, 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
                 $this->businessSummaryCard('totalRoomNights', '总入住间夜', number_format($totalRoomNights), 'text-red-600', 'bg-red-50 border border-red-200'),
-                $this->businessSummaryCard('totalRoomRevenue', '总房费收入', '楼' . number_format((float)floor($totalRoomRevenue)), 'text-red-600', 'bg-red-50 border border-red-200'),
+                $this->businessSummaryCard('totalRoomRevenue', '总房费收入', '¥' . number_format((float)floor($totalRoomRevenue)), 'text-red-600', 'bg-red-50 border border-red-200'),
+                $this->businessSummaryCard('avgRoomPrice', '商圈平均房价', $avgRoomPrice > 0 ? '¥' . number_format($avgRoomPrice, 0, '.', ',') : '-', 'text-red-600', 'bg-red-50 border border-red-200'),
                 $this->businessSummaryCard('totalSalesRoomNights', '总销售间夜', number_format($totalSalesRoomNights), 'text-green-600', 'bg-green-50 border border-green-200'),
-                $this->businessSummaryCard('totalSales', '总销售额', '楼' . number_format((float)floor($totalSales)), 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->businessSummaryCard('totalSales', '总销售额', '¥' . number_format((float)floor($totalSales)), 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->businessSummaryCard('avgSalesPrice', '商圈平均销售房价', $avgSalesPrice > 0 ? '¥' . number_format($avgSalesPrice, 0, '.', ',') : '-', 'text-green-600', 'bg-green-50 border border-green-200'),
                 $this->businessSummaryCard('totalExposure', '总曝光量', number_format($totalExposure), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
                 $this->businessSummaryCard('totalViews', '总浏览量', number_format($totalViews), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
                 $this->businessSummaryCard('totalOrderCount', '总订单量', number_format($totalOrderCount), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
@@ -3340,7 +3373,7 @@ trait BusinessDisplayConcern
                 'details' => [],
                 'missing' => ['美团榜单数据未返回'],
             ],
-            'source_notice' => '仅展示美团榜单已返回字段；未返回字段保留缺失状态。',
+            'source_notice' => '未返回字段保持缺失。',
         ];
     }
 
@@ -3407,7 +3440,9 @@ trait BusinessDisplayConcern
 
     private function buildMeituanCompetitorSummaryPayload(string $hotelId, $currentUser = null, bool $includeByHotel = false): array
     {
-        $latest = $this->findLatestMeituanCompetitorStoredRow($hotelId, $currentUser);
+        $range = $this->normalizeMeituanCompetitorSummaryRange((string)$this->request->get('range', ''));
+        $targetDate = $this->resolveMeituanCompetitorSummaryTargetDate($range);
+        $latest = $this->findLatestMeituanCompetitorStoredRow($hotelId, $currentUser, $targetDate);
         if (empty($latest)) {
             $payload = $this->emptyMeituanCompetitorSummaryPayload([
                 'hotel_id' => $hotelId,
@@ -3428,6 +3463,10 @@ trait BusinessDisplayConcern
                 $context['self_metric_values'] = $selfMetricValues;
             }
             $payload = $this->buildMeituanCompetitorSummaryFromStoredRows($rows, $context);
+            $comparison = $this->buildMeituanCompetitorSummaryComparison($latest, $effectiveHotelId, $currentUser, $context, $range);
+            if ($comparison !== null) {
+                $payload['comparison'] = $comparison;
+            }
         }
 
         $payload['scope'] = $hotelId !== '' ? 'hotel' : 'latest';
@@ -3437,7 +3476,47 @@ trait BusinessDisplayConcern
         return $payload;
     }
 
-    private function findLatestMeituanCompetitorStoredRow(string $hotelId, $currentUser = null): array
+    private function normalizeMeituanCompetitorSummaryRange(string $range): string
+    {
+        $range = trim($range);
+        return in_array($range, ['realtime', 'yesterday'], true) ? $range : '';
+    }
+
+    private function resolveMeituanCompetitorSummaryTargetDate(string $range): string
+    {
+        return $range === 'yesterday' ? date('Y-m-d', strtotime('-1 day')) : '';
+    }
+
+    private function buildMeituanCompetitorSummaryComparison(array $latest, string $hotelId, $currentUser, array $context, string $range): ?array
+    {
+        if (!in_array($range, ['realtime', 'yesterday'], true) || empty($latest['data_date'])) {
+            return null;
+        }
+        $previousDate = date('Y-m-d', strtotime((string)$latest['data_date'] . ' -1 day'));
+        $previousLatest = $this->findLatestMeituanCompetitorStoredRow($hotelId, $currentUser, $previousDate);
+        if (empty($previousLatest)) {
+            return null;
+        }
+
+        $rows = $this->fetchMeituanCompetitorStoredRowsForLatest($previousLatest, $hotelId, $currentUser);
+        if (empty($rows)) {
+            return null;
+        }
+
+        $comparisonContext = $context;
+        $comparisonContext['data_date'] = $previousDate;
+        $comparisonContext['source'] = 'online_daily_data';
+        unset($comparisonContext['self_metric_values'], $comparisonContext['selfMetricValues']);
+        $summary = $this->buildMeituanCompetitorSummaryFromStoredRows($rows, $comparisonContext);
+        return [
+            'data_date' => $previousDate,
+            'display_hotels' => $summary['display_hotels'] ?? [],
+            'display_summary' => $summary['display_summary'] ?? $this->emptyMeituanBusinessDisplaySummary(),
+            'record_count' => (int)($summary['record_count'] ?? count($rows)),
+        ];
+    }
+
+    private function findLatestMeituanCompetitorStoredRow(string $hotelId, $currentUser = null, string $targetDate = ''): array
     {
         $columns = $this->getOnlineDailyDataColumns();
         $query = Db::name('online_daily_data');
@@ -3445,6 +3524,9 @@ trait BusinessDisplayConcern
         $this->applyMeituanCompetitorUserScope($query, $currentUser, $columns);
         if ($hotelId !== '') {
             $this->applyOnlineDailyDataHotelFilter($query, $hotelId);
+        }
+        if ($targetDate !== '' && isset($columns['data_date'])) {
+            $query->where('data_date', $targetDate);
         }
         if (isset($columns['data_date'])) {
             $query->order('data_date', 'desc');
@@ -3552,7 +3634,7 @@ trait BusinessDisplayConcern
             'rank_health_rows' => $displaySummary['rank_health_rows'] ?? [],
             'top_summary_rows' => $displaySummary['top_summary_rows'] ?? [],
             'funnel_diagnosis' => $displaySummary['funnel_diagnosis'] ?? [],
-            'source_notice' => $displaySummary['source_notice'] ?? '仅展示美团榜单已返回字段；未返回字段保留缺失状态。',
+            'source_notice' => $displaySummary['source_notice'] ?? '未返回字段保持缺失。',
             'readiness' => $readiness,
         ];
     }

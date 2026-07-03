@@ -12121,12 +12121,28 @@ main[data-current-page="ai-workbench"] .dual-ota-context-select {
     outline: 0;
 }
 
+main[data-current-page="ai-workbench"] .dual-ota-store-picker .dual-ota-context-item-store {
+    flex: 0 1 400px;
+    width: min(400px, 52%);
+    margin-left: 0;
+    padding: 10px 14px;
+    border-color: rgba(202, 165, 111, .54);
+    background: rgba(255, 253, 248, .96);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, .06);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-hotel-select {
+    font-size: 16px;
+    line-height: 1.35;
+    text-align: center;
+    text-align-last: center;
+}
+
 main[data-current-page="ai-workbench"] .dual-ota-store-scope {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(420px, 500px);
     align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 14px;
+    gap: 12px;
     margin-top: 12px;
     padding: 12px 14px;
     border: 1px solid rgba(12, 122, 107, .18);
@@ -12135,12 +12151,46 @@ main[data-current-page="ai-workbench"] .dual-ota-store-scope {
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-store-scope-list {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(76px, 1fr));
+    display: grid !important;
+    align-items: center;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
     gap: 8px;
-    width: min(300px, 100%);
+    justify-self: end;
+    width: 100%;
+    min-width: 0;
     margin-top: 0;
-    flex: 0 0 auto;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    flex: 1 1 0;
+    min-height: 32px;
+    padding: 7px 8px;
+    border: 1px solid rgba(202, 165, 111, .62);
+    border-radius: 999px;
+    background: rgba(255, 253, 248, .72);
+    color: var(--dual-muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 850;
+    text-align: center;
+    white-space: nowrap;
+    transition: background .18s ease, border-color .18s ease, color .18s ease;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active {
+    border-color: rgba(12, 122, 107, .44);
+    background: rgba(12, 122, 107, .12);
+    color: var(--dual-teal);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle:focus-visible {
+    outline: 2px solid rgba(12, 122, 107, .42);
+    outline-offset: 2px;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-store-option {
@@ -12148,8 +12198,9 @@ main[data-current-page="ai-workbench"] .dual-ota-store-option {
     align-items: center;
     justify-content: center;
     min-width: 0;
+    flex: 1 1 0;
     min-height: 32px;
-    padding: 7px 14px;
+    padding: 7px 8px;
     border: 1px solid rgba(226, 205, 169, .70);
     border-radius: 999px;
     background: rgba(255, 253, 248, .78);
@@ -12157,6 +12208,7 @@ main[data-current-page="ai-workbench"] .dual-ota-store-option {
     cursor: pointer;
     font: inherit;
     text-align: center;
+    white-space: nowrap;
     transition: background .18s ease, border-color .18s ease, transform .18s ease;
 }
 
@@ -12290,6 +12342,10 @@ main[data-current-page="ai-workbench"] .dual-ota-system-metric small {
     font-size: 11px;
 }
 
+main[data-current-page="ai-workbench"] .dual-ota-system-metric-spacer {
+    visibility: hidden;
+}
+
 main[data-current-page="ai-workbench"] .dual-ota-system-metric.is-good strong {
     color: var(--dual-teal);
 }
@@ -12375,13 +12431,20 @@ main[data-current-page="ai-workbench"] .dual-ota-deprioritized .dual-ota-card-he
         width: 100%;
     }
 
+    main[data-current-page="ai-workbench"] .dual-ota-store-picker .dual-ota-context-item-store {
+        width: 100%;
+        margin-left: 0;
+    }
+
     main[data-current-page="ai-workbench"] .dual-ota-store-scope {
         align-items: stretch;
-        flex-direction: column;
+        grid-template-columns: 1fr;
     }
 
     main[data-current-page="ai-workbench"] .dual-ota-store-scope-list {
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+        gap: 6px;
+        justify-self: stretch;
         width: 100%;
     }
 

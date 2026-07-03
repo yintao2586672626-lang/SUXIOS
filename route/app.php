@@ -110,6 +110,8 @@ Route::group('api/auth', function () {
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== 酒店管理路由 ====================
+Route::get('api/hotels/', 'Hotel/index')->middleware(\app\middleware\Auth::class);
+Route::post('api/hotels/', 'Hotel/create')->middleware(\app\middleware\Auth::class);
 Route::group('api/hotels', function () {
     Route::get('/', 'Hotel/index');
     Route::get('/all', 'Hotel/all');

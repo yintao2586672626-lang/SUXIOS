@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\model\User as UserModel;
+use app\model\Hotel as HotelModel;
 use app\model\Role;
 use app\model\OperationLog;
 use think\Response;
@@ -11,6 +12,8 @@ use think\facade\Db;
 
 class User extends Base
 {
+    private array $tableColumnCache = [];
+
     /**
      * 用户列表
      */
@@ -52,8 +55,12 @@ class User extends Base
 
         $total = $query->count();
         $list = $query->page($pagination['page'], $pagination['page_size'])->select()->hidden(['password']);
+        $rows = [];
+        foreach ($list as $item) {
+            $rows[] = $this->appendUserHotelScope($item);
+        }
 
-        return $this->paginate($list, $total, $pagination['page'], $pagination['page_size']);
+        return $this->paginate($rows, $total, $pagination['page'], $pagination['page_size']);
     }
 
     /**
@@ -70,12 +77,16 @@ class User extends Base
             return $this->error('用户不存在');
         }
 
-        if (!$this->currentUser->isSuperAdmin() && !in_array((int)$user->hotel_id, array_map('intval', $this->currentUser->getPermittedHotelIds()), true)) {
-            return $this->error('权限不足', 403);
+        if (!$this->currentUser->isSuperAdmin()) {
+            $currentUserHotelIds = array_map('intval', $this->currentUser->getPermittedHotelIds());
+            $targetUserHotelIds = $this->userEffectiveHotelIds((int)$user->id, (int)($user->hotel_id ?? 0));
+            if (empty(array_intersect($targetUserHotelIds, $currentUserHotelIds))) {
+                return $this->error('权限不足', 403);
+            }
         }
 
         $user->hidden(['password']);
-        return $this->success($user);
+        return $this->success($this->appendUserHotelScope($user));
     }
 
     /**
@@ -92,15 +103,17 @@ class User extends Base
 
         $data = $this->requestData();
 
+        $username = trim((string)($data['username'] ?? ''));
+        $usernameError = $this->validateUsernamePolicy($username);
+        if ($usernameError) {
+            return $this->error($usernameError);
+        }
+        $data['username'] = $username;
+
         $this->validate($data, [
-            'username' => 'require|alphaNum|min:3|max:20',
             'password' => 'require',
             'role_id' => 'require|integer',
         ], [
-            'username.require' => '用户名不能为空',
-            'username.alphaNum' => '用户名只能包含字母和数字',
-            'username.min' => '用户名至少3个字符',
-            'username.max' => '用户名最多20个字符',
             'password.require' => '密码不能为空',
             'role_id.require' => '请选择角色',
         ]);
@@ -118,10 +131,20 @@ class User extends Base
         
         // 非超级管理员只能创建自己酒店的店员
         $hotelId = null;
-        $roleId = $data['role_id'];
+        $roleId = (int)$data['role_id'];
+        $targetRole = Role::where('id', $roleId)->where('status', Role::STATUS_ENABLED)->find();
+        if (!$targetRole) {
+            return $this->error('角色不存在或已停用', 422);
+        }
+        $hotelIds = [];
         
         if ($this->currentUser->isSuperAdmin()) {
-            $hotelId = $data['hotel_id'] ?? null;
+            $hotelIds = $this->normalizeAssignedHotelIds($data);
+            $invalidHotelResponse = $this->validateAssignableHotelIds($hotelIds);
+            if ($invalidHotelResponse) {
+                return $invalidHotelResponse;
+            }
+            $hotelId = $hotelIds[0] ?? null;
         } else {
             // 店长只能创建自己酒店的店员
             $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
@@ -133,10 +156,10 @@ class User extends Base
             if (!in_array((int)$hotelId, $permittedHotelIds, true)) {
                 return $this->error('无权为该酒店创建用户', 403);
             }
-            $targetRole = Role::find((int)$roleId);
             if (!$targetRole || (int)$targetRole->level < 3) {
                 return $this->error('您只能创建店员账号');
             }
+            $hotelIds = [(int)$hotelId];
         }
 
         $user = new UserModel();
@@ -148,11 +171,15 @@ class User extends Base
         $user->role_id = $roleId;
         $user->hotel_id = $hotelId;
         $user->status = $data['status'] ?? UserModel::STATUS_ENABLED;
-        $user->save();
+        Db::transaction(function () use ($user, $hotelIds, $targetRole): void {
+            $user->save();
+            $this->syncUserHotelPermissions($user, $hotelIds, $targetRole);
+        });
 
         OperationLog::record('user', 'create', '创建用户: ' . $user->username, $this->currentUser->id);
 
-        return $this->success($user->hidden(['password']), '创建成功');
+        $savedUser = UserModel::with(['role', 'hotel'])->find((int)$user->id);
+        return $this->success($this->appendUserHotelScope($savedUser ?: $user), '创建成功');
     }
 
     /**
@@ -179,12 +206,19 @@ class User extends Base
         $data = $this->requestData();
 
         // 用户名唯一性检查
-        if (!empty($data['username']) && $data['username'] != $user->username) {
-            $exists = UserModel::where('username', $data['username'])->find();
-            if ($exists) {
-                return $this->error('用户名已存在');
+        if (array_key_exists('username', $data)) {
+            $nextUsername = trim((string)$data['username']);
+            if ($nextUsername !== (string)$user->username) {
+                $usernameError = $this->validateUsernamePolicy($nextUsername);
+                if ($usernameError) {
+                    return $this->error($usernameError);
+                }
+                $exists = UserModel::where('username', $nextUsername)->find();
+                if ($exists) {
+                    return $this->error('用户名已存在');
+                }
+                $user->username = $nextUsername;
             }
-            $user->username = $data['username'];
         }
 
         if (!empty($data['password'])) {
@@ -198,25 +232,50 @@ class User extends Base
         $user->realname = $data['realname'] ?? $user->realname;
         $user->email = $data['email'] ?? $user->email;
         $user->phone = $data['phone'] ?? $user->phone;
+        $roleChanged = false;
+        $syncHotelIds = null;
+        $targetRole = Role::where('id', (int)$user->role_id)->where('status', Role::STATUS_ENABLED)->find();
 
         // 只有超级管理员可以修改角色和酒店
         if ($this->currentUser->isSuperAdmin()) {
             if (isset($data['role_id'])) {
-                $user->role_id = $data['role_id'];
+                $nextRoleId = (int)$data['role_id'];
+                $nextRole = Role::where('id', $nextRoleId)->where('status', Role::STATUS_ENABLED)->find();
+                if (!$nextRole) {
+                    return $this->error('角色不存在或已停用', 422);
+                }
+                $roleChanged = $nextRoleId !== (int)$user->role_id;
+                $user->role_id = $nextRoleId;
+                $targetRole = $nextRole;
             }
-            if (isset($data['hotel_id'])) {
-                $user->hotel_id = $data['hotel_id'];
+            if ($this->hasHotelAssignmentInput($data)) {
+                $syncHotelIds = $this->normalizeAssignedHotelIds($data);
+                $invalidHotelResponse = $this->validateAssignableHotelIds($syncHotelIds);
+                if ($invalidHotelResponse) {
+                    return $invalidHotelResponse;
+                }
+                $user->hotel_id = $syncHotelIds[0] ?? null;
             }
             if (isset($data['status'])) {
                 $user->status = $data['status'];
             }
         }
 
-        $user->save();
+        if ($roleChanged && $syncHotelIds === null) {
+            $syncHotelIds = $this->existingAssignedHotelIds((int)$user->id, (int)($user->hotel_id ?? 0));
+        }
+
+        Db::transaction(function () use ($user, $syncHotelIds, $targetRole): void {
+            $user->save();
+            if ($syncHotelIds !== null && $targetRole instanceof Role) {
+                $this->syncUserHotelPermissions($user, $syncHotelIds, $targetRole);
+            }
+        });
 
         OperationLog::record('user', 'update', '更新用户: ' . $user->username, $this->currentUser->id);
 
-        return $this->success($user->hidden(['password']), '更新成功');
+        $savedUser = UserModel::with(['role', 'hotel'])->find((int)$user->id);
+        return $this->success($this->appendUserHotelScope($savedUser ?: $user), '更新成功');
     }
 
     /**
@@ -288,6 +347,344 @@ class User extends Base
     {
         $roles = Role::where('status', 1)->order('level', 'asc')->select();
         return $this->success($roles);
+    }
+
+    private function validateUsernamePolicy(string $username): ?string
+    {
+        if ($username === '' || !preg_match('/^[A-Za-z0-9_]{3,50}$/', $username)) {
+            return '用户名需为 3-50 位字母、数字或下划线';
+        }
+
+        return null;
+    }
+
+    private function appendUserHotelScope($user): array
+    {
+        if ($user instanceof UserModel) {
+            $user->hidden(['password']);
+            $data = $user->toArray();
+        } elseif (is_array($user)) {
+            $data = $user;
+            unset($data['password']);
+        } else {
+            return [];
+        }
+
+        $userId = (int)($data['id'] ?? 0);
+        $primaryHotelId = (int)($data['hotel_id'] ?? 0);
+        $assignedHotelIds = $this->assignedHotelIds($userId);
+        $ownedHotelIds = $this->ownedHotelIdsForUser($userId);
+        $effectiveHotelIds = $this->mergeHotelIds($assignedHotelIds, $ownedHotelIds, $primaryHotelId > 0 ? [$primaryHotelId] : []);
+
+        $data['assigned_hotel_ids'] = $assignedHotelIds;
+        $data['owned_hotel_ids'] = $ownedHotelIds;
+        $data['hotel_ids'] = $this->userDataIsSuperAdmin($data)
+            ? $assignedHotelIds
+            : $effectiveHotelIds;
+        $data['assigned_hotels'] = $this->hotelSummaries($data['hotel_ids']);
+        $data['hotel_scope_text'] = $this->userDataIsSuperAdmin($data)
+            ? '全部门店'
+            : $this->hotelScopeText($data['hotel_ids']);
+
+        return $data;
+    }
+
+    private function hasHotelAssignmentInput(array $data): bool
+    {
+        return array_key_exists('hotel_ids', $data) || array_key_exists('hotel_id', $data);
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function normalizeAssignedHotelIds(array $data): array
+    {
+        $raw = array_key_exists('hotel_ids', $data) ? $data['hotel_ids'] : ($data['hotel_id'] ?? null);
+        return $this->normalizeHotelIdList($raw);
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function normalizeHotelIdList($value): array
+    {
+        if ($value === null || $value === '') {
+            return [];
+        }
+
+        $values = is_array($value) ? $value : explode(',', (string)$value);
+        $ids = [];
+        foreach ($values as $item) {
+            if (is_array($item)) {
+                continue;
+            }
+            if (is_numeric($item) && (int)$item > 0) {
+                $ids[] = (int)$item;
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    private function validateAssignableHotelIds(array $hotelIds): ?Response
+    {
+        if (empty($hotelIds)) {
+            return null;
+        }
+
+        $enabledHotelIds = array_values(array_map('intval', HotelModel::where('status', HotelModel::STATUS_ENABLED)
+            ->whereIn('id', $hotelIds)
+            ->column('id')));
+        $missingHotelIds = array_values(array_diff($hotelIds, $enabledHotelIds));
+
+        if (!empty($missingHotelIds)) {
+            return $this->error('选择的门店不存在或已停用: ' . implode(',', $missingHotelIds), 422);
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function existingAssignedHotelIds(int $userId, int $primaryHotelId = 0): array
+    {
+        return $this->userEffectiveHotelIds($userId, $primaryHotelId);
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function userEffectiveHotelIds(int $userId, int $primaryHotelId = 0): array
+    {
+        return $this->mergeHotelIds(
+            $this->assignedHotelIds($userId),
+            $this->ownedHotelIdsForUser($userId),
+            $primaryHotelId > 0 && $this->hotelIsEnabled($primaryHotelId) ? [$primaryHotelId] : []
+        );
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function assignedHotelIds(int $userId): array
+    {
+        if ($userId <= 0 || !$this->tableColumnExists('user_hotel_permissions', 'hotel_id')) {
+            return [];
+        }
+
+        $query = Db::name('user_hotel_permissions')
+            ->alias('uhp')
+            ->join('hotels h', 'h.id = uhp.hotel_id')
+            ->where('uhp.user_id', $userId)
+            ->where('h.status', HotelModel::STATUS_ENABLED);
+
+        if ($this->tableColumnExists('user_hotel_permissions', 'status')) {
+            $query->whereIn('uhp.status', ['active', '1', 1]);
+        }
+
+        if ($this->tableColumnExists('user_hotel_permissions', 'can_view')) {
+            $query->where('uhp.can_view', 1);
+        } elseif ($this->tableColumnExists('user_hotel_permissions', 'can_view_online_data')) {
+            $query->where('uhp.can_view_online_data', 1);
+        }
+
+        return array_values(array_map('intval', $query->column('uhp.hotel_id')));
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function ownedHotelIdsForUser(int $userId): array
+    {
+        if ($userId <= 0) {
+            return [];
+        }
+
+        $column = $this->hotelOwnershipColumn();
+        if ($column === '') {
+            return [];
+        }
+
+        return array_values(array_map('intval', HotelModel::where('status', HotelModel::STATUS_ENABLED)
+            ->where($column, $userId)
+            ->column('id')));
+    }
+
+    /**
+     * @param array<int, int> ...$groups
+     * @return array<int, int>
+     */
+    private function mergeHotelIds(array ...$groups): array
+    {
+        $ids = [];
+        foreach ($groups as $group) {
+            foreach ($group as $hotelId) {
+                if ((int)$hotelId > 0) {
+                    $ids[] = (int)$hotelId;
+                }
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    private function hotelIsEnabled(int $hotelId): bool
+    {
+        return $hotelId > 0 && (bool)HotelModel::where('id', $hotelId)
+            ->where('status', HotelModel::STATUS_ENABLED)
+            ->find();
+    }
+
+    private function hotelOwnershipColumn(): string
+    {
+        if ($this->tableColumnExists('hotels', 'owner_user_id')) {
+            return 'owner_user_id';
+        }
+
+        if ($this->tableColumnExists('hotels', 'created_by')) {
+            return 'created_by';
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<int, int> $hotelIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function hotelSummaries(array $hotelIds): array
+    {
+        if (empty($hotelIds)) {
+            return [];
+        }
+
+        return HotelModel::whereIn('id', $hotelIds)
+            ->field('id,name,code,status')
+            ->select()
+            ->toArray();
+    }
+
+    /**
+     * @param array<int, int> $hotelIds
+     */
+    private function hotelScopeText(array $hotelIds): string
+    {
+        if (empty($hotelIds)) {
+            return '未分配门店';
+        }
+
+        $names = array_map(static fn(array $hotel): string => trim((string)($hotel['name'] ?? '')), $this->hotelSummaries($hotelIds));
+        $names = array_values(array_filter($names, static fn(string $name): bool => $name !== ''));
+
+        return empty($names) ? implode(',', $hotelIds) : implode('、', $names);
+    }
+
+    private function userDataIsSuperAdmin(array $data): bool
+    {
+        if ((int)($data['role_id'] ?? 0) === Role::SUPER_ADMIN) {
+            return true;
+        }
+
+        $role = $data['role'] ?? null;
+        if (is_array($role)) {
+            $permissions = Role::normalizePermissions($role['permissions'] ?? []);
+            return in_array('all', $permissions, true) || (int)($role['level'] ?? 0) === 1;
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, int> $hotelIds
+     */
+    private function syncUserHotelPermissions(UserModel $targetUser, array $hotelIds, Role $targetRole): void
+    {
+        $userId = (int)$targetUser->id;
+        if ($userId <= 0 || !$this->tableColumnExists('user_hotel_permissions', 'user_id')) {
+            return;
+        }
+
+        $hotelIds = $this->mergeHotelIds($hotelIds);
+        Db::name('user_hotel_permissions')->where('user_id', $userId)->delete();
+
+        foreach ($hotelIds as $index => $hotelId) {
+            $payload = $this->filterExistingColumns(
+                'user_hotel_permissions',
+                $this->buildHotelPermissionPayload($targetUser, $targetRole, $hotelId, $index === 0)
+            );
+            if (!empty($payload)) {
+                Db::name('user_hotel_permissions')->insert($payload);
+            }
+        }
+    }
+
+    private function buildHotelPermissionPayload(UserModel $targetUser, Role $targetRole, int $hotelId, bool $isPrimary): array
+    {
+        $permissions = $targetRole->getPermissionList();
+        $allows = static fn(string $permission): int => Role::permissionListAllows($permissions, $permission) ? 1 : 0;
+        $canViewReport = $allows('report.view');
+        $canFillReport = $allows('report.fill');
+        $canEditReport = $allows('report.update');
+        $canViewOta = $allows('ota.view');
+        $canFetchOta = $allows('ota.collect');
+        $canDeleteOta = $allows('ota.delete');
+        $canExport = $allows('ota.export') || $allows('report.export') ? 1 : 0;
+
+        return [
+            'user_id' => (int)$targetUser->id,
+            'hotel_id' => $hotelId,
+            'scope_type' => $this->userOwnsHotel((int)$targetUser->id, $hotelId) ? 'owner' : 'granted',
+            'can_view' => 1,
+            'can_report' => $canViewReport,
+            'can_fill' => $canFillReport,
+            'can_edit' => $allows('hotel.update') || $canEditReport ? 1 : 0,
+            'can_fetch_ota' => $canFetchOta,
+            'can_delete_ota' => $canDeleteOta,
+            'can_export' => $canExport,
+            'can_ai' => $allows('ai.view') || $allows('ai.execute') ? 1 : 0,
+            'can_operation' => $allows('operation.view') || $allows('operation.execute') ? 1 : 0,
+            'can_investment' => $allows('investment.view') || $allows('investment.simulate') ? 1 : 0,
+            'status' => 'active',
+            'created_by' => (int)($this->currentUser->id ?? 0),
+            'can_view_report' => $canViewReport,
+            'can_fill_daily_report' => $canFillReport,
+            'can_fill_monthly_task' => $canFillReport,
+            'can_edit_report' => $canEditReport,
+            'can_delete_report' => $allows('report.delete'),
+            'can_view_online_data' => $canViewOta,
+            'can_fetch_online_data' => $canFetchOta,
+            'can_delete_online_data' => $canDeleteOta,
+            'is_primary' => $isPrimary ? 1 : 0,
+            'create_time' => date('Y-m-d H:i:s'),
+            'update_time' => date('Y-m-d H:i:s'),
+        ];
+    }
+
+    private function userOwnsHotel(int $userId, int $hotelId): bool
+    {
+        if ($userId <= 0 || $hotelId <= 0) {
+            return false;
+        }
+
+        $column = $this->hotelOwnershipColumn();
+        if ($column === '') {
+            return false;
+        }
+
+        return (bool)HotelModel::where('id', $hotelId)
+            ->where($column, $userId)
+            ->find();
+    }
+
+    private function filterExistingColumns(string $table, array $payload): array
+    {
+        $columns = $this->tableColumns($table);
+        if (empty($columns)) {
+            return $payload;
+        }
+
+        return array_intersect_key($payload, array_flip($columns));
     }
 
     private function ensureUserCanBeDeleted(UserModel $user): array
@@ -404,16 +801,38 @@ class User extends Base
         return (int)Db::name($table)->where($column, $value)->count();
     }
 
+    /**
+     * @return array<int, string>
+     */
+    private function tableColumns(string $table): array
+    {
+        $table = str_replace('`', '', $table);
+        if (array_key_exists($table, $this->tableColumnCache)) {
+            return $this->tableColumnCache[$table];
+        }
+
+        try {
+            $rows = Db::query("SHOW COLUMNS FROM `{$table}`");
+            $columns = array_values(array_filter(array_map(static fn(array $row): string => (string)($row['Field'] ?? ''), $rows)));
+        } catch (\Throwable $e) {
+            try {
+                $rows = Db::query("PRAGMA table_info(`{$table}`)");
+                $columns = array_values(array_filter(array_map(static fn(array $row): string => (string)($row['name'] ?? ''), $rows)));
+            } catch (\Throwable $ignored) {
+                $columns = [];
+            }
+        }
+
+        $this->tableColumnCache[$table] = $columns;
+        return $columns;
+    }
+
     private function tableColumnExists(string $table, string $column): bool
     {
         $table = str_replace('`', '', $table);
         $column = str_replace(['`', "'"], '', $column);
 
-        try {
-            return !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
-        } catch (\Throwable $e) {
-            return false;
-        }
+        return in_array($column, $this->tableColumns($table), true);
     }
 
     private function tableColumnNullable(string $table, string $column): bool

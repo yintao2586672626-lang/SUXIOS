@@ -142,6 +142,8 @@ class AiDailyReportService
             }
         }
 
+        $snapshot['owner_communication_brief'] = $this->buildOwnerCommunicationBrief($finalReport, $snapshot, $reportDate);
+
         $now = date('Y-m-d H:i:s');
         $payload = $this->withTenantId([
             'hotel_id' => $selectedHotelId,
@@ -1194,6 +1196,75 @@ class AiDailyReportService
         return $summary;
     }
 
+    private function buildOwnerCommunicationBrief(array $report, array $snapshot, string $reportDate): array
+    {
+        $dataGaps = array_values(array_filter((array)($report['data_gaps'] ?? []), 'is_array'));
+        $actions = array_values(array_filter((array)($report['recommended_actions'] ?? []), 'is_array'));
+        $evidencePoints = $this->ownerCommunicationEvidencePoints((array)($report['yesterday_result']['metrics'] ?? []));
+        $hasDataGaps = !empty($dataGaps);
+
+        return [
+            'status' => 'available',
+            'audience' => 'owner',
+            'report_date' => $reportDate,
+            'non_execution' => true,
+            'source_policy' => 'daily_report_operating_data_plus_owner_negotiation_playbook_reference',
+            'verification_status' => 'playbook_user_provided_unverified_reference',
+            'scope_note' => (string)($snapshot['scope']['source_scope'] ?? 'OTA channel and operating-report scope, not whole-hotel financial truth'),
+            'data_boundary' => 'Use this brief for expression only. It must not replace source OTA/PMS/operating data or promise occupancy, revenue, profit, ROI, or payback.',
+            'opening' => $hasDataGaps
+                ? '今天先把数据边界说清楚：日报里仍有缺口，先补采集和口径，再谈经营判断。'
+                : '今天可以按“先止损，后保本，再增长”沟通：先说明昨日事实，再给出可复盘动作。',
+            'talking_points' => [
+                '低价不是问题，无规则低价才是问题；任何价格动作都要限定日期、房型、渠道、库存和复盘指标。',
+                '用日报里的订单、间夜、ADR、RevPAR、曝光、访客和竞对信号说话，缺失项必须明说。',
+                '对业主只承诺经营动作和复盘节奏，不承诺确定的收益、入住率、利润或回本周期。',
+            ],
+            'evidence_points' => $evidencePoints,
+            'related_action_titles' => array_values(array_filter(array_map(
+                static fn(array $action): string => trim((string)($action['title'] ?? '')),
+                array_slice($actions, 0, 3)
+            ))),
+            'blocked_claims' => [
+                'Do not present OTA channel data as whole-hotel financial truth.',
+                'Do not hide collection failure, missing fields, login failure, or unclear metric definitions.',
+                'Do not convert this communication brief into an execution intent.',
+            ],
+            'knowledge_refs' => [
+                [
+                    'key' => 'owner_negotiation_qa_playbook',
+                    'label' => 'docs/owner_negotiation_qa_playbook.md',
+                    'scope' => 'communication_reference_only_not_operating_data',
+                ],
+            ],
+        ];
+    }
+
+    private function ownerCommunicationEvidencePoints(array $metrics): array
+    {
+        $points = [];
+        foreach ($metrics as $metric) {
+            if (!is_array($metric)) {
+                continue;
+            }
+            $value = $this->numericOrNull($metric['value'] ?? null);
+            if ($value === null) {
+                continue;
+            }
+            $points[] = [
+                'key' => (string)($metric['key'] ?? ''),
+                'label' => (string)($metric['label'] ?? $metric['key'] ?? ''),
+                'value' => $value,
+                'source_ref' => (string)($metric['source_ref'] ?? ''),
+            ];
+            if (count($points) >= 6) {
+                break;
+            }
+        }
+
+        return $points;
+    }
+
     private function defaultTargetValue(array $action): array
     {
         $objectType = (string)($action['object_type'] ?? '');
@@ -1262,6 +1333,9 @@ class AiDailyReportService
             unset($row[$field . '_json']);
         }
         $row['recommended_actions'] = $this->enrichRecommendedActions((array)($row['recommended_actions'] ?? []), $executionItems);
+        $row['owner_communication_brief'] = is_array($row['snapshot']['owner_communication_brief'] ?? null)
+            ? $row['snapshot']['owner_communication_brief']
+            : [];
         $row['report_readiness'] = $this->buildReportReadiness($row, $executionItems);
 
         return $row;

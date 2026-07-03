@@ -132,7 +132,7 @@ class PlatformProfileLogin extends Command
 
         $this->writeTask($taskId, [
             'status' => 'logged_in',
-            'message' => ($platform === 'ctrip' ? '携程' : '美团') . '平台账号已登录，Profile 已保存',
+            'message' => ($platform === 'ctrip' ? '携程' : '美团') . '平台登录态已验证，Profile 已保存',
             'finished_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
             'auth_status' => $profileStatus['auth_status'],
@@ -164,8 +164,8 @@ class PlatformProfileLogin extends Command
 
         $this->writeTask($taskId, [
             'status' => 'syncing_after_login',
-            'status_text' => '登录已完成，正在同步目标日 OTA 数据',
-            'message' => '平台账号已登录，正在按数据源同步目标日 OTA 数据',
+            'status_text' => '登录态已验证，正在同步目标日 OTA 数据',
+            'message' => '平台登录态已验证，正在按数据源同步目标日 OTA 数据',
             'after_login_sync' => [
                 'status' => 'running',
                 'data_source_id' => $sourceId,
@@ -180,7 +180,7 @@ class PlatformProfileLogin extends Command
             $result = $this->syncDataSourceAfterProfileLogin($sourceId, $platform, $hotelId, $request);
             $this->writeTask($taskId, [
                 'status' => 'logged_in',
-                'status_text' => '已登录',
+                'status_text' => '登录态已验证',
                 'message' => $this->profileLoginSyncTaskMessage($platform, $result),
                 'after_login_sync' => $result,
                 'finished_at' => date('Y-m-d H:i:s'),
@@ -189,8 +189,8 @@ class PlatformProfileLogin extends Command
         } catch (\Throwable $e) {
             $this->writeTask($taskId, [
                 'status' => 'logged_in',
-                'status_text' => '已登录',
-                'message' => ($platform === 'ctrip' ? '携程' : '美团') . '平台账号已登录，但登录后同步未完成',
+                'status_text' => '登录态已验证',
+                'message' => ($platform === 'ctrip' ? '携程' : '美团') . '平台登录态已验证，但登录后同步未完成',
                 'after_login_sync' => [
                     'status' => 'failed',
                     'data_source_id' => $sourceId,
@@ -282,9 +282,9 @@ class PlatformProfileLogin extends Command
         $name = $platform === 'ctrip' ? '携程' : '美团';
         $saved = (int)($result['saved_count'] ?? 0);
         if ((string)($result['status'] ?? '') === 'success' && $saved > 0) {
-            return $name . '平台账号已登录，目标日 OTA 数据已同步入库 ' . $saved . ' 条';
+            return $name . '平台登录态已验证，目标日 OTA 数据已同步入库 ' . $saved . ' 条';
         }
-        return $name . '平台账号已登录，登录后同步已执行但目标日入库行仍未闭环';
+        return $name . '平台登录态已验证，登录后同步已执行但目标日入库行仍未闭环';
     }
 
     private function profileLoginSyncTargetDate(array $request): string

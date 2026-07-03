@@ -75,7 +75,7 @@ final class OnlineDailyDataPersistenceService
             }
         }
 
-        foreach (['amount', 'quantity', 'book_order_num', 'data_value'] as $field) {
+        foreach (['amount', 'quantity', 'book_order_num', 'data_value', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'] as $field) {
             if (!array_key_exists($field, $data) || $data[$field] === '' || $data[$field] === null) {
                 continue;
             }
@@ -92,6 +92,36 @@ final class OnlineDailyDataPersistenceService
                     'level' => 'error',
                     'field' => $field,
                     'message' => $field . ' must not be negative',
+                ];
+            }
+        }
+
+        if (isset($data['flow_rate']) && is_numeric($data['flow_rate']) && (float)$data['flow_rate'] > 100.0) {
+            $flags[] = [
+                'level' => 'error',
+                'field' => 'flow_rate',
+                'message' => 'flow_rate must not exceed 100',
+            ];
+        }
+
+        foreach (['comment_score', 'qunar_comment_score'] as $field) {
+            if (!array_key_exists($field, $data) || $data[$field] === '' || $data[$field] === null) {
+                continue;
+            }
+            if (!is_numeric($data[$field])) {
+                $flags[] = [
+                    'level' => 'error',
+                    'field' => $field,
+                    'message' => $field . ' must be numeric',
+                ];
+                continue;
+            }
+            $value = (float)$data[$field];
+            if ($value < 0.0 || $value > 5.0) {
+                $flags[] = [
+                    'level' => 'error',
+                    'field' => $field,
+                    'message' => $field . ' must be between 0 and 5',
                 ];
             }
         }

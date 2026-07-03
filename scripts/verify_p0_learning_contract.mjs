@@ -172,7 +172,7 @@ const checks = [
   {
     name: 'frontend surfaces mixed collection lifecycle and field asset summary',
     pass: publicSource.includes('data-testid="mixed-collection-lifecycle-panel"')
-      && publicSource.includes('平台授权 / 接口 + 登录会话混合采集生命周期')
+      && publicSource.includes('Cookie/API 辅助 / 接口 + 登录会话混合采集生命周期')
       && publicSource.includes('data-testid="field-asset-summary-panel"')
       && publicSource.includes('const collectionHealthLifecycleRows = computed')
       && publicSource.includes('const collectionHealthFieldAssetCards = computed'),
@@ -213,7 +213,7 @@ const checks = [
   {
     name: 'privacy boundary remains visible for high-risk order and room-state data',
     pass: publicSource.includes('不触碰订单手机号、房态或房源映射')
-      && publicSource.includes('不展示订单手机号、平台授权或原始敏感数据'),
+      && publicSource.includes('不展示订单手机号、Cookie/API 辅助内容或原始敏感数据'),
   },
   {
     name: 'npm script exposes the P0 learning verifier',

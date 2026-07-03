@@ -717,7 +717,7 @@ trait CollectionReliabilityConcern
         return match ($reason) {
             'empty' => $label . ' Cookie为空，请重新登录OTA后台后更新授权。',
             'unknown' => $label . ' Cookie缺少更新时间，请重新保存一次配置以便系统判断有效期。',
-            'expired' => $label . ' Cookie已超过' . $this->cookieExpireDays() . '天有效期阈值，请重新授权。',
+            'expired' => $label . ' Cookie已超过' . $this->cookieExpireDays() . '天有效期阈值，请重新登录或更新 Cookie/API 辅助内容。',
             'warning' => $label . ' Cookie已使用' . (string)$ageDays . '天，接近' . $this->cookieExpireDays() . '天过期阈值，建议提前更新。',
             default => $label . ' Cookie状态正常。',
         };
@@ -739,7 +739,7 @@ trait CollectionReliabilityConcern
         $actionHint = match (true) {
             $status === 'warning' => '建议提前更新',
             $isUsable => '可继续使用',
-            default => '不可用，建议删除或重新授权',
+            default => '不可用，建议删除或重新登录/更新',
         };
 
         return [
@@ -835,7 +835,7 @@ trait CollectionReliabilityConcern
                 'category' => 'cookie_alert',
                 'severity' => 'warning',
                 'title' => $this->otaPlatformLabel($platform) . '授权需要更新',
-                'message' => '平台授权状态异常，需要重新登录或更新 Cookie 后再采集。',
+                'message' => '平台登录/Cookie 状态异常，需要重新登录或更新 Cookie 后再采集。',
                 'action_type' => 'cookie',
                 'action_payload' => [
                     'target_page' => 'online-data',
@@ -1014,11 +1014,11 @@ trait CollectionReliabilityConcern
                 'platform' => (string)($row['platform'] ?? ''),
                 'hotel_id' => $row['hotel_id'] ?? null,
                 'reason' => (string)($row['message'] ?? $status),
-                'action' => (string)($row['next_action'] ?? '重新授权 OTA 账号后重跑同步'),
-                'next_action' => (string)($row['next_action'] ?? '重新授权 OTA 账号后重跑同步'),
+                'action' => (string)($row['next_action'] ?? '重新登录或更新 OTA Cookie/API 辅助内容后重跑同步'),
+                'next_action' => (string)($row['next_action'] ?? '重新登录或更新 OTA Cookie/API 辅助内容后重跑同步'),
                 'entry' => (string)($row['reauthorize_entry'] ?? $this->cookieReauthorizeEntry()),
                 'owner' => '酒店运营人员',
-                'evidence_needed' => ['授权状态', '账号/Profile绑定', '重跑同步日志'],
+                'evidence_needed' => ['登录/Cookie 状态', '账号/Profile绑定', '重跑同步日志'],
                 'protected_boundary' => '只处理授权和账号绑定，不改变携程/美团采集字段、字段映射或获取逻辑。',
             ];
         }
@@ -1031,11 +1031,11 @@ trait CollectionReliabilityConcern
                 'platform' => (string)($alert['platform'] ?? ''),
                 'hotel_id' => $alert['hotel_id'] ?? null,
                 'reason' => (string)($alert['message'] ?? ''),
-                'action' => (string)($alert['next_action'] ?? '重新授权 OTA 账号后重跑同步'),
-                'next_action' => (string)($alert['next_action'] ?? '重新授权 OTA 账号后重跑同步'),
+                'action' => (string)($alert['next_action'] ?? '重新登录或更新 OTA Cookie/API 辅助内容后重跑同步'),
+                'next_action' => (string)($alert['next_action'] ?? '重新登录或更新 OTA Cookie/API 辅助内容后重跑同步'),
                 'entry' => (string)($alert['reauthorize_entry'] ?? $this->cookieReauthorizeEntry()),
                 'owner' => '酒店运营人员',
-                'evidence_needed' => ['授权告警', '账号/Profile绑定', '重跑同步日志'],
+                'evidence_needed' => ['登录/Cookie 告警', '账号/Profile绑定', '重跑同步日志'],
                 'protected_boundary' => '只处理授权和账号绑定，不改变携程/美团采集字段、字段映射或获取逻辑。',
             ];
         }
@@ -1966,10 +1966,10 @@ trait CollectionReliabilityConcern
         $authStatus = (string)($reliability['authorization']['summary']['overall_status'] ?? 'waiting_config');
         if (in_array($syncStatus, ['auth_failed', 'not_collected'], true)) {
             $diagnostics[] = $this->buildDashboardDiagnosis(
-                $syncStatus === 'auth_failed' ? 'OTA授权不可用' : 'OTA数据未采集',
+                $syncStatus === 'auth_failed' ? 'OTA登录/Cookie不可用' : 'OTA数据未采集',
                 ['authorization_status' => $authStatus, 'hotel_id' => $reliability['hotel_id'] ?? null],
                 '账号级驾驶舱和单店画像无法形成完整 OTA 经营口径',
-                $syncStatus === 'auth_failed' ? '重新授权携程/美团账号后重跑同步' : '完成门店授权并执行自动同步',
+                $syncStatus === 'auth_failed' ? '重新登录或更新携程/美团 Cookie/API 辅助内容后重跑同步' : '完成门店登录/配置并执行自动同步',
                 $syncStatus,
                 $syncStatus === 'auth_failed' ? 'high' : 'medium'
             );

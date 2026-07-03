@@ -2849,7 +2849,7 @@ function traffic_source_next_action_text(array $source): string
         return '继续复核流量字段、来源路径和入库字段。';
     }
     if ($sourceCount <= 0) {
-        return '先登记对应平台流量采集源，再补授权上下文。';
+        return '先登记对应平台流量采集源，再补 Cookie/Payload 上下文。';
     }
     if ($waitingCount > 0) {
         return '补齐授权 Profile 或真实 Payload 后重新采集流量。';
@@ -3128,9 +3128,9 @@ function entry_option_readiness(string $platform, string $mode): array
     }
     return [
         'status' => 'requires_user_context',
-        'label' => '需提供授权上下文',
+        'label' => '需提供 Cookie/Payload 上下文',
         'can_run_now' => false,
-        'reason' => '需要用户提供 Cookie/Payload/门店标识等授权上下文后才能调用现有手动入口。',
+        'reason' => '需要用户提供 Cookie/Payload/门店标识等上下文后才能调用现有手动入口。',
         'evidence' => 'user_supplied_cookie_or_payload_required',
     ];
 }
@@ -3281,7 +3281,7 @@ function next_action_entry_options(string $code): array
                     'mode' => 'browser_profile',
                     'label' => '浏览器 Profile',
                     'entry' => '/api/online-data/capture-ctrip-browser',
-                    'use_when' => '默认主线：门店携程浏览器 Profile 已登录授权，走现有自动采集路径补齐流量事实。',
+                    'use_when' => '默认主线：门店携程浏览器 Profile 登录态已验证，走现有自动采集路径补齐流量事实。',
                     'requires' => '本地 Profile 存在且携程账号登录态有效。',
                     'boundary' => '不绕过验证码、短信或人机验证，不改变自动采集逻辑。',
                 ],
@@ -3290,7 +3290,7 @@ function next_action_entry_options(string $code): array
                     'label' => '临时流量 Cookie/API',
                     'entry' => '/api/online-data/fetch-ctrip-traffic',
                     'use_when' => '仅临时使用：已取得携程流量接口 Cookie、URL、spiderkey 或必要参数，需要补齐目标日流量事实或排障。',
-                    'requires' => '用户提供授权上下文、流量接口参数和目标日期。',
+                    'requires' => '用户提供 Cookie/Payload 上下文、流量接口参数和目标日期。',
                     'boundary' => '不作为日常主线，不自动登录携程后台，不改变流量采集字段或字段映射。',
                 ],
                 [
@@ -3309,7 +3309,7 @@ function next_action_entry_options(string $code): array
                     'mode' => 'browser_profile',
                     'label' => '浏览器 Profile',
                     'entry' => '/api/online-data/capture-meituan-browser',
-                    'use_when' => '默认主线：门店美团浏览器 Profile 已登录授权，走现有自动采集路径补齐流量事实。',
+                    'use_when' => '默认主线：门店美团浏览器 Profile 登录态已验证，走现有自动采集路径补齐流量事实。',
                     'requires' => '本地 Profile 存在且美团账号登录态有效。',
                     'boundary' => '不绕过验证码、短信或人机验证，不改变自动采集逻辑。',
                 ],
@@ -3318,7 +3318,7 @@ function next_action_entry_options(string $code): array
                     'label' => '临时流量 Cookie/API',
                     'entry' => '/api/online-data/fetch-meituan-traffic',
                     'use_when' => '仅临时使用：已取得美团流量接口 Cookie、Partner ID、POI ID 或必要参数，需要补齐目标日流量事实或排障。',
-                    'requires' => '用户提供授权上下文、门店/POI 标识、流量接口参数和目标日期。',
+                    'requires' => '用户提供 Cookie/Payload 上下文、门店/POI 标识、流量接口参数和目标日期。',
                     'boundary' => '不作为日常主线，不代登录美团后台，不改变流量采集字段或字段映射。',
                 ],
                 [
@@ -3372,7 +3372,7 @@ function next_action_entry_options(string $code): array
                 'mode' => 'browser_profile',
                 'label' => '浏览器 Profile',
                 'entry' => '/api/online-data/capture-ctrip-browser',
-                'use_when' => '默认主线：门店携程浏览器 Profile 已登录授权，走现有自动采集路径。',
+                'use_when' => '默认主线：门店携程浏览器 Profile 登录态已验证，走现有自动采集路径。',
                 'requires' => '本地 Profile 存在且携程账号登录态有效。',
                 'boundary' => '不绕过验证码、短信或人机验证，不改变自动采集逻辑。',
             ],
@@ -3381,7 +3381,7 @@ function next_action_entry_options(string $code): array
                 'label' => '临时 Cookie/API',
                 'entry' => '/api/online-data/fetch-ctrip-overview',
                 'use_when' => '仅临时使用：已取得携程 Cookie、Payload 或必要参数，需要补齐目标日经营概况或排障。',
-                'requires' => '用户提供授权上下文、平台酒店标识和目标日期。',
+                'requires' => '用户提供 Cookie/Payload 上下文、平台酒店标识和目标日期。',
                 'boundary' => '不作为日常主线，不自动登录携程后台，不启动浏览器 Profile，不改变采集字段。',
             ],
             [
@@ -3400,7 +3400,7 @@ function next_action_entry_options(string $code): array
                 'mode' => 'browser_profile',
                 'label' => '浏览器 Profile',
                 'entry' => '/api/online-data/capture-meituan-browser',
-                'use_when' => '默认主线：门店美团浏览器 Profile 已登录授权，走现有自动采集路径。',
+                'use_when' => '默认主线：门店美团浏览器 Profile 登录态已验证，走现有自动采集路径。',
                 'requires' => '本地 Profile 存在且美团账号登录态有效。',
                 'boundary' => '不绕过验证码、短信或人机验证，不改变自动采集逻辑。',
             ],
@@ -3409,7 +3409,7 @@ function next_action_entry_options(string $code): array
                 'label' => '临时 Cookie/API',
                 'entry' => '/api/online-data/fetch-meituan',
                 'use_when' => '仅临时使用：已取得美团 Cookie、Session、POI 或必要 Payload，需要补齐目标日数据或排障。',
-                'requires' => '用户提供授权上下文、门店/POI 标识和目标日期。',
+                'requires' => '用户提供 Cookie/Payload 上下文、门店/POI 标识和目标日期。',
                 'boundary' => '不作为日常主线，不代登录美团后台，不启动浏览器 Profile，不改变采集字段。',
             ],
             [

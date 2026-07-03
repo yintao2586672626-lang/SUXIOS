@@ -357,7 +357,7 @@ trait CookieEndpointConcern
 
         return $this->corsSuccess([
             'name' => $name,
-            'message' => 'Cookies已成功保存到系统',
+            'message' => '临时 Cookie/API 辅助内容已保存，仅用于排障或补数',
         ]);
     }
 
@@ -400,7 +400,11 @@ trait CookieEndpointConcern
         $limit = min(20, max(1, (int)$this->request->get('limit', 8)));
         $endDate = date('Y-m-d');
         $startDate = date('Y-m-d', strtotime('-' . ($days - 1) . ' days'));
-        $actions = ['receive_cookies_public_failure', 'cron_trigger_public_failure'];
+        $actions = [
+            'receive_cookies_public_failure',
+            'cron_trigger_public_failure',
+            'daily_workbench_patrol_cron_public_failure',
+        ];
 
         $logs = OperationLog::where('module', 'online_data')
             ->whereIn('action', $actions)
@@ -430,6 +434,13 @@ trait CookieEndpointConcern
                     'path' => '/api/online-data/cron-trigger',
                     'auth' => 'X-Cron-Token or token query parameter',
                     'rate_limit' => ['limit' => 20, 'window_seconds' => 60],
+                    'token_configured' => trim((string)\think\facade\Env::get('CRON_TOKEN', '')) !== '',
+                ]),
+                $this->buildPublicEndpointSecurityRow('daily_workbench_patrol_cron', $logs, [
+                    'method' => 'GET',
+                    'path' => '/api/online-data/daily-workbench-patrol-cron',
+                    'auth' => 'X-Cron-Token or token query parameter',
+                    'rate_limit' => ['limit' => 10, 'window_seconds' => 60],
                     'token_configured' => trim((string)\think\facade\Env::get('CRON_TOKEN', '')) !== '',
                 ]),
             ],
@@ -537,7 +548,7 @@ JAVASCRIPT;
 
         OperationLog::record('online_data', 'save_cookies', "保存Cookies配置: {$name}", $this->currentUser->id, $hotelId ? (int)$hotelId : null);
 
-        return $this->success(null, 'Cookies保存成功');
+        return $this->success(null, '临时 Cookie/API 辅助内容保存成功');
     }
 
     public function getCookiesList(): Response

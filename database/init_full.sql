@@ -19,6 +19,7 @@ SOURCE ./database/migrations/20260511_create_ai_model_configs.sql;
 SOURCE ./database/migrations/20260527_create_ai_governance_tables.sql;
 SOURCE ./database/migrations/20260528_create_platform_data_sync_tables.sql;
 SOURCE ./database/migrations/20260606_add_online_daily_data_period_fields.sql;
+SOURCE ./database/migrations/20260704_fix_online_daily_data_keys.sql;
 SOURCE ./database/migrations/20260511_create_missing_business_tables.sql;
 SOURCE ./database/migrations/20260517_add_international_ota_report_fields.sql;
 SOURCE ./database/migrations/20260516_create_opening_management_tables.sql;
@@ -49,3 +50,4 @@ SOURCE ./database/migrations/20260520_seed_ota_data_operation_reference_knowledg
 SOURCE ./database/migrations/20260526_seed_ota_operation_mindmap_knowledge.sql;
 SOURCE ./database/migrations/20260526_seed_hotel_ota_metric_professional_knowledge.sql;
 SOURCE ./database/migrations/20260526_seed_ota_knowledge_distillation_experience.sql;
+SOURCE ./database/migrations/20260703_seed_owner_negotiation_qa_knowledge.sql;

@@ -173,7 +173,7 @@ test('collection status vocabulary exposes explicit user-visible states', () => 
   ]) {
     assert.match(statusMapper, new RegExp(marker), `status mapper must include ${marker}`);
   }
-  for (const text of ['未加载', '未采集', '采集中', '采集失败', '登录过期', '无权限', '策略禁用', '数据为空', '已采集', '部分成功', '已过期']) {
+  for (const text of ['未加载', '未采集', '采集中', '采集失败', '登录过期', '无权限', '策略禁用', '数据为空', '已采集', '部分模块成功', '已过期']) {
     assert.match(statusMapper, new RegExp(text), `status mapper must display ${text}`);
   }
 });

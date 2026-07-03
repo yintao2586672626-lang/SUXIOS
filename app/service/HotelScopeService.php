@@ -18,11 +18,7 @@ class HotelScopeService
             return $this->enabledHotelIds();
         }
 
-        if ($this->isVipUser($user)) {
-            return $this->ownedHotelIds($user);
-        }
-
-        return $this->grantedHotelIds($user, $capability);
+        return $this->ownedOrGrantedHotelIds($user, $capability);
     }
 
     public function canAccessHotel(User $user, int $hotelId, ?string $capability = null): bool
@@ -50,7 +46,8 @@ class HotelScopeService
 
         $record = $this->hotelPermissionRecord((int)$user->id, $hotelId);
         if ($record === null) {
-            return $this->isVipUser($user) && $this->isOwnedHotel($user, $hotelId) && $this->ownerDefaultAllows($capability);
+            return ($this->isOwnedHotel($user, $hotelId) || $this->isPrimaryHotel($user, $hotelId))
+                && $this->ownerDefaultAllows($capability);
         }
 
         $hasPermissionColumn = false;
@@ -61,7 +58,7 @@ class HotelScopeService
             }
         }
 
-        if (!$hasPermissionColumn && $this->isVipUser($user) && $this->isOwnedHotel($user, $hotelId)) {
+        if (!$hasPermissionColumn && ($this->isOwnedHotel($user, $hotelId) || $this->isPrimaryHotel($user, $hotelId))) {
             return $this->ownerDefaultAllows($capability);
         }
 
@@ -81,18 +78,10 @@ class HotelScopeService
             ];
         }
 
-        if ($this->isVipUser($user)) {
-            return [
-                'type' => 'owned',
-                'hotel_ids' => $this->ownedHotelIds($user),
-                'source_field' => $this->hotelOwnershipColumn(),
-            ];
-        }
-
         return [
-            'type' => 'granted',
-            'hotel_ids' => $this->grantedHotelIds($user),
-            'source_field' => 'user_hotel_permissions',
+            'type' => 'owned_or_granted',
+            'hotel_ids' => $this->ownedOrGrantedHotelIds($user),
+            'source_field' => trim($this->hotelOwnershipColumn() . '+user_hotel_permissions', '+'),
         ];
     }
 
@@ -122,6 +111,31 @@ class HotelScopeService
         return array_values(array_map('intval', Hotel::where('status', Hotel::STATUS_ENABLED)
             ->where($column, $userId)
             ->column('id')));
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function ownedOrGrantedHotelIds(User $user, ?string $capability = null): array
+    {
+        return array_values(array_unique(array_filter(array_merge(
+            $this->primaryHotelIds($user),
+            $this->ownedHotelIds($user),
+            $this->grantedHotelIds($user, $capability)
+        ), static fn(int $hotelId): bool => $hotelId > 0)));
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function primaryHotelIds(User $user): array
+    {
+        $hotelId = (int)($user->hotel_id ?? 0);
+        if ($hotelId <= 0 || !$this->isHotelEnabled($hotelId)) {
+            return [];
+        }
+
+        return [$hotelId];
     }
 
     /**
@@ -177,6 +191,11 @@ class HotelScopeService
             ->where('status', Hotel::STATUS_ENABLED)
             ->where($column, (int)$user->id)
             ->find();
+    }
+
+    private function isPrimaryHotel(User $user, int $hotelId): bool
+    {
+        return $hotelId > 0 && (int)($user->hotel_id ?? 0) === $hotelId && $this->isHotelEnabled($hotelId);
     }
 
     private function hotelOwnershipColumn(): string

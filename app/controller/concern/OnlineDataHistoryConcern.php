@@ -101,10 +101,11 @@ trait OnlineDataHistoryConcern
 
         try {
             $hotelId = trim((string)$this->request->get('hotel_id', ''));
+            $range = $this->normalizeCtripLatestRange((string)$this->request->get('range', ''));
             $sections = [
-                'rank' => $this->buildCtripLatestSection('rank', $hotelId, $currentUser),
-                'traffic' => $this->buildCtripLatestSection('traffic', $hotelId, $currentUser),
-                'review' => $this->buildCtripLatestSection('review', $hotelId, $currentUser),
+                'rank' => $this->buildCtripLatestSection('rank', $hotelId, $currentUser, $range),
+                'traffic' => $this->buildCtripLatestSection('traffic', $hotelId, $currentUser, $range),
+                'review' => $this->buildCtripLatestSection('review', $hotelId, $currentUser, $range),
             ];
 
             return $this->success([
@@ -167,7 +168,7 @@ trait OnlineDataHistoryConcern
         }
     }
 
-    private function buildCtripLatestSection(string $section, string $hotelId, $currentUser): array
+    private function buildCtripLatestSection(string $section, string $hotelId, $currentUser, string $range = ''): array
     {
         $columns = $this->getOnlineDailyDataColumns();
         $labelMap = [
@@ -180,8 +181,30 @@ trait OnlineDataHistoryConcern
         $this->applyCtripStorageFilter($query, $columns);
         $this->applyCtripSectionTypeFilter($query, $section, $columns);
         $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
+        $this->applyCtripLatestPeriodScope($query, $columns, $range);
+        $targetDate = $this->resolveCtripLatestTargetDate($range);
+        $earlyMorningFallback = null;
+        if ($targetDate !== '' && isset($columns['data_date'])) {
+            $query->where('data_date', $targetDate);
+        }
 
         $latest = $this->orderOnlineDataByFetchTime($query, $columns)->find();
+        if (!$latest && $targetDate !== '' && $this->shouldUseCtripYesterdayEarlyFallback()) {
+            $fallbackQuery = Db::name('online_daily_data');
+            $this->applyCtripStorageFilter($fallbackQuery, $columns);
+            $this->applyCtripSectionTypeFilter($fallbackQuery, $section, $columns);
+            $this->applyCtripHotelScope($fallbackQuery, $hotelId, $currentUser, $columns);
+            $this->applyCtripLatestPeriodScope($fallbackQuery, $columns, $range);
+            $latest = $this->orderOnlineDataByFetchTime($fallbackQuery, $columns)->find();
+            if ($latest) {
+                $earlyMorningFallback = [
+                    'reason' => 'early_morning_yesterday_not_ready',
+                    'target_data_date' => $targetDate,
+                    'fallback_data_date' => (string)($latest['data_date'] ?? ''),
+                    'fallback_fetched_at' => $this->onlineRowFetchedAt($latest, $columns),
+                ];
+            }
+        }
         if (!$latest) {
             return $this->emptyCtripLatestSection($section, $labelMap[$section] ?? $section);
         }
@@ -190,6 +213,7 @@ trait OnlineDataHistoryConcern
         $this->applyCtripStorageFilter($rowsQuery, $columns);
         $this->applyCtripSectionTypeFilter($rowsQuery, $section, $columns);
         $this->applyCtripHotelScope($rowsQuery, $hotelId, $currentUser, $columns);
+        $this->applyCtripLatestPeriodScope($rowsQuery, $columns, $range);
         if (isset($columns['data_date']) && !empty($latest['data_date'])) {
             $rowsQuery->where('data_date', $latest['data_date']);
         }
@@ -228,6 +252,10 @@ trait OnlineDataHistoryConcern
             $displaySummary['source_notice'] = '当前最新批次未返回流量字段，已展示最近一组有流量的携程竞争圈数据。';
         }
 
+        $comparison = $section === 'rank'
+            ? $this->buildCtripLatestRankComparison($latest, $hotelId, $currentUser, $columns, $range)
+            : null;
+
         return [
             'data_type' => $section,
             'data_type_label' => $labelMap[$section] ?? $section,
@@ -235,6 +263,7 @@ trait OnlineDataHistoryConcern
             'status' => empty($rows) ? 'empty' : 'success',
             'status_label' => empty($rows) ? '暂无数据' : '成功',
             'data_date' => (string)($latest['data_date'] ?? ''),
+            'target_data_date' => $targetDate,
             'fetched_at' => $fetchedAt !== '' ? $fetchedAt : $this->onlineRowFetchedAt($latest, $columns),
             'total' => count($rows),
             'rows' => $decodedRows,
@@ -243,6 +272,106 @@ trait OnlineDataHistoryConcern
             'display_traffic_rows' => $displayTrafficRows,
             'display_traffic_summary' => $section === 'traffic' ? CtripTrafficDisplayService::buildCtripTrafficDisplaySummary($displayTrafficRows) : CtripTrafficDisplayService::emptyCtripTrafficDisplaySummary(),
             'traffic_fallback' => $trafficFallback,
+            'early_morning_fallback' => $earlyMorningFallback,
+            'comparison' => $comparison,
+        ];
+    }
+
+    private function normalizeCtripLatestRange(string $range): string
+    {
+        $range = strtolower(trim($range));
+        return match ($range) {
+            'yesterday', 'last_day', '1' => 'yesterday',
+            'realtime', 'real_time', 'today_realtime', 'today', '0' => 'realtime',
+            default => '',
+        };
+    }
+
+    private function resolveCtripLatestTargetDate(string $range): string
+    {
+        return match ($range) {
+            'yesterday' => date('Y-m-d', strtotime('-1 day')),
+            'realtime' => date('Y-m-d'),
+            default => '',
+        };
+    }
+
+    private function applyCtripLatestPeriodScope($query, array $columns, string $range): void
+    {
+        if ($range === 'yesterday') {
+            if (isset($columns['data_period'])) {
+                $query->where('data_period', 'historical_daily');
+            }
+            if (isset($columns['is_final'])) {
+                $query->where('is_final', 1);
+            }
+            return;
+        }
+
+        if ($range === 'realtime') {
+            if (isset($columns['data_period'])) {
+                $query->where('data_period', 'realtime_snapshot');
+            }
+            if (isset($columns['is_final'])) {
+                $query->where('is_final', 0);
+            }
+        }
+    }
+
+    private function shouldUseCtripYesterdayEarlyFallback(): bool
+    {
+        $hour = (int)date('G');
+        return $hour >= 0 && $hour < 8;
+    }
+
+    private function buildCtripLatestRankComparison(array $latest, string $hotelId, $currentUser, array $columns, string $range): ?array
+    {
+        if (!in_array($range, ['realtime', 'yesterday'], true) || empty($latest['data_date'])) {
+            return null;
+        }
+        $previousDate = date('Y-m-d', strtotime((string)$latest['data_date'] . ' -1 day'));
+        return $this->fetchCtripRankSnapshotForDate($previousDate, $hotelId, $currentUser, $columns, $range);
+    }
+
+    private function fetchCtripRankSnapshotForDate(string $dataDate, string $hotelId, $currentUser, array $columns, string $range = ''): ?array
+    {
+        if ($dataDate === '' || !isset($columns['data_date'])) {
+            return null;
+        }
+
+        $query = Db::name('online_daily_data');
+        $this->applyCtripStorageFilter($query, $columns);
+        $this->applyCtripSectionTypeFilter($query, 'rank', $columns);
+        $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
+        $this->applyCtripLatestPeriodScope($query, $columns, $range);
+        $query->where('data_date', $dataDate);
+
+        $latest = $this->orderOnlineDataByFetchTime($query, $columns)->find();
+        if (!$latest) {
+            return null;
+        }
+
+        $rowsQuery = Db::name('online_daily_data');
+        $this->applyCtripStorageFilter($rowsQuery, $columns);
+        $this->applyCtripSectionTypeFilter($rowsQuery, 'rank', $columns);
+        $this->applyCtripHotelScope($rowsQuery, $hotelId, $currentUser, $columns);
+        $this->applyCtripLatestPeriodScope($rowsQuery, $columns, $range);
+        $rowsQuery->where('data_date', $dataDate);
+        $this->applyCtripLatestBatchScope($rowsQuery, $latest, $hotelId, $columns);
+
+        $rows = $this->orderOnlineDataByFetchTime($rowsQuery, $columns, 'asc')->select()->toArray();
+        if (empty($rows)) {
+            return null;
+        }
+
+        $decodedRows = $this->decodeOnlineRawRows($rows);
+        $displayHotels = $this->buildCtripBusinessDisplayHotels($decodedRows);
+        return [
+            'data_date' => $dataDate,
+            'fetched_at' => $this->maxOnlineRowsFetchedAt($rows, $columns),
+            'total' => count($rows),
+            'display_hotels' => $displayHotels,
+            'display_summary' => $this->buildCtripBusinessDisplaySummary($displayHotels),
         ];
     }
 
@@ -261,12 +390,13 @@ trait OnlineDataHistoryConcern
         return false;
     }
 
-    private function findLatestCtripRankRowsWithTraffic(array $currentLatest, string $hotelId, $currentUser, array $columns): ?array
+    private function findLatestCtripRankRowsWithTraffic(array $currentLatest, string $hotelId, $currentUser, array $columns, string $range = ''): ?array
     {
         $query = Db::name('online_daily_data');
         $this->applyCtripStorageFilter($query, $columns);
         $this->applyCtripSectionTypeFilter($query, 'rank', $columns);
         $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
+        $this->applyCtripLatestPeriodScope($query, $columns, $range);
 
         $candidateRows = $this->orderOnlineDataByFetchTime($query, $columns)
             ->limit(1000)
@@ -353,7 +483,9 @@ trait OnlineDataHistoryConcern
     {
         $fetchedAt = '';
         $dataDate = '';
+        $targetDataDate = '';
         $total = 0;
+        $earlyFallbacks = [];
         foreach ($sections as $section) {
             $total += (int)($section['total'] ?? 0);
             $sectionFetchedAt = (string)($section['fetched_at'] ?? '');
@@ -363,6 +495,13 @@ trait OnlineDataHistoryConcern
             $sectionDataDate = (string)($section['data_date'] ?? '');
             if ($sectionDataDate !== '' && ($dataDate === '' || strcmp($sectionDataDate, $dataDate) > 0)) {
                 $dataDate = $sectionDataDate;
+            }
+            $sectionTargetDate = (string)($section['target_data_date'] ?? '');
+            if ($sectionTargetDate !== '' && ($targetDataDate === '' || strcmp($sectionTargetDate, $targetDataDate) > 0)) {
+                $targetDataDate = $sectionTargetDate;
+            }
+            if (is_array($section['early_morning_fallback'] ?? null)) {
+                $earlyFallbacks[] = $section['early_morning_fallback'];
             }
         }
 
@@ -380,8 +519,11 @@ trait OnlineDataHistoryConcern
             'status' => $total > 0 ? 'success' : 'empty',
             'status_label' => $total > 0 ? '成功' : '暂无成功采集',
             'data_date' => $dataDate,
+            'target_data_date' => $targetDataDate,
             'fetched_at' => $fetchedAt,
             'total_records' => $total,
+            'early_morning_fallback' => !empty($earlyFallbacks),
+            'early_morning_fallbacks' => $earlyFallbacks,
         ];
     }
 

@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const html = readFileSync('public/index.html', 'utf8');
+const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
+const collectionReliabilityConcern = readFileSync('app/controller/concern/CollectionReliabilityConcern.php', 'utf8');
 const routes = readFileSync('route/app.php', 'utf8');
 const onlinePageStart = html.indexOf("currentPage === 'online-data'");
 const onlinePageEnd = html.indexOf('<!-- 下载中心 -->', onlinePageStart);
@@ -10,12 +12,25 @@ const onlinePage = onlinePageEnd > onlinePageStart
   ? html.slice(onlinePageStart, onlinePageEnd)
   : html.slice(onlinePageStart);
 
-test('hotel data cockpit is the first online data health surface and keeps evidence chain module', () => {
+test('data health workbench is the first online data surface and keeps evidence chain module behind full diagnostics', () => {
   assert.ok(onlinePageStart > 0, 'online-data page section must exist');
-  assert.match(onlinePage, /宿析OS · 酒店数据驾驶舱/);
+  assert.match(onlinePage, /数据健康工作台/);
+  assert.match(onlinePage, /数据自动获取/);
+  assert.match(onlinePage, /dataAcquisitionWorkbenchRows/);
+  assert.match(onlinePage, /可抓取/);
+  assert.match(onlinePage, /一键抓取/);
+  assert.match(onlinePage, /triggerCookieConfigAutoFetch/);
+  assert.match(onlinePage, /triggerCookieConfigAutoFetchAll/);
+  assert.match(onlinePage, /cookie_config/);
+  assert.doesNotMatch(onlinePage, /当前卡点/);
+  assert.doesNotMatch(onlinePage, /今天先处理的问题/);
+  assert.match(onlinePage, /异常 -> 动作 -> 证据 -> 复盘/);
+  assert.match(onlinePage, /查看完整诊断/);
   assert.match(onlinePage, /账号级驾驶舱/);
   assert.match(onlinePage, /单店酒店数据画像/);
   assert.match(onlinePage, /数据源状态 \/ 证据链/);
+  assert.match(onlinePage, /dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded/);
+  assert.match(onlinePage, /data-health-full-diagnostics-detail/);
   assert.match(onlinePage, /门店数/);
   assert.match(onlinePage, /画像完成数/);
   assert.match(onlinePage, /异常门店/);
@@ -29,7 +44,7 @@ test('dashboard frontend calls dedicated dashboard APIs while old collection rel
     '/dashboard/hotel-portrait',
     '/dashboard/data-sources',
   ]) {
-    assert.match(html, new RegExp(endpoint.replaceAll('/', '\\/')));
+    assert.match(dataHealthStatic, new RegExp(endpoint.replaceAll('/', '\\/')));
   }
   assert.match(html, /\/online-data\/collection-reliability/);
 
@@ -61,6 +76,6 @@ test('dashboard UI exposes required portrait sections, diagnostics and explicit 
   }
 
   for (const state of ['zero', 'null', 'not_collected', 'auth_failed', 'request_failed', 'field_missing']) {
-    assert.match(html, new RegExp(state), `missing explicit dashboard state: ${state}`);
+    assert.match(`${dataHealthStatic}\n${collectionReliabilityConcern}`, new RegExp(state), `missing explicit dashboard state: ${state}`);
   }
 });

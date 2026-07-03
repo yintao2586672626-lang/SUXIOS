@@ -8,6 +8,8 @@ const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
 const platformAutoSettingsPanels = readFileSync('public/components/online-data/platform-auto-settings-panels.js', 'utf8');
 const ctripProfileFieldConfigPanel = readFileSync('public/components/online-data/ctrip-profile-field-config-panel.js', 'utf8');
+const businessDisplayConcern = readFileSync('app/controller/concern/BusinessDisplayConcern.php', 'utf8');
+const onlineDataManualFetchConcern = readFileSync('app/controller/concern/OnlineDataManualFetchConcern.php', 'utf8');
 const meituanStaticSandbox = { console, window: {} };
 vm.runInNewContext(`${meituanStatic}\nthis.__meituanStatic = window.SUXI_MEITUAN_STATIC;`, meituanStaticSandbox);
 const meituanStaticApi = meituanStaticSandbox.__meituanStatic;
@@ -26,9 +28,22 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   const fetchCtripData = sliceFrom('const fetchCtripData = async () => {', 'const fetchMeituanData = async () => {');
   const fetchCtripTrafficData = sliceFrom('const fetchCtripTrafficData = async () => {', 'const fetchCtripComments = async () => {');
   const ctripManualFetchConfigGuard = sliceFrom('const ctripManualFetchConfigProofPending = () => {', '\n\n            const saveCtripConfig');
+  const loadCtripConfigList = sliceFrom('const loadCtripConfigList = async (options = {}) => {', '\n\n            const ctripManualFetchConfigProofPending');
+  const returnToCtripRankingAfterConfigSave = constSlice(
+    'const returnToCtripRankingAfterConfigSave = async (hotelId) => {',
+    '\n\n            const saveCtripConfig'
+  );
+  const saveCtripConfig = constSlice(
+    'const saveCtripConfig = async () => runCtripConfigSaveFlow({',
+    '\n\n            const useCtripConfig'
+  );
   const ctripFetchFlow = ctripStatic.slice(
     ctripStatic.indexOf('const runCtripFetchDataFlow = async ({'),
     ctripStatic.indexOf('const buildLatestCtripSnapshotModel')
+  );
+  const ctripConfigSaveFlow = ctripStatic.slice(
+    ctripStatic.indexOf('const runCtripConfigSaveFlow = async ({'),
+    ctripStatic.indexOf('const runCtripManualTabSwitch')
   );
 
   assert.doesNotMatch(fetchCtripData, /请输入节点ID/);
@@ -56,30 +71,213 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(ctripManualFetchConfigGuard, /return !!selectedCtripHotelId\.value && \(selectedCtripHotelConfig\.value \|\| ctripManualFetchConfigProofPending\(\)\);/);
   assert.match(ctripManualFetchConfigGuard, /await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
   assert.match(ctripManualFetchConfigGuard, /return getActiveCtripConfig\(\);/);
+  assert.match(loadCtripConfigList, /const force = options\.force === true;/);
+  assert.match(loadCtripConfigList, /!force\s*&& ctripConfigListLoaded\.value/);
+  assert.match(loadCtripConfigList, /if \(!force\) \{\s*return ctripConfigListLoadingPromise;\s*\}/);
+  assert.match(loadCtripConfigList, /await ctripConfigListLoadingPromise\.catch\(\(\) => \[\]\);/);
+  assert.match(ctripConfigSaveFlow, /afterSave = async \(\) => \{ reloadConfigs\(\); \}/);
+  assert.match(ctripConfigSaveFlow, /await afterSave\(\{ response: res, requestBody \}\);/);
+  assert.match(saveCtripConfig, /afterSave: async \(\{ response, requestBody \}\) => \{/);
+  assert.match(saveCtripConfig, /await returnToCtripRankingAfterConfigSave\(savedHotelId\);/);
+  assert.match(returnToCtripRankingAfterConfigSave, /currentPage\.value = 'ctrip-ebooking';/);
+  assert.match(returnToCtripRankingAfterConfigSave, /onlineDataTab\.value = 'ctrip-ranking';/);
+  assert.match(returnToCtripRankingAfterConfigSave, /loadHotels\(\{ force: true \}\)/);
+  assert.match(returnToCtripRankingAfterConfigSave, /loadOnlineDataHotelList\(\{ force: true \}\)/);
+  assert.match(returnToCtripRankingAfterConfigSave, /loadCtripConfigList\(\{ force: true, applySelectedConfig: false \}\)/);
+  assert.match(returnToCtripRankingAfterConfigSave, /scheduleCtripHotelConfigApply\(null, \{[\s\S]*showMessage: false,[\s\S]*skipIfAligned: false/);
   assert.doesNotMatch(ctripFetchFlow, /notify\('请选择目标酒店', 'error'\)/);
   assert.match(ctripFetchFlow, /const selectedConfig = selectedCtripHotelId\s*\?\s*await ensureCtripConfigSecret\(getActiveCtripConfig\(\)\)\s*:\s*null;/);
   assert.match(ctripFetchFlow, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig/);
-  assert.match(html, /只需平台授权/);
+  assert.doesNotMatch(fetchCtripData, /scheduleOnlineHistoryRefresh\(1400\)/);
+  assert.match(html, /只需 Cookie\/API 辅助/);
 });
 
-test('Meituan ranking supports temporary resource ids on the daily fetch panel', () => {
+test('Meituan ranking uses selected hotel config without exposing temporary fields', () => {
   const rankingPanel = sliceFrom('<div v-if="onlineDataTab === \'meituan-ranking\'">', '<!-- 获取结果显示 -->');
+  const fetchMeituanData = sliceFrom('const fetchMeituanData = async () => {', 'const useCtripTrafficDisplayRows');
   const meituanFetchFlow = meituanStatic.slice(
     meituanStatic.indexOf('const runMeituanBatchFetchFlow = async ({'),
     meituanStatic.indexOf('const useMeituanDisplayModel')
   );
 
-  assert.match(rankingPanel, /v-model="meituanForm\.partnerId"/);
-  assert.match(rankingPanel, /v-model="meituanForm\.poiId"/);
-  assert.match(rankingPanel, /临时获取可不先保存配置/);
-  assert.match(rankingPanel, /临时获取必填，可不保存/);
-  assert.match(rankingPanel, /需一次性门店标识/);
+  assert.match(rankingPanel, /v-model="meituanForm\.hotelId"/);
+  assert.match(rankingPanel, /请选择目标酒店/);
+  assert.match(rankingPanel, /默认建议只取昨日/);
+  assert.match(rankingPanel, /历史自定义/);
+  assert.match(rankingPanel, /min-h-\[44px\]/);
+  assert.match(rankingPanel, /h-5 w-5 text-cyan-600/);
+  assert.match(rankingPanel, /bg-cyan-50 border border-cyan-200/);
+  assert.match(rankingPanel, /bg-cyan-700 text-white/);
+  assert.match(rankingPanel, /:max="meituanRankMaxDate"/);
+  assert.match(rankingPanel, /远期预测\/未来入住不属于此接口/);
+  assert.match(html, /const meituanRankMaxDate = computed\(\(\) => formatDate\(new Date\(\)\)\);/);
+  assert.match(html, /meituanRankMaxDate,/);
+  assert.doesNotMatch(html, /仅展示美团榜单已返回字段；未返回字段保留缺失状态。/);
+  assert.doesNotMatch(meituanStatic, /仅展示美团榜单已返回字段；未返回字段保留缺失状态。/);
+  assert.doesNotMatch(businessDisplayConcern, /仅展示美团榜单已返回字段；未返回字段保留缺失状态。/);
+  assert.match(html, /v-if="meituanRankSourceNotice"/);
+  assert.match(html, /const meituanRankSourceNotice = computed\(\(\) => meituanBusinessSummary\.value\?\.source_notice \|\| ''\);/);
+  assert.match(meituanStatic, /sourceNotice = '',/);
+  assert.doesNotMatch(rankingPanel, /v-model="meituanForm\.partnerId"/);
+  assert.doesNotMatch(rankingPanel, /v-model="meituanForm\.poiId"/);
+  assert.doesNotMatch(rankingPanel, /v-model="meituanForm\.cookies"/);
+  assert.doesNotMatch(rankingPanel, /临时获取可不先保存配置/);
+  assert.doesNotMatch(rankingPanel, /需一次性门店标识/);
   assert.match(meituanStatic, /需补充一次性门店标识/);
-  assert.match(meituanStatic, /请在本页临时填写/);
+  assert.doesNotMatch(meituanStatic, /请在本页临时填写/);
+  assert.match(meituanStatic, /请先在酒店管理中保存后再获取美团榜单/);
   assert.doesNotMatch(meituanFetchFlow, /notify\('请选择目标酒店', 'error'\)/);
   assert.doesNotMatch(meituanFetchFlow, /return \{ status: 'missing_hotel' \}/);
   assert.doesNotMatch(meituanFetchFlow, /return \{ status: 'missing_config' \}/);
+  assert.doesNotMatch(meituanFetchFlow, /setBusinessSummary\(null\)/);
+  assert.match(meituanFetchFlow, /status:\s*'exception'/);
+  assert.match(meituanFetchFlow, /const failedCount = results\.filter\(item => item\?\.error\)\.length;/);
+  assert.match(meituanFetchFlow, /fetchTasks\.length > 0 && failedCount === fetchTasks\.length/);
+  assert.match(meituanFetchFlow, /setBusinessSummary\(getEmptyBusinessSummary\(\)\)/);
+  assert.match(meituanFetchFlow, /status:\s*loginFailed \? 'login_required' : 'failed'/);
+  assert.match(meituanFetchFlow, /credentialStatus === 'login_required'/);
+  assert.match(meituanFetchFlow, /Cookie\/API/);
   assert.match(meituanFetchFlow, /const selectedMeituanConfig = form\.hotelId\s*\?\s*await ensureMeituanConfigSecret\(getSelectedConfig\(\)\)\s*:\s*null;/);
+  assert.match(fetchMeituanData, /refreshOnlineHistory:\s*\(\)\s*=>\s*schedulePostFetchRefresh\('online-history',[\s\S]*,\s*1400\)/);
+});
+
+test('Meituan API login failures stay explicit across backend and manual fetch response', () => {
+  const failureBuilder = businessDisplayConcern.slice(
+    businessDisplayConcern.indexOf('private function buildMeituanBusinessFailurePayload'),
+    businessDisplayConcern.indexOf('private function fetchMeituanTrafficMetricsForDisplay')
+  );
+
+  assert.match(failureBuilder, /\['303', '401', '403'\]/);
+  assert.match(failureBuilder, /login_required/);
+  assert.match(failureBuilder, /credential_status/);
+  assert.match(failureBuilder, /美团登录态已失效/);
+  assert.match(onlineDataManualFetchConcern, /'reason'\s*=>\s*\$result\['reason'\]\s*\?\?\s*'meituan_request_failed'/);
+  assert.match(onlineDataManualFetchConcern, /'credential_status'\s*=>\s*\$result\['credential_status'\]\s*\?\?\s*''/);
+  assert.match(onlineDataManualFetchConcern, /'business_code'\s*=>\s*\$result\['business_code'\]\s*\?\?\s*null/);
+});
+
+test('Meituan business summary exposes market total and average cards', () => {
+  const summaryBuilder = businessDisplayConcern.slice(
+    businessDisplayConcern.indexOf('private function buildMeituanBusinessDisplaySummary'),
+    businessDisplayConcern.indexOf('private function countMeituanDerivedMetrics')
+  );
+  const rankingTable = sliceFrom('<!-- 美团竞对排名数据表格 -->', '<!-- 竞对排名表格 -->');
+  const rankTable = sliceFrom(
+    '<table class="min-w-full bg-white border text-[15px] table-striped">',
+    '<div data-testid="meituan-rank-summary-second-screen"'
+  );
+
+  assert.match(rankingTable, /商圈汇总与平均指标/);
+  assert.match(rankingTable, /text-\[26px\]/);
+  assert.match(rankingTable, /text-\[15px\]/);
+  assert.match(rankTable, /table-striped/);
+  assert.match(rankTable, /bg-rose-50/);
+  assert.match(rankTable, /bg-emerald-50/);
+  assert.match(rankTable, /bg-sky-50/);
+  assert.match(rankTable, /bg-violet-50/);
+  assert.match(rankTable, /v-else-if="hotel\.platformTagSourceText && !\['平台返回空标签', '标签未返回'\]\.includes\(hotel\.platformTagSourceText\)"/);
+  assert.match(summaryBuilder, /'totalRoomNights', '总入住间夜'/);
+  assert.match(summaryBuilder, /'totalRoomRevenue', '总房费收入', '¥'/);
+  assert.match(summaryBuilder, /'avgRoomPrice', '商圈平均房价'/);
+  assert.match(summaryBuilder, /'totalSalesRoomNights', '总销售间夜'/);
+  assert.match(summaryBuilder, /'totalSales', '总销售额', '¥'/);
+  assert.match(summaryBuilder, /'avgSalesPrice', '商圈平均销售房价'/);
+});
+
+test('Meituan business summary fallback keeps the full market card grid', () => {
+  const fallbackSummary = sliceFrom(
+    'const meituanFallbackCard = (key, label, value',
+    'const meituanRankInsightCards = computed(() => {'
+  );
+
+  [
+    'fallback-hotel-count',
+    'fallback-rank-health',
+    'fallback-self-position',
+    'fallback-platform-vip-tags',
+    'fallback-market-inventory',
+    'fallback-market-vitality',
+    'fallback-price-sigma',
+    'fallback-market-price-signal',
+    'fallback-inventory-turnover',
+    'fallback-revenue-concentration',
+    'fallback-visit-concentration',
+    'fallback-operation-focus',
+    'fallback-total-room-nights',
+    'fallback-total-room-revenue',
+    'fallback-avg-room-price',
+    'fallback-total-sales-room-nights',
+    'fallback-total-sales',
+    'fallback-avg-sales-price',
+    'fallback-total-exposure',
+    'fallback-total-views',
+    'fallback-total-order-count',
+    'fallback-avg-view-conversion',
+    'fallback-avg-pay-conversion',
+    'fallback-avg-absolute-conversion',
+  ].forEach(key => assert.match(fallbackSummary, new RegExp(key)));
+
+  const operationFocusCard = fallbackSummary.split('\n').find(line => line.includes('fallback-operation-focus')) || '';
+  assert.doesNotMatch(operationFocusCard, /meituanRankSourceNotice/);
+  assert.doesNotMatch(operationFocusCard, /仅已返回字段/);
+  assert.doesNotMatch(fallbackSummary, /fallback-top-hotel/);
+  assert.doesNotMatch(fallbackSummary, /fallback-source-scope/);
+});
+
+test('Meituan batch fetch keeps backend display summary after model build', async () => {
+  let capturedDisplaySummary = null;
+  const businessSummaryWrites = [];
+  const notifications = [];
+
+  const result = await meituanStaticApi.runMeituanBatchFetchFlow({
+    getForm: () => ({
+      url: 'https://eb.meituan.com/api/v1/ebooking/data/rank',
+      hotelId: 58,
+      partnerId: '4517495',
+      poiId: '1022727174',
+      cookies: 'token=ok',
+      dateRanges: ['1'],
+    }),
+    getSelectedConfig: () => ({
+      hotel_id: 58,
+      partner_id: '4517495',
+      poi_id: '1022727174',
+      cookies: 'token=ok',
+    }),
+    ensureMeituanConfigSecret: async config => config,
+    requestFetch: async () => ({
+      code: 200,
+      data: {
+        saved_count: 1,
+        display_hotels: [{ poiId: '1022727174', hotelName: 'Self Hotel', roomNights: 3 }],
+      },
+    }),
+    requestDisplayModel: async () => ({
+      code: 200,
+      data: {
+        display_hotels: [{ poiId: '1022727174', hotelName: 'Self Hotel', roomNights: 3 }],
+        display_summary: {
+          cards: [{ key: 'totalRoomNights', label: '总入住间夜', value: '3' }],
+        },
+      },
+    }),
+    useDisplayModel: data => {
+      capturedDisplaySummary = data.display_summary;
+      return data.display_hotels;
+    },
+    setBusinessSummary: value => {
+      businessSummaryWrites.push(value);
+    },
+    notify: message => {
+      notifications.push(message);
+    },
+  });
+
+  assert.equal(result.status, 'success');
+  assert.equal(capturedDisplaySummary?.cards?.[0]?.key, 'totalRoomNights');
+  assert.deepEqual(businessSummaryWrites, []);
+  assert.equal(notifications.length, 2);
+  assert.match(notifications[0], /4/);
 });
 
 test('Meituan ranking keeps rank summary on the second screen like Ctrip', () => {
@@ -117,7 +315,9 @@ test('Meituan ranking money cells use backend source prefixes', () => {
   assert.match(rankingTable, /\(hotel\.salesPrefix \|\| ''\) \+ hotel\.salesText/);
   assert.match(rankingTable, /\(hotel\.exposurePrefix \|\| ''\) \+ hotel\.exposureText/);
   assert.match(rankingTable, /\(hotel\.viewsPrefix \|\| ''\) \+ hotel\.viewsText/);
-  assert.match(displayPayload, /display_groups:\s*buildMeituanDisplayModelGroups/);
+  assert.match(displayPayload, /const displayGroups = buildMeituanDisplayModelGroups/);
+  assert.match(displayPayload, /display_hotels:\s*displayGroups\.length > 0 \? \[\] : buildMeituanDisplayModelRows/);
+  assert.match(displayPayload, /display_groups:\s*displayGroups/);
   assert.match(fetchTasks, /const includeSelfMetrics = rankIndex === 0;/);
   assert.match(fetchTasks, /include_self_trade_metrics:\s*includeSelfMetrics/);
   assert.match(fetchTasks, /include_self_traffic_metrics:\s*includeSelfMetrics/);
@@ -150,6 +350,67 @@ test('Meituan batch fetch only requests self metric supplements once per date ra
   });
 });
 
+test('Meituan ranking rejects future custom dates before platform requests', () => {
+  const validation = meituanStaticApi.validateMeituanBatchFetchInput({
+    form: {
+      hotelId: 58,
+      dateRanges: ['custom'],
+      startDate: '2999-01-01',
+      endDate: '2999-01-02',
+    },
+    partnerId: '4517495',
+    poiId: '1022727174',
+    cookies: 'token=ok',
+  });
+
+  assert.equal(validation.ok, false);
+  assert.equal(validation.level, 'warning');
+  assert.match(validation.message, /不支持未来日期/);
+});
+
+test('Meituan batch fetch stops display model when every rank request needs login', async () => {
+  const notifications = [];
+  const fetchSuccessWrites = [];
+  const businessSummaryWrites = [];
+  let displayModelCalled = false;
+
+  const result = await meituanStaticApi.runMeituanBatchFetchFlow({
+    getForm: () => ({
+      url: 'https://eb.meituan.com/api/v1/ebooking/data/rank',
+      hotelId: 58,
+      partnerId: '4517495',
+      poiId: '1022727174',
+      dateRanges: ['1'],
+      cookies: 'token=expired',
+    }),
+    requestFetch: async () => ({
+      code: 400,
+      message: '请求失败',
+      data: {
+        reason: 'login_required',
+        credential_status: 'login_required',
+        business_code: 303,
+        business_message: '您尚未登录',
+      },
+    }),
+    requestDisplayModel: async () => {
+      displayModelCalled = true;
+      return { code: 200, data: {} };
+    },
+    notify: (message, level) => notifications.push({ message, level }),
+    setFetchSuccess: value => fetchSuccessWrites.push(value),
+    setBusinessSummary: value => businessSummaryWrites.push(value),
+  });
+
+  assert.equal(result.status, 'login_required');
+  assert.equal(displayModelCalled, false);
+  assert.equal(notifications.at(-1).level, 'error');
+  assert.match(notifications.at(-1).message, /Cookie\/API/);
+  assert.deepEqual(fetchSuccessWrites.slice(-1), [false]);
+  assert.equal(businessSummaryWrites.length, 1);
+  assert.deepEqual(Object.keys(businessSummaryWrites[0]), []);
+});
+
 test('Meituan display model keeps self metric anchors scoped by date range', () => {
   const payload = meituanStaticApi.buildMeituanDisplayModelPayload({
     form: {
@@ -179,6 +440,7 @@ test('Meituan display model keeps self metric anchors scoped by date range', () 
 
   assert.equal(JSON.stringify(payload.display_groups.map(item => item.date_range)), JSON.stringify(['7', '30']));
   assert.equal(payload.system_hotel_id, 58);
+  assert.equal(payload.display_hotels.length, 0);
   assert.equal(JSON.stringify(payload.display_groups[0].self_metric_values), JSON.stringify({ exposure: 700, salesRoomNights: 70 }));
   assert.equal(JSON.stringify(payload.display_groups[1].self_metric_values), JSON.stringify({ exposure: 3000, salesRoomNights: 300 }));
   assert.equal(payload.self_metric_values, undefined);
@@ -186,17 +448,56 @@ test('Meituan display model keeps self metric anchors scoped by date range', () 
 
 test('Meituan config saves cookie-only and no longer treats room counts as credentials', () => {
   const saveMeituanConfigItem = functionSlice('saveMeituanConfigItem');
+  const returnToMeituanRankingAfterConfigSave = constSlice(
+    'const returnToMeituanRankingAfterConfigSave = async (hotelId) => {',
+    '\n\n            let manualOnlineFetchConfigReadyPromise'
+  );
 
-  assert.match(saveMeituanConfigItem, /请输入平台授权内容/);
+  assert.match(saveMeituanConfigItem, /请输入临时 Cookie\/API 辅助内容/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入Partner ID/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入POI ID/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入酒店房量/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入竞争圈总房量/);
   assert.match(html, /缺门店标识/);
-  assert.match(html, /平台接口标识（Partner ID）/);
-  assert.match(html, /平台门店标识（POI ID）/);
-  assert.match(html, /detail\?partnerId=4927325 中的 4927325/);
-  assert.match(html, /detail\?poiId=570866031 中的 570866031/);
+  assert.match(html, /平台接口标识（一次性配置，可后补）/);
+  assert.match(html, /平台门店标识（一次性配置，可后补）/);
+  assert.match(html, /detail\?partnerId=\.\.\./);
+  assert.match(html, /poiId=xxx/);
+  assert.match(html, /partnerId=xxx/);
+  assert.match(saveMeituanConfigItem, /const savedHotelId = String\(/);
+  assert.match(saveMeituanConfigItem, /await returnToMeituanRankingAfterConfigSave\(savedHotelId\);/);
+  assert.match(saveMeituanConfigItem, /await loadMeituanConfigList\(\{ force: true, applySelectedConfig: false \}\);/);
+  assert.match(returnToMeituanRankingAfterConfigSave, /currentPage\.value = 'meituan-ebooking';/);
+  assert.match(returnToMeituanRankingAfterConfigSave, /onlineDataTab\.value = 'meituan-ranking';/);
+  assert.match(returnToMeituanRankingAfterConfigSave, /loadHotels\(\{ force: true \}\)/);
+  assert.match(returnToMeituanRankingAfterConfigSave, /loadOnlineDataHotelList\(\{ force: true \}\)/);
+  assert.match(returnToMeituanRankingAfterConfigSave, /loadMeituanConfigList\(\{ force: true, applySelectedConfig: false \}\)/);
+  assert.match(returnToMeituanRankingAfterConfigSave, /applyMeituanHotelConfig\(false, \{[\s\S]*refreshList: false,[\s\S]*skipIfAligned: false/);
+});
+
+test('Hotel management saves force-refresh the current management context', () => {
+  const refreshHotelBindingPanel = functionSlice('refreshHotelBindingPanel');
+  const ensureHotelOtaConfigLists = constSlice(
+    'const ensureHotelOtaConfigLists = async (options = {}) => {',
+    '\n\n            const openHotelManagementForOta'
+  );
+  const saveHotelOtaConfig = constSlice(
+    'const saveHotelOtaConfig = async (hotelId, hotelName) => {',
+    '\n\n            const hasPartialMeituanOtaConfig'
+  );
+  const saveHotel = functionSlice('saveHotel');
+
+  assert.match(refreshHotelBindingPanel, /loadHotels\(\{ force: true, includeInactive: true \}\)/);
+  assert.match(refreshHotelBindingPanel, /ensureHotelOtaConfigLists\(\{ force: true \}\)/);
+  assert.match(refreshHotelBindingPanel, /loadPlatformDataSources\(\{ force: true \}\)/);
+  assert.match(refreshHotelBindingPanel, /loadCompetitorSummary\(\{[\s\S]*force: true/);
+  assert.match(ensureHotelOtaConfigLists, /const force = options\.force === true;/);
+  assert.match(ensureHotelOtaConfigLists, /loadCtripConfigList\(\{[\s\S]*force,[\s\S]*cacheMs: force \? 0 : MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS/);
+  assert.match(ensureHotelOtaConfigLists, /loadMeituanConfigList\(\{[\s\S]*force,[\s\S]*cacheMs: force \? 0 : MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS/);
+  assert.match(saveHotelOtaConfig, /loadCtripConfigList\(\{ force: true, applySelectedConfig: false \}\)/);
+  assert.match(saveHotelOtaConfig, /loadMeituanConfigList\(\{ force: true, applySelectedConfig: false \}\)/);
+  assert.match(saveHotel, /await loadHotels\(\{ force: true, includeInactive: true \}\);/);
+  assert.ok((html.match(/await loadHotels\(\{ force: true, includeInactive: true \}\);/g) || []).length >= 4);
 });
 
 test('FontAwesome stylesheet does not block the core shell first second', () => {
@@ -375,7 +676,7 @@ test('Form operation support loads after login instead of blocking the login she
   assert.doesNotMatch(html, /<script\s+src=["']form-operation-support\.js["']/);
   assert.match(formOperationLoader, /script\.src = formOperationSupportScript;/);
   assert.match(formOperationLoader, /window\.SuxiFormOperationSupport\.init\(window\);/);
-  assert.match(formOperationLoader, /const shouldDeferFormOperationSupportLoad = \(\) => currentPage\.value === 'compass' \|\| isCoreOtaPageVisible\(\);/);
+  assert.match(formOperationLoader, /const shouldDeferFormOperationSupportLoad = \(\) => isCompassDataPage\(\) \|\| isCoreOtaPageVisible\(\);/);
   assert.match(formOperationLoader, /const pageDelay = shouldDeferFormOperationSupportLoad\(\) \? 6400 : 5200;/);
   assert.match(formOperationLoader, /if \(shouldDeferFormOperationSupportLoad\(\)\) return;/);
   assert.match(currentPageWatcher, /scheduleFormOperationSupportLoad\(\);/);
@@ -483,8 +784,11 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(loadMeituanConfigDetail, /if \(config\.cookies \|\| !config\.id \|\| config\.has_cookies === false\) return config;/);
   assert.match(html, /clearMeituanConfigDetailCache\(meituanConfigForm\.value\.id\);/);
   assert.match(html, /clearMeituanConfigDetailCache\(id\);/);
+  assert.match(loadMeituanConfigList, /const force = options\.force === true;/);
+  assert.match(loadMeituanConfigList, /!force\s*&& meituanConfigListLoaded\.value/);
   assert.match(loadMeituanConfigList, /if \(meituanConfigListLoadingPromise\) \{/);
-  assert.match(loadMeituanConfigList, /return meituanConfigListLoadingPromise;/);
+  assert.match(loadMeituanConfigList, /if \(!force\) \{\s*return meituanConfigListLoadingPromise;\s*\}/);
+  assert.match(loadMeituanConfigList, /await meituanConfigListLoadingPromise\.catch\(\(\) => \[\]\);/);
   assert.match(html, /const meituanConfigListLoading = ref\(false\);/);
   assert.match(loadMeituanConfigList, /meituanConfigListLoading\.value = true;/);
   assert.match(loadMeituanConfigList, /meituanConfigListLoading\.value = false;/);
@@ -775,10 +1079,11 @@ test('Online data health tab schedules light refresh outside the switch path', (
   assert.match(openOnlineDataEntryTab, /onlineDataTab\.value = targetTab;\s*currentPage\.value = 'online-data';/);
   assert.match(html, /v-if="dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"/);
   assert.match(html, /v-if="dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"/);
-  assert.match(html, /v-if="dataHealthDetailPanelsReady && !dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit-pending"/);
-  assert.match(html, /v-else-if="dataHealthDetailPanelsReady" data-testid="hotel-data-cockpit"/);
-  assert.match(html, /v-if="dataHealthDetailPanelsReady" data-testid="data-health-drilldown"/);
-  assert.match(html, /v-if="dataHealthDetailPanelsReady" data-testid="mixed-collection-lifecycle-panel"/);
+  assert.doesNotMatch(html, /data-testid="hotel-data-cockpit-pending"/);
+  assert.match(html, /v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit"/);
+  assert.match(html, /v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="data-health-drilldown"/);
+  assert.match(html, /v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="mixed-collection-lifecycle-panel"/);
+  assert.match(html, /data-testid="data-health-full-diagnostics-detail"/);
   assert.doesNotMatch(scheduleOnlineDataTabLoad, /return runIfCurrent\(\(\) => loadDataHealthPanel\('light'\)\);/);
   assert.match(
     onlineDataDefaultLoader,

@@ -1767,10 +1767,11 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("clearDataHealthEmployeePanelsReadyTimer();\n                    dataHealthEmployeePanelsReady.value = false;")
     || !content.includes('<div v-if="dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"')
     || !content.includes('<div v-if="dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"')
-    || !content.includes('<div v-if="dataHealthDetailPanelsReady && !dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit-pending"')
-    || !content.includes('<div v-else-if="dataHealthDetailPanelsReady" data-testid="hotel-data-cockpit"')
-    || !content.includes('<div v-if="dataHealthDetailPanelsReady" data-testid="data-health-drilldown"')
-    || !content.includes('<div v-if="dataHealthDetailPanelsReady" data-testid="mixed-collection-lifecycle-panel"')
+    || content.includes('data-testid="hotel-data-cockpit-pending"')
+    || !content.includes('<div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit"')
+    || !content.includes('<div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="data-health-drilldown"')
+    || !content.includes('<div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="mixed-collection-lifecycle-panel"')
+    || !content.includes('data-testid="data-health-full-diagnostics-detail"')
     || !content.includes('dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId')) {
     failures.push('public/index.html must split data-health secondary, detail, and employee diagnostic panels so manual online-data entry stays responsive.');
   }

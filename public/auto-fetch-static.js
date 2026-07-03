@@ -2,7 +2,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
     const autoFetchModeOptions = [
         { value: 'hybrid_auto', label: '接口直连自动' },
         { value: 'cookie_config', label: '授权配置自动' },
-        { value: 'profile_browser', label: '登录会话自动采集' },
+        { value: 'profile_browser', label: 'Profile 登录态采集' },
     ];
     const autoFetchCollectionBlueprintRows = [
         { label: '采集对象', value: '授权 OTA 门店指标' },
@@ -120,8 +120,8 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         if (statusCode === 'hotel_mismatch') return '门店不匹配';
         const map = {
             unconfigured: '未配置',
-            waiting_login: '待登录',
-            logged_in: '已登录',
+            waiting_login: '登录待验证',
+            logged_in: '登录态已验证',
             login_expired: '登录失效',
             login_required: '需要登录',
             permission_denied: '无权限',
@@ -201,8 +201,8 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         return 'Profile 绑定状态待确认';
     };
     const platformProfileStrategyText = (item) => {
-        if (item?.platform === 'ctrip') return '登录会话自动采集';
-        if (item?.platform === 'meituan') return '平台授权与门店标识；完成登录后可自动同步';
+        if (item?.platform === 'ctrip') return 'Profile 登录态复用采集';
+        if (item?.platform === 'meituan') return 'Profile 登录态与门店标识；验证后再同步';
         return '-';
     };
     const platformProfilePrimaryActionText = (item) => {
@@ -217,7 +217,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         const statusCode = String(item?.status_code || '').trim().toLowerCase();
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '当前账号无该门店采集权限，请切换账号或补授权。';
         if (statusCode === 'hotel_mismatch') return 'Profile 登录态存在，但绑定门店与当前门店不匹配，请重新绑定正确门店。';
-        if (['logged_in'].includes(statusCode)) return '登录态可复用，点击同步会走现有数据源，不会直接弹登录。';
+        if (['logged_in'].includes(statusCode)) return '登录态已验证，不等于数据已入库；请执行目标日同步并检查入库结果。';
         if (['waiting_login', 'login_expired', 'login_required'].includes(statusCode) || /login|auth|cookie|登录|授权|过期|失效/i.test(raw)) {
             return '完成或刷新平台登录后，再运行现有自动采集';
         }
@@ -238,7 +238,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         if (sync?.status === 'success' && Number(sync?.saved_count || 0) > 0) return `登录后同步完成，目标日已入库 ${Number(sync.saved_count || 0)} 条`;
         if (sync?.status && sync.status !== 'success' && sync.status !== 'skipped') return `登录已完成，但目标日同步未闭环：${String(sync.message || sync.status).trim()}`;
         const combined = `${statusText} ${status} ${message}`;
-        if (/success|done|logged|完成|成功|已登录/i.test(combined)) return '登录任务已完成，请刷新状态并运行现有采集';
+        if (/success|done|logged|完成|成功|已登录|登录态已验证/i.test(combined)) return '登录任务已完成，请刷新状态并运行现有采集';
         if (/running|pending|wait|启动|等待|处理中|进行中/i.test(combined)) return '登录任务进行中，请在打开的浏览器内完成平台验证';
         if (/fail|error|expired|timeout|失败|错误|超时|过期/i.test(combined)) return '登录任务异常，请重新触发登录并保留失败原因';
         if (message && !platformProfileMachineText(message)) return message;

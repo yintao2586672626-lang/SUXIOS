@@ -11,10 +11,14 @@ use app\model\Role;
 use app\model\Hotel;
 use app\model\UserHotelPermission;
 use app\service\PermissionService;
+use think\facade\Db;
 use think\Response;
 
 class Auth extends Base
 {
+    private const TOKEN_TTL_SECONDS = 259200; // 72 hours
+    private const BETA_HOTEL_BINDING_CUTOFF_DATE = '2026-07-05';
+
     /**
      * Public self-registration.
      *
@@ -104,15 +108,11 @@ class Auth extends Base
                 $permission = new UserHotelPermission();
                 $permission->user_id = (int)$user->id;
                 $permission->hotel_id = $resolvedHotelId;
-                $permission->can_view_report = 0;
-                $permission->can_fill_daily_report = 0;
-                $permission->can_fill_monthly_task = 0;
-                $permission->can_edit_report = 0;
-                $permission->can_delete_report = 0;
-                $permission->can_view_online_data = $hotelPermissionDefaults['can_view_online_data'];
-                $permission->can_fetch_online_data = $hotelPermissionDefaults['can_fetch_online_data'];
-                $permission->can_delete_online_data = $hotelPermissionDefaults['can_delete_online_data'];
-                $permission->is_primary = 1;
+                foreach ($hotelPermissionDefaults as $column => $value) {
+                    if ($this->tableColumnExists('user_hotel_permissions', (string)$column)) {
+                        $permission->{$column} = $value;
+                    }
+                }
                 $permission->save();
             }
 
@@ -208,8 +208,8 @@ class Auth extends Base
             'ip' => $ip,
             'user_agent' => substr($userAgent, 0, 255),
         ];
-        cache('token_' . $token, $tokenData, 86400); // 缓存24小时
-        cache('user_token_' . $user->id, $token, 86400);
+        cache('token_' . $token, $tokenData, self::TOKEN_TTL_SECONDS);
+        cache('user_token_' . $user->id, $token, self::TOKEN_TTL_SECONDS);
         cache($lockKey . ':attempts', null);
         cache($lockKey . ':locked_until', null);
 
@@ -221,9 +221,10 @@ class Auth extends Base
 
         return $this->success([
             'token' => $token,
-            'expires_in' => 86400,
+            'expires_in' => self::TOKEN_TTL_SECONDS,
             'user' => $this->buildLoginUserPayload($user, $permittedHotels),
             'context' => $this->buildAuthContext($user, $permittedHotels),
+            'notices' => $this->buildLoginNotices($user, $permittedHotels),
         ], '登录成功');
     }
 
@@ -233,12 +234,56 @@ class Auth extends Base
     private function buildSelfRegistrationHotelPermissionDefaults(Role $role): array
     {
         $permissions = $role->getPermissionList();
+        $allows = static fn(string $permission): int => Role::permissionListAllows($permissions, $permission) ? 1 : 0;
 
         return [
-            'can_view_online_data' => Role::permissionListAllows($permissions, 'can_view_online_data') ? 1 : 0,
-            'can_fetch_online_data' => Role::permissionListAllows($permissions, 'can_fetch_online_data') ? 1 : 0,
-            'can_delete_online_data' => Role::permissionListAllows($permissions, 'can_delete_online_data') ? 1 : 0,
+            'scope_type' => 'granted',
+            'can_view' => 1,
+            'can_report' => $allows('report.view'),
+            'can_fill' => $allows('report.fill'),
+            'can_edit' => $allows('hotel.update') || $allows('report.update') ? 1 : 0,
+            'can_fetch_ota' => $allows('ota.collect'),
+            'can_delete_ota' => $allows('ota.delete'),
+            'can_export' => $allows('ota.export') || $allows('report.export') ? 1 : 0,
+            'can_ai' => $allows('ai.view') || $allows('ai.execute') ? 1 : 0,
+            'can_operation' => $allows('operation.view') || $allows('operation.execute') ? 1 : 0,
+            'can_investment' => $allows('investment.view') || $allows('investment.simulate') ? 1 : 0,
+            'status' => 'active',
+            'created_by' => 0,
+            'can_view_report' => $allows('report.view'),
+            'can_fill_daily_report' => $allows('report.fill'),
+            'can_fill_monthly_task' => $allows('report.fill'),
+            'can_edit_report' => $allows('report.update'),
+            'can_delete_report' => $allows('report.delete'),
+            'can_view_online_data' => $allows('ota.view'),
+            'can_fetch_online_data' => $allows('ota.collect'),
+            'can_delete_online_data' => $allows('ota.delete'),
+            'is_primary' => 1,
         ];
+    }
+
+    private function tableColumnExists(string $table, string $column): bool
+    {
+        $table = str_replace('`', '', $table);
+        $column = str_replace(['`', "'"], '', $column);
+
+        try {
+            return !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
+        } catch (\Throwable $e) {
+            try {
+                $rows = Db::query("PRAGMA table_info(`{$table}`)");
+            } catch (\Throwable $ignored) {
+                return false;
+            }
+
+            foreach ($rows as $row) {
+                if (($row['name'] ?? '') === $column) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 
     /**
@@ -277,7 +322,33 @@ class Auth extends Base
             'capabilities' => $this->buildUserCapabilities($user),
             'hotel_scope' => $user->getHotelScopeContext(),
             'modules' => $this->buildUserModules($user),
+            'notices' => $this->buildLoginNotices($user, $permittedHotels),
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $permittedHotels
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildLoginNotices(User $user, array $permittedHotels): array
+    {
+        if ($user->isSuperAdmin() || !$user->isBetaUser()) {
+            return [];
+        }
+
+        $hotelCount = count($permittedHotels);
+        $deadline = self::BETA_HOTEL_BINDING_CUTOFF_DATE;
+        $message = $hotelCount > 0
+            ? "内测用户当前仅可查看已绑定或管理员分配的门店（{$hotelCount}家）。请在 {$deadline} 前确认门店绑定；{$deadline} 之后，未绑定或未分配的门店将无法查看。"
+            : "内测用户当前未绑定或未被管理员分配门店。请在 {$deadline} 前绑定自己的门店或联系超级管理员分配；{$deadline} 之后将无法查看门店数据。";
+
+        return [[
+            'type' => 'beta_hotel_binding_deadline',
+            'level' => 'warning',
+            'deadline' => $deadline,
+            'message' => $message,
+            'action_page' => 'hotels',
+        ]];
     }
 
     /**
@@ -528,6 +599,7 @@ class Auth extends Base
             'hotel_scope' => $user->getHotelScopeContext(),
             'modules' => $this->buildUserModules($user),
             'context' => $this->buildAuthContext($user, $permittedHotels),
+            'notices' => $this->buildLoginNotices($user, $permittedHotels),
         ]);
     }
 

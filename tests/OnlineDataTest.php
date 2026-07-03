@@ -2493,7 +2493,7 @@ final class OnlineDataTest extends TestCase
             '授权失败',
             ['platform' => 'ctrip', 'status' => 'expired'],
             '该门店无法同步 OTA 数据',
-            '重新授权携程账号',
+            '重新登录或更新携程 Cookie/API 辅助内容',
             'auth_failed',
         ]);
 
@@ -2501,7 +2501,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame('授权失败', $diagnosis['problem']);
         self::assertSame('expired', $diagnosis['evidence']['status']);
         self::assertSame('该门店无法同步 OTA 数据', $diagnosis['impact']);
-        self::assertSame('重新授权携程账号', $diagnosis['action']);
+        self::assertSame('重新登录或更新携程 Cookie/API 辅助内容', $diagnosis['action']);
         self::assertSame('auth_failed', $diagnosis['status']);
     }
 
@@ -3246,7 +3246,7 @@ final class OnlineDataTest extends TestCase
         self::assertContains('/api/online-data/capture-ctrip-browser', array_column($payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'], 'entry'));
         self::assertContains('/api/online-data/collection-reliability', array_column($payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'], 'entry'));
         self::assertStringContainsString('本地 Profile 存在', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][0]['requires']);
-        self::assertStringContainsString('用户提供授权上下文', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][1]['requires']);
+        self::assertStringContainsString('用户提供 Cookie/Payload 上下文', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][1]['requires']);
         self::assertStringContainsString('只读状态', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][2]['boundary']);
         self::assertSame('ready', $payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][2]['readiness']['status']);
         self::assertTrue($payload['phase1_employee_questions']['closure_summary']['top_action_entry_options'][2]['readiness']['can_run_now']);

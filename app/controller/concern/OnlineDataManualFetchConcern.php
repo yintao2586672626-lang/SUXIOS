@@ -298,7 +298,13 @@ trait OnlineDataManualFetchConcern
 
             if (!$result['success']) {
                 $this->recordCookieAlert('meituan', 'fetch-meituan', (string)($result['error'] ?? ''), $systemHotelId ? (int)$systemHotelId : null);
-                return $this->error('请求失败: ' . $result['error']);
+                return $this->error('请求失败: ' . $result['error'], 400, [
+                    'reason' => $result['reason'] ?? 'meituan_request_failed',
+                    'credential_status' => $result['credential_status'] ?? '',
+                    'business_code' => $result['business_code'] ?? null,
+                    'business_message' => $result['business_message'] ?? '',
+                    'http_code' => $result['http_code'] ?? null,
+                ]);
             }
 
             $responseData = $result['data'] ?? [];

@@ -4454,7 +4454,7 @@ class RevenueAiOverviewService
                 'status' => 'partial',
                 'label' => '部分可用',
                 'reason' => 'partial_success',
-                'detail' => $error !== '' ? $error : '同步部分成功，需复核缺失字段。',
+                'detail' => $error !== '' ? $error : '同步部分模块成功，需复核缺失字段。',
                 'last_success_at' => $this->nullableText($row['last_sync_time'] ?? null),
             ];
         }
@@ -4699,7 +4699,7 @@ class RevenueAiOverviewService
             'target_platform' => $channel,
         ];
         $overrides = [
-            'AUTH_EXPIRED' => ['severity' => 'high', 'category' => 'auth', 'display_reason' => $platformLabel . '登录或授权已失效。', 'next_action' => '进入数据健康面板复核授权状态，必要时重新登录。'],
+            'AUTH_EXPIRED' => ['severity' => 'high', 'category' => 'auth', 'display_reason' => $platformLabel . '登录或授权已失效，Cookie/Profile 状态需复核。', 'next_action' => '进入数据健康面板复核登录/Cookie 状态，必要时重新登录。'],
             'CAPTCHA_REQUIRED' => ['severity' => 'high', 'category' => 'auth', 'display_reason' => $platformLabel . '需要验证码或人工登录确认。', 'next_action' => '进入平台账号状态处理验证码或人工登录。'],
             'PAGE_CHANGED' => ['severity' => 'high', 'category' => 'parser', 'display_reason' => $platformLabel . '页面结构变化，采集解析需复核。', 'next_action' => '复核最近一次采集证据和字段映射。'],
             'FIELD_MISSING' => ['severity' => 'high', 'category' => 'field', 'display_reason' => $platformLabel . '关键字段缺失。', 'next_action' => '进入数据健康面板查看缺字段明细。'],

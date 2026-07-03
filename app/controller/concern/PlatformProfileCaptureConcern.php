@@ -63,8 +63,8 @@ trait PlatformProfileCaptureConcern
             'status_code' => $statusCode,
             'current_status' => $this->ctripProfileStatusText($statusCode),
             'next_action' => $exists
-                ? '可直接用于携程 Cookie API；如 Cookie 探测失败，请重新登录携程 Profile'
-                : '点击“只登录并保存 Profile”完成携程登录，或直接粘贴有效 Cookie',
+                ? 'Profile 目录已发现；需点击“检测登录”确认 OTA 登录态，Cookie API 仅作临时诊断'
+                : '点击“登录携程”保存 Profile；手动 Cookie/API 仅作临时排障',
         ];
 
         if ($exists && $probeLogin) {
@@ -114,12 +114,12 @@ trait PlatformProfileCaptureConcern
             $status['skipped_count'] = (int)($meta['skipped_count'] ?? 0);
             $status['status'] = $cookieCount > 0 ? 'ready' : 'profile_found_without_cookie';
             $status['next_action'] = $cookieCount > 0
-                ? '可使用该 Profile 执行携程 Cookie API 诊断采集'
-                : 'Profile 存在但未提取到可用携程 Cookie，请重新登录携程后台';
+                ? 'Cookie 可读取；仅代表临时 Cookie/API 诊断可尝试，不等于长期授权或采集成功'
+                : 'Profile 存在但未提取到可用 Cookie；请先检测登录态或重新登录携程后台';
         } catch (\Throwable $e) {
             $status['status'] = 'profile_cookie_unreadable';
             $status['cookie_error'] = $this->trimMeituanCaptureLog($e->getMessage());
-            $status['next_action'] = 'Profile 存在但 Cookie 不可读取，请关闭相关浏览器窗口后重试，或重新登录携程 Profile';
+            $status['next_action'] = 'Profile 目录存在但 Cookie 不可读取；这不代表未登录，请关闭相关浏览器窗口后重试或重新检测登录态';
         }
 
         return $status;
@@ -246,10 +246,10 @@ trait PlatformProfileCaptureConcern
             'auth_status' => $cached['auth_status'] ?? null,
             'capture_gate' => $cached['capture_gate'] ?? null,
             'status' => $exists ? 'profile_found' : 'missing_profile',
-            'current_status' => $exists ? '待登录' : '待登录',
+            'current_status' => $exists ? '登录待验证' : '登录待验证',
             'status_code' => $exists ? 'waiting_login' : 'waiting_login',
             'next_action' => $exists
-                ? '点击“检测登录”确认美团 Profile 是否仍有效'
+                ? 'Profile 目录已发现；需点击“检测登录”确认美团登录态'
                 : '点击“登录美团”完成平台验证后复用 Profile',
         ];
 
@@ -270,8 +270,8 @@ trait PlatformProfileCaptureConcern
         $status['last_login_check_time'] = date('Y-m-d H:i:s');
         $status['status'] = $isOk ? 'ready' : 'login_required';
         $status['status_code'] = $isOk ? 'logged_in' : 'login_expired';
-        $status['current_status'] = $isOk ? '已登录' : '登录失效';
-        $status['next_action'] = $isOk ? '可使用该 Profile 执行美团自动采集' : '重新登录美团平台账号';
+        $status['current_status'] = $isOk ? '登录态已验证' : '登录失效';
+        $status['next_action'] = $isOk ? '登录态已验证；仍需执行目标日同步并检查入库结果' : '重新登录美团平台账号';
 
         if ($hotelId > 0 && $storeId !== '') {
             $this->cachePlatformProfileStatus('meituan', $hotelId, $storeId, [

@@ -75,7 +75,7 @@ test('Ctrip eBooking first tab is a business-first store data overview with diag
   for (const label of ['收益经营', '流量漏斗', '竞争表现', '服务质量', '广告投放']) {
     assert.match(dataHealthOverviewSource, new RegExp(label), `missing fetch module card: ${label}`);
   }
-  for (const label of ['采集诊断与失败原因', '采集覆盖统计', '携程授权状态', '失败原因']) {
+  for (const label of ['采集诊断与失败原因', '采集覆盖统计', '携程登录/Cookie 状态', '失败原因']) {
     assert.match(ctripDiagnosticsPanel, new RegExp(label), `diagnostics must retain: ${label}`);
   }
   assert.match(ctripPage, /loadDataHealthPanel/);
@@ -130,7 +130,7 @@ test('Ctrip store data overview exposes business sections and field-level misses
   assert.doesNotMatch(ctripBusinessBoard, /本轮未抓到/);
   assert.doesNotMatch(html, /本轮未命中/);
   assert.match(ctripBusinessBoard, /OTA渠道口径，不代表全酒店经营口径/);
-  assert.doesNotMatch(ctripBusinessBoard, /字段缺失 \/ 定义|采集覆盖统计|字段质量|接口响应|携程授权状态|失败原因|历史回放|待采集项|待补字段/);
+  assert.doesNotMatch(ctripBusinessBoard, /字段缺失 \/ 定义|采集覆盖统计|字段质量|接口响应|携程登录\/Cookie 状态|失败原因|历史回放|待采集项|待补字段/);
   assert.doesNotMatch(ctripBusinessBoard, /用户画像|IM看板|房型/);
   assert.match(html, /collectionHealthCtripPersistedRows/);
   assert.match(html, /buildCollectionHealthCtripPersistedRows/);
@@ -429,8 +429,8 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
   assert.doesNotMatch(configApplier, /const ctripHotelId = String\([\s\S]*node_id|const ctripHotelId = String\([\s\S]*nodeId/);
   assert.match(html, /const defaultCtripBrowserProfileId = \(hotelId = getAutoFetchHotelId\(\)\) =>/);
   assert.match(profileLoginPayload, /const dataSourceId = Number\(item\?\.data_source_id \|\| item\?\.dataSourceId \|\| 0\)/);
-  assert.match(profileLoginPayload, /const syncAfterLogin = !!\(item\?\.sync_after_login \|\| item\?\.syncAfterLogin\)/);
-  assert.match(profileLoginPayload, /const loginTargetDate = String\(item\?\.data_date \|\| item\?\.dataDate \|\| item\?\.target_date \|\| item\?\.targetDate \|\| ''\)\.trim\(\)/);
+  assert.match(profileLoginPayload, /const syncAfterLogin = !!\(item\?\.sync_after_login \|\| item\?\.syncAfterLogin \|\| dataSourceId > 0\)/);
+  assert.match(profileLoginPayload, /const loginTargetDate = String\(item\?\.data_date \|\| item\?\.dataDate \|\| item\?\.target_date \|\| item\?\.targetDate \|\| formatDate\(new Date\(\)\)\)\.trim\(\)/);
   assert.match(profileLoginPayload, /const profileId = resolveCtripBrowserProfileId\(\{ item, hotelId, allowDefault: true \}\)/);
   assert.match(profileLoginPayload, /form\.profileId = profileId/);
   assert.match(profileLoginPayload, /data_source_id: dataSourceId \|\| undefined/);
@@ -552,7 +552,7 @@ test('Ctrip store overview ignores stale health responses after hotel switching'
 });
 
 test('Ctrip store data overview exposes Ctrip platform authorization CRUD with traffic lights', () => {
-  assert.match(ctripDiagnosticsPanel, /携程授权状态/);
+  assert.match(ctripDiagnosticsPanel, /携程登录\/Cookie 状态/);
   assert.match(ctripDiagnosticsPanel, /collectionHealthCtripAuthorizationRows/);
   assert.match(ctripDiagnosticsPanel, /collectionHealthCookieLightClass/);
   assert.match(ctripDiagnosticsPanel, /openCtripCookieCreateFromHealth/);
@@ -599,7 +599,7 @@ test('Ctrip platform authorization status supports inline view and edit', () => 
   assert.match(html, /const results = await Promise\.all\(ids\.map\(async \(id\) => \{/);
   assert.match(html, /deferUiTask\(\(\) => loadCtripConfigList\(\), 80\);/);
   assert.doesNotMatch(html, /if \(deletedCount > 0\) \{\s*await loadCtripConfigList\(\);\s*\}/);
-  assert.match(html, /查看 \/ 编辑携程平台授权/);
+  assert.match(html, /查看 \/ 编辑携程临时 Cookie\/API 辅助/);
   assert.match(html, /v-model="ctripCookieEditorForm\.cookies"/);
 });
 

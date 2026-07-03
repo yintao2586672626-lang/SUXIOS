@@ -311,7 +311,7 @@ includesAll('public/index.html', 'daily workbench frontend panel and patrol UI e
 ]);
 
 includesAll('public/index.html', 'home entry points to daily workbench data-health view', frontend, [
-  'compass-static.js?v=20260628-static-router-fix',
+  'compass-static.js?v=',
   "openHomeQuickEntry({ page: 'online-data', tab: 'data-health' })",
 ]);
 

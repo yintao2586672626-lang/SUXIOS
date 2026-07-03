@@ -544,7 +544,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
         1: '昨日',
         7: '近7天',
         30: '近30天',
-        custom: '自定义时间',
+        custom: '历史自定义',
+    };
+    const normalizeDateText = value => String(value || '').trim();
+    const todayDateText = () => {
+        const now = new Date();
+        const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+        return local.toISOString().slice(0, 10);
     };
     const validateMeituanBatchFetchInput = ({
         form = {},
@@ -556,7 +562,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             return { ok: false, status: 'missing_hotel', level: 'error', message: '请选择目标酒店' };
         }
         if (!String(cookies || '').trim()) {
-            return { ok: false, level: 'error', message: '平台授权缺失：请提供美团平台授权内容' };
+            return { ok: false, level: 'error', message: '临时 Cookie/API 辅助内容缺失：请提供美团 Cookie/API 辅助内容' };
         }
         const missingResourceFields = [];
         if (!String(partnerId || '').trim()) {
@@ -569,7 +575,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             return {
                 ok: false,
                 level: 'warning',
-                message: `需补充一次性门店标识：${missingResourceFields.join(' / ')}。请在本页临时填写，或在酒店管理中保存后再获取美团榜单。`,
+                message: `需补充一次性门店标识：${missingResourceFields.join(' / ')}。请先在酒店管理中保存后再获取美团榜单。`,
             };
         }
         const dateRanges = Array.isArray(form.dateRanges) ? form.dateRanges : [];
@@ -577,7 +583,18 @@ window.SUXI_MEITUAN_STATIC = (() => {
             return { ok: false, level: 'error', message: '请至少选择一个时间维度' };
         }
         if (dateRanges.includes('custom') && (!form.startDate || !form.endDate)) {
-            return { ok: false, level: 'error', message: '请填写自定义时间的开始和结束日期' };
+            return { ok: false, level: 'error', message: '请填写历史自定义时间的开始和结束日期' };
+        }
+        if (dateRanges.includes('custom')) {
+            const startDate = normalizeDateText(form.startDate);
+            const endDate = normalizeDateText(form.endDate);
+            const today = todayDateText();
+            if (startDate > endDate) {
+                return { ok: false, level: 'error', message: '历史自定义时间的开始日期不能晚于结束日期' };
+            }
+            if (startDate > today || endDate > today) {
+                return { ok: false, level: 'warning', message: '美团竞对榜单接口不支持未来日期，请选择今日实时、昨日、近7天、近30天或历史日期' };
+            }
         }
         return {
             ok: true,
@@ -637,6 +654,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             rankName: task.rankName,
             dateRange: task.dateRange,
             dateRangeName: task.dateRangeName,
+            response,
         };
         if (response.code === 200) {
             const responseData = response.data || {};
@@ -676,7 +694,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
         }
         return {
             ...base,
-            error: response.message || '获取失败',
+            status: response.data?.reason || response.data?.credential_status || 'failed',
+            credentialStatus: response.data?.credential_status || '',
+            businessCode: response.data?.business_code ?? null,
+            businessMessage: response.data?.business_message || '',
+            error: response.message || response.data?.business_message || '获取失败',
         };
     };
     const buildMeituanBatchFetchPendingEntry = (task) => ({
@@ -744,16 +766,19 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const status = String(response.data?.status || '').toLowerCase();
         return ['accepted', 'running', 'queued'].includes(status);
     };
-    const buildMeituanDisplayModelPayload = ({ results = [], form = {} } = {}) => ({
-        display_hotels: buildMeituanDisplayModelRows(results),
-        display_groups: buildMeituanDisplayModelGroups({ results, form }),
-        competitor_room_count: form.competitorRoomCount,
-        target_poi_id: form.poiId,
-        system_hotel_id: form.hotelId,
-        date_ranges: form.dateRanges,
-        start_date: form.startDate,
-        end_date: form.endDate,
-    });
+    const buildMeituanDisplayModelPayload = ({ results = [], form = {} } = {}) => {
+        const displayGroups = buildMeituanDisplayModelGroups({ results, form });
+        return {
+            display_hotels: buildMeituanDisplayModelRows(results),
+            display_groups: displayGroups,
+            competitor_room_count: form.competitorRoomCount,
+            target_poi_id: form.poiId,
+            system_hotel_id: form.hotelId,
+            date_ranges: form.dateRanges,
+            start_date: form.startDate,
+            end_date: form.endDate,
+        };
+    };
 
     const normalizeMeituanCookieText = (value) => String(value || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');
 
@@ -850,7 +875,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             return { ok: false, status: 'missing_poi_id', level: 'error', message: '需一次性平台门店标识：请输入平台门店标识' };
         }
         if (!form.cookies) {
-            return { ok: false, status: 'missing_cookies', level: 'error', message: '平台授权缺失：请输入平台授权内容' };
+            return { ok: false, status: 'missing_cookies', level: 'error', message: '临时 Cookie/API 辅助内容缺失：请输入临时 Cookie/API 辅助内容' };
         }
         return { ok: true, status: 'ok' };
     };
@@ -1612,23 +1637,36 @@ window.SUXI_MEITUAN_STATIC = (() => {
         let acceptedCount = 0;
 
         try {
+            if (fetchTasks.length > 0) {
+                notify(fetchTasks.length === 1 ? fetchTasks[0].toastText : `正在获取 ${fetchTasks.length} 个美团榜单任务...`);
+            }
             await Promise.all(fetchTasks.map(async (task, index) => {
-                notify(task.toastText);
                 const requestBody = { ...task.body, async: false, background: false };
-                const res = await requestFetch(requestBody);
-                const accepted = isMeituanBackgroundAcceptedResponse(res);
-                if (accepted) {
-                    acceptedCount += 1;
+                try {
+                    const res = await requestFetch(requestBody);
+                    const accepted = isMeituanBackgroundAcceptedResponse(res);
+                    if (accepted) {
+                        acceptedCount += 1;
+                    }
+                    results[index] = buildMeituanBatchFetchResultEntry(task, res);
+                    if (res.code === 200 && !accepted) {
+                        totalSavedCount += res.data.saved_count || 0;
+                    }
+                } catch (error) {
+                    results[index] = {
+                        ...buildMeituanBatchFetchPendingEntry(task),
+                        status: 'exception',
+                        message: error.message || '请求异常',
+                        error: error.message || '请求异常',
+                    };
                 }
-                results[index] = buildMeituanBatchFetchResultEntry(task, res);
                 scheduleResultUpdate();
-                if (res.code === 200 && !accepted) {
-                    totalSavedCount += res.data.saved_count || 0;
-                }
             }));
 
             flushResultUpdate();
             setSavedCount(totalSavedCount);
+            const failedCount = results.filter(item => item?.error).length;
+            const loginFailed = results.some(item => item?.credentialStatus === 'login_required' || item?.status === 'login_required' || /未登录|登录态|Cookie|授权/.test(String(item?.error || item?.message || '')));
             if (acceptedCount > 0) {
                 setFetchSuccess(true);
                 setDataFetchTime(getFetchTime());
@@ -1643,6 +1681,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     refreshOnlineData();
                 }
                 return { status: 'accepted', results, acceptedCount, totalSavedCount };
+            }
+            if (fetchTasks.length > 0 && failedCount === fetchTasks.length) {
+                setFetchSuccess(false);
+                setBusinessSummary(getEmptyBusinessSummary());
+                notify(loginFailed ? '美团登录态已失效，请重新登录美团后台后更新 Cookie/API 辅助内容' : `美团获取失败：${failedCount} 个任务未返回有效数据`, loginFailed ? 'error' : 'warning');
+                return { status: loginFailed ? 'login_required' : 'failed', results, totalSavedCount, failedCount };
             }
             const modelRes = await requestDisplayModel(buildMeituanDisplayModelPayload({ results, form }));
             if (modelRes.code !== 200) {
@@ -1661,6 +1705,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 }
             } else if (allHotels.length > 0) {
                 notify(`获取成功！共 ${allHotels.length} 家酒店数据`);
+            } else if (failedCount > 0) {
+                notify(loginFailed ? '美团登录态已失效，请重新登录美团后台后更新 Cookie/API 辅助内容' : `美团获取失败：${failedCount} 个任务未返回有效数据`, loginFailed ? 'error' : 'warning');
             } else {
                 notify('获取完成，但未找到有效数据');
             }
@@ -1784,7 +1830,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         insightCards = [],
         healthRows = [],
         defaultRankTypes = [],
-        sourceNotice = '仅展示美团榜单已返回字段；未返回字段保留缺失状态。',
+        sourceNotice = '',
         limit = 5,
     } = {}) => {
         const baseEntry = { page: 'meituan-ebooking', tab: 'meituan-ranking' };

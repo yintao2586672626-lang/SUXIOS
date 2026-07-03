@@ -305,7 +305,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             return { ok: false, status: 'missing_name', level: 'error', message: '请输入配置名称' };
         }
         if (!form.cookies) {
-            return { ok: false, status: 'missing_cookies', level: 'error', message: '请输入平台授权内容' };
+            return { ok: false, status: 'missing_cookies', level: 'error', message: '请输入临时 Cookie/API 辅助内容' };
         }
         return { ok: true, status: 'ok' };
     };
@@ -315,6 +315,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         notify = () => {},
         resetForm = () => {},
         reloadConfigs = () => {},
+        afterSave = async () => { reloadConfigs(); },
         logError = () => {},
     } = {}) => {
         const form = getForm() || {};
@@ -329,7 +330,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             if (res.code === 200) {
                 notify('配置保存成功');
                 resetForm(createCtripConfigForm());
-                reloadConfigs();
+                await afterSave({ response: res, requestBody });
                 return { status: 'success', response: res, requestBody };
             }
 
@@ -1172,7 +1173,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         if (!cookies) {
             return {
                 ok: false,
-                message: '请输入平台授权内容',
+                message: '请输入临时 Cookie/API 辅助内容',
                 level: 'error',
             };
         }

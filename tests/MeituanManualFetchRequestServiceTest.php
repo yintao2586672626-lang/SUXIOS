@@ -58,6 +58,24 @@ final class MeituanManualFetchRequestServiceTest extends TestCase
         ], $plan['params']);
     }
 
+    public function testBuildRankRequestParamsRejectsFutureExplicitDates(): void
+    {
+        $tomorrow = date('Y-m-d', strtotime('+1 day'));
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('不支持未来日期');
+
+        MeituanManualFetchRequestService::buildRankRequestParams(
+            'vpoi',
+            'partner-1',
+            'poi-1',
+            'P_RZ',
+            'custom',
+            $tomorrow,
+            $tomorrow
+        );
+    }
+
     public function testBuildTrafficRequestParamsPreservesExtraParams(): void
     {
         $plan = MeituanManualFetchRequestService::buildTrafficRequestParams(

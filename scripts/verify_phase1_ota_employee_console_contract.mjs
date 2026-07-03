@@ -328,7 +328,7 @@ includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data 
   '需先准备',
   'readiness.profile_count',
   'readiness.evidence',
-  '需要先提供授权上下文',
+  '需要先提供 Cookie/Payload 上下文',
   '未找到本机 Profile',
   '只读取本机 Profile 目录数量',
   '只读现有采集可靠性状态',
@@ -1638,7 +1638,7 @@ check(
     frontendEntry.includes('collectionHealthFailureReasonText') &&
     frontendEntry.includes('collectionHealthFailureNextActionText') &&
     frontendEntry.includes('collectionHealthFailureReasonRows') &&
-    frontendEntry.includes("authorization: '授权/登录'") &&
+    frontendEntry.includes("authorization: '登录/Cookie'") &&
     frontendEntry.includes('目标日 OTA 源数据缺失，不能证明当天已采到') &&
     frontendEntry.includes('流量/转化事实缺失，不能输出确定漏斗判断') &&
     frontendEntry.includes('标准事实或收益指标未就绪，需要复核入库与指标输入') &&
@@ -1663,9 +1663,9 @@ check(
     frontendEntry.includes('collectionHealthAuthorizationMessageText') &&
     frontendEntry.includes('collectionHealthAuthorizationActionHintText') &&
     frontendEntry.includes('collectionHealthAuthorizationRowsReadable') &&
-    frontendEntry.includes('授权可用，仍以目标日入库行为采集证明') &&
-    frontendEntry.includes('授权配置待补齐') &&
-    frontendEntry.includes('授权或登录状态异常，需要重新授权后再采集') &&
+    frontendEntry.includes('登录态可用，仍以目标日入库行为采集证明') &&
+    frontendEntry.includes('登录或 Cookie/API 辅助配置待补齐') &&
+    frontendEntry.includes('登录态或 Cookie/API 辅助异常，需要重新登录/更新后再采集') &&
     frontendEntry.includes('{{ row.platformText }} · {{ row.nameText }}') &&
     frontendEntry.includes('{{ row.messageText }}') &&
     frontendEntry.includes('{{ row.actionHintText }}') &&
@@ -1685,7 +1685,7 @@ check(
     frontendEntry.includes('platformProfileBindingRawText') &&
     frontendEntry.includes('platformProfileNextActionText') &&
     frontendEntry.includes('platformProfileLoginTaskText') &&
-    frontendEntry.includes('授权可用，下一步以目标日入库行证明采集成功') &&
+    frontendEntry.includes('登录态已验证，不等于数据已入库；请执行目标日同步并检查入库结果。') &&
     frontendEntry.includes('登录会话已绑定') &&
     frontendEntry.includes('平台门店标识已配置') &&
     platformAutoSettingsPanelsContent.includes('ctx.platformProfileBindingRawText(ctx.meituanPlatformProfileStatusRow)') &&
@@ -1711,7 +1711,7 @@ check(
     frontendEntry.includes('collectionHealthCtripCatalogDetailRows') &&
     frontendEntry.includes('collectionHealthCtripCatalogActionRows') &&
     frontendEntry.includes("capture_gate_missing: '采集门禁缺失'") &&
-    frontendEntry.includes("auth_session: '授权会话'") &&
+    frontendEntry.includes("auth_session: '登录会话'") &&
     frontendEntry.includes("endpoint_coverage: '采集规则覆盖'") &&
     frontendEntry.includes("field_coverage: '字段覆盖'") &&
     frontendEntry.includes("traffic_report: '流量漏斗'") &&
@@ -1916,7 +1916,7 @@ check(
   frontendEntry.includes('phase1EmployeeReadinessStatusText') &&
     frontendEntry.includes('phase1EmployeeReadinessEvidenceText') &&
     frontendEntry.includes('requires_user_context') &&
-    frontendEntry.includes('需要先提供授权上下文') &&
+    frontendEntry.includes('需要先提供 Cookie/Payload 上下文') &&
     frontendEntry.includes('profile_missing') &&
     frontendEntry.includes('未找到本机 Profile') &&
     frontendEntry.includes('storage_profile_directory_count') &&
@@ -2464,7 +2464,7 @@ check(
     acceptanceDoc.includes('next_action') &&
     acceptanceDoc.includes('映射成员工可读的平台、失败类型、失败原因和下一步动作') &&
     acceptanceDoc.includes('原始失败类型、机器码、接口路径或平台返回原文只能保留在标题追溯') &&
-    acceptanceDoc.includes('授权/登录') &&
+    acceptanceDoc.includes('登录/Cookie') &&
     acceptanceDoc.includes('目标日源数据缺失') &&
     acceptanceDoc.includes('字段结构异常') &&
     acceptanceDoc.includes('流量/转化缺失') &&
@@ -2475,12 +2475,12 @@ check(
 check(
   'docs/phase1_ota_employee_console_acceptance.md',
   'collection authorization readable mapping is documented',
-  acceptanceDoc.includes('授权记录 / 携程授权记录') &&
+  acceptanceDoc.includes('登录/Cookie 记录 / 携程登录/Cookie 记录') &&
     acceptanceDoc.includes('authorization.list[].platform') &&
     acceptanceDoc.includes('status') &&
     acceptanceDoc.includes('message') &&
     acceptanceDoc.includes('action_hint') &&
-    acceptanceDoc.includes('映射成员工可读的平台、授权状态、授权说明和下一步动作') &&
+    acceptanceDoc.includes('映射成员工可读的平台、登录/Cookie 状态、状态说明和下一步动作') &&
     acceptanceDoc.includes('原始平台码、状态码、接口消息或动作提示只能保留在标题追溯') &&
     acceptanceDoc.includes('不能改变携程/美团手动或自动获取逻辑'),
   'authorization rows readable labels and protected collection boundary documented'
@@ -2513,7 +2513,7 @@ check(
     acceptanceDoc.includes('default_sections') &&
     acceptanceDoc.includes('wide_sections') &&
     acceptanceDoc.includes('capture_gap_next_actions[].section/endpoint_id') &&
-    acceptanceDoc.includes('映射成员工可读的采集状态、授权状态、未通过检查、阻塞原因、采集范围和下一步动作') &&
+    acceptanceDoc.includes('映射成员工可读的采集状态、登录/Cookie 状态、未通过检查、阻塞原因、采集范围和下一步动作') &&
     acceptanceDoc.includes('原始状态码、section key、endpoint id 只能保留在标题追溯') &&
     acceptanceDoc.includes('不能改变携程手动或自动获取逻辑'),
   'Ctrip capture catalog readable labels and protected collection boundary documented'

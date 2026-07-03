@@ -327,7 +327,7 @@ const checks = [
   {
     name: 'Meituan auto-fetch config requires Partner ID, POI ID and Cookies',
     pass: (/const meituanConfigMissingFields = \(config\) => \{[\s\S]*Partner ID[\s\S]*POI ID[\s\S]*Cookies/.test(source)
-      || /const meituanConfigMissingFields = \(config\) => \{[\s\S]*平台接口标识[\s\S]*平台门店标识[\s\S]*平台授权/.test(source))
+      || /const meituanConfigMissingFields = \(config\) => \{[\s\S]*平台接口标识[\s\S]*平台门店标识[\s\S]*Cookie\/API 辅助/.test(source))
       && /const hasMeituanFetchConfigByHotelId = \(hotelId\) => \{[\s\S]*meituanConfigMissingFields\(config\)\.length === 0/.test(source),
   },
   {

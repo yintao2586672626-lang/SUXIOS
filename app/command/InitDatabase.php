@@ -102,6 +102,7 @@ class InitDatabase extends Command
                 hotel_id INT,
                 last_login_time DATETIME,
                 last_login_ip VARCHAR(50),
+                login_count INT UNSIGNED DEFAULT 0,
                 create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                 update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -157,7 +158,7 @@ class InitDatabase extends Command
                 book_order_num INT DEFAULT 0,
                 comment_score DECIMAL(3,1) DEFAULT 0,
                 qunar_comment_score DECIMAL(3,1) DEFAULT 0,
-                validation_status VARCHAR(20) DEFAULT 'normal',
+                validation_status VARCHAR(60) DEFAULT 'normal',
                 validation_flags TEXT,
                 raw_data TEXT,
                 create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -337,6 +338,7 @@ class InitDatabase extends Command
                 hotel_id INTEGER,
                 last_login_time DATETIME,
                 last_login_ip VARCHAR(50),
+                login_count INTEGER DEFAULT 0,
                 create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                 update_time DATETIME DEFAULT CURRENT_TIMESTAMP
             )
@@ -392,7 +394,7 @@ class InitDatabase extends Command
                 book_order_num INTEGER DEFAULT 0,
                 comment_score DECIMAL(3,1) DEFAULT 0,
                 qunar_comment_score DECIMAL(3,1) DEFAULT 0,
-                validation_status VARCHAR(20) DEFAULT 'normal',
+                validation_status VARCHAR(60) DEFAULT 'normal',
                 validation_flags TEXT,
                 raw_data TEXT,
                 create_time DATETIME DEFAULT CURRENT_TIMESTAMP,

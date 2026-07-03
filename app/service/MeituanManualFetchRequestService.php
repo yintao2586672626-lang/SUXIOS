@@ -61,6 +61,7 @@ final class MeituanManualFetchRequestService
 
         $normalizedRange = (int)$dateRange;
         if ($startDate !== '' && $endDate !== '') {
+            [$startDate, $endDate] = self::normalizeRankExplicitDateRange($startDate, $endDate);
             $params['startDate'] = str_replace('-', '', $startDate);
             $params['endDate'] = str_replace('-', '', $endDate);
             $params['dateRange'] = 1;
@@ -173,6 +174,22 @@ final class MeituanManualFetchRequestService
         }
         $value = (string)$params['endDate'];
         return substr($value, 0, 4) . '-' . substr($value, 4, 2) . '-' . substr($value, 6, 2);
+    }
+
+    private static function normalizeRankExplicitDateRange(string $startDate, string $endDate): array
+    {
+        $start = self::normalizeDate($startDate);
+        $end = self::normalizeDate($endDate);
+        if ($start === '' || $end === '' || strtotime($start) === false || strtotime($end) === false || strtotime($start) > strtotime($end)) {
+            throw new \InvalidArgumentException('日期范围无效');
+        }
+
+        $today = date('Y-m-d');
+        if ($start > $today || $end > $today) {
+            throw new \InvalidArgumentException('美团竞对榜单接口不支持未来日期，请选择今日实时、昨日、近7天、近30天或历史自定义日期');
+        }
+
+        return [$start, $end];
     }
 
     private static function normalizeDate($value): string

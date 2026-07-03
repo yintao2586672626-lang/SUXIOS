@@ -200,7 +200,7 @@ window.SUXI_DUAL_OTA_HOME = (() => {
             title: '经营损耗链',
             subtitle: '曝光 → 浏览 → 订单 → 间夜 → 收入',
             activePlatform: 'combined',
-            activeRange: 'realtime',
+            activeRange: 'yesterday',
             platformOptions: [
                 { value: 'meituan', label: '美团' },
                 { value: 'ctrip', label: '携程' },
@@ -430,8 +430,8 @@ window.SUXI_DUAL_OTA_HOME = (() => {
         deprioritizedModules: [
             { name: '酒店GEO', reason: '' },
             { name: '嗨蚁AI', reason: '' },
-            { name: '订单来了', reason: '' },
-            { name: '价格监控', reason: '' },
+            { name: '携程竞争圈数据', reason: '' },
+            { name: '美团竞争圈数据', reason: '' },
         ],
         emptyState: {
             title: '连接美团和携程后，宿析OS将生成首份经营归因诊断。',

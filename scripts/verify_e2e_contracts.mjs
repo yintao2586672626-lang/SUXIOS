@@ -157,11 +157,50 @@ requireText('public/index.html', "return dualOtaMetric(label, '待更新', dualO
 requireText('public/index.html', 'const dualOtaRowIsPlatformSelf = (row = {}) => {', 'AI workbench can identify the Ctrip platform self row when the OTA detail name differs from the system hotel name');
 requireText('public/index.html', 'return rows.find(dualOtaRowMatchesSelectedHotel) || rows.find(dualOtaRowIsPlatformSelf) || null;', 'AI workbench uses the Ctrip platform self row after explicit current-hotel matching fails');
 requireText('public/index.html', "dualOtaMissingMetric('销售额', '当前门店携程明细行未返回')", 'AI workbench current-store Ctrip column keeps the competitor-average metric shape when the self row is missing');
-requireText('public/index.html', "dualOtaMetric('竞争力指数', sciValue, '当前门店携程综合竞争力')", 'AI workbench current-store Ctrip column shows own competitive index in the same slot as competitor average');
+requireText('public/index.html', "dualOtaMetric('竞争力指数', sciValue, '当前门店携程综合竞争力'", 'AI workbench current-store Ctrip column shows own competitive index in the same slot as competitor average');
 requireText('public/index.html', "dualOtaMissingMetric('营收', '当前门店美团明细行未返回')", 'AI workbench current-store Meituan column keeps the competitor-average metric shape when the self row is missing');
-requireText('public/index.html', "dualOtaMetric('浏览→支付', payConversion, '当前门店美团支付转化')", 'AI workbench current-store Meituan column shows own conversion in the same slot as competitor average');
+requireText('public/index.html', "dualOtaMetric('浏览→支付', payConversion, '当前门店美团支付转化'", 'AI workbench current-store Meituan column shows own conversion in the same slot as competitor average');
 requireText('public/index.html', "scope === 'ctrip' ? '携程本店指标' : (scope === 'meituan' ? '美团本店指标' : 'OTA本店指标')", 'AI workbench labels the left column as own-store metrics, not a query-status panel');
 requireText('public/index.html', "title: String(filterReportHotel.value || '').trim() ? '门店数据' : '筛选数据',", 'AI workbench labels the own-store column as store data');
+requireText('public/index.html', '<button type="button" :class="[\'dual-ota-compare-toggle\', dualOtaCompareEnabled ? \'is-active\' : \'\']"', 'AI workbench places the same-period comparison switch before platform buttons');
+requireText('public/index.html', 'const dualOtaCompareEnabled = ref(false);', 'AI workbench same-period comparison is off by default');
+requireText('public/index.html', '<small v-if="dualOtaCompareEnabled" :title="metric.note">{{ dualOtaMetricComparisonText(metric) }}</small>', 'AI workbench system metric footnotes show previous-period comparison only when enabled');
+requireText('public/index.html', '<small v-else class="dual-ota-system-metric-spacer" aria-hidden="true">&nbsp;</small>', 'AI workbench keeps metric card layout stable when comparison is disabled');
+requireText('public/index.html', 'const toggleDualOtaCompare = () => {', 'AI workbench exposes a local comparison display toggle');
+requireText('public/style.css', 'grid-template-columns: minmax(260px, 1fr) minmax(420px, 500px);', 'AI workbench keeps current-hotel selector and platform controls in a stable two-column strip');
+requireText('public/style.css', 'grid-template-columns: repeat(4, minmax(0, 1fr)) !important;', 'AI workbench keeps comparison switch and three platform buttons on one row');
+requireText('public/index.html', 'const dualOtaRatePreviousExtra = (value) => {', 'AI workbench normalizes previous-period rate metrics before comparison');
+requireText('public/index.html', 'ctripLatestComparison.value = payload?.rank?.comparison || null;', 'AI workbench stores Ctrip latest comparison snapshot from backend response');
+requireText('public/index.html', "const latestRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading latest Ctrip data');
+requireText('public/index.html', "if (latestRange) params.append('range', latestRange);", 'AI workbench appends selected range to latest Ctrip data request');
+requireText('public/index.html', "const res = await request(`/online-data/ctrip/latest${query ? '?' + query : ''}`);", 'AI workbench keeps Ctrip latest request query-driven after adding range');
+requireText('public/index.html', "const summaryRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading Meituan competitor summary');
+requireText('public/index.html', "if (summaryRange) params.append('range', summaryRange);", 'AI workbench appends selected range to Meituan competitor summary request');
+requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true, force: true });', 'AI workbench refreshes Meituan competitor summary after changing top range');
+requireText('public/index.html', 'class="dual-ota-context-select dual-ota-hotel-select"', 'AI workbench current-hotel select uses the dedicated readable select styling');
+requireText('public/style.css', 'text-align-last: center;', 'AI workbench current-hotel select centers the displayed selected store');
+requireText('public/index.html', 'const refreshDualOtaWorkbenchData = async ({ allowFetch = false, silent = true } = {}) => {', 'AI workbench has one store/range/platform refresh entrypoint');
+requireText('public/index.html', 'refreshDualOtaWorkbenchData({ allowFetch: true, silent: false });', 'AI workbench store/range/platform changes trigger data refresh and necessary fetch prompts');
+requireText('public/index.html', "const ctripLoaded = await loadLatestCtripData({ silent: true, hotelId });", 'AI workbench reads stored Ctrip snapshot before deciding to fetch');
+requireText('public/index.html', 'await dualOtaEnsureCtripWorkbenchData({ hotelId, silent });', 'AI workbench falls back to existing Ctrip fetch only when stored snapshot is missing');
+requireText('public/index.html', 'dualOtaApplyCtripYesterdayForm();', 'AI workbench Ctrip auto fetch is pinned to yesterday instead of stale manual dates');
+requireText('public/index.html', 'dualOtaApplyMeituanRangeToForm(range);', 'AI workbench syncs selected range into the existing Meituan fetch form');
+requireText('public/index.html', "if (!dualOtaMarkWorkbenchFetchAttempted('ctrip', hotelId, range))", 'AI workbench records Ctrip fetch attempts once per store and range');
+requireText('public/index.html', "if (!dualOtaMarkWorkbenchFetchAttempted('meituan', hotelId, range))", 'AI workbench records Meituan fetch attempts once per store and range');
+requireText('public/index.html', 'const ctripPrevious = ctripRow ? (dualOtaCtripPreviousRow(ctripRow) || {}) : {};', 'AI workbench combined current-store cards read previous-period Ctrip row');
+requireText('public/index.html', 'const meituanPrevious = meituanRow ? (dualOtaMeituanPreviousRow(meituanRow) || {}) : {};', 'AI workbench combined current-store cards read previous-period Meituan row');
+requireText('public/index.html', 'dualOtaMetricPreviousExtra(meituanPrevious.orderCount))', 'AI workbench combined current-store Meituan order card exposes previous-period comparison');
+requireOnlineDataControllerText('private function normalizeCtripLatestRange(string $range): string', 'Ctrip latest endpoint normalizes AI workbench range');
+requireOnlineDataControllerText('private function buildCtripLatestRankComparison(array $latest, string $hotelId, $currentUser, array $columns, string $range): ?array', 'Ctrip latest endpoint builds previous-period rank comparison');
+requireOnlineDataControllerText('$targetDate = $this->resolveCtripLatestTargetDate($range);', 'Ctrip latest endpoint applies selected daily target date');
+requireOnlineDataControllerText('private function normalizeMeituanCompetitorSummaryRange(string $range): string', 'Meituan competitor summary endpoint normalizes AI workbench range');
+requireOnlineDataControllerText('private function buildMeituanCompetitorSummaryComparison(array $latest, string $hotelId, $currentUser, array $context, string $range): ?array', 'Meituan competitor summary endpoint builds previous-period comparison');
+requireOnlineDataControllerText('$targetDate = $this->resolveMeituanCompetitorSummaryTargetDate($range);', 'Meituan competitor summary endpoint applies selected daily target date');
+requireText('public/index.html', "if (range === 'realtime') return '昨日';", 'AI workbench realtime metrics compare with yesterday');
+requireText('public/index.html', "if (range === 'yesterday') return '前日';", 'AI workbench yesterday metrics compare with the day before yesterday');
+requireText('public/index.html', "if (range === '7d') return '前7天';", 'AI workbench seven-day metrics compare with the previous seven days');
+requireText('public/index.html', "if (range === '30d') return '上一个30天';", 'AI workbench thirty-day metrics compare with the previous thirty days');
+requireText('public/index.html', "return `相对${period}：未返回`;", 'AI workbench does not invent previous-period movement when comparison data is missing');
 requireNoText('public/index.html', "title: String(filterReportHotel.value || '').trim() ? '当前门店' : '当前筛选',", 'AI workbench no longer labels the own-store metrics column as current-store status');
 requireNoText('public/index.html', "dualOtaMetric('查询门店', dualOtaSelectedHotelLabel.value, '当前表单门店')", 'AI workbench current-store column no longer renders a query-store status card');
 requireNoText('public/index.html', "dualOtaMissingMetric('携程明细行', '本次快照按当前表单门店查询，但未返回本店明细行')", 'AI workbench current-store column no longer renders a Ctrip detail-row status card');
@@ -172,6 +211,11 @@ requireText('public/index.html', '<div v-if="platform.metrics && platform.metric
 requireText('public/index.html', 'dualOtaPlatformRevenuePlatforms.length === 1 ? \'is-single\' : \'\'', 'AI workbench uses a single-column revenue structure when one OTA platform is selected');
 requireText('public/index.html', '<div v-if="dualOtaEffectiveStoreScope === \'combined\'" class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">', 'AI workbench hides the 100 percent contribution bar when a single OTA platform is selected');
 requireText('public/dual-ota-home-static.js', "title: '曝光正常',", 'AI workbench loss-chain exposure explanation uses clear wording');
+requireText('public/dual-ota-home-static.js', "activeRange: 'yesterday',", 'AI workbench defaults the top time range to yesterday');
+requireText('public/dual-ota-home-static.js', "{ name: '携程竞争圈数据', reason: '' }", 'AI workbench bottom module labels Ctrip competitor-circle data explicitly');
+requireText('public/dual-ota-home-static.js', "{ name: '美团竞争圈数据', reason: '' }", 'AI workbench bottom module labels Meituan competitor-circle data explicitly');
+requireNoText('public/dual-ota-home-static.js', "{ name: '订单来了', reason: '' }", 'AI workbench bottom module no longer labels competitor data as order-coming module');
+requireNoText('public/dual-ota-home-static.js', "{ name: '价格监控', reason: '' }", 'AI workbench bottom module no longer labels Meituan competitor data as price monitoring');
 requireNoText('public/dual-ota-home-static.js', "title: '入口流量够',", 'AI workbench no longer uses ambiguous exposure explanation wording');
 requireNoText('public/index.html', '<div v-if="dualOtaSystemOverviewSourceNote" class="dual-ota-boundary-note">', 'AI workbench system overview does not render the redundant scope explanation strip');
 requireNoText('public/index.html', 'const dualOtaSystemOverviewSourceNote = computed(() => {', 'AI workbench does not keep the removed redundant scope explanation generator');
@@ -337,6 +381,10 @@ requireText('app/service/MeituanOnlineDataPersistenceService.php', 'final class 
 requireText('app/service/MeituanOnlineDataPersistenceService.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence rank rows use extracted service');
 requireText('app/service/MeituanOnlineDataPersistenceService.php', "$rankDataType = 'peer_rank';", 'Meituan peerRankData persistence does not write rank rows as business metrics');
 requireText('app/controller/concern/BusinessDisplayConcern.php', "$query->where('data_type', 'peer_rank');", 'Meituan competitor summary reads peer_rank rows instead of business metric rows');
+requireText('app/controller/concern/BusinessDisplayConcern.php', "$fields = ['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'orderCount', 'viewConversion', 'payConversion', 'exposure', 'views'];", 'Meituan self actual metric derivation keeps order count in the same path as traffic metrics');
+requireText('app/controller/concern/BusinessDisplayConcern.php', "foreach (['exposure', 'views', 'orderCount', 'payConversion'] as $field)", 'Meituan stored self traffic values merge stored order count and derived pay conversion');
+requireText('app/controller/concern/BusinessDisplayConcern.php', "isset($columns['order_submit_num']) ? 'SUM(COALESCE(order_submit_num, 0)) AS orderCount' : '0 AS orderCount'", 'Meituan stored self traffic query reads persisted submitted orders');
+requireText('app/controller/concern/BusinessDisplayConcern.php', "$values['payConversion'] = round((float)$values['orderCount'] / (float)$values['views'], 4);", 'Meituan stored self traffic query derives pay conversion only from persisted orders and views');
 requireOnlineDataControllerText('return (new MeituanOnlineDataPersistenceService())->parseAndSaveMeituanData(', 'OnlineData keeps only a compatibility wrapper for Meituan persistence');
 requireNoText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence is not re-inlined in OnlineData');
 requireText('app/service/MeituanManualFetchRequestService.php', 'final class MeituanManualFetchRequestService', 'Meituan manual fetch request parameter building lives in a focused service');
@@ -1026,8 +1074,11 @@ requireText('public/index.html', "if (currentPage.value !== 'online-data' || onl
 requireText('public/index.html', "if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') {\n                    dataHealthEmployeePanelsReady.value = false;\n                    return;\n                }", 'data-health employee diagnostics are scoped to the visible online-data health tab');
 requireText('public/index.html', '<div v-if="dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"', 'data-health employee six-question panel waits for the employee readiness window');
 requireText('public/index.html', '<div v-if="dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"', 'data-health command center is not mounted during the immediate manual-entry switch window');
-requireText('public/index.html', '<div v-if="dataHealthDetailPanelsReady && !dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit-pending"', 'data-health full-diagnostic CTA waits for the detail readiness window');
-requireText('public/index.html', '<div v-else-if="dataHealthDetailPanelsReady" data-testid="hotel-data-cockpit"', 'data-health full cockpit waits for the detail readiness window');
+requireNoText('public/index.html', 'data-testid="hotel-data-cockpit-pending"', 'data-health light workbench must not show a redundant full-diagnostic pending panel');
+requireText('public/index.html', '<div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit"', 'data-health full cockpit waits for explicit full diagnostics');
+requireText('public/index.html', 'data-testid="data-health-full-diagnostics-detail"', 'data-health low-level collection evidence is grouped behind full diagnostics');
+requireText('public/index.html', '<div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="data-health-drilldown"', 'data-health drilldown waits for explicit full diagnostics');
+requireText('public/index.html', '<div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="mixed-collection-lifecycle-panel"', 'data-health lifecycle diagnostics wait for explicit full diagnostics');
 requireText('public/index.html', 'dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId', 'data-health readiness flags are returned for template gating');
 requireText('public/index.html', "currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                dataHealthSecondaryPanelsReady.value = false;\n                scheduleDataHealthSecondaryPanelsReady();\n                dataHealthDetailPanelsReady.value = false;\n                scheduleDataHealthDetailPanelsReady();\n                dataHealthEmployeePanelsReady.value = false;\n                scheduleDataHealthEmployeePanelsReady();\n                scheduleDataHealthPanelRefresh('light');", 'AI daily report data-gap navigation schedules data-health refresh and readiness after the route switch');
 requireNoText('public/index.html', "currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                await loadDataHealthPanel('light');", 'AI daily report data-gap navigation must not wait on light data-health refresh');
@@ -3037,7 +3088,7 @@ try {
       label: 'Meituan batch fetch input validator keeps missing-state signals explicit',
       ok: missingCookieValidation.ok === false
         && missingCookieValidation.level === 'error'
-        && missingCookieValidation.message.includes('平台授权缺失')
+        && missingCookieValidation.message.includes('临时 Cookie/API 辅助内容缺失')
         && missingResourceValidation.ok === false
         && missingResourceValidation.level === 'warning'
         && missingResourceValidation.message.includes('平台接口标识 / 平台门店标识')
@@ -5284,7 +5335,7 @@ try {
         && missingName.status === 'missing_name'
         && missingName.message === '请输入配置名称'
         && missingCookies.status === 'missing_cookies'
-        && missingCookies.message === '请输入平台授权内容'
+        && missingCookies.message === '请输入临时 Cookie/API 辅助内容'
         && validConfig.ok === true
         && savePayload.id === 9
         && savePayload.name === '携程账号'
@@ -6511,7 +6562,7 @@ try {
         && fetchContext.requestBody.end_date === '2026-06-10'
         && fetchContext.debugMeta.node_id === '24588'
         && missingCredentialContext.ok === false
-        && missingCredentialContext.message.includes('平台授权内容')
+        && missingCredentialContext.message.includes('临时 Cookie/API 辅助内容')
         && fetchBody.url === 'https://ebooking.ctrip.test/api'
         && fetchBody.node_id === '24588'
         && fetchBody.system_hotel_id === '58'

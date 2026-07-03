@@ -143,7 +143,7 @@ final class SystemNotificationTest extends TestCase
             'category' => 'capture_failed',
             'severity' => 'error',
             'title' => 'OTA 自动采集失败',
-            'message' => '数据日期 2026-06-07，未配置平台授权',
+            'message' => '数据日期 2026-06-07，未配置 Cookie/API 辅助内容',
             'action_type' => 'fetch',
             'source_module' => 'online_data',
             'source_key' => $sourceKey,

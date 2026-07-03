@@ -3872,9 +3872,9 @@ function compareTypeForFacts(facts, context = {}) {
 function standardDimension(first, facts) {
   const section = first.section || 'unknown';
   const endpoint = first.endpoint_id || 'unknown';
-  const groupPath = first.source_parent_path || parentPath(first.source_path || '');
+  const sourcePath = first.source_path || first.source_parent_path || parentPath(first.source_path || '');
   const metricIds = [...new Set(facts.map((fact) => fact.metric_key).filter(Boolean))].slice(0, 3).join('+');
-  return `catalog:${section}:${endpoint}:${metricIds || 'fact'}:${safeDimensionPart(groupPath || 'root')}`;
+  return `catalog:${section}:${endpoint}:${metricIds || 'fact'}:${safeDimensionPart(sourcePath || 'root')}`;
 }
 
 function appendDimensionValue(row, key, value) {
