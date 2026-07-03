@@ -394,6 +394,8 @@ includesAll('scripts/export_revenue_ai_ctrip_operator_bundle.php', 'Ctrip operat
   'report_revenue_ai_ctrip_pending_review_packet.php',
   'verify_revenue_ai_ctrip_scope.php',
   'next_commands_after_filling_template',
+  'preflight_no_execute',
+  'verify:revenue-ai-ctrip-operator-bundle-preflight',
   'lint:revenue-ai-ctrip-pricing-inputs',
   'validate:revenue-ai-ctrip-pricing-inputs',
   'verify:revenue-ai-ctrip-pricing-file',

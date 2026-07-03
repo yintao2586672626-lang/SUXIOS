@@ -269,6 +269,7 @@ function ctrip_operator_bundle_command(string $name, string $date, ?int $hotelId
 {
     $hotelArg = $hotelId === null ? '' : ' --hotel-id=' . $hotelId;
     return match ($name) {
+        'preflight_no_execute' => 'npm.cmd run verify:revenue-ai-ctrip-operator-bundle-preflight -- --dir=' . $filePath . ' --date=' . $date . $hotelArg,
         'lint_only' => 'npm.cmd run lint:revenue-ai-ctrip-pricing-inputs -- --file=' . $filePath . ' --date=' . $date . $hotelArg,
         'validate_only' => 'npm.cmd run validate:revenue-ai-ctrip-pricing-inputs -- --file=' . $filePath . ' --date=' . $date . $hotelArg,
         'dry_run' => 'npm.cmd run import:revenue-ai-ctrip-pricing-inputs -- --file=' . $filePath . ' --date=' . $date . $hotelArg,
@@ -355,6 +356,7 @@ try {
             'Do not create OTA price writes from this bundle; AI suggestions remain manual-review gated.',
         ],
         'next_commands_after_filling_template' => [
+            'preflight_no_execute' => ctrip_operator_bundle_command('preflight_no_execute', $date, $resolvedHotelId, $outputDir),
             'lint_only' => ctrip_operator_bundle_command('lint_only', $date, $resolvedHotelId, $fillableFile),
             'validate_only' => ctrip_operator_bundle_command('validate_only', $date, $resolvedHotelId, $fillableFile),
             'dry_run' => ctrip_operator_bundle_command('dry_run', $date, $resolvedHotelId, $fillableFile),
