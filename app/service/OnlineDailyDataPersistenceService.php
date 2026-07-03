@@ -75,6 +75,22 @@ final class OnlineDailyDataPersistenceService
             }
         }
 
+        if (array_key_exists('data_type', $data) && trim((string)$data['data_type']) === '') {
+            $flags[] = [
+                'level' => 'error',
+                'field' => 'data_type',
+                'message' => 'data_type is missing',
+            ];
+        }
+
+        if (array_key_exists('system_hotel_id', $data) && trim((string)$data['system_hotel_id']) === '') {
+            $flags[] = [
+                'level' => 'warning',
+                'field' => 'system_hotel_id',
+                'message' => 'system_hotel_id is missing; row is not bound to a system hotel',
+            ];
+        }
+
         foreach (['amount', 'quantity', 'book_order_num', 'data_value', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'] as $field) {
             if (!array_key_exists($field, $data) || $data[$field] === '' || $data[$field] === null) {
                 continue;

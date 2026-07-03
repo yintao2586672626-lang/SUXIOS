@@ -29,7 +29,7 @@
         })();
     </script>
     <link href="tailwind.min.css?v=20260628-static-router-fix" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260703-ai-workbench-inline-hotel-picker">
+    <link rel="stylesheet" href="style.css?v=20260704-ai-workbench-platform-row">
     <link rel="stylesheet" href="ai-custom.css?v=20260628-static-router-fix">
     <script>
         (() => {
@@ -5338,6 +5338,27 @@
                                                 <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500" :title="signal.reasonText">{{ signal.reasonText }}</div>
                                             </div>
                                         </div>
+                                        <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" data-testid="revenue-ai-evidence-workbench">
+                                            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                <div class="min-w-0">
+                                                    <div class="text-sm font-semibold text-slate-900">AI 证据工作台</div>
+                                                    <div class="mt-1 text-xs text-slate-500 leading-5" :title="revenueAiEvidenceWorkbenchSummary.detailText">{{ revenueAiEvidenceWorkbenchSummary.detailText }}</div>
+                                                </div>
+                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiEvidenceWorkbenchSummary.className]">{{ revenueAiEvidenceWorkbenchSummary.statusLabel }}</span>
+                                            </div>
+                                            <div class="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-5">
+                                                <div v-for="row in revenueAiEvidenceWorkbenchRows" :key="row.key" class="min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-slate-700" :title="row.label">{{ row.label }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', row.className]">{{ row.statusLabel }}</span>
+                                                    </div>
+                                                    <div class="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="row.detailText">{{ row.detailText }}</div>
+                                                    <div class="mt-1 truncate text-[11px] text-blue-700" :title="row.nextActionText">下一步：{{ row.nextActionText }}</div>
+                                                    <div class="mt-1 truncate text-[10px] text-slate-400" :title="row.metaText">{{ row.metaText }}</div>
+                                                    <div class="mt-0.5 truncate text-[10px] text-slate-400" :title="row.policyText">{{ row.policyText }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div class="xl:col-span-4 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
                                         <div class="mb-3 flex items-center justify-between gap-3">
@@ -9278,7 +9299,7 @@
                                         <h4 class="font-medium text-cyan-900 mb-2">
                                             <i class="fas fa-info-circle mr-2"></i>美团竞对排名获取
                                         </h4>
-                                        <p class="text-[15px] text-slate-600">
+                                        <p class="text-sm text-slate-600">
                                             选择目标酒店和时间维度后，点击获取数据。
                                         </p>
                                     </div>
@@ -9318,46 +9339,46 @@
 
                                     <!-- 时间维度选择（多选） -->
                                     <div class="mb-4">
-                                        <label class="block text-[15px] font-semibold text-slate-700 mb-2">选择时间维度（默认建议只取昨日）</label>
+                                        <label class="block text-base font-semibold text-slate-700 mb-2">选择时间维度（默认建议只取昨日）</label>
                                         <div class="flex flex-wrap gap-2.5 mb-2">
-                                            <label :class="['inline-flex min-h-[44px] items-center gap-2 rounded-lg border px-4 py-2.5 text-[15px] font-medium transition-colors cursor-pointer select-none', meituanForm.dateRanges.includes('0') ? 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/70']">
+                                            <label :class="['inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-base font-medium transition-colors cursor-pointer select-none', meituanForm.dateRanges.includes('0') ? 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/70']">
                                                 <input type="checkbox" value="0" v-model="meituanForm.dateRanges"
-                                                    class="form-checkbox h-5 w-5 text-cyan-600 rounded border-slate-300 focus:ring-cyan-500">
+                                                    class="form-checkbox shrink-0 text-cyan-600 rounded border-slate-300 focus:ring-cyan-500" style="width: 20px; height: 20px;">
                                                 <span>今日实时</span>
                                             </label>
-                                            <label :class="['inline-flex min-h-[44px] items-center gap-2 rounded-lg border px-4 py-2.5 text-[15px] font-medium transition-colors cursor-pointer select-none', meituanForm.dateRanges.includes('1') ? 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/70']">
+                                            <label :class="['inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-base font-medium transition-colors cursor-pointer select-none', meituanForm.dateRanges.includes('1') ? 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/70']">
                                                 <input type="checkbox" value="1" v-model="meituanForm.dateRanges"
-                                                    class="form-checkbox h-5 w-5 text-cyan-600 rounded border-slate-300 focus:ring-cyan-500">
+                                                    class="form-checkbox shrink-0 text-cyan-600 rounded border-slate-300 focus:ring-cyan-500" style="width: 20px; height: 20px;">
                                                 <span>昨日</span>
                                             </label>
-                                            <label :class="['inline-flex min-h-[44px] items-center gap-2 rounded-lg border px-4 py-2.5 text-[15px] font-medium transition-colors cursor-pointer select-none', meituanForm.dateRanges.includes('7') ? 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/70']">
+                                            <label :class="['inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-base font-medium transition-colors cursor-pointer select-none', meituanForm.dateRanges.includes('7') ? 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/70']">
                                                 <input type="checkbox" value="7" v-model="meituanForm.dateRanges"
-                                                    class="form-checkbox h-5 w-5 text-cyan-600 rounded border-slate-300 focus:ring-cyan-500">
+                                                    class="form-checkbox shrink-0 text-cyan-600 rounded border-slate-300 focus:ring-cyan-500" style="width: 20px; height: 20px;">
                                                 <span>近7天</span>
                                             </label>
-                                            <label :class="['inline-flex min-h-[44px] items-center gap-2 rounded-lg border px-4 py-2.5 text-[15px] font-medium transition-colors cursor-pointer select-none', meituanForm.dateRanges.includes('30') ? 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/70']">
+                                            <label :class="['inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-base font-medium transition-colors cursor-pointer select-none', meituanForm.dateRanges.includes('30') ? 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/70']">
                                                 <input type="checkbox" value="30" v-model="meituanForm.dateRanges"
-                                                    class="form-checkbox h-5 w-5 text-cyan-600 rounded border-slate-300 focus:ring-cyan-500">
+                                                    class="form-checkbox shrink-0 text-cyan-600 rounded border-slate-300 focus:ring-cyan-500" style="width: 20px; height: 20px;">
                                                 <span>近30天</span>
                                             </label>
-                                            <label :class="['inline-flex min-h-[44px] items-center gap-2 rounded-lg border px-4 py-2.5 text-[15px] font-medium transition-colors cursor-pointer select-none', meituanForm.dateRanges.includes('custom') ? 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/70']">
+                                            <label :class="['inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-base font-medium transition-colors cursor-pointer select-none', meituanForm.dateRanges.includes('custom') ? 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/70']">
                                                 <input type="checkbox" value="custom" v-model="meituanForm.dateRanges"
-                                                    class="form-checkbox h-5 w-5 text-cyan-600 rounded border-slate-300 focus:ring-cyan-500">
+                                                    class="form-checkbox shrink-0 text-cyan-600 rounded border-slate-300 focus:ring-cyan-500" style="width: 20px; height: 20px;">
                                                 <span>历史自定义</span>
                                             </label>
                                         </div>
-                                        <p class="text-[13px] text-slate-500 mb-2">美团竞对榜单只支持今日实时和历史区间；远期预测/未来入住不属于此接口。多选会同时请求 4 类榜单，耗时会明显增加。</p>
+                                        <p class="text-sm text-slate-500 mb-2">美团竞对榜单只支持今日实时和历史区间；远期预测/未来入住不属于此接口。多选会同时请求 4 类榜单，耗时会明显增加。</p>
                                         <!-- 自定义时间选择器 -->
                                         <div v-if="meituanForm.dateRanges.includes('custom')" class="grid grid-cols-2 gap-4 mt-2 pl-4 border-l-2 border-cyan-300">
                                             <div>
                                                 <label class="block text-xs text-gray-500 mb-1">开始日期</label>
                                                 <input v-model="meituanForm.startDate" type="date" :max="meituanRankMaxDate"
-                                                    class="w-full px-3 py-2.5 border rounded-lg text-[15px]">
+                                                    class="w-full px-3 py-2.5 border rounded-lg text-base">
                                             </div>
                                             <div>
                                                 <label class="block text-xs text-gray-500 mb-1">结束日期</label>
                                                 <input v-model="meituanForm.endDate" type="date" :max="meituanRankMaxDate"
-                                                    class="w-full px-3 py-2.5 border rounded-lg text-[15px]">
+                                                    class="w-full px-3 py-2.5 border rounded-lg text-base">
                                             </div>
                                         </div>
                                     </div>
@@ -9367,7 +9388,7 @@
                                     <div class="flex gap-3">
                                         <button @click="fetchMeituanData"
                                             :disabled="fetchingData || !canFetchMeituanRankingData()"
-                                            class="px-4 py-2.5 bg-cyan-700 text-white rounded-lg hover:bg-cyan-800 disabled:bg-gray-400 text-[15px] font-medium">
+                                            class="px-4 py-3 bg-cyan-700 text-white rounded-lg hover:bg-cyan-800 disabled:bg-gray-400 text-base font-medium">
                                             <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '获取数据' }}
                                         </button>
                                     </div>
@@ -9438,67 +9459,67 @@
                                         <div v-if="meituanBusinessSummaryCards.length" class="mb-4">
                                             <div class="flex items-center justify-between gap-3 mb-2">
                                                 <div>
-                                                    <h5 class="text-[15px] font-semibold text-slate-800">商圈汇总与平均指标</h5>
-                                                    <p class="text-[13px] text-slate-500">来自本次美团竞对榜单展示模型，仅展示已返回或可验证推导的 OTA 字段。</p>
+                                                    <h5 class="text-base font-semibold text-slate-800">商圈汇总与平均指标</h5>
+                                                    <p class="text-sm text-slate-500">来自本次美团竞对榜单展示模型，仅展示已返回或可验证推导的 OTA 字段。</p>
                                                 </div>
                                                 <span class="text-xs text-gray-400">{{ meituanBusinessSummaryCards.length }} 项</span>
                                             </div>
                                             <div class="responsive-metric-grid is-compact">
-                                                <div v-for="card in meituanBusinessSummaryCards" :key="card.key" :class="['rounded-lg p-3.5 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200']">
-                                                    <div :class="['text-[26px] font-bold leading-tight', card.valueClass || 'text-gray-900']">{{ card.value || '-' }}</div>
-                                                    <div class="text-[13px] text-slate-500">{{ card.label }}</div>
-                                                    <div v-if="card.level" :class="['text-[15px] font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
+                                                <div v-for="card in meituanBusinessSummaryCards" :key="card.key" :class="['rounded-lg p-4 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200']">
+                                                    <div :class="['text-2xl font-bold leading-tight', card.valueClass || 'text-gray-900']">{{ card.value || '-' }}</div>
+                                                    <div class="text-sm text-slate-500">{{ card.label }}</div>
+                                                    <div v-if="card.level" :class="['text-sm font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
                                                 </div>
                                             </div>
                                         </div>
 
                                         <!-- 竞对排名表格 -->
                                         <div class="overflow-x-auto table-container">
-                                            <table class="min-w-full bg-white border text-[15px] table-striped">
+                                            <table class="min-w-full bg-white border text-sm table-striped">
                                                 <thead>
                                                     <tr class="bg-gray-50">
-                                                        <th class="px-2 py-2 text-center border text-[15px] bg-slate-100 w-12" rowspan="2">排名</th>
-                                                        <th class="px-2 py-2 text-left border text-[15px] w-48" rowspan="2">酒店名称</th>
-                                                        <th class="px-2 py-2 text-center border text-[15px] bg-rose-50" colspan="3">入住榜</th>
-                                                        <th class="px-2 py-2 text-center border text-[15px] bg-emerald-50" colspan="3">销售榜</th>
-                                                        <th class="px-2 py-2 text-center border text-[15px] bg-sky-50" colspan="3">流量榜</th>
-                                                        <th class="px-2 py-2 text-center border text-[15px] bg-violet-50" colspan="3">转化榜</th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-slate-100 w-12" rowspan="2">排名</th>
+                                                        <th class="px-2 py-2 text-left border text-sm w-48" rowspan="2">酒店名称</th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-rose-50" colspan="3">入住榜</th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-emerald-50" colspan="3">销售榜</th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-sky-50" colspan="3">流量榜</th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-violet-50" colspan="3">转化榜</th>
                                                     </tr>
                                                     <tr class="bg-gray-50">
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-rose-50 cursor-pointer hover:bg-rose-100 w-16" @click="sortMeituanTable('roomNights')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-rose-50 cursor-pointer hover:bg-rose-100 w-16" @click="sortMeituanTable('roomNights')">
                                                             入住间夜 <span v-if="meituanSortField === 'roomNights'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-rose-50 cursor-pointer hover:bg-rose-100 w-16" @click="sortMeituanTable('roomRevenue')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-rose-50 cursor-pointer hover:bg-rose-100 w-16" @click="sortMeituanTable('roomRevenue')">
                                                             房费收入 <span v-if="meituanSortField === 'roomRevenue'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-rose-50 cursor-pointer hover:bg-rose-100 w-16" @click="sortMeituanTable('avgRoomPrice')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-rose-50 cursor-pointer hover:bg-rose-100 w-16" @click="sortMeituanTable('avgRoomPrice')">
                                                             平均房价 <span v-if="meituanSortField === 'avgRoomPrice'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-emerald-50 cursor-pointer hover:bg-emerald-100 w-16" @click="sortMeituanTable('salesRoomNights')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-emerald-50 cursor-pointer hover:bg-emerald-100 w-16" @click="sortMeituanTable('salesRoomNights')">
                                                             销售间夜 <span v-if="meituanSortField === 'salesRoomNights'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-emerald-50 cursor-pointer hover:bg-emerald-100 w-16" @click="sortMeituanTable('sales')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-emerald-50 cursor-pointer hover:bg-emerald-100 w-16" @click="sortMeituanTable('sales')">
                                                             销售额 <span v-if="meituanSortField === 'sales'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-emerald-50 cursor-pointer hover:bg-emerald-100 w-16" @click="sortMeituanTable('avgSalesPrice')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-emerald-50 cursor-pointer hover:bg-emerald-100 w-16" @click="sortMeituanTable('avgSalesPrice')">
                                                             平均销售房价 <span v-if="meituanSortField === 'avgSalesPrice'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-sky-50 cursor-pointer hover:bg-sky-100 w-16" @click="sortMeituanTable('exposure')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-sky-50 cursor-pointer hover:bg-sky-100 w-16" @click="sortMeituanTable('exposure')">
                                                             曝光 <span v-if="meituanSortField === 'exposure'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-sky-50 cursor-pointer hover:bg-sky-100 w-16" @click="sortMeituanTable('views')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-sky-50 cursor-pointer hover:bg-sky-100 w-16" @click="sortMeituanTable('views')">
                                                             浏览 <span v-if="meituanSortField === 'views'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-sky-50 cursor-pointer hover:bg-sky-100 w-16" @click="sortMeituanTable('orderCount')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-sky-50 cursor-pointer hover:bg-sky-100 w-16" @click="sortMeituanTable('orderCount')">
                                                             订单量 <span v-if="meituanSortField === 'orderCount'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-violet-50 cursor-pointer hover:bg-violet-100 w-16" @click="sortMeituanTable('viewConversion')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-violet-50 cursor-pointer hover:bg-violet-100 w-16" @click="sortMeituanTable('viewConversion')">
                                                             浏览转化 <span v-if="meituanSortField === 'viewConversion'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-violet-50 cursor-pointer hover:bg-violet-100 w-16" @click="sortMeituanTable('payConversion')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-violet-50 cursor-pointer hover:bg-violet-100 w-16" @click="sortMeituanTable('payConversion')">
                                                             支付转化 <span v-if="meituanSortField === 'payConversion'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-2 py-1.5 text-center border text-[14px] bg-violet-50 cursor-pointer hover:bg-violet-100 w-16" @click="sortMeituanTable('absoluteConversion')">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-violet-50 cursor-pointer hover:bg-violet-100 w-16" @click="sortMeituanTable('absoluteConversion')">
                                                             绝对转化 <span v-if="meituanSortField === 'absoluteConversion'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
                                                     </tr>
@@ -9514,7 +9535,7 @@
                                                             </span>
                                                         </td>
                                                         <td class="px-2 py-2 border text-left font-medium text-sm bg-white w-48">
-                                                            <div class="leading-snug text-[15px]">{{ hotel.hotelName }}</div>
+                                                            <div class="leading-snug text-sm">{{ hotel.hotelName }}</div>
                                                             <div v-if="hotel.isSelf" class="mt-1 text-xs text-emerald-600">本店</div>
                                                             <div v-if="hotel.nameAliases && hotel.nameAliases.length > 1" class="mt-1 text-[11px] text-gray-400 truncate" :title="hotel.nameAliases.join(' / ')">别名 {{ hotel.nameAliases.length }} 个</div>
                                                             <div v-if="hotel.platformTags && hotel.platformTags.length" class="mt-1 flex flex-wrap gap-1">
@@ -9523,18 +9544,18 @@
                                                             </div>
                                                             <div v-else-if="hotel.platformTagSourceText && !['平台返回空标签', '标签未返回'].includes(hotel.platformTagSourceText)" class="mt-1 text-[11px] text-slate-400">{{ hotel.platformTagSourceText }}</div>
                                                         </td>
-                                                        <td class="px-2 py-2 border text-center font-medium text-rose-700 text-[15px] bg-rose-50 w-16">{{ hotel.roomNightsText || '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center font-medium text-rose-700 text-[15px] bg-rose-50 w-16">{{ hotel.roomRevenueText && hotel.roomRevenueText !== '-' ? (hotel.roomRevenuePrefix || '') + hotel.roomRevenueText : '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center font-medium text-rose-700 text-[15px] bg-rose-50 w-16">{{ hotel.avgRoomPriceText && hotel.avgRoomPriceText !== '-' ? (hotel.avgRoomPricePrefix || '') + hotel.avgRoomPriceText : '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center font-medium text-emerald-700 text-[15px] bg-emerald-50 w-16">{{ hotel.salesRoomNightsText || '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center font-medium text-emerald-700 text-[15px] bg-emerald-50 w-16">{{ hotel.salesText && hotel.salesText !== '-' ? (hotel.salesPrefix || '') + hotel.salesText : '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center font-medium text-emerald-700 text-[15px] bg-emerald-50 w-16">{{ hotel.avgSalesPriceText && hotel.avgSalesPriceText !== '-' ? (hotel.avgSalesPricePrefix || '') + hotel.avgSalesPriceText : '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center text-sky-700 text-[15px] bg-sky-50 w-16">{{ hotel.exposureText && hotel.exposureText !== '-' ? (hotel.exposurePrefix || '') + hotel.exposureText : '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center text-sky-700 text-[15px] bg-sky-50 w-16">{{ hotel.viewsText && hotel.viewsText !== '-' ? (hotel.viewsPrefix || '') + hotel.viewsText : '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center text-sky-700 text-[15px] bg-sky-50 w-16">{{ hotel.orderCountText || '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center text-violet-700 text-[15px] bg-violet-50 w-16">{{ hotel.viewConversionText || '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center text-violet-700 text-[15px] bg-violet-50 w-16">{{ hotel.payConversionText || '-' }}</td>
-                                                        <td class="px-2 py-2 border text-center text-violet-700 text-[15px] bg-violet-50 w-16">{{ hotel.absoluteConversionText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-rose-700 text-sm bg-rose-50 w-16">{{ hotel.roomNightsText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-rose-700 text-sm bg-rose-50 w-16">{{ hotel.roomRevenueText && hotel.roomRevenueText !== '-' ? (hotel.roomRevenuePrefix || '') + hotel.roomRevenueText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-rose-700 text-sm bg-rose-50 w-16">{{ hotel.avgRoomPriceText && hotel.avgRoomPriceText !== '-' ? (hotel.avgRoomPricePrefix || '') + hotel.avgRoomPriceText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-emerald-700 text-sm bg-emerald-50 w-16">{{ hotel.salesRoomNightsText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-emerald-700 text-sm bg-emerald-50 w-16">{{ hotel.salesText && hotel.salesText !== '-' ? (hotel.salesPrefix || '') + hotel.salesText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-emerald-700 text-sm bg-emerald-50 w-16">{{ hotel.avgSalesPriceText && hotel.avgSalesPriceText !== '-' ? (hotel.avgSalesPricePrefix || '') + hotel.avgSalesPriceText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-sky-700 text-sm bg-sky-50 w-16">{{ hotel.exposureText && hotel.exposureText !== '-' ? (hotel.exposurePrefix || '') + hotel.exposureText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-sky-700 text-sm bg-sky-50 w-16">{{ hotel.viewsText && hotel.viewsText !== '-' ? (hotel.viewsPrefix || '') + hotel.viewsText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-sky-700 text-sm bg-sky-50 w-16">{{ hotel.orderCountText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-violet-700 text-sm bg-violet-50 w-16">{{ hotel.viewConversionText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-violet-700 text-sm bg-violet-50 w-16">{{ hotel.payConversionText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-violet-700 text-sm bg-violet-50 w-16">{{ hotel.absoluteConversionText || '-' }}</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -14382,13 +14403,13 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div v-if="hotelDashboardLoading || collectionReliabilityLoading || dailyWorkbenchLoading || dailyWorkbenchPatrolLoading || phase3OperationEffectLoopLoading" data-testid="data-health-loading-banner" class="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
+                                    <div v-if="hotelDashboardLoading || collectionReliabilityLoading || dailyWorkbenchLoading" data-testid="data-health-loading-banner" class="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
                                         <i class="fas fa-spinner fa-spin mt-0.5 text-blue-500"></i>
                                         <span>正在刷新；接口返回前保留上次状态。</span>
                                     </div>
-                                    <div v-if="hotelDashboardError || collectionReliabilityError || dailyWorkbenchError || dailyWorkbenchPatrolError || phase3OperationEffectLoopError" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                                    <div v-if="hotelDashboardError || collectionReliabilityError || dailyWorkbenchError" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                                         <i class="fas fa-exclamation-triangle mt-0.5 text-red-500"></i>
-                                        <span>{{ hotelDashboardError || collectionReliabilityError || dailyWorkbenchError || dailyWorkbenchPatrolError || phase3OperationEffectLoopError }}</span>
+                                        <span>{{ hotelDashboardError || collectionReliabilityError || dailyWorkbenchError }}</span>
                                     </div>
                                     <div data-testid="phase2-daily-workbench" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
@@ -14452,52 +14473,9 @@
                                         <div v-else class="mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
                                             {{ dataAcquisitionWorkbenchEmptyText }}
                                         </div>
-                                        <div v-if="dataHealthFullDiagnosticsLoaded && dailyWorkbenchPatrolVisibleActions.length" class="mt-4 rounded-lg border border-amber-100 bg-amber-50 p-3">
-                                            <div class="mb-2 text-xs font-semibold text-amber-800">优先处理动作</div>
-                                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-2">
-                                                <div v-for="item in dailyWorkbenchPatrolVisibleActions.slice(0, 4)" :key="`${item.hotelId}-${item.actionCode || item.questionKey}`" class="rounded-md border border-amber-100 bg-white px-3 py-2 min-w-0">
-                                                    <div class="flex items-start justify-between gap-2">
-                                                        <div class="min-w-0">
-                                                            <div class="text-xs font-medium text-gray-900 truncate" :title="item.hotelName">{{ item.hotelName }}</div>
-                                                            <div class="mt-1 text-xs text-gray-700 truncate" :title="item.actionRawText">{{ item.actionText }}</div>
-                                                        </div>
-                                                        <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', dataHealthPriorityClass(item.priority)]">{{ dataHealthPriorityText(item.priority) }}</span>
-                                                    </div>
-                                                    <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                                        <div class="min-w-0">
-                                                            <div :class="['text-[11px] font-medium', dailyWorkbenchPatrolTrackedStatusClass(item)]">跟踪：{{ dailyWorkbenchPatrolTrackedStatusText(item) }}</div>
-                                                            <div v-if="dailyWorkbenchPatrolExecutionText(item)" class="mt-0.5 truncate text-[11px] text-slate-500" :title="dailyWorkbenchPatrolExecutionText(item)">执行记录：{{ dailyWorkbenchPatrolExecutionText(item) }}</div>
-                                                            <div v-if="dailyWorkbenchPatrolReviewText(item)" :class="['mt-0.5 truncate text-[11px] font-medium', dailyWorkbenchPatrolReviewClass(item)]" :title="dailyWorkbenchPatrolReviewText(item)">复盘：{{ dailyWorkbenchPatrolReviewText(item) }}</div>
-                                                        </div>
-                                                        <div class="flex flex-wrap gap-1">
-                                                            <button type="button" @click="updateDailyWorkbenchPatrolAction(item, 'done')" :disabled="!dailyWorkbenchPatrolLatest || dailyWorkbenchPatrolActionUpdating !== ''"
-                                                                class="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50">
-                                                                <i v-if="dailyWorkbenchPatrolActionUpdating === dailyWorkbenchPatrolActionUpdatingKey(item, 'done')" class="fas fa-spinner fa-spin mr-1"></i>已执行
-                                                            </button>
-                                                            <button type="button" @click="updateDailyWorkbenchPatrolAction(item, 'review_needed')" :disabled="!dailyWorkbenchPatrolLatest || dailyWorkbenchPatrolActionUpdating !== ''"
-                                                                class="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-100 disabled:opacity-50">
-                                                                <i v-if="dailyWorkbenchPatrolActionUpdating === dailyWorkbenchPatrolActionUpdatingKey(item, 'review_needed')" class="fas fa-spinner fa-spin mr-1"></i>需复查
-                                                            </button>
-                                                            <button type="button" @click="reviewDailyWorkbenchPatrolAction(item, 'success')" :disabled="!dailyWorkbenchPatrolTaskId(item) || dailyWorkbenchPatrolActionUpdating !== ''"
-                                                                class="rounded-md border border-emerald-200 bg-white px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
-                                                                <i v-if="dailyWorkbenchPatrolActionUpdating === dailyWorkbenchPatrolReviewUpdatingKey(item, 'success')" class="fas fa-spinner fa-spin mr-1"></i>有效
-                                                            </button>
-                                                            <button type="button" @click="reviewDailyWorkbenchPatrolAction(item, 'observing')" :disabled="!dailyWorkbenchPatrolTaskId(item) || dailyWorkbenchPatrolActionUpdating !== ''"
-                                                                class="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
-                                                                <i v-if="dailyWorkbenchPatrolActionUpdating === dailyWorkbenchPatrolReviewUpdatingKey(item, 'observing')" class="fas fa-spinner fa-spin mr-1"></i>观察
-                                                            </button>
-                                                            <button type="button" @click="reviewDailyWorkbenchPatrolAction(item, 'failed')" :disabled="!dailyWorkbenchPatrolTaskId(item) || dailyWorkbenchPatrolActionUpdating !== ''"
-                                                                class="rounded-md border border-red-200 bg-white px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-50">
-                                                                <i v-if="dailyWorkbenchPatrolActionUpdating === dailyWorkbenchPatrolReviewUpdatingKey(item, 'failed')" class="fas fa-spinner fa-spin mr-1"></i>未达标
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
                                         <div class="mt-3 text-[11px] text-gray-400 leading-5">边界：这里展示的是 OTA 数据自动获取状态，只读取已验证入库、登录/Cookie、字段缺口和失败原因；不把 OTA 渠道数据包装成全酒店经营事实，未知和失败保持显式状态。</div>
                                     </div>
-                                    <div data-testid="phase3-operation-effect-loop" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
+                                    <div v-if="dataHealthFullDiagnosticsLoaded && phase3OperationEffectLoopRows.length" data-testid="phase3-operation-effect-loop" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                             <div class="min-w-0">
                                                 <h4 class="text-base font-semibold text-gray-900">第三阶段运营闭环</h4>
@@ -22591,6 +22569,8 @@
             const revenueAiBuildStatusRows = requireRevenueAiStatic('buildRevenueAiStatusRows');
             const revenueAiBuildSignalRows = requireRevenueAiStatic('buildRevenueAiSignalRows');
             const revenueAiBuildActionRows = requireRevenueAiStatic('buildRevenueAiActionRows');
+            const revenueAiBuildEvidenceWorkbenchRows = requireRevenueAiStatic('buildRevenueAiEvidenceWorkbenchRows');
+            const revenueAiBuildEvidenceWorkbenchSummary = requireRevenueAiStatic('buildRevenueAiEvidenceWorkbenchSummary');
             const revenueAiBuildPricingGenerationPreflightSummary = requireRevenueAiStatic('buildRevenueAiPricingGenerationPreflightSummary');
             const revenueAiBuildPricingGateRows = requireRevenueAiStatic('buildRevenueAiPricingGateRows');
             const revenueAiBuildAgentActivitySummary = requireRevenueAiStatic('buildRevenueAiAgentActivitySummary');
@@ -22630,6 +22610,11 @@
                 overview: revenueAiOverview.value,
                 overviewError: revenueAiOverviewError.value,
             }));
+            const revenueAiEvidenceWorkbenchRows = computed(() => revenueAiBuildEvidenceWorkbenchRows({
+                overview: revenueAiOverview.value,
+                overviewError: revenueAiOverviewError.value,
+            }));
+            const revenueAiEvidenceWorkbenchSummary = computed(() => revenueAiBuildEvidenceWorkbenchSummary(revenueAiEvidenceWorkbenchRows.value));
             const agentPricingGenerationPreflightSummary = computed(() => revenueAiBuildPricingGenerationPreflightSummary({
                 overview: revenueAiOverview.value,
             }));
@@ -26501,31 +26486,41 @@
                     autoFetchMode.value = previousMode;
                 }
             };
-            const triggerCookieConfigAutoFetchAll = async () => {
-                const hotelIds = dataAcquisitionFetchableHotelIds.value;
-                if (!hotelIds.length) {
+            const triggerCookieConfigAutoFetchGroup = async (hotelIds = []) => {
+                const ids = Array.from(new Set((Array.isArray(hotelIds) ? hotelIds : [hotelIds])
+                    .map(hotelId => String(hotelId || '').trim())
+                    .filter(Boolean)));
+                if (!ids.length) {
                     showToast('暂无可一键抓取的门店；暂无法获取的门店需先补配置或登录态', 'error');
                     return { status: 'missing_fetchable_hotel' };
                 }
                 const results = [];
                 let successCount = 0;
-                for (const hotelId of hotelIds) {
+                for (const hotelId of ids) {
                     const result = await triggerCookieConfigAutoFetch(hotelId, { refresh: false });
                     results.push({ hotelId, result });
                     if (['success', 'accepted'].includes(String(result?.status || ''))) {
                         successCount += 1;
                     }
                 }
-                scheduleDataHealthPanelRefresh('light', { force: true, source: '批量Cookie一键抓取后刷新' });
-                if (hotelIds.length > 1) {
-                    showToast(`已触发 ${successCount}/${hotelIds.length} 家门店一键抓取`, successCount ? 'success' : 'warning');
+                scheduleDataHealthPanelRefresh('light', { force: true, source: '同类问题一键抓取后刷新' });
+                if (ids.length > 1) {
+                    showToast(`已触发 ${successCount}/${ids.length} 家门店一键抓取`, successCount ? 'success' : 'warning');
                 }
                 return {
                     status: successCount > 0 ? 'success' : 'failed',
                     results,
                     successCount,
-                    totalCount: hotelIds.length,
+                    totalCount: ids.length,
                 };
+            };
+            const triggerCookieConfigAutoFetchAll = async () => {
+                const hotelIds = dataAcquisitionFetchableHotelIds.value;
+                if (!hotelIds.length) {
+                    showToast('暂无可一键抓取的门店；暂无法获取的门店需先补配置或登录态', 'error');
+                    return { status: 'missing_fetchable_hotel' };
+                }
+                return triggerCookieConfigAutoFetchGroup(hotelIds);
             };
 
             const retryAutoFetchDate = async (date) => {
@@ -35391,15 +35386,17 @@
                     if (hasFieldGap) issueParts.push('字段需核对');
                     if (row.metricGapText && row.metricGapText !== '缺口待复核') issueParts.push(row.metricGapText);
                     const issueText = Array.from(new Set(issueParts)).slice(0, 2).join('；') || '无问题';
+                    const canCookieFetch = canTriggerAutoFetchByHotelId(row.hotelId);
                     const actionText = kind === 'ready' && !hasFieldGap
                         ? '无需处理'
-                        : (canTriggerAutoFetchByHotelId(row.hotelId) ? '一键抓取' : '去配置');
+                        : (canCookieFetch ? '一键抓取' : '去配置');
                     return {
                         ...row,
                         acquisitionStatusKind: kind,
                         acquisitionStatusText: dataAcquisitionStatusText(kind),
                         acquisitionStatusClass: dataAcquisitionStatusClass(kind),
-                        canCookieFetch: canTriggerAutoFetchByHotelId(row.hotelId),
+                        canCookieFetch,
+                        fieldHasGap: hasFieldGap,
                         fieldStatusText: `字段：${trustedText}`,
                         fieldStatusRawText: `trusted_fields=${row.statuses.trusted_fields}`,
                         fieldIssueText: `缺口：${missingText}`,
@@ -35412,6 +35409,58 @@
                         showFetchButton: kind !== 'ready' || hasFieldGap,
                     };
                 }).sort((left, right) => (statusWeight[left.acquisitionStatusKind] ?? 9) - (statusWeight[right.acquisitionStatusKind] ?? 9));
+            });
+            const dataAcquisitionIssueGroupText = (row) => {
+                if (!row.canCookieFetch) return '缺配置或登录态';
+                if (row.acquisitionStatusKind === 'blocked') return '目标日未取到数据';
+                if (row.acquisitionStatusKind === 'pending') return '待补抓目标日数据';
+                if (row.fieldHasGap) return '字段需核对';
+                return row.issueText || '待处理';
+            };
+            const dataAcquisitionIssueGroups = computed(() => {
+                const groups = new Map();
+                dataAcquisitionWorkbenchRows.value
+                    .filter(row => row.showFetchButton)
+                    .forEach(row => {
+                        const issueText = dataAcquisitionIssueGroupText(row);
+                        const actionType = row.canCookieFetch ? 'fetch' : 'config';
+                        const key = `${actionType}|${issueText}`;
+                        if (!groups.has(key)) {
+                            groups.set(key, {
+                                key,
+                                issueText,
+                                canCookieFetch: row.canCookieFetch,
+                                statusClass: row.canCookieFetch ? dataAcquisitionStatusClass('pending') : dataAcquisitionStatusClass('blocked'),
+                                rows: [],
+                                hotelIds: [],
+                                hotelNames: [],
+                                details: new Set(),
+                                targetDates: new Set(),
+                            });
+                        }
+                        const group = groups.get(key);
+                        group.rows.push(row);
+                        group.hotelIds.push(String(row.hotelId || '').trim());
+                        group.hotelNames.push(row.hotelName || `门店${row.hotelId}`);
+                        group.details.add(row.fieldBriefText || row.issueText || '');
+                        group.targetDates.add(row.targetDate || '');
+                    });
+                return Array.from(groups.values()).map(group => {
+                    const hotelIds = Array.from(new Set(group.hotelIds.filter(Boolean)));
+                    const hotelNames = Array.from(new Set(group.hotelNames.filter(Boolean)));
+                    const details = Array.from(group.details).filter(Boolean);
+                    const targetDates = Array.from(group.targetDates).filter(Boolean);
+                    return {
+                        ...group,
+                        hotelIds,
+                        count: group.rows.length,
+                        hotelNamesRawText: hotelNames.join('、'),
+                        hotelNamesText: hotelNames.slice(0, 4).join('、') + (hotelNames.length > 4 ? ` 等${hotelNames.length}家` : ''),
+                        detailRawText: details.join('；'),
+                        detailText: details.slice(0, 2).join('；') || '按当前状态处理',
+                        targetDateText: targetDates.length === 1 ? `${targetDates[0]} · OTA渠道` : '多日期 · OTA渠道',
+                    };
+                });
             });
             const dataAcquisitionFetchableHotelIds = computed(() => Array.from(new Set(
                 dataAcquisitionWorkbenchRows.value
@@ -43949,7 +43998,7 @@
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
                 dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms,
                 dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, dualOtaMetricComparisonText, toggleDualOtaCompare, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
-                revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
+                revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiEvidenceWorkbenchRows, revenueAiEvidenceWorkbenchSummary, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
                 macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
                 compassHotelOptions, dualOtaCurrentHotelOptions, compassLoading, compassLastSyncedAt, compassDataReadiness, homeSecondaryPanelsReady, homeClosedLoopStages, homeAiTraceRows, refreshCompassDashboard,

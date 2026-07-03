@@ -36,6 +36,8 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'buildRevenueAiPricingGenerationPreflightSummary',
     'buildRevenueAiPriceSuggestionGenerateResult',
     'buildRevenueAiActionRows',
+    'buildRevenueAiEvidenceWorkbenchRows',
+    'buildRevenueAiEvidenceWorkbenchSummary',
     'buildRevenueAiPricingGateRows',
     'buildRevenueAiAgentActivitySummary',
     'buildRevenueAiAgentActivityRows',
@@ -729,6 +731,82 @@ test('Revenue AI action rows expose readonly operation to investment precheck', 
   assert.equal(rows[0].investmentPrecheckSummary.canCreateInvestmentDecision, false);
   assert.equal(rows[0].investmentPrecheckSummary.autoWriteOta, false);
   assert(rows[0].investmentPrecheckSummary.detailText.includes('operation_intake_blocked_by_manual_review'));
+});
+
+test('Revenue AI evidence workbench keeps OTA to investment gates explicit', () => {
+  const overview = {
+    source_scope: 'ctrip_ota_channel',
+    data_status: 'blocked',
+    p0_downstream_gate: {
+      status: 'blocked_by_p0_ota_gate',
+      reason: 'source_rows_missing',
+      required_gate_command: 'npm.cmd run verify:p0-ota-field-loop -- --date=2026-07-04 --system-hotel-id=58',
+      source_scope: 'ctrip_ota_channel',
+    },
+    review_queue: {
+      status: 'pending_review',
+      display: '待审核 1 / 已批准 0',
+      pending_count: 1,
+      approved_count: 0,
+      target_page: 'agent-center',
+      target_agent_tab: 'revenue',
+      target_revenue_tab: 'suggestions',
+      next_action: '人工审核调价建议',
+    },
+    ai_to_operation_handoff: {
+      status: 'operation_intake_blocked_by_manual_review',
+      target_entry: '/api/operation/execution-intents',
+      can_create_operation_execution: false,
+      auto_create_operation_execution: false,
+      protected_boundary: 'operation_intake_requires_approved_ai_review_and_price_target_no_auto_create',
+      operation_intake_packet: {
+        status: 'blocked_by_manual_review_packet',
+        candidate_blocked_reason: 'manual_review_required',
+        operation_intake_preflight_contract: {
+          status: 'blocked_by_ai_review_contract',
+          create_allowed: false,
+          would_call_create_endpoint: false,
+          protected_boundary: 'operation_intake_requires_approved_ai_review_and_price_target_no_auto_create',
+        },
+      },
+    },
+    execution_summary: {
+      status: 'empty',
+      reason: 'operation_execution_empty',
+      total_count: 0,
+      evidence_ready_count: 0,
+      roi_ready_count: 0,
+    },
+    operation_to_investment_handoff: {
+      status: 'investment_precheck_blocked_by_operation_roi',
+      target_entry: '/api/investment-decision/overview',
+      operation_roi_ready: 0,
+      decision_allowed: false,
+      can_create_investment_decision: false,
+      protected_boundary: 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
+      investment_precheck_packet: {
+        status: 'blocked_by_operation_roi',
+        required_gate: 'operation_execution.roi_ready',
+      },
+    },
+  };
+
+  const rows = helpers.buildRevenueAiEvidenceWorkbenchRows({ overview });
+  assert.equal(rows.length, 5);
+  assert.equal(rows[0].key, 'ota_evidence_gate');
+  assert.equal(rows[0].statusLabel, 'P0门禁未过');
+  assert.match(rows[0].nextActionText, /verify:p0-ota-field-loop/);
+  assert.equal(rows[1].canOpenTarget, true);
+  assert.equal(rows[2].metaText, 'can_create=false / auto_create=false');
+  assert.match(rows[2].policyText, /operation_intake_requires_approved_ai_review/);
+  assert.match(rows[4].metaText, /decision_allowed=false/);
+  assert.match(rows[4].policyText, /investment_decision_requires_closed_operation_roi/);
+
+  const summary = helpers.buildRevenueAiEvidenceWorkbenchSummary(rows);
+  assert.equal(summary.status, 'blocked');
+  assert.match(summary.statusLabel, /门禁阻断/);
+  assert.match(summary.detailText, /已读 5 个环节/);
+  assert.match(html, /data-testid="revenue-ai-evidence-workbench"/);
 });
 
 test('Revenue AI action rows expose readonly price suggestion review queue', () => {
