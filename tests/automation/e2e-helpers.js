@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { expect } = require('@playwright/test');
-const { Parser } = require('json2csv');
+const { Parser } = require('@json2csv/plainjs');
 
 const MODULE = Object.freeze({
   STRATEGY: '\u667a\u7565\u00b7\u6218\u7565\u63a8\u6f14',

@@ -180,6 +180,7 @@ function ctrip_operator_bundle_target_files(string $dir): array
     return [
         'operator_packet_markdown' => $dir . DIRECTORY_SEPARATOR . 'operator-packet.md',
         'pricing_input_template_json' => $dir . DIRECTORY_SEPARATOR . 'pricing-input-template.json',
+        'pricing_input_fillable_json' => $dir . DIRECTORY_SEPARATOR . 'pricing-input-fillable.json',
         'pending_review_packet_json' => $dir . DIRECTORY_SEPARATOR . 'pending-review-packet.json',
         'current_scope_json' => $dir . DIRECTORY_SEPARATOR . 'current-scope.json',
         'manifest_json' => $dir . DIRECTORY_SEPARATOR . 'manifest.json',
@@ -241,6 +242,27 @@ function ctrip_operator_bundle_json(array $payload): string
         throw new RuntimeException('Failed to encode bundle JSON.');
     }
     return $json . PHP_EOL;
+}
+
+/**
+ * @param array<string, mixed> $template
+ * @return array<string, mixed>
+ */
+function ctrip_operator_bundle_fillable_payload(array $template): array
+{
+    return [
+        'business_date' => $template['business_date'] ?? '',
+        'hotel_id' => $template['hotel_id'] ?? null,
+        'platform' => 'ctrip',
+        'input_scope' => 'manual_pricing_configuration',
+        'source_scope' => 'ctrip_ota_channel',
+        'evidence_status' => 'operator_provided',
+        'target_workflow' => 'ctrip_revenue_ai_pricing_generation',
+        'auto_write_ota' => false,
+        'room_types' => array_values(array_filter((array)($template['room_types'] ?? []), 'is_array')),
+        'demand_forecasts' => array_values(array_filter((array)($template['demand_forecasts'] ?? []), 'is_array')),
+        'competitor_price_samples' => array_values(array_filter((array)($template['competitor_price_samples'] ?? []), 'is_array')),
+    ];
 }
 
 function ctrip_operator_bundle_command(string $name, string $date, ?int $hotelId, string $filePath = ''): string
@@ -307,6 +329,8 @@ try {
         ? (int)$scope['hotel_id']
         : ($hotelId ?? ((int)($templateBody['hotel_id'] ?? 0) ?: null));
     $templateFile = $files['pricing_input_template_json'];
+    $fillableFile = $files['pricing_input_fillable_json'];
+    $fillableBody = ctrip_operator_bundle_fillable_payload($templateBody);
     $currentBlocker = ctrip_operator_bundle_map($operatorPacket['current_blocker'] ?? []);
 
     $manifest = [
@@ -325,16 +349,17 @@ try {
         ],
         'current_blocker' => $currentBlocker,
         'operator_fill_required' => [
-            'Edit pricing-input-template.json with operator-verified Ctrip OTA channel values before running lint or execute.',
+            'Edit pricing-input-fillable.json with operator-verified Ctrip OTA channel values before running lint or execute.',
+            'Use pricing-input-template.json as read-only context; do not edit verification commands as business inputs.',
             'Do not use Meituan rows, whole-hotel values, sample values, guessed values, fallback values, or verifier-only values.',
             'Do not create OTA price writes from this bundle; AI suggestions remain manual-review gated.',
         ],
         'next_commands_after_filling_template' => [
-            'lint_only' => ctrip_operator_bundle_command('lint_only', $date, $resolvedHotelId, $templateFile),
-            'validate_only' => ctrip_operator_bundle_command('validate_only', $date, $resolvedHotelId, $templateFile),
-            'dry_run' => ctrip_operator_bundle_command('dry_run', $date, $resolvedHotelId, $templateFile),
-            'pre_execute_gate' => ctrip_operator_bundle_command('pre_execute_gate', $date, $resolvedHotelId, $templateFile),
-            'execute_to_pending_review' => ctrip_operator_bundle_command('execute_to_pending_review', $date, $resolvedHotelId, $templateFile),
+            'lint_only' => ctrip_operator_bundle_command('lint_only', $date, $resolvedHotelId, $fillableFile),
+            'validate_only' => ctrip_operator_bundle_command('validate_only', $date, $resolvedHotelId, $fillableFile),
+            'dry_run' => ctrip_operator_bundle_command('dry_run', $date, $resolvedHotelId, $fillableFile),
+            'pre_execute_gate' => ctrip_operator_bundle_command('pre_execute_gate', $date, $resolvedHotelId, $fillableFile),
+            'execute_to_pending_review' => ctrip_operator_bundle_command('execute_to_pending_review', $date, $resolvedHotelId, $fillableFile),
             'pending_review_packet' => ctrip_operator_bundle_command('pending_review_packet', $date, $resolvedHotelId),
             'verify_current_scope' => ctrip_operator_bundle_command('verify_current_scope', $date, $resolvedHotelId),
         ],
@@ -373,6 +398,11 @@ try {
     $written['pricing_input_template_json'] = ctrip_operator_bundle_write_file(
         $files['pricing_input_template_json'],
         ctrip_operator_bundle_json($templateBody),
+        $overwritten
+    );
+    $written['pricing_input_fillable_json'] = ctrip_operator_bundle_write_file(
+        $files['pricing_input_fillable_json'],
+        ctrip_operator_bundle_json($fillableBody),
         $overwritten
     );
     $written['pending_review_packet_json'] = ctrip_operator_bundle_write_file(

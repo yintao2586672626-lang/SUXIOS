@@ -178,24 +178,25 @@ class RevenueAiOverviewService
         }
         $metricsSummary = (new OtaRevenueMetricService())->summarizeDataset($dataset);
         $dailyFacts = $this->list($dataset['fact_ota_daily'] ?? []);
-        $sourceChannels = $this->sourceChannels($dataset, $channelDatasets);
+        $actualScopedSourceChannels = $this->sourceChannels($dataset, $channelDatasets);
         if ($enabledChannels !== []) {
-            $sourceChannels = array_values(array_intersect($sourceChannels, $enabledChannels));
+            $actualScopedSourceChannels = array_values(array_intersect($actualScopedSourceChannels, $enabledChannels));
         }
+        $displaySourceChannels = $this->displaySourceChannels($actualScopedSourceChannels, $enabledChannels);
         $lastSuccessAt = $this->lastSuccessAt($dataset, $sourceStatuses, $enabledChannels);
         $channelStatuses = $this->channelStatuses($channelDatasets, $sourceStatuses, $businessDate, $enabledChannels);
-        $missingDatasets = $this->missingDatasets($sourceChannels, $channelDatasets, $metricsSummary, $channelStatuses, $enabledChannels);
+        $missingDatasets = $this->missingDatasets($actualScopedSourceChannels, $channelDatasets, $metricsSummary, $channelStatuses, $enabledChannels);
         $qualityIssues = $this->qualityIssues($dataset, $metricsSummary, $sourceStatuses, $channelStatuses);
-        $completeness = $this->dataCompleteness($dataset, $sourceChannels, $missingDatasets, $qualityIssues, $enabledChannels);
-        $dataStatus = $this->overviewDataStatus($dataset, $sourceChannels, $sourceStatuses, $missingDatasets, $qualityIssues, $channelStatuses, $enabledChannels);
+        $completeness = $this->dataCompleteness($dataset, $actualScopedSourceChannels, $missingDatasets, $qualityIssues, $enabledChannels);
+        $dataStatus = $this->overviewDataStatus($dataset, $actualScopedSourceChannels, $sourceStatuses, $missingDatasets, $qualityIssues, $channelStatuses, $enabledChannels);
         $marketSignals = is_array($context['market_signals'] ?? null) ? $context['market_signals'] : [];
-        $signals = $this->signals($metricsSummary, $sourceChannels, $marketSignals, $businessDate, $hotelId);
+        $signals = $this->signals($metricsSummary, $actualScopedSourceChannels, $marketSignals, $businessDate, $hotelId);
         $reviewQueue = is_array($context['review_queue'] ?? null)
             ? $context['review_queue']
             : $this->priceSuggestionReviewQueueUnavailable($businessDate, $hotelId, 'not_loaded', 'manual_review_workflow_not_connected');
         $pricingGenerationPreflight = is_array($context['pricing_generation_preflight'] ?? null)
             ? $context['pricing_generation_preflight']
-            : $this->pricingGenerationPreflightUnavailable($businessDate, $hotelId, [], $sourceChannels, 'not_loaded', 'price_suggestion_generation_not_loaded');
+            : $this->pricingGenerationPreflightUnavailable($businessDate, $hotelId, [], $actualScopedSourceChannels, 'not_loaded', 'price_suggestion_generation_not_loaded');
         $agentActivity = is_array($context['agent_activity'] ?? null)
             ? $context['agent_activity']
             : $this->agentActivityUnavailable($businessDate, $hotelId, 'not_loaded', 'agent_logs_not_loaded');
@@ -209,22 +210,22 @@ class RevenueAiOverviewService
             $signals,
             $reviewQueue,
             $executionSummary,
-            $sourceChannels,
+            $displaySourceChannels,
             $pricingGenerationPreflight
         );
-        $pricingReadiness['ai_to_operation_handoff'] = $this->pricingAiToOperationHandoff($pricingReadiness, $executionSummary, $businessDate, $hotelId, $sourceChannels);
+        $pricingReadiness['ai_to_operation_handoff'] = $this->pricingAiToOperationHandoff($pricingReadiness, $executionSummary, $businessDate, $hotelId, $displaySourceChannels);
         $pricingReadiness['operation_to_investment_handoff'] = $this->pricingOperationToInvestmentHandoff(
             $pricingReadiness['ai_to_operation_handoff'],
             $executionSummary,
             $businessDate,
             $hotelId,
-            $sourceChannels
+            $displaySourceChannels
         );
         $dailyMetricStatus = $dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'empty';
         $dailyMetricReason = $dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'online_daily_data_empty';
 
         $metricContext = [
-            'source_channels' => $sourceChannels,
+            'source_channels' => $displaySourceChannels,
             'last_success_at' => $lastSuccessAt,
         ];
         $metricContext['date_basis'] = 'data_date';
@@ -237,7 +238,9 @@ class RevenueAiOverviewService
             'date_basis_note' => 'Phase 1A 使用 online_daily_data.data_date；尚未等同于入住日 stay_date、下单日 booking_date 或结算日 settlement_date。',
             'business_date' => $businessDate,
             'hotel_id' => $hotelId,
-            'source_channels' => $sourceChannels,
+            'source_channels' => $displaySourceChannels,
+            'actual_source_channels' => $actualScopedSourceChannels,
+            'source_channel_policy' => 'source_channels follows requested OTA scope; actual_source_channels contains channels with target-scope facts.',
             'last_success_at' => $lastSuccessAt,
             'missing_datasets' => $missingDatasets,
             'quality_issues' => $qualityIssues,
@@ -408,6 +411,21 @@ class RevenueAiOverviewService
             }
         }
         return array_values(array_unique($channels));
+    }
+
+    /**
+     * Keep the requested OTA scope visible even when same-day facts are missing.
+     *
+     * @param array<int, string> $actualSourceChannels
+     * @param array<int, string> $enabledChannels
+     * @return array<int, string>
+     */
+    private function displaySourceChannels(array $actualSourceChannels, array $enabledChannels): array
+    {
+        if ($enabledChannels !== []) {
+            return array_values(array_unique($enabledChannels));
+        }
+        return array_values(array_unique($actualSourceChannels));
     }
 
     /**

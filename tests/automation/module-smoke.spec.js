@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
-const { Parser } = require('json2csv');
+const { Parser } = require('@json2csv/plainjs');
 const {
   MODULES,
   appMain,

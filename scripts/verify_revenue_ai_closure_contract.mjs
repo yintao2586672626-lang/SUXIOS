@@ -105,6 +105,18 @@ check(
 );
 check(
   'package.json',
+  'package exposes Ctrip operator handoff bundle verifier',
+  packageJson.scripts?.['verify:revenue-ai-ctrip-operator-bundle'] === 'node scripts/verify_revenue_ai_ctrip_operator_bundle.mjs',
+  'verify:revenue-ai-ctrip-operator-bundle'
+);
+check(
+  'package.json',
+  'package exposes no-execute Ctrip operator handoff bundle preflight',
+  packageJson.scripts?.['verify:revenue-ai-ctrip-operator-bundle-preflight'] === 'node scripts/verify_revenue_ai_ctrip_operator_bundle_preflight.mjs',
+  'verify:revenue-ai-ctrip-operator-bundle-preflight'
+);
+check(
+  'package.json',
   'package exposes Ctrip review-decision template exporter',
   packageJson.scripts?.['export:revenue-ai-ctrip-review-template'] === 'C:\\xampp\\php\\php.exe scripts\\execute_revenue_ai_ctrip_review_decision.php --print-template=1',
   'export:revenue-ai-ctrip-review-template'
@@ -364,6 +376,7 @@ includesAll('scripts/report_revenue_ai_ctrip_pricing_operator_packet.php', 'Ctri
 includesAll('scripts/export_revenue_ai_ctrip_operator_bundle.php', 'Ctrip operator bundle exports handoff files without data writes', [
   'operator_handoff_bundle_no_values_no_import',
   'pricing-input-template.json',
+  'pricing-input-fillable.json',
   'operator-packet.md',
   'pending-review-packet.json',
   'current-scope.json',
@@ -372,7 +385,8 @@ includesAll('scripts/export_revenue_ai_ctrip_operator_bundle.php', 'Ctrip operat
   'database_written',
   'auto_write_ota',
   'meituan_scope_included',
-  'Edit pricing-input-template.json with operator-verified Ctrip OTA channel values',
+  'Edit pricing-input-fillable.json with operator-verified Ctrip OTA channel values',
+  'Use pricing-input-template.json as read-only context',
   'Do not use Meituan rows, whole-hotel values, sample values, guessed values, fallback values, or verifier-only values.',
   'Do not create OTA price writes from this bundle',
   'report_revenue_ai_ctrip_pricing_operator_packet.php',
@@ -389,6 +403,72 @@ includesAll('scripts/export_revenue_ai_ctrip_operator_bundle.php', 'Ctrip operat
   'Bundle file already exists. Pass --force=1 to overwrite',
   "'source_scope' => 'ctrip_ota_channel'",
   "'enabled_channels' => ['ctrip']",
+  'ctrip_operator_bundle_fillable_payload',
+  "'pricing_input_fillable_json'",
+  '$fillableFile',
+]);
+
+{
+  const file = 'scripts/export_revenue_ai_ctrip_operator_bundle.php';
+  const source = read(file);
+  const commandStart = source.indexOf("'next_commands_after_filling_template' => [");
+  const commandEnd = commandStart >= 0 ? source.indexOf('        ],\n        ', commandStart) : -1;
+  const commandBlock = commandStart >= 0 && commandEnd > commandStart
+    ? source.slice(commandStart, commandEnd)
+    : '';
+  const inputFileCommands = [
+    'lint_only',
+    'validate_only',
+    'dry_run',
+    'pre_execute_gate',
+    'execute_to_pending_review',
+  ];
+  const commandsUsingFillable = inputFileCommands.filter((name) => commandBlock.includes(`'${name}' => ctrip_operator_bundle_command('${name}', $date, $resolvedHotelId, $fillableFile)`));
+  const commandsUsingTemplate = inputFileCommands.filter((name) => commandBlock.includes(`'${name}' => ctrip_operator_bundle_command('${name}', $date, $resolvedHotelId, $templateFile)`));
+  check(
+    file,
+    'Ctrip operator bundle follow-up commands use the fillable input file, not the read-only template',
+    commandsUsingFillable.length === inputFileCommands.length && commandsUsingTemplate.length === 0,
+    JSON.stringify({ commandsUsingFillable, commandsUsingTemplate })
+  );
+}
+
+includesAll('scripts/verify_revenue_ai_ctrip_operator_bundle.mjs', 'Ctrip operator bundle verifier stays structure-only and fillable-file scoped', [
+  'operator_bundle_structure_only_no_db_no_ota_write',
+  'database_touched: false',
+  'auto_write_ota: false',
+  'pricing-input-fillable.json',
+  'pricing-input-template.json',
+  'input_commands_use_fillable_file',
+  'input_commands_are_hotel_scoped',
+  'commands_do_not_write_ota',
+  'pending_operator_real_values',
+  'operator_verified_values_required',
+  'can_generate_pending_review: false',
+  'fillable_contains_only_real_input_fields',
+  'verification_commands',
+  'operator_fill_required',
+  'current_preflight',
+  '--hotel-id',
+  '--date',
+]);
+
+includesAll('scripts/verify_revenue_ai_ctrip_operator_bundle_preflight.mjs', 'Ctrip operator bundle preflight runs the full no-execute gate sequence', [
+  'operator_bundle_preflight_no_execute_no_ota_write',
+  'database_commit_allowed: false',
+  'execute_allowed: false',
+  'auto_write_ota: false',
+  'verify:revenue-ai-ctrip-operator-bundle',
+  'lint:revenue-ai-ctrip-pricing-inputs',
+  'validate:revenue-ai-ctrip-pricing-inputs',
+  'import:revenue-ai-ctrip-pricing-inputs',
+  'verify:revenue-ai-ctrip-pricing-file',
+  'pricing-input-fillable.json',
+  'ready_for_execute_to_pending_review',
+  'next_execute_command_allowed_only_after_pass',
+  'validate_only_rollback',
+  'dry_run_rollback',
+  'pre_execute_gate_rollback',
 ]);
 
 includesAll('scripts/report_revenue_ai_ctrip_pending_review_packet.php', 'Ctrip pending review packet stays read-only and manual-review gated', [
@@ -536,6 +616,36 @@ includesAll('scripts/import_revenue_ai_ctrip_pricing_inputs.php', 'Ctrip pricing
   'DemandForecast::where',
   'CompetitorAnalysis::PLATFORM_CTRIP',
 ]);
+
+{
+  const file = 'scripts/import_revenue_ai_ctrip_pricing_inputs.php';
+  const source = read(file);
+  const commandStart = source.indexOf("'verification_commands' => [");
+  const commandEnd = commandStart >= 0 ? source.indexOf('        ],\n    ];', commandStart) : -1;
+  const commandBlock = commandStart >= 0 && commandEnd > commandStart
+    ? source.slice(commandStart, commandEnd)
+    : '';
+  const commandLines = commandBlock
+    .split('\n')
+    .filter((line) => line.includes('npm.cmd run'));
+  const unscopedCommands = commandLines.filter((line) => !line.includes('$hotelArg'));
+  check(
+    file,
+    'Ctrip pricing input template keeps every verification command scoped to the resolved hotel',
+    commandLines.length >= 19 && unscopedCommands.length === 0,
+    unscopedCommands.join('\n')
+  );
+  const inputPlaceholderScope = "foreach (['room_types', 'demand_forecasts', 'competitor_price_samples'] as $inputKey)";
+  const placeholderScopeCount = source.split(inputPlaceholderScope).length - 1;
+  check(
+    file,
+    'Ctrip pricing input placeholder checks scan only real import input arrays at root',
+    placeholderScopeCount >= 2
+      && source.includes("ctrip_pricing_import_assert_no_placeholder($value[$inputKey], '$.' . $inputKey)")
+      && source.includes("ctrip_pricing_import_placeholder_paths($value[$inputKey], '$.' . $inputKey)"),
+    `placeholderScopeCount=${placeholderScopeCount}`
+  );
+}
 
 includesAll('scripts/execute_revenue_ai_ctrip_pricing_file.php', 'Gated Ctrip pricing file runner enforces pre-execute gate before persistence', [
   'verify_revenue_ai_ctrip_pricing_input_pipeline.php',

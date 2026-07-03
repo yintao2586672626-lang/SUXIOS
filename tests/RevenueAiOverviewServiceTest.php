@@ -477,6 +477,44 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertArrayNotHasKey('meituan', $overview['channel_statuses']);
     }
 
+    public function testCtripOnlyScopeSurvivesMissingTargetDateFactsWithoutClaimingDataReady(): void
+    {
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $this->dataset([]),
+            [
+                'ctrip' => $this->dataset([]),
+                'meituan' => $this->dataset([]),
+            ],
+            [
+                'ctrip' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-07-03 23:58:00'],
+                'meituan' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-07-03 23:59:00'],
+            ],
+            [
+                'business_date' => '2026-07-04',
+                'enabled_channels' => ['ctrip'],
+                'require_p0_downstream_gate' => true,
+            ]
+        );
+
+        self::assertSame(['ctrip'], $overview['source_channels']);
+        self::assertSame([], $overview['actual_source_channels']);
+        self::assertSame('source_channels follows requested OTA scope; actual_source_channels contains channels with target-scope facts.', $overview['source_channel_policy']);
+        self::assertSame('stale', $overview['data_status']);
+        self::assertSame('blocked_by_p0_ota_gate', $overview['p0_downstream_gate']['status']);
+        self::assertSame(0, $overview['data_completeness']['percent']);
+        self::assertContains('online_daily_data_empty', array_column($overview['missing_datasets'], 'reason'));
+        self::assertSame('empty', $overview['metrics']['ota_room_revenue']['status']);
+        self::assertNull($overview['metrics']['ota_room_revenue']['value']);
+        self::assertSame(['ctrip'], $overview['metrics']['ota_room_revenue']['source_channels']);
+        self::assertSame(['ctrip'], $overview['pricing_readiness']['ai_decision_resolution_plan']['source_channels']);
+        self::assertSame('ctrip_ota_channel', $overview['ai_to_operation_handoff']['source_scope']);
+        self::assertSame(['ctrip'], $overview['ai_to_operation_handoff']['source_channels']);
+        self::assertSame('ctrip', $overview['ai_to_operation_handoff']['operation_intake_packet']['candidate_platform']);
+        self::assertSame('ctrip_ota_channel_to_operation_roi', $overview['operation_to_investment_handoff']['source_scope']);
+        self::assertSame(['ctrip'], $overview['operation_to_investment_handoff']['source_channels']);
+        self::assertFalse($overview['operation_to_investment_handoff']['decision_allowed']);
+    }
+
     public function testAdrIsNotCalculatedWhenRoomNightDenominatorIsZero(): void
     {
         $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(

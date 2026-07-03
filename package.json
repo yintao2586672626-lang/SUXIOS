@@ -36,6 +36,8 @@
     "report:revenue-ai-ctrip-pricing-operator-packet": "C:\\xampp\\php\\php.exe scripts\\report_revenue_ai_ctrip_pricing_operator_packet.php",
     "report:revenue-ai-ctrip-pending-review-packet": "C:\\xampp\\php\\php.exe scripts\\report_revenue_ai_ctrip_pending_review_packet.php",
     "export:revenue-ai-ctrip-operator-bundle": "C:\\xampp\\php\\php.exe scripts\\export_revenue_ai_ctrip_operator_bundle.php",
+    "verify:revenue-ai-ctrip-operator-bundle": "node scripts/verify_revenue_ai_ctrip_operator_bundle.mjs",
+    "verify:revenue-ai-ctrip-operator-bundle-preflight": "node scripts/verify_revenue_ai_ctrip_operator_bundle_preflight.mjs",
     "export:revenue-ai-ctrip-pricing-template": "C:\\xampp\\php\\php.exe scripts\\import_revenue_ai_ctrip_pricing_inputs.php --print-current-template",
     "export:revenue-ai-ctrip-review-template": "C:\\xampp\\php\\php.exe scripts\\execute_revenue_ai_ctrip_review_decision.php --print-template=1",
     "lint:revenue-ai-ctrip-pricing-inputs": "C:\\xampp\\php\\php.exe scripts\\import_revenue_ai_ctrip_pricing_inputs.php --lint-only=1",
@@ -50,11 +52,9 @@
     "verify:taste-visual": "node scripts/verify_taste_visual_smoke.mjs",
     "hook:pre-commit": "powershell -NoProfile -ExecutionPolicy Bypass -File hooks/pre-commit.ps1",
     "verify:worktree": "node scripts/verify_worktree_guard.mjs",
-    "inspect:worktree-divergence": "node scripts/inspect_worktree_divergence.mjs --repo .",
-    "export:worktree-quarantine": "node scripts/create_worktree_quarantine_bundle.mjs --repo .",
-    "review:non-security": "node scripts/verify_non_security_review.mjs",
     "inspect:worktree-divergence": "node scripts/inspect_worktree_divergence.mjs",
     "export:worktree-quarantine": "node scripts/create_worktree_quarantine_bundle.mjs",
+    "review:non-security": "node scripts/verify_non_security_review.mjs",
     "review:release-issues": "node scripts/verify_release_issue_register.mjs",
     "verify:transfer-p2": "node scripts/verify_transfer_p2.mjs",
     "verify:expansion-p2": "node scripts/verify_expansion_p2.mjs",
@@ -149,8 +149,8 @@
     "codex:runner:dry": "node scripts/codex_automation_runner.mjs --profile=extreme --iterations=10 --dry-run"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
-    "json2csv": "^6.0.0-alpha.2"
+    "@json2csv/plainjs": "^7.0.6",
+    "@playwright/test": "^1.60.0"
   },
   "dependencies": {
     "cloakbrowser": "^0.3.31",

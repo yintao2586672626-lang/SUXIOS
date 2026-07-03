@@ -267,6 +267,7 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
 {
     $preflight = ctrip_pricing_import_map($overview['pricing_generation_preflight'] ?? []);
     $requiredInputCodes = ctrip_pricing_import_required_input_codes($preflight);
+    $hotelArg = ' --hotel-id=' . $hotelId;
 
     return [
         'business_date' => $businessDate,
@@ -329,25 +330,25 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
             ],
         ],
         'verification_commands' => [
-            'operator_packet' => 'npm.cmd run report:revenue-ai-ctrip-pricing-operator-packet -- --date=' . $businessDate . ' --hotel-id=' . $hotelId . ' --format=markdown',
-            'export_operator_bundle' => 'npm.cmd run export:revenue-ai-ctrip-operator-bundle -- --date=' . $businessDate . ' --hotel-id=' . $hotelId . ' --output-dir=<operator-bundle-dir>',
-            'inspect_current_ota_evidence' => 'npm.cmd run inspect:revenue-ai-ctrip-pricing-sources -- --date=' . $businessDate,
-            'export_to_file' => 'npm.cmd run export:revenue-ai-ctrip-pricing-template -- --date=' . $businessDate . ' --output=<draft-json-path>',
-            'lint_only' => 'npm.cmd run lint:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $businessDate,
-            'dry_run' => 'npm.cmd run import:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $businessDate,
-            'validate_only' => 'npm.cmd run validate:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $businessDate,
-            'pre_execute_gate' => 'npm.cmd run verify:revenue-ai-ctrip-pricing-file -- --file=<filled-json-path> --date=' . $businessDate,
-            'gate_then_execute_and_generate_pending_review' => 'npm.cmd run run:revenue-ai-ctrip-pricing-file-to-pending-review -- --file=<filled-json-path> --date=' . $businessDate . ' --hotel-id=' . $hotelId . ' --execute=1 --generate=1',
-            'execute_inputs_only' => 'npm.cmd run import:revenue-ai-ctrip-pricing-inputs:execute -- --file=<filled-json-path> --date=' . $businessDate,
-            'execute_and_generate_pending_review' => 'npm.cmd run import:revenue-ai-ctrip-pricing-inputs:execute -- --file=<filled-json-path> --date=' . $businessDate . ' --generate=1',
-            'pending_review_packet' => 'npm.cmd run report:revenue-ai-ctrip-pending-review-packet -- --date=' . $businessDate . ' --hotel-id=' . $hotelId . ' --format=markdown',
-            'verify_pending_review_packet' => 'npm.cmd run verify:revenue-ai-ctrip-pending-review-packet -- --date=' . $businessDate . ' --hotel-id=' . $hotelId,
-            'export_review_decision_template' => 'npm.cmd run export:revenue-ai-ctrip-review-template -- --date=' . $businessDate . ' --hotel-id=' . $hotelId . ' --suggestion-id=<pending-suggestion-id> --output=<review-decision-json-path>',
-            'validate_review_decision' => 'npm.cmd run run:revenue-ai-ctrip-review-decision -- --file=<review-decision-json-path> --date=' . $businessDate . ' --hotel-id=' . $hotelId,
-            'execute_review_decision' => 'npm.cmd run run:revenue-ai-ctrip-review-decision -- --file=<review-decision-json-path> --date=' . $businessDate . ' --hotel-id=' . $hotelId . ' --execute=1',
-            'execute_review_decision_and_create_operation_intent' => 'npm.cmd run run:revenue-ai-ctrip-review-decision -- --file=<review-decision-json-path> --date=' . $businessDate . ' --hotel-id=' . $hotelId . ' --execute=1 --create-intent=1',
-            'verify_review_decision' => 'npm.cmd run verify:revenue-ai-ctrip-review-decision -- --date=' . $businessDate . ' --hotel-id=' . $hotelId,
-            'verify_current_scope' => 'npm.cmd run verify:revenue-ai-ctrip-scope -- --date=' . $businessDate,
+            'operator_packet' => 'npm.cmd run report:revenue-ai-ctrip-pricing-operator-packet -- --date=' . $businessDate . $hotelArg . ' --format=markdown',
+            'export_operator_bundle' => 'npm.cmd run export:revenue-ai-ctrip-operator-bundle -- --date=' . $businessDate . $hotelArg . ' --output-dir=<operator-bundle-dir>',
+            'inspect_current_ota_evidence' => 'npm.cmd run inspect:revenue-ai-ctrip-pricing-sources -- --date=' . $businessDate . $hotelArg,
+            'export_to_file' => 'npm.cmd run export:revenue-ai-ctrip-pricing-template -- --date=' . $businessDate . $hotelArg . ' --output=<draft-json-path>',
+            'lint_only' => 'npm.cmd run lint:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $businessDate . $hotelArg,
+            'dry_run' => 'npm.cmd run import:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $businessDate . $hotelArg,
+            'validate_only' => 'npm.cmd run validate:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $businessDate . $hotelArg,
+            'pre_execute_gate' => 'npm.cmd run verify:revenue-ai-ctrip-pricing-file -- --file=<filled-json-path> --date=' . $businessDate . $hotelArg,
+            'gate_then_execute_and_generate_pending_review' => 'npm.cmd run run:revenue-ai-ctrip-pricing-file-to-pending-review -- --file=<filled-json-path> --date=' . $businessDate . $hotelArg . ' --execute=1 --generate=1',
+            'execute_inputs_only' => 'npm.cmd run import:revenue-ai-ctrip-pricing-inputs:execute -- --file=<filled-json-path> --date=' . $businessDate . $hotelArg,
+            'execute_and_generate_pending_review' => 'npm.cmd run import:revenue-ai-ctrip-pricing-inputs:execute -- --file=<filled-json-path> --date=' . $businessDate . $hotelArg . ' --generate=1',
+            'pending_review_packet' => 'npm.cmd run report:revenue-ai-ctrip-pending-review-packet -- --date=' . $businessDate . $hotelArg . ' --format=markdown',
+            'verify_pending_review_packet' => 'npm.cmd run verify:revenue-ai-ctrip-pending-review-packet -- --date=' . $businessDate . $hotelArg,
+            'export_review_decision_template' => 'npm.cmd run export:revenue-ai-ctrip-review-template -- --date=' . $businessDate . $hotelArg . ' --suggestion-id=<pending-suggestion-id> --output=<review-decision-json-path>',
+            'validate_review_decision' => 'npm.cmd run run:revenue-ai-ctrip-review-decision -- --file=<review-decision-json-path> --date=' . $businessDate . $hotelArg,
+            'execute_review_decision' => 'npm.cmd run run:revenue-ai-ctrip-review-decision -- --file=<review-decision-json-path> --date=' . $businessDate . $hotelArg . ' --execute=1',
+            'execute_review_decision_and_create_operation_intent' => 'npm.cmd run run:revenue-ai-ctrip-review-decision -- --file=<review-decision-json-path> --date=' . $businessDate . $hotelArg . ' --execute=1 --create-intent=1',
+            'verify_review_decision' => 'npm.cmd run verify:revenue-ai-ctrip-review-decision -- --date=' . $businessDate . $hotelArg,
+            'verify_current_scope' => 'npm.cmd run verify:revenue-ai-ctrip-scope -- --date=' . $businessDate . $hotelArg,
         ],
     ];
 }
@@ -517,6 +518,15 @@ function ctrip_pricing_import_rows(mixed $rows, string $key): array
 
 function ctrip_pricing_import_assert_no_placeholder(mixed $value, string $path = '$'): void
 {
+    if ($path === '$' && is_array($value)) {
+        foreach (['room_types', 'demand_forecasts', 'competitor_price_samples'] as $inputKey) {
+            if (array_key_exists($inputKey, $value)) {
+                ctrip_pricing_import_assert_no_placeholder($value[$inputKey], '$.' . $inputKey);
+            }
+        }
+        return;
+    }
+
     if (is_array($value)) {
         foreach ($value as $key => $item) {
             ctrip_pricing_import_assert_no_placeholder($item, $path . '.' . (string)$key);
@@ -537,6 +547,16 @@ function ctrip_pricing_import_assert_no_placeholder(mixed $value, string $path =
  */
 function ctrip_pricing_import_placeholder_paths(mixed $value, string $path = '$'): array
 {
+    if ($path === '$' && is_array($value)) {
+        $paths = [];
+        foreach (['room_types', 'demand_forecasts', 'competitor_price_samples'] as $inputKey) {
+            if (array_key_exists($inputKey, $value)) {
+                array_push($paths, ...ctrip_pricing_import_placeholder_paths($value[$inputKey], '$.' . $inputKey));
+            }
+        }
+        return $paths;
+    }
+
     if (is_array($value)) {
         $paths = [];
         foreach ($value as $key => $item) {
