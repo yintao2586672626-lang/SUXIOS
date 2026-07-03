@@ -21,6 +21,47 @@ const sliceFrom = (needle, endNeedle) => {
   return end > start ? html.slice(start, end) : html.slice(start);
 };
 
+const mainTemplateSource = () => {
+  const appStart = html.indexOf('<div id="app"');
+  const mainScriptMarker = 'const { createApp, ref, shallowRef, computed';
+  const mainScriptStart = html.indexOf(mainScriptMarker);
+  assert.ok(appStart >= 0, 'missing Vue app root');
+  assert.ok(mainScriptStart > appStart, 'missing Vue main script');
+  const template = html
+    .slice(appStart, html.lastIndexOf('<script', mainScriptStart))
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '');
+  const expressions = [];
+  for (const match of template.matchAll(/\{\{([\s\S]*?)\}\}/g)) {
+    expressions.push(match[1]);
+  }
+  for (const match of template.matchAll(/\s(?:@|:|v-(?:bind|else-if|for|html|if|model|on|show|text))[\w:.-]*(?:\.[\w.-]+)*="([^"]*)"/g)) {
+    expressions.push(match[1]);
+  }
+  return expressions.join(';\n');
+};
+
+const mainSetupReturnSource = () => {
+  const mainScriptMarker = 'const { createApp, ref, shallowRef, computed';
+  const mainScriptStart = html.indexOf(mainScriptMarker);
+  assert.ok(mainScriptStart >= 0, 'missing Vue main script');
+  const script = html.slice(mainScriptStart);
+  const returnNeedle = '            return {';
+  const returnStart = script.lastIndexOf(returnNeedle);
+  assert.ok(returnStart >= 0, 'missing setup return object');
+  let depth = 1;
+  let index = returnStart + returnNeedle.length;
+  for (; index < script.length; index += 1) {
+    const char = script[index];
+    if (char === '{') depth += 1;
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  assert.equal(depth, 0, 'unterminated setup return object');
+  return script.slice(returnStart, index + 1);
+};
+
 const functionSlice = (name) => sliceFrom(`const ${name} = async () => {`, `\n            const `);
 const constSlice = (needle, endNeedle = '\n            const ') => sliceFrom(needle, endNeedle);
 
@@ -455,10 +496,13 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
   );
 
   assert.match(saveMeituanConfigItem, /请输入临时 Cookie\/API 辅助内容/);
+  assert.match(saveMeituanConfigItem, /meituanConfigAutoName\(meituanConfigForm\.value\)/);
+  assert.doesNotMatch(saveMeituanConfigItem, /请输入配置名称/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入Partner ID/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入POI ID/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入酒店房量/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入竞争圈总房量/);
+  assert.doesNotMatch(html, /配置名称 \*/);
   assert.match(html, /缺门店标识/);
   assert.match(html, /平台接口标识（一次性配置，可后补）/);
   assert.match(html, /平台门店标识（一次性配置，可后补）/);
@@ -683,6 +727,53 @@ test('Form operation support loads after login instead of blocking the login she
   assert.match(currentPageWatcher, /scheduleFormOperationSupportLoad\(\);/);
   assert.match(onlineDataTabWatcher, /scheduleFormOperationSupportLoad\(\);/);
   assert.match(loadData, /scheduleFormOperationSupportLoad\(\);/);
+});
+
+test('AI daily report exposes the money formatter used by competitor changes', () => {
+  assert.match(html, /const operationMoney = requireAppSystemStatic\('operationMoney'\);/);
+  assert.match(html, /operationMoney\(item\.avg_price\)/);
+  assert.match(html, /operationMoney\(item\.price_gap\)/);
+  assert.match(html, /operationValue, operationMoney, operationPercent, operationDataStatusText/);
+});
+
+test('Vue template helper calls are exposed from setup return', () => {
+  const template = mainTemplateSource();
+  const setupReturn = mainSetupReturnSource();
+  const returnedNames = new Set(
+    [...setupReturn.matchAll(/\b([A-Za-z_$][\w$]*)\b/g)].map(match => match[1])
+  );
+  const browserAndPrototypeCalls = new Set([
+    'Array',
+    'Boolean',
+    'Date',
+    'JSON',
+    'Math',
+    'Number',
+    'Object',
+    'String',
+    'filter',
+    'find',
+    'getEntriesByType',
+    'includes',
+    'join',
+    'map',
+    'reduce',
+    'slice',
+    'some',
+    'toFixed',
+    'toLowerCase',
+    'toUpperCase',
+    'trim',
+    'values',
+  ]);
+  const helperCalls = new Set(
+    [...template.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)]
+      .map(match => match[1])
+      .filter(name => /^[a-z][A-Za-z0-9_$]*[A-Z][A-Za-z0-9_$]*$/.test(name))
+      .filter(name => !browserAndPrototypeCalls.has(name))
+  );
+  const missing = [...helperCalls].filter(name => !returnedNames.has(name)).sort();
+  assert.deepEqual(missing, []);
 });
 
 test('Meituan hotel matching does not wait for all-store competitor summaries', () => {

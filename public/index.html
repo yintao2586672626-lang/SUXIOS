@@ -29,7 +29,7 @@
         })();
     </script>
     <link href="tailwind.min.css?v=20260628-static-router-fix" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260704-ai-workbench-platform-row-v2">
+    <link rel="stylesheet" href="style.css?v=20260704-guilusuli-login-brand">
     <link rel="stylesheet" href="ai-custom.css?v=20260628-static-router-fix">
     <script>
         (() => {
@@ -61,7 +61,7 @@
     <script src="data-health-static.js?v=20260704-data-health-static-tools"></script>
     <script src="revenue-ai-static.js?v=20260704-revenue-ai-static-tools"></script>
     <script src="system-static.js?v=20260630-data-center-label"></script>
-    <script src="compass-static.js?v=20260702-home-trend-source-meta"></script>
+    <script src="compass-static.js?v=20260704-boss-ia"></script>
     <script src="home-static.js?v=20260628-static-router-fix"></script>
     <script src="dual-ota-home-static.js?v=20260703-ai-workbench-layout-polish"></script>
 </head>
@@ -75,11 +75,11 @@
             <div class="login-glow-purple"></div>
 
             <div class="login-stage relative z-10">
-                <section class="login-context-panel" aria-label="宿析OS登录主视觉">
+                <section class="login-context-panel" aria-label="归鹿宿里登录主视觉">
                     <div class="login-context-topline">
                         <span class="login-context-kicker">酒店全周期经营决策系统</span>
                     </div>
-                    <p class="login-brand-mark">宿析OS</p>
+                    <p class="login-brand-mark">归鹿宿里</p>
                     <h2 class="login-hero-lines">
                         <span>看见数据</span>
                         <span>看懂经营</span>
@@ -99,14 +99,14 @@
 
                     <!-- Logo 和标题 -->
                     <div class="login-card-head text-center mb-8">
-                        <div class="login-logo inline-flex items-center justify-center w-20 h-20 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-700 mb-5 shadow-lg">
-                            <img src="images/logo.svg" alt="宿析OS" class="w-12 h-12 object-contain drop-shadow-lg" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <div class="login-logo login-logo-brand inline-flex items-center justify-center w-20 h-20 rounded-xl mb-5 shadow-lg">
+                            <img src="images/guilusuli-logo.jpg" alt="归鹿宿里" class="login-brand-logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                             <i class="fas fa-hotel text-4xl text-white" style="display:none"></i>
                         </div>
-                        <p class="login-card-kicker">经营决策中心</p>
-                        <h1 class="login-title text-3xl font-bold mb-2">宿析OS</h1>
-                        <p class="login-slogan text-base font-medium tracking-wide">进入酒店经营决策中心</p>
-                        <p class="login-copy">让酒店从经验判断走向数据决策</p>
+                        <p class="login-card-kicker">GUILUSULI</p>
+                        <h1 class="login-title text-3xl font-bold mb-2">归鹿宿里</h1>
+                        <p class="login-slogan text-base font-medium tracking-wide">进入归鹿宿里经营系统</p>
+                        <p class="login-copy">让酒店经营从经验判断走向数据决策</p>
                     </div>
 
                 <!-- 登录表单 -->
@@ -4930,7 +4930,7 @@
                             <div class="hidden" data-testid="home-cockpit-header">
                                 <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                                     <div class="min-w-0">
-                                        <div class="text-xl sm:text-2xl font-semibold text-white leading-tight">AI工作台</div>
+                                        <div class="text-xl sm:text-2xl font-semibold text-white leading-tight">今日经营看板</div>
                                         <div class="mt-1 max-w-2xl text-sm leading-6 text-blue-100">{{ homeMinimalWorkbench.boundaryText }}</div>
                                         <div class="mt-2 grid grid-cols-1 gap-2 text-xs sm:flex sm:flex-wrap" data-testid="home-header-signal-row">
                                             <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
@@ -5149,7 +5149,6 @@
 
                                         <footer class="dual-ota-footer">
                                             <strong>{{ dualOtaDashboard.positioning }}</strong>
-                                            <span>{{ dualOtaDashboard.brand.version }}</span>
                                         </footer>
                                     </template>
                                 </div>
@@ -5647,26 +5646,31 @@
                                     </div>
                                 </div>
 
-                                <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <details class="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="home-quick-entry-fold">
+                                    <summary class="flex cursor-pointer items-center justify-between gap-3 px-3 py-3 text-sm font-semibold text-slate-700">
                                         <div class="min-w-0">
-                                            <div class="text-base font-bold text-gray-900">常用功能入口</div>
+                                            <div class="text-base font-bold text-gray-900">辅助快捷入口</div>
+                                            <div class="mt-0.5 text-xs font-normal text-slate-500">默认折叠，主屏只保留今日结论、下一步动作和闭环进度。</div>
                                         </div>
-                                        <div class="flex flex-wrap items-center gap-2">
-                                            <button
-                                                v-if="!homeQuickLayoutEditing"
-                                                @click="homeQuickLayoutEditing = true"
-                                                class="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-white"
-                                            >
-                                                <i class="fas fa-edit mr-1"></i>编辑布局
-                                            </button>
-                                            <template v-else>
-                                                <span class="text-xs text-slate-400">{{ homeQuickLayoutSaveHint }}</span>
-                                                <button @click="resetHomeQuickLayout" class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">恢复默认</button>
-                                                <button @click="saveHomeQuickLayout" :disabled="homeQuickLayoutSaving" class="rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-60">{{ homeQuickLayoutSaving ? '保存中' : '完成' }}</button>
-                                            </template>
+                                        <span class="text-xs font-normal text-slate-400">展开</span>
+                                    </summary>
+                                    <div class="border-t border-slate-100 px-3 py-3">
+                                        <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <button
+                                                    v-if="!homeQuickLayoutEditing"
+                                                    @click="homeQuickLayoutEditing = true"
+                                                    class="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-white"
+                                                >
+                                                    <i class="fas fa-edit mr-1"></i>编辑布局
+                                                </button>
+                                                <template v-else>
+                                                    <span class="text-xs text-slate-400">{{ homeQuickLayoutSaveHint }}</span>
+                                                    <button @click="resetHomeQuickLayout" class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">恢复默认</button>
+                                                    <button @click="saveHomeQuickLayout" :disabled="homeQuickLayoutSaving" class="rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-60">{{ homeQuickLayoutSaving ? '保存中' : '完成' }}</button>
+                                                </template>
+                                            </div>
                                         </div>
-                                    </div>
                                     <div class="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-3 2xl:grid-cols-6" data-testid="home-quick-grid" @pointerleave="endHomeQuickDrag">
                                         <div
                                             v-for="entry in homeQuickEntries"
@@ -5714,7 +5718,8 @@
                                             <i class="fas fa-plus mr-1"></i>{{ entry.title }}
                                         </button>
                                     </div>
-                                </div>
+                                    </div>
+                                </details>
 
                                 <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="home-closed-loop-workbench">
                                     <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -5858,8 +5863,8 @@
 
                         <details class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="home-secondary-detail-fold">
                             <summary class="flex cursor-pointer items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
-                                <span>更多辅助面板</span>
-                                <span class="text-xs font-normal text-slate-400">趋势、天气、节假期和数据来源</span>
+                                <span>辅助信息面板</span>
+                                <span class="text-xs font-normal text-slate-400">趋势、天气、竞对、节假期和数据来源默认折叠</span>
                             </summary>
                             <div class="space-y-4 p-4">
                         <div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="daily-ops-monitor-card">
@@ -8994,10 +8999,10 @@
                                                 <p class="text-xs text-gray-500 mt-1">用于自动 Profile 采集；default 只跑日常核心（经营概要、流量），core 增加首页/周报/销售页，wide/all 用于字段学习或审计补证据；多个模块用英文逗号分隔。</p>
                                             </div>
                                             <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookie <span class="text-red-500">*</span></label>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">临时 Cookie/API 辅助内容 <span class="text-red-500">*</span></label>
                                                 <textarea v-model="ctripConfigForm.cookies" rows="4"
                                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                                    placeholder="只粘贴 Request Headers 里的 Cookie 值，不要粘贴完整 Headers、URL 或 Payload"></textarea>
+                                                    placeholder="只粘贴 Request Headers 里的 Cookie 值；用于临时补数或排障，不代表长期授权"></textarea>
                                             </div>
                                         </div>
                                         <div class="flex gap-2 mt-4">
@@ -9052,7 +9057,7 @@
                                                         </div>
                                                         <div class="text-xs text-gray-500 mb-1">
                                                             Profile范围：{{ config.capture_sections || config.profile_sections || 'default' }}
-                                                            <span v-if="config.approved_mappings_path" class="ml-2 text-blue-600">P3映射已配置</span>
+                                                            <span v-if="config.approved_mappings_path" class="ml-2 text-blue-600">审核映射已启用</span>
                                                         </div>
                                                         <div class="text-sm text-gray-500">
                                                             <span class="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{{ secretPreview(config) }}</span>
@@ -10364,15 +10369,9 @@
                                             <i class="fas fa-plus-circle mr-2"></i>新增配置
                                         </h4>
                                         <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-sm mb-4">
-                                            保存门槛：只需配置名称 + Cookie/API 辅助内容。平台接口标识和门店标识是一次性配置，可后补；酒店房量和竞争圈房量不是获取凭证。
+                                            保存门槛：只需临时 Cookie/API 辅助内容。平台接口标识和门店标识可后补；名称由系统按关联酒店自动生成，酒店房量和竞争圈房量不是获取凭证。
                                         </div>
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">配置名称 *</label>
-                                                <input v-model="meituanConfigForm.name" type="text"
-                                                    class="w-full px-3 py-2 border rounded-lg"
-                                                    placeholder="如：XX酒店配置">
-                                            </div>
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">平台接口标识（一次性配置，可后补）</label>
                                                 <input v-model="meituanConfigForm.partner_id" type="text"
@@ -10782,14 +10781,14 @@
                         </div>
                     </div>
 
-<!-- 酒店AI工具箱 (仅超级管理员) -->
+<!-- 高级AI工具箱 (仅超级管理员) -->
                     <div v-if="currentPage === 'agent-center'">
                         <div class="card overflow-hidden">
                             <div class="p-5 border-b border-gray-100 bg-white">
                                 <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                     <div>
-                                        <h2 class="text-xl font-bold text-gray-900">酒店AI工具箱</h2>
-                                        <p class="text-sm text-gray-500 mt-1">OTA 经营诊断、Agent 运行面板与常用 AI 工具入口。</p>
+                                        <h2 class="text-xl font-bold text-gray-900">高级AI工具箱</h2>
+                                        <p class="text-sm text-gray-500 mt-1">管理员和专项诊断使用；日常经营优先从今日经营看板、收益诊断和执行跟踪进入。</p>
                                     </div>
                                     <div class="flex items-center gap-2 text-xs text-gray-500">
                                         <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
@@ -14327,22 +14326,23 @@
                     <div v-if="currentPage === 'online-data'">
                         <div class="rounded-xl border border-gray-200 bg-gray-50 shadow-sm overflow-hidden">
                             <div class="px-5 py-4 border-b border-gray-200 bg-white">
-                                <h3 class="text-base font-semibold text-gray-900">平台数据自动获取</h3>
+                                <h3 class="text-base font-semibold text-gray-900">OTA数据可信度与证据</h3>
+                                <p class="mt-1 text-xs leading-5 text-gray-500">先确认数据是否可信，再进入携程/美团证据页；配置、下载、日志和字段诊断只作为排障入口。</p>
                             </div>
                             <div class="p-4 sm:p-6">
                                 <!-- Tabs -->
                                 <div class="flex flex-wrap gap-2 border-b border-gray-200 pb-3 mb-6">
                                     <button @click="openOnlineDataTab('data-health')"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'data-health' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
-                                        数据健康工作台
+                                        1 数据可信度
                                     </button>
                                     <button @click="openPlatformAutoTab()"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'platform-auto' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
-                                        平台自动获取
+                                        配置：自动采集
                                     </button>
                                     <button @click="openPlatformSourcesTab()"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'platform-sources' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
-                                        平台账号绑定
+                                        配置：平台账号
                                     </button>
                                     <button @click="openOnlineAnalysisTab"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'analysis' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
@@ -14350,11 +14350,11 @@
                                     </button>
                                     <button @click="openOnlineDataTab('data')"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'data' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
-                                        数据记录
+                                        记录与下载
                                     </button>
                                     <button v-if="user?.is_super_admin" @click="openCtripProfileFieldsForReview"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'profile-fields' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
-                                        获取字段配置
+                                        字段诊断
                                     </button>
                                 </div>
 
@@ -16210,7 +16210,7 @@
                                                     <li><strong>拖拽</strong>上方按钮到浏览器书签栏（按Ctrl+Shift+B显示书签栏）</li>
                                                     <li>打开携程ebooking并<strong>登录账号</strong></li>
                                                     <li><strong>点击书签栏</strong>中的"保存临时 Cookie"</li>
-                                                    <li>输入配置名称，Cookie 仅作为临时补数或排障上下文保存。</li>
+                                                    <li>输入临时记录名称，Cookie 仅作为临时补数或排障上下文保存。</li>
                                                 </ol>
                                             </div>
 
@@ -16225,7 +16225,7 @@
                                         <h5 class="text-lg font-medium text-gray-800 mb-4">💾 保存 Cookies</h5>
                                         <div class="grid grid-cols-4 gap-4">
                                             <div class="col-span-1">
-                                                <label class="block text-sm text-gray-600 mb-1">配置名称</label>
+                                                <label class="block text-sm text-gray-600 mb-1">临时记录名称</label>
                                                 <input v-model="quickCookiesName" type="text"
                                                     class="w-full px-3 py-2 border rounded-lg"
                                                     placeholder="如：ctrip_main">
@@ -22291,7 +22291,7 @@
                 interpretation: {
                     judgement: '等待数据形成判断',
                     change: '完成经营数据同步后生成趋势判断',
-                    action: '进入酒店AI工具箱或数据自动获取，基于最新经营数据生成分析。',
+                    action: '进入高级AI工具箱或数据健康工作台，基于最新经营数据生成分析。',
                 },
             });
             const homeTrendCustomRange = ref({
@@ -22361,7 +22361,7 @@
             const homeTrendInterpretation = computed(() => ({
                 judgement: homeTrendData.value?.interpretation?.judgement || '等待数据形成判断',
                 change: homeTrendData.value?.interpretation?.change || '完成经营数据同步后生成趋势判断',
-                action: homeTrendData.value?.interpretation?.action || '进入酒店AI工具箱或数据自动获取，基于最新经营数据生成分析。',
+                action: homeTrendData.value?.interpretation?.action || '进入高级AI工具箱或数据健康工作台，基于最新经营数据生成分析。',
             }));
             const homeTrendEmptyState = computed(() => {
                 const range = homeTrendRanges.find(item => item.key === homeTrendRange.value);
@@ -27504,10 +27504,10 @@
                     findMenuEntry(items, 'data-config'),
                 ].map(item => cloneMenuItem(item)).filter(Boolean);
                 const aiWorkbenchEntry = cloneMenuItem(compassEntry, {
-                    name: 'AI工作台',
+                    name: '今日经营看板',
                     icon: 'fas fa-brain',
                     path: 'ai-workbench',
-                    title: 'AI工作台',
+                    title: '今日经营看板',
                     testid: 'nav-lean-ai-workbench',
                 });
                 const leanItems = [
@@ -27517,8 +27517,8 @@
                         icon: 'fas fa-chart-line',
                         testid: 'nav-lean-business-loop',
                         children: [
-                            cloneMenuItem(compassEntry, { name: '经营概览' }),
-                            cloneMenuItem(revenueEntry, { name: '收益分析' }),
+                            cloneMenuItem(compassEntry, { name: '今日结论' }),
+                            cloneMenuItem(revenueEntry, { name: '收益诊断' }),
                         ].filter(Boolean),
                     },
                     {
@@ -27526,9 +27526,9 @@
                         icon: 'fas fa-cloud-download-alt',
                         testid: 'nav-lean-ota-data',
                         children: [
-                            cloneMenuItem(dataHealthEntry, { name: '数据自动获取' }),
-                            cloneMenuItem(ctripEntry, { name: '携程' }),
-                            cloneMenuItem(meituanEntry, { name: '美团' }),
+                            cloneMenuItem(dataHealthEntry, { name: '数据可信度' }),
+                            cloneMenuItem(ctripEntry, { name: '携程数据' }),
+                            cloneMenuItem(meituanEntry, { name: '美团数据' }),
                         ].filter(Boolean),
                     },
                     {
@@ -27546,22 +27546,22 @@
                         testid: 'nav-lean-hotel-management',
                     }),
                     {
-                        name: '更多功能开发中',
+                        name: '投资与高级工具',
                         icon: 'fas fa-ellipsis-h',
                         testid: 'nav-lean-more',
                         children: [
-                            cloneMenuItem(knowledgeEntry, { name: '知识中心' }),
+                            cloneMenuItem(knowledgeEntry, { name: '知识与经验' }),
                             cloneMenuItem(investmentEntry, { name: '投决辅助' }),
-                            cloneMenuItem(imageOptimizerEntry, { name: '图片优化助手' }),
-                            cloneMenuItem(agentCenterEntry, { name: '酒店AI工具箱' }),
+                            cloneMenuItem(imageOptimizerEntry, { name: '图片优化' }),
+                            cloneMenuItem(agentCenterEntry, { name: '高级AI工具箱' }),
                             lifecycleMoreGroup,
-                            systemEntries.length ? { name: '系统管理', icon: 'fas fa-cog', children: systemEntries } : null,
+                            systemEntries.length ? { name: '配置中心', icon: 'fas fa-cog', children: systemEntries } : null,
                         ].filter(Boolean),
                     },
                 ];
                 return leanItems.filter(item => item?.path || (Array.isArray(item.children) && item.children.length > 0));
             };
-            // 可见菜单项 - 先按权限过滤，再压缩为主链路导航；低频入口保留在“更多功能开发中”。
+            // 可见菜单项 - 先按权限过滤，再压缩为老板视角主链路；低频入口保留在“投资与高级工具”。
             const visibleMenuItems = computed(() => buildLeanNavigationItems(filterVisibleMenuItems(menuItems.value, user.value)));
 
             // 展开的子菜单：默认收起，避免低频入口挤占首屏。
@@ -27623,8 +27623,8 @@
             };
 
             const pageTitle = computed(() => {
-                if (currentPage.value === 'ai-workbench') return 'AI工作台';
-                if (currentPage.value === 'compass') return '经营概览';
+                if (currentPage.value === 'ai-workbench') return '今日经营看板';
+                if (currentPage.value === 'compass') return '今日结论';
                 const item = findMenuItemByPath(menuItems.value, currentPage.value);
                 return item ? (item.title || getMenuItemName(item)) : '';
             });
@@ -27778,7 +27778,7 @@
                 try {
                     localStorage.setItem(dualOtaHotelSearchCountStorageKey(), JSON.stringify(dualOtaHotelSearchCounts.value || {}));
                 } catch (error) {
-                    console.warn('保存AI工作台门店排序失败:', error);
+                    console.warn('保存今日经营看板门店排序失败:', error);
                 }
             };
             const recordDualOtaHotelSearch = (hotelId) => {
@@ -40651,34 +40651,42 @@
                 return manualOnlineFetchConfigReadyPromise;
             };
 
+            const meituanConfigAutoName = (form = {}) => {
+                const explicit = String(form?.name || '').trim();
+                if (explicit) return explicit;
+                const hotelName = String(getHotelNameById(form?.hotel_id) || '').trim();
+                const poiId = String(form?.poi_id || form?.poiId || '').trim();
+                if (hotelName) return `${hotelName}美团Cookie`;
+                if (poiId) return `美团${poiId}Cookie`;
+                return `美团Cookie ${formatDate(new Date())}`;
+            };
+
             const saveMeituanConfigItem = async () => {
-                if (!meituanConfigForm.value.name) {
-                    showToast('请输入配置名称', 'error');
-                    return;
-                }
-                if (!meituanConfigForm.value.cookies) {
+                const cookies = String(meituanConfigForm.value.cookies || '').trim();
+                if (!cookies) {
                     showToast('请输入临时 Cookie/API 辅助内容', 'error');
                     return;
                 }
                 try {
+                    const requestBody = {
+                        id: meituanConfigForm.value.id,
+                        name: meituanConfigAutoName(meituanConfigForm.value),
+                        hotel_id: meituanConfigForm.value.hotel_id,
+                        partner_id: meituanConfigForm.value.partner_id,
+                        poi_id: meituanConfigForm.value.poi_id,
+                        hotel_room_count: meituanConfigForm.value.hotel_room_count,
+                        competitor_room_count: meituanConfigForm.value.competitor_room_count,
+                        cookies,
+                    };
                     const res = await request('/online-data/save-meituan-config-item', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            id: meituanConfigForm.value.id,
-                            name: meituanConfigForm.value.name,
-                            hotel_id: meituanConfigForm.value.hotel_id,
-                            partner_id: meituanConfigForm.value.partner_id,
-                            poi_id: meituanConfigForm.value.poi_id,
-                            hotel_room_count: meituanConfigForm.value.hotel_room_count,
-                            competitor_room_count: meituanConfigForm.value.competitor_room_count,
-                            cookies: meituanConfigForm.value.cookies,
-                        }),
+                        body: JSON.stringify(requestBody),
                     });
                     if (res.code === 200) {
                         const savedHotelId = String(
                             res.data?.hotel_id
                             || res.data?.system_hotel_id
-                            || meituanConfigForm.value.hotel_id
+                            || requestBody.hotel_id
                             || meituanForm.value.hotelId
                             || ''
                         ).trim();
@@ -43975,7 +43983,7 @@
                 aiDailyReportModelText, aiDailyReportModelClass, aiDailyReportMetricValue, aiDailyReportActionSources, aiDailyReportActionStatusText, aiDailyReportActionStatusClass, aiDailyReportActionBlockedText, aiDailyReportActionButtonText,
                 aiDailyReportReadinessClass, aiDailyReportGapActionText, goAiDailyReportDataGap,
                 loadAiDailyReport, generateAiDailyReport, createAiDailyExecutionIntent,
-                operationValue, operationPercent, operationDataStatusText, operationProblemLevelLabel, operationAlertLevelLabel,
+                operationValue, operationMoney, operationPercent, operationDataStatusText, operationProblemLevelLabel, operationAlertLevelLabel,
                 operationAlertStatusLabel, operationAlertLevelClass, operationAlertSuggestion, operationRiskLevelLabel, operationStrategyTypeLabel,
                 operationActionStatusLabel, operationMetricRows, operationActionDataText, operationActionTarget,
                 operationEffectMetricCards, operationEffectDataGapText, operationEffectStatusLabel, operationEffectStatusClass, operationEffectMetricStatusLabel, operationEffectMetricValue,

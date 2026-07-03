@@ -101,7 +101,6 @@ window.SUXI_DUAL_OTA_HOME = (() => {
             name: 'AI工作台',
             pageTitle: '',
             subtitle: '',
-            version: 'v7 / practical MVP',
         },
         connections: [
             { name: '携程', status: 'connected', label: '携程' },

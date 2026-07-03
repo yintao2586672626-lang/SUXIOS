@@ -109,7 +109,7 @@ window.SUXI_COMPASS_STATIC = (() => {
     }, {});
     const dailyOpsPrimaryActions = [
         { label: '检查数据是否已同步', page: 'online-data', tab: 'data-health', icon: 'fas fa-heartbeat' },
-        { label: '同步平台账号数据', page: 'online-data', tab: 'platform-auto', icon: 'fas fa-robot' },
+        { label: '处理平台采集状态', page: 'online-data', tab: 'platform-auto', icon: 'fas fa-robot' },
         { label: '查看携程流量漏斗', page: 'ctrip-ebooking', tab: 'ctrip-traffic', icon: 'fas fa-route' },
         { label: '查看美团竞对排名', page: 'meituan-ebooking', tab: 'meituan-ranking', icon: 'fas fa-chart-bar' },
     ];
@@ -137,9 +137,9 @@ window.SUXI_COMPASS_STATIC = (() => {
         { key: 'operation-alerts', title: '今天要处理什么', desc: '风险、预警和动作建议', page: 'ops-insight', icon: 'fas fa-bell' },
         { key: 'strategy-simulation', title: '试算运营策略', desc: '调价、促销、投放影响', page: 'ops-plan', icon: 'fas fa-lightbulb' },
         { key: 'action-tracking', title: '执行进度和效果', desc: '跟踪执行与ROI复盘', page: 'ops-track', icon: 'fas fa-play-circle' },
-        { key: 'ai-tools', title: '酒店AI工具箱', desc: '辅助工具入口', page: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true },
+        { key: 'ai-tools', title: '高级AI工具箱', desc: '管理员和专项诊断入口', page: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true },
         { key: 'hotel-management', title: '酒店管理', desc: '维护基础信息', page: 'hotels', icon: 'fas fa-hotel' },
-        { key: 'system-settings', title: '系统设置', desc: '配置数据源与权限', page: 'system-config', icon: 'fas fa-cog', requireSuper: true },
+        { key: 'system-settings', title: '配置中心', desc: '权限、模型与数据源', page: 'system-config', icon: 'fas fa-cog', requireSuper: true },
     ];
     const macroSignalMeaningMap = {
         cycle: {

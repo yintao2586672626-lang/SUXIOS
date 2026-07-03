@@ -6658,6 +6658,32 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-action {
     color: rgba(226, 232, 240, 0.9);
 }
 
+.login-bg .login-logo.login-logo-brand {
+    width: 108px !important;
+    height: 108px !important;
+    padding: 8px !important;
+    margin-bottom: 16px !important;
+    border-radius: 22px !important;
+    background: #fffdf8 !important;
+    border: 1px solid rgba(220, 197, 145, 0.46) !important;
+    box-shadow:
+        0 18px 42px rgba(0, 0, 0, 0.34),
+        0 0 0 7px rgba(220, 197, 145, 0.06),
+        inset 0 1px 0 rgba(255, 255, 255, 0.96) !important;
+}
+
+.login-bg .login-logo.login-logo-brand img {
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+    filter: none !important;
+}
+
+.login-bg .login-logo.login-logo-brand i {
+    display: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .login-bg .login-stage .login-card,
     .login-bg .btn-login,
@@ -12154,7 +12180,6 @@ main[data-current-page="ai-workbench"] .dual-ota-store-scope-list {
     display: grid !important;
     align-items: center;
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-    grid-auto-flow: column;
     gap: 8px;
     justify-self: end;
     width: 100%;
@@ -12170,28 +12195,92 @@ main[data-current-page="ai-workbench"] .dual-ota-store-scope-list > * {
 main[data-current-page="ai-workbench"] .dual-ota-compare-toggle {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
+    position: relative;
     min-width: 0;
     flex: 1 1 0;
     min-height: 32px;
-    padding: 7px 8px;
-    border: 1px solid rgba(202, 165, 111, .62);
+    padding: 7px 42px 7px 10px;
+    border: 1px solid rgba(148, 120, 78, .38);
     border-radius: 999px;
-    background: rgba(255, 253, 248, .72);
-    color: var(--dual-muted);
+    background: rgba(255, 253, 248, .92);
+    color: #7a6545;
     cursor: pointer;
     font: inherit;
     font-size: 12px;
     font-weight: 850;
-    text-align: center;
+    text-align: left;
     white-space: nowrap;
-    transition: background .18s ease, border-color .18s ease, color .18s ease;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .76);
+    transition: background .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle::before {
+    content: "";
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    width: 26px;
+    height: 14px;
+    border-radius: 999px;
+    background: rgba(122, 101, 69, .26);
+    transform: translateY(-50%);
+    transition: background .18s ease;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle::after {
+    content: "";
+    position: absolute;
+    right: 21px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #fffaf1;
+    box-shadow: 0 1px 4px rgba(71, 54, 25, .24);
+    transform: translateY(-50%);
+    transition: right .18s ease, background .18s ease, box-shadow .18s ease;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active {
-    border-color: rgba(12, 122, 107, .44);
-    background: rgba(12, 122, 107, .12);
-    color: var(--dual-teal);
+    border-color: rgba(12, 122, 107, .78);
+    background: var(--dual-teal);
+    color: #fff;
+    box-shadow: 0 8px 18px rgba(12, 122, 107, .18);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active::before {
+    background: rgba(255, 255, 255, .34);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active::after {
+    right: 11px;
+    background: #fff;
+    box-shadow: 0 1px 5px rgba(8, 54, 48, .30);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle:hover {
+    opacity: 1;
+    border-color: rgba(148, 120, 78, .58);
+    background: #fff9ee;
+    color: #624d2e;
+    box-shadow: 0 6px 14px rgba(148, 120, 78, .14), inset 0 0 0 1px rgba(255, 255, 255, .88);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle:hover::before {
+    background: rgba(122, 101, 69, .34);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active:hover {
+    opacity: 1;
+    border-color: rgba(8, 100, 88, .92);
+    background: #087a6b;
+    color: #fff;
+    box-shadow: 0 9px 20px rgba(12, 122, 107, .24);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active:hover::before {
+    background: rgba(255, 255, 255, .38);
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-compare-toggle:focus-visible {

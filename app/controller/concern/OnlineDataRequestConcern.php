@@ -1485,8 +1485,11 @@ trait OnlineDataRequestConcern
             $name = trim((string)($requestData['name'] ?? $this->request->post('name', '')));
             $cookies = (string)($requestData['cookies'] ?? $this->request->post('cookies', ''));
 
-            if ($name === '' || trim($cookies) === '') {
-                return json(['code' => 400, 'message' => '配置名称和Cookies不能为空']);
+            if (trim($cookies) === '') {
+                return json(['code' => 400, 'message' => '临时 Cookie/API 辅助内容不能为空']);
+            }
+            if ($name === '') {
+                $name = '携程Cookie ' . date('Y-m-d');
             }
 
             // 读取现有配置，编辑时复用原 ID

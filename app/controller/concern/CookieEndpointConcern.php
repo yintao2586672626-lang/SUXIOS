@@ -474,7 +474,7 @@ trait CookieEndpointConcern
             'instructions' => [
                 '1. 将下面的按钮拖拽到浏览器书签栏',
                 '2. 在携程ebooking页面登录后，点击该书签',
-                '3. 输入配置名称，Cookies将自动保存到系统',
+                '3. 输入临时记录名称，Cookies将自动保存到系统',
             ],
         ]);
     }
@@ -491,7 +491,7 @@ trait CookieEndpointConcern
   try{
     var cookies=document.cookie||'';
     if(!cookies){alert('未读取到 Cookie，请确认已登录当前 OTA 后台');return;}
-    var name=prompt('请输入配置名称',{$defaultNameJson}+'_'+new Date().toLocaleDateString());
+    var name=prompt('请输入临时记录名称',{$defaultNameJson}+'_'+new Date().toLocaleDateString());
     if(!name){return;}
     var form=new FormData();
     form.append('name',name);

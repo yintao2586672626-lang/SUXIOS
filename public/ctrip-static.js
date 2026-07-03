@@ -289,9 +289,16 @@ window.SUXI_CTRIP_STATIC = (() => {
         pageUrl: 'https://ebooking.ctrip.com/comment/commentList?microJump=true',
         apiKeyword: 'getCommentList',
     });
+    const normalizeCtripConfigName = (form = {}) => {
+        const explicit = String(form.name || '').trim();
+        if (explicit) return explicit;
+        const ctripHotelId = String(form.ctrip_hotel_id || form.ctripHotelId || form.ota_hotel_id || '').trim();
+        if (ctripHotelId) return `携程${ctripHotelId}Cookie`;
+        return '携程Cookie';
+    };
     const buildCtripConfigSavePayload = (form = {}) => ({
         id: form.id,
-        name: form.name,
+        name: normalizeCtripConfigName(form),
         hotel_id: form.hotel_id,
         ctrip_hotel_id: form.ctrip_hotel_id,
         cookies: form.cookies,
@@ -301,10 +308,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         approved_mappings_path: form.approved_mappings_path,
     });
     const validateCtripConfigSaveInput = (form = {}) => {
-        if (!form.name) {
-            return { ok: false, status: 'missing_name', level: 'error', message: '请输入配置名称' };
-        }
-        if (!form.cookies) {
+        if (!String(form.cookies || '').trim()) {
             return { ok: false, status: 'missing_cookies', level: 'error', message: '请输入临时 Cookie/API 辅助内容' };
         }
         return { ok: true, status: 'ok' };

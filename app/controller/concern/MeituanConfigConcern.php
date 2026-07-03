@@ -94,8 +94,11 @@ trait MeituanConfigConcern
         $hotelRoomCount = $this->request->post('hotel_room_count', '');
         $competitorRoomCount = $this->request->post('competitor_room_count', '');
 
-        if (empty($name) || empty($cookies)) {
-            return $this->error('配置名称和 Cookies 不能为空');
+        if (empty($cookies)) {
+            return $this->error('临时 Cookie/API 辅助内容不能为空');
+        }
+        if ($name === '') {
+            $name = '美团Cookie ' . date('Y-m-d');
         }
 
         // 解析认证数据
@@ -302,8 +305,7 @@ trait MeituanConfigConcern
         }
       }
     }catch(e){}
-    var n=prompt('请输入配置名称：','美团配置_'+new Date().toLocaleDateString());
-    if(!n)return;
+    var n='美团Cookie '+new Date().toLocaleDateString();
     var d=new FormData();
     d.append('name',n);
     d.append('cookies',c);
@@ -315,7 +317,7 @@ trait MeituanConfigConcern
       headers:{'Authorization':'{$token}'}
     }).then(function(r){return r.json()}).then(function(j){
       if(j.code===200){
-        alert('保存成功！配置名: '+n);
+        alert('临时 Cookie/API 辅助内容保存成功：'+n);
       }else{
         alert('保存失败: '+j.message);
       }

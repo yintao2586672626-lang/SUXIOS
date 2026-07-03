@@ -169,7 +169,7 @@ requireText('public/index.html', '<small v-else class="dual-ota-system-metric-sp
 requireText('public/index.html', 'const toggleDualOtaCompare = () => {', 'AI workbench exposes a local comparison display toggle');
 requireText('public/style.css', 'grid-template-columns: minmax(260px, 1fr) minmax(420px, 500px);', 'AI workbench keeps current-hotel selector and platform controls in a stable two-column strip');
 requireText('public/style.css', 'grid-template-columns: repeat(4, minmax(0, 1fr)) !important;', 'AI workbench keeps comparison switch and three platform buttons on one row');
-requireText('public/style.css', 'grid-auto-flow: column;', 'AI workbench keeps comparison switch and platform buttons in one horizontal flow');
+requireText('public/style.css', 'main[data-current-page="ai-workbench"] .dual-ota-store-scope-list > *', 'AI workbench keeps comparison switch and platform buttons stretched inside the four-column row');
 requireText('public/index.html', 'const dualOtaRatePreviousExtra = (value) => {', 'AI workbench normalizes previous-period rate metrics before comparison');
 requireText('public/index.html', 'ctripLatestComparison.value = payload?.rank?.comparison || null;', 'AI workbench stores Ctrip latest comparison snapshot from backend response');
 requireText('public/index.html', "const latestRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading latest Ctrip data');
@@ -5320,9 +5320,10 @@ try {
   } else {
     const defaultConfigForm = createCtripConfigForm();
     const overriddenConfigForm = createCtripConfigForm({ hotel_id: '10', name: '携程账号' });
-    const missingName = validateCtripConfigSaveInput({ name: '', cookies: 'cookie' });
+    const blankNameValid = validateCtripConfigSaveInput({ name: '', cookies: 'cookie' });
     const missingCookies = validateCtripConfigSaveInput({ name: '配置', cookies: '' });
     const validConfig = validateCtripConfigSaveInput({ name: '配置', cookies: 'cookie' });
+    const blankNamePayload = buildCtripConfigSavePayload({ name: '', ctrip_hotel_id: 'ctrip-blank', cookies: 'sid=blank' });
     const savePayload = buildCtripConfigSavePayload({
       id: 9,
       name: '携程账号',
@@ -5343,10 +5344,10 @@ try {
         && defaultConfigForm.capture_sections === 'default'
         && overriddenConfigForm.hotel_id === '10'
         && overriddenConfigForm.name === '携程账号'
-        && missingName.status === 'missing_name'
-        && missingName.message === '请输入配置名称'
+        && blankNameValid.ok === true
+        && blankNamePayload.name.endsWith('ctrip-blankCookie')
         && missingCookies.status === 'missing_cookies'
-        && missingCookies.message === '请输入临时 Cookie/API 辅助内容'
+        && missingCookies.message.includes('Cookie/API')
         && validConfig.ok === true
         && savePayload.id === 9
         && savePayload.name === '携程账号'
@@ -5409,7 +5410,7 @@ try {
     });
     const guardEvents = [];
     const guardResult = await runCtripConfigSaveFlow({
-      getForm: () => ({ name: '', cookies: 'sid=guard' }),
+      getForm: () => ({ name: '', cookies: '' }),
       notify: (message, level) => guardEvents.push(`notify:${level}:${message}`),
       requestSave: async () => {
         throw new Error('should not request');
@@ -5433,8 +5434,8 @@ try {
         && exceptionResult.status === 'exception'
         && exceptionEvents[0] === 'notify:error:保存失败: response parsed failed'
         && exceptionLogs[0].includes('保存失败:')
-        && guardResult.status === 'missing_name'
-        && guardEvents[0] === 'notify:error:请输入配置名称',
+        && guardResult.status === 'missing_cookies'
+        && guardEvents[0].includes('Cookie/API'),
       detail: 'runCtripConfigSaveFlow state samples',
     });
   }
