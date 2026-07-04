@@ -93,6 +93,12 @@ check(
 );
 check(
   'package.json',
+  'package exposes Ctrip real-input gap pack report',
+  packageJson.scripts?.['report:revenue-ai-ctrip-gap-pack'] === 'C:\\xampp\\php\\php.exe scripts\\report_revenue_ai_ctrip_gap_pack.php',
+  'report:revenue-ai-ctrip-gap-pack'
+);
+check(
+  'package.json',
   'package exposes Ctrip pending review packet report',
   packageJson.scripts?.['report:revenue-ai-ctrip-pending-review-packet'] === 'C:\\xampp\\php\\php.exe scripts\\report_revenue_ai_ctrip_pending_review_packet.php',
   'report:revenue-ai-ctrip-pending-review-packet'
@@ -371,6 +377,33 @@ includesAll('scripts/report_revenue_ai_ctrip_pricing_operator_packet.php', 'Ctri
   'Do not fill missing prices with sample, guessed, fallback, or verifier-only values',
   'Do not set auto_write_ota=true',
   'manual review and ROI evidence',
+]);
+
+includesAll('scripts/report_revenue_ai_ctrip_gap_pack.php', 'Ctrip real-input gap pack reports the whole Revenue AI closure without reading raw capture or writing data', [
+  'read_current_revenue_ai_overview_and_operator_bundle_only',
+  'raw_capture_read',
+  'does_not_run_p0_verifier_or_read_raw_capture',
+  'database_written',
+  'auto_write_ota',
+  'meituan_scope_included',
+  'ctrip_ota_channel',
+  'ctrip_p0_target_day',
+  'pricing_generation_inputs',
+  'ai_pending_review_suggestion',
+  'human_review_to_operation_intent',
+  'execution_evidence_and_roi_window',
+  'investment_manual_review',
+  'pricing-input-fillable.json',
+  'previous_day',
+  'next_day',
+  'revenue',
+  'room_nights',
+  'orders',
+  'conversion',
+  'traffic',
+  'operation_execution.roi_ready',
+  'Ctrip OTA channel evidence must not be promoted to whole-hotel operating truth.',
+  'Do not fill missing room, price, demand, competitor, execution, or ROI values with samples, guesses, fallbacks, or verifier-only fixtures.',
 ]);
 
 includesAll('scripts/export_revenue_ai_ctrip_operator_bundle.php', 'Ctrip operator bundle exports handoff files without data writes', [
@@ -713,6 +746,14 @@ includesAll('scripts/execute_revenue_ai_ctrip_review_decision.php', 'Ctrip revie
   'manual_review_written_locally',
   'review_keeps_no_ota_write',
   'execution_intent_policy_respected',
+  'ctrip_review_decision_operation_evidence_handoff',
+  'ctrip_review_decision_roi_window',
+  'operation_evidence_handoff',
+  'previous_day',
+  'next_day',
+  'ctrip_ota_channel_execution_evidence',
+  'do_not_promote_ctrip_ota_scope_to_whole_hotel_truth',
+  'local_manual_roi_evidence_no_ota_write',
   'OperationManagementService',
   'buildPriceSuggestionExecutionIntentInput',
   'createExecutionIntent',
@@ -748,6 +789,7 @@ includesAll('scripts/verify_revenue_ai_ctrip_review_decision.php', 'Ctrip review
   'review_decision_scope_ctrip_only',
   'approve_with_changes_records_manual_review',
   'post_approval_execution_intent_created',
+  'operation_evidence_handoff_includes_roi_window',
   'runner_checks_include_boundaries',
   'transaction_rolled_back',
   'meituan_not_present',

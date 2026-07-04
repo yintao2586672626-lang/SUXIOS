@@ -312,6 +312,131 @@ function ctrip_review_decision_template(string $date, ?int $hotelId = null): arr
 }
 
 /**
+ * @return array{previous_day:string,next_day:string}
+ */
+function ctrip_review_decision_roi_window(string $date): array
+{
+    $businessDate = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+    if (!$businessDate instanceof DateTimeImmutable || $businessDate->format('Y-m-d') !== $date) {
+        throw new InvalidArgumentException('business_date must be YYYY-MM-DD for ROI window.');
+    }
+
+    return [
+        'previous_day' => $businessDate->modify('-1 day')->format('Y-m-d'),
+        'next_day' => $businessDate->modify('+1 day')->format('Y-m-d'),
+    ];
+}
+
+/**
+ * @param array<string, mixed>|null $intent
+ * @return array<string, mixed>
+ */
+function ctrip_review_decision_operation_evidence_handoff(string $date, ?int $hotelId, ?array $intent): array
+{
+    $window = ctrip_review_decision_roi_window($date);
+    $intentId = is_array($intent) ? (int)($intent['id'] ?? 0) : 0;
+    $intentPlaceholder = $intentId > 0 ? $intentId : '<operation_execution_intent_id_after_review>';
+    $taskPlaceholder = '<operation_execution_task_id_after_intent_approval>';
+
+    return [
+        'status' => $intentId > 0 ? 'waiting_operation_intent_approval' : 'waiting_execution_intent',
+        'source_scope' => 'ctrip_ota_channel_execution_evidence',
+        'auto_write_ota' => false,
+        'hotel_id' => $hotelId ?? '<ctrip_target_hotel_id>',
+        'execution_intent_id' => $intentPlaceholder,
+        'required_sequence' => [
+            'approve_operation_execution_intent',
+            'record_manual_execution_result',
+            'upload_roi_evidence',
+            'review_execution_task_roi',
+            'keep_investment_manual_review_only',
+        ],
+        'endpoints' => [
+            'approve_intent' => '/api/operation/execution-intents/' . $intentPlaceholder . '/approve',
+            'record_execution' => '/api/operation/execution-tasks/' . $taskPlaceholder . '/execute',
+            'upload_roi_evidence' => '/api/operation/execution-tasks/' . $taskPlaceholder . '/evidence',
+            'review_roi' => '/api/operation/execution-tasks/' . $taskPlaceholder . '/review',
+            'investment_review' => '/api/investment-decision/overview',
+        ],
+        'roi_window' => [
+            'business_date' => $date,
+            'previous_day' => $window['previous_day'],
+            'next_day' => $window['next_day'],
+            'scope' => 'ctrip_ota_channel_only',
+            'required_metrics' => ['revenue', 'room_nights', 'orders', 'conversion', 'traffic'],
+            'protected_boundary' => 'do_not_promote_ctrip_ota_scope_to_whole_hotel_truth',
+        ],
+        'execution_payload_template' => [
+            'status' => 'executed',
+            'evidence_type' => 'manual_price_execution',
+            'evidence' => [
+                'before' => [
+                    'date' => $window['previous_day'],
+                    'revenue' => '<previous_day_ctrip_revenue>',
+                    'room_nights' => '<previous_day_ctrip_room_nights>',
+                    'source_scope' => 'ctrip_ota_channel',
+                ],
+                'after' => [
+                    'date' => $window['next_day'],
+                    'revenue' => '<next_day_ctrip_revenue>',
+                    'room_nights' => '<next_day_ctrip_room_nights>',
+                    'source_scope' => 'ctrip_ota_channel',
+                ],
+                'platform_response' => [
+                    'mode' => 'manual_price_execution',
+                    'business_date' => $date,
+                    'previous_day' => $window['previous_day'],
+                    'next_day' => $window['next_day'],
+                    'evidence_boundary' => 'local_manual_evidence_no_ota_write',
+                    'auto_write_ota' => false,
+                ],
+                'attachment_path' => '<execution_receipt_or_screenshot_path>',
+                'remark' => '<operator_execution_remark>',
+            ],
+        ],
+        'roi_evidence_payload_template' => [
+            'evidence_type' => 'manual_roi_evidence',
+            'evidence' => [
+                'before' => [
+                    'date' => $window['previous_day'],
+                    'revenue' => '<previous_day_ctrip_revenue>',
+                    'room_nights' => '<previous_day_ctrip_room_nights>',
+                    'orders' => '<previous_day_ctrip_orders>',
+                    'conversion' => '<previous_day_ctrip_conversion>',
+                    'traffic' => '<previous_day_ctrip_traffic>',
+                    'source_scope' => 'ctrip_ota_channel',
+                ],
+                'after' => [
+                    'date' => $window['next_day'],
+                    'revenue' => '<next_day_ctrip_revenue>',
+                    'room_nights' => '<next_day_ctrip_room_nights>',
+                    'orders' => '<next_day_ctrip_orders>',
+                    'conversion' => '<next_day_ctrip_conversion>',
+                    'traffic' => '<next_day_ctrip_traffic>',
+                    'source_scope' => 'ctrip_ota_channel',
+                ],
+                'platform_response' => [
+                    'mode' => 'manual_roi_evidence',
+                    'scope' => 'price_execution_incremental_revenue',
+                    'source' => 'revenue_ai_effect_review_input',
+                    'business_date' => $date,
+                    'previous_day' => $window['previous_day'],
+                    'next_day' => $window['next_day'],
+                    'evidence_boundary' => 'local_manual_roi_evidence_no_ota_write',
+                    'auto_write_ota' => false,
+                ],
+                'attachment_path' => '<roi_receipt_or_screenshot_path>',
+                'remark' => '<operator_roi_window_remark>',
+            ],
+        ],
+        'review_payload_template' => [
+            'result_status' => 'success',
+            'result_summary' => '<manual_roi_review_summary_for_previous_day_next_day_ctrip_window>',
+        ],
+    ];
+}
+
+/**
  * @return array<string, mixed>
  */
 function ctrip_review_decision_pending_template_context(int $suggestionId, string $date, ?int $hotelId): array
@@ -1007,6 +1132,13 @@ function ctrip_review_decision_run(array $options): array
                     'target_action' => 'approve_intent',
                     'auto_write_ota' => false,
                 ] : null,
+                'operation_evidence_handoff' => $action === 'reject'
+                    ? [
+                        'status' => 'blocked_by_rejected_ai_review',
+                        'auto_write_ota' => false,
+                        'reason' => 'No operation execution or ROI evidence is allowed for a rejected Ctrip AI pricing suggestion.',
+                    ]
+                    : ctrip_review_decision_operation_evidence_handoff($date, $suggestionHotelId, is_array($intent) ? $intent : null),
                 'next_action' => $action === 'reject'
                     ? 'No operation execution is allowed for a rejected Ctrip AI pricing suggestion.'
                     : ($createIntent

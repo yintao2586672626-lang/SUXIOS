@@ -34,6 +34,7 @@
     "verify:revenue-ai-ctrip-review-decision": "C:\\xampp\\php\\php.exe scripts\\verify_revenue_ai_ctrip_review_decision.php",
     "inspect:revenue-ai-ctrip-pricing-sources": "C:\\xampp\\php\\php.exe scripts\\inspect_revenue_ai_ctrip_pricing_source_fields.php",
     "report:revenue-ai-ctrip-pricing-operator-packet": "C:\\xampp\\php\\php.exe scripts\\report_revenue_ai_ctrip_pricing_operator_packet.php",
+    "report:revenue-ai-ctrip-gap-pack": "C:\\xampp\\php\\php.exe scripts\\report_revenue_ai_ctrip_gap_pack.php",
     "report:revenue-ai-ctrip-pending-review-packet": "C:\\xampp\\php\\php.exe scripts\\report_revenue_ai_ctrip_pending_review_packet.php",
     "export:revenue-ai-ctrip-operator-bundle": "C:\\xampp\\php\\php.exe scripts\\export_revenue_ai_ctrip_operator_bundle.php",
     "verify:revenue-ai-ctrip-operator-bundle": "node scripts/verify_revenue_ai_ctrip_operator_bundle.mjs",

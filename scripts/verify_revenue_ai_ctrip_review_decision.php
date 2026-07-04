@@ -389,6 +389,12 @@ try {
     $scope = ctrip_review_decision_verify_map($runnerPayload['scope'] ?? []);
     $summary = ctrip_review_decision_verify_map($runnerPayload['summary'] ?? []);
     $intentSummary = ctrip_review_decision_verify_map($summary['execution_intent'] ?? []);
+    $operationHandoff = ctrip_review_decision_verify_map($summary['operation_evidence_handoff'] ?? []);
+    $operationHandoffWindow = ctrip_review_decision_verify_map($operationHandoff['roi_window'] ?? []);
+    $operationHandoffEndpoints = ctrip_review_decision_verify_map($operationHandoff['endpoints'] ?? []);
+    $operationHandoffRoiPayload = ctrip_review_decision_verify_map($operationHandoff['roi_evidence_payload_template'] ?? []);
+    $operationHandoffRoiEvidence = ctrip_review_decision_verify_map($operationHandoffRoiPayload['evidence'] ?? []);
+    $operationHandoffPlatformResponse = ctrip_review_decision_verify_map($operationHandoffRoiEvidence['platform_response'] ?? []);
     $template = ctrip_review_decision_verify_map($templatePayload['template'] ?? []);
     $templateDecision = ctrip_review_decision_verify_map($template['review_decision'] ?? []);
     $templatePending = ctrip_review_decision_verify_map($template['pending_suggestion'] ?? []);
@@ -491,6 +497,31 @@ try {
             && (string)($intentSummary['target_page'] ?? '') === 'ops-track',
         'Approved Ctrip AI decision can create an operation execution intent, but not an OTA price write.',
         $intentSummary
+    );
+    ctrip_review_decision_verify_check(
+        $checks,
+        'operation_evidence_handoff_includes_roi_window',
+        (string)($operationHandoff['status'] ?? '') === 'waiting_operation_intent_approval'
+            && (string)($operationHandoff['source_scope'] ?? '') === 'ctrip_ota_channel_execution_evidence'
+            && ($operationHandoff['auto_write_ota'] ?? true) === false
+            && (string)($operationHandoffWindow['business_date'] ?? '') === $options['date']
+            && (string)($operationHandoffWindow['previous_day'] ?? '') === date('Y-m-d', strtotime($options['date'] . ' -1 day'))
+            && (string)($operationHandoffWindow['next_day'] ?? '') === date('Y-m-d', strtotime($options['date'] . ' +1 day'))
+            && (string)($operationHandoffWindow['scope'] ?? '') === 'ctrip_ota_channel_only'
+            && (string)($operationHandoffWindow['protected_boundary'] ?? '') === 'do_not_promote_ctrip_ota_scope_to_whole_hotel_truth'
+            && str_contains((string)($operationHandoffEndpoints['approve_intent'] ?? ''), '/api/operation/execution-intents/')
+            && str_contains((string)($operationHandoffEndpoints['record_execution'] ?? ''), '/api/operation/execution-tasks/')
+            && str_contains((string)($operationHandoffEndpoints['upload_roi_evidence'] ?? ''), '/api/operation/execution-tasks/')
+            && str_contains((string)($operationHandoffEndpoints['review_roi'] ?? ''), '/api/operation/execution-tasks/')
+            && (string)($operationHandoffPlatformResponse['evidence_boundary'] ?? '') === 'local_manual_roi_evidence_no_ota_write'
+            && ($operationHandoffPlatformResponse['auto_write_ota'] ?? true) === false,
+        'Post-review handoff exposes previous-day/next-day Ctrip OTA ROI evidence capture without OTA write or whole-hotel promotion.',
+        [
+            'status' => $operationHandoff['status'] ?? null,
+            'roi_window' => $operationHandoffWindow,
+            'endpoints' => $operationHandoffEndpoints,
+            'platform_response' => $operationHandoffPlatformResponse,
+        ]
     );
     ctrip_review_decision_verify_check(
         $checks,
