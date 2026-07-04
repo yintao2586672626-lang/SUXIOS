@@ -12,22 +12,27 @@ const onlinePage = onlinePageEnd > onlinePageStart
   ? html.slice(onlinePageStart, onlinePageEnd)
   : html.slice(onlinePageStart);
 
-test('data health workbench is the first online data surface and keeps evidence chain module behind full diagnostics', () => {
+test('manual one-click fetch is the first online data surface and keeps diagnostics behind full mode', () => {
   assert.ok(onlinePageStart > 0, 'online-data page section must exist');
-  assert.match(onlinePage, /数据健康工作台/);
-  assert.match(onlinePage, /数据自动获取/);
-  assert.match(onlinePage, /dataAcquisitionWorkbenchRows/);
-  assert.match(onlinePage, /dataAcquisitionIssueGroups/);
-  assert.match(onlinePage, /可抓取/);
-  assert.match(onlinePage, /一键抓取/);
-  assert.match(onlinePage, /triggerCookieConfigAutoFetch/);
-  assert.match(onlinePage, /triggerCookieConfigAutoFetchGroup/);
-  assert.match(onlinePage, /triggerCookieConfigAutoFetchAll/);
-  assert.match(onlinePage, /cookie_config/);
+  assert.match(onlinePage, /数据一键获取/);
+  assert.match(onlinePage, /手动一键获取/);
+  assert.match(onlinePage, /manualOneClickFetchRows/);
+  assert.match(onlinePage, /manualOneClickFetchCards/);
+  assert.match(onlinePage, /一键获取携程/);
+  assert.match(onlinePage, /一键获取美团/);
+  assert.match(onlinePage, /双平台一键获取/);
+  assert.match(onlinePage, /runManualOneClickFetch/);
+  assert.match(onlinePage, /fetchCtripData/);
+  assert.match(onlinePage, /fetchMeituanData/);
+  assert.match(onlinePage, /result\?\.response\?\.data\?\.saved_count/);
+  assert.match(onlinePage, /result\?\.totalSavedCount/);
+  assert.match(onlinePage, /no_saved/);
+  assert.match(onlinePage, /本次入库 0 条，不等于入库成功/);
+  assert.doesNotMatch(onlinePage, /triggerCookieConfigAutoFetchGroup\(group\.hotelIds\)/);
   assert.doesNotMatch(onlinePage, /当前卡点/);
   assert.doesNotMatch(onlinePage, /今天先处理的问题/);
   assert.doesNotMatch(onlinePage, /优先处理动作/);
-  assert.match(onlinePage, /查看完整诊断/);
+  assert.match(onlinePage, /排障诊断/);
   assert.match(onlinePage, /账号级驾驶舱/);
   assert.match(onlinePage, /单店酒店数据画像/);
   assert.match(onlinePage, /数据源状态 \/ 证据链/);

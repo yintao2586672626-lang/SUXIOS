@@ -438,6 +438,10 @@ final class PlatformDataSyncService
                 'captcha_or_platform_limit' => 'manual_intervention_required',
                 'review_data' => 'disabled_by_default',
                 'privacy_scope' => 'ota_channel_aggregate_only',
+                'ota_collection_mainline' => 'browser_profile_authorization',
+                'ota_password_custody' => 'not_supported',
+                'cookie_api_role' => 'p1_profile_derived_fast_path_or_backfill',
+                'profile_login_state' => 'manual_login_state_verified_required',
             ],
             'access_issues' => $accessIssues,
         ];
@@ -514,6 +518,10 @@ final class PlatformDataSyncService
                 $raw['platform_hotel_identifier_source'] = (string)$platformIdentifierEvidence['source'];
                 $raw['platform_hotel_identifier_proof'] = (string)$platformIdentifierEvidence['proof'];
             }
+            $rowDateSource = $this->stringValue($row, ['date_source', 'dateSource', 'data_date_source', 'dataDateSource', '_date_source', '_data_date_source']);
+            if ($rowDateSource !== '') {
+                $raw['date_source'] = $rowDateSource;
+            }
 
             $normalizedRow = [
                 'hotel_id' => $this->stringValue($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'external_hotel_id']) ?: (string)($source['external_hotel_id'] ?? ''),
@@ -531,7 +539,7 @@ final class PlatformDataSyncService
                 'dimension' => $this->stringValue($row, ['dimension', 'dim_name', '_dimName']) ?: ($dataType === 'review' ? $this->reviewDimensionValue($row) : ''),
                 'data_type' => $dataType,
                 'platform' => $this->stringValue($row, ['platform']) ?: $platform,
-                'compare_type' => $this->stringValue($row, ['compare_type', 'compareType']),
+                'compare_type' => $this->stringValue($row, ['compare_type', 'compareType', 'rank_type', 'rankType']),
                 'list_exposure' => (int)$this->numericValue($row, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']),
                 'detail_exposure' => (int)$this->numericValue($row, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount', 'visitors', 'visitorTotal', 'pv', 'uv']),
                 'flow_rate' => $this->numericValue($row, ['flow_rate', 'flowRate', 'cvr', 'ctr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate']),
@@ -549,7 +557,7 @@ final class PlatformDataSyncService
                 'is_final' => $periodMeta['is_final'],
             ];
 
-            $fieldFacts = $this->buildNormalizedFieldFacts($row, $dataType, $normalizedRow);
+            $fieldFacts = $this->buildNormalizedFieldFacts($row, $dataType, $normalizedRow, $traceId);
             if ($fieldFacts !== []) {
                 $raw['field_facts'] = $fieldFacts;
                 $raw['field_fact_summary'] = $this->summarizeNormalizedFieldFacts($fieldFacts);
@@ -566,7 +574,7 @@ final class PlatformDataSyncService
      * @param array<string, mixed> $normalizedRow
      * @return array<int, array<string, mixed>>
      */
-    private function buildNormalizedFieldFacts(array $row, string $dataType, array $normalizedRow): array
+    private function buildNormalizedFieldFacts(array $row, string $dataType, array $normalizedRow, string $rowSourceTraceId = ''): array
     {
         $dataType = $this->normalizeDataType($dataType);
         $definitions = self::NORMALIZED_FIELD_FACT_DEFINITIONS[$dataType] ?? [];
@@ -594,7 +602,7 @@ final class PlatformDataSyncService
             ];
             $fact['storage_field'] = $this->normalizedStorageField($definition);
             if ($sourceKey !== '') {
-                $fact['capture_evidence'] = $this->fieldFactCaptureEvidence($row);
+                $fact['capture_evidence'] = $this->fieldFactCaptureEvidence($row, $rowSourceTraceId);
             }
             $facts[] = $fact;
         }
@@ -756,7 +764,7 @@ final class PlatformDataSyncService
      * @param array<string, mixed> $row
      * @return array<string, mixed>
      */
-    private function fieldFactCaptureEvidence(array $row): array
+    private function fieldFactCaptureEvidence(array $row, string $rowSourceTraceId = ''): array
     {
         $evidence = [];
         foreach (['_source_path', '_capture_source'] as $key) {
@@ -770,6 +778,9 @@ final class PlatformDataSyncService
         $this->appendSafeFieldFactCaptureEvidence($evidence, $row);
         if (isset($row['_source_url']) && is_scalar($row['_source_url']) && trim((string)$row['_source_url']) !== '') {
             $evidence['source_url_hash'] = hash('sha256', (string)$row['_source_url']);
+        }
+        if ($rowSourceTraceId !== '') {
+            $evidence['source_trace_id'] = mb_substr($rowSourceTraceId, 0, 300);
         }
         return $evidence;
     }
@@ -937,6 +948,7 @@ final class PlatformDataSyncService
         $taskId = $this->createTask($source, $user, (string)($options['trigger_type'] ?? 'manual'));
         try {
             $adapter = $this->resolveAdapter($source);
+            $this->assertBrowserProfileBackgroundSyncLoginVerified($source, $options);
             $phaseStartedAt = microtime(true);
             $result = $adapter->fetch($source, $options);
             $timing['capture_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
@@ -1459,6 +1471,8 @@ final class PlatformDataSyncService
         }
 
         $method = (string)($payload['ingestion_method'] ?? 'manual');
+        $platform = strtolower(trim((string)($payload['platform'] ?? 'custom'))) ?: 'custom';
+        $this->assertNoOtaPasswordCustody($platform, $secret);
         $status = in_array($method, ['manual', 'import_json', 'import_csv', 'import_excel'], true) || !empty($config) || !empty($secret)
             ? 'ready'
             : 'waiting_config';
@@ -1476,7 +1490,7 @@ final class PlatformDataSyncService
         return [
             'name' => trim((string)($payload['name'] ?? '')) ?: 'Platform data source',
             'system_hotel_id' => is_numeric($payload['system_hotel_id'] ?? $payload['hotel_id'] ?? null) ? (int)($payload['system_hotel_id'] ?? $payload['hotel_id']) : 0,
-            'platform' => strtolower(trim((string)($payload['platform'] ?? 'custom'))) ?: 'custom',
+            'platform' => $platform,
             'data_type' => $dataType,
             'ingestion_method' => $method,
             'status' => $status,
@@ -1484,6 +1498,25 @@ final class PlatformDataSyncService
             'config' => $config,
             'secret' => $secret,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $secret
+     */
+    private function assertNoOtaPasswordCustody(string $platform, array $secret): void
+    {
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            return;
+        }
+        if (!array_key_exists('password', $secret)) {
+            return;
+        }
+        $password = $secret['password'];
+        if (!is_scalar($password) || trim((string)$password) === '') {
+            return;
+        }
+
+        throw new RuntimeException('OTA account password custody is not supported. Use browser Profile login and manual_login_state_verified instead.', 422);
     }
 
     private function loadSource(int $id): array
@@ -1505,6 +1538,77 @@ final class PlatformDataSyncService
             }
         }
         throw new RuntimeException('No adapter is available for this data source.', 422);
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $options
+     */
+    private function assertBrowserProfileBackgroundSyncLoginVerified(array $source, array $options): void
+    {
+        $missing = $this->browserProfileBackgroundSyncLoginMissingRequirements($source, $options);
+        if ($missing === []) {
+            return;
+        }
+
+        throw new RuntimeException(
+            'browser_profile background sync requires manual_login_state_verified, profile_status=logged_in, and last_login_verified_at before capture.',
+            422
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $options
+     * @return array<int, string>
+     */
+    private function browserProfileBackgroundSyncLoginMissingRequirements(array $source, array $options): array
+    {
+        if (!$this->isOtaBrowserProfileSource($source) || $this->browserProfileSyncIsInteractive($options)) {
+            return [];
+        }
+
+        $config = $this->decodeConfig($source['config'] ?? $source['config_json'] ?? []);
+        $missing = [];
+        if (!$this->truthy($config['manual_login_state_verified'] ?? null)) {
+            $missing[] = 'manual_login_state_verified';
+        }
+
+        $profileStatus = strtolower(trim((string)($config['profile_status'] ?? $config['login_status'] ?? '')));
+        if (!in_array($profileStatus, ['logged_in', 'authorized'], true)) {
+            $missing[] = 'profile_status_logged_in';
+        }
+
+        $lastVerifiedAt = trim((string)(
+            $config['last_login_verified_at']
+            ?? $config['profile_login_verified_at']
+            ?? $config['last_profile_login_at']
+            ?? ''
+        ));
+        if ($lastVerifiedAt === '') {
+            $missing[] = 'last_login_verified_at';
+        }
+
+        return $missing;
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     */
+    private function isOtaBrowserProfileSource(array $source): bool
+    {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $method = strtolower(trim((string)($source['ingestion_method'] ?? '')));
+        return in_array($platform, ['ctrip', 'meituan'], true)
+            && in_array($method, ['browser_profile', 'profile_browser'], true);
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    private function browserProfileSyncIsInteractive(array $options): bool
+    {
+        return $this->truthy($options['interactive_browser'] ?? $options['interactiveBrowser'] ?? false);
     }
 
     private function refreshDatabaseConnectionAfterExternalFetch(): void
@@ -1684,11 +1788,21 @@ final class PlatformDataSyncService
         if ($requiresTraffic && $targetTrafficRows > 0 && $targetTrafficFieldFactReady <= 0) {
             $missingInputs[] = 'traffic_field_facts';
         }
-        $p0Status = $requiresTraffic
-            ? ($missingInputs === [] ? 'ready' : 'blocked')
-            : ($savedCount > 0 ? 'not_required' : 'not_loaded');
+        foreach ($this->browserProfileBackgroundSyncLoginMissingRequirements($source, $options) as $missingLoginRequirement) {
+            if (!in_array($missingLoginRequirement, $missingInputs, true)) {
+                $missingInputs[] = $missingLoginRequirement;
+            }
+        }
+        $p0Status = $missingInputs !== []
+            ? 'blocked'
+            : ($requiresTraffic ? 'ready' : ($savedCount > 0 ? 'not_required' : 'not_loaded'));
         $operatorMessage = 'target_date_traffic_ready';
-        if (in_array('target_date_traffic_rows', $missingInputs, true)) {
+        if (in_array('manual_login_state_verified', $missingInputs, true)
+            || in_array('profile_status_logged_in', $missingInputs, true)
+            || in_array('last_login_verified_at', $missingInputs, true)
+        ) {
+            $operatorMessage = 'manual_login_state_not_verified';
+        } elseif (in_array('target_date_traffic_rows', $missingInputs, true)) {
             $operatorMessage = 'profile_reused_no_target_date_traffic_rows';
         } elseif (in_array('traffic_field_facts', $missingInputs, true)) {
             $operatorMessage = 'traffic_field_facts_missing';
@@ -1731,14 +1845,12 @@ final class PlatformDataSyncService
 
     private function syncRequiresTargetDateTrafficEvidence(array $source, array $options, array $payload): bool
     {
-        $platform = strtolower(trim((string)($source['platform'] ?? '')));
-        $method = strtolower(trim((string)($source['ingestion_method'] ?? '')));
-        if (!in_array($platform, ['ctrip', 'meituan'], true) || !in_array($method, ['browser_profile', 'profile_browser'], true)) {
+        if (!$this->isOtaBrowserProfileSource($source)) {
             return false;
         }
 
         $trigger = strtolower(trim((string)($options['trigger_type'] ?? $options['triggerType'] ?? '')));
-        if (in_array($trigger, ['daily_profile_reuse', 'profile_login_after_sync', 'profile_login_verified_sync'], true)) {
+        if (in_array($trigger, ['daily_profile_reuse', 'profile_login_after_login', 'profile_login_after_sync', 'profile_login_verified_sync'], true)) {
             return true;
         }
         $dataType = $this->normalizeDataType((string)($source['data_type'] ?? $options['data_type'] ?? $options['dataType'] ?? ''));

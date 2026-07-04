@@ -477,11 +477,6 @@ class PlatformProfileLogin extends Command
         if ((int)$payloadForSave['id'] <= 0) {
             unset($payloadForSave['id']);
         }
-        $cookies = trim((string)($request['cookies'] ?? $request['cookie'] ?? ''));
-        if ($cookies !== '') {
-            $payloadForSave['secret'] = ['cookies' => $cookies];
-        }
-
         return (new PlatformDataSyncService())->saveDataSource($this->systemSyncUser(), $payloadForSave);
     }
 

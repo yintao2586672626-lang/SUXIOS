@@ -5,6 +5,82 @@ namespace app\service;
 
 final class PlatformProfileBindingReadinessService
 {
+    public static function buildContract(string $platform, int $hotelId, array $config, ?array $source, string $statusCode, bool $profileExists, string $profileKey): array
+    {
+        $platform = strtolower(trim($platform));
+        [$otaStoreId, $otaStoreIdSource] = self::otaStoreIdFromConfig($platform, $config);
+        [$profileId, $profileIdSource] = self::profileIdFromConfig($config, $profileKey);
+
+        $ingestionMethod = strtolower(trim((string)($source['ingestion_method'] ?? '')));
+        $dataSourceId = isset($source['id']) ? (int)$source['id'] : null;
+        $manualLoginVerified = self::truthy($config['manual_login_state_verified'] ?? null);
+        $lastLoginVerifiedAt = self::firstString($config, [
+            'last_login_verified_at',
+            'lastLoginVerifiedAt',
+            'login_verified_at',
+            'loginVerifiedAt',
+            'last_verified_at',
+            'lastVerifiedAt',
+        ]);
+
+        $missing = [];
+        if ($hotelId <= 0) {
+            $missing[] = 'system_hotel_id';
+        }
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            $missing[] = 'platform';
+        }
+        if ($dataSourceId === null || $dataSourceId <= 0) {
+            $missing[] = 'data_source_id';
+        }
+        if (!in_array($ingestionMethod, ['browser_profile', 'profile_browser'], true)) {
+            $missing[] = 'browser_profile_data_source';
+        }
+        if ($otaStoreId === '') {
+            $missing[] = 'ota_store_id';
+        }
+        if ($profileId === '') {
+            $missing[] = 'profile_id';
+        }
+        if (!$profileExists) {
+            $missing[] = 'profile_exists';
+        }
+        if (!$manualLoginVerified) {
+            $missing[] = 'manual_login_state_verified';
+        }
+        if ($lastLoginVerifiedAt === '') {
+            $missing[] = 'last_login_verified_at';
+        }
+        if ($statusCode !== 'logged_in') {
+            $missing[] = 'profile_status_logged_in';
+        }
+
+        $isComplete = $missing === [];
+
+        return [
+            'status' => $isComplete ? 'complete' : 'incomplete',
+            'is_complete' => $isComplete,
+            'missing_requirements' => $missing,
+            'system_hotel_id' => $hotelId,
+            'platform' => $platform,
+            'data_source_id' => $dataSourceId,
+            'ingestion_method' => $ingestionMethod,
+            'is_browser_profile_source' => in_array($ingestionMethod, ['browser_profile', 'profile_browser'], true),
+            'ota_store_id' => $otaStoreId,
+            'ota_store_id_source' => $otaStoreIdSource,
+            'profile_id' => $profileId,
+            'profile_id_source' => $profileIdSource,
+            'profile_binding_key' => self::firstString($config, ['profile_binding_key', 'profileBindingKey']) ?: $profileKey,
+            'profile_reuse_scope' => (string)($config['profile_reuse_scope'] ?? $config['profileReuseScope'] ?? ''),
+            'profile_daily_reuse_enabled' => self::truthy($config['profile_daily_reuse_enabled'] ?? $config['profileDailyReuseEnabled'] ?? null),
+            'profile_exists' => $profileExists,
+            'profile_status' => $statusCode,
+            'manual_login_state_verified' => $manualLoginVerified,
+            'last_login_verified_at' => $lastLoginVerifiedAt,
+            'last_capture_time' => (string)($source['last_sync_time'] ?? $source['update_time'] ?? ''),
+        ];
+    }
+
     public static function buildChecks(string $platform, int $hotelId, array $config, ?array $source, string $statusCode, bool $profileExists, string $profileKey): array
     {
         $isCtrip = $platform === 'ctrip';
@@ -51,15 +127,15 @@ final class PlatformProfileBindingReadinessService
         ];
 
         if ($isCtrip) {
-            $explicitProfileId = trim((string)($config['profile_id'] ?? $config['profileId'] ?? ''));
-            $otaHotelId = trim((string)($config['ota_hotel_id'] ?? $config['ctrip_hotel_id'] ?? $config['ctripHotelId'] ?? ''));
+            [$otaHotelId] = self::otaStoreIdFromConfig($platform, $config);
+            [$profileId] = self::profileIdFromConfig($config, $profileKey);
             $nodeId = trim((string)($config['node_id'] ?? $config['nodeId'] ?? ''));
-            if ($explicitProfileId !== '' || $otaHotelId !== '') {
+            if ($profileId !== '' && $otaHotelId !== '') {
                 $identityStatus = 'ok';
                 $identityDetail = 'Profile/OTA酒店标识已配置' . ($nodeId !== '' ? '，Node已配置' : '');
                 $identityAction = '可执行携程采集';
                 $identityActionMeta = ['run_ctrip_trial_capture', '执行携程试采集', 'platform-auto'];
-            } elseif ($profileExists) {
+            } elseif ($profileExists || $profileId !== '' || $otaHotelId !== '') {
                 $identityStatus = 'warning';
                 $identityDetail = '本地Profile存在，但缺少明确OTA酒店标识';
                 $identityAction = '补充携程 Profile ID 或 OTA酒店ID';
@@ -78,6 +154,11 @@ final class PlatformProfileBindingReadinessService
                 $identityDetail = '缺少美团 POI/Store 标识';
                 $identityAction = '先绑定美团门店 POI/Store';
                 $identityActionMeta = ['configure_meituan_poi', '补齐美团 POI/Store', 'platform-sources'];
+            } elseif (!$partnerConfigured) {
+                $identityStatus = 'ok';
+                $identityDetail = 'POI/Store 已配置；Partner ID 仅影响 Cookie/API 快速路径';
+                $identityAction = '可先执行美团 Profile 授权采集';
+                $identityActionMeta = ['login_platform_profile', '登录美团', 'profile-login'];
             } elseif ($partnerConfigured) {
                 $identityStatus = 'ok';
                 $identityDetail = 'POI/Store 与 Partner ID 已配置';
@@ -187,6 +268,59 @@ final class PlatformProfileBindingReadinessService
             'action_label' => $actionLabel,
             'action_target' => $actionTarget,
         ];
+    }
+
+    private static function otaStoreIdFromConfig(string $platform, array $config): array
+    {
+        $keys = $platform === 'meituan'
+            ? ['store_id', 'storeId', 'poi_id', 'poiId']
+            : ['ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId', 'hotel_code', 'hotelCode', 'hotel_id', 'hotelId'];
+
+        foreach ($keys as $key) {
+            $value = trim((string)($config[$key] ?? ''));
+            if ($value !== '') {
+                return [$value, $key];
+            }
+        }
+
+        return ['', ''];
+    }
+
+    private static function profileIdFromConfig(array $config, string $profileKey): array
+    {
+        foreach (['profile_id', 'profileId', 'stable_profile_id', 'stableProfileId', 'profile_binding_key', 'profileBindingKey'] as $key) {
+            $value = trim((string)($config[$key] ?? ''));
+            if ($value !== '') {
+                return [$value, $key];
+            }
+        }
+
+        $profileKey = trim($profileKey);
+        return [$profileKey, $profileKey !== '' ? 'resolved_profile_key' : ''];
+    }
+
+    private static function firstString(array $config, array $keys): string
+    {
+        foreach ($keys as $key) {
+            $value = trim((string)($config[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    private static function truthy(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return (int)$value === 1;
+        }
+
+        return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on', 'logged_in'], true);
     }
 
     private static function statusText(string $statusCode): string

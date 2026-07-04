@@ -40,6 +40,35 @@ test('Meituan traffic card response maps to P0 traffic fields', () => {
   assert.equal(isImportableMeituanTrafficRow(rows[0]), true);
 });
 
+test('Meituan traffic card response maps title aliases and non-value fields', () => {
+  const rows = normalizeMeituanTrafficCardRows({
+    data: {
+      cards: [
+        { title: '\u66dd\u5149\u4eba\u6570', valueText: '320' },
+        { title: '\u8be6\u60c5\u9875\u6d4f\u89c8\u4eba\u6570\uff08UV\uff09', displayValue: '80' },
+        { title: '\u6d4f\u89c8-\u652f\u4ed8\u8f6c\u5316\u7387', dataValue: '6.25%' },
+        { title: '\u652f\u4ed8\u8ba2\u5355\u6570', currentValue: '5' },
+      ],
+    },
+  }, {
+    requestDateEvidence: { date: '2026-07-04', date_source: 'request.query.date' },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].dataDate, '2026-07-04');
+  assert.equal(rows[0].date_source, 'request.query.date');
+  assert.equal(rows[0].listExposure, 320);
+  assert.equal(rows[0].detailExposure, 80);
+  assert.equal(rows[0].flowRate, 6.25);
+  assert.equal(rows[0].orderSubmitNum, 5);
+  assert.equal(rows[0].orderFillingNum, 5);
+  assert.equal(rows[0]._meituan_card_metric_sources.list_exposure.source_path, 'data.cards.0.valueText');
+  assert.equal(rows[0]._meituan_card_metric_sources.detail_exposure.source_path, 'data.cards.1.displayValue');
+  assert.equal(rows[0]._meituan_card_metric_sources.flow_rate.source_path, 'data.cards.2.dataValue');
+  assert.equal(rows[0]._meituan_card_metric_sources.order_submit_num.source_path, 'data.cards.3.currentValue');
+  assert.equal(isImportableMeituanTrafficRow(rows[0]), true);
+});
+
 test('Meituan traffic card placeholders remain non-importable', () => {
   const rows = normalizeMeituanTrafficCardRows({
     data: {
@@ -59,6 +88,20 @@ test('Meituan traffic card placeholders remain non-importable', () => {
   assert.equal(rows[0].date_source, 'request.query.date');
   assert.equal(rows[0]._meituan_card_metric_missing.length, 4);
   assert.equal(isImportableMeituanTrafficRow(rows[0]), false);
+});
+
+test('Meituan non-metric cards are ignored instead of becoming empty traffic rows', () => {
+  const rows = normalizeMeituanTrafficCardRows({
+    data: {
+      cards: [
+        { title: '\u95e8\u5e97\u5065\u5eb7', valueText: '\u6b63\u5e38' },
+      ],
+    },
+  }, {
+    requestDateEvidence: { date: '2026-07-04', date_source: 'request.query.date' },
+  });
+
+  assert.deepEqual(rows, []);
 });
 
 test('Meituan traffic importability requires every P0 field group', () => {

@@ -768,8 +768,11 @@ window.SUXI_SYSTEM_STATIC = (() => {
         if (item.cookies_preview) return item.cookies_preview;
         return item.has_cookies ? '\u5df2\u4fdd\u5b58' : '-';
     };
+    const meituanConfigHasProfileCookieSource = (config) => (
+        !!(config?.has_profile_cookie_source || config?.profile_cookie_source || String(config?.cookie_source || '').trim() === 'browser_profile')
+    );
     const meituanConfigHasCookies = (config) => (
-        !!(String(config?.cookies || '').trim() || config?.has_cookies)
+        !!(String(config?.cookies || '').trim() || config?.has_cookies || meituanConfigHasProfileCookieSource(config))
     );
     const meituanConfigMissingFields = (config) => {
         const backendMissing = config?.credential_requirement?.missing_fields || config?.missing_fields;

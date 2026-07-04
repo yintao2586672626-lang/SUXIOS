@@ -95,6 +95,81 @@ test('does not use Profile ID as Ctrip platform hotel identity fallback', () => 
   assert.equal(platformScopedRows[0].hotel_id, 'ctrip-platform-60');
 });
 
+test('classifies Ctrip flow-transform current hotel and peer-average rows by platform hotel id', () => {
+  const baseFact = {
+    value_type: 'number',
+    endpoint_id: 'traffic_flow_transform',
+    endpoint_label: 'APP流量漏斗',
+    section: 'traffic_report',
+    platform: 'Qunar',
+    data_date: '2026-07-03',
+    captured_at: '2026-07-05T02:55:00.000Z',
+    source_url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/queryFlowTransforNewV1',
+  };
+  const facts = [
+    {
+      ...baseFact,
+      metric_key: 'qunar_list_exposure',
+      metric_label: '竞争圈模块-我的酒店-去哪儿列表页曝光量',
+      value: 78,
+      source_key: 'listExposure',
+      source_path: 'data.0.listExposure',
+      source_parent_path: 'data.0',
+      hotel_id: '6866634',
+    },
+    {
+      ...baseFact,
+      metric_key: 'qunar_detail_visitor',
+      metric_label: '竞争圈模块-我的酒店-去哪儿详情页访客量',
+      value: 5,
+      source_key: 'detailExposure',
+      source_path: 'data.0.detailExposure',
+      source_parent_path: 'data.0',
+      hotel_id: '6866634',
+    },
+    {
+      ...baseFact,
+      metric_key: 'qunar_competitor_list_exposure',
+      metric_label: '竞争圈平均-去哪儿列表页曝光量',
+      value: 1264,
+      source_key: 'listExposure',
+      source_path: 'data.1.listExposure',
+      source_parent_path: 'data.1',
+      hotel_id: '-1',
+    },
+    {
+      ...baseFact,
+      metric_key: 'qunar_competitor_detail_visitor',
+      metric_label: '竞争圈平均-去哪儿详情页访客量',
+      value: 173,
+      source_key: 'detailExposure',
+      source_path: 'data.1.detailExposure',
+      source_parent_path: 'data.1',
+      hotel_id: '-1',
+    },
+  ];
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: '西安天诚',
+    profileId: 'system_58',
+    otaHotelId: '6866634',
+    ctripHotelId: '6866634',
+    dataDate: '2026-07-03',
+  });
+
+  const selfRow = rows.find((row) => row.hotel_id === '6866634');
+  const peerAverageRow = rows.find((row) => row.hotel_id === '-1');
+  assert.ok(selfRow);
+  assert.ok(peerAverageRow);
+  assert.equal(selfRow.compare_type, 'self');
+  assert.equal(selfRow.list_exposure, 78);
+  assert.equal(selfRow.detail_exposure, 5);
+  assert.equal(peerAverageRow.compare_type, 'competitor');
+  assert.equal(peerAverageRow.list_exposure, 1264);
+  assert.equal(peerAverageRow.detail_exposure, 173);
+});
+
 test('defines Ctrip section interaction plans for tabbed capture pages', () => {
   const sales = getCtripSectionInteractionPlan('sales_report').map(step => step.text);
   assert.equal(sales.includes('\u9500\u552e\u6570\u636e'), true);
@@ -1627,7 +1702,7 @@ test('keeps Ctrip PSI V2 base-score detail items as fact-only diagnostic rows', 
     profileId: '6866634',
     dataDate: '2026-06-05',
   });
-  const baseRow = rows.find((row) => row.dimension === 'catalog:quality_psi:psi_overview:hotel_id+hotel_name+base_score:psiScoreBo');
+  const baseRow = rows.find((row) => row.dimension === 'catalog:quality_psi:psi_overview:hotel_id+hotel_name+base_score:psiScoreBo.masterHotelId');
   assert.ok(baseRow);
   assert.equal(baseRow.data_type, 'quality');
   assert.equal(baseRow.data_value, 4.67);

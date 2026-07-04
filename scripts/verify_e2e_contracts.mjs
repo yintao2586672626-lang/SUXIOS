@@ -210,7 +210,11 @@ requireText('public/index.html', 'const dualOtaPlatformRevenueTitle = computed((
 requireText('public/index.html', '<h2>{{ dualOtaPlatformRevenueTitle }}</h2>', 'AI workbench renders platform-aware revenue title');
 requireText('public/index.html', '<div v-if="platform.metrics && platform.metrics.length" class="dual-ota-platform-metrics">', 'AI workbench renders single-platform revenue as revenue plus order/night/ADR metrics');
 requireText('public/index.html', 'dualOtaPlatformRevenuePlatforms.length === 1 ? \'is-single\' : \'\'', 'AI workbench uses a single-column revenue structure when one OTA platform is selected');
-requireText('public/index.html', '<div v-if="dualOtaEffectiveStoreScope === \'combined\'" class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">', 'AI workbench hides the 100 percent contribution bar when a single OTA platform is selected');
+requireText('public/index.html', 'const dualOtaCurrentRevenuePlatforms = () => {', 'AI workbench revenue structure is derived from current selected OTA rows');
+requireText('public/index.html', '<div v-if="dualOtaPlatformRevenueHasContribution" class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">', 'AI workbench hides the contribution bar when current selected revenue is missing or a single OTA platform is selected');
+requireText('public/index.html', 'dualOtaCurrentLossNodes = () => {', 'AI workbench loss chain is derived from current selected OTA rows');
+requireText('public/index.html', "delta: missing ? '字段未返回' : '已返回',", 'AI workbench loss-chain status does not repeat the missing value as a second metric');
+requireNoText('public/index.html', 'const platforms = Array.isArray(dualOtaDashboard.value.platformRevenue?.platforms) ? dualOtaDashboard.value.platformRevenue.platforms : [];', 'AI workbench revenue structure no longer uses static sample platform rows');
 requireText('public/dual-ota-home-static.js', "title: '曝光正常',", 'AI workbench loss-chain exposure explanation uses clear wording');
 requireText('public/dual-ota-home-static.js', "activeRange: 'yesterday',", 'AI workbench defaults the top time range to yesterday');
 requireText('public/dual-ota-home-static.js', "{ name: '携程竞争圈数据', reason: '' }", 'AI workbench bottom module labels Ctrip competitor-circle data explicitly');
@@ -1348,7 +1352,7 @@ requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeAi
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeOperationSummary')", 'entry uses extracted Phase1 operation summary builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeClosureSummary')", 'entry uses extracted Phase1 closure summary builder');
 requireText('public/index.html', "requireDataHealthStatic('formatOnlineHistoryRaw')", 'entry uses extracted online history raw formatter');
-requireText('public/index.html', 'data-health-static.js?v=20260704-data-health-static-tools', 'entry bumps data-health static helper version after data-health static tools update');
+requireText('public/index.html', 'data-health-static.js?v=20260704-manual-one-click-fetch', 'entry bumps data-health static helper version after manual one-click fetch update');
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryHotelOption', 'data-health static formats online history hotel options');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryRaw', 'data-health static formats online history raw payloads');

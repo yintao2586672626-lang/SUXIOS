@@ -325,9 +325,14 @@ const checks = [
       && source.includes('autoFetchRunState.active'),
   },
   {
-    name: 'Meituan auto-fetch config requires Partner ID, POI ID and Cookies',
-    pass: (/const meituanConfigMissingFields = \(config\) => \{[\s\S]*Partner ID[\s\S]*POI ID[\s\S]*Cookies/.test(source)
+    name: 'Meituan auto-fetch config accepts manual Cookie or browser Profile derived Cookie source',
+    legacyPass: (/const meituanConfigMissingFields = \(config\) => \{[\s\S]*Partner ID[\s\S]*POI ID[\s\S]*Cookies/.test(source)
       || /const meituanConfigMissingFields = \(config\) => \{[\s\S]*平台接口标识[\s\S]*平台门店标识[\s\S]*Cookie\/API 辅助/.test(source))
+      && /const hasMeituanFetchConfigByHotelId = \(hotelId\) => \{[\s\S]*meituanConfigMissingFields\(config\)\.length === 0/.test(source),
+    pass: source.includes('const meituanConfigHasProfileCookieSource = (config) => (')
+      && source.includes("String(config?.cookie_source || '').trim() === 'browser_profile'")
+      && source.includes('config?.has_profile_cookie_source || config?.profile_cookie_source')
+      && /const meituanConfigMissingFields = \(config\) => \{[\s\S]*meituanConfigHasCookies\(config\)/.test(source)
       && /const hasMeituanFetchConfigByHotelId = \(hotelId\) => \{[\s\S]*meituanConfigMissingFields\(config\)\.length === 0/.test(source),
   },
   {

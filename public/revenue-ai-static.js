@@ -4,7 +4,7 @@
     const revenueAiStatusTone = (status) => {
         const value = String(status || '').toLowerCase();
         if (['ok', 'success', 'ready', 'reviewed', 'ready_for_manual_generation', 'pricing_generation_candidates_ready'].includes(value)) return 'ok';
-        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'unverified', 'pending_review', 'pending_review_exists', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi', 'investment_precheck_waiting_decision_record', 'waiting_decision_record_readiness', 'operation_intake_waiting_human_approval', 'operation_intake_ready_for_human_create', 'operation_intake_in_operation_flow', 'operation_intake_waiting_operation_progress'].includes(value)) return 'warning';
+        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'unverified', 'skipped_by_operator_policy', 'pending_review', 'pending_review_exists', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi', 'investment_precheck_waiting_decision_record', 'waiting_decision_record_readiness', 'operation_intake_waiting_human_approval', 'operation_intake_ready_for_human_create', 'operation_intake_in_operation_flow', 'operation_intake_waiting_operation_progress'].includes(value)) return 'warning';
         if (['failed', 'unauthorized', 'blocked', 'error', 'investment_precheck_blocked_by_operation_roi', 'blocked_by_operation_roi', 'blocked_by_p0_ota_gate', 'operation_intake_blocked_by_manual_review', 'operation_intake_blocked_by_operation_execution'].includes(value)) return 'blocked';
         return 'unknown';
     };
@@ -39,6 +39,7 @@
         empty: '无数据',
         missing: '缺失',
         unverified: '未验证',
+        skipped_by_operator_policy: '已暂时跳过',
         not_loaded: '未接入',
         not_calculable: '不可计算',
         blocked: '待补数据',
@@ -98,6 +99,7 @@
         competitor_price_below_competitor_review_required: '本店均价低于竞对均价，需复核是否低于保护价后再判断调价。',
         competitor_price_aligned: '本店均价与竞对均价接近。',
         floor_price_missing: '暂缺最低保护价。',
+        missing_pricing_inputs_skipped_by_operator_policy: '已按人工策略暂时跳过抓不到的房型、保护价、需求预测和竞对样本缺口。',
         manual_review_workflow_not_connected: '暂未接入人工审核工作流。',
         price_suggestions_missing: '定价建议表不存在。',
         price_suggestions_required_fields_missing: '定价建议表缺少必要字段。',
@@ -979,6 +981,7 @@
     const revenueAiPricingGenerationStatusLabel = (status) => ({
         ready_for_manual_generation: '可生成待审',
         pending_review_exists: '已有待审',
+        skipped_by_operator_policy: '已暂时跳过',
         blocked: '生成受阻',
         failed: '预检失败',
         not_loaded: '未加载',
@@ -988,6 +991,7 @@
         price_suggestion_generation_not_loaded: '调价建议生成预检尚未加载。',
         pricing_generation_hotel_scope_missing: '调价建议生成缺少目标系统酒店范围。',
         room_types_empty: '携程目标酒店暂无启用房型，不能生成待审调价建议。',
+        missing_pricing_inputs_skipped_by_operator_policy: '已按人工策略暂时跳过抓不到的房型、保护价、需求预测和竞对样本缺口。',
         pricing_candidate_signals_missing: '调价候选信号不足，当前不会生成待审建议。',
         pricing_generation_candidates_ready: '已存在可生成待审调价建议的只读候选。',
         price_suggestions_pending_review: '存在待人工审核调价建议。',
@@ -1014,6 +1018,7 @@
             .map((item) => ({
                 code: String(item?.code || ''),
                 source: String(item?.source || ''),
+                status: String(item?.status || ''),
                 nextAction: String(item?.next_action || ''),
             }))
             .filter(item => item.code)

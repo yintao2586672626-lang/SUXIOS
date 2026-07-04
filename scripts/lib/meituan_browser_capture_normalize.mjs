@@ -5,6 +5,84 @@ const CARD_METRIC_MAP = new Map([
   ['PAY_ORDER_CNT', { fields: ['orderSubmitNum', 'order_submit_num'], label: 'order_submit_num' }],
 ]);
 
+const CARD_METRIC_ID_ALIASES = [
+  {
+    aliases: ['EXPOSE_PV_CNT', 'EXPOSE_UV_CNT', 'EXPOSURE_COUNT', 'EXPOSURE_CNT', 'IMPRESSION_CNT', 'LIST_EXPOSURE', 'LIST_EXPOSURE_CNT'],
+    config: { fields: ['listExposure', 'list_exposure'], label: 'list_exposure' },
+  },
+  {
+    aliases: ['INTENTION_UV', 'DETAIL_UV', 'DETAIL_PV', 'VISITOR_UV', 'VISIT_UV', 'BROWSE_UV', 'DETAIL_EXPOSURE'],
+    config: { fields: ['detailExposure', 'detail_exposure'], label: 'detail_exposure' },
+  },
+  {
+    aliases: ['PAY_ORDER_CNT_UV', 'PAY_CVR', 'ORDER_CVR', 'CONVERSION_RATE', 'ORDER_CONVERSION_RATE', 'FLOW_RATE', 'CVR'],
+    config: { fields: ['flowRate', 'flow_rate'], label: 'flow_rate' },
+  },
+  {
+    aliases: ['ORDER_FILLING_NUM', 'ORDER_FILLING_UV', 'ORDER_SUBMIT_UV', 'SUBMIT_ORDER_UV', 'SUBMIT_ORDER_CNT'],
+    config: { fields: ['orderFillingNum', 'order_filling_num'], label: 'order_filling_num' },
+  },
+  {
+    aliases: ['PAY_ORDER_CNT', 'PAY_ORDER_COUNT', 'ORDER_COUNT', 'ORDER_CNT', 'ORDERS', 'SUBMIT_ORDER_COUNT'],
+    config: { fields: ['orderSubmitNum', 'order_submit_num'], label: 'order_submit_num' },
+  },
+];
+
+const CARD_METRIC_TITLE_RULES = [
+  {
+    config: { fields: ['listExposure', 'list_exposure'], label: 'list_exposure' },
+    patterns: [
+      /\u66dd\u5149/,
+      /exposure/i,
+      /impression/i,
+      /list\s*pv/i,
+    ],
+  },
+  {
+    config: { fields: ['detailExposure', 'detail_exposure'], label: 'detail_exposure' },
+    patterns: [
+      /\u8be6\u60c5.*\u6d4f\u89c8/,
+      /\u6d4f\u89c8\u4eba\u6570/,
+      /\u8bbf\u5ba2/,
+      /\u610f\u5411/,
+      /detail.*(uv|pv|view|visitor)/i,
+      /visitor/i,
+      /\buv\b/i,
+    ],
+  },
+  {
+    config: { fields: ['flowRate', 'flow_rate'], label: 'flow_rate' },
+    patterns: [
+      /\u8f6c\u5316\u7387/,
+      /conversion.*rate/i,
+      /\bcvr\b/i,
+      /flow.*rate/i,
+    ],
+  },
+  {
+    config: { fields: ['orderFillingNum', 'order_filling_num'], label: 'order_filling_num' },
+    patterns: [
+      /\u586b\u5199.*\u8ba2\u5355/,
+      /\u63d0\u4ea4.*\u8ba2\u5355/,
+      /\u4e0b\u5355\u4eba/,
+      /submit.*order/i,
+      /fill.*order/i,
+    ],
+  },
+  {
+    config: { fields: ['orderSubmitNum', 'order_submit_num'], label: 'order_submit_num' },
+    patterns: [
+      /\u652f\u4ed8.*\u8ba2\u5355/,
+      /\u6210\u4ea4.*\u8ba2\u5355/,
+      /\u8ba2\u5355\u6570/,
+      /\u8ba2\u5355\u91cf/,
+      /pay.*order/i,
+      /paid.*order/i,
+      /\border(s)?\b/i,
+    ],
+  },
+];
+
 const REQUIRED_TRAFFIC_FIELD_GROUPS = [
   ['listExposure', 'list_exposure', 'exposure_count', 'exposureCount'],
   ['detailExposure', 'detail_exposure', 'page_views', 'pageViews', 'unique_visitors', 'uniqueVisitors'],
@@ -225,35 +303,43 @@ function buildCardMetricRow(cards, options = {}) {
       .map(card => ({
         id: String(card.id || card.key || card.metricId || '').trim(),
         title: String(card.title || card.name || '').trim(),
-        value_state: hasTrafficMetricValue(card.value) ? 'present' : 'missing',
+        value_state: hasTrafficMetricValue(cardMetricValue(card).value) ? 'present' : 'missing',
       })),
   };
+  let recognizedMetricCount = 0;
 
-  for (const card of cards) {
+  cards.forEach((card, index) => {
     if (!card || typeof card !== 'object' || Array.isArray(card)) {
-      continue;
+      return;
     }
-    const id = String(card.id || card.key || card.metricId || '').trim();
-    const config = CARD_METRIC_MAP.get(id);
+    const config = resolveCardMetricConfig(card);
     if (!config) {
-      continue;
+      return;
     }
-    const numericValue = trafficMetricNumber(card.value);
+    recognizedMetricCount += 1;
+    const metricValue = cardMetricValue(card);
+    const numericValue = trafficMetricNumber(metricValue.value);
     if (numericValue === null) {
       row._meituan_card_metric_missing.push({
-        card_id: id,
+        card_id: String(card.id || card.key || card.metricId || '').trim(),
+        card_title: String(card.title || card.name || '').trim(),
         metric_key: config.label,
-        value_state: normalizeMissingValueState(card.value),
+        value_state: normalizeMissingValueState(metricValue.value),
       });
-      continue;
+      return;
     }
     for (const field of config.fields) {
       row[field] = numericValue;
     }
     row._meituan_card_metric_sources[config.label] = {
-      card_id: id,
-      source_path: `${row._source_path}.${cards.indexOf(card)}.value`,
+      card_id: String(card.id || card.key || card.metricId || '').trim(),
+      card_title: String(card.title || card.name || '').trim(),
+      source_path: `${row._source_path}.${index}.${metricValue.key}`,
     };
+  });
+
+  if (recognizedMetricCount === 0) {
+    return null;
   }
 
   const dataDate = extractDateFromMeta(options.meta || {});
@@ -275,6 +361,82 @@ function buildCardMetricRow(cards, options = {}) {
   }
 
   return row;
+}
+
+function resolveCardMetricConfig(card) {
+  const idCandidates = [
+    card.id,
+    card.key,
+    card.metricId,
+    card.metric_id,
+    card.metricCode,
+    card.metric_code,
+    card.code,
+  ];
+  for (const candidate of idCandidates) {
+    const exact = String(candidate || '').trim();
+    if (!exact) {
+      continue;
+    }
+    const direct = CARD_METRIC_MAP.get(exact);
+    if (direct) {
+      return direct;
+    }
+    const normalized = normalizeMetricToken(exact);
+    for (const rule of CARD_METRIC_ID_ALIASES) {
+      if (rule.aliases.some(alias => normalizeMetricToken(alias) === normalized)) {
+        return rule.config;
+      }
+    }
+  }
+
+  const title = [
+    card.title,
+    card.name,
+    card.label,
+    card.metricName,
+    card.metric_name,
+    card.displayName,
+    card.display_name,
+  ].map(value => String(value || '').trim()).filter(Boolean).join(' ');
+  if (!title) {
+    return null;
+  }
+  for (const rule of CARD_METRIC_TITLE_RULES) {
+    if (rule.patterns.some(pattern => pattern.test(title))) {
+      return rule.config;
+    }
+  }
+  return null;
+}
+
+function normalizeMetricToken(value) {
+  return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function cardMetricValue(card) {
+  const keys = [
+    'value',
+    'valueText',
+    'value_text',
+    'displayValue',
+    'display_value',
+    'current',
+    'currentValue',
+    'current_value',
+    'dataValue',
+    'data_value',
+    'num',
+    'count',
+    'metricValue',
+    'metric_value',
+  ];
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(card, key)) {
+      return { key, value: card[key] };
+    }
+  }
+  return { key: 'value', value: undefined };
 }
 
 function hasTrafficMetricValue(value) {

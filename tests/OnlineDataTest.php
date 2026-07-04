@@ -601,23 +601,36 @@ final class OnlineDataTest extends TestCase
     public function testAutoFetchTaskPlanQueuesCtripCookieApiRequestListWithoutCookie(): void
     {
         $controller = $this->controller();
+        $projectRoot = dirname(__DIR__);
+        $profileId = 'phpunit_ctrip_plan_' . bin2hex(random_bytes(4));
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $profileId;
+        if (!is_dir($profileDir)) {
+            mkdir($profileDir, 0775, true);
+        }
 
-        $tasks = $this->invokeNonPublic($controller, 'buildAutoFetchConfigTaskPlan', [
-            7,
-            '2026-05-03',
-            [
-                'profile_id' => 'store-7',
-            ],
-            [],
-            [
-                'ctrip-cookie-api' => [
-                    'enabled' => true,
-                    'system_hotel_id' => 7,
-                    'request_urls' => "https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo\nhttps://ebooking.ctrip.com/restapi/soa2/24588/queryScanFlowDetailsV2",
-                    'hotel_id' => '24588',
+        try {
+            $tasks = $this->invokeNonPublic($controller, 'buildAutoFetchConfigTaskPlan', [
+                7,
+                '2026-05-03',
+                [
+                    'profile_id' => $profileId,
+                    'manual_login_state_verified' => true,
+                    'profile_status' => 'logged_in',
+                    'last_login_verified_at' => '2026-05-03 09:00:00',
                 ],
-            ],
-        ]);
+                [],
+                [
+                    'ctrip-cookie-api' => [
+                        'enabled' => true,
+                        'system_hotel_id' => 7,
+                        'request_urls' => "https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo\nhttps://ebooking.ctrip.com/restapi/soa2/24588/queryScanFlowDetailsV2",
+                        'hotel_id' => '24588',
+                    ],
+                ],
+            ]);
+        } finally {
+            @rmdir($profileDir);
+        }
 
         $labels = array_column($tasks, 'label');
         self::assertContains('ctrip-cookie-api', $labels);
@@ -626,12 +639,73 @@ final class OnlineDataTest extends TestCase
         self::assertSame('ctrip', $task['platform']);
         self::assertSame('cookie_api', $task['module']);
         self::assertSame('cookie_api', $task['strategy']);
-        self::assertSame('store-7', $task['body']['profile_id']);
+        self::assertSame($profileId, $task['body']['profile_id']);
         self::assertSame('24588', $task['body']['hotel_id']);
         self::assertSame(7, $task['body']['system_hotel_id']);
         self::assertSame('2026-05-03', $task['body']['start_date']);
         self::assertSame('2026-05-03', $task['body']['end_date']);
         self::assertArrayNotHasKey('cookies', $task['body']);
+        self::assertSame('browser_profile', $task['body']['cookie_source']);
+        self::assertTrue($task['body']['profile_cookie_source']);
+    }
+
+    public function testAutoFetchTaskPlanDoesNotUseUnverifiedCtripProfileAsCookieSource(): void
+    {
+        $controller = $this->controller();
+        $projectRoot = dirname(__DIR__);
+        $profileId = 'phpunit_ctrip_unverified_' . bin2hex(random_bytes(4));
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $profileId;
+        if (!is_dir($profileDir)) {
+            mkdir($profileDir, 0775, true);
+        }
+
+        try {
+            $tasks = $this->invokeNonPublic($controller, 'buildAutoFetchConfigTaskPlan', [
+                7,
+                '2026-05-03',
+                [
+                    'profile_id' => $profileId,
+                    'profile_status' => 'logged_in',
+                    'last_login_verified_at' => '2026-05-03 09:00:00',
+                ],
+                [],
+                [
+                    'ctrip-cookie-api' => [
+                        'enabled' => true,
+                        'system_hotel_id' => 7,
+                        'request_urls' => 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo',
+                        'hotel_id' => '24588',
+                    ],
+                ],
+            ]);
+        } finally {
+            @rmdir($profileDir);
+        }
+
+        self::assertNotContains('ctrip-cookie-api', array_column($tasks, 'label'));
+    }
+
+    public function testProfileDerivedCookieExtractionRequiresVerifiedManualLoginState(): void
+    {
+        $controller = $this->controller();
+        $projectRoot = dirname(__DIR__);
+        $profileId = 'phpunit_ctrip_extract_gate_' . bin2hex(random_bytes(4));
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $profileId;
+        if (!is_dir($profileDir)) {
+            mkdir($profileDir, 0775, true);
+        }
+
+        try {
+            $this->expectException(\InvalidArgumentException::class);
+            $this->expectExceptionMessage('manual_login_state_verified');
+            $this->invokeNonPublic($controller, 'createCtripCookieApiCookieFileFromProfile', [[
+                'profile_id' => $profileId,
+                'profile_status' => 'logged_in',
+                'last_login_verified_at' => '2026-05-03 09:00:00',
+            ], $projectRoot, 7]);
+        } finally {
+            @rmdir($profileDir);
+        }
     }
 
     public function testExtractCtripTrafficRowsExpandsDailyMetricSeries(): void
@@ -2788,6 +2862,16 @@ final class OnlineDataTest extends TestCase
         self::assertArrayNotHasKey('data_type', $config);
     }
 
+    public function testBrowserProfileBindingDoesNotPersistRequestCookiesAsDataSourceSecret(): void
+    {
+        $secretAssignment = "\$payloadForSave['secret'] = ['cookies' => \$cookies];";
+        $commandSource = (string)file_get_contents(dirname(__DIR__) . '/app/command/PlatformProfileLogin.php');
+        $controllerSource = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php');
+
+        self::assertStringNotContainsString($secretAssignment, $commandSource);
+        self::assertStringNotContainsString($secretAssignment, $controllerSource);
+    }
+
     public function testPlatformProfileLoginDataSourceStatusClearsOnlyStaleLoginErrors(): void
     {
         $command = $this->profileLoginCommand();
@@ -2805,6 +2889,25 @@ final class OnlineDataTest extends TestCase
         ]));
         self::assertFalse($this->invokeNonPublic($command, 'isStaleProfileLoginError', [
             'Ctrip browser capture completed but no business rows were parsed.',
+        ]));
+    }
+
+    public function testProfileDailyReuseEnabledDoesNotCountAsVerifiedLogin(): void
+    {
+        $controller = $this->controller();
+
+        self::assertFalse($this->invokeNonPublic($controller, 'platformProfileConfigHasVerifiedLogin', [[
+            'profile_daily_reuse_enabled' => true,
+        ]]));
+        self::assertTrue($this->invokeNonPublic($controller, 'platformProfileConfigHasVerifiedLogin', [[
+            'manual_login_state_verified' => true,
+        ]]));
+        self::assertSame('waiting_login', $this->invokeNonPublic($controller, 'resolvePlatformProfileStatusCode', [
+            'profile-58',
+            true,
+            ['ingestion_method' => 'browser_profile', 'status' => 'ready'],
+            [],
+            ['profile_daily_reuse_enabled' => true],
         ]));
     }
 
@@ -2886,6 +2989,14 @@ final class OnlineDataTest extends TestCase
         self::assertSame('traffic,orders', $request['capture_sections']);
         self::assertArrayNotHasKey('secret_json', $request);
         self::assertArrayNotHasKey('cookies', $request);
+    }
+
+    public function testPlatformProfileStatusItemExposesMachineReadableBindingContract(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php');
+
+        self::assertStringContainsString('PlatformProfileBindingReadinessService::buildContract(', $source);
+        self::assertStringContainsString("'binding_contract' => \$bindingContract", $source);
     }
 
     public function testPlatformProfileLoginRequestRejectsMismatchedDataSourceScope(): void
@@ -5557,6 +5668,123 @@ final class OnlineDataTest extends TestCase
         self::assertSame('需补充一次性门店标识', $status['credential_status_label']);
         self::assertSame(['Cookie'], $status['daily_required_fields']);
         self::assertSame(['Partner ID', 'POI ID'], $status['one_time_required_fields']);
+    }
+
+    public function testMeituanAutoFetchConfigStatusUsesBrowserProfileAsCookieSource(): void
+    {
+        $controller = $this->controller();
+        $projectRoot = dirname(__DIR__);
+        $storeId = 'phpunit_profile_' . bin2hex(random_bytes(4));
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $storeId;
+        if (!is_dir($profileDir)) {
+            mkdir($profileDir, 0775, true);
+        }
+
+        try {
+            $status = $this->invokeNonPublic($controller, 'meituanAutoFetchConfigStatus', [[
+                'partner_id' => 'partner-7',
+                'poi_id' => 'poi-7',
+                'store_id' => $storeId,
+                'cookies' => '',
+                'manual_login_state_verified' => true,
+                'profile_status' => 'logged_in',
+                'last_login_verified_at' => '2026-05-18 09:00:00',
+            ]]);
+
+            self::assertTrue($status['api_configured']);
+            self::assertTrue($status['has_cookies']);
+            self::assertTrue($status['has_profile_cookie_source']);
+            self::assertSame('browser_profile', $status['cookie_source']);
+            self::assertSame([], $status['missing_fields']);
+        } finally {
+            @rmdir($profileDir);
+        }
+    }
+
+    public function testMeituanAutoFetchConfigStatusDoesNotTreatUnverifiedProfileAsCookieSource(): void
+    {
+        $controller = $this->controller();
+        $projectRoot = dirname(__DIR__);
+        $storeId = 'phpunit_profile_unverified_' . bin2hex(random_bytes(4));
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $storeId;
+        if (!is_dir($profileDir)) {
+            mkdir($profileDir, 0775, true);
+        }
+
+        try {
+            $status = $this->invokeNonPublic($controller, 'meituanAutoFetchConfigStatus', [[
+                'partner_id' => 'partner-7',
+                'poi_id' => 'poi-7',
+                'store_id' => $storeId,
+                'cookies' => '',
+                'profile_status' => 'logged_in',
+                'last_login_verified_at' => '2026-05-18 09:00:00',
+            ]]);
+
+            self::assertFalse($status['api_configured']);
+            self::assertFalse($status['has_cookies']);
+            self::assertFalse($status['has_profile_cookie_source']);
+            self::assertTrue($status['profile_cookie_source_candidate']);
+            self::assertContains('manual_login_state_verified', $status['profile_cookie_missing_requirements']);
+            self::assertContains('manual_login_state_verified', $status['missing_fields']);
+        } finally {
+            @rmdir($profileDir);
+        }
+    }
+
+    public function testAutoFetchTaskPlanQueuesMeituanProfileDerivedCookieTasks(): void
+    {
+        $controller = $this->controller();
+        $projectRoot = dirname(__DIR__);
+        $storeId = 'phpunit_plan_' . bin2hex(random_bytes(4));
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $storeId;
+        if (!is_dir($profileDir)) {
+            mkdir($profileDir, 0775, true);
+        }
+
+        try {
+            $tasks = $this->invokeNonPublic($controller, 'buildAutoFetchConfigTaskPlan', [
+                7,
+                '2026-05-18',
+                [],
+                [
+                    'url' => 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
+                    'partner_id' => 'partner-7',
+                    'poi_id' => 'poi-7',
+                    'store_id' => $storeId,
+                    'cookies' => '',
+                    'manual_login_state_verified' => true,
+                    'profile_status' => 'logged_in',
+                    'last_login_verified_at' => '2026-05-18 09:00:00',
+                ],
+                [
+                    'meituan-traffic' => [
+                        'system_hotel_id' => 7,
+                        'url' => 'https://eb.meituan.com/api/v1/ebooking/traffic',
+                        'partner_id' => 'partner-traffic-7',
+                        'poi_id' => 'poi-traffic-7',
+                    ],
+                ],
+            ]);
+
+            $labels = array_column($tasks, 'label');
+            self::assertContains('meituan-P_RZ', $labels);
+            self::assertContains('meituan-traffic', $labels);
+
+            $rankTask = $tasks[array_search('meituan-P_RZ', $labels, true)];
+            self::assertArrayNotHasKey('cookies', $rankTask['body']);
+            self::assertSame('browser_profile', $rankTask['body']['cookie_source']);
+            self::assertTrue($rankTask['body']['profile_cookie_source']);
+            self::assertSame($storeId, $rankTask['body']['store_id']);
+
+            $trafficTask = $tasks[array_search('meituan-traffic', $labels, true)];
+            self::assertArrayNotHasKey('cookies', $trafficTask['body']);
+            self::assertSame('browser_profile', $trafficTask['body']['cookie_source']);
+            self::assertTrue($trafficTask['body']['profile_cookie_source']);
+            self::assertSame($storeId, $trafficTask['body']['store_id']);
+        } finally {
+            @rmdir($profileDir);
+        }
     }
 
     public function testCtripApprovedMappingsPathResolverAcceptsProjectJsonAliases(): void

@@ -16,6 +16,10 @@ function hasFlag(name) {
   return args.includes(`--${name}`);
 }
 
+function outputFormat() {
+  return String(argValue('format', '') || (hasFlag('json') ? 'json' : 'markdown')).trim().toLowerCase();
+}
+
 function csvArgValues(name) {
   const values = [];
   const prefix = `--${name}=`;
@@ -307,9 +311,13 @@ function buildOperatorSequence(rows) {
   return sequence;
 }
 
+function p0VerifierReady(status) {
+  return ['ready', 'passed'].includes(String(status || '').trim());
+}
+
 function buildDownstreamGate(payload, completionGate, platformSummaries = []) {
   const status = String(payload?.status || '');
-  const isReady = status === 'ready';
+  const isReady = p0VerifierReady(status);
   const blockingMissingInputs = new Set();
   const operatorSkipped = asArray(platformSummaries)
     .filter((item) => item?.operator_skip_active === true)
@@ -463,7 +471,7 @@ function renderMarkdown(report) {
 
 try {
   const report = buildReport(readVerifierOutput());
-  if (hasFlag('json')) {
+  if (outputFormat() === 'json') {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } else {
     process.stdout.write(renderMarkdown(report));

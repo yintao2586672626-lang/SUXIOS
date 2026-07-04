@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const php = 'C:\\xampp\\php\\php.exe';
+const runtimeDate = process.env.P0_OTA_RUNTIME_DATE || '2026-07-04';
 
 function runVerifier(args) {
   const result = spawnSync(php, [
@@ -33,7 +34,7 @@ test('Ctrip-only P0 field-loop verifier passes when OTA field evidence and traff
   }
 
   const result = runVerifier([
-    '--date=2026-06-28',
+    `--date=${runtimeDate}`,
     '--platform=ctrip',
   ]);
   const issueCodes = result.payload.issues.map((issue) => issue.code);
@@ -48,22 +49,26 @@ test('Ctrip-only P0 field-loop verifier passes when OTA field evidence and traff
   assert(!issueCodes.includes('live_closure_incomplete'));
 });
 
-test('All-platform P0 field-loop verifier remains incomplete when Meituan target-date traffic rows are missing', (t) => {
+test('All-platform P0 field-loop verifier passes when Meituan target-date traffic rows and field facts are ready', (t) => {
   if (!existsSync(php)) {
     t.skip(`${php} is not available`);
     return;
   }
 
   const result = runVerifier([
-    '--date=2026-06-28',
+    `--date=${runtimeDate}`,
   ]);
   const issueCodes = result.payload.issues.map((issue) => issue.code);
   const meituan = result.payload.platforms.find((platform) => platform.platform === 'meituan');
 
-  assert.equal(result.exitCode, 2);
-  assert.equal(result.payload.status, 'incomplete');
-  assert.equal(result.payload.summary.p0_platforms_incomplete, 1);
-  assert.equal(meituan?.field_fact_status, 'not_loaded');
-  assert.equal(meituan?.p0_traffic_gate?.status, 'missing_target_date_traffic_rows');
-  assert(issueCodes.includes('meituan_traffic_evidence_availability_incomplete'));
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.payload.status, 'passed');
+  assert.equal(result.payload.summary.p0_platforms_ready, 2);
+  assert.equal(result.payload.summary.p0_platforms_incomplete, 0);
+  assert.equal(meituan?.field_fact_status, 'ready');
+  assert.equal(meituan?.p0_traffic_gate?.status, 'ready');
+  assert.ok(Number(meituan?.p0_traffic_gate?.traffic_rows || 0) > 0);
+  assert.ok(Number(meituan?.target_date_rows || 0) > 0);
+  assert(!issueCodes.includes('meituan_traffic_evidence_availability_incomplete'));
+  assert(!issueCodes.includes('live_closure_incomplete'));
 });

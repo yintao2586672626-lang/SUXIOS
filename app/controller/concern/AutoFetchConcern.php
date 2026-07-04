@@ -1567,6 +1567,7 @@ trait AutoFetchConcern
         $exists = $profileDir !== '' && is_dir($profileDir);
         $cache = $profileKey !== '' ? $this->readPlatformProfileStatusCache($platform, $hotelId, $profileKey) : [];
         $statusCode = $this->resolvePlatformProfileStatusCode($profileKey, $exists, $source, $cache, $config);
+        $bindingContract = PlatformProfileBindingReadinessService::buildContract($platform, $hotelId, $config, $source, $statusCode, $exists, $profileKey);
         $bindingChecks = $this->buildPlatformProfileBindingChecks($platform, $hotelId, $config, $source, $statusCode, $exists, $profileKey);
         $p0Readiness = $this->summarizePlatformProfileBindingChecks($bindingChecks);
         $primaryAction = $this->firstPlatformProfileBindingAction($bindingChecks);
@@ -1589,6 +1590,7 @@ trait AutoFetchConcern
                     'poi_id' => (string)($config['poi_id'] ?? $config['poiId'] ?? ''),
                     'partner_id_configured' => trim((string)($config['partner_id'] ?? $config['partnerId'] ?? '')) !== '',
                 ],
+            'binding_contract' => $bindingContract,
             'binding_checks' => $bindingChecks,
             'binding_check_status' => $p0Readiness['status'],
             'p0_readiness' => $p0Readiness,
@@ -1728,7 +1730,7 @@ trait AutoFetchConcern
 
     private function platformProfileConfigHasVerifiedLogin(array $config): bool
     {
-        foreach (['manual_login_state_verified', 'login_state_verified', 'profile_login_verified', 'profile_daily_reuse_enabled'] as $key) {
+        foreach (['manual_login_state_verified', 'login_state_verified', 'profile_login_verified'] as $key) {
             $value = $config[$key] ?? null;
             if (is_bool($value) && $value) {
                 return true;
@@ -1933,11 +1935,6 @@ trait AutoFetchConcern
         ];
         if ((int)$payloadForSave['id'] <= 0) {
             unset($payloadForSave['id']);
-        }
-
-        $cookies = trim((string)($requestData['cookies'] ?? $requestData['cookie'] ?? ''));
-        if ($cookies !== '') {
-            $payloadForSave['secret'] = ['cookies' => $cookies];
         }
 
         $saved = (new PlatformDataSyncService())->saveDataSource($this->currentUser, $payloadForSave);
@@ -3663,8 +3660,16 @@ trait AutoFetchConcern
     {
         $hasPartnerId = trim((string)$this->firstAutoFetchConfigValue($config, ['partner_id', 'partnerId'], '')) !== '';
         $hasPoiId = trim((string)$this->firstAutoFetchConfigValue($config, ['poi_id', 'poiId'], '')) !== '';
+        $hasProfileCookieSourceCandidate = !empty($config['profile_cookie_source'])
+            || trim((string)($config['cookie_source'] ?? '')) === 'browser_profile'
+            || $this->meituanProfileExistsForConfig($config);
+        $profileCookieMissing = $hasProfileCookieSourceCandidate
+            ? $this->profileCookieSourceLoginMissingRequirements($config)
+            : [];
+        $hasProfileCookieSource = $hasProfileCookieSourceCandidate && $profileCookieMissing === [];
         $hasCookies = trim((string)$this->firstAutoFetchConfigValue($config, ['cookies', 'cookie'], '')) !== ''
-            || !empty($config['has_cookies']);
+            || !empty($config['has_cookies'])
+            || $hasProfileCookieSource;
         $missingFields = [];
         $missingResourceFields = [];
 
@@ -3677,6 +3682,7 @@ trait AutoFetchConcern
         $missingFields = $missingResourceFields;
         if (!$hasCookies) {
             $missingFields[] = 'Cookies';
+            $missingFields = array_values(array_unique(array_merge($missingFields, $profileCookieMissing)));
         }
 
         $credentialStatus = 'ready';
@@ -3706,10 +3712,59 @@ trait AutoFetchConcern
             'credential_level_label' => '需一次性门店标识',
             'credential_status' => $credentialStatus,
             'credential_status_label' => $credentialStatusLabel,
+            'has_profile_cookie_source' => $hasProfileCookieSource,
+            'profile_cookie_source_candidate' => $hasProfileCookieSourceCandidate,
+            'profile_cookie_missing_requirements' => $profileCookieMissing,
+            'cookie_source' => $hasProfileCookieSource && trim((string)$this->firstAutoFetchConfigValue($config, ['cookies', 'cookie'], '')) === '' ? 'browser_profile' : 'manual_cookie',
             'daily_required_fields' => ['Cookie'],
             'one_time_required_fields' => ['Partner ID', 'POI ID'],
             'network_required_fields' => [],
         ];
+    }
+
+    private function resolveMeituanAutoFetchCookieHeader(array $body, int $hotelId): array
+    {
+        $cookies = trim((string)($body['cookies'] ?? $body['cookie'] ?? ''));
+        if ($cookies !== '') {
+            return [
+                'success' => true,
+                'cookies' => $cookies,
+                'cookie_source' => 'manual_cookie',
+                'cookie_file' => '',
+            ];
+        }
+
+        try {
+            $projectRoot = dirname(__DIR__, 3);
+            $meta = $this->createMeituanCookieFileFromProfile($body, $projectRoot, $hotelId);
+            $cookieFile = (string)($meta['cookie_file'] ?? '');
+            $cookies = $cookieFile !== '' && is_file($cookieFile)
+                ? trim((string)file_get_contents($cookieFile))
+                : '';
+            if ($cookies === '') {
+                $this->removeAutoFetchCookieFile($cookieFile);
+                return [
+                    'success' => false,
+                    'message' => 'Meituan browser Profile did not yield a usable Cookie header.',
+                    'cookie_file' => '',
+                ];
+            }
+
+            return [
+                'success' => true,
+                'cookies' => $cookies,
+                'cookie_source' => 'browser_profile',
+                'cookie_file' => $cookieFile,
+                'profile_id' => (string)($meta['profile_id'] ?? ''),
+                'cookie_count' => (int)($meta['cookie_count'] ?? 0),
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'cookie_file' => '',
+            ];
+        }
     }
 
     private function normalizeAutoFetchMode($value): string
@@ -4017,7 +4072,14 @@ trait AutoFetchConcern
             'request_url',
             'requestUrl',
         ], '');
-        if ($this->isAutoFetchDataConfigUsable($cookieApiSourceConfig, $hotelId) && $cookieApiEndpointValue !== '') {
+        $cookieApiCookies = trim((string)$this->firstAutoFetchConfigValue($cookieApiSourceConfig, ['cookies', 'cookie'], $ctripCookies));
+        $cookieApiProfileCookieSource = $cookieApiCookies === ''
+            && $this->ctripProfileExistsForConfig($cookieApiSourceConfig, $hotelId)
+            && $this->profileCookieSourceLoginVerified($cookieApiSourceConfig);
+        if ($this->isAutoFetchDataConfigUsable($cookieApiSourceConfig, $hotelId)
+            && $cookieApiEndpointValue !== ''
+            && ($cookieApiCookies !== '' || $cookieApiProfileCookieSource)
+        ) {
             $this->pushAutoFetchTask($tasks, [
                 'platform' => 'ctrip',
                 'module' => 'cookie_api',
@@ -4031,7 +4093,9 @@ trait AutoFetchConcern
                     'method' => $this->firstAutoFetchConfigValue($cookieApiSourceConfig, ['method', 'request_method', 'requestMethod'], ''),
                     'payload_json' => $this->firstAutoFetchConfigValue($cookieApiSourceConfig, ['payload_json', 'payloadJson', 'request_payload_json', 'requestPayloadJson'], ''),
                     'headers_json' => $this->firstAutoFetchConfigValue($cookieApiSourceConfig, ['headers_json', 'headersJson', 'request_headers_json', 'requestHeadersJson'], ''),
-                    'cookies' => $this->firstAutoFetchConfigValue($cookieApiSourceConfig, ['cookies', 'cookie'], $ctripCookies),
+                    'cookies' => $cookieApiCookies,
+                    'cookie_source' => $cookieApiProfileCookieSource ? 'browser_profile' : 'manual_cookie',
+                    'profile_cookie_source' => $cookieApiProfileCookieSource,
                     'profile_id' => $this->firstAutoFetchConfigValue($cookieApiSourceConfig, ['profile_id', 'profileId'], ''),
                     'hotel_id' => $this->firstAutoFetchConfigValue($cookieApiSourceConfig, ['hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId'], ''),
                     'node_id' => $this->firstAutoFetchConfigValue($cookieApiSourceConfig, ['node_id', 'nodeId'], ''),
@@ -4048,21 +4112,28 @@ trait AutoFetchConcern
         $meituanCookies = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['cookies', 'cookie'], ''));
         $meituanPartnerId = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['partner_id', 'partnerId'], ''));
         $meituanPoiId = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['poi_id', 'poiId'], ''));
-        if ($meituanCookies !== '' && $meituanPartnerId !== '' && $meituanPoiId !== '') {
+        $meituanProfileCookieSource = $meituanCookies === ''
+            && $this->meituanProfileExistsForConfig($meituanConfig)
+            && $this->profileCookieSourceLoginVerified($meituanConfig);
+        $meituanHasCookieSource = $meituanCookies !== '' || $meituanProfileCookieSource;
+        if ($meituanHasCookieSource && $meituanPartnerId !== '' && $meituanPoiId !== '') {
             foreach (['P_RZ', 'P_XS', 'P_ZH', 'P_LL'] as $rankType) {
                 $this->pushAutoFetchTask($tasks, [
                     'platform' => 'meituan',
                     'module' => 'ranking',
                     'label' => 'meituan-' . $rankType,
-                    'required' => ['cookies', 'partner_id', 'poi_id'],
+                    'required' => $meituanCookies !== '' ? ['cookies', 'partner_id', 'poi_id'] : ['partner_id', 'poi_id'],
                     'body' => [
                         'url' => $this->firstAutoFetchConfigValue($meituanConfig, ['url'], 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail'),
                         'partner_id' => $meituanPartnerId,
                         'poi_id' => $meituanPoiId,
+                        'store_id' => $this->meituanProfileStoreIdFromConfig($meituanConfig),
                         'rank_type' => $rankType,
                         'data_scope' => $this->firstAutoFetchConfigValue($meituanConfig, ['data_scope', 'dataScope'], 'vpoi'),
                         'date_range' => 'custom',
                         'cookies' => $meituanCookies,
+                        'cookie_source' => $meituanProfileCookieSource ? 'browser_profile' : 'manual_cookie',
+                        'profile_cookie_source' => $meituanProfileCookieSource,
                         'auth_data' => $this->firstAutoFetchConfigValue($meituanConfig, ['auth_data', 'authData'], []),
                         'start_date' => $startDate,
                         'end_date' => $endDate,
@@ -4074,17 +4145,27 @@ trait AutoFetchConcern
         }
 
         $meituanTrafficConfig = is_array($savedConfigs['meituan-traffic'] ?? null) ? $savedConfigs['meituan-traffic'] : [];
+        $meituanTrafficSourceConfig = $meituanTrafficConfig === []
+            ? $meituanConfig
+            : array_merge($meituanConfig, $meituanTrafficConfig);
+        $meituanTrafficCookies = trim((string)$this->firstAutoFetchConfigValue($meituanTrafficConfig, ['cookies', 'cookie'], $meituanCookies));
+        $meituanTrafficProfileCookieSource = $meituanTrafficCookies === ''
+            && $this->meituanProfileExistsForConfig($meituanTrafficSourceConfig)
+            && $this->profileCookieSourceLoginVerified($meituanTrafficSourceConfig);
         if ($this->isAutoFetchDataConfigUsable($meituanTrafficConfig, $hotelId)) {
             $this->pushAutoFetchTask($tasks, [
                 'platform' => 'meituan',
                 'module' => 'traffic',
                 'label' => 'meituan-traffic',
-                'required' => ['url', 'cookies', 'partner_id', 'poi_id'],
+                'required' => ($meituanTrafficCookies !== '' || $meituanTrafficProfileCookieSource) ? ['url', 'partner_id', 'poi_id'] : ['url', 'cookies', 'partner_id', 'poi_id'],
                 'body' => [
                     'url' => $this->firstAutoFetchConfigValue($meituanTrafficConfig, ['url'], ''),
                     'partner_id' => $this->firstAutoFetchConfigValue($meituanTrafficConfig, ['partner_id', 'partnerId'], $meituanPartnerId),
                     'poi_id' => $this->firstAutoFetchConfigValue($meituanTrafficConfig, ['poi_id', 'poiId'], $meituanPoiId),
-                    'cookies' => $this->firstAutoFetchConfigValue($meituanTrafficConfig, ['cookies', 'cookie'], $meituanCookies),
+                    'store_id' => $this->meituanProfileStoreIdFromConfig($meituanTrafficSourceConfig),
+                    'cookies' => $meituanTrafficCookies,
+                    'cookie_source' => $meituanTrafficProfileCookieSource ? 'browser_profile' : 'manual_cookie',
+                    'profile_cookie_source' => $meituanTrafficProfileCookieSource,
                     'start_date' => $startDate,
                     'end_date' => $endDate,
                     'extra_params' => $this->firstAutoFetchConfigValue($meituanTrafficConfig, ['extra_params', 'extraParams'], ''),
@@ -5498,6 +5579,15 @@ trait AutoFetchConcern
             } catch (\Throwable $e) {
                 $authData = [];
             }
+            $profileCookieFile = '';
+            $cookieResolution = $this->resolveMeituanAutoFetchCookieHeader($config, $hotelId);
+            if (empty($cookieResolution['success'])) {
+                $errors[] = (string)($cookieResolution['message'] ?? 'missing Meituan Cookie');
+                $modules[] = $this->withAutoFetchResultMeta(['module' => 'ranking_api', 'saved_count' => 0, 'success' => false, 'message' => end($errors)], 'cookie_config');
+            } else {
+                $cookies = (string)$cookieResolution['cookies'];
+                $profileCookieFile = (string)($cookieResolution['cookie_file'] ?? '');
+            }
             $baseParams = [
                 'dataScope' => $config['data_scope'] ?? 'vpoi',
                 'deviceType' => 1,
@@ -5511,7 +5601,7 @@ trait AutoFetchConcern
                 'dateRange' => 1,
             ];
 
-            foreach (['P_RZ', 'P_XS', 'P_ZH', 'P_LL'] as $rankType) {
+            foreach (empty($cookieResolution['success']) ? [] : ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'] as $rankType) {
                 try {
                     $params = $baseParams;
                     $params['rankType'] = $rankType;
@@ -5536,6 +5626,7 @@ trait AutoFetchConcern
                     $modules[] = $this->withAutoFetchResultMeta(['module' => $rankType, 'saved_count' => 0, 'success' => false, 'message' => $e->getMessage()], 'cookie_config');
                 }
             }
+            $this->removeAutoFetchCookieFile($profileCookieFile);
         } elseif ($runCookieConfig) {
             $message = $missingText !== '' ? '缺少美团 ' . $missingText : '缺少美团 Partner ID / POI ID / Cookies';
             if ($mode === 'cookie_config') {
@@ -5625,7 +5716,6 @@ trait AutoFetchConcern
 
     private function executeMeituanRankingAutoFetchTask(string $label, array $body, int $hotelId): array
     {
-        $cookies = trim((string)($body['cookies'] ?? ''));
         $partnerId = trim((string)($body['partner_id'] ?? ''));
         $poiId = trim((string)($body['poi_id'] ?? ''));
         $rankType = trim((string)($body['rank_type'] ?? 'P_RZ')) ?: 'P_RZ';
@@ -5633,6 +5723,13 @@ trait AutoFetchConcern
         if (empty($apiStatus['api_configured'])) {
             return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 ' . $apiStatus['missing_text']];
         }
+
+        $cookieResolution = $this->resolveMeituanAutoFetchCookieHeader($body, $hotelId);
+        if (empty($cookieResolution['success'])) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => (string)($cookieResolution['message'] ?? 'missing Meituan Cookie')];
+        }
+        $cookies = (string)$cookieResolution['cookies'];
+        $profileCookieFile = (string)($cookieResolution['cookie_file'] ?? '');
 
         $params = [
             'dataScope' => $body['data_scope'] ?? 'vpoi',
@@ -5647,12 +5744,16 @@ trait AutoFetchConcern
             'endDate' => str_replace('-', '', (string)($body['end_date'] ?? '')),
             'dateRange' => 1,
         ];
-        $result = $this->sendMeituanRequest(
-            trim((string)($body['url'] ?? '')) ?: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
-            $params,
-            $cookies,
-            $this->configValueToArray($body['auth_data'] ?? [])
-        );
+        try {
+            $result = $this->sendMeituanRequest(
+                trim((string)($body['url'] ?? '')) ?: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
+                $params,
+                $cookies,
+                $this->configValueToArray($body['auth_data'] ?? [])
+            );
+        } finally {
+            $this->removeAutoFetchCookieFile($profileCookieFile);
+        }
         if (!$result['success']) {
             $message = (string)($result['error'] ?? 'request failed');
             $this->recordCookieAlert('meituan', 'auto-fetch-meituan-ranking', $message, $hotelId);
@@ -5667,13 +5768,12 @@ trait AutoFetchConcern
                 'end_date' => (string)($body['end_date'] ?? ''),
             ])
             : 0;
-        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
+        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows', 'cookie_source' => (string)($cookieResolution['cookie_source'] ?? '')];
     }
 
     private function executeMeituanTrafficAutoFetchTask(string $label, array $body, int $hotelId): array
     {
         $url = trim((string)($body['url'] ?? ''));
-        $cookies = trim((string)($body['cookies'] ?? ''));
         $partnerId = trim((string)($body['partner_id'] ?? ''));
         $poiId = trim((string)($body['poi_id'] ?? ''));
         $apiStatus = $this->meituanAutoFetchConfigStatus($body);
@@ -5684,6 +5784,13 @@ trait AutoFetchConcern
             }
             return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 ' . implode(' / ', $missing)];
         }
+
+        $cookieResolution = $this->resolveMeituanAutoFetchCookieHeader($body, $hotelId);
+        if (empty($cookieResolution['success'])) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => (string)($cookieResolution['message'] ?? 'missing Meituan Cookie')];
+        }
+        $cookies = (string)$cookieResolution['cookies'];
+        $profileCookieFile = (string)($cookieResolution['cookie_file'] ?? '');
 
         $extraParams = $this->configValueToArray($body['extra_params'] ?? []);
         $params = array_merge([
@@ -5700,7 +5807,11 @@ trait AutoFetchConcern
         $params['endDate'] = str_replace('-', '', $endDate);
         $params['dateRange'] = 1;
 
-        $result = $this->sendMeituanRequest($url, $params, $cookies);
+        try {
+            $result = $this->sendMeituanRequest($url, $params, $cookies);
+        } finally {
+            $this->removeAutoFetchCookieFile($profileCookieFile);
+        }
         if (!$result['success']) {
             $message = (string)($result['error'] ?? 'request failed');
             $this->recordCookieAlert('meituan', 'auto-fetch-meituan-traffic', $message, $hotelId);
@@ -5711,7 +5822,7 @@ trait AutoFetchConcern
         $savedCount = is_array($responseData)
             ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, 'meituan', $hotelId)
             : 0;
-        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
+        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows', 'cookie_source' => (string)($cookieResolution['cookie_source'] ?? '')];
     }
 
     private function executeMeituanBrowserProfileAutoFetch(array $config, int $hotelId, string $dataDate, bool $interactiveBrowser = false, array $periodOptions = []): array

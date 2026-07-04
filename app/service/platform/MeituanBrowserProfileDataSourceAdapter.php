@@ -104,6 +104,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             '--system-hotel-id=' . (string)$systemHotelId,
             '--output=' . $outputPath,
             '--login-timeout-ms=' . ($interactive ? '300000' : '30000'),
+            '--data-date=' . $dataDate,
             '--sections=' . $sections,
             $interactive ? '--headless=false' : '--headless=true',
         ];

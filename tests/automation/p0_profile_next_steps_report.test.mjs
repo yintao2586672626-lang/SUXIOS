@@ -105,6 +105,14 @@ test('P0 Profile next-step report exposes only sanitized login and verifier acti
     assert.equal(payload.operator_sequence[1].requires, 'manual_login_state_verified=true');
     assert.doesNotMatch(jsonResult.stdout, /SECRET_COOKIE_VALUE/);
     assert.doesNotMatch(jsonResult.stdout, /SECRET_TOKEN_VALUE/);
+
+    const formatJsonResult = spawnSync(process.execPath, ['scripts/report_p0_profile_next_steps.mjs', `--input=${input}`, '--format=json'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    assert.equal(formatJsonResult.status, 0, formatJsonResult.stderr);
+    assert.equal(JSON.parse(formatJsonResult.stdout).completion_gate.command, payload.completion_gate.command);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -165,7 +173,7 @@ test('P0 Profile next-step report suppresses sync actions for ready platforms', 
   const input = path.join(dir, 'verifier.json');
   try {
     writeFileSync(input, JSON.stringify({
-      status: 'ready',
+      status: 'passed',
       scope: { date: '2026-06-28' },
       platforms: [
         {
@@ -209,6 +217,10 @@ test('P0 Profile next-step report suppresses sync actions for ready platforms', 
     assert.equal(payload.next_steps[0].platform_ready, true);
     assert.equal(payload.next_steps[0].login_trigger_entry, '');
     assert.equal(payload.next_steps[0].after_login_sync_entry, '');
+    assert.equal(payload.completion_gate.current_status, 'passed');
+    assert.equal(payload.downstream_gate.status, 'open');
+    assert.deepEqual(payload.downstream_gate.blocked_stage_keys, []);
+    assert.deepEqual(payload.downstream_gate.blocking_missing_inputs, []);
     assert.deepEqual(payload.operator_sequence.map(item => item.type), ['already_ready', 'single_scope_verifier']);
     assert.doesNotMatch(result.stdout, /"type": "after_login_sync"/);
 

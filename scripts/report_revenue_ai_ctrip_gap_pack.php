@@ -141,6 +141,41 @@ function ctrip_gap_pack_placeholder_paths(mixed $value, string $path = '$'): arr
 }
 
 /**
+ * @return array<string, string>
+ */
+function ctrip_gap_pack_field_guidance(string $path): array
+{
+    $field = (string)preg_replace('/^.*\./', '', $path);
+    $group = str_contains($path, '$.room_types.')
+        ? 'room_types'
+        : (str_contains($path, '$.demand_forecasts.')
+            ? 'demand_forecasts'
+            : (str_contains($path, '$.competitor_price_samples.') ? 'competitor_price_samples' : 'unknown'));
+    $guide = [
+        'key' => 'Operator-confirmed stable room type key used to join room, forecast, and competitor rows.',
+        'name' => 'Operator-verified Ctrip room type name.',
+        'base_price' => 'Current operator-verified Ctrip sell price for the room type.',
+        'min_price' => 'Operator-approved floor/protection price; must be <= base_price.',
+        'max_price' => 'Operator-approved upper guard price; must be >= base_price.',
+        'room_count' => 'Operator-confirmed sellable room count for the room type.',
+        'predicted_occupancy' => 'Target-date demand forecast occupancy percentage, 0-100.',
+        'predicted_demand' => 'Target-date demand forecast count or demand index, numeric and positive.',
+        'confidence_score' => 'Forecast confidence from operator/model review, 0-1.',
+        'competitor_name' => 'Real Ctrip competitor hotel/name used for this price sample.',
+        'our_price' => 'Our Ctrip price observed in the recent-7-day competitor comparison window.',
+        'competitor_price' => 'Competitor Ctrip price observed in the same recent-7-day window.',
+    ];
+
+    return [
+        'path' => $path,
+        'group' => $group,
+        'field' => $field,
+        'expected_real_input' => $guide[$field] ?? 'Operator-verified Ctrip channel value.',
+        'forbidden_fill' => 'sample, guessed, fallback, verifier-only, Meituan, or whole-hotel value',
+    ];
+}
+
+/**
  * @return array<string, mixed>
  */
 function ctrip_gap_pack_bundle_status(string $bundleDir): array
@@ -177,6 +212,10 @@ function ctrip_gap_pack_bundle_status(string $bundleDir): array
         'fillable_file' => $fillable,
         'placeholder_count' => count($placeholders),
         'placeholder_paths' => array_slice($placeholders, 0, 30),
+        'placeholder_details' => array_map(
+            static fn(string $path): array => ctrip_gap_pack_field_guidance($path),
+            array_slice($placeholders, 0, 30)
+        ),
         'can_generate_pending_review' => $placeholders === [],
     ];
 }
@@ -356,6 +395,18 @@ function ctrip_gap_pack_markdown(array $payload): string
     $lines[] = '- fillable_file: `' . (string)($bundle['fillable_file'] ?? '') . '`';
     $lines[] = '- placeholder_count: `' . (string)($bundle['placeholder_count'] ?? 'unknown') . '`';
     $lines[] = '';
+    $placeholderDetails = ctrip_gap_pack_list($bundle['placeholder_details'] ?? []);
+    if ($placeholderDetails !== []) {
+        $lines[] = '## Fillable Placeholder Checklist';
+        $lines[] = '';
+        $lines[] = '| Path | Expected real input | Forbidden fill |';
+        $lines[] = '|---|---|---|';
+        foreach ($placeholderDetails as $detail) {
+            $row = ctrip_gap_pack_map($detail);
+            $lines[] = '| `' . (string)($row['path'] ?? '') . '` | ' . (string)($row['expected_real_input'] ?? '') . ' | `' . (string)($row['forbidden_fill'] ?? '') . '` |';
+        }
+        $lines[] = '';
+    }
     $lines[] = '## Next Commands';
     foreach (ctrip_gap_pack_map($payload['commands'] ?? []) as $key => $command) {
         $lines[] = '';

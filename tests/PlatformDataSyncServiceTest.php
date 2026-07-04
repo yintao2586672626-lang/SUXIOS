@@ -20,6 +20,11 @@ final class PlatformDataSyncServiceTest extends TestCase
             'data_type' => 'traffic',
             'ingestion_method' => 'browser_profile',
             'system_hotel_id' => 58,
+            'config' => [
+                'manual_login_state_verified' => true,
+                'profile_status' => 'logged_in',
+                'last_login_verified_at' => '2026-07-04 10:00:00',
+            ],
         ];
         $options = [
             'trigger_type' => 'daily_profile_reuse',
@@ -48,6 +53,187 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('blocked', $blocked['p0_status']);
         self::assertContains('target_date_traffic_rows', $blocked['missing_inputs']);
         self::assertSame('profile_reused_no_target_date_traffic_rows', $blocked['operator_message']);
+    }
+
+    public function testProfileLoginAfterLoginTriggerRequiresTargetDateTrafficRows(): void
+    {
+        $service = new PlatformDataSyncService();
+        $source = [
+            'id' => 78,
+            'name' => 'Ctrip Profile Business',
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+            'config' => [
+                'manual_login_state_verified' => true,
+                'profile_status' => 'logged_in',
+                'last_login_verified_at' => '2026-07-04 10:00:00',
+            ],
+        ];
+        $options = [
+            'trigger_type' => 'profile_login_after_login',
+            'data_date' => '2026-06-29',
+        ];
+        $method = new \ReflectionMethod($service, 'buildSyncDiagnostics');
+        $method->setAccessible(true);
+
+        $diagnostics = $method->invoke($service, [], 0, $source, $options, ['data_date' => '2026-06-29'], 'success', 'ok');
+
+        self::assertTrue($diagnostics['requires_target_date_traffic']);
+        self::assertSame('blocked', $diagnostics['p0_status']);
+        self::assertContains('target_date_traffic_rows', $diagnostics['missing_inputs']);
+    }
+
+    public function testOtaPlatformDataSourceRejectsPasswordCustody(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'normalizeSourcePayload');
+        $method->setAccessible(true);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('OTA account password custody is not supported');
+
+        $method->invoke($service, [
+            'name' => 'Ctrip profile source',
+            'system_hotel_id' => 58,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'profile_id' => 'ctrip_58',
+            'password' => 'user-password',
+        ]);
+    }
+
+    public function testBrowserProfileBackgroundSyncRequiresVerifiedManualLoginState(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'assertBrowserProfileBackgroundSyncLoginVerified');
+        $method->setAccessible(true);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('manual_login_state_verified');
+
+        $method->invoke($service, [
+            'id' => 79,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+            'config' => [
+                'profile_id' => 'hotel_001',
+                'profile_status' => 'logged_in',
+                'last_login_verified_at' => '2026-07-04 10:00:00',
+                'profile_daily_reuse_enabled' => true,
+            ],
+        ], [
+            'trigger_type' => 'daily_profile_reuse',
+            'interactive_browser' => false,
+        ]);
+    }
+
+    public function testBrowserProfileBackgroundSyncRequiresProfileStatusAndVerifiedTime(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'browserProfileBackgroundSyncLoginMissingRequirements');
+        $method->setAccessible(true);
+
+        $missing = $method->invoke($service, [
+            'id' => 80,
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+            'config' => [
+                'store_id' => 'store_001',
+                'manual_login_state_verified' => true,
+                'profile_status' => 'profile_found_login_unverified',
+            ],
+        ], [
+            'trigger_type' => 'daily_profile_reuse',
+            'interactive_browser' => false,
+        ]);
+
+        self::assertContains('profile_status_logged_in', $missing);
+        self::assertContains('last_login_verified_at', $missing);
+    }
+
+    public function testBrowserProfileInteractiveAuthorizationWindowBypassesBackgroundSyncGate(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'assertBrowserProfileBackgroundSyncLoginVerified');
+        $method->setAccessible(true);
+
+        $method->invoke($service, [
+            'id' => 81,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+            'config' => [
+                'profile_id' => 'hotel_001',
+            ],
+        ], [
+            'trigger_type' => 'manual',
+            'interactive_browser' => true,
+        ]);
+
+        self::assertTrue(true);
+    }
+
+    public function testBrowserProfileBackgroundSyncAllowsVerifiedManualLoginState(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'assertBrowserProfileBackgroundSyncLoginVerified');
+        $method->setAccessible(true);
+
+        $method->invoke($service, [
+            'id' => 82,
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+            'config' => [
+                'store_id' => 'store_001',
+                'manual_login_state_verified' => true,
+                'profile_status' => 'logged_in',
+                'last_login_verified_at' => '2026-07-04 10:00:00',
+            ],
+        ], [
+            'trigger_type' => 'daily_profile_reuse',
+            'interactive_browser' => false,
+        ]);
+
+        self::assertTrue(true);
+    }
+
+    public function testBrowserProfileSyncDiagnosticsExposeManualLoginGate(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'buildSyncDiagnostics');
+        $method->setAccessible(true);
+
+        $diagnostics = $method->invoke($service, [], 0, [
+            'id' => 83,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+            'config' => [
+                'profile_id' => 'hotel_001',
+                'profile_daily_reuse_enabled' => true,
+            ],
+        ], [
+            'trigger_type' => 'daily_profile_reuse',
+            'data_date' => '2026-06-29',
+            'interactive_browser' => false,
+        ], [], 'failed', 'blocked');
+
+        self::assertSame('blocked', $diagnostics['p0_status']);
+        self::assertSame('manual_login_state_not_verified', $diagnostics['operator_message']);
+        self::assertContains('manual_login_state_verified', $diagnostics['missing_inputs']);
+        self::assertContains('profile_status_logged_in', $diagnostics['missing_inputs']);
+        self::assertContains('last_login_verified_at', $diagnostics['missing_inputs']);
     }
 
     public function testManualPayloadNormalizesRowsForOnlineDailyDataWithTraceability(): void
@@ -1490,6 +1676,59 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testMeituanBrowserProfileAdapterPassesTargetDateToCaptureScript(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+        $capturedArgs = [];
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', static function (array $args) use (&$capturedArgs): array {
+                $capturedArgs = $args;
+                $outputPath = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                        break;
+                    }
+                }
+                if ($outputPath === '') {
+                    return ['success' => false, 'message' => 'missing output path', 'stdout' => '', 'stderr' => ''];
+                }
+                file_put_contents($outputPath, json_encode([
+                    'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'capture_gate' => ['status' => 'pass'],
+                    'traffic' => [
+                        [
+                            'poi_id' => '68471',
+                            'poi_name' => 'Meituan Demo Hotel',
+                            'list_exposure' => '1200',
+                            'detail_exposure' => '240',
+                            'flow_rate' => '20%',
+                            'source_trace_id' => 'mt-target-date-row',
+                        ],
+                    ],
+                    'orders' => [],
+                    'ads' => [],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'traffic',
+                'data_date' => '2026-07-04',
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertContains('--data-date=2026-07-04', $capturedArgs);
+            self::assertSame('2026-07-04', $result['payload']['data_source_capture']['data_date']);
+            self::assertSame('2026-07-04', $result['payload']['rows'][0]['data_date']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testMeituanBrowserProfileAdapterFailsWhenNoBusinessRowsAreParsed(): void
     {
         $root = $this->createMeituanBrowserProfileTestRoot('store_001');
@@ -1654,11 +1893,13 @@ final class PlatformDataSyncServiceTest extends TestCase
             $peerRow = array_values(array_filter($rows, static fn(array $row): bool => $row['data_type'] === 'peer_rank'))[0] ?? null;
             self::assertIsArray($peerRow);
             self::assertSame(2.0, $peerRow['data_value']);
+            self::assertSame('P_RZ', $peerRow['compare_type']);
             $peerRaw = json_decode((string)$peerRow['raw_data'], true);
             self::assertIsArray($peerRaw);
             $peerFactsByKey = array_column($peerRaw['field_facts'] ?? [], null, 'metric_key');
             self::assertSame('online_daily_data.data_value', $peerFactsByKey['peer_rank_value']['storage_field'] ?? '');
             self::assertSame('$.rank', $peerFactsByKey['peer_rank_value']['source_path'] ?? '');
+            self::assertTrue($peerFactsByKey['peer_rank_compare_type']['stored_value_present'] ?? false);
         } finally {
             $this->removeDirectory($root);
         }

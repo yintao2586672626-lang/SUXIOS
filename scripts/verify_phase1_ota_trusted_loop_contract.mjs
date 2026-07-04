@@ -105,9 +105,9 @@ requireIncludes('tests/automation/p0_ota_field_loop_runtime.test.mjs', 'P0 field
   '--platform=ctrip',
   'p0_platforms_ready',
   'p0_platforms_incomplete',
-  'missing_target_date_traffic_rows',
-  'meituan_traffic_evidence_availability_incomplete',
-  'live_closure_incomplete',
+  'All-platform P0 field-loop verifier passes',
+  "meituan?.p0_traffic_gate?.status, 'ready'",
+  "!issueCodes.includes('live_closure_incomplete')",
 ]);
 
 requireFile('scripts/import_p0_ota_traffic_payload.php');

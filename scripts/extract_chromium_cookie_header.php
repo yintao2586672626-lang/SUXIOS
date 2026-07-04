@@ -7,12 +7,15 @@ function parse_args(array $argv): array
     $args = [
         'profile_dir' => '',
         'output' => '',
+        'platform' => 'ctrip',
     ];
     foreach (array_slice($argv, 1) as $item) {
         if (str_starts_with($item, '--profile-dir=')) {
             $args['profile_dir'] = substr($item, strlen('--profile-dir='));
         } elseif (str_starts_with($item, '--output=')) {
             $args['output'] = substr($item, strlen('--output='));
+        } elseif (str_starts_with($item, '--platform=')) {
+            $args['platform'] = substr($item, strlen('--platform='));
         }
     }
     return $args;
@@ -109,9 +112,21 @@ function is_cookie_header_safe(string $name, string $value): bool
     return !preg_match('/[^\x20-\x7E]/', $value);
 }
 
+function cookie_host_where_clause(string $platform): string
+{
+    return match ($platform) {
+        'meituan' => "host_key LIKE '%meituan%' OR host_key LIKE '%dianping%'",
+        default => "host_key LIKE '%ctrip%' OR host_key LIKE '%ctripbiz%'",
+    };
+}
+
 $args = parse_args($argv);
 $profileDir = trim((string)$args['profile_dir']);
 $outputPath = trim((string)$args['output']);
+$platform = strtolower(trim((string)($args['platform'] ?? 'ctrip'))) ?: 'ctrip';
+if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+    fail('unsupported platform');
+}
 if ($profileDir === '' || !is_dir($profileDir)) {
     fail('profile dir not found');
 }
@@ -143,7 +158,7 @@ try {
     $pdo = new PDO('sqlite:' . $tmpDb);
     $stmt = $pdo->query(
         "SELECT host_key, name, value, encrypted_value FROM cookies "
-        . "WHERE host_key LIKE '%ctrip%' OR host_key LIKE '%ctripbiz%'"
+        . 'WHERE ' . cookie_host_where_clause($platform)
     );
     if (!$stmt) {
         fail('failed to query Cookies DB');
@@ -167,7 +182,7 @@ try {
 }
 
 if ($pairs === []) {
-    fail('no usable Ctrip cookies found in profile');
+    fail('no usable ' . $platform . ' cookies found in profile');
 }
 
 $outputDir = dirname($outputPath);

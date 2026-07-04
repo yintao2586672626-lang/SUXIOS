@@ -1156,6 +1156,41 @@ test('Revenue AI action rows expose pricing generation preflight without OTA wri
   assert.equal(rows[0].pricingGenerationPreflightSummary.autoWriteOta, false);
 });
 
+test('Revenue AI static helpers label operator-skipped pricing preflight explicitly', () => {
+  const overview = {
+    pricing_generation_preflight: {
+      status: 'skipped_by_operator_policy',
+      reason: 'missing_pricing_inputs_skipped_by_operator_policy',
+      detail: '已按人工策略暂时跳过房型、保护价、需求预测和竞对价格样本缺口。',
+      source_scope: 'ctrip_ota_channel',
+      source_channels: ['ctrip'],
+      target_hotel_ids: [64],
+      target_date_rows: 27,
+      room_type_count: 0,
+      pending_suggestion_count: 0,
+      create_candidate_count: 0,
+      skipped_candidate_count: 0,
+      required_inputs: [
+        { code: 'room_types_enabled', source: 'room_types', status: 'skipped_by_operator_policy' },
+        { code: 'floor_price_or_min_rate_guard', source: 'room_types', status: 'skipped_by_operator_policy' },
+      ],
+      can_generate_pending_suggestions: false,
+      read_only: true,
+      advisory_only: true,
+      auto_write_ota: false,
+    },
+  };
+
+  const summary = helpers.buildRevenueAiPricingGenerationPreflightSummary({ overview });
+  assert.equal(summary.visible, true);
+  assert.equal(summary.status, 'skipped_by_operator_policy');
+  assert.equal(summary.statusLabel, '已暂时跳过');
+  assert.match(summary.reasonText, /暂时跳过/);
+  assert.equal(summary.canGeneratePendingSuggestions, false);
+  assert.equal(summary.autoWriteOta, false);
+  assert.equal(summary.requiredInputs[0].status, 'skipped_by_operator_policy');
+});
+
 test('Revenue AI generate result exposes blocked Ctrip-only preconditions', () => {
   const blocked = helpers.buildRevenueAiPriceSuggestionGenerateResult({
     response: {

@@ -9,6 +9,24 @@ use think\facade\Db;
 class RevenueAiOverviewService
 {
     private const CHANNELS = ['ctrip', 'meituan'];
+    private const TEMPORARY_PRICING_SKIP_REASON = 'missing_pricing_inputs_skipped_by_operator_policy';
+    private const TEMPORARY_SKIPPABLE_PRICING_INPUT_CODES = [
+        'room_types_enabled',
+        'floor_price_or_min_rate_guard',
+        'demand_forecast',
+        'competitor_price_samples',
+        'pricing_candidate_signal',
+    ];
+    private const TEMPORARY_SKIPPABLE_PRICING_REASONS = [
+        self::TEMPORARY_PRICING_SKIP_REASON,
+        'room_types_empty',
+        'pricing_candidate_signals_missing',
+        'floor_price_missing',
+        'competitor_price_fields_missing',
+        'demand_forecasts_not_loaded',
+        'demand_forecasts_empty',
+        'demand_forecasts_metric_missing',
+    ];
 
     /**
      * @param array<string, mixed> $filters
@@ -197,6 +215,7 @@ class RevenueAiOverviewService
         $pricingGenerationPreflight = is_array($context['pricing_generation_preflight'] ?? null)
             ? $context['pricing_generation_preflight']
             : $this->pricingGenerationPreflightUnavailable($businessDate, $hotelId, [], $actualScopedSourceChannels, 'not_loaded', 'price_suggestion_generation_not_loaded');
+        $pricingGenerationPreflight = $this->applyPricingTemporarySkipPolicyToPreflight($pricingGenerationPreflight);
         $agentActivity = is_array($context['agent_activity'] ?? null)
             ? $context['agent_activity']
             : $this->agentActivityUnavailable($businessDate, $hotelId, 'not_loaded', 'agent_logs_not_loaded');
@@ -2049,6 +2068,15 @@ class RevenueAiOverviewService
             );
         }
 
+        $requiredInputs = $this->uniqueRequiredInputs($requiredInputs);
+        $temporarySkipPolicy = $this->pricingTemporarySkipPolicy($status, $reason, $requiredInputs, $tableGaps);
+        if (($temporarySkipPolicy['active'] ?? false) === true) {
+            $status = 'skipped_by_operator_policy';
+            $reason = self::TEMPORARY_PRICING_SKIP_REASON;
+            $detail = '已按人工策略暂时跳过房型、保护价、需求预测和竞对价格样本缺口；缺口仍保留为证据，不生成待审建议，不写 OTA。';
+            $requiredInputs = $this->markPricingRequiredInputsSkipped($requiredInputs);
+        }
+
         return [
             'status' => $status,
             'reason' => $reason,
@@ -2077,7 +2105,8 @@ class RevenueAiOverviewService
             'candidate_skip_reasons' => array_values(array_unique($candidateSkipReasons)),
             'candidate_data_gaps' => array_values(array_unique($candidateDataGaps)),
             'table_gaps' => $tableGaps,
-            'required_inputs' => $this->uniqueRequiredInputs($requiredInputs),
+            'required_inputs' => $requiredInputs,
+            'temporary_skip_policy' => $temporarySkipPolicy,
             'hotel_checks' => $hotelChecks,
             'can_generate_pending_suggestions' => $status === 'ready_for_manual_generation',
             'manual_review_required' => true,
@@ -2262,6 +2291,124 @@ class RevenueAiOverviewService
     }
 
     /**
+     * @param array<int, array<string, mixed>> $requiredInputs
+     * @param array<int, string> $tableGaps
+     * @return array<string, mixed>
+     */
+    private function pricingTemporarySkipPolicy(string $status, string $reason, array $requiredInputs, array $tableGaps = []): array
+    {
+        $base = [
+            'active' => false,
+            'mode' => 'operator_explicit_temporary_skip',
+            'reason' => self::TEMPORARY_PRICING_SKIP_REASON,
+            'scope' => 'pricing_input_gaps_only',
+            'original_status' => $status,
+            'original_reason' => $reason,
+            'skipped_input_codes' => [],
+            'non_skippable_input_codes' => [],
+            'preserve_missing_evidence' => true,
+            'auto_generate_pending_suggestions' => false,
+            'auto_write_ota' => false,
+            'operation_intake_allowed' => false,
+            'investment_decision_allowed' => false,
+        ];
+        if (in_array($status, ['failed', 'pending_review_exists', 'ready_for_manual_generation'], true)) {
+            return $base;
+        }
+        if ($tableGaps !== []) {
+            return $base;
+        }
+
+        $codes = [];
+        foreach ($requiredInputs as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $code = trim((string)($item['code'] ?? ''));
+            if ($code !== '') {
+                $codes[] = $code;
+            }
+        }
+        $codes = array_values(array_unique($codes));
+        if ($codes === []) {
+            return $base;
+        }
+
+        $nonSkippable = array_values(array_diff($codes, self::TEMPORARY_SKIPPABLE_PRICING_INPUT_CODES));
+        if ($nonSkippable !== []) {
+            $base['non_skippable_input_codes'] = $nonSkippable;
+            return $base;
+        }
+
+        if (!in_array($reason, self::TEMPORARY_SKIPPABLE_PRICING_REASONS, true)) {
+            return $base;
+        }
+
+        $base['active'] = true;
+        $base['skipped_input_codes'] = $codes;
+        return $base;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function markPricingRequiredInputsSkipped(array $items): array
+    {
+        $skipReason = self::TEMPORARY_PRICING_SKIP_REASON;
+        return array_map(static function (array $item) use ($skipReason): array {
+            $item['original_status'] = (string)($item['status'] ?? 'missing_or_blocked');
+            $item['status'] = 'skipped_by_operator_policy';
+            $item['skip_policy'] = [
+                'reason' => $skipReason,
+                'preserve_missing_evidence' => true,
+                'auto_write_ota' => false,
+            ];
+            return $item;
+        }, $items);
+    }
+
+    /**
+     * @param array<string, mixed> $preflight
+     * @return array<string, mixed>
+     */
+    private function applyPricingTemporarySkipPolicyToPreflight(array $preflight): array
+    {
+        if ($preflight === [] || (string)($preflight['status'] ?? '') === 'not_loaded') {
+            return $preflight;
+        }
+        if ((string)($preflight['status'] ?? '') === 'skipped_by_operator_policy') {
+            return $preflight;
+        }
+
+        $requiredInputs = $this->uniqueRequiredInputs(is_array($preflight['required_inputs'] ?? null) ? $preflight['required_inputs'] : []);
+        $policy = $this->pricingTemporarySkipPolicy(
+            (string)($preflight['status'] ?? ''),
+            (string)($preflight['reason'] ?? ''),
+            $requiredInputs,
+            is_array($preflight['table_gaps'] ?? null) ? $preflight['table_gaps'] : []
+        );
+        if (($policy['active'] ?? false) !== true) {
+            if ($requiredInputs !== []) {
+                $preflight['required_inputs'] = $requiredInputs;
+            }
+            $preflight['temporary_skip_policy'] = $policy;
+            return $preflight;
+        }
+
+        $preflight['original_status'] = (string)($preflight['status'] ?? 'blocked');
+        $preflight['status'] = 'skipped_by_operator_policy';
+        $preflight['reason'] = self::TEMPORARY_PRICING_SKIP_REASON;
+        $preflight['detail'] = '已按人工策略暂时跳过房型、保护价、需求预测和竞对价格样本缺口；缺口仍保留为证据，不生成待审建议，不写 OTA。';
+        $preflight['required_inputs'] = $this->markPricingRequiredInputsSkipped($requiredInputs);
+        $preflight['temporary_skip_policy'] = $policy;
+        $preflight['can_generate_pending_suggestions'] = false;
+        $preflight['auto_write_ota'] = false;
+        $preflight['next_action'] = $this->pricingGenerationPreflightNextAction(self::TEMPORARY_PRICING_SKIP_REASON);
+        return $preflight;
+    }
+
+    /**
      * @param array<int, array<string, string>> $items
      * @return array<int, array<string, string>>
      */
@@ -2286,6 +2433,7 @@ class RevenueAiOverviewService
             'price_suggestions_pending_review' => '进入收益 Agent 的定价建议列表完成人工审核；Revenue AI 首页不自动写 OTA。',
             'pricing_generation_hotel_scope_missing' => '先选择或导入可映射到系统酒店的携程 OTA 数据，再生成待审调价建议。',
             'room_types_empty' => '为携程目标酒店配置启用房型和最低保护价，再补需求预测与竞对样本；缺口未补齐前不生成待审建议。',
+            self::TEMPORARY_PRICING_SKIP_REASON => '已按人工策略暂时跳过抓不到的房型、保护价、需求预测和竞对样本缺口；继续保留缺口证据，不自动生成或写 OTA。',
             'pricing_candidate_signals_missing' => '补齐需求预测、竞对价格、历史价格变化和保护价信号，直到只读预检出现可生成候选。',
             'pricing_generation_candidates_ready' => '可进入收益 Agent 生成待审建议；生成后仍需人工审核，不写 OTA。',
             default => '检查定价建议生成前置表和读取权限；缺口明确前不生成或执行调价建议。',
@@ -3486,6 +3634,7 @@ class RevenueAiOverviewService
         $gates = is_array($pricingReadiness['gates'] ?? null) ? $pricingReadiness['gates'] : [];
         $items = [];
         $readyLabels = [];
+        $skippedLabels = [];
         $blockedLabels = [];
         foreach ($gates as $gate) {
             if (!is_array($gate)) {
@@ -3498,13 +3647,17 @@ class RevenueAiOverviewService
             }
             if ($status === 'ok') {
                 $readyLabels[] = $label;
+            } elseif ($status === 'skipped_by_operator_policy') {
+                $skippedLabels[] = $label;
             } else {
                 $blockedLabels[] = $label;
             }
+            $skipPolicy = is_array($gate['skip_policy'] ?? null) ? $gate['skip_policy'] : [];
             $items[] = [
                 'key' => (string)($gate['key'] ?? $label),
                 'label' => $label,
                 'status' => $status,
+                'original_status' => (string)($gate['original_status'] ?? ''),
                 'reason' => (string)($gate['reason'] ?? ''),
                 'display_reason' => (string)($gate['display_reason'] ?? ($gate['detail'] ?? '')),
                 'next_action' => (string)($gate['next_action'] ?? ''),
@@ -3515,19 +3668,24 @@ class RevenueAiOverviewService
                 'target_platform' => (string)($gate['target_platform'] ?? ''),
                 'target_agent_tab' => (string)($gate['target_agent_tab'] ?? ''),
                 'target_revenue_tab' => (string)($gate['target_revenue_tab'] ?? ''),
+                'skip_policy' => $skipPolicy,
             ];
         }
 
         $readyCount = count($readyLabels);
+        $skippedCount = count($skippedLabels);
         $blockedCount = count($blockedLabels);
+        $totalCount = $readyCount + $skippedCount + $blockedCount;
         return [
-            'status' => $blockedCount > 0 ? 'blocked' : ($readyCount > 0 ? 'ok' : 'unknown'),
-            'display' => $readyCount + $blockedCount > 0
-                ? '判断依据 可用 ' . $readyCount . ' / 待补 ' . $blockedCount
+            'status' => $blockedCount > 0 ? 'blocked' : ($skippedCount > 0 ? 'warning' : ($readyCount > 0 ? 'ok' : 'unknown')),
+            'display' => $totalCount > 0
+                ? '判断依据 可用 ' . $readyCount . ($skippedCount > 0 ? ' / 跳过 ' . $skippedCount : '') . ' / 待补 ' . $blockedCount
                 : '判断依据 未加载',
             'ready_count' => $readyCount,
+            'skipped_count' => $skippedCount,
             'blocked_count' => $blockedCount,
             'ready_labels' => array_slice($readyLabels, 0, 6),
+            'skipped_labels' => array_slice($skippedLabels, 0, 6),
             'blocked_labels' => array_slice($blockedLabels, 0, 6),
             'items' => $items,
             'read_only' => true,
@@ -3543,8 +3701,26 @@ class RevenueAiOverviewService
     private function pricingAiDecisionResolutionPlan(array $basisItems, array $sourceChannels = []): array
     {
         $items = [];
+        $skippedItems = [];
         foreach ($basisItems as $basisItem) {
             if (!is_array($basisItem) || ($basisItem['status'] ?? '') === 'ok') {
+                continue;
+            }
+            if (($basisItem['status'] ?? '') === 'skipped_by_operator_policy') {
+                $code = (string)($basisItem['key'] ?? '');
+                $evidenceCode = (string)($basisItem['reason'] ?? '');
+                $resolution = $this->pricingAiDecisionResolutionSpec($code, $evidenceCode);
+                $skippedItems[] = [
+                    'code' => $code,
+                    'input_type' => $this->pricingAiReviewInputType($code, $evidenceCode),
+                    'evidence_code' => $evidenceCode,
+                    'status' => 'skipped_by_operator_policy',
+                    'resolution_action' => $resolution['resolution_action'],
+                    'acceptance_check' => $resolution['acceptance_check'],
+                    'unblocks' => $resolution['unblocks'],
+                    'forbidden_shortcut' => $resolution['forbidden_shortcut'],
+                    'skip_policy' => is_array($basisItem['skip_policy'] ?? null) ? $basisItem['skip_policy'] : [],
+                ];
                 continue;
             }
 
@@ -3577,6 +3753,7 @@ class RevenueAiOverviewService
             'metric_scope' => 'ota_channel',
             'item_count' => count($items),
             'pending_count' => count($items),
+            'skipped_count' => count($skippedItems),
             'approval_allowed_after_resolution' => $items === [],
             'post_resolution_gate' => 'ai_decision_review_contract.approval_allowed',
             'post_resolution_verifier' => 'C:\\xampp\\php\\php.exe vendor\\bin\\phpunit --colors=never tests\\RevenueAiOverviewServiceTest.php',
@@ -3588,6 +3765,7 @@ class RevenueAiOverviewService
                 'promote_ota_scope_to_whole_hotel_truth',
             ],
             'items' => $items,
+            'skipped_items' => $skippedItems,
         ];
     }
 
@@ -4207,11 +4385,19 @@ class RevenueAiOverviewService
             );
         }
         $gates[] = $this->operationFeedbackInputGate($executionSummary);
+        $gates = array_map(function (array $gate): array {
+            return $this->applyPricingTemporarySkipPolicyToGate($gate);
+        }, $gates);
 
         $blockingReasons = [];
         $blockedLabels = [];
+        $skippedLabels = [];
         $nextActions = [];
         foreach ($gates as $gate) {
+            if ($this->pricingGateSkippedByOperatorPolicy($gate)) {
+                $skippedLabels[] = (string)$gate['label'];
+                continue;
+            }
             if (($gate['status'] ?? '') !== 'ok') {
                 $blockingReasons[] = (string)$gate['reason'];
                 $blockedLabels[] = (string)$gate['label'];
@@ -4223,27 +4409,48 @@ class RevenueAiOverviewService
 
         $resolutionPlan = $this->pricingAiDecisionResolutionPlan($gates, $sourceChannels);
         $reviewContract = $this->pricingAiDecisionReviewContract($resolutionPlan);
+        $hasSkippedGates = $skippedLabels !== [];
+        $overallStatus = $blockingReasons === [] ? ($hasSkippedGates ? 'warning' : 'ok') : 'blocked';
+        $summary = $blockingReasons === []
+            ? ($hasSkippedGates
+                ? '已按人工策略暂时跳过抓不到的定价输入缺口；可继续做只读 AI 分析，但不自动生成待审建议、不写 OTA。'
+                : '已具备可审核调价建议的前置条件；第一版仍需人工审核，不自动写 OTA。')
+            : '暂不生成调价建议，' . implode('、', array_slice($blockedLabels, 0, 4)) . (count($blockedLabels) > 4 ? '等条件未满足。' : '未满足。');
 
         return [
-            'overall_status' => $blockingReasons === [] ? 'ok' : 'blocked',
+            'overall_status' => $overallStatus,
             'can_generate_recommendation' => $blockingReasons === [],
             'can_auto_write_ota' => false,
             'manual_review_required' => true,
             'blocking_reasons' => array_values(array_unique($blockingReasons)),
+            'skipped_reasons' => array_values(array_unique(array_filter(array_map(
+                static fn(array $gate): string => (string)($gate['status'] ?? '') === 'skipped_by_operator_policy' ? (string)($gate['reason'] ?? '') : '',
+                $gates
+            )))),
             'gates' => $gates,
             'next_actions' => array_slice(array_values(array_unique($nextActions)), 0, 4),
             'pricing_generation_preflight' => $pricingGenerationPreflight,
             'ai_decision_review_contract' => $reviewContract,
             'ai_decision_resolution_plan' => $resolutionPlan,
+            'temporary_skip_policy' => [
+                'active' => $hasSkippedGates,
+                'reason' => self::TEMPORARY_PRICING_SKIP_REASON,
+                'scope' => 'pricing_input_gaps_only',
+                'skipped_gate_count' => count($skippedLabels),
+                'skipped_gate_labels' => array_slice($skippedLabels, 0, 8),
+                'preserve_missing_evidence' => true,
+                'auto_write_ota' => false,
+                'auto_generate_pending_suggestions' => false,
+                'operation_intake_allowed' => false,
+                'investment_decision_allowed' => false,
+            ],
             'review_policy' => [
                 'mode' => 'manual_review_only',
                 'auto_write_ota' => false,
                 'requires_versioned_approval' => true,
                 'note' => 'Phase 1B only exposes readiness blockers. It does not generate or write OTA prices.',
             ],
-            'summary' => $blockingReasons === []
-                ? '已具备可审核调价建议的前置条件；第一版仍需人工审核，不自动写 OTA。'
-                : '暂不生成调价建议：' . implode('、', array_slice($blockedLabels, 0, 4)) . (count($blockedLabels) > 4 ? '等条件未满足。' : '未满足。'),
+            'summary' => $summary,
         ];
     }
 
@@ -4307,6 +4514,48 @@ class RevenueAiOverviewService
             'target_agent_tab' => $targetMeta['target_agent_tab'] ?? '',
             'target_revenue_tab' => $targetMeta['target_revenue_tab'] ?? '',
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $gate
+     * @return array<string, mixed>
+     */
+    private function applyPricingTemporarySkipPolicyToGate(array $gate): array
+    {
+        if ((string)($gate['status'] ?? '') !== 'blocked') {
+            return $gate;
+        }
+
+        $reason = (string)($gate['reason'] ?? '');
+        if (!in_array($reason, self::TEMPORARY_SKIPPABLE_PRICING_REASONS, true)) {
+            return $gate;
+        }
+
+        $displayReason = (string)($gate['display_reason'] ?? ($gate['detail'] ?? $reason));
+        $gate['original_status'] = 'blocked';
+        $gate['status'] = 'skipped_by_operator_policy';
+        $gate['severity'] = 'low';
+        $gate['category'] = (string)($gate['category'] ?? 'pricing_gate');
+        $gate['display_reason'] = '已按人工策略暂时跳过；原缺口：' . $displayReason;
+        $gate['next_action'] = '继续保留缺口证据；后续抓到真实房型、保护价、需求预测或竞对样本后再恢复门禁。';
+        $gate['skip_policy'] = [
+            'reason' => self::TEMPORARY_PRICING_SKIP_REASON,
+            'original_reason' => $reason,
+            'preserve_missing_evidence' => true,
+            'auto_write_ota' => false,
+            'auto_generate_pending_suggestions' => false,
+            'operation_intake_allowed' => false,
+            'investment_decision_allowed' => false,
+        ];
+        return $gate;
+    }
+
+    /**
+     * @param array<string, mixed> $gate
+     */
+    private function pricingGateSkippedByOperatorPolicy(array $gate): bool
+    {
+        return (string)($gate['status'] ?? '') === 'skipped_by_operator_policy';
     }
 
     /**
@@ -4797,6 +5046,7 @@ class RevenueAiOverviewService
             'price_suggestion_generation_not_loaded' => ['severity' => 'medium', 'category' => 'pricing_generation', 'display_reason' => '调价建议生成预检尚未加载。', 'next_action' => '先加载 room_types、demand_forecasts、competitor_analysis 和 price_suggestions 的只读预检，再决定是否生成待审建议。'],
             'pricing_generation_hotel_scope_missing' => ['severity' => 'high', 'category' => 'pricing_generation', 'display_reason' => '调价建议生成缺少目标系统酒店范围。', 'next_action' => '先选择或导入可映射到系统酒店的携程 OTA 数据，再生成待审调价建议。'],
             'room_types_empty' => ['severity' => 'high', 'category' => 'pricing_generation', 'display_reason' => '携程目标酒店暂无启用房型，不能生成待审调价建议。', 'next_action' => '为携程目标酒店配置启用房型、基础价和最低保护价后，再补需求预测与竞对样本。'],
+            self::TEMPORARY_PRICING_SKIP_REASON => ['severity' => 'low', 'category' => 'pricing_generation', 'display_reason' => '已按人工策略暂时跳过抓不到的房型、保护价、需求预测和竞对样本缺口。', 'next_action' => '继续保留缺口证据；后续抓到真实输入后再恢复调价生成门禁。'],
             'pricing_candidate_signals_missing' => ['severity' => 'medium', 'category' => 'pricing_generation', 'display_reason' => '调价候选信号不足，当前不会生成待审建议。', 'next_action' => '补齐需求预测、竞对价格、历史价格变化和保护价信号，直到只读预检出现可生成候选。'],
             'pricing_generation_candidates_ready' => ['severity' => 'low', 'category' => 'pricing_generation', 'display_reason' => '已存在可生成待审调价建议的只读候选。', 'next_action' => '进入收益 Agent 生成待审建议；生成后仍需人工审核，不写 OTA。'],
             default => [],
@@ -4809,6 +5059,7 @@ class RevenueAiOverviewService
                 'price_suggestion_generation_not_loaded',
                 'pricing_generation_hotel_scope_missing',
                 'room_types_empty',
+                self::TEMPORARY_PRICING_SKIP_REASON,
                 'pricing_candidate_signals_missing',
                 'pricing_generation_candidates_ready',
             ], true)) {

@@ -351,6 +351,74 @@ trait PlatformProfileCaptureConcern
             throw new \InvalidArgumentException("missing Ctrip Cookie and storage/ctrip_profile_{$safeProfileId}");
         }
 
+        $this->assertProfileCookieSourceLoginVerified($requestData, 'Ctrip');
+
+        return $this->createPlatformCookieFileFromProfile('ctrip', $profileDir, $projectRoot, $profileId, 'ctrip_profile_' . $safeProfileId);
+    }
+
+    private function createMeituanCookieFileFromProfile(array $requestData, string $projectRoot, int $systemHotelId): array
+    {
+        $storeId = $this->meituanProfileStoreIdFromConfig($requestData);
+        if ($storeId === '') {
+            throw new \InvalidArgumentException('missing Meituan Cookie and browser Profile Store ID');
+        }
+
+        $safeStoreId = BrowserProfileCaptureRequestService::safeFilePart($storeId);
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $safeStoreId;
+        if (!is_dir($profileDir)) {
+            throw new \InvalidArgumentException("missing Meituan Cookie and storage/meituan_profile_{$safeStoreId}");
+        }
+
+        $this->assertProfileCookieSourceLoginVerified($requestData, 'Meituan');
+
+        return $this->createPlatformCookieFileFromProfile('meituan', $profileDir, $projectRoot, $storeId, 'meituan_profile_' . $safeStoreId);
+    }
+
+    private function assertProfileCookieSourceLoginVerified(array $config, string $platform): void
+    {
+        $missing = $this->profileCookieSourceLoginMissingRequirements($config);
+        if ($missing === []) {
+            return;
+        }
+
+        throw new \InvalidArgumentException(
+            $platform . ' browser Profile Cookie source requires ' . implode(', ', $missing)
+        );
+    }
+
+    private function profileCookieSourceLoginVerified(array $config): bool
+    {
+        return $this->profileCookieSourceLoginMissingRequirements($config) === [];
+    }
+
+    private function profileCookieSourceLoginMissingRequirements(array $config): array
+    {
+        $missing = [];
+        if (!$this->isTruthyRequestValue($config['manual_login_state_verified'] ?? null)) {
+            $missing[] = 'manual_login_state_verified';
+        }
+
+        $profileStatus = strtolower(trim((string)($config['profile_status'] ?? $config['login_status'] ?? '')));
+        if (!in_array($profileStatus, ['logged_in', 'authorized'], true)) {
+            $missing[] = 'profile_status_logged_in';
+        }
+
+        $lastVerifiedAt = trim((string)(
+            $config['last_login_verified_at']
+            ?? $config['profile_login_verified_at']
+            ?? $config['last_profile_login_at']
+            ?? $config['last_verified_at']
+            ?? ''
+        ));
+        if ($lastVerifiedAt === '') {
+            $missing[] = 'last_login_verified_at';
+        }
+
+        return $missing;
+    }
+
+    private function createPlatformCookieFileFromProfile(string $platform, string $profileDir, string $projectRoot, string $profileId, string $filePrefix): array
+    {
         $extractor = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'extract_chromium_cookie_header.php';
         if (!is_file($extractor)) {
             throw new \InvalidArgumentException('missing Chromium Cookie extractor');
@@ -370,17 +438,18 @@ trait PlatformProfileCaptureConcern
         } catch (\Throwable $e) {
             $suffix = str_replace('.', '', uniqid('', true));
         }
-        $cookieFile = $dir . DIRECTORY_SEPARATOR . BrowserProfileCaptureRequestService::safeFilePart('ctrip_profile_' . $safeProfileId . '_' . $suffix) . '.txt';
+        $cookieFile = $dir . DIRECTORY_SEPARATOR . BrowserProfileCaptureRequestService::safeFilePart($filePrefix . '_' . $suffix) . '.txt';
 
         $runResult = $this->runMeituanCaptureProcess([
             $phpBinary,
             $extractor,
             '--profile-dir=' . $profileDir,
             '--output=' . $cookieFile,
+            '--platform=' . $platform,
         ], $projectRoot, 30);
         if (!$runResult['success'] || !is_file($cookieFile)) {
             $this->removeAutoFetchCookieFile($cookieFile);
-            throw new \InvalidArgumentException('failed to extract Ctrip Cookie from browser Profile: ' . $this->trimMeituanCaptureLog((string)($runResult['stderr'] ?? $runResult['stdout'] ?? '')));
+            throw new \InvalidArgumentException('failed to extract ' . $platform . ' Cookie from browser Profile: ' . $this->trimMeituanCaptureLog((string)($runResult['stderr'] ?? $runResult['stdout'] ?? '')));
         }
 
         $meta = json_decode(trim((string)($runResult['stdout'] ?? '')), true);

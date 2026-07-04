@@ -568,6 +568,19 @@ test('Login background preload does not compete with cached-auth shell', () => {
   assert.match(head, /link\.dataset\.suxiLoginBgPreload = '1';/);
 });
 
+test('Login page uses SUXIOS brand instead of legacy Guilusuli brand', () => {
+  const loginPanel = sliceFrom('<div v-if="!isLoggedIn"', '<!-- 登录表单 -->');
+
+  assert.match(html, /style\.css\?v=20260704-suxios-login-brand/);
+  assert.match(loginPanel, /aria-label="宿析OS登录主视觉"/);
+  assert.match(loginPanel, /<p class="login-brand-mark">宿析OS<\/p>/);
+  assert.match(loginPanel, /src="images\/logo\.svg" alt="宿析OS"/);
+  assert.match(loginPanel, /<p class="login-card-kicker">SUXIOS<\/p>/);
+  assert.match(loginPanel, /<h1 class="login-title text-3xl font-bold mb-2">宿析OS<\/h1>/);
+  assert.match(loginPanel, /进入宿析OS经营系统/);
+  assert.doesNotMatch(loginPanel, /归鹿宿里|GUILUSULI|guilusuli-logo\.jpg/);
+});
+
 test('OTA diagnosis helper does not block the online data shell', () => {
   const head = sliceFrom('<head>', '</head>');
   const currentPageWatcher = sliceFrom('watch(currentPage, (newPage) => {', '\n\n            watch(isLoggedIn');

@@ -244,11 +244,32 @@ for (const [needle, label] of [
   ["request('/online-data/data-import'", 'frontend can import rows'],
   ["`/online-data/data-sources/${source.id}/sync`", 'frontend can trigger immediate sync'],
   ['platformSyncLogs', 'frontend renders sync logs'],
+  ['binding_contract', 'frontend renders machine-readable platform Profile binding contract'],
+  ['manual_login_state_verified=', 'frontend shows manual login verification state in Profile card'],
+  ['item.binding_checks || item.checks', 'frontend renders backend binding checks'],
+  ['bindingContract.manual_login_state_verified === true', 'frontend flow requires explicit manual login verification when contract exists'],
   ["requireAutoFetchStatic('normalizeDataConfigForForm')", 'frontend reads data-config normalizer from auto-fetch static module'],
   ["requireAutoFetchStatic('buildDataConfigRequestBody')", 'frontend reads data-config request builder from auto-fetch static module'],
 ]) {
   check('public/index.html', label, (source) => source.includes(needle), needle);
 }
+
+for (const [needle, label] of [
+  ['[$otaHotelId] = self::otaStoreIdFromConfig($platform, $config);', 'Profile binding checks resolve Ctrip OTA store ID through the contract helper'],
+  ['[$profileId] = self::profileIdFromConfig($config, $profileKey);', 'Profile binding checks resolve Profile ID through the contract helper'],
+  ["if ($profileId !== '' && $otaHotelId !== '')", 'Profile binding checks require Ctrip OTA store ID and Profile ID together'],
+  ["} elseif (!$partnerConfigured) {", 'Profile binding checks do not require Meituan Partner ID for P0 Profile identity'],
+  ['Partner ID 仅影响 Cookie/API 快速路径', 'Profile binding checks keep Meituan Partner ID scoped to Cookie/API fast path'],
+]) {
+  check('app/service/PlatformProfileBindingReadinessService.php', label, (source) => source.includes(needle), needle);
+}
+
+check(
+  'app/service/PlatformProfileBindingReadinessService.php',
+  'Profile binding checks do not accept Profile ID or OTA store ID alone for Ctrip identity',
+  (source) => !source.includes("if ($explicitProfileId !== '' || $otaHotelId !== '')"),
+  "if ($explicitProfileId !== '' || $otaHotelId !== '')"
+);
 
 for (const [needle, label] of [
   ['manual_login_state_verified', 'frontend traffic readiness keeps manual login verification visible'],
@@ -295,6 +316,13 @@ for (const [needle, label] of [
   ['campaignList', 'platform sync extracts campaign envelopes'],
   ['CtripBrowserProfileDataSourceAdapter', 'platform sync registers Ctrip browser Profile adapter'],
   ['MeituanBrowserProfileDataSourceAdapter', 'platform sync registers Meituan browser Profile adapter'],
+  ['function assertBrowserProfileBackgroundSyncLoginVerified', 'platform sync gates background Profile capture by verified manual login state'],
+  ['function browserProfileBackgroundSyncLoginMissingRequirements', 'platform sync reports missing Profile login gate requirements'],
+  ["'compare_type' => $this->stringValue($row, ['compare_type', 'compareType', 'rank_type', 'rankType'])", 'platform sync maps Meituan rank_type into compare_type for peer-rank field facts'],
+  ["$missing[] = 'manual_login_state_verified';", 'platform sync requires explicit manual login verification before background Profile capture'],
+  ["$missing[] = 'profile_status_logged_in';", 'platform sync requires logged-in Profile status before background Profile capture'],
+  ["$missing[] = 'last_login_verified_at';", 'platform sync requires last login verification time before background Profile capture'],
+  ['browser_profile background sync requires manual_login_state_verified', 'platform sync exposes explicit Profile login gate failure'],
   ['function refreshDatabaseConnectionAfterExternalFetch', 'platform sync refreshes DB connection after long external capture'],
   ['$this->refreshDatabaseConnectionAfterExternalFetch();', 'platform sync calls DB refresh before post-capture writes'],
   ['function resolveDataPeriodMetadata', 'platform sync classifies historical and realtime rows'],
@@ -328,6 +356,36 @@ for (const [needle, label] of [
   check('app/service/PlatformDataSyncService.php', label, (source) => source.includes(needle), needle);
 }
 
+check(
+  'app/service/PlatformDataSyncService.php',
+  'platform sync verifies background Profile login state before adapter fetch',
+  (source) => {
+    const gate = source.indexOf('$this->assertBrowserProfileBackgroundSyncLoginVerified($source, $options);');
+    const fetch = source.indexOf('$result = $adapter->fetch($source, $options);');
+    return gate !== -1 && fetch !== -1 && gate < fetch;
+  },
+  'assertBrowserProfileBackgroundSyncLoginVerified before adapter->fetch'
+);
+
+for (const [needle, label] of [
+  ['function assertProfileCookieSourceLoginVerified', 'Profile-derived Cookie extraction has a verified-login gate'],
+  ['function profileCookieSourceLoginMissingRequirements', 'Profile-derived Cookie extraction reports missing login verification requirements'],
+  ["$missing[] = 'manual_login_state_verified';", 'Profile-derived Cookie extraction requires manual login verification'],
+  ["$missing[] = 'profile_status_logged_in';", 'Profile-derived Cookie extraction requires logged-in Profile status'],
+  ["$missing[] = 'last_login_verified_at';", 'Profile-derived Cookie extraction requires last login verification time'],
+]) {
+  check('app/controller/concern/PlatformProfileCaptureConcern.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ['$this->profileCookieSourceLoginVerified($cookieApiSourceConfig)', 'Ctrip Cookie/API task planning only uses verified Profile Cookie sources'],
+  ['$this->profileCookieSourceLoginVerified($meituanConfig)', 'Meituan ranking task planning only uses verified Profile Cookie sources'],
+  ['$this->profileCookieSourceLoginVerified($meituanTrafficSourceConfig)', 'Meituan traffic task planning only uses verified Profile Cookie sources'],
+  ["'profile_cookie_missing_requirements' => $profileCookieMissing", 'Meituan Cookie/API readiness exposes Profile Cookie verification gaps'],
+]) {
+  check('app/controller/concern/AutoFetchConcern.php', label, (source) => source.includes(needle), needle);
+}
+
 for (const [needle, label] of [
   ['export function buildOtaCaptureEvidence', 'OTA capture helper builds desensitized evidence'],
   ['export function attachOtaCaptureEvidence', 'OTA capture helper attaches evidence to rows'],
@@ -339,6 +397,19 @@ for (const [needle, label] of [
   ['delete next.url;', 'OTA capture helper removes raw URL aliases from row output'],
 ]) {
   check('scripts/lib/ota_capture_standard.mjs', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ['CARD_METRIC_ID_ALIASES', 'Meituan traffic card normalization supports stable metric id aliases'],
+  ['CARD_METRIC_TITLE_RULES', 'Meituan traffic card normalization supports title-based metric aliases'],
+  ['function resolveCardMetricConfig', 'Meituan traffic card normalization resolves metric config from id or title'],
+  ['function cardMetricValue', 'Meituan traffic card normalization reads non-value display fields'],
+  ['valueText', 'Meituan traffic card normalization accepts valueText cards'],
+  ['displayValue', 'Meituan traffic card normalization accepts displayValue cards'],
+  ['dataValue', 'Meituan traffic card normalization accepts dataValue cards'],
+  ['currentValue', 'Meituan traffic card normalization accepts currentValue cards'],
+]) {
+  check('scripts/lib/meituan_browser_capture_normalize.mjs', label, (source) => source.includes(needle), needle);
 }
 
 for (const [needle, label] of [
@@ -412,6 +483,7 @@ for (const [needle, label] of [
   ['meituan_browser_capture.mjs', 'Meituan browser Profile adapter reuses existing browser capture script'],
   ['auth_status', 'Meituan browser Profile adapter exposes login state failures'],
   ['capture_gate', 'Meituan browser Profile adapter exposes capture gate failures'],
+  ["'--data-date=' . $dataDate", 'Meituan browser Profile adapter passes target date to capture script'],
   ["'acquisition_method' => 'browser_profile'", 'Meituan browser Profile adapter labels acquisition method'],
 ]) {
   check('app/service/platform/MeituanBrowserProfileDataSourceAdapter.php', label, (source) => source.includes(needle), needle);

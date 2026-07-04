@@ -524,6 +524,143 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         };
     };
 
+    const dataHealthRefreshModeText = (mode) => ({
+        full: '完整诊断',
+        light: '轻量刷新',
+        not_loaded: '未刷新',
+    }[String(mode || 'not_loaded')] || '状态待确认');
+
+    const buildDataHealthDiagnosticStatusRows = ({
+        refreshMode = 'not_loaded',
+        refreshSource = '未刷新',
+        refreshAt = '',
+        pendingModules = [],
+        fullDiagnosticsLoaded = false,
+    } = {}) => {
+        const modules = Array.isArray(pendingModules) ? pendingModules.filter(Boolean) : [];
+        const moduleText = fullDiagnosticsLoaded || modules.length <= 0
+            ? '完整诊断模块已加载'
+            : modules.join('、');
+        return [
+            { key: 'mode', label: '当前模式', value: dataHealthRefreshModeText(refreshMode) },
+            { key: 'source', label: '触发来源', value: `${refreshSource || '未刷新'}${refreshAt ? ` · ${refreshAt}` : ''}` },
+            { key: 'modules', label: '诊断模块', value: moduleText },
+        ];
+    };
+
+    const dataHealthFieldGapActionStatusText = (status) => ({
+        forbidden: '禁止采集',
+        not_returned_visible: '平台未返回',
+        not_returned: '平台未返回',
+        missing: '字段缺口',
+        unknown: '待核验',
+    }[String(status || '').toLowerCase()] || '待核验');
+
+    const dataHealthFieldGapActionStatusClass = (status) => {
+        const value = String(status || '').toLowerCase();
+        if (value === 'forbidden') return 'border-red-200 bg-red-50 text-red-700';
+        if (['missing', 'not_returned', 'not_returned_visible'].includes(value)) return 'border-amber-200 bg-amber-50 text-amber-700';
+        return 'border-gray-200 bg-gray-50 text-gray-600';
+    };
+
+    const buildDataHealthFieldGapActionRows = ({
+        missingFieldRows = [],
+        fieldAssetSummary = {},
+        fieldRows = [],
+        platformText = dataHealthPlatformText,
+    } = {}) => {
+        const rows = [];
+        const seen = new Set();
+        const normalizeAssetEntry = (entry) => {
+            if (entry && typeof entry === 'object') return entry;
+            const text = String(entry || '').trim();
+            return text ? { field: text, label: text } : null;
+        };
+        const pushRow = ({
+            platform = 'ota',
+            module = '字段缺口',
+            field = '',
+            label = '',
+            status = 'missing',
+            sourceRef = 'missing_field_codes',
+            nextAction = '按字段缺口清单补齐平台返回、字段定义或入库证据。',
+        } = {}) => {
+            const fieldText = String(label || field || '').trim();
+            if (!fieldText) return;
+            const key = `${platform}|${module}|${fieldText}|${status}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            rows.push({
+                key,
+                platform: platformText(platform),
+                module: collectionHealthFieldModuleText(module) || String(module || '字段缺口'),
+                field: fieldText,
+                status,
+                statusText: dataHealthFieldGapActionStatusText(status),
+                statusClass: dataHealthFieldGapActionStatusClass(status),
+                sourceRef: sourceRef || 'missing_field_codes',
+                nextAction,
+            });
+        };
+
+        (Array.isArray(missingFieldRows) ? missingFieldRows : []).forEach((row) => {
+            pushRow({
+                platform: row?.platform || row?.source || 'ota',
+                module: row?.module || row?.sourceText || '数据缺口',
+                field: row?.code || row?.field || row?.label,
+                label: row?.label,
+                status: 'missing',
+                sourceRef: row?.source_ref || row?.source || 'missing_field_codes',
+                nextAction: row?.nextActionText || row?.next_action || '补齐目标日字段证据后复跑 OTA 收益与 AI 诊断。',
+            });
+        });
+
+        (Array.isArray(fieldAssetSummary?.not_returned_fields) ? fieldAssetSummary.not_returned_fields : [])
+            .map(normalizeAssetEntry)
+            .filter(Boolean)
+            .forEach((field) => pushRow({
+                platform: field.source || field.platform || 'ota',
+                module: field.module || '字段资产',
+                field: field.field || field.key || field.label,
+                label: field.label,
+                status: 'not_returned_visible',
+                sourceRef: field.source_ref || 'field_asset_summary.not_returned_fields',
+                nextAction: field.next_action || '核对平台页面/接口是否真实返回该字段；未返回时保持缺口，不用默认值代替。',
+            }));
+
+        (Array.isArray(fieldAssetSummary?.forbidden_fields) ? fieldAssetSummary.forbidden_fields : [])
+            .map(normalizeAssetEntry)
+            .filter(Boolean)
+            .forEach((field) => pushRow({
+                platform: field.source || field.platform || 'ota',
+                module: field.module || '字段资产',
+                field: field.field || field.key || field.label,
+                label: field.label,
+                status: 'forbidden',
+                sourceRef: field.source_ref || 'field_asset_summary.forbidden_fields',
+                nextAction: field.next_action || '保持禁止采集边界，仅展示字段缺口和影响链路。',
+            }));
+
+        (Array.isArray(fieldRows) ? fieldRows : []).forEach((field) => {
+            const status = String(field?.asset_status || '').toLowerCase();
+            const storageTable = String(field?.storage_table || '').toLowerCase();
+            if (!['not_returned_visible', 'not_returned', 'forbidden'].includes(status) && storageTable !== 'not_collected') return;
+            pushRow({
+                platform: field?.source || 'ota',
+                module: field?.module || '字段定义',
+                field: field?.field || field?.fieldRawText,
+                label: field?.label || field?.labelText,
+                status: status || (storageTable === 'not_collected' ? 'forbidden' : 'missing'),
+                sourceRef: `${field?.source || 'ota'}.${field?.module || 'field_definitions'}.${field?.field || 'field_missing'}`,
+                nextAction: status === 'forbidden' || storageTable === 'not_collected'
+                    ? '保持禁止采集边界，仅在影响链路中标记不可得。'
+                    : '核对平台返回和入库字段；未返回时继续显示缺口。',
+            });
+        });
+
+        return rows.slice(0, 12);
+    };
+
     const buildDataHealthCookieAlertRows = (
         authorizationRows = [],
         normalizeStatus = dataHealthNormalizeStatus,
@@ -4929,6 +5066,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         buildOtaTodayCollectionReminderRows,
         buildOtaTodayCollectionReminderSummary,
         buildDataHealthDiagnosticBoundary,
+        dataHealthRefreshModeText,
+        buildDataHealthDiagnosticStatusRows,
+        buildDataHealthFieldGapActionRows,
         buildDataHealthCookieAlertRows,
         summarizeDataHealthCookieAlerts,
         buildDataHealthQualityTaskRows,

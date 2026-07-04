@@ -1809,7 +1809,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("const formatOnlineHistoryHotelOption = requireDataHealthStatic('formatOnlineHistoryHotelOption');")
     || !content.includes("const formatOnlineHistoryRaw = requireDataHealthStatic('formatOnlineHistoryRaw');")
     || !content.includes("const buildHotelDataDashboardRequests = requireDataHealthStatic('buildHotelDataDashboardRequests');")
-    || !content.includes('data-health-static.js?v=20260704-data-health-static-tools')
+    || !content.includes('data-health-static.js?v=20260704-manual-one-click-fetch')
     || !onlineHistorySource.includes('const params = buildOnlineHistoryQueryParams({')
     || !hotelDashboardSource.includes('const requests = buildHotelDataDashboardRequests({ selectedHotelId });')
     || hotelDashboardSource.includes('const accountParams = new URLSearchParams();')

@@ -2049,6 +2049,8 @@ function field_fact_closure_summary(array $rows): array
         'complete_metric_keys' => [],
         'missing_metric_keys' => [],
         'incomplete_metric_keys' => [],
+        'ignored_unanchored_field_fact_rows' => 0,
+        'ignored_unanchored_field_fact_count' => 0,
         'sample_facts' => [],
         'raw_data_exposed' => false,
     ];
@@ -2064,6 +2066,11 @@ function field_fact_closure_summary(array $rows): array
         $raw = decode_field_fact_raw_data($row['raw_data'] ?? null);
         $facts = extract_online_data_field_facts($row, $raw);
         if ($facts === []) {
+            continue;
+        }
+        if (!field_fact_row_has_evidence_anchor($row, $raw, $facts)) {
+            $summary['ignored_unanchored_field_fact_rows']++;
+            $summary['ignored_unanchored_field_fact_count'] += count($facts);
             continue;
         }
         $summary['rows_with_field_facts']++;
@@ -2171,6 +2178,27 @@ function field_fact_closure_summary(array $rows): array
     $summary['incomplete_metric_keys'] = array_slice(array_keys($incompleteMetricKeys), 0, 20);
 
     return $summary;
+}
+
+/**
+ * @param array<string, mixed> $row
+ * @param array<string, mixed> $raw
+ * @param array<int, mixed> $facts
+ */
+function field_fact_row_has_evidence_anchor(array $row, array $raw, array $facts): bool
+{
+    foreach (['source_trace_id', 'data_source_id', 'sync_task_id'] as $key) {
+        $value = $row[$key] ?? $raw[$key] ?? null;
+        if (is_scalar($value) && trim((string)$value) !== '') {
+            return true;
+        }
+    }
+    foreach ($facts as $fact) {
+        if (is_array($fact) && field_fact_has_desensitized_capture_evidence($fact)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function field_fact_source_path_structured(string $sourcePath): bool

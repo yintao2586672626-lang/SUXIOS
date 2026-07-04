@@ -136,6 +136,11 @@ test('OTA platform Profile flow uses login-state and target-date evidence as the
     assert.match(flowBuilder, new RegExp(label), `missing P0 flow label: ${label}`);
   }
   assert.match(flowBuilder, /manual_login_state_verified/);
+  assert.match(flowBuilder, /binding_contract/);
+  assert.match(flowBuilder, /manualLoginVerified/);
+  assert.match(flowBuilder, /bindingContract\.manual_login_state_verified === true/);
+  assert.match(html, /manual_login_state_verified=/);
+  assert.match(html, /item\.binding_checks \|\| item\.checks/);
   assert.match(flowBuilder, /const collectionDone = collectionStatus === 'collected'/);
   assert.match(flowBuilder, /targetTrafficRows > 0/);
   assert.match(flowBuilder, /fieldFactStatus === 'ready'/);

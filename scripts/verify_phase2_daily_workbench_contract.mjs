@@ -277,10 +277,15 @@ excludesAll('scripts/verify_phase2_daily_workbench_runtime.php', 'runtime verifi
   'saveCookies',
 ]);
 
-includesAll('public/index.html', 'daily workbench frontend panel keeps grouped acquisition actions', frontend, [
+includesAll('public/index.html', 'daily workbench frontend panel exposes manual one-click OTA acquisition', frontend, [
   'data-testid="phase2-daily-workbench"',
-  'dataAcquisitionIssueGroups',
-  'triggerCookieConfigAutoFetchGroup',
+  'manualOneClickFetchRows',
+  'manualOneClickFetchCards',
+  'manualOneClickFetchScopeText',
+  'runManualOneClickFetch',
+  'refreshManualOneClickFetchConfig',
+  'fetchCtripData',
+  'fetchMeituanData',
   'dailyWorkbenchSummaryCards',
   'dailyWorkbenchRows',
   'normalizeDailyWorkbenchWorkflowStage',

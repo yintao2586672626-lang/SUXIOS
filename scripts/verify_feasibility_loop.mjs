@@ -48,6 +48,7 @@ const checks = [
       'private function tenantIdForUser',
       'private function ensureTenantColumns',
       'tenant_id INT UNSIGNED DEFAULT NULL',
+      "COMMENT 'tenant id, default follows creator user' AFTER id",
       'INDEX idx_feasibility_reports_tenant_user (tenant_id, created_by, id)',
       "->where('created_by', $userId)",
     ],

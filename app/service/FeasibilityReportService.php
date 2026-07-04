@@ -365,7 +365,7 @@ class FeasibilityReportService
 
     private function ensureTenantColumns(): void
     {
-        Db::execute("ALTER TABLE feasibility_reports ADD COLUMN IF NOT EXISTS tenant_id INT UNSIGNED DEFAULT NULL COMMENT '绉熸埛ID锛岄粯璁よ窡闅忓垱寤虹敤鎴? AFTER id");
+        Db::execute("ALTER TABLE feasibility_reports ADD COLUMN IF NOT EXISTS tenant_id INT UNSIGNED DEFAULT NULL COMMENT 'tenant id, default follows creator user' AFTER id");
         Db::execute("ALTER TABLE feasibility_reports ADD INDEX IF NOT EXISTS idx_feasibility_reports_tenant_user (tenant_id, created_by, id)");
     }
 

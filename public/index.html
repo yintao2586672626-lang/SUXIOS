@@ -29,7 +29,7 @@
         })();
     </script>
     <link href="tailwind.min.css?v=20260628-static-router-fix" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260704-guilusuli-login-brand-v2">
+    <link rel="stylesheet" href="style.css?v=20260704-suxios-login-brand">
     <link rel="stylesheet" href="ai-custom.css?v=20260628-static-router-fix">
     <script>
         (() => {
@@ -58,7 +58,7 @@
     <script src="ctrip-static.js?v=20260703-ai-estimated-nights"></script>
     <script src="meituan-static.js?v=20260703-ai-estimated-nights"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
-    <script src="data-health-static.js?v=20260704-data-health-static-tools"></script>
+    <script src="data-health-static.js?v=20260704-manual-one-click-fetch"></script>
     <script src="revenue-ai-static.js?v=20260704-revenue-ai-static-tools"></script>
     <script src="system-static.js?v=20260630-data-center-label"></script>
     <script src="compass-static.js?v=20260704-boss-ia"></script>
@@ -75,11 +75,11 @@
             <div class="login-glow-purple"></div>
 
             <div class="login-stage relative z-10">
-                <section class="login-context-panel" aria-label="归鹿宿里登录主视觉">
+                <section class="login-context-panel" aria-label="宿析OS登录主视觉">
                     <div class="login-context-topline">
                         <span class="login-context-kicker">酒店全周期经营决策系统</span>
                     </div>
-                    <p class="login-brand-mark">归鹿宿里</p>
+                    <p class="login-brand-mark">宿析OS</p>
                     <h2 class="login-hero-lines">
                         <span>看见数据</span>
                         <span>看懂经营</span>
@@ -100,12 +100,12 @@
                     <!-- Logo 和标题 -->
                     <div class="login-card-head text-center mb-8">
                         <div class="login-logo login-logo-brand inline-flex items-center justify-center w-20 h-20 rounded-xl mb-5 shadow-lg">
-                            <img src="images/guilusuli-login-brand.png" alt="归鹿宿里" class="login-brand-logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                            <img src="images/logo.svg" alt="宿析OS" class="login-brand-logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                             <i class="fas fa-hotel text-4xl text-white" style="display:none"></i>
                         </div>
-                        <p class="login-card-kicker">GUILUSULI</p>
-                        <h1 class="login-title text-3xl font-bold mb-2">归鹿宿里</h1>
-                        <p class="login-slogan text-base font-medium tracking-wide">进入归鹿宿里经营系统</p>
+                        <p class="login-card-kicker">SUXIOS</p>
+                        <h1 class="login-title text-3xl font-bold mb-2">宿析OS</h1>
+                        <p class="login-slogan text-base font-medium tracking-wide">进入宿析OS经营系统</p>
                         <p class="login-copy">让酒店经营从经验判断走向数据决策</p>
                     </div>
 
@@ -3574,9 +3574,10 @@
                                     <div v-if="aiDailyReportBlockingRows.length" class="border-b border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-800">
                                         <div class="font-semibold">执行门禁：{{ aiDailyReportBlockingRows.length }} 项仍需先处理</div>
                                         <div class="mt-1 flex flex-wrap gap-2">
-                                            <span v-for="row in aiDailyReportBlockingRows.slice(0, 4)" :key="row.key" class="rounded-md border border-amber-200 bg-white px-2 py-0.5">
-                                                {{ row.label }}：{{ row.nextAction }}
-                                            </span>
+                                            <button v-for="row in aiDailyReportBlockingRows.slice(0, 4)" :key="row.key" type="button" @click="openAiDailyReportEvidenceTarget(row)" class="rounded-md border border-amber-200 bg-white px-2 py-1 text-left hover:bg-amber-100">
+                                                <span class="block font-medium">{{ row.label }}：{{ row.nextAction }}</span>
+                                                <span class="mt-0.5 block text-[11px] text-amber-600">{{ row.actionText }} · {{ row.sourceRef }}</span>
+                                            </button>
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-12 bg-gray-50 text-xs text-gray-500 px-4 py-3">
@@ -5097,7 +5098,7 @@
                                                         <p v-else>{{ platform.metricsText }}</p>
                                                     </div>
                                                 </div>
-                                                <div v-if="dualOtaEffectiveStoreScope === 'combined'" class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">
+                                                <div v-if="dualOtaPlatformRevenueHasContribution" class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">
                                                     <div class="dual-ota-contribution-track">
                                                         <span v-for="platform in dualOtaPlatformRevenuePlatforms" :key="`${platform.id}-bar`" :class="['dual-ota-contribution-segment', `is-${platform.id}`]" :style="{ width: `${platform.contribution}%` }"></span>
                                                     </div>
@@ -14326,15 +14327,15 @@
                     <div v-if="currentPage === 'online-data'">
                         <div class="rounded-xl border border-gray-200 bg-gray-50 shadow-sm overflow-hidden">
                             <div class="px-5 py-4 border-b border-gray-200 bg-white">
-                                <h3 class="text-base font-semibold text-gray-900">OTA数据可信度与证据</h3>
-                                <p class="mt-1 text-xs leading-5 text-gray-500">先确认数据是否可信，再进入携程/美团证据页；配置、下载、日志和字段诊断只作为排障入口。</p>
+                                <h3 class="text-base font-semibold text-gray-900">平台数据手动获取</h3>
+                                <p class="mt-1 text-xs leading-5 text-gray-500">手动触发携程/美团已配置门店数据获取并入库；自动采集在“配置：自动采集”独立维护。</p>
                             </div>
                             <div class="p-4 sm:p-6">
                                 <!-- Tabs -->
                                 <div class="flex flex-wrap gap-2 border-b border-gray-200 pb-3 mb-6">
                                     <button @click="openOnlineDataTab('data-health')"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'data-health' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
-                                        1 数据可信度
+                                        数据一键获取
                                     </button>
                                     <button @click="openPlatformAutoTab()"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'platform-auto' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
@@ -14367,35 +14368,29 @@
                                     <div class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                             <div class="min-w-0">
-                                                <h4 class="text-base font-semibold text-gray-900">数据健康工作台</h4>
-                                                <p class="mt-1 text-xs leading-5 text-gray-500">看目标日 OTA 是否入库，能抓就直接抓，不能抓只保留原因。</p>
+                                                <h4 class="text-base font-semibold text-gray-900">数据一键获取</h4>
+                                                <p class="mt-1 text-xs leading-5 text-gray-500">手动执行携程/美团已配置门店数据获取并写入数据库；自动采集任务不在这里触发。</p>
                                             </div>
                                             <div class="flex flex-wrap gap-2">
-                                                <button @click="loadDataHealthPanel('light', { force: true, source: '手动工作台刷新' })" :disabled="hotelDashboardLoading || collectionReliabilityLoading"
+                                                <button @click="refreshManualOneClickFetchConfig" :disabled="manualOneClickFetchRunning || ctripConfigListLoading || meituanConfigListLoading"
                                                     class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-400">
-                                                    <i class="fas fa-sync-alt mr-1"></i>{{ hotelDashboardLoading || collectionReliabilityLoading ? '刷新中' : '刷新工作台' }}
+                                                    <i :class="(ctripConfigListLoading || meituanConfigListLoading) ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ ctripConfigListLoading || meituanConfigListLoading ? '刷新中' : '刷新配置' }}
                                                 </button>
                                                 <button @click="loadDataHealthPanel('full', { source: '手动完整诊断' })" :disabled="hotelDashboardLoading || collectionReliabilityLoading"
                                                     class="inline-flex items-center justify-center rounded-lg border border-gray-900 bg-gray-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:border-gray-300">
-                                                    <i class="fas fa-search-plus mr-1"></i>查看完整诊断
+                                                    <i class="fas fa-search-plus mr-1"></i>排障诊断
                                                 </button>
                                             </div>
                                         </div>
                                     </div>
-                                    <div v-if="dataHealthFullDiagnosticsLoaded" data-testid="data-health-diagnostic-boundary" :class="['rounded-xl border p-4 text-sm shadow-sm', dataHealthDiagnosticBoundary.className]">
+                                    <div v-if="dataHealthDiagnosticBoundary" data-testid="data-health-diagnostic-boundary" :class="['rounded-xl border p-4 text-sm shadow-sm', dataHealthDiagnosticBoundary.className]">
                                         <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                                             <div>
                                                 <div class="font-semibold">{{ dataHealthDiagnosticBoundary.title }}</div>
                                                 <div class="mt-1 text-xs leading-5">{{ dataHealthDiagnosticBoundary.detail }}</div>
                                                 <div class="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
-                                                    <div class="rounded-md border border-current border-opacity-20 px-2.5 py-1">
-                                                        当前模式：{{ dataHealthRefreshModeText }}
-                                                    </div>
-                                                    <div class="rounded-md border border-current border-opacity-20 px-2.5 py-1">
-                                                        触发来源：{{ dataHealthLastRefreshSource }}{{ dataHealthLastRefreshAt ? ' · ' + dataHealthLastRefreshAt : '' }}
-                                                    </div>
-                                                    <div class="rounded-md border border-current border-opacity-20 px-2.5 py-1">
-                                                        诊断模块：{{ dataHealthPendingDiagnosticText }}
+                                                    <div v-for="row in dataHealthDiagnosticStatusRows" :key="row.key" class="rounded-md border border-current border-opacity-20 px-2.5 py-1">
+                                                        {{ row.label }}：{{ row.value }}
                                                     </div>
                                                 </div>
                                             </div>
@@ -14404,9 +14399,9 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div v-if="hotelDashboardLoading || collectionReliabilityLoading || dailyWorkbenchLoading" data-testid="data-health-loading-banner" class="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
+                                    <div v-if="hotelDashboardLoading || collectionReliabilityLoading || dailyWorkbenchLoading || manualOneClickFetchRunning" data-testid="data-health-loading-banner" class="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
                                         <i class="fas fa-spinner fa-spin mt-0.5 text-blue-500"></i>
-                                        <span>正在刷新；接口返回前保留上次状态。</span>
+                                        <span>{{ manualOneClickFetchRunning ? '正在执行手动一键获取；执行结果会在下方逐项更新。' : '正在刷新；接口返回前保留上次状态。' }}</span>
                                     </div>
                                     <div v-if="hotelDashboardError || collectionReliabilityError || dailyWorkbenchError" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                                         <i class="fas fa-exclamation-triangle mt-0.5 text-red-500"></i>
@@ -14415,66 +14410,73 @@
                                     <div data-testid="phase2-daily-workbench" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
                                             <div>
-                                                <h4 class="text-base font-semibold text-gray-900">数据自动获取</h4>
-                                                <div class="mt-1 text-xs text-gray-500 leading-5">{{ dataAcquisitionWorkbenchScopeText }}</div>
+                                                <h4 class="text-base font-semibold text-gray-900">手动一键获取</h4>
+                                                <div class="mt-1 text-xs text-gray-500 leading-5">{{ manualOneClickFetchScopeText }}</div>
                                             </div>
                                             <div class="flex flex-wrap items-center gap-2">
-                                                <button type="button" @click="triggerCookieConfigAutoFetchAll" :disabled="fetchingData || !dataAcquisitionFetchableHotelIds.length"
-                                                    class="inline-flex items-center justify-center rounded-lg border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none">
-                                                    <i :class="fetchingData ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-cloud-download-alt mr-1.5'"></i>{{ fetchingData ? '抓取中' : (dataAcquisitionFetchableHotelIds.length > 1 ? `一键抓取${dataAcquisitionFetchableHotelIds.length}家` : '一键抓取') }}
+                                                <button type="button" @click="runManualOneClickFetch('ctrip')" :disabled="manualOneClickFetchRunning || fetchingData || ctripConfigListLoading"
+                                                    class="inline-flex items-center justify-center rounded-lg border border-blue-600 bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none">
+                                                    <i :class="manualOneClickFetchRunning === 'ctrip' ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-cloud-download-alt mr-1.5'"></i>一键获取携程
                                                 </button>
-                                                <span :class="['rounded-md border px-2.5 py-1 text-xs whitespace-nowrap', dataAcquisitionWorkbenchHeadline.className]">{{ dataAcquisitionWorkbenchHeadline.text }}</span>
-                                                <button type="button" @click="loadDailyWorkbench({ limit: 10 })" :disabled="dailyWorkbenchLoading"
+                                                <button type="button" @click="runManualOneClickFetch('meituan')" :disabled="manualOneClickFetchRunning || fetchingData || meituanConfigListLoading"
+                                                    class="inline-flex items-center justify-center rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none">
+                                                    <i :class="manualOneClickFetchRunning === 'meituan' ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-cloud-download-alt mr-1.5'"></i>一键获取美团
+                                                </button>
+                                                <button type="button" @click="runManualOneClickFetch('all')" :disabled="manualOneClickFetchRunning || fetchingData || ctripConfigListLoading || meituanConfigListLoading"
+                                                    class="inline-flex items-center justify-center rounded-lg border border-gray-900 bg-gray-900 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-gray-800 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none">
+                                                    <i :class="manualOneClickFetchRunning === 'all' ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-database mr-1.5'"></i>双平台一键获取
+                                                </button>
+                                                <button type="button" @click="refreshManualOneClickFetchConfig" :disabled="manualOneClickFetchRunning || ctripConfigListLoading || meituanConfigListLoading"
                                                     class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-                                                    <i :class="dailyWorkbenchLoading ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ dailyWorkbenchLoading ? '刷新中' : '刷新状态' }}
+                                                    <i :class="(ctripConfigListLoading || meituanConfigListLoading) ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ ctripConfigListLoading || meituanConfigListLoading ? '刷新中' : '刷新配置' }}
                                                 </button>
                                             </div>
                                         </div>
                                         <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                                            <div v-for="card in dataAcquisitionWorkbenchCards" :key="card.key" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 min-w-0">
+                                            <div v-for="card in manualOneClickFetchCards" :key="card.key" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 min-w-0">
                                                 <div class="text-[11px] text-gray-500 truncate">{{ card.label }}</div>
                                                 <div :class="['mt-1 text-lg font-semibold truncate', card.className]" :title="card.rawValue">{{ card.value }}</div>
                                                 <div class="mt-1 text-[11px] text-gray-400 truncate" :title="card.detail">{{ card.detail }}</div>
                                             </div>
                                         </div>
-                                        <div v-if="dataAcquisitionIssueGroups.length" class="mt-4 overflow-x-auto">
+                                        <div v-if="manualOneClickFetchRows.length" class="mt-4 overflow-x-auto">
                                             <table class="min-w-full divide-y divide-gray-200 text-sm">
                                                 <thead class="bg-gray-50 text-left text-xs text-gray-500">
                                                     <tr>
-                                                        <th class="px-3 py-2 font-medium">问题</th>
+                                                        <th class="px-3 py-2 font-medium">平台</th>
                                                         <th class="px-3 py-2 font-medium">门店</th>
-                                                        <th class="px-3 py-2 font-medium text-right">操作</th>
+                                                        <th class="px-3 py-2 font-medium">结果</th>
+                                                        <th class="px-3 py-2 font-medium text-right">入库</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody class="divide-y divide-gray-100 bg-white">
-                                                    <tr v-for="group in dataAcquisitionIssueGroups" :key="group.key">
+                                                    <tr v-for="row in manualOneClickFetchRows" :key="row.key">
+                                                        <td class="px-3 py-3 min-w-[6rem]">
+                                                            <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-700">{{ row.platformText }}</span>
+                                                        </td>
+                                                        <td class="px-3 py-3 min-w-[14rem]">
+                                                            <div class="text-xs text-gray-800 truncate" :title="row.hotelName">{{ row.hotelName }}</div>
+                                                            <div class="mt-1 text-[11px] text-gray-500">门店ID：{{ row.hotelId || '-' }}</div>
+                                                        </td>
                                                         <td class="px-3 py-3 min-w-[16rem]">
                                                             <div class="flex flex-wrap items-center gap-2">
-                                                                <span :class="['rounded-md border px-2 py-0.5 text-[11px]', group.statusClass]">{{ group.issueText }}</span>
-                                                                <span class="text-xs text-gray-500">{{ group.count }} 家</span>
+                                                                <span :class="['rounded-md border px-2 py-0.5 text-[11px]', manualOneClickFetchStatusClass(row.status)]">{{ row.statusText }}</span>
+                                                                <span class="text-[11px] text-gray-500">{{ row.timeText }}</span>
                                                             </div>
-                                                            <div class="mt-1 text-[11px] text-gray-500 truncate" :title="group.detailRawText">{{ group.detailText }}</div>
+                                                            <div class="mt-1 text-[11px] text-gray-500 truncate" :title="row.message">{{ row.message }}</div>
                                                         </td>
-                                                        <td class="px-3 py-3 min-w-[18rem]">
-                                                            <div class="text-xs text-gray-800 truncate" :title="group.hotelNamesRawText">{{ group.hotelNamesText }}</div>
-                                                            <div class="mt-1 text-[11px] text-gray-500">{{ group.targetDateText }}</div>
-                                                        </td>
-                                                        <td class="px-3 py-3 min-w-[9rem] text-right">
-                                                            <button v-if="group.canCookieFetch" type="button" @click="triggerCookieConfigAutoFetchGroup(group.hotelIds)" :disabled="fetchingData" class="inline-flex items-center justify-center rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-400">
-                                                                一键抓取
-                                                            </button>
-                                                            <button v-else type="button" @click="openPlatformAutoTab()" class="inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
-                                                                去配置
-                                                            </button>
+                                                        <td class="px-3 py-3 min-w-[7rem] text-right">
+                                                            <div class="text-sm font-semibold text-gray-900">{{ row.savedCount || 0 }}</div>
+                                                            <div class="text-[11px] text-gray-400">条</div>
                                                         </td>
                                                     </tr>
                                                 </tbody>
                                             </table>
                                         </div>
                                         <div v-else class="mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
-                                            {{ dataAcquisitionWorkbenchEmptyText }}
+                                            {{ manualOneClickFetchEmptyText }}
                                         </div>
-                                        <div class="mt-3 text-[11px] text-gray-400 leading-5">边界：这里展示的是 OTA 数据自动获取状态，只读取已验证入库、登录/Cookie、字段缺口和失败原因；不把 OTA 渠道数据包装成全酒店经营事实，未知和失败保持显式状态。</div>
+                                        <div class="mt-3 text-[11px] text-gray-400 leading-5">边界：这里调用携程/美团手动获取接口并写入数据库；自动采集计划在“配置：自动采集”独立维护。失败原因会直接保留，不用兜底值伪装成功。</div>
                                     </div>
                                     <div v-if="dataHealthFullDiagnosticsLoaded && phase3OperationEffectLoopRows.length" data-testid="phase3-operation-effect-loop" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -14693,6 +14695,41 @@
                                                 </div>
                                             </div>
                                             <div v-if="phase1EmployeeMissingFieldOverflowText" class="mt-2 text-xs text-amber-700 truncate" :title="phase1EmployeeMissingFieldOverflowText">{{ phase1EmployeeMissingFieldOverflowText }}</div>
+                                        </div>
+                                        <div v-if="dataHealthFieldGapActionRows.length" data-testid="data-health-field-gap-action-board" class="mb-4 rounded-lg border border-amber-100 bg-white p-3">
+                                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                                                <div>
+                                                    <div class="text-sm font-semibold text-gray-900">OTA 字段缺口行动台</div>
+                                                    <div class="mt-1 text-[11px] text-slate-500">只读展示字段缺口、来源路径和下一步；未返回字段不按成功处理。</div>
+                                                </div>
+                                                <span class="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-700 whitespace-nowrap">{{ dataHealthFieldGapActionRows.length }} 项缺口</span>
+                                            </div>
+                                            <div class="overflow-x-auto">
+                                                <table class="min-w-full divide-y divide-gray-100 text-xs">
+                                                    <thead class="bg-gray-50 text-gray-500">
+                                                        <tr>
+                                                            <th class="px-3 py-2 text-left font-medium">平台</th>
+                                                            <th class="px-3 py-2 text-left font-medium">模块</th>
+                                                            <th class="px-3 py-2 text-left font-medium">字段</th>
+                                                            <th class="px-3 py-2 text-left font-medium">状态</th>
+                                                            <th class="px-3 py-2 text-left font-medium">source_ref</th>
+                                                            <th class="px-3 py-2 text-left font-medium">下一步</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-gray-100 bg-white">
+                                                        <tr v-for="row in dataHealthFieldGapActionRows" :key="row.key" class="align-top">
+                                                            <td class="px-3 py-2 whitespace-nowrap text-slate-700">{{ row.platform }}</td>
+                                                            <td class="px-3 py-2 whitespace-nowrap text-slate-700">{{ row.module }}</td>
+                                                            <td class="px-3 py-2 font-medium text-slate-900" :title="row.field">{{ row.field }}</td>
+                                                            <td class="px-3 py-2">
+                                                                <span :class="['rounded-md border px-2 py-0.5 whitespace-nowrap', row.statusClass]">{{ row.statusText }}</span>
+                                                            </td>
+                                                            <td class="px-3 py-2 text-slate-500" :title="row.sourceRef">{{ row.sourceRef }}</td>
+                                                            <td class="px-3 py-2 text-amber-700" :title="row.nextAction">{{ row.nextAction }}</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         </div>
                                         <div v-if="phase1EmployeeMetricDomainRows.length" data-testid="phase1-employee-metric-domain-summary" class="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
                                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
@@ -15792,11 +15829,16 @@
                                                     <div class="min-w-0">
                                                         <div class="text-sm font-semibold text-slate-900">{{ item.platform_name || item.platform || '-' }}</div>
                                                         <div class="mt-1 text-xs text-slate-500" :title="platformProfileBindingRawText(item)">{{ platformProfileBindingText(item) }}</div>
+                                                        <div v-if="item.binding_contract" class="mt-2 flex flex-wrap gap-1 text-[11px] text-slate-500">
+                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">manual_login_state_verified={{ item.binding_contract.manual_login_state_verified ? 'true' : 'false' }}</span>
+                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">Profile={{ item.binding_contract.profile_status || item.status_code || '-' }}</span>
+                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">last_verified={{ item.binding_contract.last_login_verified_at || '-' }}</span>
+                                                        </div>
                                                     </div>
                                                     <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-xs', platformProfileStatusBadgeClass(item.status_code)]">{{ platformProfileStatusLabel(item) }}</span>
                                                 </div>
-                                                <div v-if="(item.checks || []).length" class="mt-3 space-y-2">
-                                                    <div v-for="check in (item.checks || [])" :key="item.platform + '-' + (check.key || check.label)" class="flex items-center justify-between gap-2 rounded-md border border-white bg-white/80 px-2 py-1.5">
+                                                <div v-if="(item.binding_checks || item.checks || []).length" class="mt-3 space-y-2">
+                                                    <div v-for="check in (item.binding_checks || item.checks || [])" :key="item.platform + '-' + (check.key || check.label)" class="flex items-center justify-between gap-2 rounded-md border border-white bg-white/80 px-2 py-1.5">
                                                         <span :class="['rounded-full border px-2 py-0.5 text-xs', platformProfileCheckClass(check.status)]">{{ check.label || check.key || '-' }}</span>
                                                         <div class="flex items-center gap-2 text-xs text-slate-500">
                                                             <span>{{ check.status_text || check.status || '-' }}</span>
@@ -20234,6 +20276,9 @@
             const buildOtaTodayCollectionReminderRows = requireDataHealthStatic('buildOtaTodayCollectionReminderRows');
             const buildOtaTodayCollectionReminderSummary = requireDataHealthStatic('buildOtaTodayCollectionReminderSummary');
             const buildDataHealthDiagnosticBoundary = requireDataHealthStatic('buildDataHealthDiagnosticBoundary');
+            const dataHealthRefreshModeDisplayText = requireDataHealthStatic('dataHealthRefreshModeText');
+            const buildDataHealthDiagnosticStatusRows = requireDataHealthStatic('buildDataHealthDiagnosticStatusRows');
+            const buildDataHealthFieldGapActionRows = requireDataHealthStatic('buildDataHealthFieldGapActionRows');
             const buildDataHealthCookieAlertRows = requireDataHealthStatic('buildDataHealthCookieAlertRows');
             const summarizeDataHealthCookieAlerts = requireDataHealthStatic('summarizeDataHealthCookieAlerts');
             const buildDataHealthQualityTaskRows = requireDataHealthStatic('buildDataHealthQualityTaskRows');
@@ -20501,11 +20546,7 @@
             const collectionHealthFailureReasons = computed(() => Array.isArray(collectionReliability.value?.failure_reasons) ? collectionReliability.value.failure_reasons : []);
             const collectionHealthFailureReasonRows = computed(() => buildCollectionHealthFailureReasonRows(collectionHealthFailureReasons.value));
             const dataHealthDiagnosticBoundary = computed(() => buildDataHealthDiagnosticBoundary(dataHealthFullDiagnosticsLoaded.value));
-            const dataHealthRefreshModeText = computed(() => ({
-                full: '完整诊断',
-                light: '轻量刷新',
-                not_loaded: '未刷新',
-            }[dataHealthLastRefreshMode.value] || '状态待确认'));
+            const dataHealthRefreshModeText = computed(() => dataHealthRefreshModeDisplayText(dataHealthLastRefreshMode.value));
             const dataHealthPendingDiagnosticModules = computed(() => {
                 if (dataHealthFullDiagnosticsLoaded.value) return [];
                 return ['账号级驾驶舱', '单店画像', '数据源完整诊断'];
@@ -20514,6 +20555,13 @@
                 const modules = dataHealthPendingDiagnosticModules.value;
                 return modules.length ? modules.join('、') : '完整诊断模块已加载';
             });
+            const dataHealthDiagnosticStatusRows = computed(() => buildDataHealthDiagnosticStatusRows({
+                refreshMode: dataHealthLastRefreshMode.value,
+                refreshSource: dataHealthLastRefreshSource.value,
+                refreshAt: dataHealthLastRefreshAt.value,
+                pendingModules: dataHealthPendingDiagnosticModules.value,
+                fullDiagnosticsLoaded: dataHealthFullDiagnosticsLoaded.value,
+            }));
             const collectionHealthFailureReasonRanking = computed(() => buildCollectionHealthFailureReasonRanking(collectionHealthFailureReasons.value, dataHealthPlatformText).map(row => ({
                 ...row,
                 reasonText: collectionHealthFailureReasonText(row.reason),
@@ -21315,17 +21363,23 @@
             const dualOtaReviewMemory = ref((dualOtaDashboard.value.reviewMemory || []).map(item => ({ ...item })));
             const dualOtaExpandedMemoryId = ref(dualOtaReviewMemory.value[0]?.id || '');
             const dualOtaLastRecordText = ref('');
+            let dualOtaCurrentLossNodes = () => [];
+            let dualOtaCurrentLossExplanation = () => null;
             const dualOtaHasConnectedPlatforms = computed(() => {
                 const requiredPlatforms = ['美团', '携程'];
                 const connections = Array.isArray(dualOtaDashboard.value.connections) ? dualOtaDashboard.value.connections : [];
                 return requiredPlatforms.every(name => connections.some(item => item.name === name && item.status === 'connected'));
             });
             const dualOtaActiveLossNodes = computed(() => {
+                const currentNodes = dualOtaCurrentLossNodes();
+                if (Array.isArray(currentNodes) && currentNodes.length) return currentNodes;
                 const scenarios = dualOtaDashboard.value.lossChain?.scenarios || {};
                 const platformScenario = scenarios[dualOtaEffectivePlatform.value] || {};
                 return platformScenario[dualOtaSelectedRange.value] || dualOtaDashboard.value.lossChain?.nodes || [];
             });
             const dualOtaSelectedLossExplanation = computed(() => {
+                const currentExplanation = dualOtaCurrentLossExplanation(dualOtaSelectedLossNodeId.value);
+                if (currentExplanation) return currentExplanation;
                 const explanations = dualOtaDashboard.value.lossChain?.nodeExplanations || {};
                 const selected = explanations[dualOtaSelectedLossNodeId.value];
                 if (selected) return selected;
@@ -21939,6 +21993,118 @@
                     { title: '商圈第一', subtitle: '双平台分别匹配第一', metrics: dualOtaCombinedTopMetrics() },
                 ];
             });
+            const dualOtaMetricUnitText = (value, unit = '') => {
+                const text = dualOtaNumberText(value);
+                return text === '未返回' ? text : `${text}${unit}`;
+            };
+            const dualOtaCurrentRevenuePlatforms = () => {
+                const ctripRow = dualOtaCtripCurrentRow();
+                const meituanRow = dualOtaMeituanCurrentRow();
+                const ctripRevenue = ctripRow ? dualOtaFiniteNumber(ctripRow.amount) : 0;
+                const ctripQuantity = ctripRow ? dualOtaFiniteNumber(ctripRow.quantity) : 0;
+                const ctripOrders = ctripRow ? dualOtaFiniteNumber(ctripRow.totalOrderNum || ctripRow.bookOrderNum) : 0;
+                const meituanRevenue = meituanRow ? dualOtaFiniteNumber(meituanRow.roomRevenue || meituanRow.sales) : 0;
+                const meituanQuantity = meituanRow ? dualOtaFiniteNumber(meituanRow.roomNights || meituanRow.salesRoomNights) : 0;
+                const meituanOrders = meituanRow ? dualOtaFiniteNumber(meituanRow.orderCount) : 0;
+                const rows = [
+                    {
+                        id: 'ctrip',
+                        name: '携程营收',
+                        revenue: ctripRevenue,
+                        revenueText: dualOtaMoneyText(ctripRevenue),
+                        metrics: [
+                            { label: '订单', value: dualOtaMetricUnitText(ctripOrders, '单') },
+                            { label: '间夜', value: dualOtaMetricUnitText(ctripQuantity, '间夜') },
+                            { label: '平均房价', value: dualOtaMoneyText(ctripQuantity > 0 ? ctripRevenue / ctripQuantity : 0) },
+                        ],
+                    },
+                    {
+                        id: 'meituan',
+                        name: '美团营收',
+                        revenue: meituanRevenue,
+                        revenueText: dualOtaMoneyText(meituanRevenue),
+                        metrics: [
+                            { label: '订单', value: dualOtaMetricUnitText(meituanOrders, '单') },
+                            { label: '间夜', value: dualOtaMetricUnitText(meituanQuantity, '间夜') },
+                            { label: '平均房价', value: dualOtaMoneyText(meituanQuantity > 0 ? meituanRevenue / meituanQuantity : 0) },
+                        ],
+                    },
+                ];
+                const scopedRows = dualOtaEffectiveStoreScope.value === 'combined'
+                    ? rows
+                    : rows.filter(row => row.id === dualOtaEffectiveStoreScope.value);
+                const totalRevenue = scopedRows.reduce((sum, row) => sum + dualOtaFiniteNumber(row.revenue), 0);
+                return scopedRows.map(row => ({
+                    ...row,
+                    contribution: totalRevenue > 0 ? Math.round((dualOtaFiniteNumber(row.revenue) / totalRevenue) * 100) : 0,
+                }));
+            };
+            const dualOtaPlatformRevenueHasContribution = computed(() => (
+                dualOtaEffectiveStoreScope.value === 'combined'
+                && dualOtaCurrentRevenuePlatforms().some(platform => dualOtaFiniteNumber(platform.revenue) > 0)
+            ));
+            const dualOtaLossNode = (id, label, value, note = '') => {
+                const valueText = id === 'revenue' ? dualOtaMoneyText(value) : dualOtaNumberText(value);
+                const missing = valueText === '未返回';
+                return {
+                    id,
+                    label,
+                    value: valueText,
+                    delta: missing ? '字段未返回' : '已返回',
+                    severity: missing ? 'warning' : 'normal',
+                    note,
+                };
+            };
+            dualOtaCurrentLossNodes = () => {
+                const scope = dualOtaEffectivePlatform.value || 'combined';
+                const ctripRow = dualOtaCtripCurrentRow();
+                const meituanRow = dualOtaMeituanCurrentRow();
+                const ctripRevenue = ctripRow ? dualOtaFiniteNumber(ctripRow.amount) : 0;
+                const ctripQuantity = ctripRow ? dualOtaFiniteNumber(ctripRow.quantity) : 0;
+                const ctripOrders = ctripRow ? dualOtaFiniteNumber(ctripRow.totalOrderNum || ctripRow.bookOrderNum) : 0;
+                const ctripVisitors = ctripRow ? dualOtaFiniteNumber(ctripRow.totalDetailNum) : 0;
+                const meituanRevenue = meituanRow ? dualOtaFiniteNumber(meituanRow.roomRevenue || meituanRow.sales) : 0;
+                const meituanQuantity = meituanRow ? dualOtaFiniteNumber(meituanRow.roomNights || meituanRow.salesRoomNights) : 0;
+                const meituanOrders = meituanRow ? dualOtaFiniteNumber(meituanRow.orderCount) : 0;
+                const meituanExposure = meituanRow ? dualOtaFiniteNumber(meituanRow.exposure) : 0;
+                const meituanViews = meituanRow ? dualOtaFiniteNumber(meituanRow.views) : 0;
+                if (scope === 'ctrip') {
+                    return [
+                        dualOtaLossNode('exposure', '携程访客', ctripVisitors, '当前门店携程访客字段'),
+                        dualOtaLossNode('browse', '浏览', null, '携程当前快照未返回浏览字段'),
+                        dualOtaLossNode('paidOrders', '订单', ctripOrders, '当前门店携程订单'),
+                        dualOtaLossNode('roomNights', '间夜', ctripQuantity, '当前门店携程间夜'),
+                        dualOtaLossNode('revenue', '收入', ctripRevenue, '当前门店携程销售额'),
+                    ];
+                }
+                if (scope === 'meituan') {
+                    return [
+                        dualOtaLossNode('exposure', '曝光', meituanExposure, '当前门店美团曝光'),
+                        dualOtaLossNode('browse', '浏览', meituanViews, '当前门店美团浏览'),
+                        dualOtaLossNode('paidOrders', '订单', meituanOrders, '当前门店美团订单'),
+                        dualOtaLossNode('roomNights', '间夜', meituanQuantity, '当前门店美团间夜'),
+                        dualOtaLossNode('revenue', '收入', meituanRevenue, '当前门店美团营收'),
+                    ];
+                }
+                return [
+                    dualOtaLossNode('exposure', '曝光', meituanExposure, '双平台口径下仅美团返回曝光字段'),
+                    dualOtaLossNode('browse', '浏览', meituanViews, '双平台口径下仅美团返回浏览字段'),
+                    dualOtaLossNode('paidOrders', '订单', ctripOrders + meituanOrders, '携程订单 + 美团订单'),
+                    dualOtaLossNode('roomNights', '间夜', ctripQuantity + meituanQuantity, '携程间夜 + 美团间夜'),
+                    dualOtaLossNode('revenue', '收入', ctripRevenue + meituanRevenue, '携程销售额 + 美团营收'),
+                ];
+            };
+            dualOtaCurrentLossExplanation = (nodeId = '') => {
+                const node = dualOtaCurrentLossNodes().find(item => item.id === nodeId) || null;
+                if (!node) return null;
+                const missing = node.value === '未返回';
+                return {
+                    title: `${node.label}${missing ? '未返回' : '已返回'}`,
+                    description: missing ? '当前筛选没有返回该损耗链字段，不生成经营判断。' : '当前节点来自当前门店、当前平台、当前时间范围的已返回 OTA 字段。',
+                    evidence: node.note || '当前筛选 OTA 字段',
+                    action: missing ? '先完成对应平台采集或确认字段是否支持返回。' : '需要增降判断时打开同期对比，再看相对上一个统计周期。'
+                };
+            };
             const dualOtaPlatformRevenueTitle = computed(() => {
                 const scope = dualOtaEffectiveStoreScope.value || 'combined';
                 if (scope === 'ctrip') return '携程收入结构';
@@ -21953,8 +22119,7 @@
             });
             const dualOtaPlatformRevenueMetricText = (text = '') => String(text || '').replace(/ADR/g, '平均房价');
             const dualOtaPlatformRevenuePlatforms = computed(() => {
-                const platforms = Array.isArray(dualOtaDashboard.value.platformRevenue?.platforms) ? dualOtaDashboard.value.platformRevenue.platforms : [];
-                const normalizedPlatforms = platforms.map(platform => ({
+                return dualOtaCurrentRevenuePlatforms().map(platform => ({
                     ...platform,
                     metricsText: dualOtaPlatformRevenueMetricText(platform.metricsText),
                     metrics: Array.isArray(platform.metrics)
@@ -21965,9 +22130,6 @@
                         }))
                         : [],
                 }));
-                if (dualOtaEffectiveStoreScope.value === 'combined') return normalizedPlatforms;
-                const selected = normalizedPlatforms.find(platform => platform.id === dualOtaEffectiveStoreScope.value);
-                return selected ? [{ ...selected, contribution: 100 }] : normalizedPlatforms;
             });
             const dualOtaConnectionClass = (status) => {
                 if (status === 'connected') return 'is-connected';
@@ -23973,13 +24135,24 @@
                 });
                 return Array.from(map.values()).map(({ platform, collectionRow, profileItem }) => {
                     const profile = collectionRow?.profile || {};
+                    const bindingContract = (profileItem?.binding_contract && typeof profileItem.binding_contract === 'object') ? profileItem.binding_contract : {};
+                    const hasBindingContract = Object.keys(bindingContract).length > 0;
                     const currentStatus = String(profileItem?.current_status || profile.currentStatus || collectionRow?.platformLoginStatus || '').trim();
-                    let statusCode = String(profileItem?.status_code || profile.statusCode || collectionRow?.platformLoginStatus || '').trim().toLowerCase();
-                    if (!statusCode && /manual_login_state_verified|logged_in|已登录|授权可用/i.test(currentStatus)) statusCode = 'logged_in';
-                    const dataSourceId = profileItem?.data_source_id || profile.dataSourceId || profile.data_source_id || '';
-                    const profileExists = profileItem?.profile_exists === true || profile.profileExists === true;
-                    const hasConfiguredProfile = profileExists || !!dataSourceId || !['', 'unconfigured', 'missing_profile', 'needs_profile'].includes(statusCode);
-                    const loginVerified = statusCode === 'logged_in' || /manual_login_state_verified|logged_in|已登录|授权可用/i.test(currentStatus);
+                    let statusCode = String(bindingContract.profile_status || profileItem?.status_code || profile.statusCode || collectionRow?.platformLoginStatus || '').trim().toLowerCase();
+                    if (!statusCode && !hasBindingContract && /manual_login_state_verified|logged_in|已登录|授权可用/i.test(currentStatus)) statusCode = 'logged_in';
+                    const dataSourceId = bindingContract.data_source_id || profileItem?.data_source_id || profile.dataSourceId || profile.data_source_id || '';
+                    const contractProfileId = String(bindingContract.profile_id || '').trim();
+                    const contractOtaStoreId = String(bindingContract.ota_store_id || '').trim();
+                    const profileExists = bindingContract.profile_exists === true || profileItem?.profile_exists === true || profile.profileExists === true;
+                    const hasConfiguredProfile = hasBindingContract
+                        ? !!(dataSourceId && contractProfileId && contractOtaStoreId)
+                        : (profileExists || !!dataSourceId || !['', 'unconfigured', 'missing_profile', 'needs_profile'].includes(statusCode));
+                    const manualLoginVerified = hasBindingContract
+                        ? bindingContract.manual_login_state_verified === true
+                        : (profile.manual_login_state_verified === true || profile.manualLoginStateVerified === true || statusCode === 'logged_in' || /manual_login_state_verified|logged_in|已登录|授权可用/i.test(currentStatus));
+                    const loginVerified = hasBindingContract
+                        ? (manualLoginVerified && statusCode === 'logged_in')
+                        : (statusCode === 'logged_in' || /manual_login_state_verified|logged_in|已登录|授权可用/i.test(currentStatus));
                     const loginBlocked = ['login_expired', 'capture_failed', 'permission_denied', 'hotel_mismatch'].includes(statusCode);
                     const collectionStatus = String(collectionRow?.collectionStatus || '').trim().toLowerCase();
                     const storedRows = Number(collectionRow?.storedRowCount || 0);
@@ -24009,6 +24182,8 @@
                         platformName: collectionRow?.platformName || profileItem?.platform_name || platform,
                         statusCode: statusCode || 'unconfigured',
                         statusText: platformProfileStatusLabel(normalizedProfileItem),
+                        bindingContract,
+                        manualLoginVerified,
                         failureRaw,
                         failureText,
                         collectionRow,
@@ -26915,6 +27090,10 @@
                         suppressNextDataHealthTabLoad = false;
                         return undefined;
                     }
+                    deferUiTask(() => {
+                        if (!isVisibleOnlineDataTab('data-health')) return null;
+                        return ensureHotelOtaConfigLists({ force: options.force === true });
+                    }, 120);
                     return runIfCurrent(() => scheduleDataHealthPanelRefresh('light', options.force ? { force: true } : {}));
                 }
                 clearDataHealthSecondaryPanelsReadyTimer();
@@ -27475,90 +27654,136 @@
                 }) || null;
             };
             const findMenuGroupByPath = (items = [], path) => flattenMenuItems(items, []).find(item => item?.path === path && Array.isArray(item.children)) || null;
-            const buildLeanNavigationItems = (items = []) => {
-                const dataHealthEntry = findMenuEntry(items, 'online-data', 'data-health');
-                const ctripEntry = findMenuEntry(items, 'ctrip-ebooking');
-                const meituanEntry = findMenuEntry(items, 'meituan-ebooking');
-                const compassEntry = findMenuEntry(items, 'compass');
-                const revenueEntry = findMenuEntry(items, 'revenue-research-center');
-                const investmentEntry = findMenuEntry(items, 'investment-decision');
-                const aiDailyEntry = findMenuEntry(items, 'ai-daily-report');
-                const opsTrackEntry = findMenuEntry(items, 'ops-track');
-                const hotelEntry = findMenuEntry(items, 'hotels');
-                const knowledgeEntry = findMenuEntry(items, 'knowledge-center');
-                const imageOptimizerEntry = findMenuEntry(items, 'hotel-image-optimizer');
-                const agentCenterEntry = findMenuEntry(items, 'agent-center');
-                const lifecycleGroup = findMenuGroupByPath(items, 'lifecycle-auxiliary');
-                const lifecycleMoreGroup = cloneMenuItem(lifecycleGroup, { name: '筹建/扩张/转让' });
-                if (Array.isArray(lifecycleMoreGroup?.children)) {
-                    const directMorePaths = new Set(['investment-decision', 'hotel-image-optimizer', 'agent-center']);
-                    lifecycleMoreGroup.children = lifecycleMoreGroup.children.filter(item => !directMorePaths.has(item?.path));
-                }
-                const systemEntries = [
-                    findMenuEntry(items, 'users'),
-                    findMenuEntry(items, 'roles'),
-                    findMenuEntry(items, 'operation-logs'),
-                    findMenuEntry(items, 'system-config'),
-                    findMenuEntry(items, 'ai-model-config'),
-                    findMenuEntry(items, 'ai-governance'),
-                    findMenuEntry(items, 'data-config'),
-                ].map(item => cloneMenuItem(item)).filter(Boolean);
-                const aiWorkbenchEntry = cloneMenuItem(compassEntry, {
-                    name: '今日经营看板',
-                    icon: 'fas fa-brain',
-                    path: 'ai-workbench',
-                    title: '今日经营看板',
-                    testid: 'nav-lean-ai-workbench',
-                });
-                const leanItems = [
-                    aiWorkbenchEntry,
-                    {
-                        name: '经营闭环',
-                        icon: 'fas fa-chart-line',
-                        testid: 'nav-lean-business-loop',
-                        children: [
-                            cloneMenuItem(compassEntry, { name: '今日结论' }),
-                            cloneMenuItem(revenueEntry, { name: '收益诊断' }),
-                        ].filter(Boolean),
+            const BOSS_PAGE_TITLE_OVERRIDES = {
+                'ai-workbench': '今日经营看板',
+                compass: '今日结论',
+            };
+            const BOSS_VISIBLE_NAVIGATION_CONFIG = [
+                {
+                    type: 'source',
+                    sourcePath: 'compass',
+                    overrides: {
+                        name: '今日经营看板',
+                        icon: 'fas fa-brain',
+                        path: 'ai-workbench',
+                        title: '今日经营看板',
+                        testid: 'nav-lean-ai-workbench',
                     },
-                    {
-                        name: 'OTA数据',
-                        icon: 'fas fa-cloud-download-alt',
-                        testid: 'nav-lean-ota-data',
-                        children: [
-                            cloneMenuItem(dataHealthEntry, { name: '数据可信度' }),
-                            cloneMenuItem(ctripEntry, { name: '携程数据' }),
-                            cloneMenuItem(meituanEntry, { name: '美团数据' }),
-                        ].filter(Boolean),
-                    },
-                    {
-                        name: '运营执行',
-                        icon: 'fas fa-tasks',
-                        testid: 'nav-lean-operation',
-                        children: [
-                            cloneMenuItem(aiDailyEntry, { name: 'AI经营日报' }),
-                            cloneMenuItem(opsTrackEntry, { name: '执行跟踪' }),
-                        ].filter(Boolean),
-                    },
-                    cloneMenuItem(hotelEntry, {
+                },
+                {
+                    type: 'group',
+                    name: '经营闭环',
+                    icon: 'fas fa-chart-line',
+                    testid: 'nav-lean-business-loop',
+                    children: [
+                        { type: 'source', sourcePath: 'compass', overrides: { name: '今日结论' } },
+                        { type: 'source', sourcePath: 'revenue-research-center', overrides: { name: '收益诊断' } },
+                    ],
+                },
+                {
+                    type: 'group',
+                    name: 'OTA数据',
+                    icon: 'fas fa-cloud-download-alt',
+                    testid: 'nav-lean-ota-data',
+                    children: [
+                        { type: 'source', sourcePath: 'online-data', sourceTab: 'data-health', overrides: { name: '数据可信度' } },
+                        { type: 'source', sourcePath: 'ctrip-ebooking', overrides: { name: '携程数据' } },
+                        { type: 'source', sourcePath: 'meituan-ebooking', overrides: { name: '美团数据' } },
+                    ],
+                },
+                {
+                    type: 'group',
+                    name: '运营执行',
+                    icon: 'fas fa-tasks',
+                    testid: 'nav-lean-operation',
+                    children: [
+                        { type: 'source', sourcePath: 'ai-daily-report', overrides: { name: 'AI经营日报' } },
+                        { type: 'source', sourcePath: 'ops-track', overrides: { name: '执行跟踪' } },
+                    ],
+                },
+                {
+                    type: 'source',
+                    sourcePath: 'hotels',
+                    overrides: {
                         name: '门店管理',
                         icon: 'fas fa-hotel',
                         testid: 'nav-lean-hotel-management',
-                    }),
-                    {
-                        name: '投资与高级工具',
-                        icon: 'fas fa-ellipsis-h',
-                        testid: 'nav-lean-more',
-                        children: [
-                            cloneMenuItem(knowledgeEntry, { name: '知识与经验' }),
-                            cloneMenuItem(investmentEntry, { name: '投决辅助' }),
-                            cloneMenuItem(imageOptimizerEntry, { name: '图片优化' }),
-                            cloneMenuItem(agentCenterEntry, { name: '高级AI工具箱' }),
-                            lifecycleMoreGroup,
-                            systemEntries.length ? { name: '配置中心', icon: 'fas fa-cog', children: systemEntries } : null,
-                        ].filter(Boolean),
                     },
-                ];
+                },
+                {
+                    type: 'group',
+                    name: '投资与高级工具',
+                    icon: 'fas fa-ellipsis-h',
+                    testid: 'nav-lean-more',
+                    children: [
+                        { type: 'source', sourcePath: 'knowledge-center', overrides: { name: '知识与经验' } },
+                        { type: 'source', sourcePath: 'investment-decision', overrides: { name: '投决辅助' } },
+                        { type: 'source', sourcePath: 'hotel-image-optimizer', overrides: { name: '图片优化' } },
+                        { type: 'source', sourcePath: 'agent-center', overrides: { name: '高级AI工具箱' } },
+                        {
+                            type: 'source-group',
+                            sourcePath: 'lifecycle-auxiliary',
+                            overrides: { name: '筹建/扩张/转让' },
+                            excludeChildPaths: ['investment-decision', 'hotel-image-optimizer', 'agent-center'],
+                        },
+                        {
+                            type: 'system-group',
+                            name: '配置中心',
+                            icon: 'fas fa-cog',
+                            sourcePaths: [
+                                'users',
+                                'roles',
+                                'operation-logs',
+                                'system-config',
+                                'ai-model-config',
+                                'ai-governance',
+                                'data-config',
+                            ],
+                        },
+                    ],
+                },
+            ];
+            const buildLeanNavigationEntry = (items = [], config = {}) => {
+                if (config.type === 'source') {
+                    return cloneMenuItem(
+                        findMenuEntry(items, config.sourcePath, config.sourceTab),
+                        config.overrides || {}
+                    );
+                }
+                if (config.type === 'source-group') {
+                    const group = cloneMenuItem(
+                        findMenuGroupByPath(items, config.sourcePath),
+                        config.overrides || {}
+                    );
+                    if (!group) return null;
+                    const excludeChildPaths = new Set(config.excludeChildPaths || []);
+                    if (Array.isArray(group.children) && excludeChildPaths.size > 0) {
+                        group.children = group.children.filter(item => !excludeChildPaths.has(item?.path));
+                    }
+                    return Array.isArray(group.children) && group.children.length > 0 ? group : null;
+                }
+                if (config.type === 'system-group') {
+                    const children = (config.sourcePaths || [])
+                        .map(path => cloneMenuItem(findMenuEntry(items, path)))
+                        .filter(Boolean);
+                    return children.length ? { name: config.name, icon: config.icon, children } : null;
+                }
+                if (config.type === 'group') {
+                    const children = (config.children || [])
+                        .map(child => buildLeanNavigationEntry(items, child))
+                        .filter(Boolean);
+                    return children.length ? {
+                        name: config.name,
+                        icon: config.icon,
+                        testid: config.testid,
+                        children,
+                    } : null;
+                }
+                return null;
+            };
+            const buildLeanNavigationItems = (items = []) => {
+                const leanItems = BOSS_VISIBLE_NAVIGATION_CONFIG
+                    .map(config => buildLeanNavigationEntry(items, config));
                 return leanItems.filter(item => item?.path || (Array.isArray(item.children) && item.children.length > 0));
             };
             // 可见菜单项 - 先按权限过滤，再压缩为老板视角主链路；低频入口保留在“投资与高级工具”。
@@ -27623,8 +27848,9 @@
             };
 
             const pageTitle = computed(() => {
-                if (currentPage.value === 'ai-workbench') return '今日经营看板';
-                if (currentPage.value === 'compass') return '今日结论';
+                if (BOSS_PAGE_TITLE_OVERRIDES[currentPage.value]) {
+                    return BOSS_PAGE_TITLE_OVERRIDES[currentPage.value];
+                }
                 const item = findMenuItemByPath(menuItems.value, currentPage.value);
                 return item ? (item.title || getMenuItemName(item)) : '';
             });
@@ -31153,6 +31379,66 @@
                     { key: 'roi', label: 'ROI证据', value: operationValue(readiness.roi_ready_count || 0), hint: '可计算收益成本' },
                 ];
             });
+            const aiDailyReportEvidenceTarget = (item = {}) => {
+                const sourceRef = String(item.source_ref || item.sourceRef || item.ref || aiDailyReportActionSources(item) || '').trim();
+                const code = String(item.code || item.key || item.stage || item.blocked_reason || item.next_action || item.nextAction || item.action_readiness?.next_action || '').trim();
+                const text = `${sourceRef} ${code} ${item.label || ''} ${item.message || ''}`.toLowerCase();
+                if (/execution|execute|action_item|operation|ops|执行|闭环/.test(text)) {
+                    return {
+                        page: 'ops-track',
+                        tab: '',
+                        label: '查看执行闭环',
+                        sourceRef: sourceRef || code || 'execution_flow',
+                    };
+                }
+                if (/platform|resource_catalog|collection_status|data_source|sync|profile|authorization|账号|授权|平台/.test(text)) {
+                    return {
+                        page: 'online-data',
+                        tab: 'platform-sources',
+                        label: '查看平台数据源',
+                        sourceRef: sourceRef || code || 'platform_sources',
+                    };
+                }
+                if (/table_missing|missing_table|init|schema|初始化/.test(text)) {
+                    return {
+                        page: 'online-data',
+                        tab: 'data-health',
+                        label: '查看初始化状态',
+                        sourceRef: sourceRef || code || 'data_health',
+                    };
+                }
+                return {
+                    page: 'online-data',
+                    tab: 'data-health',
+                    label: '查看数据健康',
+                    sourceRef: sourceRef || code || 'data_health',
+                };
+            };
+            const openAiDailyReportDataHealthTarget = () => {
+                currentPage.value = 'online-data';
+                onlineDataTab.value = 'data-health';
+                dataHealthSecondaryPanelsReady.value = false;
+                scheduleDataHealthSecondaryPanelsReady();
+                dataHealthDetailPanelsReady.value = false;
+                scheduleDataHealthDetailPanelsReady();
+                dataHealthEmployeePanelsReady.value = false;
+                scheduleDataHealthEmployeePanelsReady();
+                scheduleDataHealthPanelRefresh('light');
+            };
+            const openAiDailyReportEvidenceTarget = async (item = {}) => {
+                const target = item.target || aiDailyReportEvidenceTarget(item);
+                if (target.page === 'ops-track') {
+                    currentPage.value = 'ops-track';
+                    await loadOperationActions();
+                    return;
+                }
+                if ((target.tab || 'data-health') === 'data-health') {
+                    openAiDailyReportDataHealthTarget();
+                    return;
+                }
+                currentPage.value = 'online-data';
+                await openOnlineDataEntryTab(target.tab || 'data-health', { force: true });
+            };
             const aiDailyReportBlockingRows = computed(() => {
                 const rows = [];
                 const readinessMissing = Array.isArray(aiDailyReportReadiness.value?.missing_evidence)
@@ -31164,15 +31450,26 @@
                         key: `readiness:${item.code || index}:${index}`,
                         label: item.label || item.code || '证据缺口',
                         nextAction: item.next_action || '先补齐证据再转执行',
+                        target: aiDailyReportEvidenceTarget(item),
+                        actionText: aiDailyReportEvidenceTarget(item).label,
+                        sourceRef: aiDailyReportEvidenceTarget(item).sourceRef,
                     });
                 });
                 aiDailyReportActions.value.forEach((action, index) => {
                     const blockedText = aiDailyReportActionBlockedText(action);
                     if (!blockedText) return;
+                    const target = aiDailyReportEvidenceTarget({
+                        ...action,
+                        source_ref: aiDailyReportActionSources(action),
+                        next_action: action.action_readiness?.next_action || blockedText,
+                    });
                     rows.push({
                         key: `action:${action.title || index}:${index}`,
                         label: action.title || `建议${index + 1}`,
                         nextAction: blockedText,
+                        target,
+                        actionText: target.label,
+                        sourceRef: target.sourceRef,
                     });
                 });
                 return rows;
@@ -31281,21 +31578,9 @@
                 return 'bg-gray-50 text-gray-600 border-gray-200';
             };
             const aiDailyReportGapActionText = (gap) => {
-                const code = String(gap?.code || '').toLowerCase();
-                const sourceRef = String(gap?.source_ref || '').toLowerCase();
-                if (code.includes('table_missing')) return '查看初始化状态';
-                if (sourceRef.includes('execution') || code.includes('execution')) return '查看执行闭环';
-                return '查看数据健康';
+                return aiDailyReportEvidenceTarget(gap).label;
             };
             const goAiDailyReportDataGap = async (gap) => {
-                const sourceRef = String(gap?.source_ref || '').toLowerCase();
-                const code = String(gap?.code || '').toLowerCase();
-                if (sourceRef.includes('execution') || code.includes('execution_flow')) {
-                    currentPage.value = 'ops-track';
-                    await loadOperationActions();
-                    return;
-                }
-
                 currentPage.value = 'online-data';
                 onlineDataTab.value = 'data-health';
                 dataHealthSecondaryPanelsReady.value = false;
@@ -33947,8 +34232,48 @@
                 return Array.isArray(pool) ? pool : [];
             });
 
+            const platformConfigHotelId = (config = {}) => String(config.hotel_id || config.system_hotel_id || '').trim();
+            const platformConfigHotelName = (config = {}, hotelId = '') => {
+                const id = String(hotelId || platformConfigHotelId(config) || '').trim();
+                return getHotelNameById(id)
+                    || String(config.hotel_name || config.hotelName || config.name || '').trim()
+                    || (id ? `门店 ${id}` : '未关联门店');
+            };
+            const platformHotelOptionFromConfig = (config = {}) => {
+                const id = platformConfigHotelId(config);
+                if (!id) return null;
+                return {
+                    id,
+                    name: platformConfigHotelName(config, id),
+                    hotel_name: platformConfigHotelName(config, id),
+                };
+            };
+            const mergePlatformTargetOptions = (baseHotels = [], configList = [], configReady) => {
+                const optionMap = new Map();
+                (Array.isArray(baseHotels) ? baseHotels : []).forEach(hotel => {
+                    const id = String(hotel?.id || '').trim();
+                    if (!id || !configReady(id)) return;
+                    optionMap.set(id, {
+                        ...hotel,
+                        id,
+                        name: String(hotel?.name || hotel?.hotel_name || getHotelNameById(id) || `门店 ${id}`),
+                    });
+                });
+                (Array.isArray(configList) ? configList : []).forEach(config => {
+                    const id = platformConfigHotelId(config);
+                    if (!id || !configReady(id) || optionMap.has(id)) return;
+                    const option = platformHotelOptionFromConfig(config);
+                    if (option) optionMap.set(id, option);
+                });
+                return Array.from(optionMap.values());
+            };
+
             const ctripTargetHotelOptions = computed(() => {
-                return platformTargetHotelPool.value.filter(hotel => hasCtripFetchConfigByHotelId(hotel?.id));
+                return mergePlatformTargetOptions(
+                    platformTargetHotelPool.value,
+                    ctripConfigList.value,
+                    hasCtripFetchConfigByHotelId
+                );
             });
 
             const ctripTargetHotelOptionExists = (hotelId) => {
@@ -33975,7 +34300,11 @@
             const shouldShowCtripRankingManualAuxiliary = computed(() => !ctripTargetHotelOptionExists(selectedCtripHotelId.value));
 
             const meituanTargetHotelOptions = computed(() => {
-                return platformTargetHotelPool.value.filter(hotel => hasMeituanFetchConfigByHotelId(hotel?.id));
+                return mergePlatformTargetOptions(
+                    platformTargetHotelPool.value,
+                    meituanConfigList.value,
+                    hasMeituanFetchConfigByHotelId
+                );
             });
 
             const ensureHotelOtaConfigLists = async (options = {}) => {
@@ -34000,7 +34329,274 @@
                 if (force || platformDataSources.value.length === 0) {
                     tasks.push(loadPlatformDataSources(force ? { force: true } : { cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS }));
                 }
+                if (force || !hotels.value.length) {
+                    tasks.push(loadHotels(force ? { force: true } : { cacheMs: HOTEL_LIST_CACHE_TTL_MS }));
+                }
                 if (tasks.length > 0) await Promise.all(tasks);
+            };
+
+            const manualOneClickFetchRunning = ref('');
+            const manualOneClickFetchRows = ref([]);
+            const manualOneClickFetchLastRunAt = ref('');
+            const manualOneClickFetchPlatformText = platform => (platform === 'ctrip' ? '携程' : '美团');
+            const manualOneClickFetchNowText = () => new Date().toLocaleString('zh-CN', { hour12: false });
+            const manualOneClickFetchScopeText = computed(() => {
+                const targetDate = formatDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
+                return `${targetDate} · 手动获取 · 携程 ${ctripTargetHotelOptions.value.length} 家 / 美团 ${meituanTargetHotelOptions.value.length} 家`;
+            });
+            const manualOneClickFetchSummary = computed(() => {
+                return manualOneClickFetchRows.value.reduce((summary, row) => {
+                    if (row.status === 'success') summary.savedHotels += 1;
+                    if (row.status === 'no_saved') summary.noSaved += 1;
+                    if (row.status === 'failed') summary.failed += 1;
+                    if (row.status === 'running' || row.status === 'queued') summary.pending += 1;
+                    summary.savedCount += Number(row.savedCount || 0);
+                    return summary;
+                }, {
+                    savedHotels: 0,
+                    noSaved: 0,
+                    failed: 0,
+                    pending: 0,
+                    savedCount: 0,
+                });
+            });
+            const manualOneClickFetchCards = computed(() => {
+                const summary = manualOneClickFetchSummary.value;
+                return [
+                    {
+                        key: 'ctrip-ready',
+                        label: '携程可获取',
+                        value: `${ctripTargetHotelOptions.value.length}`,
+                        rawValue: String(ctripTargetHotelOptions.value.length),
+                        detail: '已保存携程配置',
+                        className: ctripTargetHotelOptions.value.length ? 'text-blue-700' : 'text-gray-900',
+                    },
+                    {
+                        key: 'meituan-ready',
+                        label: '美团可获取',
+                        value: `${meituanTargetHotelOptions.value.length}`,
+                        rawValue: String(meituanTargetHotelOptions.value.length),
+                        detail: '已保存美团配置',
+                        className: meituanTargetHotelOptions.value.length ? 'text-emerald-700' : 'text-gray-900',
+                    },
+                    {
+                        key: 'saved',
+                        label: '本次入库',
+                        value: `${summary.savedCount}`,
+                        rawValue: String(summary.savedCount),
+                        detail: manualOneClickFetchLastRunAt.value || '尚未执行',
+                        className: summary.savedCount ? 'text-emerald-700' : 'text-gray-900',
+                    },
+                    {
+                        key: 'not-saved',
+                        label: '未入库/失败',
+                        value: `${summary.noSaved + summary.failed}`,
+                        rawValue: String(summary.noSaved + summary.failed),
+                        detail: summary.pending ? `${summary.pending} 个执行中` : `${summary.noSaved} 个未入库 / ${summary.failed} 个失败`,
+                        className: summary.noSaved || summary.failed ? 'text-amber-700' : 'text-gray-900',
+                    },
+                ];
+            });
+            const manualOneClickFetchEmptyText = computed(() => {
+                if (manualOneClickFetchRunning.value) return '正在执行手动一键获取...';
+                if (!ctripTargetHotelOptions.value.length && !meituanTargetHotelOptions.value.length) {
+                    return '暂无可手动获取的门店。请先在平台账号里为门店配置携程或美团 Cookie/API。';
+                }
+                return '还没有执行记录。选择上方按钮后，会按已配置门店逐个获取并写入数据库。';
+            });
+            const manualOneClickFetchStatusClass = (status) => ({
+                running: 'border-blue-100 bg-blue-50 text-blue-700',
+                queued: 'border-amber-100 bg-amber-50 text-amber-700',
+                success: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+                no_saved: 'border-amber-100 bg-amber-50 text-amber-700',
+                failed: 'border-red-100 bg-red-50 text-red-700',
+                skipped: 'border-gray-200 bg-gray-50 text-gray-600',
+            }[String(status || '')] || 'border-gray-200 bg-gray-50 text-gray-600');
+            const manualOneClickFetchSavedCount = (result = {}) => {
+                const candidates = [
+                    result?.saved_count,
+                    result?.savedCount,
+                    result?.totalSavedCount,
+                    result?.data?.saved_count,
+                    result?.data?.savedCount,
+                    result?.data?.totalSavedCount,
+                    result?.data?.summary?.saved_count,
+                    result?.data?.summary?.savedCount,
+                    result?.response?.data?.saved_count,
+                    result?.response?.data?.savedCount,
+                    result?.total_saved,
+                    result?.data?.total_saved,
+                    result?.response?.data?.total_saved,
+                ];
+                const value = candidates.map(item => Number(item)).find(item => Number.isFinite(item) && item >= 0);
+                return Number.isFinite(value) ? value : 0;
+            };
+            const manualOneClickFetchResultStatus = (result = {}, savedCount = 0) => {
+                const status = String(result?.status || result?.data?.status || '').toLowerCase();
+                const code = Number(result?.code ?? result?.data?.code ?? 0);
+                if (Number(savedCount || 0) > 0) return 'success';
+                if (['failed', 'error', 'invalid_request', 'login_required', 'not_logged_in'].includes(status)) return 'failed';
+                if (['accepted', 'queued', 'running'].includes(status)) return 'queued';
+                if (['success', 'ok'].includes(status) || code === 200) return 'no_saved';
+                return 'failed';
+            };
+            const manualOneClickFetchResultMessage = (result = {}) => {
+                return String(result?.message || result?.data?.message || result?.response?.message || result?.msg || result?.data?.msg || result?.response?.msg || '').trim();
+            };
+            const upsertManualOneClickFetchRow = (row) => {
+                const rows = [...manualOneClickFetchRows.value];
+                const index = rows.findIndex(item => item.key === row.key);
+                if (index >= 0) {
+                    rows[index] = { ...rows[index], ...row };
+                } else {
+                    rows.push(row);
+                }
+                manualOneClickFetchRows.value = rows;
+            };
+            const buildManualOneClickFetchTasks = (platform) => {
+                const tasks = [];
+                if (platform === 'all' || platform === 'ctrip') {
+                    ctripTargetHotelOptions.value.forEach(hotel => tasks.push({ platform: 'ctrip', hotel }));
+                }
+                if (platform === 'all' || platform === 'meituan') {
+                    meituanTargetHotelOptions.value.forEach(hotel => tasks.push({ platform: 'meituan', hotel }));
+                }
+                return tasks;
+            };
+            const runManualOneClickFetchForHotel = async ({ platform, hotel, runId }) => {
+                const hotelId = String(hotel?.id || '').trim();
+                const hotelName = String(hotel?.name || hotel?.hotel_name || getHotelNameById(hotelId) || hotelId || '未命名门店');
+                const rowKey = `${runId}:${platform}:${hotelId}`;
+                const baseRow = {
+                    key: rowKey,
+                    platform,
+                    platformText: manualOneClickFetchPlatformText(platform),
+                    hotelId,
+                    hotelName,
+                    status: 'running',
+                    statusText: '获取中',
+                    message: '正在调用手动获取接口',
+                    savedCount: 0,
+                    timeText: manualOneClickFetchNowText(),
+                };
+                upsertManualOneClickFetchRow(baseRow);
+                try {
+                    let result = null;
+                    if (platform === 'ctrip') {
+                        selectedCtripHotelId.value = hotelId;
+                        ctripTargetHotelManuallySelected.value = true;
+                        await applyCtripHotelConfig(false, {
+                            refreshList: false,
+                            refreshLatest: false,
+                            skipIfAligned: false,
+                        });
+                        result = await fetchCtripData();
+                    } else {
+                        meituanForm.value.hotelId = hotelId;
+                        await nextTick();
+                        await applyMeituanHotelConfig(false, {
+                            refreshList: false,
+                            skipIfAligned: false,
+                        });
+                        result = await fetchMeituanData();
+                    }
+                    const savedCount = manualOneClickFetchSavedCount(result);
+                    const status = manualOneClickFetchResultStatus(result, savedCount);
+                    const statusText = status === 'queued'
+                        ? '已提交'
+                        : (status === 'success' ? '已入库' : (status === 'no_saved' ? '未入库' : '失败'));
+                    const responseMessage = manualOneClickFetchResultMessage(result);
+                    const message = status === 'no_saved'
+                        ? `${responseMessage || '接口调用完成'}；本次入库 0 条，不等于入库成功`
+                        : (responseMessage || (status === 'queued' ? '接口已提交后台，暂未确认入库' : (status === 'success' ? '手动获取并入库完成' : '手动获取失败')));
+                    upsertManualOneClickFetchRow({
+                        ...baseRow,
+                        status,
+                        statusText,
+                        message,
+                        savedCount,
+                        timeText: manualOneClickFetchNowText(),
+                    });
+                    return { status, savedCount };
+                } catch (error) {
+                    upsertManualOneClickFetchRow({
+                        ...baseRow,
+                        status: 'failed',
+                        statusText: '失败',
+                        message: error?.message || '手动获取失败',
+                        savedCount: 0,
+                        timeText: manualOneClickFetchNowText(),
+                    });
+                    return { status: 'failed', savedCount: 0 };
+                }
+            };
+            const restoreManualOneClickFetchSelection = async (snapshot) => {
+                selectedCtripHotelId.value = snapshot.selectedCtripHotelId;
+                ctripTargetHotelManuallySelected.value = snapshot.ctripTargetHotelManuallySelected;
+                meituanForm.value.hotelId = snapshot.meituanHotelId;
+                await nextTick();
+                if (snapshot.selectedCtripHotelId) {
+                    await applyCtripHotelConfig(false, {
+                        refreshList: false,
+                        refreshLatest: false,
+                        skipIfAligned: true,
+                    });
+                } else {
+                    resetCtripCaptureForms();
+                }
+                if (snapshot.meituanHotelId) {
+                    await applyMeituanHotelConfig(false, {
+                        refreshList: false,
+                        skipIfAligned: true,
+                    });
+                } else {
+                    await applyMeituanHotelConfig(false, {
+                        refreshList: false,
+                        skipIfAligned: false,
+                    });
+                }
+            };
+            const runManualOneClickFetch = async (platform = 'all') => {
+                if (manualOneClickFetchRunning.value || fetchingData.value) return;
+                await ensureHotelOtaConfigLists({ force: false });
+                const normalizedPlatform = ['ctrip', 'meituan'].includes(platform) ? platform : 'all';
+                const tasks = buildManualOneClickFetchTasks(normalizedPlatform);
+                if (!tasks.length) {
+                    showToast('暂无可手动获取的门店，请先配置携程或美团账号/Cookie', 'warning');
+                    return;
+                }
+                const snapshot = {
+                    selectedCtripHotelId: selectedCtripHotelId.value,
+                    ctripTargetHotelManuallySelected: ctripTargetHotelManuallySelected.value,
+                    meituanHotelId: meituanForm.value.hotelId,
+                };
+                const runId = `${Date.now()}`;
+                manualOneClickFetchRunning.value = normalizedPlatform;
+                manualOneClickFetchRows.value = [];
+                manualOneClickFetchLastRunAt.value = manualOneClickFetchNowText();
+                try {
+                    for (const task of tasks) {
+                        await runManualOneClickFetchForHotel({ ...task, runId });
+                    }
+                    const summary = manualOneClickFetchSummary.value;
+                    showToast(`手动获取完成：入库门店 ${summary.savedHotels}，未入库 ${summary.noSaved}，失败 ${summary.failed}，入库 ${summary.savedCount} 条`, (summary.noSaved || summary.failed) ? 'warning' : 'success');
+                    scheduleOnlineDataRefresh();
+                    scheduleOnlineHistoryRefresh();
+                    scheduleDataHealthPanelRefresh('light', { force: true, source: '手动一键获取后刷新' });
+                } finally {
+                    manualOneClickFetchRunning.value = '';
+                    try {
+                        await restoreManualOneClickFetchSelection(snapshot);
+                    } catch (error) {
+                        console.error('[ManualOneClickFetch] 恢复原选择失败:', error);
+                        showToast('数据已获取，恢复原选择失败，请刷新页面确认当前配置', 'warning');
+                    }
+                }
+            };
+            const refreshManualOneClickFetchConfig = async () => {
+                if (manualOneClickFetchRunning.value) return;
+                await ensureHotelOtaConfigLists({ force: true });
+                showToast('手动获取配置已刷新', 'success');
             };
 
             const openHotelManagementForOta = async () => {
@@ -35854,6 +36450,12 @@
                 const count = phase1EmployeeMissingFieldRows.value.length;
                 return count > 9 ? `另有 ${count - 9} 项缺口未展开，仍需按数据缺口逐项处理。` : '';
             });
+            const dataHealthFieldGapActionRows = computed(() => buildDataHealthFieldGapActionRows({
+                missingFieldRows: phase1EmployeeMissingFieldRows.value,
+                fieldAssetSummary: collectionHealthFieldAssetSummary.value,
+                fieldRows: collectionHealthFieldRows.value,
+                platformText: dataHealthPlatformText,
+            }));
             const phase1EmployeeMetricDomainRows = computed(() => {
                 const backendQuestionSource = collectionReliability.value?.phase1_employee_questions || dashboardDataSources.value?.phase1_employee_questions || {};
                 return buildPhase1EmployeeMetricDomainRows({
@@ -43981,7 +44583,7 @@
                 markOperationAlertsRead, simulateOperationStrategy, createOperationAction, loadOperationActions, finishOperationAction,
                 aiDailyReport, aiDailyReportForm, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportReadiness, aiDailyReportReadinessCards, aiDailyReportBlockingRows, aiDailyReportEvidenceRows,
                 aiDailyReportModelText, aiDailyReportModelClass, aiDailyReportMetricValue, aiDailyReportActionSources, aiDailyReportActionStatusText, aiDailyReportActionStatusClass, aiDailyReportActionBlockedText, aiDailyReportActionButtonText,
-                aiDailyReportReadinessClass, aiDailyReportGapActionText, goAiDailyReportDataGap,
+                aiDailyReportReadinessClass, aiDailyReportGapActionText, goAiDailyReportDataGap, openAiDailyReportEvidenceTarget,
                 loadAiDailyReport, generateAiDailyReport, createAiDailyExecutionIntent,
                 operationValue, operationMoney, operationPercent, operationDataStatusText, operationProblemLevelLabel, operationAlertLevelLabel,
                 operationAlertStatusLabel, operationAlertLevelClass, operationAlertSuggestion, operationRiskLevelLabel, operationStrategyTypeLabel,
@@ -44001,7 +44603,7 @@
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
-                dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms,
+                dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms, dualOtaPlatformRevenueHasContribution,
                 dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, dualOtaMetricComparisonText, toggleDualOtaCompare, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
                 revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiEvidenceWorkbenchRows, revenueAiEvidenceWorkbenchSummary, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
@@ -44080,7 +44682,7 @@
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
                 onlineDataQualitySummary, onlineDataQualityStatusText, onlineDataQualityStatusClass, onlineDataQualityPromptList, onlineDataQualityScopeText, autoFetchRecordStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
-                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
+                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,
                 dashboardAccountSummaryCards, dashboardCoreKpis, dashboardRiskAlerts, dashboardTodayActions, dashboardPortraitSections, dashboardDataSourceDiagnostics,
@@ -44088,7 +44690,7 @@
                 collectionHealthFailureReasons, collectionHealthFailureReasonRows, collectionHealthLogs, collectionHealthLatestLog, collectionHealthQuality, collectionHealthHistoryReplay,
                 collectionHealthPendingActions, collectionHealthPendingActionRows, collectionHealthCtripCatalog, collectionHealthCtripCatalogStatus, collectionHealthCtripCatalogMessage,
                 collectionHealthLifecycleRows, collectionHealthLifecycleReadyCount, collectionHealthFieldAssetSummary, collectionHealthFieldAssetStatus, collectionHealthFieldAssetCards, collectionHealthFieldAssetListText,
-                dataHealthDiagnosticBoundary, dataHealthRefreshModeText, dataHealthLastRefreshSource, dataHealthLastRefreshAt, dataHealthPendingDiagnosticText, collectionHealthFailureReasonRanking,
+                dataHealthDiagnosticBoundary, dataHealthRefreshModeText, dataHealthLastRefreshSource, dataHealthLastRefreshAt, dataHealthPendingDiagnosticText, dataHealthDiagnosticStatusRows, collectionHealthFailureReasonRanking,
                 dataHealthDrilldownRows, openDataHealthDrilldown,
                 dataHealthCookieAlertRows, dataHealthCookieAlertSummary, dataHealthQualityTaskRows, dataHealthHighRiskActionRows, dataHealthHighRiskSummary, otaTodayCollectionReminderRows, otaTodayCollectionReminderSummary, dataHealthTodayWorkOrders,
                 dataHealthOperationLogLoading, dataHealthOperationLogError, dataHealthOperationLogScope, dataHealthPriorityClass, dataHealthPriorityText,
@@ -44105,7 +44707,7 @@
                 collectionHealthCtripOverviewRevenueMetrics, collectionHealthCtripOverviewTrafficMetrics, collectionHealthCtripOverviewFunnelRows, collectionHealthCtripOverviewPanels, collectionHealthCtripMissingActionRows,
                 collectionHealthCtripEffectivenessClass,
                 collectionHealthFieldRows, collectionHealthSummaryCards, collectionHealthStatusText, collectionHealthStatusClass,
-                phase1EmployeeQuestionRows, phase1EmployeeRequiredActions, phase1EmployeeClosureSummary, phase1EmployeeCollectionSourceRows, phase1EmployeeFieldTrustRows, phase1EmployeeMissingFieldRows, phase1EmployeeMissingFieldOverflowText, phase1EmployeeMetricDomainRows, phase1EmployeeAiEvidenceSummary, phase1EmployeeOperationSummary, phase1EmployeeQuestionStatusText, phase1EmployeeQuestionStatusClass,
+                phase1EmployeeQuestionRows, phase1EmployeeRequiredActions, phase1EmployeeClosureSummary, phase1EmployeeCollectionSourceRows, phase1EmployeeFieldTrustRows, phase1EmployeeMissingFieldRows, phase1EmployeeMissingFieldOverflowText, dataHealthFieldGapActionRows, phase1EmployeeMetricDomainRows, phase1EmployeeAiEvidenceSummary, phase1EmployeeOperationSummary, phase1EmployeeQuestionStatusText, phase1EmployeeQuestionStatusClass,
                 loadCollectionReliability, loadDailyWorkbench, loadDailyWorkbenchPatrols, loadPhase3OperationEffectLoop, loadPhase3OperationEffectLoopLedger, publishPhase3OperationSop, createPhase3ReplicationPlan, runDailyWorkbenchPatrol, exportDailyWorkbenchPatrolReport, updateDailyWorkbenchPatrolAction, reviewDailyWorkbenchPatrolAction, loadHotelDataDashboard, loadDataHealthPanel,
                 onlineHistoryFilter, onlineHistoryList, onlineHistoryPagination, onlineHistoryPage, onlineHistorySummary, onlineHistoryHotelList,
                 onlineHistoryExpandedId, onlineHistoryRawId, loadOnlineHistory, loadOnlineHistoryHotelList, refreshOnlineHistory,
@@ -44120,7 +44722,7 @@
                 toNumber, toFixedSafe, safeDivide, formatNumber, calculateHhi, revenueConcentration, visitConcentration, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
                 fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, saveCtripReviewImSession, saveCtripReviewForMatch, saveCtripOrderForMatch, lookupCtripReviewOrderMatch, copyCtripReviewOrdererAssistScript, bindCtripReviewOrderMatch, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, fillCtripCookieApiCorePreset, fillDataConfigCtripCookieApiCorePreset, checkCtripProfileStatus, runCtripCookieApiCapture, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, importMeituanOrderCsvData, copyMeituanOrderCollectorScript, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, runMeituanBrowserSupplementCapture, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, downloadCtripBusinessDataImage, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig, triggerCookieConfigAutoFetch, triggerCookieConfigAutoFetchGroup, triggerCookieConfigAutoFetchAll,
                 // 携程配置管理
-                ctripConfigForm, ctripConfigList, ctripTargetHotelOptions, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig, shouldShowCtripRankingManualAuxiliary, normalizeCtripManualAuxiliaryText, canFetchCtripManualData,
+                ctripConfigForm, ctripConfigList, ctripTargetHotelOptions, ctripConfigListLoading, ctripConfigListLoaded, ctripConfigListLoadFailed, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig, shouldShowCtripRankingManualAuxiliary, normalizeCtripManualAuxiliaryText, canFetchCtripManualData,
                 ctripOverviewFetchActionLoading, ctripOverviewCoreFetchRunning,
                 showCtripCookieEditorModal, ctripCookieEditorLoading, ctripCookieEditorSaving, ctripCookieEditorForm,
                 ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount, ctripLatestSnapshotText, ctripLatestSnapshotClass, ctripLatestDisplayStatusText, ctripLatestDisplayStatusClass,

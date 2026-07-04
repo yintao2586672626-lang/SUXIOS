@@ -3813,6 +3813,15 @@ function ctripFactValue(facts, metricKey) {
   return fact ? String(fact.value || '').trim() : '';
 }
 
+function ctripFactHotelId(facts) {
+  const metricHotelId = ctripFactValue(facts, 'hotel_id');
+  if (metricHotelId) {
+    return metricHotelId;
+  }
+  const fact = facts.find((item) => String(item?.hotel_id || '').trim() !== '');
+  return fact ? String(fact.hotel_id || '').trim() : '';
+}
+
 function normalizeCtripHotelName(value) {
   return String(value || '')
     .trim()
@@ -3841,7 +3850,7 @@ function ctripHotelNameMatches(candidate, target) {
 
 function compareTypeForFacts(facts, context = {}) {
   const endpointId = String(facts[0]?.endpoint_id || '');
-  const hotelId = ctripFactValue(facts, 'hotel_id');
+  const hotelId = ctripFactHotelId(facts);
   if (String(hotelId).trim() === '-1') {
     return 'competitor';
   }
@@ -3850,6 +3859,10 @@ function compareTypeForFacts(facts, context = {}) {
     context.requestHotelId,
     context.masterHotelId,
     context.master_hotel_id,
+    context.otaHotelId,
+    context.ota_hotel_id,
+    context.ctripHotelId,
+    context.ctrip_hotel_id,
   ].map((value) => String(value || '').trim()).filter(Boolean));
   if (hotelId && contextHotelIds.has(String(hotelId).trim())) {
     return 'self';
