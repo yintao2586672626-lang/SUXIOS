@@ -14,7 +14,7 @@ class MigrateOnlineData extends Command
     protected function configure()
     {
         $this->setName('migrate:online-data')
-            ->setDescription('杩佺Щ绾夸笂鏁版嵁妯″潡锛氭坊鍔犳柊瀛楁');
+            ->setDescription('迁移线上数据模块：添加新字段');
     }
 
     protected function execute(Input $input, Output $output)
@@ -25,10 +25,10 @@ class MigrateOnlineData extends Command
             $dbType = Env::get('DB_TYPE', 'mysql');
             $output->writeln("Database type: {$dbType}");
 
-            // 娣诲姞绾夸笂鏁版嵁鏉冮檺瀛楁鍒?user_hotel_permissions 琛?
+            // 添加线上数据权限字段到 user_hotel_permissions 表
             $this->addOnlineDataPermissionFields($output, $dbType);
 
-            // 妫€鏌ュ苟鍒涘缓 online_daily_data 琛?
+            // 检查并创建 online_daily_data 表
             $this->ensureOnlineDailyDataTable($output, $dbType);
 
             $output->writeln('Online data migration completed.');
@@ -51,7 +51,7 @@ class MigrateOnlineData extends Command
 
         foreach ($fields as $field => $definition) {
             try {
-                // 妫€鏌ュ瓧娈垫槸鍚﹀瓨鍦?
+                // 检查字段是否存在
                 if ($dbType === 'sqlite') {
                     $exists = Db::query("PRAGMA table_info(user_hotel_permissions)");
                     $fieldExists = false;
@@ -87,7 +87,7 @@ class MigrateOnlineData extends Command
     protected function ensureOnlineDailyDataTable(Output $output, string $dbType): void
     {
         try {
-            // 妫€鏌ヨ〃鏄惁瀛樺湪
+            // 检查表是否存在
             if ($dbType === 'sqlite') {
                 $tables = Db::query("SELECT name FROM sqlite_master WHERE type='table' AND name='online_daily_data'");
             } else {
@@ -95,7 +95,7 @@ class MigrateOnlineData extends Command
             }
 
             if (empty($tables)) {
-                // 鍒涘缓琛?
+                // 创建表
                 if ($dbType === 'sqlite') {
                     Db::execute("
                         CREATE TABLE online_daily_data (
@@ -159,7 +159,7 @@ class MigrateOnlineData extends Command
                 }
                 $output->writeln('Created online_daily_data table.');
             } else {
-                // 琛ㄥ瓨鍦紝妫€鏌ュ苟娣诲姞鏂板瓧娈?
+                // 表存在，检查并添加新字段
                 $fieldsToAdd = $this->onlineDailyDataFieldsToAdd();
 
                 foreach ($fieldsToAdd as $field => $definition) {
@@ -185,10 +185,10 @@ class MigrateOnlineData extends Command
                     }
                 }
 
-                // 娣诲姞绱㈠紩
+                // 添加索引
                 try {
                     if ($dbType === 'sqlite') {
-                        // SQLite 涓嶆敮鎸?CREATE INDEX IF NOT EXISTS锛岄渶瑕佸厛妫€鏌?
+                        // SQLite 不支持 CREATE INDEX IF NOT EXISTS，需要先检查
                         $indexes = Db::query("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='online_daily_data'");
                         $indexNames = array_column($indexes, 'name');
                         if (!in_array('idx_system_hotel', $indexNames)) {
@@ -200,7 +200,7 @@ class MigrateOnlineData extends Command
                         $output->writeln('Created index idx_system_hotel.');
                     }
                 } catch (\Exception $e) {
-                    // 绱㈠紩鍙兘宸插瓨鍦?
+                    // 索引可能已存在
                 }
             }
         } catch (\Exception $e) {

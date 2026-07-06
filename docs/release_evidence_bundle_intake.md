@@ -36,14 +36,14 @@ npm.cmd run review:release-evidence
 |---|---|---|---|
 | Production env | `../release-evidence-temp/production.env` | `RELEASE_ENV_FILE` | `review:release-env` |
 | LLM attestation | `../release-evidence-temp/llm-attestation.json`, then `docs/llm_connectivity_attestation.json` | `LLM_CONNECTIVITY_ATTESTATION_FILE` | `review:release-llm` |
-| Design handoff | `docs/design_handoff_manifest.json` | None | `review:release-design` |
+| Design handoff | `../release-evidence-temp/design_handoff_manifest.json`, then `docs/design_handoff_manifest.json` | `DESIGN_HANDOFF_MANIFEST_FILE` | `review:release-design` |
 | OTA credential rotation | `../release-evidence-temp/ota_credential_rotation_attestation.json`, then `docs/ota_credential_rotation_attestation.json` | `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` | `review:release-ota-credentials` |
 | Codex Security scan | `../release-evidence-temp/codex-security/latest`, then `docs/security/codex-security/latest` | `CODEX_SECURITY_SCAN_DIR` | `review:release-security-scan` |
 
 ## Rules
 
 - This command is read-only. It does not create production evidence and does not copy external evidence into the repository.
-- `docs/design_handoff_manifest.json` remains the required design handoff path for release readiness.
+- Prefer the controlled external manifest at `../release-evidence-temp/design_handoff_manifest.json`; `docs/design_handoff_manifest.json` remains the local default fallback.
 - Evidence files must not contain real keys, Cookie values, Token values, signatures, Authorization headers, or reusable login state.
 - Passing `review:release-evidence` is not enough for release. Final handoff still requires `review:release-readiness` and `review:release-external-state` to pass on the final PR head.
 - Missing evidence must remain visible as a failure; do not close blockers with templates, screenshots, or placeholder values.

@@ -223,12 +223,20 @@ function ctrip_review_decision_verify_payload(string $businessDate, int $hotelId
         'hotel_id' => $hotelId,
         'platform' => 'ctrip',
         'source_scope' => 'ctrip_ota_channel',
+        'evidence_status' => 'verifier_transaction_only',
         'auto_write_ota' => false,
         'review_decision' => [
             'suggestion_id' => $suggestionId,
             'action' => 'approve_with_changes',
             'approved_price' => 335,
             'remark' => 'transaction-only verifier approves changed Ctrip price within guard',
+            'operator_review_evidence' => [
+                'reviewed_by' => 'transaction-only verifier',
+                'reviewed_at' => $businessDate . ' 00:00:00',
+                'decision_basis' => 'transaction-only verifier manual review decision',
+                'price_guard_source' => 'transaction-only verifier price guard review',
+                'operation_intent_source' => 'transaction-only verifier operation intent decision',
+            ],
             'create_execution_intent_after_approval' => true,
             'execution_intent' => [
                 'platform' => 'ctrip',
@@ -388,16 +396,34 @@ try {
     $rollbackCounts = ctrip_review_decision_verify_inserted_id_counts($fixture, $intentId);
     $scope = ctrip_review_decision_verify_map($runnerPayload['scope'] ?? []);
     $summary = ctrip_review_decision_verify_map($runnerPayload['summary'] ?? []);
+    $summaryReviewEvidence = ctrip_review_decision_verify_map($summary['operator_review_evidence'] ?? []);
     $intentSummary = ctrip_review_decision_verify_map($summary['execution_intent'] ?? []);
     $operationHandoff = ctrip_review_decision_verify_map($summary['operation_evidence_handoff'] ?? []);
     $operationHandoffWindow = ctrip_review_decision_verify_map($operationHandoff['roi_window'] ?? []);
     $operationHandoffEndpoints = ctrip_review_decision_verify_map($operationHandoff['endpoints'] ?? []);
+    $operationHandoffExecutionRequired = ctrip_review_decision_verify_list($operationHandoff['manual_execution_evidence_required'] ?? []);
+    $operationHandoffRoiRequired = ctrip_review_decision_verify_list($operationHandoff['manual_roi_evidence_required'] ?? []);
+    $operationHandoffExecutionPayload = ctrip_review_decision_verify_map($operationHandoff['execution_payload_template'] ?? []);
+    $operationHandoffExecutionEvidence = ctrip_review_decision_verify_map($operationHandoffExecutionPayload['evidence'] ?? []);
+    $operationHandoffOperatorExecution = ctrip_review_decision_verify_map($operationHandoffExecutionEvidence['operator_execution_evidence'] ?? []);
     $operationHandoffRoiPayload = ctrip_review_decision_verify_map($operationHandoff['roi_evidence_payload_template'] ?? []);
     $operationHandoffRoiEvidence = ctrip_review_decision_verify_map($operationHandoffRoiPayload['evidence'] ?? []);
+    $operationHandoffOperatorRoi = ctrip_review_decision_verify_map($operationHandoffRoiEvidence['operator_roi_evidence'] ?? []);
     $operationHandoffPlatformResponse = ctrip_review_decision_verify_map($operationHandoffRoiEvidence['platform_response'] ?? []);
     $template = ctrip_review_decision_verify_map($templatePayload['template'] ?? []);
     $templateDecision = ctrip_review_decision_verify_map($template['review_decision'] ?? []);
     $templatePending = ctrip_review_decision_verify_map($template['pending_suggestion'] ?? []);
+    $templateOperationPreview = ctrip_review_decision_verify_map($template['post_approval_operation_evidence_handoff_preview'] ?? []);
+    $templateOperationPreviewWindow = ctrip_review_decision_verify_map($templateOperationPreview['roi_window'] ?? []);
+    $templateOperationPreviewExecutionRequired = ctrip_review_decision_verify_list($templateOperationPreview['manual_execution_evidence_required'] ?? []);
+    $templateOperationPreviewRoiRequired = ctrip_review_decision_verify_list($templateOperationPreview['manual_roi_evidence_required'] ?? []);
+    $templateOperationPreviewExecutionPayload = ctrip_review_decision_verify_map($templateOperationPreview['execution_payload_template'] ?? []);
+    $templateOperationPreviewExecutionEvidence = ctrip_review_decision_verify_map($templateOperationPreviewExecutionPayload['evidence'] ?? []);
+    $templateOperationPreviewExecutionResponse = ctrip_review_decision_verify_map($templateOperationPreviewExecutionEvidence['platform_response'] ?? []);
+    $templateOperationPreviewRoiPayload = ctrip_review_decision_verify_map($templateOperationPreview['roi_evidence_payload_template'] ?? []);
+    $templateOperationPreviewRoiEvidence = ctrip_review_decision_verify_map($templateOperationPreviewRoiPayload['evidence'] ?? []);
+    $templateOperationPreviewRoiResponse = ctrip_review_decision_verify_map($templateOperationPreviewRoiEvidence['platform_response'] ?? []);
+    $templateOperatorRules = ctrip_review_decision_verify_list($template['operator_rules'] ?? []);
     $templateOutput = ctrip_review_decision_verify_map($templatePayload['output_file'] ?? []);
     $forceTemplateOutput = ctrip_review_decision_verify_map($forceTemplatePayload['output_file'] ?? []);
     $checksFromRunner = ctrip_review_decision_verify_list($runnerPayload['checks'] ?? []);
@@ -451,11 +477,45 @@ try {
             && (int)($templatePending['suggestion_id'] ?? 0) === (int)($fixture['price_suggestion_id'] ?? 0)
             && ctrip_review_decision_verify_list($templatePending['source_channels'] ?? []) === ['ctrip']
             && (string)($templatePending['source_scope'] ?? '') === 'ctrip_ota_channel'
+            && is_array($templateDecision['operator_review_evidence'] ?? null)
             && ($templatePending['auto_write_ota'] ?? true) === false,
         'Review-decision template pre-fills the pending suggestion id and carries Ctrip-only context.',
         [
             'review_decision' => $templateDecision,
             'pending_suggestion' => $templatePending,
+        ]
+    );
+    ctrip_review_decision_verify_check(
+        $checks,
+        'review_template_exposes_post_approval_operation_evidence_preview',
+        (string)($templateOperationPreview['status'] ?? '') === 'waiting_execution_intent'
+            && (string)($templateOperationPreview['source_scope'] ?? '') === 'ctrip_ota_channel_execution_evidence'
+            && ($templateOperationPreview['auto_write_ota'] ?? true) === false
+            && (int)($templateOperationPreview['hotel_id'] ?? 0) === (int)($scope['hotel_id'] ?? 0)
+            && (string)($templateOperationPreview['preview_boundary'] ?? '') === 'operation_evidence_handoff_preview_not_execution_proof'
+            && (string)($templateOperationPreview['template_usage'] ?? '') === 'fill_after_manual_approval_only_not_execution_or_roi_proof'
+            && (string)($templateOperationPreviewWindow['business_date'] ?? '') === $options['date']
+            && (string)($templateOperationPreviewWindow['scope'] ?? '') === 'ctrip_ota_channel_only'
+            && (string)($templateOperationPreviewWindow['protected_boundary'] ?? '') === 'do_not_promote_ctrip_ota_scope_to_whole_hotel_truth'
+            && in_array('execution_receipt_or_screenshot_path', $templateOperationPreviewExecutionRequired, true)
+            && in_array('roi_calculation_basis', $templateOperationPreviewRoiRequired, true)
+            && (string)($templateOperationPreviewExecutionResponse['evidence_boundary'] ?? '') === 'local_manual_evidence_no_ota_write'
+            && ($templateOperationPreviewExecutionResponse['auto_write_ota'] ?? true) === false
+            && (string)($templateOperationPreviewRoiResponse['evidence_boundary'] ?? '') === 'local_manual_roi_evidence_no_ota_write'
+            && ($templateOperationPreviewRoiResponse['auto_write_ota'] ?? true) === false
+            && in_array('Use post_approval_operation_evidence_handoff_preview only after manual approval; it is not proof of execution or ROI.', $templateOperatorRules, true),
+        'Review template exposes post-approval execution and ROI evidence payloads as a preview, not proof.',
+        [
+            'status' => $templateOperationPreview['status'] ?? null,
+            'hotel_id' => $templateOperationPreview['hotel_id'] ?? null,
+            'preview_boundary' => $templateOperationPreview['preview_boundary'] ?? null,
+            'template_usage' => $templateOperationPreview['template_usage'] ?? null,
+            'roi_window' => $templateOperationPreviewWindow,
+            'manual_execution_evidence_required' => $templateOperationPreviewExecutionRequired,
+            'manual_roi_evidence_required' => $templateOperationPreviewRoiRequired,
+            'execution_platform_response' => $templateOperationPreviewExecutionResponse,
+            'roi_platform_response' => $templateOperationPreviewRoiResponse,
+            'operator_rules' => $templateOperatorRules,
         ]
     );
     ctrip_review_decision_verify_check(
@@ -483,6 +543,7 @@ try {
         'approve_with_changes_records_manual_review',
         (string)($summary['action'] ?? '') === 'approve_with_changes'
             && (float)($summary['approved_price'] ?? 0) === 335.0
+            && (string)($summaryReviewEvidence['reviewed_by'] ?? '') !== ''
             && (string)($summary['manual_review_storage'] ?? '') === 'price_suggestions.factors.manual_review_versions',
         'approve_with_changes records the operator-approved price under manual review storage.',
         $summary
@@ -513,12 +574,18 @@ try {
             && str_contains((string)($operationHandoffEndpoints['record_execution'] ?? ''), '/api/operation/execution-tasks/')
             && str_contains((string)($operationHandoffEndpoints['upload_roi_evidence'] ?? ''), '/api/operation/execution-tasks/')
             && str_contains((string)($operationHandoffEndpoints['review_roi'] ?? ''), '/api/operation/execution-tasks/')
+            && in_array('execution_receipt_or_screenshot_path', $operationHandoffExecutionRequired, true)
+            && in_array('roi_calculation_basis', $operationHandoffRoiRequired, true)
+            && (string)($operationHandoffOperatorExecution['executed_by'] ?? '') === '<operator_name_or_role>'
+            && (string)($operationHandoffOperatorRoi['before_metric_source'] ?? '') === '<source_for_previous_day_ctrip_metrics>'
             && (string)($operationHandoffPlatformResponse['evidence_boundary'] ?? '') === 'local_manual_roi_evidence_no_ota_write'
             && ($operationHandoffPlatformResponse['auto_write_ota'] ?? true) === false,
         'Post-review handoff exposes previous-day/next-day Ctrip OTA ROI evidence capture without OTA write or whole-hotel promotion.',
         [
             'status' => $operationHandoff['status'] ?? null,
             'roi_window' => $operationHandoffWindow,
+            'manual_execution_evidence_required' => $operationHandoffExecutionRequired,
+            'manual_roi_evidence_required' => $operationHandoffRoiRequired,
             'endpoints' => $operationHandoffEndpoints,
             'platform_response' => $operationHandoffPlatformResponse,
         ]
@@ -530,6 +597,14 @@ try {
             static fn(mixed $row): string => (string)(is_array($row) ? ($row['code'] ?? '') : ''),
             $checksFromRunner
         ), true)
+            && in_array('operator_review_evidence_present', array_map(
+                static fn(mixed $row): string => (string)(is_array($row) ? ($row['code'] ?? '') : ''),
+                $checksFromRunner
+            ), true)
+            && in_array('manual_review_evidence_attached', array_map(
+                static fn(mixed $row): string => (string)(is_array($row) ? ($row['code'] ?? '') : ''),
+                $checksFromRunner
+            ), true)
             && in_array('execution_intent_policy_respected', array_map(
                 static fn(mixed $row): string => (string)(is_array($row) ? ($row['code'] ?? '') : ''),
                 $checksFromRunner

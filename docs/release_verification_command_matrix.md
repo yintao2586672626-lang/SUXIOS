@@ -1,6 +1,6 @@
 # Release Verification Command Matrix
 
-Updated: 2026-06-05
+Updated: 2026-07-06
 
 Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
@@ -10,7 +10,7 @@ Purpose: keep each release issue tied to one isolated acceptance command before 
 
 | Blocker id | Scope | Isolated command | Required input or evidence | Current expected status | Close condition |
 |---|---|---|---|---|---|
-| `local-git-state-open` | `@github` | `npm run review:release-external-state` | Non-draft PR, clean local Git state, absent `.git/index.lock`, PR metadata, PR checks, and `git ls-files database/backups` evidence. | Fails only while PR #2 remains draft; local worktree, index, backup tracking, mergeability, and checks currently pass. | Command passes, or `RELEASE_EXTERNAL_STATE_FILE` points to equivalent reviewed evidence. |
+| `local-git-state-open` | `@github` | `npm run review:release-external-state` | Non-draft open final release PR, clean local Git state, absent `.git/index.lock`, PR metadata, PR checks, and `git ls-files database/backups` evidence. | Fails because the configured PR #2 is already merged/stale and the local worktree is dirty; a draft PR or stale PR must not be used for handoff. | Command passes with `RELEASE_PR_NUMBER` set to the actual final release PR, or `RELEASE_EXTERNAL_STATE_FILE` points to equivalent reviewed evidence. |
 | `local-git-state-open` | `@github` | `npm run review:release-external-state:local` | Windows collector output at `docs/release_external_state_evidence.local.json`; this file must stay ignored. | Fails until generated evidence proves local state is closed. | Wrapper exits with the Node verifier status code and passes. |
 | `production-env-missing` | `@openai-developers` | `npm run review:release-env` | `RELEASE_ENV_FILE` points to controlled production env outside the repo, or a controlled `.env.production` exists in a release workspace. | Passes with `../release-evidence-temp/production.env`; rerun on the final PR #2 head. | `APP_DEBUG=false`, `APP_TRACE=false`, non-local `DB_HOST`, non-root `DB_USER`, and non-placeholder database and `AI_CONFIG_SECRET` values are verified. |
 | `llm-connectivity-attestation-missing` | `@openai-developers` | `npm run review:release-llm` | `LLM_CONNECTIVITY_ATTESTATION_FILE` or `docs/llm_connectivity_attestation.json`. | Passes with `../release-evidence-temp/llm-attestation.json`; rerun on the final PR #2 head. | Attestation proves the real `LlmClient` path and enabled `ai_model_configs` were tested, contains no secrets, and confirms `redaction_checked=true`. |
@@ -27,7 +27,7 @@ Run these only after the isolated command for each closed blocker passes.
 | Evidence bundle preflight | `npm run review:release-evidence` | Fails while design handoff or OTA credential rotation evidence is missing. | One read-only preflight for the controlled evidence directory plus repo-fixed release evidence paths. |
 | Current evidence refresh | `npm run refresh:release-current-evidence` | Fails while any current release gate fails, but refreshes current JSON evidence first. | Writes current evidence bundle, readiness, external-state evidence, and external-state result JSON under `../release-evidence-temp` for audit handoff. |
 | Final handoff runner | `npm run review:release-final-handoff` | Fails while design handoff or OTA credential rotation evidence is missing. | Runs the final pre-ready gate sequence in the required order and stops before PR-ready handoff. |
-| PR ready guard | `npm run release:mark-pr-ready` | Fails while final handoff runner fails. | Marks PR #2 ready only after final handoff gates pass. |
+| PR ready guard | `npm run release:mark-pr-ready` | Fails while final handoff runner fails. | Marks the configured release PR ready only after final handoff gates pass; do not reuse merged PR #2 as the final handoff target. |
 | Release readiness | `npm run review:release-readiness` | Fails while any blocker above remains open. | Single release gate for production env, LLM, design handoff, OTA credentials, persistent Codex Security scan artifacts, and local Git state. |
 | Status contract | `npm run verify:release-status` | Passes. | Confirms release docs, examples, scripts, and blocker contracts stay consistent. |
 | Functional readiness | `npm run review:functional-readiness` | Passes. | Confirms local structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |

@@ -27,6 +27,8 @@ Set-Location -LiteralPath $repoRoot
 
 $resolvedEvidenceDir = Resolve-Path -LiteralPath $EvidenceDir
 
+$env:RELEASE_EVIDENCE_DIR = [string]$resolvedEvidenceDir
+
 if (-not $env:RELEASE_ENV_FILE) {
     $env:RELEASE_ENV_FILE = Join-Path $resolvedEvidenceDir "production.env"
 }
@@ -43,13 +45,32 @@ if (-not $env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE) {
     $env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE = Join-Path $resolvedEvidenceDir "ota_credential_rotation_attestation.json"
 }
 
+if (-not $env:CODEX_SECURITY_SCAN_DIR) {
+    $evidenceSecurityScanDir = Join-Path $resolvedEvidenceDir "codex-security/latest"
+    if (Test-Path -LiteralPath $evidenceSecurityScanDir) {
+        $env:CODEX_SECURITY_SCAN_DIR = $evidenceSecurityScanDir
+    }
+}
+
+if (-not $env:RELEASE_EVIDENCE_RESULT_FILE) {
+    $env:RELEASE_EVIDENCE_RESULT_FILE = Join-Path $resolvedEvidenceDir "release-evidence-result.json"
+}
+
+if (-not $env:RELEASE_READINESS_RESULT_FILE) {
+    $env:RELEASE_READINESS_RESULT_FILE = Join-Path $resolvedEvidenceDir "release-readiness-result.json"
+}
+
 $env:RELEASE_PR_NUMBER = [string]$PrNumber
 
 Write-Host "Release evidence dir: $resolvedEvidenceDir"
+Write-Host "RELEASE_EVIDENCE_DIR: $env:RELEASE_EVIDENCE_DIR"
 Write-Host "RELEASE_ENV_FILE: $env:RELEASE_ENV_FILE"
 Write-Host "LLM_CONNECTIVITY_ATTESTATION_FILE: $env:LLM_CONNECTIVITY_ATTESTATION_FILE"
 Write-Host "DESIGN_HANDOFF_MANIFEST_FILE: $env:DESIGN_HANDOFF_MANIFEST_FILE"
 Write-Host "OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE: $env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE"
+Write-Host "CODEX_SECURITY_SCAN_DIR: $env:CODEX_SECURITY_SCAN_DIR"
+Write-Host "RELEASE_EVIDENCE_RESULT_FILE: $env:RELEASE_EVIDENCE_RESULT_FILE"
+Write-Host "RELEASE_READINESS_RESULT_FILE: $env:RELEASE_READINESS_RESULT_FILE"
 Write-Host "RELEASE_PR_NUMBER: $env:RELEASE_PR_NUMBER"
 
 Invoke-ReleaseStep "design handoff" { npm.cmd run review:release-design }
@@ -79,5 +100,5 @@ if ($AfterPrReady) {
 } else {
     Write-Host ""
     Write-Host "Pre-ready release gates passed. Mark PR #$PrNumber ready for review, wait for CI to stay green, then rerun:"
-    Write-Host "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/review_release_final_handoff.ps1 -AfterPrReady"
+    Write-Host "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/review_release_final_handoff.ps1 -EvidenceDir `"$resolvedEvidenceDir`" -PrNumber $PrNumber -AfterPrReady"
 }

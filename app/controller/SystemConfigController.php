@@ -9,6 +9,9 @@ use think\Response;
 
 class SystemConfigController extends Base
 {
+    private const IMPORT_MAX_BYTES = 1024 * 1024;
+    private const IMPORT_MAX_CONFIG_ITEMS = 500;
+
     /**
      * 获取所有系统配置
      */
@@ -321,11 +324,24 @@ class SystemConfigController extends Base
             return $this->error('请上传配置文件');
         }
 
-        $content = file_get_contents($file->getPathname());
+        $path = method_exists($file, 'getPathname') ? (string)$file->getPathname() : '';
+        $originalName = method_exists($file, 'getOriginalName') ? (string)$file->getOriginalName() : '';
+        $fileSize = method_exists($file, 'getSize') ? (int)$file->getSize() : (is_file($path) ? (int)filesize($path) : 0);
+        $validationError = $this->validateSystemConfigImportFile($path, $originalName, $fileSize);
+        if ($validationError !== null) {
+            $status = str_contains($validationError, '超过') ? 413 : 422;
+            return $this->error($validationError, $status);
+        }
+
+        $content = file_get_contents($path);
+        if ($content === false) {
+            return $this->error('配置文件读取失败', 422);
+        }
         $data = json_decode($content, true);
 
-        if (!$data || !isset($data['configs'])) {
-            return $this->error('配置文件格式错误');
+        $dataError = $this->validateSystemConfigImportData($data);
+        if ($dataError !== null) {
+            return $this->error($dataError, 422);
         }
 
         $descriptions = SystemConfig::getConfigDescriptions();
@@ -341,6 +357,68 @@ class SystemConfigController extends Base
         OperationLog::record('system_config', 'import', '导入系统配置，共' . $imported . '项', $this->currentUser->id);
 
         return $this->success(['imported' => $imported], '配置导入成功');
+    }
+
+    private function validateSystemConfigImportFile(string $path, string $originalName, int $size): ?string
+    {
+        if ($path === '' || !is_file($path)) {
+            return '配置文件不存在';
+        }
+
+        $actualSize = $size > 0 ? $size : (int)filesize($path);
+        if ($actualSize <= 0) {
+            return '配置文件为空';
+        }
+        if ($actualSize > self::IMPORT_MAX_BYTES) {
+            return '配置文件超过1MB';
+        }
+
+        $extension = strtolower(pathinfo($originalName !== '' ? $originalName : $path, PATHINFO_EXTENSION));
+        if ($extension !== 'json') {
+            return '仅支持JSON配置文件';
+        }
+
+        return null;
+    }
+
+    private function validateSystemConfigImportData($data): ?string
+    {
+        if (!is_array($data) || !isset($data['configs']) || !is_array($data['configs'])) {
+            return '配置文件格式错误';
+        }
+
+        if ($this->isListArray($data['configs'])) {
+            return '配置文件configs必须是对象';
+        }
+
+        if (count($data['configs']) > self::IMPORT_MAX_CONFIG_ITEMS) {
+            return '配置项数量超过限制';
+        }
+
+        foreach ($data['configs'] as $key => $_value) {
+            if (!is_string($key) || $key === '' || strlen($key) > 128 || !preg_match('/^[A-Za-z0-9_.-]+$/', $key)) {
+                return '配置项key格式错误';
+            }
+        }
+
+        return null;
+    }
+
+    private function isListArray(array $value): bool
+    {
+        if ($value === []) {
+            return false;
+        }
+
+        $index = 0;
+        foreach (array_keys($value) as $key) {
+            if ($key !== $index) {
+                return false;
+            }
+            $index++;
+        }
+
+        return true;
     }
 
     /**

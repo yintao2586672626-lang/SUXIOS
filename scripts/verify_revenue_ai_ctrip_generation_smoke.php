@@ -120,6 +120,25 @@ function ctrip_generation_list(mixed $value): array
 }
 
 /**
+ * @return list<string>
+ */
+function ctrip_generation_list_scalars(mixed $value): array
+{
+    if (!is_array($value)) {
+        return [];
+    }
+
+    $items = [];
+    foreach ($value as $item) {
+        if (is_scalar($item)) {
+            $items[] = (string)$item;
+        }
+    }
+
+    return array_values($items);
+}
+
+/**
  * @return array<string, mixed>
  */
 function ctrip_generation_decode_response(\think\Response $response): array
@@ -479,6 +498,21 @@ try {
                                 'auto_write_ota' => false,
                                 'evidence_boundary' => 'local_manual_roi_evidence_no_ota_write',
                             ],
+                            'operator_execution_evidence' => [
+                                'executed_by' => 'verifier_transaction_only',
+                                'executed_at' => $options['date'] . ' 12:00:00',
+                                'execution_basis' => 'verifier_transaction_only_ctrip_operation_execution_basis',
+                                'room_rate_mapping_source' => 'verifier_transaction_only_ctrip_room_rate_mapping',
+                                'execution_receipt_or_screenshot_path' => 'verifier_transaction_only://ctrip/execution-receipt',
+                            ],
+                            'operator_roi_evidence' => [
+                                'reviewed_by' => 'verifier_transaction_only',
+                                'reviewed_at' => $options['date'] . ' 18:00:00',
+                                'before_metric_source' => 'verifier_transaction_only_ctrip_previous_day_metrics',
+                                'after_metric_source' => 'verifier_transaction_only_ctrip_next_day_metrics',
+                                'roi_calculation_basis' => 'verifier_transaction_only_ctrip_roi_calculation_basis',
+                                'roi_receipt_or_screenshot_path' => 'verifier_transaction_only://ctrip/roi-receipt',
+                            ],
                             'remark' => 'transaction-only Ctrip operation ROI evidence smoke',
                         ],
                     ], 0);
@@ -543,7 +577,19 @@ try {
     $operationFlowList = ctrip_generation_list($operationExecutionFlow['list'] ?? []);
     $operationFlowFirst = ctrip_generation_map($operationFlowList[0] ?? []);
     $operationRoi = ctrip_generation_map($operationFlowFirst['roi'] ?? []);
+    $operationRoiOperatorExecutionSummary = ctrip_generation_map($operationRoi['operator_execution_evidence_summary'] ?? []);
+    $operationRoiOperatorRoiSummary = ctrip_generation_map($operationRoi['operator_roi_evidence_summary'] ?? []);
+    $operationEvidenceRows = ctrip_generation_list($operationExecutedTask['evidence'] ?? []);
+    $operationEvidenceFirst = ctrip_generation_map($operationEvidenceRows[0] ?? []);
+    $operationEvidencePlatformResponse = ctrip_generation_map($operationEvidenceFirst['platform_response'] ?? []);
+    $operatorExecutionEvidence = ctrip_generation_map($operationEvidencePlatformResponse['operator_execution_evidence'] ?? []);
+    $operatorRoiEvidence = ctrip_generation_map($operationEvidencePlatformResponse['operator_roi_evidence'] ?? []);
     $executionSummaryAfterRoi = ctrip_generation_map($overviewAfterOperationRoi['execution_summary'] ?? []);
+    $executionEffectReviewAfterRoi = ctrip_generation_map($executionSummaryAfterRoi['effect_review'] ?? []);
+    $executionEffectReviewInputs = ctrip_generation_list($executionEffectReviewAfterRoi['inputs'] ?? []);
+    $executionEffectReviewFirstInput = ctrip_generation_map($executionEffectReviewInputs[0] ?? []);
+    $executionEffectOperatorExecutionSummary = ctrip_generation_map($executionEffectReviewFirstInput['operator_execution_evidence_summary'] ?? []);
+    $executionEffectOperatorRoiSummary = ctrip_generation_map($executionEffectReviewFirstInput['operator_roi_evidence_summary'] ?? []);
     $operationToInvestmentAfterRoi = ctrip_generation_map($overviewAfterOperationRoi['operation_to_investment_handoff'] ?? []);
     $investmentSummary = ctrip_generation_map($investmentOverview['summary'] ?? []);
     $investmentOperatingGate = ctrip_generation_map($investmentOverview['operating_data_gate'] ?? []);
@@ -793,11 +839,15 @@ try {
             $checks,
             'operation_execution_records_local_roi_evidence',
             (string)($operationExecutedTask['status'] ?? '') === 'executed'
-                && ctrip_generation_list($operationExecutedTask['evidence'] ?? []) !== [],
-            'Operation execution records local manual ROI evidence without OTA write.',
+                && ctrip_generation_list($operationExecutedTask['evidence'] ?? []) !== []
+                && $operatorExecutionEvidence !== []
+                && $operatorRoiEvidence !== [],
+            'Operation execution records local manual execution and ROI evidence without OTA write.',
             [
                 'task_status' => $operationExecutedTask['status'] ?? null,
                 'evidence_ids' => $fixture['execution_evidence_ids'] ?? [],
+                'operator_execution_evidence_keys' => array_keys($operatorExecutionEvidence),
+                'operator_roi_evidence_keys' => array_keys($operatorRoiEvidence),
                 'auto_write_ota' => false,
             ]
         );
@@ -819,6 +869,20 @@ try {
         );
         ctrip_generation_check(
             $checks,
+            'operation_roi_exposes_operator_evidence_summary',
+            (bool)($operationRoiOperatorExecutionSummary['provided'] ?? false) === true
+                && (bool)($operationRoiOperatorRoiSummary['provided'] ?? false) === true
+                && in_array('execution_basis', ctrip_generation_list_scalars($operationRoiOperatorExecutionSummary['keys'] ?? []), true)
+                && in_array('roi_calculation_basis', ctrip_generation_list_scalars($operationRoiOperatorRoiSummary['keys'] ?? []), true),
+            'Operation ROI summary exposes local operator execution and ROI evidence sources.',
+            [
+                'operator_execution_evidence_summary_keys' => $operationRoiOperatorExecutionSummary['keys'] ?? [],
+                'operator_roi_evidence_summary_keys' => $operationRoiOperatorRoiSummary['keys'] ?? [],
+                'auto_write_ota' => false,
+            ]
+        );
+        ctrip_generation_check(
+            $checks,
             'overview_reads_operation_roi_ready_after_review',
             (int)($executionSummaryAfterRoi['roi_ready_count'] ?? 0) >= 1
                 && (int)($operationToInvestmentAfterRoi['operation_roi_ready'] ?? 0) === 1
@@ -833,6 +897,21 @@ try {
                 'operation_to_investment_status' => $operationToInvestmentAfterRoi['status'] ?? null,
                 'operation_roi_ready' => $operationToInvestmentAfterRoi['operation_roi_ready'] ?? null,
                 'decision_allowed' => $operationToInvestmentAfterRoi['decision_allowed'] ?? null,
+            ]
+        );
+        ctrip_generation_check(
+            $checks,
+            'overview_effect_review_exposes_operator_evidence_summary',
+            (bool)($executionEffectReviewFirstInput['has_operator_execution_evidence'] ?? false) === true
+                && (bool)($executionEffectReviewFirstInput['has_operator_roi_evidence'] ?? false) === true
+                && (bool)($executionEffectOperatorExecutionSummary['provided'] ?? false) === true
+                && (bool)($executionEffectOperatorRoiSummary['provided'] ?? false) === true,
+            'Revenue AI overview effect-review input exposes operator execution and ROI evidence summaries.',
+            [
+                'effect_review_input_count' => count($executionEffectReviewInputs),
+                'operator_execution_evidence_summary_keys' => $executionEffectOperatorExecutionSummary['keys'] ?? [],
+                'operator_roi_evidence_summary_keys' => $executionEffectOperatorRoiSummary['keys'] ?? [],
+                'auto_write_ota' => false,
             ]
         );
         ctrip_generation_check(

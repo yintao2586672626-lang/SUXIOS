@@ -176,7 +176,7 @@ async function login(page) {
         }),
       });
     });
-    await page.addInitScript(() => localStorage.setItem('token', 'taste-visual-probe-token'));
+    await page.addInitScript(() => sessionStorage.setItem('token', 'taste-visual-probe-token'));
   } else if (authMode !== 'real') {
     throw new Error(`Unsupported E2E_TASTE_AUTH_MODE: ${authMode}`);
   }

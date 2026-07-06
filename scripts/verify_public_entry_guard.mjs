@@ -221,7 +221,10 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html must not statically preload the login background for cached-auth users.');
   }
   if (!content.includes("const shouldPreloadLoginBackground = () => {")
-    || !content.includes("return !localStorage.getItem('token') || !localStorage.getItem('suxios_auth_user_cache_v1');")
+    || !content.includes("const readStartupAuthToken = () => {")
+    || !content.includes("sessionStorage.setItem('token', legacyToken);")
+    || !content.includes("localStorage.removeItem('token');")
+    || !content.includes("return !readStartupAuthToken() || !localStorage.getItem('suxios_auth_user_cache_v1');")
     || !content.includes("link.setAttribute('fetchpriority', 'high');")
     || !content.includes("link.dataset.suxiLoginBgPreload = '1';")
     || !content.includes('preloadLoginBackground();')) {
@@ -1708,24 +1711,101 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html platform-auto hotel switching must defer the shared scheduler instead of directly loading full auto-fetch status.');
   }
   const dataHealthPanelSource = content.slice(
-    content.indexOf('const buildDataHealthPanelJobs = (normalizedMode) =>'),
+    content.indexOf('const dataHealthLightCacheKey = (hotelId) =>'),
     content.indexOf('const triggerAutoFetch = async')
   );
-  if (!dataHealthPanelSource.includes('const buildDataHealthPanelJobs = (normalizedMode) => {')
-    || !dataHealthPanelSource.includes("loadAutoFetchStatus({ detail: normalizedMode === 'full' })")
-    || !dataHealthPanelSource.includes("if (normalizedMode === 'full') {")
-    || !dataHealthPanelSource.includes("loadCollectionReliability('full')")
-    || !dataHealthPanelSource.includes('loadDataHealthOperationLogs()')
-    || !dataHealthPanelSource.includes('loadPublicEndpointSecurity()')
-    || !dataHealthPanelSource.includes('loadHotelDataDashboard()')
-    || !dataHealthPanelSource.includes('const scheduleDataHealthLightDiagnostics = () => {')
-    || !dataHealthPanelSource.includes("return schedulePostFetchRefresh('data-health-light-diagnostics', () => {")
-    || !dataHealthPanelSource.includes("if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') return null;")
-    || !dataHealthPanelSource.includes("const initialHotelId = String(getAutoFetchHotelId() || '');")
+  if (!dataHealthStaticContent.includes('const normalizeDataHealthRefreshRequest = (mode = \'light\', options = {}) => {')
+    || !dataHealthStaticContent.includes('const createDataHealthRefreshRequestState = ({ lightCacheTtlMs = 45000 } = {}) => {')
+    || !dataHealthStaticContent.includes('const buildDataHealthPanelRefreshJobs = ({')
+    || !dataHealthStaticContent.includes('const scheduleDataHealthLightDiagnosticsRefresh = ({')
+    || !dataHealthStaticContent.includes('return { status: \'in_flight\', promise: lightCache.promise };')
+    || !dataHealthStaticContent.includes('return { status: \'fresh\' };')
+    || !dataHealthStaticContent.includes('requireDataHealthPanelLoader(loadCollectionReliability, \'loadCollectionReliability\')(\'full\')')
+    || !dataHealthStaticContent.includes('scheduleDataHealthLightDiagnosticsRefresh,')
+    || !content.includes("const normalizeDataHealthRefreshRequest = requireDataHealthStatic('normalizeDataHealthRefreshRequest');")
+    || !content.includes("const createDataHealthRefreshRequestState = requireDataHealthStatic('createDataHealthRefreshRequestState');")
+    || !content.includes("const buildDataHealthPanelRefreshJobs = requireDataHealthStatic('buildDataHealthPanelRefreshJobs');")
+    || !content.includes("const scheduleDataHealthLightDiagnosticsRefresh = requireDataHealthStatic('scheduleDataHealthLightDiagnosticsRefresh');")
+    || !dataHealthPanelSource.includes('const dataHealthLightCacheKey = (hotelId) => dataHealthRefreshRequestState.lightCacheKey({')
     || !dataHealthPanelSource.includes('const initialCacheKey = dataHealthLightCacheKey(initialHotelId);')
     || !dataHealthPanelSource.includes("if (normalizedMode === 'light' && !force && cacheKey !== initialCacheKey) {")
-    || !dataHealthPanelSource.includes('const jobs = buildDataHealthPanelJobs(normalizedMode);')) {
-    failures.push('public/index.html must keep data-health panel job composition and deferred light diagnostics out of loadDataHealthPanel.');
+    || !dataHealthPanelSource.includes('const jobs = buildDataHealthPanelRefreshJobs({')
+    || !dataHealthPanelSource.includes('return scheduleDataHealthLightDiagnosticsRefresh({')
+    || dataHealthPanelSource.includes('const buildDataHealthPanelJobs = (normalizedMode) =>')
+    || dataHealthPanelSource.includes('const jobs = [')
+    || dataHealthPanelSource.includes("loadAutoFetchStatus({ detail: normalizedMode === 'full' })")
+    || dataHealthPanelSource.includes("return schedulePostFetchRefresh('data-health-light-diagnostics', () => {")
+    || content.includes('const DATA_HEALTH_LIGHT_CACHE_TTL_MS = 45000')
+    || content.includes('let dataHealthLightCache =')
+    || content.includes('const resetDataHealthLightCache = () => {')) {
+    failures.push('public/index.html must delegate data-health refresh state, job composition, and deferred light diagnostics to public/data-health-static.js.');
+  }
+  try {
+    const sandbox = { window: {}, console };
+    vm.runInNewContext(dataHealthStaticContent, sandbox, { filename: 'public/data-health-static.js' });
+    const helpers = sandbox.window.SUXI_DATA_HEALTH_STATIC;
+    const request = helpers?.normalizeDataHealthRefreshRequest?.('full', {});
+    const lightRequest = helpers?.normalizeDataHealthRefreshRequest?.('light', {});
+    const state = helpers?.createDataHealthRefreshRequestState?.({ lightCacheTtlMs: 1000 });
+    const cacheKey = state?.lightCacheKey?.({ hotelId: 58, userId: 7, isSuperAdmin: false });
+    const run = Promise.resolve('ok');
+    state?.rememberLightRequest?.({ cacheKey, promise: run, now: 100 });
+    const inFlight = state?.resolveLightRequest?.({ cacheKey, now: 150 });
+    state?.settleLightRequest?.({ cacheKey, promise: run, now: 200 });
+    const fresh = state?.resolveLightRequest?.({ cacheKey, now: 300 });
+    const forced = state?.resolveLightRequest?.({ cacheKey, force: true, now: 300 });
+    state?.reset?.();
+    const reset = state?.resolveLightRequest?.({ cacheKey, now: 300 });
+    const calls = [];
+    const loader = (name) => (...args) => {
+      calls.push({ name, args });
+      return name;
+    };
+    const fullJobs = helpers?.buildDataHealthPanelRefreshJobs?.({
+      normalizedMode: 'full',
+      loadAutoFetchStatus: loader('auto'),
+      loadDailyWorkbench: loader('workbench'),
+      loadDailyWorkbenchPatrols: loader('patrols'),
+      loadPhase3OperationEffectLoop: loader('effect'),
+      loadPhase3OperationEffectLoopLedger: loader('ledger'),
+      loadCollectionReliability: loader('collection'),
+      loadDataHealthOperationLogs: loader('logs'),
+      loadPublicEndpointSecurity: loader('security'),
+      loadHotelDataDashboard: loader('dashboard'),
+      loadPlatformCollectionResources: loader('resources'),
+    });
+    let scheduled = null;
+    const scheduledResult = helpers?.scheduleDataHealthLightDiagnosticsRefresh?.({
+      schedulePostFetchRefresh: (key, fn, delay) => {
+        scheduled = { key, fn, delay };
+        return 'scheduled';
+      },
+      shouldRun: () => false,
+      loadDataHealthOperationLogs: loader('light-logs'),
+      loadPublicEndpointSecurity: loader('light-security'),
+    });
+    if (request?.normalizedMode !== 'full'
+      || request?.force !== true
+      || lightRequest?.normalizedMode !== 'light'
+      || lightRequest?.force !== false
+      || cacheKey !== '58|7|normal'
+      || inFlight?.status !== 'in_flight'
+      || inFlight?.promise !== run
+      || fresh?.status !== 'fresh'
+      || forced?.status !== 'miss'
+      || reset?.status !== 'miss'
+      || !Array.isArray(fullJobs)
+      || fullJobs.length !== 10
+      || calls.find((call) => call.name === 'auto')?.args?.[0]?.detail !== true
+      || calls.find((call) => call.name === 'collection')?.args?.[0] !== 'full'
+      || scheduledResult !== 'scheduled'
+      || scheduled?.key !== 'data-health-light-diagnostics'
+      || scheduled?.delay !== 360
+      || scheduled.fn() !== null) {
+      failures.push('public/data-health-static.js data-health refresh helper behavior must preserve full/light mode, cache reuse, in-flight reuse, and light diagnostic scheduling.');
+    }
+  } catch (error) {
+    failures.push(`public/data-health-static.js data-health refresh helper behavior check failed: ${error.message}`);
   }
   if (dataHealthPanelSource.includes('scheduleDataHealthLightDiagnostics();')) {
     failures.push('public/index.html data-health light first paint must not auto-run non-core light diagnostics.');

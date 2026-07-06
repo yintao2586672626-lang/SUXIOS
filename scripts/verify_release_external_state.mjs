@@ -119,7 +119,11 @@ function checkPrObject(pr, expectedNumber = expectedPrNumber()) {
   if (pr.isDraft === false) {
     addPass(`PR #${pr.number} is not draft.`);
   } else if (pr.isDraft === true) {
-    addFailure(`PR #${pr.number ?? 'unknown'} is still draft; mark it ready for review before release handoff.`);
+    if (pr.state && pr.state !== 'OPEN') {
+      addFailure(`PR #${pr.number ?? 'unknown'} is still draft but cannot be marked ready because current state is ${pr.state}; select an open final release PR before release handoff.`);
+    } else {
+      addFailure(`PR #${pr.number ?? 'unknown'} is still draft; mark it ready for review before release handoff.`);
+    }
   } else {
     addFailure(`PR #${pr.number ?? 'unknown'} draft state is missing from release evidence.`);
   }

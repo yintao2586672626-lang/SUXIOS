@@ -233,6 +233,36 @@ function revenue_ai_ctrip_decode_json_payload(string $stdout): array
     return is_array($payload) ? $payload : [];
 }
 
+function revenue_ai_ctrip_p0_verifier_command(string $date, ?int $hotelId): string
+{
+    $command = 'npm.cmd run verify:p0-ota-field-loop -- --date=' . $date . ' --platform=ctrip';
+    if ($hotelId !== null) {
+        $command .= ' --system-hotel-id=' . $hotelId;
+    }
+    return $command;
+}
+
+/**
+ * @param array{exit_code:int, stdout:string, stderr:string} $run
+ * @param array<string, mixed> $payload
+ * @return array<string, mixed>
+ */
+function revenue_ai_ctrip_p0_gate_from_authority(string $date, ?int $hotelId, array $run, array $payload): array
+{
+    $passed = $run['exit_code'] === 0 && (string)($payload['status'] ?? '') === 'passed';
+    $gate = [
+        'status' => $passed ? 'ready' : 'blocked_by_p0_ota_gate',
+        'current_upstream_status' => $passed ? 'ready' : (string)($payload['status'] ?? 'not_verified'),
+        'required_upstream_status' => 'ready',
+        'required_gate_command' => revenue_ai_ctrip_p0_verifier_command($date, $hotelId),
+        'scope_policy' => 'ota_channel_gate_before_downstream_claims',
+    ];
+    if (!$passed) {
+        $gate['blocking_missing_inputs'] = ['p0_field_loop_verifier_ready'];
+    }
+    return $gate;
+}
+
 /**
  * @param array<string, mixed> $payload
  */
@@ -278,6 +308,13 @@ try {
     }
     $p0Run = revenue_ai_ctrip_run_process($p0Args, $root);
     $p0Payload = revenue_ai_ctrip_decode_json_payload($p0Run['stdout']);
+    $p0AuthorityPassed = $p0Run['exit_code'] === 0 && (string)($p0Payload['status'] ?? '') === 'passed';
+    $filters['p0_downstream_gate'] = revenue_ai_ctrip_p0_gate_from_authority(
+        $options['date'],
+        $options['hotel_id'],
+        $p0Run,
+        $p0Payload
+    );
 
     $overview = (new RevenueAiOverviewService())->overview($filters);
     $checks = [];
@@ -340,6 +377,19 @@ try {
         str_contains($serviceGateCommand, '--platform=ctrip') && !str_contains(strtolower($serviceGateCommand), 'meituan'),
         'Revenue AI service P0 gate command stays scoped to Ctrip.',
         ['status' => $p0Gate['status'] ?? null, 'required_gate_command' => $serviceGateCommand]
+    );
+    revenue_ai_ctrip_check(
+        $checks,
+        'service_p0_gate_reflects_authority',
+        ($p0AuthorityPassed && (string)($p0Gate['status'] ?? '') === 'ready')
+            || (!$p0AuthorityPassed && (string)($p0Gate['status'] ?? '') === 'blocked_by_p0_ota_gate'),
+        'Revenue AI service P0 gate reflects the authoritative Ctrip P0 verifier snapshot supplied to this runtime check.',
+        [
+            'authority_status' => $p0Payload['status'] ?? null,
+            'authority_exit_code' => $p0Run['exit_code'],
+            'service_status' => $p0Gate['status'] ?? null,
+            'required_gate_command' => $serviceGateCommand,
+        ]
     );
     revenue_ai_ctrip_check(
         $checks,

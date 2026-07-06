@@ -755,7 +755,7 @@ class OperationManagementService
                 'before' => $this->arrayValue($evidence['before'] ?? []),
                 'after' => $this->arrayValue($evidence['after'] ?? []),
                 'attachment_path' => trim((string)($evidence['attachment_path'] ?? '')),
-                'platform_response' => $this->arrayValue($evidence['platform_response'] ?? []),
+                'platform_response' => $this->buildExecutionEvidencePlatformResponse($evidence),
                 'remark' => trim((string)($evidence['remark'] ?? '')),
                 'created_by' => $operatorId,
                 'created_at' => $now,
@@ -997,7 +997,7 @@ class OperationManagementService
             'before' => $this->arrayValue($evidence['before'] ?? []),
             'after' => $this->arrayValue($evidence['after'] ?? []),
             'attachment_path' => trim((string)($evidence['attachment_path'] ?? '')),
-            'platform_response' => $this->arrayValue($evidence['platform_response'] ?? []),
+            'platform_response' => $this->buildExecutionEvidencePlatformResponse($evidence),
             'remark' => trim((string)($evidence['remark'] ?? '')),
             'created_by' => $userId,
             'created_at' => date('Y-m-d H:i:s'),
@@ -1350,15 +1350,16 @@ class OperationManagementService
             return ['status' => 'data_gap', 'message' => 'execution evidence missing'];
         }
 
+        $platformResponse = $this->arrayValue($latestEvidence['platform_response'] ?? []);
+        $operatorEvidenceSummary = $this->buildExecutionOperatorEvidenceSummary($platformResponse);
         $before = $this->arrayValue($latestEvidence['before'] ?? []);
         $after = $this->arrayValue($latestEvidence['after'] ?? []);
         $beforeRevenue = $this->firstNumericMetric($before, ['revenue', 'avg_revenue', 'amount', 'income']);
         $afterRevenue = $this->firstNumericMetric($after, ['revenue', 'avg_revenue', 'amount', 'income']);
         if ($beforeRevenue === null || $afterRevenue === null) {
-            return ['status' => 'data_gap', 'message' => 'revenue evidence missing'];
+            return array_merge(['status' => 'data_gap', 'message' => 'revenue evidence missing'], $operatorEvidenceSummary);
         }
 
-        $platformResponse = $this->arrayValue($latestEvidence['platform_response'] ?? []);
         $targetValue = $this->arrayValue($task['target_value'] ?? []);
         if (empty($targetValue)) {
             $targetValue = $this->arrayValue($intent['target_value'] ?? []);
@@ -1380,10 +1381,10 @@ class OperationManagementService
                     'cost' => 0.0,
                     'profit' => round($incrementalRevenue, 2),
                     'formula' => 'after_revenue - before_revenue',
-                ];
+                ] + $operatorEvidenceSummary;
             }
 
-            return ['status' => 'data_gap', 'message' => 'cost evidence missing'];
+            return array_merge(['status' => 'data_gap', 'message' => 'cost evidence missing'], $operatorEvidenceSummary);
         }
 
         $incrementalRevenue = $afterRevenue - $beforeRevenue;
@@ -1399,7 +1400,45 @@ class OperationManagementService
             'cost' => round($cost, 2),
             'profit' => round($profit, 2),
             'formula' => '(after_revenue - before_revenue - cost) / cost',
+        ] + $operatorEvidenceSummary;
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function buildExecutionOperatorEvidenceSummary(array $platformResponse): array
+    {
+        return [
+            'operator_execution_evidence_summary' => $this->summarizeExecutionOperatorEvidence(
+                $this->arrayValue($platformResponse['operator_execution_evidence'] ?? []),
+                ['executed_by', 'executed_at', 'execution_basis', 'room_rate_mapping_source', 'execution_receipt_or_screenshot_path']
+            ),
+            'operator_roi_evidence_summary' => $this->summarizeExecutionOperatorEvidence(
+                $this->arrayValue($platformResponse['operator_roi_evidence'] ?? []),
+                ['reviewed_by', 'reviewed_at', 'before_metric_source', 'after_metric_source', 'roi_calculation_basis', 'roi_receipt_or_screenshot_path']
+            ),
         ];
+    }
+
+    /**
+     * @param list<string> $summaryKeys
+     * @return array<string, mixed>
+     */
+    private function summarizeExecutionOperatorEvidence(array $evidence, array $summaryKeys): array
+    {
+        $summary = [
+            'provided' => $evidence !== [],
+            'keys' => array_values(array_keys($evidence)),
+        ];
+
+        foreach ($summaryKeys as $key) {
+            $value = $evidence[$key] ?? null;
+            if (is_scalar($value) && trim((string)$value) !== '') {
+                $summary[$key] = (string)$value;
+            }
+        }
+
+        return $summary;
     }
 
     private function firstNumericMetric(array $data, array $keys): ?float
@@ -1711,6 +1750,19 @@ class OperationManagementService
             'created_at' => (string)($payload['created_at'] ?? date('Y-m-d H:i:s')),
             'updated_at' => date('Y-m-d H:i:s'),
         ], 'operation_execution_evidence', $this->tenantIdForExecutionTask($taskId)));
+    }
+
+    private function buildExecutionEvidencePlatformResponse(array $evidence): array
+    {
+        $platformResponse = $this->arrayValue($evidence['platform_response'] ?? []);
+        foreach (['operator_execution_evidence', 'operator_roi_evidence'] as $key) {
+            $operatorEvidence = $this->arrayValue($evidence[$key] ?? []);
+            if ($operatorEvidence !== []) {
+                $platformResponse[$key] = $operatorEvidence;
+            }
+        }
+
+        return $platformResponse;
     }
 
     private function createActionTrackForExecution(array $intent, int $taskId): int

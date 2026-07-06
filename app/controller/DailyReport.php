@@ -14,6 +14,10 @@ use think\facade\Db;
 class DailyReport extends Base
 {
     private const EXPORT_BATCH_LIMIT = 31;
+    private const IMPORT_XLSX_MAX_BYTES = 5 * 1024 * 1024;
+    private const IMPORT_XLSX_MAX_ZIP_ENTRIES = 256;
+    private const IMPORT_XLSX_MAX_ENTRY_BYTES = 8 * 1024 * 1024;
+    private const IMPORT_XLSX_MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024;
     private const OTA_CHANNEL_KEYS = ['xb', 'mt', 'fliggy', 'tc', 'dy', 'qn', 'zx', 'booking', 'agoda', 'expedia'];
     private const OTA_EXCEL_CHANNELS = [
         ['key' => 'xb', 'label' => '携程'],
@@ -2544,6 +2548,15 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             return $this->error('请上传文件');
         }
 
+        $sourcePath = method_exists($file, 'getPathname') ? (string)$file->getPathname() : '';
+        $originalName = method_exists($file, 'getOriginalName') ? (string)$file->getOriginalName() : '';
+        $fileSize = method_exists($file, 'getSize') ? (int)$file->getSize() : (is_file($sourcePath) ? (int)filesize($sourcePath) : 0);
+        $validationError = $this->validateDailyImportUpload($sourcePath, $originalName, $fileSize);
+        if ($validationError !== null) {
+            $status = str_contains($validationError, '超过') ? 413 : 422;
+            return $this->error($validationError, $status);
+        }
+
         // 保存临时文件
         $tempPath = runtime_path() . 'upload/' . uniqid() . '.xlsx';
         if (!is_dir(dirname($tempPath))) {
@@ -2599,6 +2612,88 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         }
     }
 
+    private function validateDailyImportUpload(string $path, string $originalName, int $size): ?string
+    {
+        if ($path === '' || !is_file($path)) {
+            return '上传的Excel文件不存在';
+        }
+
+        $actualSize = $size > 0 ? $size : (int)filesize($path);
+        if ($actualSize <= 0) {
+            return '上传的Excel文件为空';
+        }
+        if ($actualSize > self::IMPORT_XLSX_MAX_BYTES) {
+            return 'Excel文件超过5MB';
+        }
+
+        $extension = strtolower(pathinfo($originalName !== '' ? $originalName : $path, PATHINFO_EXTENSION));
+        if ($extension !== 'xlsx') {
+            return '仅支持.xlsx格式的日报Excel文件';
+        }
+
+        return $this->validateDailyImportZipArchive($path);
+    }
+
+    private function validateDailyImportZipArchive(string $path): ?string
+    {
+        $zip = new \ZipArchive();
+        $openResult = $zip->open($path, \ZipArchive::CHECKCONS);
+        if ($openResult !== true) {
+            return 'Excel文件结构异常，请上传有效的.xlsx文件';
+        }
+
+        if ($zip->numFiles <= 0) {
+            $zip->close();
+            return 'Excel文件内容为空';
+        }
+        if ($zip->numFiles > self::IMPORT_XLSX_MAX_ZIP_ENTRIES) {
+            $zip->close();
+            return 'Excel文件内容项过多';
+        }
+
+        $totalUncompressedBytes = 0;
+        $hasWorkbook = false;
+        $hasWorksheet = false;
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $stat = $zip->statIndex($i);
+            if ($stat === false) {
+                $zip->close();
+                return 'Excel文件结构异常，请重新导出后上传';
+            }
+
+            $entryName = str_replace('\\', '/', (string)($stat['name'] ?? ''));
+            if ($entryName === '' || str_starts_with($entryName, '/') || str_contains($entryName, '../')) {
+                $zip->close();
+                return 'Excel文件包含非法路径';
+            }
+
+            if ($entryName === 'xl/workbook.xml') {
+                $hasWorkbook = true;
+            }
+            if (str_starts_with($entryName, 'xl/worksheets/') && str_ends_with($entryName, '.xml')) {
+                $hasWorksheet = true;
+            }
+
+            $entrySize = (int)($stat['size'] ?? 0);
+            if ($entrySize > self::IMPORT_XLSX_MAX_ENTRY_BYTES) {
+                $zip->close();
+                return 'Excel文件单个内容项超过8MB';
+            }
+            $totalUncompressedBytes += max(0, $entrySize);
+            if ($totalUncompressedBytes > self::IMPORT_XLSX_MAX_UNCOMPRESSED_BYTES) {
+                $zip->close();
+                return 'Excel文件解压后内容超过20MB';
+            }
+        }
+
+        $zip->close();
+        if (!$hasWorkbook || !$hasWorksheet) {
+            return 'Excel文件缺少工作簿或工作表数据';
+        }
+
+        return null;
+    }
+
     /**
      * 使用Python解析Excel（更可靠）
      */
@@ -2611,11 +2706,32 @@ import re
 import json
 import io
 
+MAX_ZIP_ENTRIES = 256
+MAX_ZIP_ENTRY_BYTES = 8 * 1024 * 1024
+MAX_ZIP_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
+
 # 强制 stdout 使用 UTF-8，避免 Windows 默认 GBK 编码失败
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except Exception:
     pass
+
+def enforce_zip_limits(zf):
+    infos = zf.infolist()
+    if not infos:
+        raise ValueError('Excel文件内容为空')
+    if len(infos) > MAX_ZIP_ENTRIES:
+        raise ValueError('Excel文件内容项过多')
+    total_size = 0
+    for info in infos:
+        name = info.filename.replace('\\', '/')
+        if not name or name.startswith('/') or '../' in name:
+            raise ValueError('Excel文件包含非法路径')
+        if info.file_size > MAX_ZIP_ENTRY_BYTES:
+            raise ValueError('Excel文件单个内容项超过8MB')
+        total_size += max(0, info.file_size)
+        if total_size > MAX_ZIP_UNCOMPRESSED_BYTES:
+            raise ValueError('Excel文件解压后内容超过20MB')
 
 def parse_xlsx(file_path):
     result = {
@@ -2628,6 +2744,7 @@ def parse_xlsx(file_path):
     
     try:
         with zipfile.ZipFile(file_path, 'r') as zf:
+            enforce_zip_limits(zf)
             # 读取sharedStrings
             shared_strings = []
             try:

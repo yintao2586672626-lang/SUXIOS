@@ -228,6 +228,123 @@ function ctrip_pricing_sources_scan_raw_keys(mixed $value, string $path, array &
 }
 
 /**
+ * @param list<string> $needles
+ * @param list<string> $paths
+ */
+function ctrip_pricing_sources_collect_matching_paths(mixed $value, string $path, array $needles, array &$paths, int $depth = 0): void
+{
+    if ($depth > 8 || !is_array($value) || count($paths) >= 8) {
+        return;
+    }
+    foreach ($value as $key => $child) {
+        if (count($paths) >= 8) {
+            return;
+        }
+        $keyText = (string)$key;
+        $nextPath = $path === '$' ? '$.' . $keyText : $path . '.' . $keyText;
+        $haystack = strtolower($keyText . ' ' . $nextPath);
+        foreach ($needles as $needle) {
+            if (str_contains($haystack, strtolower($needle))) {
+                $paths[] = $nextPath;
+                break;
+            }
+        }
+        if (is_array($child)) {
+            ctrip_pricing_sources_collect_matching_paths($child, $nextPath, $needles, $paths, $depth + 1);
+        }
+    }
+}
+
+/**
+ * @param array<string, mixed> $row
+ * @return array<string, mixed>
+ */
+function ctrip_pricing_sources_locator_row(array $row, array $matchedPaths): array
+{
+    return array_filter([
+        'id' => $row['id'] ?? null,
+        'data_date' => $row['data_date'] ?? null,
+        'source' => $row['source'] ?? null,
+        'data_type' => $row['data_type'] ?? null,
+        'dimension' => $row['dimension'] ?? null,
+        'system_hotel_id' => $row['system_hotel_id'] ?? null,
+        'data_source_id' => $row['data_source_id'] ?? null,
+        'sync_task_id' => $row['sync_task_id'] ?? null,
+        'ingestion_method' => $row['ingestion_method'] ?? null,
+        'validation_status' => $row['validation_status'] ?? null,
+        'source_trace_id' => $row['source_trace_id'] ?? null,
+        'matched_path_count' => count($matchedPaths),
+        'matched_paths' => array_values(array_unique(array_slice($matchedPaths, 0, 8))),
+    ], static fn(mixed $value): bool => $value !== null && $value !== '' && $value !== []);
+}
+
+/**
+ * @param array<int, array<string, mixed>> $rows
+ * @return array<string, mixed>
+ */
+function ctrip_pricing_sources_operator_input_locators(array $rows): array
+{
+    $categories = [
+        'room_types_enabled' => [
+            'needles' => ['room', 'room_type', 'roomtype', 'roomname', 'productname', 'rateplan', '房型', 'top_hot_room'],
+            'operator_use' => 'Use these metadata rows to locate Ctrip room type/rate-plan evidence; confirm values manually before filling room_types.',
+        ],
+        'floor_price_or_min_rate_guard' => [
+            'needles' => ['price', 'rate', 'base_price', 'min_price', 'floor', 'bottom', 'avg_price', '价格', 'rateplan'],
+            'operator_use' => 'Use these metadata rows to locate Ctrip price/rate evidence; do not infer floor guards from averages alone.',
+        ],
+        'demand_forecast' => [
+            'needles' => ['demand', 'forecast', 'predicted', '预测'],
+            'operator_use' => 'No Ctrip field locator proves a demand forecast by itself; provide an operator/model forecast source.',
+        ],
+        'competitor_price_samples' => [
+            'needles' => ['competitor', 'peer', '竞对', '竞争'],
+            'operator_use' => 'Use these metadata rows to locate Ctrip competitor comparison evidence; confirm competitor_name, our_price, and competitor_price manually.',
+        ],
+    ];
+
+    $locators = [];
+    foreach ($categories as $code => $config) {
+        $items = [];
+        foreach ($rows as $row) {
+            $raw = ctrip_pricing_sources_decode_raw($row['raw_data'] ?? null);
+            $matchedPaths = [];
+            ctrip_pricing_sources_collect_matching_paths($raw, '$', $config['needles'], $matchedPaths);
+            $dimensionText = strtolower((string)($row['data_type'] ?? '') . ' ' . (string)($row['dimension'] ?? ''));
+            foreach ($config['needles'] as $needle) {
+                if (str_contains($dimensionText, strtolower($needle))) {
+                    $matchedPaths[] = '$.dimension';
+                    break;
+                }
+            }
+            $matchedPaths = array_values(array_unique($matchedPaths));
+            if ($matchedPaths === []) {
+                continue;
+            }
+            $items[] = ctrip_pricing_sources_locator_row($row, $matchedPaths);
+            if (count($items) >= 5) {
+                break;
+            }
+        }
+        $locators[$code] = [
+            'status' => $items === [] ? 'no_metadata_locator' : 'metadata_locator_available',
+            'raw_values_exposed' => false,
+            'database_written' => false,
+            'locator_count' => count($items),
+            'operator_use' => $config['operator_use'],
+            'locators' => $items,
+        ];
+    }
+
+    return [
+        'source_policy' => 'metadata_locators_only_no_raw_values_no_import',
+        'raw_values_exposed' => false,
+        'database_written' => false,
+        'items' => $locators,
+    ];
+}
+
+/**
  * @return array<int, array<string, mixed>>
  */
 function ctrip_pricing_sources_query_rows(array $columns, string $businessDate, ?int $hotelId, int $limit): array
@@ -564,6 +681,11 @@ function ctrip_pricing_sources_operator_gap_summary(array $summary, array $prefl
     ];
 }
 
+function ctrip_pricing_sources_hotel_arg(?int $hotelId): string
+{
+    return $hotelId === null ? '' : ' --hotel-id=' . $hotelId;
+}
+
 $root = dirname(__DIR__);
 $autoload = $root . '/vendor/autoload.php';
 if (!is_file($autoload)) {
@@ -613,7 +735,9 @@ try {
     $summary = ctrip_pricing_sources_rows_summary($rows);
     $operatorGap = ctrip_pricing_sources_operator_gap_summary($summary, $preflight);
     $candidateSourceAudit = ctrip_pricing_sources_candidate_source_audit($options['date'], $hotelId);
-    $scopeText = strtolower(json_encode([$summary, $candidateSourceAudit], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+    $operatorInputLocators = ctrip_pricing_sources_operator_input_locators($rows);
+    $hotelArg = ctrip_pricing_sources_hotel_arg($hotelId);
+    $scopeText = strtolower(json_encode([$summary, $candidateSourceAudit, $operatorInputLocators], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
     $hasMeituan = str_contains($scopeText, 'meituan');
 
     ctrip_pricing_sources_finish([
@@ -631,12 +755,13 @@ try {
         ],
         'summary' => $summary,
         'candidate_source_audit' => $candidateSourceAudit,
+        'operator_input_locators' => $operatorInputLocators,
         'operator_gap_summary' => $operatorGap,
         'next_commands' => [
-            'inspect_current_ota_evidence' => 'npm.cmd run inspect:revenue-ai-ctrip-pricing-sources -- --date=' . $options['date'],
-            'export_template' => 'npm.cmd run export:revenue-ai-ctrip-pricing-template -- --date=' . $options['date'] . ' --output=<draft-json-path>',
-            'pre_execute_gate' => 'npm.cmd run verify:revenue-ai-ctrip-pricing-file -- --file=<filled-json-path> --date=' . $options['date'],
-            'verify_current_scope' => 'npm.cmd run verify:revenue-ai-ctrip-scope -- --date=' . $options['date'],
+            'inspect_current_ota_evidence' => 'npm.cmd run inspect:revenue-ai-ctrip-pricing-sources -- --date=' . $options['date'] . $hotelArg,
+            'export_template' => 'npm.cmd run export:revenue-ai-ctrip-pricing-template -- --date=' . $options['date'] . $hotelArg . ' --output=<draft-json-path>',
+            'pre_execute_gate' => 'npm.cmd run verify:revenue-ai-ctrip-pricing-file -- --file=<filled-json-path> --date=' . $options['date'] . $hotelArg,
+            'verify_current_scope' => 'npm.cmd run verify:revenue-ai-ctrip-scope -- --date=' . $options['date'] . $hotelArg,
         ],
         'checks' => [
             [
@@ -656,6 +781,14 @@ try {
                     ? 'passed'
                     : 'failed',
                 'message' => 'Candidate source audit exposes counts only and does not write data.',
+            ],
+            [
+                'code' => 'operator_input_locators_metadata_only',
+                'status' => ($operatorInputLocators['raw_values_exposed'] ?? true) === false
+                    && ($operatorInputLocators['database_written'] ?? true) === false
+                    ? 'passed'
+                    : 'failed',
+                'message' => 'Operator input locators expose metadata row ids and field paths only.',
             ],
         ],
     ], $hasMeituan ? 1 : 0);

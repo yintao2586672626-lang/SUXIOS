@@ -103,6 +103,59 @@ function ctrip_pricing_pipeline_list(mixed $value): array
 }
 
 /**
+ * @return array<string, mixed>
+ */
+function ctrip_pricing_pipeline_generation_source_metadata(array $generation): array
+{
+    $sourceMetadata = ctrip_pricing_pipeline_map($generation['source_metadata'] ?? []);
+    $createdList = ctrip_pricing_pipeline_list($generation['list'] ?? []);
+    $firstSuggestion = ctrip_pricing_pipeline_map($createdList[0] ?? []);
+    if ($sourceMetadata === [] && $firstSuggestion !== []) {
+        $signals = ctrip_pricing_pipeline_map(ctrip_pricing_pipeline_map($firstSuggestion['factors'] ?? [])['signals'] ?? []);
+        $sourceMetadata = [
+            'inventory' => ctrip_pricing_pipeline_map(ctrip_pricing_pipeline_map($signals['inventory'] ?? [])['source_metadata'] ?? []),
+            'demand_forecast' => ctrip_pricing_pipeline_map(ctrip_pricing_pipeline_map($signals['demand_forecast'] ?? [])['source_metadata'] ?? []),
+            'competitor' => ctrip_pricing_pipeline_list(ctrip_pricing_pipeline_map($signals['competitor'] ?? [])['source_metadata'] ?? []),
+        ];
+    }
+
+    $inventoryMetadata = ctrip_pricing_pipeline_map($sourceMetadata['inventory'] ?? []);
+    $demandMetadata = ctrip_pricing_pipeline_map($sourceMetadata['demand_forecast'] ?? []);
+    $competitorMetadataRows = ctrip_pricing_pipeline_list($sourceMetadata['competitor'] ?? []);
+    $competitorMetadata = ctrip_pricing_pipeline_map($competitorMetadataRows[0] ?? []);
+
+    $required = [
+        'inventory' => [$inventoryMetadata, 'manual_ctrip_room_type_pricing_guard'],
+        'demand_forecast' => [$demandMetadata, 'manual_demand_forecast'],
+        'competitor' => [$competitorMetadata, 'manual_ctrip_competitor_price_sample'],
+    ];
+    $ready = $sourceMetadata !== [];
+    $details = [];
+    foreach ($required as $key => [$metadata, $inputType]) {
+        $operatorEvidence = ctrip_pricing_pipeline_map($metadata['operator_input_evidence'] ?? []);
+        $rowSourceNote = trim((string)($metadata['operator_row_source_note'] ?? ''));
+        $ok = (string)($metadata['input_type'] ?? '') === $inputType
+            && (string)($metadata['source_scope'] ?? '') === 'ctrip_ota_channel'
+            && $operatorEvidence !== []
+            && $rowSourceNote !== '';
+        $ready = $ready && $ok;
+        $details[$key] = [
+            'input_type' => $metadata['input_type'] ?? null,
+            'source_scope' => $metadata['source_scope'] ?? null,
+            'operator_input_evidence_keys' => array_keys($operatorEvidence),
+            'operator_row_source_note_present' => $rowSourceNote !== '',
+        ];
+    }
+
+    return [
+        'ready' => $ready,
+        'created_count' => (int)($generation['created_count'] ?? 0),
+        'suggestion_id' => $firstSuggestion['id'] ?? null,
+        'signals' => $details,
+    ];
+}
+
+/**
  * @param array<int, string> $args
  * @return array{exit_code:int,stdout:string,stderr:string}
  */
@@ -274,6 +327,14 @@ function ctrip_pricing_pipeline_filled_payload(string $date, int $hotelId, strin
         'evidence_status' => 'verifier_transaction_only',
         'target_workflow' => 'ctrip_revenue_ai_pricing_generation',
         'auto_write_ota' => false,
+        'operator_input_evidence' => [
+            'confirmed_by' => 'transaction-only verifier',
+            'confirmed_at' => $date . ' 00:00:00',
+            'room_type_source' => 'transaction-only verifier fixture room type',
+            'price_guard_source' => 'transaction-only verifier fixture price guard',
+            'demand_forecast_source' => 'transaction-only verifier fixture demand forecast',
+            'competitor_price_source' => 'transaction-only verifier fixture competitor price',
+        ],
         'room_types' => [
             [
                 'key' => $roomKey,
@@ -284,6 +345,7 @@ function ctrip_pricing_pipeline_filled_payload(string $date, int $hotelId, strin
                 'room_count' => 8,
                 'sort_order' => 9998,
                 'is_enabled' => 1,
+                'source_note' => 'transaction-only verifier room row source note',
             ],
         ],
         'demand_forecasts' => [
@@ -295,6 +357,7 @@ function ctrip_pricing_pipeline_filled_payload(string $date, int $hotelId, strin
                 'confidence_score' => 0.84,
                 'forecast_method' => 3,
                 'remark' => 'transaction-only Ctrip pricing input pipeline verifier',
+                'source_note' => 'transaction-only verifier demand forecast row source note',
             ],
         ],
         'competitor_price_samples' => [
@@ -305,6 +368,7 @@ function ctrip_pricing_pipeline_filled_payload(string $date, int $hotelId, strin
                 'our_price' => 320,
                 'competitor_price' => 365,
                 'ota_platform' => 'ctrip',
+                'source_note' => 'transaction-only verifier competitor price row source note',
             ],
         ],
     ];
@@ -506,6 +570,14 @@ try {
                 && (ctrip_pricing_pipeline_map($dryGeneration['ai_review_gate'] ?? [])['operation_intake_allowed'] ?? true) === false,
             'Dry-run stays Ctrip-only, manual-review gated, and never writes OTA.',
             $dryGeneration
+        );
+        $sourceMetadata = ctrip_pricing_pipeline_generation_source_metadata($dryGeneration);
+        ctrip_pricing_pipeline_check(
+            $checks,
+            'real_input_file_dry_run_preserves_operator_source_metadata',
+            (bool)($sourceMetadata['ready'] ?? false),
+            'Dry-run pending suggestion preserves operator source metadata across room guard, demand forecast, and Ctrip competitor signals.',
+            $sourceMetadata
         );
 
         $scopeAfterRun = ctrip_pricing_pipeline_run_scope_verifier($root, $date, $effectiveHotelId);
@@ -748,6 +820,14 @@ try {
             && (ctrip_pricing_pipeline_map($dryGeneration['ai_review_gate'] ?? [])['operation_intake_allowed'] ?? true) === false,
         'Dry-run generation stays Ctrip-only, manual-review gated, and never writes OTA.',
         $dryGeneration
+    );
+    $sourceMetadata = ctrip_pricing_pipeline_generation_source_metadata($dryGeneration);
+    ctrip_pricing_pipeline_check(
+        $checks,
+        'dry_run_generation_preserves_operator_source_metadata',
+        (bool)($sourceMetadata['ready'] ?? false),
+        'Dry-run pending suggestion preserves operator source metadata across room guard, demand forecast, and Ctrip competitor signals.',
+        $sourceMetadata
     );
 
     $scopeAfterRun = ctrip_pricing_pipeline_run_scope_verifier($root, $date, $options['hotel_id']);

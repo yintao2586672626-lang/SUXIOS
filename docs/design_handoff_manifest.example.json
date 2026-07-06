@@ -1,9 +1,9 @@
 {
-  "owner": "TODO: design owner",
-  "last_reviewed_at": "TODO: YYYY-MM-DD",
-  "figma_url": "https://www.figma.com/file/TODO",
-  "canva_url": "https://www.canva.com/design/TODO",
-  "brand_kit_url": "https://www.canva.com/brand/TODO",
+  "owner": "TODO: real accountable design owner",
+  "last_reviewed_at": "TODO: YYYY-MM-DD reviewed source handoff date",
+  "figma_url": "https://www.figma.com/file/TODO-real-design-source",
+  "canva_url": "https://www.canva.com/design/TODO-real-editable-design",
+  "brand_kit_url": "https://www.canva.com/brand/TODO-real-brand-kit",
   "design_tokens_path": "docs/design-tokens.release.json",
   "covered_flows": [
     "login",
@@ -14,5 +14,6 @@
     "operations-management",
     "investment-decision"
   ],
-  "open_issues": []
+  "open_issues": [],
+  "notes": "Do not use screenshots, exported images, inaccessible links, standalone token files, or placeholder URLs as release design handoff evidence."
 }

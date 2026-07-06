@@ -148,6 +148,24 @@ function ctrip_pending_review_verify_resolve_hotel_id(?int $requestedHotelId, st
 function ctrip_pending_review_verify_insert_fixture(int $hotelId, string $businessDate): array
 {
     $marker = 'codex_ctrip_pending_review_packet_' . date('YmdHis');
+    $operatorInputEvidence = [
+        'confirmed_by' => 'transaction-only verifier',
+        'confirmed_at' => $businessDate . ' 00:00:00',
+        'room_type_source' => 'transaction-only verifier pending-review room type',
+        'price_guard_source' => 'transaction-only verifier pending-review price guard',
+        'demand_forecast_source' => 'transaction-only verifier pending-review demand forecast',
+        'competitor_price_source' => 'transaction-only verifier pending-review competitor price',
+    ];
+    $baseSourceMetadata = [
+        'input_scope' => 'manual_pricing_configuration',
+        'source_scope' => 'ctrip_ota_channel',
+        'target_workflow' => 'ctrip_revenue_ai_pricing_generation',
+        'evidence_status' => 'verifier_transaction_only',
+        'auto_write_ota' => false,
+        'operator_input_evidence' => $operatorInputEvidence,
+        'source_file_sha256' => hash('sha256', $marker),
+        'import_mode' => 'verifier_transaction_only',
+    ];
     $roomType = RoomType::create([
         'hotel_id' => $hotelId,
         'name' => 'Ctrip Pending Review Packet ' . substr($marker, -6),
@@ -195,8 +213,27 @@ function ctrip_pending_review_verify_insert_fixture(int $hotelId, string $busine
             'primary_signal_count' => 3,
             'confidence_score' => 0.82,
             'signals' => [
-                'demand_forecast' => ['data_status' => 'ok'],
-                'competitor' => ['data_status' => 'ok'],
+                'inventory' => [
+                    'data_status' => 'ok',
+                    'source_metadata' => array_merge($baseSourceMetadata, [
+                        'input_type' => 'manual_ctrip_room_type_pricing_guard',
+                    ]),
+                ],
+                'demand_forecast' => [
+                    'data_status' => 'ok',
+                    'source_metadata' => array_merge($baseSourceMetadata, [
+                        'input_type' => 'manual_demand_forecast',
+                    ]),
+                ],
+                'competitor' => [
+                    'data_status' => 'ok',
+                    'source_metadata' => [
+                        array_merge($baseSourceMetadata, [
+                            'input_type' => 'manual_ctrip_competitor_price_sample',
+                            'competitor_name' => 'Ctrip Pending Review Competitor',
+                        ]),
+                    ],
+                ],
                 'data_gaps' => [],
             ],
             'auto_write_ota' => false,
@@ -276,6 +313,7 @@ try {
     $readiness = ctrip_pending_review_verify_map($packet['review_readiness'] ?? []);
     $reviewQueue = ctrip_pending_review_verify_map($packet['review_queue'] ?? []);
     $contract = ctrip_pending_review_verify_map($packet['review_contract'] ?? []);
+    $commands = ctrip_pending_review_verify_map($packet['upstream_next_commands'] ?? []);
     $pendingItems = ctrip_pending_review_verify_list($packet['pending_items'] ?? []);
     $createdSuggestionId = (int)($fixture['price_suggestion_id'] ?? 0);
     $createdItem = [];
@@ -350,20 +388,51 @@ try {
         (string)($createdItem['review_endpoint'] ?? '') === '/api/revenue-ai/price-suggestions/' . $createdSuggestionId . '/review'
             && (string)($createdItem['execution_intent_endpoint_after_approval'] ?? '') === '/api/revenue-ai/price-suggestions/' . $createdSuggestionId . '/execution-intent'
             && in_array('approve_with_changes', ctrip_pending_review_verify_list($createdItem['allowed_manual_actions'] ?? []), true)
+            && in_array('confirm_operator_input_evidence_sources', ctrip_pending_review_verify_list($createdItem['review_checklist'] ?? []), true)
+            && in_array('fill_operator_review_evidence', ctrip_pending_review_verify_list($createdItem['review_checklist'] ?? []), true)
+            && in_array('reviewed_by', ctrip_pending_review_verify_list($createdItem['operator_review_evidence_required'] ?? []), true)
             && in_array('ota_write', ctrip_pending_review_verify_list($createdItem['forbidden_actions'] ?? []), true)
             && (string)($createdItem['price_guard_status'] ?? '') === 'within_guard',
-        'Created pending item exposes manual review actions, post-approval execution endpoint, and OTA-write prohibition.',
+        'Created pending item exposes manual review evidence requirements, post-approval execution endpoint, and OTA-write prohibition.',
         $createdItem
+    );
+    $inputEvidenceSummary = ctrip_pending_review_verify_map($createdItem['operator_input_evidence_summary'] ?? []);
+    $roomGuardEvidence = ctrip_pending_review_verify_map($inputEvidenceSummary['room_type_guard'] ?? []);
+    $demandEvidence = ctrip_pending_review_verify_map($inputEvidenceSummary['demand_forecast'] ?? []);
+    $competitorEvidence = ctrip_pending_review_verify_map($inputEvidenceSummary['competitor_price'] ?? []);
+    ctrip_pending_review_verify_check(
+        $checks,
+        'created_item_exposes_operator_input_evidence_summary',
+        (string)($roomGuardEvidence['status'] ?? '') === 'present'
+            && (string)($roomGuardEvidence['input_type'] ?? '') === 'manual_ctrip_room_type_pricing_guard'
+            && (string)($demandEvidence['status'] ?? '') === 'present'
+            && (string)($demandEvidence['input_type'] ?? '') === 'manual_demand_forecast'
+            && (string)($competitorEvidence['status'] ?? '') === 'present'
+            && (string)($competitorEvidence['input_type'] ?? '') === 'manual_ctrip_competitor_price_sample',
+        'Created pending item exposes upstream operator evidence for room guard, demand forecast, and Ctrip competitor price sources.',
+        $inputEvidenceSummary
     );
     ctrip_pending_review_verify_check(
         $checks,
         'packet_contract_blocks_downstream_shortcuts',
         in_array('operation_execution_before_review', ctrip_pending_review_verify_list($contract['forbidden_actions'] ?? []), true)
             && in_array('investment_decision_before_operation_roi', ctrip_pending_review_verify_list($contract['forbidden_actions'] ?? []), true)
+            && in_array('operator_review_evidence must be filled with the reviewer, review time, decision basis, price guard source, and operation intent source.', ctrip_pending_review_verify_list($contract['required_checks'] ?? []), true)
+            && in_array('operation_intent_source', ctrip_pending_review_verify_list($contract['operator_review_evidence_required'] ?? []), true)
             && ($contract['auto_apply_ai_advice'] ?? true) === false
             && ($contract['operation_intake_allowed_before_review'] ?? true) === false,
         'Packet contract blocks operation and investment shortcuts before manual AI review and ROI evidence.',
         $contract
+    );
+    ctrip_pending_review_verify_check(
+        $checks,
+        'packet_exposes_post_review_roi_boundary_gate',
+        isset($commands['verify_operation_roi_boundary'])
+            && str_contains((string)$commands['verify_operation_roi_boundary'], 'verify:revenue-ai-ctrip-operation-roi')
+            && str_contains((string)$commands['verify_operation_roi_boundary'], '--date=' . $options['date'])
+            && str_contains((string)$commands['verify_operation_roi_boundary'], '--hotel-id=' . $hotelId),
+        'Pending review packet exposes the post-review operation ROI boundary verifier before investment decisions.',
+        ['verify_operation_roi_boundary' => $commands['verify_operation_roi_boundary'] ?? null]
     );
     ctrip_pending_review_verify_check(
         $checks,

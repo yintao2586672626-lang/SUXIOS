@@ -759,7 +759,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         const match = String(code || '').match(/(\d+)$/);
         return match ? parseInt(match[1], 10) : 0;
     };
-    const formatHotelCode = (num) => `HOTEL${String(Math.max(num, 1)).padStart(3, '0')}`;
+    const formatHotelCode = (num) => String(Math.max(num, 1)).padStart(4, '0');
     const normalizeOtaConfigHotelName = (value = '') => String(value || '')
         .trim()
         .replace(/\s+/g, '')
@@ -1357,23 +1357,23 @@ window.SUXI_SYSTEM_STATIC = (() => {
             ? {
                 profile_id: firstNonEmptyText(
                     sourceConfig.profile_id,
-                    sourceConfig.hotel_id,
                     config?.profile_id,
                     config?.profileId,
                     config?.browser_profile_id,
                     config?.browserProfileId,
-                    config?.ota_hotel_id,
-                    config?.ctrip_hotel_id,
-                    config?.ctripHotelId,
                     `system_${hotel?.id || ''}`
                 ),
                 hotel_id: firstNonEmptyText(sourceConfig.hotel_id, sourceConfig.ctrip_hotel_id, config?.ota_hotel_id, config?.ctrip_hotel_id, config?.ctripHotelId),
+                ctrip_hotel_id: firstNonEmptyText(sourceConfig.ctrip_hotel_id, sourceConfig.hotel_id, config?.ota_hotel_id, config?.ctrip_hotel_id, config?.ctripHotelId),
+                system_hotel_id: firstNonEmptyText(sourceConfig.system_hotel_id, config?.system_hotel_id, hotel?.id),
                 hotel_name: firstNonEmptyText(sourceConfig.hotel_name, config?.hotel_name, hotel?.name),
             }
             : {
                 store_id: firstNonEmptyText(sourceConfig.store_id, sourceConfig.poi_id, config?.store_id, config?.poi_id, config?.poiId),
                 poi_id: firstNonEmptyText(sourceConfig.poi_id, sourceConfig.store_id, config?.poi_id, config?.poiId),
                 poi_name: firstNonEmptyText(sourceConfig.poi_name, sourceConfig.store_name, config?.poi_name, config?.store_name, hotel?.name),
+                partner_id: firstNonEmptyText(sourceConfig.partner_id, config?.partner_id, config?.partnerId),
+                system_hotel_id: firstNonEmptyText(sourceConfig.system_hotel_id, config?.system_hotel_id, hotel?.id),
                 partner_id_configured: !!firstNonEmptyText(sourceConfig.partner_id, config?.partner_id, config?.partnerId),
             };
         return {

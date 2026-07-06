@@ -133,6 +133,37 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(html, /只需 Cookie\/API 辅助/);
 });
 
+test('Ctrip config list actions route to visible destinations', () => {
+  const configForm = sliceFrom('data-testid="ctrip-config-form"', '<!-- 已保存的配置列表 -->');
+  const useCtripConfig = constSlice(
+    'const useCtripConfig = async (config) => {',
+    '\n\n            // 在榜单数据获取页面应用选中的配置'
+  );
+  const editCtripConfig = constSlice(
+    'const editCtripConfig = async (config) => {',
+    '\n\n            const toggleSelectAllCtripConfig'
+  );
+
+  assert.match(configForm, /ctripConfigForm\.id \? '编辑携程配置' : '新增携程配置'/);
+  assert.match(configForm, /ctripConfigForm\.id \? '保存修改' : '保存配置'/);
+  assert.match(useCtripConfig, /currentPage\.value = 'ctrip-ebooking';/);
+  assert.match(useCtripConfig, /await nextTick\(\);/);
+  assert.match(useCtripConfig, /openCtripManualTab\('ctrip-ranking'\);/);
+  assert.doesNotMatch(useCtripConfig, /onlineDataTab\.value = 'ctrip-ranking';/);
+  assert.match(editCtripConfig, /currentPage\.value = 'ctrip-ebooking';/);
+  assert.match(editCtripConfig, /onlineDataTab\.value = 'ctrip-config';/);
+  assert.match(editCtripConfig, /document\.querySelector\('\[data-testid="ctrip-config-form"\]'\)/);
+  assert.match(editCtripConfig, /scrollIntoView/);
+  assert.match(editCtripConfig, /querySelector\?\.\('select, input, textarea'\)\?\.focus/);
+});
+
+test('OTA account blocker copy uses visible config entry names', () => {
+  assert.doesNotMatch(html, /高级设置/);
+  assert.match(html, /平台账号信息不完整，请在本行操作区打开对应平台配置补齐后，再重新登录。/);
+  assert.match(html, /美团账号还缺平台门店确认，请点击本行右侧“美团配置”补齐平台门店标识，再重新登录。/);
+  assert.match(html, /当前账号来自旧配置，不能在这里解绑；请到本行右侧对应平台配置处理，避免误删历史采集身份。/);
+});
+
 test('Meituan ranking uses selected hotel config without exposing temporary fields', () => {
   const rankingPanel = sliceFrom('<div v-if="onlineDataTab === \'meituan-ranking\'">', '<!-- 获取结果显示 -->');
   const fetchMeituanData = sliceFrom('const fetchMeituanData = async () => {', 'const useCtripTrafficDisplayRows');
@@ -562,8 +593,9 @@ test('Login background preload does not compete with cached-auth shell', () => {
 
   assert.doesNotMatch(head, /<link\s+rel=["']preload["']\s+href=["']images\/login-hotel-lobby-bg\.avif["']/);
   assert.ok(preloadOffset >= 0 && tailwindOffset >= 0 && preloadOffset < tailwindOffset);
+  assert.match(head, /const readStartupAuthToken = \(\) => \{/);
   assert.match(head, /const shouldPreloadLoginBackground = \(\) => \{/);
-  assert.match(head, /!localStorage\.getItem\('token'\) \|\| !localStorage\.getItem\('suxios_auth_user_cache_v1'\)/);
+  assert.match(head, /return !readStartupAuthToken\(\) \|\| !localStorage\.getItem\('suxios_auth_user_cache_v1'\)/);
   assert.match(head, /link\.setAttribute\('fetchpriority', 'high'\);/);
   assert.match(head, /link\.dataset\.suxiLoginBgPreload = '1';/);
 });

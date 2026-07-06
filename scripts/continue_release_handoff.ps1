@@ -38,6 +38,14 @@ $otaAttestationEvidence = Join-Path $EvidenceDir 'ota_credential_rotation_attest
 Write-Host "Repo root: $RepoRoot"
 Write-Host "Evidence dir: $EvidenceDir"
 
+$env:RELEASE_EVIDENCE_DIR = $EvidenceDir
+if (-not $env:CODEX_SECURITY_SCAN_DIR) {
+    $evidenceSecurityScanDir = Join-Path $EvidenceDir 'codex-security/latest'
+    if (Test-Path -LiteralPath $evidenceSecurityScanDir) {
+        $env:CODEX_SECURITY_SCAN_DIR = $evidenceSecurityScanDir
+    }
+}
+
 if (Test-Path -LiteralPath $lockPath) {
     $activeGitProcesses = Get-Process -ErrorAction SilentlyContinue | Where-Object {
         $_.ProcessName -in @('git', 'gh')
@@ -119,7 +127,7 @@ try {
 
     if ($AfterPrReady) {
         Invoke-ReleaseCommand "final handoff after PR ready" {
-            powershell -NoProfile -ExecutionPolicy Bypass -File scripts/review_release_final_handoff.ps1 -AfterPrReady
+            powershell -NoProfile -ExecutionPolicy Bypass -File scripts/review_release_final_handoff.ps1 -EvidenceDir $EvidenceDir -AfterPrReady
         }
     }
 } finally {

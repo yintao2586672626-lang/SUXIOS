@@ -14,7 +14,7 @@ trait CtripCaptureProcessConcern
         ];
         $process = proc_open($command, $descriptors, $pipes, $cwd);
         if (!is_resource($process)) {
-            return ['success' => false, 'message' => '鏃犳硶鍚姩缇庡洟鎶撳彇杩涚▼', 'stdout' => '', 'stderr' => ''];
+            return ['success' => false, 'message' => '无法启动美团抓取进程', 'stdout' => '', 'stderr' => ''];
         }
 
         fclose($pipes[0]);
@@ -49,7 +49,7 @@ trait CtripCaptureProcessConcern
         if ($timedOut) {
             return [
                 'success' => false,
-                'message' => '缇庡洟娴忚鍣ㄦ姄鍙栬秴鏃讹紝璇风‘璁ゅ脊鍑虹殑娴忚鍣ㄥ凡瀹屾垚鐧诲綍骞惰兘璁块棶 eBooking 椤甸潰',
+                'message' => '美团浏览器抓取超时，请确认弹出的浏览器已完成登录并能访问目标后台页面',
                 'stdout' => $stdout,
                 'stderr' => $stderr,
             ];
@@ -57,7 +57,7 @@ trait CtripCaptureProcessConcern
         if ($exitCode !== 0 && $exitCode !== -1) {
             return [
                 'success' => false,
-                'message' => '缇庡洟娴忚鍣ㄦ姄鍙栧け璐ワ紝閫€鍑虹爜 ' . $exitCode,
+                'message' => '美团浏览器抓取失败，退出码 ' . $exitCode,
                 'stdout' => $stdout,
                 'stderr' => $stderr,
             ];

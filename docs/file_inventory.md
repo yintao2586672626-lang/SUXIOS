@@ -43,7 +43,7 @@
 | `.gitignore` | 忽略运行产物、依赖、备份和敏感文件 | 保留 |
 | `.mcp.json` | 本地 MCP/助手配置 | 保留，本地使用 |
 | `AGENTS.md` | Codex 项目规则和操作约束 | 保留 |
-| `README.md` | 项目基础说明 | 保留，建议后续修复乱码 |
+| `README.md` | 项目基础说明 | 保留，当前 UTF-8 内容可读 |
 | `QUICK_START.md` | 快速启动说明 | 保留 |
 | `PROJECT_HANDOFF.md` | 项目交接说明 | 保留 |
 | `CODEX_HANDOFF.md` | Codex 交接摘要 | 保留 |

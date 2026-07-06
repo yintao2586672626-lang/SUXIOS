@@ -65,11 +65,7 @@ class RevenueAiOverviewService
         $agentActivity = $this->agentActivity($businessDate, $hotelId);
         $executionSummary = $this->executionSummary($businessDate, $hotelId, $hotelIds);
 
-        return $this->buildOverviewFromDataset(
-            $dataset,
-            $channelDatasets,
-            $this->sourceStatusRows($hotelId),
-            [
+        $context = [
                 'business_date' => $businessDate,
                 'hotel_id' => $hotelId,
                 'enabled_channels' => $enabledChannels,
@@ -78,7 +74,16 @@ class RevenueAiOverviewService
                 'pricing_generation_preflight' => $pricingGenerationPreflight,
                 'agent_activity' => $agentActivity,
                 'execution_summary' => $executionSummary,
-            ]
+        ];
+        if (is_array($filters['p0_downstream_gate'] ?? null)) {
+            $context['p0_downstream_gate'] = $filters['p0_downstream_gate'];
+        }
+
+        return $this->buildOverviewFromDataset(
+            $dataset,
+            $channelDatasets,
+            $this->sourceStatusRows($hotelId),
+            $context
         );
     }
 
@@ -3060,6 +3065,10 @@ class RevenueAiOverviewService
             'latest_evidence_has_attachment' => $evidenceSummary['latest_evidence_has_attachment'],
             'has_revenue_evidence' => $evidenceSummary['has_revenue_evidence'],
             'has_cost_evidence' => $evidenceSummary['has_cost_evidence'],
+            'has_operator_execution_evidence' => $evidenceSummary['has_operator_execution_evidence'],
+            'has_operator_roi_evidence' => $evidenceSummary['has_operator_roi_evidence'],
+            'operator_execution_evidence_summary' => $evidenceSummary['operator_execution_evidence_summary'],
+            'operator_roi_evidence_summary' => $evidenceSummary['operator_roi_evidence_summary'],
             'evidence_summary' => $evidenceSummary['display'],
             'evidence_ready_for_next_day' => $evidenceSummary['ready_for_next_day'],
             'roi_status' => $roiStatus,
@@ -3091,6 +3100,20 @@ class RevenueAiOverviewService
         $before = is_array($latestEvidence['before'] ?? null) ? $latestEvidence['before'] : [];
         $after = is_array($latestEvidence['after'] ?? null) ? $latestEvidence['after'] : [];
         $platformResponse = is_array($latestEvidence['platform_response'] ?? null) ? $latestEvidence['platform_response'] : [];
+        $operatorExecutionEvidence = is_array($platformResponse['operator_execution_evidence'] ?? null)
+            ? $platformResponse['operator_execution_evidence']
+            : [];
+        $operatorRoiEvidence = is_array($platformResponse['operator_roi_evidence'] ?? null)
+            ? $platformResponse['operator_roi_evidence']
+            : [];
+        $operatorExecutionSummary = $this->executionOperatorEvidenceSummary(
+            $operatorExecutionEvidence,
+            ['executed_by', 'executed_at', 'execution_basis', 'room_rate_mapping_source', 'execution_receipt_or_screenshot_path']
+        );
+        $operatorRoiSummary = $this->executionOperatorEvidenceSummary(
+            $operatorRoiEvidence,
+            ['reviewed_by', 'reviewed_at', 'before_metric_source', 'after_metric_source', 'roi_calculation_basis', 'roi_receipt_or_screenshot_path']
+        );
         $type = trim((string)($latestEvidence['evidence_type'] ?? ''));
         $createdAt = trim((string)($latestEvidence['created_at'] ?? ''));
         $source = trim((string)($platformResponse['source'] ?? $platformResponse['mode'] ?? ''));
@@ -3109,6 +3132,12 @@ class RevenueAiOverviewService
         if ($hasAttachment) {
             $parts[] = '有回执';
         }
+        if ((bool)$operatorExecutionSummary['provided']) {
+            $parts[] = '人工执行证据已具备';
+        }
+        if ((bool)$operatorRoiSummary['provided']) {
+            $parts[] = '人工ROI依据已具备';
+        }
         if ($roiStatus === 'ready') {
             $parts[] = '可作明日输入';
         } elseif ($inputStatus === 'partial') {
@@ -3122,9 +3151,34 @@ class RevenueAiOverviewService
             'latest_evidence_has_attachment' => $hasAttachment,
             'has_revenue_evidence' => $hasRevenue,
             'has_cost_evidence' => $hasCost,
+            'has_operator_execution_evidence' => (bool)$operatorExecutionSummary['provided'],
+            'has_operator_roi_evidence' => (bool)$operatorRoiSummary['provided'],
+            'operator_execution_evidence_summary' => $operatorExecutionSummary,
+            'operator_roi_evidence_summary' => $operatorRoiSummary,
             'ready_for_next_day' => $roiStatus === 'ready',
             'display' => implode(' / ', $parts),
         ];
+    }
+
+    /**
+     * @param list<string> $summaryKeys
+     * @return array<string, mixed>
+     */
+    private function executionOperatorEvidenceSummary(array $evidence, array $summaryKeys): array
+    {
+        $summary = [
+            'provided' => $evidence !== [],
+            'keys' => array_values(array_keys($evidence)),
+        ];
+
+        foreach ($summaryKeys as $key) {
+            $value = $evidence[$key] ?? null;
+            if (is_scalar($value) && trim((string)$value) !== '') {
+                $summary[$key] = (string)$value;
+            }
+        }
+
+        return $summary;
     }
 
     /**

@@ -293,6 +293,13 @@ function ctrip_review_decision_template(string $date, ?int $hotelId = null): arr
             'action' => 'approve',
             'approved_price' => null,
             'remark' => '<operator_review_remark>',
+            'operator_review_evidence' => [
+                'reviewed_by' => '<operator_name_or_role>',
+                'reviewed_at' => '<YYYY-MM-DD HH:MM:SS>',
+                'decision_basis' => '<source_for_manual_review_decision>',
+                'price_guard_source' => '<source_for_price_guard_review>',
+                'operation_intent_source' => '<source_for_operation_intent_decision>',
+            ],
             'create_execution_intent_after_approval' => false,
             'execution_intent' => [
                 'platform' => 'ctrip',
@@ -303,9 +310,12 @@ function ctrip_review_decision_template(string $date, ?int $hotelId = null): arr
                 'risk_level' => 'medium',
             ],
         ],
+        'post_approval_operation_evidence_handoff_preview' => ctrip_review_decision_operation_evidence_handoff_preview($date, $hotelId),
         'operator_rules' => [
             'Use approve_with_changes when approved_price differs from suggested_price.',
             'Use reject when the Ctrip OTA evidence or price guard is not acceptable.',
+            'Fill operator_review_evidence with the operator, review time, and source notes for the manual decision.',
+            'Use post_approval_operation_evidence_handoff_preview only after manual approval; it is not proof of execution or ROI.',
             'Do not set auto_write_ota=true; this file only records local manual review and optional operation intent.',
         ],
     ];
@@ -351,6 +361,21 @@ function ctrip_review_decision_operation_evidence_handoff(string $date, ?int $ho
             'review_execution_task_roi',
             'keep_investment_manual_review_only',
         ],
+        'manual_execution_evidence_required' => [
+            'executed_by',
+            'executed_at',
+            'execution_basis',
+            'room_rate_mapping_source',
+            'execution_receipt_or_screenshot_path',
+        ],
+        'manual_roi_evidence_required' => [
+            'reviewed_by',
+            'reviewed_at',
+            'before_metric_source',
+            'after_metric_source',
+            'roi_calculation_basis',
+            'roi_receipt_or_screenshot_path',
+        ],
         'endpoints' => [
             'approve_intent' => '/api/operation/execution-intents/' . $intentPlaceholder . '/approve',
             'record_execution' => '/api/operation/execution-tasks/' . $taskPlaceholder . '/execute',
@@ -390,6 +415,13 @@ function ctrip_review_decision_operation_evidence_handoff(string $date, ?int $ho
                     'evidence_boundary' => 'local_manual_evidence_no_ota_write',
                     'auto_write_ota' => false,
                 ],
+                'operator_execution_evidence' => [
+                    'executed_by' => '<operator_name_or_role>',
+                    'executed_at' => '<YYYY-MM-DD HH:MM:SS>',
+                    'execution_basis' => '<source_for_manual_ctrip_price_execution>',
+                    'room_rate_mapping_source' => '<source_for_room_rate_mapping>',
+                    'execution_receipt_or_screenshot_path' => '<execution_receipt_or_screenshot_path>',
+                ],
                 'attachment_path' => '<execution_receipt_or_screenshot_path>',
                 'remark' => '<operator_execution_remark>',
             ],
@@ -425,6 +457,14 @@ function ctrip_review_decision_operation_evidence_handoff(string $date, ?int $ho
                     'evidence_boundary' => 'local_manual_roi_evidence_no_ota_write',
                     'auto_write_ota' => false,
                 ],
+                'operator_roi_evidence' => [
+                    'reviewed_by' => '<operator_name_or_role>',
+                    'reviewed_at' => '<YYYY-MM-DD HH:MM:SS>',
+                    'before_metric_source' => '<source_for_previous_day_ctrip_metrics>',
+                    'after_metric_source' => '<source_for_next_day_ctrip_metrics>',
+                    'roi_calculation_basis' => '<source_for_roi_calculation_basis>',
+                    'roi_receipt_or_screenshot_path' => '<roi_receipt_or_screenshot_path>',
+                ],
                 'attachment_path' => '<roi_receipt_or_screenshot_path>',
                 'remark' => '<operator_roi_window_remark>',
             ],
@@ -434,6 +474,18 @@ function ctrip_review_decision_operation_evidence_handoff(string $date, ?int $ho
             'result_summary' => '<manual_roi_review_summary_for_previous_day_next_day_ctrip_window>',
         ],
     ];
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function ctrip_review_decision_operation_evidence_handoff_preview(string $date, ?int $hotelId): array
+{
+    $preview = ctrip_review_decision_operation_evidence_handoff($date, $hotelId, null);
+    $preview['preview_boundary'] = 'operation_evidence_handoff_preview_not_execution_proof';
+    $preview['template_usage'] = 'fill_after_manual_approval_only_not_execution_or_roi_proof';
+
+    return $preview;
 }
 
 /**
@@ -515,6 +567,8 @@ function ctrip_review_decision_template_for_pending(string $date, ?int $hotelId,
     $template['hotel_id'] = (int)$context['hotel_id'];
     $template['review_decision']['suggestion_id'] = (int)$context['suggestion_id'];
     $template['pending_suggestion'] = $context;
+    $template['post_approval_operation_evidence_handoff_preview'] =
+        ctrip_review_decision_operation_evidence_handoff_preview($date, (int)$context['hotel_id']);
 
     return $template;
 }
@@ -611,6 +665,63 @@ function ctrip_review_decision_forbidden_value_hits(array $payload): array
 }
 
 /**
+ * @return array<string, mixed>
+ */
+function ctrip_review_decision_operator_review_evidence(array $payload, array $decision): array
+{
+    $evidence = ctrip_review_decision_map($decision['operator_review_evidence'] ?? []);
+    if ($evidence === []) {
+        $evidence = ctrip_review_decision_map($payload['operator_review_evidence'] ?? []);
+    }
+
+    return $evidence;
+}
+
+/**
+ * @return array<int, array{code:string,path:string,message:string}>
+ */
+function ctrip_review_decision_operator_review_evidence_issues(array $evidence, bool $allowVerifierOnly): array
+{
+    $issues = [];
+    foreach ([
+        'reviewed_by',
+        'reviewed_at',
+        'decision_basis',
+        'price_guard_source',
+        'operation_intent_source',
+    ] as $key) {
+        $value = trim((string)($evidence[$key] ?? ''));
+        $path = 'review_decision.operator_review_evidence.' . $key;
+        if ($value === '') {
+            $issues[] = [
+                'code' => 'operator_review_evidence_missing',
+                'path' => $path,
+                'message' => $key . ' is required before recording a Ctrip AI manual review.',
+            ];
+            continue;
+        }
+        if (!$allowVerifierOnly && preg_match('/\b(sample|guess|guessed|fallback|verifier|fixture)\b/i', $value) === 1) {
+            $issues[] = [
+                'code' => 'operator_review_evidence_forbidden',
+                'path' => $path,
+                'message' => $key . ' must name a real operator-verifiable source, not a sample, guess, fallback, or verifier fixture.',
+            ];
+        }
+    }
+
+    $reviewedAt = trim((string)($evidence['reviewed_at'] ?? ''));
+    if ($reviewedAt !== '' && preg_match('/^\d{4}-\d{2}-\d{2}/', $reviewedAt) !== 1) {
+        $issues[] = [
+            'code' => 'operator_review_evidence_date_invalid',
+            'path' => 'review_decision.operator_review_evidence.reviewed_at',
+            'message' => 'reviewed_at must start with YYYY-MM-DD.',
+        ];
+    }
+
+    return $issues;
+}
+
+/**
  * @param array<string, mixed> $suggestion
  * @return array<int, string>
  */
@@ -646,7 +757,9 @@ function ctrip_review_decision_build_manual_review(
     string $action,
     int $userId,
     string $remark,
-    ?float $approvedPrice
+    ?float $approvedPrice,
+    array $operatorReviewEvidence,
+    string $fileHash
 ): array {
     $factors = ctrip_review_decision_decode_map($suggestion['factors'] ?? []);
     $versions = is_array($factors['manual_review_versions'] ?? null)
@@ -676,6 +789,9 @@ function ctrip_review_decision_build_manual_review(
         'reviewed_by' => $userId,
         'reviewed_at' => date('Y-m-d H:i:s'),
         'remark' => $remark,
+        'operator_review_evidence' => $operatorReviewEvidence,
+        'source_file_sha256' => $fileHash,
+        'review_input_type' => 'manual_ctrip_ai_price_review',
         'auto_write_ota' => false,
         'local_price_updated' => false,
         'ota_write' => false,
@@ -796,6 +912,10 @@ function ctrip_review_decision_run(array $options): array
     $suggestionId = (int)($decision['suggestion_id'] ?? $payload['suggestion_id'] ?? 0);
     $remark = ctrip_review_decision_text($decision['remark'] ?? $payload['remark'] ?? '', 500);
     $approvedPrice = ctrip_review_decision_money($decision['approved_price'] ?? $decision['target_price'] ?? null);
+    $evidenceStatus = strtolower(trim((string)($payload['evidence_status'] ?? ($decision['evidence_status'] ?? 'operator_provided'))));
+    $allowVerifierOnlyEvidence = $evidenceStatus === 'verifier_transaction_only';
+    $operatorReviewEvidence = ctrip_review_decision_operator_review_evidence($payload, $decision);
+    $operatorReviewEvidenceIssues = ctrip_review_decision_operator_review_evidence_issues($operatorReviewEvidence, $allowVerifierOnlyEvidence);
     $createIntent = $createIntentRequested
         || filter_var($decision['create_execution_intent_after_approval'] ?? false, FILTER_VALIDATE_BOOL);
     $executionIntent = ctrip_review_decision_map($decision['execution_intent'] ?? []);
@@ -868,6 +988,17 @@ function ctrip_review_decision_run(array $options): array
         !in_array($action, ['approve_with_changes', 'reject'], true) || $remark !== '',
         'approve_with_changes and reject require an operator remark.',
         ['action' => $action, 'remark_present' => $remark !== '']
+    );
+    ctrip_review_decision_check(
+        $checks,
+        'operator_review_evidence_present',
+        $operatorReviewEvidenceIssues === [],
+        'Manual review must carry operator, review time, decision basis, price guard source, and operation intent source.',
+        [
+            'evidence_status' => $evidenceStatus,
+            'issue_count' => count($operatorReviewEvidenceIssues),
+            'issues' => $operatorReviewEvidenceIssues,
+        ]
     );
     ctrip_review_decision_check(
         $checks,
@@ -1022,7 +1153,15 @@ function ctrip_review_decision_run(array $options): array
             $transactionStarted = true;
         }
 
-        $state = ctrip_review_decision_build_manual_review($suggestionArray, $action, $userId, $remark, $approvedPrice);
+        $state = ctrip_review_decision_build_manual_review(
+            $suggestionArray,
+            $action,
+            $userId,
+            $remark,
+            $approvedPrice,
+            $operatorReviewEvidence,
+            $fileHash
+        );
         $suggestion->status = ctrip_review_decision_status_after($action);
         $suggestion->applied_by = $userId;
         $suggestion->remark = $remark;
@@ -1046,6 +1185,18 @@ function ctrip_review_decision_run(array $options): array
             [
                 'status_after' => (int)($freshArray['status'] ?? 0),
                 'manual_review_storage' => 'price_suggestions.factors.manual_review_versions',
+            ]
+        );
+        ctrip_review_decision_check(
+            $checks,
+            'manual_review_evidence_attached',
+            is_array($freshFactors['manual_review']['operator_review_evidence'] ?? null)
+                && (string)($freshFactors['manual_review']['source_file_sha256'] ?? '') === $fileHash
+                && (string)($freshFactors['manual_review']['review_input_type'] ?? '') === 'manual_ctrip_ai_price_review',
+            'Manual review stores operator review evidence and the source file hash.',
+            [
+                'source_file_sha256' => $freshFactors['manual_review']['source_file_sha256'] ?? null,
+                'review_input_type' => $freshFactors['manual_review']['review_input_type'] ?? null,
             ]
         );
         ctrip_review_decision_check(
@@ -1119,6 +1270,7 @@ function ctrip_review_decision_run(array $options): array
                 'suggestion_id' => $suggestionId,
                 'action' => $action,
                 'approved_price' => $review['approved_price'] ?? null,
+                'operator_review_evidence' => $review['operator_review_evidence'] ?? null,
                 'manual_review_storage' => 'price_suggestions.factors.manual_review_versions',
                 'create_execution_intent_after_approval' => $createIntent,
                 'execution_intent' => is_array($intent) ? [

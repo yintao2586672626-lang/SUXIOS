@@ -30,9 +30,15 @@ trait OnlineDataSupportConcern
 
     private function commentCollectionDisabledResponse(): Response
     {
+        $governance = (new OtaReviewRiskPolicyService())->reviewGovernanceRuleChecks($this->requestData(), ['review_collection_disabled'], 'comment_review_collection_disabled');
+
         return $this->error('Comment/review data collection is disabled by policy.', 422, [
             'disabled' => true,
             'scope' => 'ota_comments',
+            'governance_policy_doc' => 'docs/ctrip_review_governance_rules_20260705.md',
+            'governance_summary_status' => $governance['summary_status'],
+            'governance_status_codes' => $governance['status_codes'],
+            'governance_rule_checks' => $governance['checks'],
         ]);
     }
 
@@ -41,7 +47,7 @@ trait OnlineDataSupportConcern
      */
     private function reviewRiskPolicyBlockedResponse(string $operation, array $riskCategories = []): Response
     {
-        $payload = (new OtaReviewRiskPolicyService())->blockedOperation($operation, $riskCategories);
+        $payload = (new OtaReviewRiskPolicyService())->blockedOperation($operation, $riskCategories, $this->requestData());
 
         return $this->error((string)$payload['message'], 422, $payload);
     }

@@ -345,7 +345,16 @@
     });
 
     document.getElementById('save-layout').addEventListener('click', async () => {
-        const token = localStorage.getItem('token') || '';
+        const token = (() => {
+            const sessionToken = sessionStorage.getItem('token') || '';
+            if (sessionToken) return sessionToken;
+            const legacyToken = localStorage.getItem('token') || '';
+            if (legacyToken) {
+                sessionStorage.setItem('token', legacyToken);
+                localStorage.removeItem('token');
+            }
+            return legacyToken;
+        })();
         const headers = { 'Content-Type': 'application/json' };
         if (token) {
             headers.Authorization = token;

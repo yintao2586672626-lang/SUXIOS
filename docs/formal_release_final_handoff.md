@@ -1,22 +1,40 @@
 # Formal Release Final Handoff
 
-Updated: 2026-06-05
+Updated: 2026-07-06
 
 Purpose: close the final production-release handoff without replacing real evidence with templates, screenshots, or narrative approval.
 
 ## Current State
 
-- PR: `#2`
+- Previous configured PR: `#2` (`MERGED`; stale for final handoff)
 - Release branch: `codex/save-project-20260531`
-- Closed evidence: production env, production LLM connectivity, formal Codex Security scan, local Git hygiene, CI checks.
-- Open evidence: design handoff and OTA credential rotation attestation.
-- PR #2 must remain draft until `review:release-readiness` passes with real evidence.
+- Closed evidence: production env, production LLM connectivity, formal Codex Security scan.
+- Open evidence: design handoff, OTA credential rotation attestation, clean local Git state, and actual final release PR selection.
+- Do not reuse merged PR #2 as the final handoff target. After `review:release-readiness` passes with real evidence, set `RELEASE_PR_NUMBER` to the actual open release PR and run `review:release-external-state`.
 
 ## Evidence To Provide
 
+Use the controlled evidence directory outside the repository:
+
+```text
+../release-evidence-temp
+```
+
+Minimum file contract:
+
+| Evidence | File |
+|---|---|
+| Production env | `production.env` |
+| LLM connectivity attestation | `llm-attestation.json` |
+| Design handoff manifest | `design_handoff_manifest.json` |
+| OTA credential rotation attestation | `ota_credential_rotation_attestation.json` |
+| Optional Codex Security scan override | `codex-security/latest/` |
+| Release evidence result | `release-evidence-result.json` |
+| Release readiness result | `release-readiness-result.json` |
+
 ### Design Handoff
 
-Create `docs/design_handoff_manifest.json` from `docs/design_handoff_manifest.example.json`.
+Create `../release-evidence-temp/design_handoff_manifest.json` from `docs/design_handoff_manifest.example.json`, or use `docs/design_handoff_manifest.json` only for an intentional local default review.
 
 Required fields:
 
@@ -34,7 +52,7 @@ The repo-side token artifact is already available at `docs/design-tokens.release
 
 ### OTA Credential Rotation
 
-Provide `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` or `docs/ota_credential_rotation_attestation.json` after real platform rotation or invalidation.
+Create `../release-evidence-temp/ota_credential_rotation_attestation.json` from `docs/ota_credential_rotation_attestation.example.json`, or use `docs/ota_credential_rotation_attestation.json` only for an intentional local default review after real platform rotation or invalidation.
 
 Required coverage:
 
@@ -60,38 +78,43 @@ npm.cmd run review:release-final-handoff
 Equivalent manual commands:
 
 ```powershell
-npm.cmd run review:release-design
-npm.cmd run review:release-ota-credentials
-npm.cmd run review:release-evidence
-
 $evidenceDir = Resolve-Path -LiteralPath '..\release-evidence-temp'
 $env:RELEASE_ENV_FILE = Join-Path $evidenceDir 'production.env'
 $env:LLM_CONNECTIVITY_ATTESTATION_FILE = Join-Path $evidenceDir 'llm-attestation.json'
+$env:DESIGN_HANDOFF_MANIFEST_FILE = Join-Path $evidenceDir 'design_handoff_manifest.json'
+$env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE = Join-Path $evidenceDir 'ota_credential_rotation_attestation.json'
+$env:RELEASE_EVIDENCE_RESULT_FILE = Join-Path $evidenceDir 'release-evidence-result.json'
+$env:RELEASE_READINESS_RESULT_FILE = Join-Path $evidenceDir 'release-readiness-result.json'
+
+npm.cmd run review:release-design
+npm.cmd run review:release-ota-credentials
+npm.cmd run review:release-evidence
 npm.cmd run review:release-readiness
 
 git status --short --branch
 git ls-files database/backups
 ```
 
-Only after the commands above pass, mark PR #2 ready for review through the guarded runner:
+Only after the commands above pass and the actual final release PR is selected, mark that PR ready for review through the guarded runner:
 
 ```powershell
+$env:RELEASE_PR_NUMBER = '<actual-open-release-pr-number>'
 npm.cmd run release:mark-pr-ready
 ```
 
 After GitHub Actions remain green, run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/review_release_final_handoff.ps1 -AfterPrReady
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/review_release_final_handoff.ps1 -EvidenceDir '..\release-evidence-temp' -AfterPrReady
 ```
 
 ## Merge Rule
 
-Merge PR #2 only when all of these are true:
+Merge the configured final release PR only when all of these are true:
 
 - `review:release-readiness` passes.
-- `review:release-external-state` passes with `RELEASE_PR_NUMBER=2`.
-- PR #2 is not draft.
-- PR #2 is mergeable.
+- `review:release-external-state` passes with `RELEASE_PR_NUMBER` set to the actual open release PR.
+- The configured release PR is not draft.
+- The configured release PR is mergeable.
 - GitHub Actions are green on the final head.
 - No new release blockers are open in `docs/release_issue_register.md`.

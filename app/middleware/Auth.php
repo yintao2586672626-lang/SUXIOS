@@ -14,6 +14,8 @@ use think\Response;
 
 class Auth
 {
+    private const TOKEN_MAX_AGE_SECONDS = 86400;
+
     private ?ProtectedCapabilityService $protectedCapabilityService = null;
 
     public function handle(Request $request, Closure $next): Response
@@ -34,6 +36,14 @@ class Auth
 
         $tokenData = cache('token_' . $token);
         if (!$tokenData) {
+            return $this->withRequestId($this->authErrorResponse(401, 'token_expired', $requestId), $requestId);
+        }
+
+        if ($this->isTokenExpiredByAge($tokenData)) {
+            cache('token_' . $token, null);
+            if (is_array($tokenData) && !empty($tokenData['user_id'])) {
+                cache('user_token_' . $tokenData['user_id'], null);
+            }
             return $this->withRequestId($this->authErrorResponse(401, 'token_expired', $requestId), $requestId);
         }
 
@@ -77,6 +87,20 @@ class Auth
         $this->recordDataAudit($request, $response, $user);
 
         return $this->withRequestId($response, $requestId);
+    }
+
+    private function isTokenExpiredByAge($tokenData): bool
+    {
+        if (!is_array($tokenData)) {
+            return true;
+        }
+
+        $createdAt = (int)($tokenData['created_at'] ?? 0);
+        if ($createdAt <= 0) {
+            return true;
+        }
+
+        return $createdAt + self::TOKEN_MAX_AGE_SECONDS < time();
     }
 
     private function protectedCapabilityService(): ProtectedCapabilityService

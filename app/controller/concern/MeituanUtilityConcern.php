@@ -303,9 +303,11 @@ trait MeituanUtilityConcern
         if ($unit === '') {
             return false;
         }
+        $legacyMojibakeWan = "\xE6\xB6\x93\xE5\x9B\xA7";
+
         return str_contains($unit, '万')
             || str_contains($unit, '萬')
-            || str_contains($unit, '涓囧')
+            || str_contains($unit, $legacyMojibakeWan)
             || preg_match('/\bw\b/i', $unit) === 1;
     }
 

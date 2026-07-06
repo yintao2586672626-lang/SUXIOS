@@ -240,6 +240,65 @@ function ctrip_pricing_packet_required_fields(): array
 }
 
 /**
+ * @return array<int, array<string, mixed>>
+ */
+function ctrip_pricing_packet_collection_priorities(array $observedHints, array $requiredBeforeExecute, array $candidateSourceAudit): array
+{
+    $tableCounts = ctrip_pricing_packet_map($candidateSourceAudit['required_input_table_counts'] ?? []);
+    $pricingCounts = ctrip_pricing_packet_map($candidateSourceAudit['ctrip_room_pricing_evidence_counts'] ?? []);
+    $required = array_flip(array_map('strval', $requiredBeforeExecute));
+
+    return [
+        [
+            'input_code' => 'room_types_enabled',
+            'required_now' => isset($required['room_types_enabled']),
+            'current_table_count' => (int)($tableCounts['room_types_enabled'] ?? 0),
+            'ctrip_source_hint_present' => (bool)($observedHints['room_type_key_or_name'] ?? false),
+            'hint_counts' => [
+                'online_daily_data_room_like_target_date' => (int)($pricingCounts['online_daily_data_room_like_target_date'] ?? 0),
+                'online_daily_data_room_type_key_target_date' => (int)($pricingCounts['online_daily_data_room_type_key_target_date'] ?? 0),
+            ],
+            'operator_action' => 'Confirm the Ctrip room type key/name and sellable room count in pricing-input-fillable.json.',
+            'acceptable_source' => 'Ctrip backend room/rate display, PMS room mapping, or operator-approved room inventory note.',
+            'must_not_use' => 'Do not infer enabled room types from traffic, peer-rank, sample, or whole-hotel rows.',
+        ],
+        [
+            'input_code' => 'floor_price_or_min_rate_guard',
+            'required_now' => isset($required['floor_price_or_min_rate_guard']),
+            'current_table_count' => (int)($tableCounts['room_types_with_price_guards'] ?? 0),
+            'ctrip_source_hint_present' => (bool)($observedHints['price_or_rate_key'] ?? false),
+            'hint_counts' => [
+                'online_daily_data_price_guard_key_target_date' => (int)($pricingCounts['online_daily_data_price_guard_key_target_date'] ?? 0),
+                'online_daily_data_price_guard_key_all_dates' => (int)($pricingCounts['online_daily_data_price_guard_key_all_dates'] ?? 0),
+            ],
+            'operator_action' => 'Fill base_price, min_price, and max_price with operator-approved Ctrip pricing guards.',
+            'acceptable_source' => 'Current Ctrip rate view plus operator-approved floor/protection and upper guard policy.',
+            'must_not_use' => 'Do not derive floor or guard prices from OTA average price fields alone.',
+        ],
+        [
+            'input_code' => 'demand_forecast',
+            'required_now' => isset($required['demand_forecast']),
+            'current_table_count' => (int)($tableCounts['demand_forecasts_target_date'] ?? 0),
+            'ctrip_source_hint_present' => (bool)($observedHints['demand_or_forecast_key'] ?? false),
+            'hint_counts' => [],
+            'operator_action' => 'Provide target-date predicted_occupancy, predicted_demand, confidence_score, and forecast source.',
+            'acceptable_source' => 'Operator forecast, approved forecast model output, booking pace review, or revenue-manager note.',
+            'must_not_use' => 'Do not treat Ctrip traffic, exposure, or rank metrics as a demand forecast by default.',
+        ],
+        [
+            'input_code' => 'competitor_price_samples',
+            'required_now' => isset($required['competitor_price_samples']),
+            'current_table_count' => (int)($tableCounts['competitor_analysis_ctrip_recent_7d'] ?? 0),
+            'ctrip_source_hint_present' => (bool)($observedHints['competitor_key'] ?? false),
+            'hint_counts' => [],
+            'operator_action' => 'Fill recent-7-day Ctrip competitor_name, our_price, and competitor_price for the same room mapping.',
+            'acceptable_source' => 'Ctrip competitor comparison view or manually reviewed Ctrip competitor price screenshot/source note.',
+            'must_not_use' => 'Do not use Meituan competitor prices or stale whole-hotel competitor averages.',
+        ],
+    ];
+}
+
+/**
  * @return array<string, string>
  */
 function ctrip_pricing_packet_allowed_commands(string $date, ?int $hotelId): array
@@ -265,6 +324,7 @@ function ctrip_pricing_packet_allowed_commands(string $date, ?int $hotelId): arr
         'execute_review_decision' => 'npm.cmd run run:revenue-ai-ctrip-review-decision -- --file=<review-decision-json-path> --date=' . $date . $hotelArg . ' --execute=1',
         'execute_review_decision_and_create_operation_intent' => 'npm.cmd run run:revenue-ai-ctrip-review-decision -- --file=<review-decision-json-path> --date=' . $date . $hotelArg . ' --execute=1 --create-intent=1',
         'verify_review_decision' => 'npm.cmd run verify:revenue-ai-ctrip-review-decision -- --date=' . $date . $hotelArg,
+        'verify_operation_roi_boundary' => 'npm.cmd run verify:revenue-ai-ctrip-operation-roi -- --date=' . $date . $hotelArg,
         'verify_current_scope' => 'npm.cmd run verify:revenue-ai-ctrip-scope -- --date=' . $date . $hotelArg,
     ];
 }
@@ -294,6 +354,8 @@ function ctrip_pricing_packet_render_markdown(array $payload): string
     $candidateSourceAudit = ctrip_pricing_packet_map($payload['candidate_source_audit'] ?? []);
     $commands = ctrip_pricing_packet_map($payload['allowed_commands'] ?? []);
     $requiredFields = ctrip_pricing_packet_map($payload['operator_required_fields'] ?? []);
+    $collectionPriorities = ctrip_pricing_packet_list($payload['operator_collection_priorities'] ?? []);
+    $locatorItems = ctrip_pricing_packet_map(ctrip_pricing_packet_map($payload['operator_input_locators'] ?? [])['items'] ?? []);
 
     $lines = [];
     $lines[] = '# Ctrip Revenue AI Pricing Operator Packet';
@@ -331,6 +393,47 @@ function ctrip_pricing_packet_render_markdown(array $payload): string
     $lines[] = '- prefill_eligibility.status: `' . (string)($eligibility['status'] ?? 'unknown') . '`';
     $lines[] = '- can_generate_operator_file_from_existing_db: `' . (($eligibility['can_generate_operator_file_from_existing_db'] ?? null) === false ? 'false' : 'unknown') . '`';
     $lines[] = '';
+    if ($collectionPriorities !== []) {
+        $lines[] = '## Operator Collection Priorities';
+        $lines[] = '';
+        $lines[] = '| Input | Required now | Current table count | Ctrip source hint | Operator action |';
+        $lines[] = '|---|---:|---:|---:|---|';
+        foreach ($collectionPriorities as $priority) {
+            $row = ctrip_pricing_packet_map($priority);
+            $lines[] = '| `' . (string)($row['input_code'] ?? '') . '` | `'
+                . ((bool)($row['required_now'] ?? false) ? 'true' : 'false') . '` | `'
+                . (string)($row['current_table_count'] ?? 0) . '` | `'
+                . ((bool)($row['ctrip_source_hint_present'] ?? false) ? 'true' : 'false') . '` | '
+                . (string)($row['operator_action'] ?? '') . ' |';
+        }
+        $lines[] = '';
+        $lines[] = '> Ctrip source hints are for locating evidence only; they are not importable values until an operator fills and validates the input file.';
+        $lines[] = '';
+    }
+    if ($locatorItems !== []) {
+        $lines[] = '## Operator Evidence Locators';
+        $lines[] = '';
+        $lines[] = '| Input | Locator status | Count | Row ids | Operator use |';
+        $lines[] = '|---|---|---:|---|---|';
+        foreach ($locatorItems as $inputCode => $locator) {
+            $row = ctrip_pricing_packet_map($locator);
+            $rowIds = [];
+            foreach (ctrip_pricing_packet_list($row['locators'] ?? []) as $item) {
+                $locatorRow = ctrip_pricing_packet_map($item);
+                if (isset($locatorRow['id'])) {
+                    $rowIds[] = (string)$locatorRow['id'];
+                }
+            }
+            $lines[] = '| `' . (string)$inputCode . '` | `'
+                . (string)($row['status'] ?? 'unknown') . '` | `'
+                . (string)($row['locator_count'] ?? 0) . '` | `'
+                . ($rowIds === [] ? 'none' : implode(', ', array_slice($rowIds, 0, 5))) . '` | '
+                . (string)($row['operator_use'] ?? '') . ' |';
+        }
+        $lines[] = '';
+        $lines[] = '> Locator row ids and source traces are metadata only. They are not pricing, demand, or competitor values.';
+        $lines[] = '';
+    }
     $lines[] = '## Operator Required Fields';
     foreach ($requiredFields as $group => $fields) {
         $lines[] = '';
@@ -395,6 +498,7 @@ try {
     $inspectScope = ctrip_pricing_packet_map($inspectPayload['scope'] ?? []);
     $inspectSummary = ctrip_pricing_packet_map($inspectPayload['summary'] ?? []);
     $candidateSourceAudit = ctrip_pricing_packet_map($inspectPayload['candidate_source_audit'] ?? []);
+    $operatorInputLocators = ctrip_pricing_packet_map($inspectPayload['operator_input_locators'] ?? []);
     $operatorGap = ctrip_pricing_packet_map($inspectPayload['operator_gap_summary'] ?? []);
     $operatorGapPreflight = ctrip_pricing_packet_map($operatorGap['current_preflight'] ?? []);
     $templateBody = ctrip_pricing_packet_map($templatePayload['template'] ?? []);
@@ -411,6 +515,11 @@ try {
     $requiredBeforeExecute = ctrip_pricing_packet_list($operatorGap['required_before_execute'] ?? ($templatePreflight['required_input_codes'] ?? []));
 
     $commands = ctrip_pricing_packet_allowed_commands($options['date'], $hotelId);
+    $collectionPriorities = ctrip_pricing_packet_collection_priorities(
+        ctrip_pricing_packet_map($operatorGap['observed_hints'] ?? []),
+        $requiredBeforeExecute,
+        $candidateSourceAudit
+    );
     $checks = [];
     ctrip_pricing_packet_check(
         $checks,
@@ -457,9 +566,38 @@ try {
     );
     ctrip_pricing_packet_check(
         $checks,
+        'operator_input_locators_metadata_only',
+        ($operatorInputLocators['raw_values_exposed'] ?? true) === false
+            && ($operatorInputLocators['database_written'] ?? true) === false,
+        'Operator input locators must expose metadata only and keep raw values hidden.'
+    );
+    ctrip_pricing_packet_check(
+        $checks,
         'pre_execute_gate_present',
         isset($commands['pre_execute_gate']),
         'Real operator-filled files must pass the pre-execute gate before execute.'
+    );
+    ctrip_pricing_packet_check(
+        $checks,
+        'post_review_roi_boundary_gate_present',
+        isset($commands['verify_operation_roi_boundary'])
+            && str_contains($commands['verify_operation_roi_boundary'], 'verify:revenue-ai-ctrip-operation-roi'),
+        'Approved Ctrip AI suggestions must pass the operation ROI boundary verifier before investment decisions.'
+    );
+    $demandPriority = [];
+    foreach ($collectionPriorities as $priority) {
+        if (($priority['input_code'] ?? '') === 'demand_forecast') {
+            $demandPriority = $priority;
+            break;
+        }
+    }
+    ctrip_pricing_packet_check(
+        $checks,
+        'operator_collection_priorities_present',
+        $collectionPriorities !== []
+            && ($demandPriority['required_now'] ?? false) === true
+            && ($demandPriority['ctrip_source_hint_present'] ?? true) === false,
+        'Operator packet must expose collection priorities and keep missing demand forecast explicit.'
     );
 
     $failed = array_values(array_filter(
@@ -509,6 +647,8 @@ try {
             'required_before_execute' => $requiredBeforeExecute,
         ],
         'candidate_source_audit' => $candidateSourceAudit,
+        'operator_input_locators' => $operatorInputLocators,
+        'operator_collection_priorities' => $collectionPriorities,
         'operator_required_fields' => ctrip_pricing_packet_required_fields(),
         'fillable_template' => $templateBody !== [] ? $templateBody : $templatePayload,
         'template_export_summary' => [

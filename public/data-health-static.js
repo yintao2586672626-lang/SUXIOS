@@ -548,6 +548,131 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         ];
     };
 
+    const normalizeDataHealthRefreshRequest = (mode = 'light', options = {}) => {
+        const normalizedMode = mode === 'full' ? 'full' : 'light';
+        const force = !!options?.force || normalizedMode === 'full';
+        return {
+            normalizedMode,
+            force,
+            source: options?.source || (force ? '手动刷新' : '页面自动刷新/缓存'),
+        };
+    };
+
+    const createDataHealthRefreshRequestState = ({ lightCacheTtlMs = 45000 } = {}) => {
+        let lightCache = {
+            key: '',
+            expiresAt: 0,
+            promise: null,
+        };
+
+        const reset = () => {
+            lightCache = {
+                key: '',
+                expiresAt: 0,
+                promise: null,
+            };
+        };
+
+        const lightCacheKey = ({ hotelId = '', userId = '', isSuperAdmin = false } = {}) => [
+            String(hotelId || ''),
+            String(userId || ''),
+            isSuperAdmin ? 'super' : 'normal',
+        ].join('|');
+
+        const resolveLightRequest = ({ cacheKey = '', normalizedMode = 'light', force = false, now = Date.now() } = {}) => {
+            if (normalizedMode !== 'light' || force || lightCache.key !== cacheKey) {
+                return { status: 'miss' };
+            }
+            if (lightCache.promise) {
+                return { status: 'in_flight', promise: lightCache.promise };
+            }
+            if (lightCache.expiresAt > now) {
+                return { status: 'fresh' };
+            }
+            return { status: 'expired' };
+        };
+
+        const rememberLightRequest = ({ cacheKey = '', promise, now = Date.now() } = {}) => {
+            if (!promise) return;
+            lightCache = {
+                key: cacheKey,
+                expiresAt: now + lightCacheTtlMs,
+                promise,
+            };
+        };
+
+        const settleLightRequest = ({ cacheKey = '', promise, now = Date.now() } = {}) => {
+            if (lightCache.key === cacheKey && lightCache.promise === promise) {
+                lightCache.promise = null;
+                lightCache.expiresAt = now + lightCacheTtlMs;
+            }
+        };
+
+        return {
+            reset,
+            lightCacheKey,
+            resolveLightRequest,
+            rememberLightRequest,
+            settleLightRequest,
+        };
+    };
+
+    const requireDataHealthPanelLoader = (fn, name) => {
+        if (typeof fn !== 'function') {
+            throw new Error(`缺少数据健康面板刷新任务：${name}`);
+        }
+        return fn;
+    };
+
+    const buildDataHealthPanelRefreshJobs = ({
+        normalizedMode = 'light',
+        loadAutoFetchStatus,
+        loadDailyWorkbench,
+        loadDailyWorkbenchPatrols,
+        loadPhase3OperationEffectLoop,
+        loadPhase3OperationEffectLoopLedger,
+        loadCollectionReliability,
+        loadDataHealthOperationLogs,
+        loadPublicEndpointSecurity,
+        loadHotelDataDashboard,
+        loadPlatformCollectionResources,
+    } = {}) => {
+        const isFull = normalizedMode === 'full';
+        const jobs = [
+            requireDataHealthPanelLoader(loadAutoFetchStatus, 'loadAutoFetchStatus')({ detail: isFull }),
+            requireDataHealthPanelLoader(loadDailyWorkbench, 'loadDailyWorkbench')({ limit: 10 }),
+            requireDataHealthPanelLoader(loadDailyWorkbenchPatrols, 'loadDailyWorkbenchPatrols')(),
+            requireDataHealthPanelLoader(loadPhase3OperationEffectLoop, 'loadPhase3OperationEffectLoop')({ limit: 20 }),
+            requireDataHealthPanelLoader(loadPhase3OperationEffectLoopLedger, 'loadPhase3OperationEffectLoopLedger')(),
+        ];
+        if (isFull) {
+            jobs.push(
+                requireDataHealthPanelLoader(loadCollectionReliability, 'loadCollectionReliability')('full'),
+                requireDataHealthPanelLoader(loadDataHealthOperationLogs, 'loadDataHealthOperationLogs')(),
+                requireDataHealthPanelLoader(loadPublicEndpointSecurity, 'loadPublicEndpointSecurity')(),
+                requireDataHealthPanelLoader(loadHotelDataDashboard, 'loadHotelDataDashboard')(),
+                requireDataHealthPanelLoader(loadPlatformCollectionResources, 'loadPlatformCollectionResources')()
+            );
+        }
+        return jobs;
+    };
+
+    const scheduleDataHealthLightDiagnosticsRefresh = ({
+        schedulePostFetchRefresh,
+        shouldRun = () => true,
+        loadDataHealthOperationLogs,
+        loadPublicEndpointSecurity,
+        delayMs = 360,
+    } = {}) => {
+        return requireDataHealthPanelLoader(schedulePostFetchRefresh, 'schedulePostFetchRefresh')('data-health-light-diagnostics', () => {
+            if (!shouldRun()) return null;
+            return Promise.allSettled([
+                requireDataHealthPanelLoader(loadDataHealthOperationLogs, 'loadDataHealthOperationLogs')(),
+                requireDataHealthPanelLoader(loadPublicEndpointSecurity, 'loadPublicEndpointSecurity')(),
+            ]);
+        }, delayMs);
+    };
+
     const dataHealthFieldGapActionStatusText = (status) => ({
         forbidden: '禁止采集',
         not_returned_visible: '平台未返回',
@@ -5068,6 +5193,10 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         buildDataHealthDiagnosticBoundary,
         dataHealthRefreshModeText,
         buildDataHealthDiagnosticStatusRows,
+        normalizeDataHealthRefreshRequest,
+        createDataHealthRefreshRequestState,
+        buildDataHealthPanelRefreshJobs,
+        scheduleDataHealthLightDiagnosticsRefresh,
         buildDataHealthFieldGapActionRows,
         buildDataHealthCookieAlertRows,
         summarizeDataHealthCookieAlerts,

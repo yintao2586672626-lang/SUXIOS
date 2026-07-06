@@ -395,6 +395,34 @@ final class DailyReportTest extends TestCase
         self::assertStringContainsString('&lt;tester&gt;#7', $watermark);
     }
 
+    public function testDailyImportUploadRejectsUnsafeExcelFiles(): void
+    {
+        $controller = $this->controller();
+        $validPath = $this->createXlsxFixture([
+            '[Content_Types].xml' => '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>',
+            'xl/workbook.xml' => '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"></workbook>',
+            'xl/worksheets/sheet1.xml' => '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"></worksheet>',
+        ]);
+        $oversizedEntryPath = $this->createXlsxFixture([
+            '[Content_Types].xml' => '<Types></Types>',
+            'xl/workbook.xml' => '<workbook></workbook>',
+            'xl/worksheets/sheet1.xml' => str_repeat('A', 8 * 1024 * 1024 + 1),
+        ]);
+        $invalidPath = tempnam(sys_get_temp_dir(), 'daily_invalid_xlsx_');
+        file_put_contents($invalidPath, 'not a zip');
+
+        try {
+            self::assertNull($this->invokeNonPublic($controller, 'validateDailyImportUpload', [$validPath, 'daily.xlsx', filesize($validPath)]));
+            self::assertSame('仅支持.xlsx格式的日报Excel文件', $this->invokeNonPublic($controller, 'validateDailyImportUpload', [$validPath, 'daily.txt', filesize($validPath)]));
+            self::assertSame('Excel文件单个内容项超过8MB', $this->invokeNonPublic($controller, 'validateDailyImportUpload', [$oversizedEntryPath, 'daily.xlsx', filesize($oversizedEntryPath)]));
+            self::assertSame('Excel文件结构异常，请上传有效的.xlsx文件', $this->invokeNonPublic($controller, 'validateDailyImportUpload', [$invalidPath, 'daily.xlsx', filesize($invalidPath)]));
+        } finally {
+            @unlink($validPath);
+            @unlink($oversizedEntryPath);
+            @unlink($invalidPath);
+        }
+    }
+
     /**
      * 覆盖 parseNumber/parsePercent：
      * 验证百分号、普通数字、小数比例和大于 100 的边界值。
@@ -408,5 +436,21 @@ final class DailyReportTest extends TestCase
         self::assertSame(12.5, $this->invokeNonPublic($controller, 'parsePercent', ['12.5%']));
         self::assertSame(25.0, $this->invokeNonPublic($controller, 'parsePercent', ['0.25']));
         self::assertSame(125.0, $this->invokeNonPublic($controller, 'parsePercent', ['125']));
+    }
+
+    /**
+     * @param array<string, string> $entries
+     */
+    private function createXlsxFixture(array $entries): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'daily_xlsx_');
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE));
+        foreach ($entries as $name => $content) {
+            self::assertTrue($zip->addFromString($name, $content));
+        }
+        self::assertTrue($zip->close());
+
+        return $path;
     }
 }

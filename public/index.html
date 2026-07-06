@@ -7,9 +7,24 @@
     <script>
         (() => {
             const loginBackgroundPreload = 'images/login-hotel-lobby-bg.avif';
+            const readStartupAuthToken = () => {
+                try {
+                    const sessionToken = sessionStorage.getItem('token') || '';
+                    if (sessionToken) return sessionToken;
+                    const legacyToken = localStorage.getItem('token') || '';
+                    if (legacyToken) {
+                        sessionStorage.setItem('token', legacyToken);
+                        localStorage.removeItem('token');
+                        return legacyToken;
+                    }
+                } catch (error) {
+                    return '';
+                }
+                return '';
+            };
             const shouldPreloadLoginBackground = () => {
                 try {
-                    return !localStorage.getItem('token') || !localStorage.getItem('suxios_auth_user_cache_v1');
+                    return !readStartupAuthToken() || !localStorage.getItem('suxios_auth_user_cache_v1');
                 } catch (error) {
                     return true;
                 }
@@ -58,7 +73,7 @@
     <script src="ctrip-static.js?v=20260703-ai-estimated-nights"></script>
     <script src="meituan-static.js?v=20260703-ai-estimated-nights"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
-    <script src="data-health-static.js?v=20260704-manual-one-click-fetch"></script>
+    <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state"></script>
     <script src="revenue-ai-static.js?v=20260704-revenue-ai-static-tools"></script>
     <script src="system-static.js?v=20260630-data-center-label"></script>
     <script src="compass-static.js?v=20260704-boss-ia"></script>
@@ -4031,13 +4046,12 @@
                                             <th class="px-4 py-3 text-left font-medium">门店信息</th>
                                             <th class="px-4 py-3 text-left font-medium">携程</th>
                                             <th class="px-4 py-3 text-left font-medium">美团</th>
-                                            <th class="px-4 py-3 text-left font-medium">处理事项</th>
                                             <th class="px-4 py-3 text-right font-medium">操作</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-100">
-                                        <tr v-for="hotel in filteredHotels" :key="hotel.id" class="hover:bg-gray-50/70 transition-colors align-top">
-                                            <td class="px-4 py-4 w-[26%]">
+                                        <tr v-for="(hotel, hotelIndex) in filteredHotels" :key="hotel.id" class="hover:bg-gray-50/70 transition-colors align-top">
+                                            <td class="px-4 py-4 w-[28%]">
                                                 <div class="min-w-0">
                                                     <div class="flex items-center gap-2 min-w-0">
                                                         <span class="font-semibold text-gray-900 truncate max-w-[220px]" :title="hotel.name">{{ hotel.name }}</span>
@@ -4057,7 +4071,7 @@
                                                         </div>
                                                     </div>
                                                     <div class="mt-1.5 flex flex-wrap gap-1.5 text-xs">
-                                                        <span class="rounded-md bg-gray-50 border border-gray-100 px-2 py-0.5 text-gray-500">编码 {{ hotel.code || '未设置' }}</span>
+                                                        <span class="rounded-md bg-gray-50 border border-gray-100 px-2 py-0.5 text-gray-500">编码 {{ formatHotelCode(hotelIndex + 1) }}</span>
                                                         <span :class="hotelAccountHealthClass(hotel)" class="rounded-md border px-2 py-0.5 whitespace-nowrap">
                                                             {{ hotelAccountHealthText(hotel) }}
                                                         </span>
@@ -4138,20 +4152,7 @@
                                                     </div>
                                                 </button>
                                             </td>
-                                            <td class="px-4 py-4 w-[18%]">
-                                                <div v-if="hotelIssueRows(hotel).length" class="space-y-1.5">
-                                                    <div v-for="issue in hotelIssueRows(hotel)" :key="`${hotel.id}-${issue.key}`"
-                                                        :class="issue.className"
-                                                        class="rounded-md border px-2.5 py-1.5 text-xs">
-                                                        <div class="font-semibold">{{ issue.label }}</div>
-                                                        <div class="mt-0.5 leading-4">{{ issue.text }}</div>
-                                                    </div>
-                                                </div>
-                                                <div v-else class="rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700">
-                                                    账号、登录和采集链路正常
-                                                </div>
-                                            </td>
-                                            <td class="px-4 py-4 w-[16%] text-right">
+                                            <td class="px-4 py-4 w-[22%] text-right">
                                                 <div v-if="canManageOwnHotels()" class="space-y-2">
                                                     <button v-if="!['正常', '-'].includes(hotelNextAction(hotel).text)" type="button"
                                                         @click="openHotelNextAction(hotel)"
@@ -4186,7 +4187,7 @@
                             </div>
 
                             <div class="xl:hidden divide-y divide-gray-100">
-                                <div v-for="hotel in filteredHotels" :key="`mobile-${hotel.id}`" class="p-4 space-y-3">
+                                <div v-for="(hotel, hotelIndex) in filteredHotels" :key="`mobile-${hotel.id}`" class="p-4 space-y-3">
                                     <div class="flex items-start justify-between gap-3">
                                         <div class="min-w-0">
                                             <div class="flex flex-wrap items-center gap-2">
@@ -4221,7 +4222,7 @@
                                                     <span class="ml-1 font-semibold text-gray-800 truncate" :title="hotelOwnerText(hotel)">{{ hotelOwnerText(hotel) }}</span>
                                                 </div>
                                                 <div class="rounded-md border border-gray-100 bg-gray-50 px-2 py-1 text-gray-500">
-                                                    编码 {{ hotel.code || '未设置' }}
+                                                    编码 {{ formatHotelCode(hotelIndex + 1) }}
                                                 </div>
                                             </div>
                                         </div>
@@ -7940,9 +7941,9 @@
                                         <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                                             <div>
                                                 <h4 class="text-lg font-semibold text-gray-900">携程评价订单匹配</h4>
-                                                <p class="text-sm text-gray-500 mt-1">携程 OTA 渠道口径 · 自动读取已授权缓存，识别点评客人并给出订单状态。</p>
+                                                <p class="text-sm text-gray-500 mt-1">携程 OTA 渠道口径 · 展示点评治理规则、授权数据状态和匹配边界。</p>
                                                 <div class="mt-3 flex flex-wrap gap-2 text-xs">
-                                                    <span class="px-2 py-1 rounded border border-emerald-100 bg-emerald-50 text-emerald-700">自动处理</span>
+                                                    <span class="px-2 py-1 rounded border border-emerald-100 bg-emerald-50 text-emerald-700">规则校验</span>
                                                     <span class="px-2 py-1 rounded border border-blue-100 bg-blue-50 text-blue-700">状态汇总</span>
                                                     <span class="px-2 py-1 rounded border border-amber-100 bg-amber-50 text-amber-700">异常待核</span>
                                                 </div>
@@ -7961,7 +7962,7 @@
                                         <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                                             <div>
                                                 <h5 class="font-semibold text-gray-900">携程点评-订单匹配台</h5>
-                                                <p class="text-sm text-gray-500 mt-1">点击单条点评直接查订单；主流程只展示订单、客人和状态。</p>
+                                                <p class="text-sm text-gray-500 mt-1">单条点评只做规则校验和边界提示；不反查匿名用户身份。</p>
                                             </div>
                                             <div class="flex flex-wrap gap-2">
                                                 <button type="button" @click="checkCtripReviewMatchClosure" :disabled="!!ctripReviewMatchLoading"
@@ -7970,7 +7971,7 @@
                                                 </button>
                                                 <button type="button" @click="runCtripReviewMatchAutomation" :disabled="!!ctripReviewMatchLoading"
                                                     class="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:bg-gray-400 whitespace-nowrap">
-                                                    <i class="fas fa-link mr-1"></i>{{ ctripReviewMatchLoading === '自动匹配' ? '匹配中' : '同步并匹配' }}
+                                                    <i class="fas fa-link mr-1"></i>{{ ctripReviewMatchLoading === '规则校验' ? '校验中' : '校验规则' }}
                                                 </button>
                                             </div>
                                         </div>
@@ -8025,12 +8026,21 @@
                                         <div v-if="ctripReviewMatchResult?.data?.source_status" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                                             缓存状态：点评 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_reviews ?? 0 }} / 身份 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_im_sessions ?? 0 }} / 订单 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_orders ?? 0 }} / 结果 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_review_order_matches ?? '-' }}。
                                         </div>
+                                        <div v-if="ctripReviewMatchResult?.data?.governance_rule_checks?.length" class="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-800">
+                                            <div class="font-medium">点评治理规则</div>
+                                            <div class="mt-2 flex flex-col gap-1">
+                                                <div v-for="check in ctripReviewMatchResult.data.governance_rule_checks" :key="check.code" class="flex flex-col md:flex-row md:items-center gap-1 md:gap-2">
+                                                    <span :class="ctripReviewMatchStatusClass(check.status === 'active' ? 'needs_ops' : (check.status === 'pass' ? 'found' : 'unknown'))">{{ check.code }}</span>
+                                                    <span class="text-violet-700">{{ check.message || check.status }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
 
                                         <div class="border border-gray-100 rounded-lg overflow-hidden">
                                             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 px-3 py-2 bg-gray-50 border-b">
                                                 <div>
-                                                    <div class="text-sm font-medium text-gray-900">点评订单查询</div>
-                                                    <div class="text-xs text-gray-500">点击点评右侧按钮查询订单，页面不展示候选过程。</div>
+                                                    <div class="text-sm font-medium text-gray-900">点评治理结果</div>
+                                                    <div class="text-xs text-gray-500">点击点评右侧按钮只校验规则，页面不展示候选过程。</div>
                                                 </div>
                                                 <span class="text-xs text-gray-400">最多显示 30 条</span>
                                             </div>
@@ -8223,13 +8233,13 @@
 
                                         <div class="border rounded-lg bg-white p-4 space-y-4">
                                             <div>
-                                                <h5 class="font-semibold text-gray-900">4. 匹配与绑定</h5>
-                                                <p class="text-xs text-gray-500 mt-1">先自动反查；无法唯一确认时，再人工绑定订单号。</p>
+                                                <h5 class="font-semibold text-gray-900">4. 治理校验与边界</h5>
+                                                <p class="text-xs text-gray-500 mt-1">只返回规则和边界结果，不反查匿名身份或扩展采集。</p>
                                             </div>
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 <button type="button" @click="lookupCtripReviewOrderMatch" :disabled="!!ctripReviewMatchLoading"
                                                     class="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:bg-gray-400">
-                                                    <i class="fas fa-search mr-1"></i>自动反查订单
+                                                    <i class="fas fa-search mr-1"></i>校验规则
                                                 </button>
                                                 <button type="button" @click="bindCtripReviewOrderMatch" :disabled="!!ctripReviewMatchLoading"
                                                     class="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:text-gray-400">
@@ -8973,9 +8983,9 @@
                                     </div>
 
                                     <!-- 新增配置表单 -->
-                                    <div class="bg-white border rounded-lg p-4 mb-4">
+                                    <div class="bg-white border rounded-lg p-4 mb-4" data-testid="ctrip-config-form">
                                         <h4 class="font-medium text-gray-800 mb-3">
-                                            <i class="fas fa-plus-circle mr-2 text-blue-500"></i>新增携程配置
+                                            <i :class="[ctripConfigForm.id ? 'fas fa-edit text-yellow-500' : 'fas fa-plus-circle text-blue-500', 'mr-2']"></i>{{ ctripConfigForm.id ? '编辑携程配置' : '新增携程配置' }}
                                         </h4>
                                         <div class="space-y-4">
                                             <div>
@@ -9009,7 +9019,7 @@
                                         <div class="flex gap-2 mt-4">
                                             <button @click="saveCtripConfig"
                                                 class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition">
-                                                <i class="fas fa-save mr-2"></i>保存配置
+                                                <i class="fas fa-save mr-2"></i>{{ ctripConfigForm.id ? '保存修改' : '保存配置' }}
                                             </button>
                                             <button @click="openTargetSite(defaultCtripLoginUrl)"
                                                 class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition">
@@ -14365,40 +14375,6 @@
                                 </ctrip-profile-field-config-panel>
 
                                 <div v-if="onlineDataTab === 'data-health'" data-testid="online-data-health-panel" class="space-y-5">
-                                    <div class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
-                                        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                            <div class="min-w-0">
-                                                <h4 class="text-base font-semibold text-gray-900">数据一键获取</h4>
-                                                <p class="mt-1 text-xs leading-5 text-gray-500">手动执行携程/美团已配置门店数据获取并写入数据库；自动采集任务不在这里触发。</p>
-                                            </div>
-                                            <div class="flex flex-wrap gap-2">
-                                                <button @click="refreshManualOneClickFetchConfig" :disabled="manualOneClickFetchRunning || ctripConfigListLoading || meituanConfigListLoading"
-                                                    class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-400">
-                                                    <i :class="(ctripConfigListLoading || meituanConfigListLoading) ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ ctripConfigListLoading || meituanConfigListLoading ? '刷新中' : '刷新配置' }}
-                                                </button>
-                                                <button @click="loadDataHealthPanel('full', { source: '手动完整诊断' })" :disabled="hotelDashboardLoading || collectionReliabilityLoading"
-                                                    class="inline-flex items-center justify-center rounded-lg border border-gray-900 bg-gray-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:border-gray-300">
-                                                    <i class="fas fa-search-plus mr-1"></i>排障诊断
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div v-if="dataHealthDiagnosticBoundary" data-testid="data-health-diagnostic-boundary" :class="['rounded-xl border p-4 text-sm shadow-sm', dataHealthDiagnosticBoundary.className]">
-                                        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
-                                            <div>
-                                                <div class="font-semibold">{{ dataHealthDiagnosticBoundary.title }}</div>
-                                                <div class="mt-1 text-xs leading-5">{{ dataHealthDiagnosticBoundary.detail }}</div>
-                                                <div class="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
-                                                    <div v-for="row in dataHealthDiagnosticStatusRows" :key="row.key" class="rounded-md border border-current border-opacity-20 px-2.5 py-1">
-                                                        {{ row.label }}：{{ row.value }}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div class="flex flex-wrap gap-2 text-xs">
-                                                <span v-for="item in dataHealthDiagnosticBoundary.badges" :key="item" class="rounded-md border border-current border-opacity-20 px-2.5 py-1 whitespace-nowrap">{{ item }}</span>
-                                            </div>
-                                        </div>
-                                    </div>
                                     <div v-if="hotelDashboardLoading || collectionReliabilityLoading || dailyWorkbenchLoading || manualOneClickFetchRunning" data-testid="data-health-loading-banner" class="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
                                         <i class="fas fa-spinner fa-spin mt-0.5 text-blue-500"></i>
                                         <span>{{ manualOneClickFetchRunning ? '正在执行手动一键获取；执行结果会在下方逐项更新。' : '正在刷新；接口返回前保留上次状态。' }}</span>
@@ -14410,8 +14386,8 @@
                                     <div data-testid="phase2-daily-workbench" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
                                             <div>
-                                                <h4 class="text-base font-semibold text-gray-900">手动一键获取</h4>
-                                                <div class="mt-1 text-xs text-gray-500 leading-5">{{ manualOneClickFetchScopeText }}</div>
+                                                <h4 class="text-base font-semibold text-gray-900">第二阶段每日工作台</h4>
+                                                <div class="mt-1 text-xs text-gray-500 leading-5">先处理员工可执行清单；手动一键获取只作为已有携程/美团配置的补采入口。{{ manualOneClickFetchScopeText }}</div>
                                             </div>
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <button type="button" @click="runManualOneClickFetch('ctrip')" :disabled="manualOneClickFetchRunning || fetchingData || ctripConfigListLoading"
@@ -14430,9 +14406,89 @@
                                                     class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
                                                     <i :class="(ctripConfigListLoading || meituanConfigListLoading) ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ ctripConfigListLoading || meituanConfigListLoading ? '刷新中' : '刷新配置' }}
                                                 </button>
+                                                <button type="button" @click="loadDataHealthPanel('full', { source: '手动完整诊断' })" :disabled="hotelDashboardLoading || collectionReliabilityLoading"
+                                                    class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                                                    <i class="fas fa-search-plus mr-1"></i>完整诊断
+                                                </button>
                                             </div>
                                         </div>
-                                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                                        <div data-testid="phase2-employee-executable-checklist" class="border-t border-gray-100 pt-4">
+                                            <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                                <div class="min-w-0">
+                                                    <h5 class="text-sm font-semibold text-gray-900">员工可执行清单</h5>
+                                                    <div class="mt-1 text-xs text-gray-500 leading-5" :title="employeeOtaChecklistScopeText">{{ employeeOtaChecklistScopeText }}</div>
+                                                </div>
+                                                <span :class="['rounded-md border px-2.5 py-1 text-xs whitespace-nowrap', employeeOtaChecklistHeadline.className]">{{ employeeOtaChecklistHeadline.text }}</span>
+                                            </div>
+                                            <div class="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
+                                                <div v-for="card in employeeOtaChecklistCards" :key="card.key" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 min-w-0">
+                                                    <div class="text-[11px] text-gray-500 truncate">{{ card.label }}</div>
+                                                    <div :class="['mt-1 text-lg font-semibold truncate', card.className]" :title="card.rawValue">{{ card.value }}</div>
+                                                    <div class="mt-1 text-[11px] text-gray-400 truncate" :title="card.detail">{{ card.detail }}</div>
+                                                </div>
+                                            </div>
+                                            <div v-if="employeeOtaChecklistRows.length" class="mt-4 overflow-x-auto">
+                                                <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                                    <thead class="bg-gray-50 text-left text-xs text-gray-500">
+                                                        <tr>
+                                                            <th class="px-3 py-2 font-medium">类别</th>
+                                                            <th class="px-3 py-2 font-medium">对象</th>
+                                                            <th class="px-3 py-2 font-medium">状态</th>
+                                                            <th class="px-3 py-2 font-medium">证据/缺口</th>
+                                                            <th class="px-3 py-2 font-medium">今日动作</th>
+                                                            <th class="px-3 py-2 font-medium">复核</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-gray-100 bg-white">
+                                                        <tr v-for="row in employeeOtaChecklistRows" :key="row.key" class="align-top">
+                                                            <td class="px-3 py-3 min-w-[6rem]">
+                                                                <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', row.categoryClass]">{{ row.categoryText }}</span>
+                                                            </td>
+                                                            <td class="px-3 py-3 min-w-[12rem]">
+                                                                <div class="text-xs font-semibold text-gray-900 truncate" :title="row.objectRawText || row.objectText">{{ row.objectText }}</div>
+                                                                <div class="mt-1 text-[11px] text-gray-500 truncate" :title="row.sourceText">{{ row.sourceText }}</div>
+                                                            </td>
+                                                            <td class="px-3 py-3 min-w-[8rem]">
+                                                                <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', row.statusClass]">{{ row.statusText }}</span>
+                                                                <div v-if="row.priorityText" class="mt-1 text-[11px] text-gray-400">{{ row.priorityText }}</div>
+                                                            </td>
+                                                            <td class="px-3 py-3 min-w-[18rem]">
+                                                                <div class="text-xs text-gray-700 leading-5" :title="row.evidenceRawText || row.evidenceText">{{ row.evidenceText }}</div>
+                                                                <div v-if="row.boundaryText" class="mt-1 text-[11px] text-gray-400 truncate" :title="row.boundaryRawText || row.boundaryText">{{ row.boundaryText }}</div>
+                                                            </td>
+                                                            <td class="px-3 py-3 min-w-[18rem]">
+                                                                <div class="text-xs text-blue-700 leading-5" :title="row.actionRawText || row.actionText">{{ row.actionText }}</div>
+                                                                <div v-if="row.entryText" class="mt-1 text-[11px] text-slate-500 truncate" :title="row.entryRawText || row.entryText">入口：{{ row.entryText }}</div>
+                                                                <div v-if="row.primaryButtonText" class="mt-2">
+                                                                    <button type="button" @click="runEmployeeOtaChecklistAction(row)" :disabled="employeeOtaChecklistActionRunning === row.key || manualOneClickFetchRunning || fetchingData || dailyWorkbenchPatrolRunning"
+                                                                        class="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
+                                                                        <i v-if="employeeOtaChecklistActionRunning === row.key" class="fas fa-spinner fa-spin mr-1"></i>{{ row.primaryButtonText }}
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                            <td class="px-3 py-3 min-w-[12rem]">
+                                                                <div class="text-xs text-emerald-700 leading-5" :title="row.verificationRawText || row.verificationText">{{ row.verificationText }}</div>
+                                                                <div v-if="row.canTrackAction" class="mt-2 flex flex-wrap gap-1.5">
+                                                                    <button type="button" @click="updateDailyWorkbenchPatrolAction(row.actionSource, 'done')" :disabled="dailyWorkbenchPatrolActionUpdating !== ''"
+                                                                        class="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700 hover:bg-emerald-100 disabled:opacity-50">
+                                                                        标记执行
+                                                                    </button>
+                                                                    <button type="button" @click="updateDailyWorkbenchPatrolAction(row.actionSource, 'review_needed')" :disabled="dailyWorkbenchPatrolActionUpdating !== ''"
+                                                                        class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-700 hover:bg-amber-100 disabled:opacity-50">
+                                                                        需复查
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <div v-else class="mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+                                                {{ employeeOtaChecklistEmptyText }}
+                                            </div>
+                                            <div class="mt-3 text-[11px] text-gray-400 leading-5">边界：清单只整理现有 OTA 数据健康、缺口、异常和动作信号；不改变采集口径，不把缺失证据转成成功结论。</div>
+                                        </div>
+                                        <div class="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2">
                                             <div v-for="card in manualOneClickFetchCards" :key="card.key" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 min-w-0">
                                                 <div class="text-[11px] text-gray-500 truncate">{{ card.label }}</div>
                                                 <div :class="['mt-1 text-lg font-semibold truncate', card.className]" :title="card.rawValue">{{ card.value }}</div>
@@ -14446,6 +14502,7 @@
                                                         <th class="px-3 py-2 font-medium">平台</th>
                                                         <th class="px-3 py-2 font-medium">门店</th>
                                                         <th class="px-3 py-2 font-medium">结果</th>
+                                                        <th class="px-3 py-2 font-medium">处理</th>
                                                         <th class="px-3 py-2 font-medium text-right">入库</th>
                                                     </tr>
                                                 </thead>
@@ -14464,6 +14521,13 @@
                                                                 <span class="text-[11px] text-gray-500">{{ row.timeText }}</span>
                                                             </div>
                                                             <div class="mt-1 text-[11px] text-gray-500 truncate" :title="row.message">{{ row.message }}</div>
+                                                        </td>
+                                                        <td class="px-3 py-3 min-w-[7rem]">
+                                                            <button v-if="canEditManualOneClickFetchRow(row)" type="button" @click="editManualOneClickFetchFailure(row)"
+                                                                class="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800 hover:border-amber-300 hover:bg-amber-100">
+                                                                <i class="fas fa-edit mr-1"></i>编辑配置
+                                                            </button>
+                                                            <span v-else class="text-[11px] text-gray-400">-</span>
                                                         </td>
                                                         <td class="px-3 py-3 min-w-[7rem] text-right">
                                                             <div class="text-sm font-semibold text-gray-900">{{ row.savedCount || 0 }}</div>
@@ -18795,7 +18859,44 @@
             // 状态
             const loading = ref(false);
             const loginError = ref('');
-            const token = ref(localStorage.getItem('token') || '');
+            const AUTH_TOKEN_STORAGE_KEY = 'token';
+            const readAuthToken = () => {
+                try {
+                    const sessionToken = sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || '';
+                    if (sessionToken) return sessionToken;
+                    const legacyToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || '';
+                    if (legacyToken) {
+                        sessionStorage.setItem(AUTH_TOKEN_STORAGE_KEY, legacyToken);
+                        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+                        return legacyToken;
+                    }
+                } catch (error) {
+                    return '';
+                }
+                return '';
+            };
+            const writeAuthToken = (value) => {
+                const normalized = String(value || '').trim();
+                try {
+                    if (normalized) {
+                        sessionStorage.setItem(AUTH_TOKEN_STORAGE_KEY, normalized);
+                    } else {
+                        sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+                    }
+                    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+                } catch (error) {
+                    // Keep the reactive token as the source of truth when browser storage is unavailable.
+                }
+            };
+            const clearAuthToken = () => {
+                try {
+                    sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+                    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+                } catch (error) {
+                    // Browser storage failures should not block logout/session cleanup.
+                }
+            };
+            const token = ref(readAuthToken());
             const cachedAuthUser = token.value ? loadCachedAuthUser() : null;
             const isLoggedIn = ref(!!token.value && !!cachedAuthUser);
             const user = ref(cachedAuthUser);
@@ -18998,7 +19099,7 @@
                 user.value = null;
                 token.value = '';
                 authContext.value = createDefaultAuthContext(tokenStatus);
-                localStorage.removeItem('token');
+                clearAuthToken();
                 clearCachedAuthUser();
             };
             const clearAuthSession = () => {
@@ -20278,6 +20379,10 @@
             const buildDataHealthDiagnosticBoundary = requireDataHealthStatic('buildDataHealthDiagnosticBoundary');
             const dataHealthRefreshModeDisplayText = requireDataHealthStatic('dataHealthRefreshModeText');
             const buildDataHealthDiagnosticStatusRows = requireDataHealthStatic('buildDataHealthDiagnosticStatusRows');
+            const normalizeDataHealthRefreshRequest = requireDataHealthStatic('normalizeDataHealthRefreshRequest');
+            const createDataHealthRefreshRequestState = requireDataHealthStatic('createDataHealthRefreshRequestState');
+            const buildDataHealthPanelRefreshJobs = requireDataHealthStatic('buildDataHealthPanelRefreshJobs');
+            const scheduleDataHealthLightDiagnosticsRefresh = requireDataHealthStatic('scheduleDataHealthLightDiagnosticsRefresh');
             const buildDataHealthFieldGapActionRows = requireDataHealthStatic('buildDataHealthFieldGapActionRows');
             const buildDataHealthCookieAlertRows = requireDataHealthStatic('buildDataHealthCookieAlertRows');
             const summarizeDataHealthCookieAlerts = requireDataHealthStatic('summarizeDataHealthCookieAlerts');
@@ -20481,6 +20586,7 @@
             const dataHealthLastRefreshMode = ref('not_loaded');
             const dataHealthLastRefreshSource = ref('未刷新');
             const dataHealthLastRefreshAt = ref('');
+            const dataHealthRefreshRequestState = createDataHealthRefreshRequestState();
             const DATA_HEALTH_SECONDARY_PANEL_DELAY_MS = 900;
             const DATA_HEALTH_DETAIL_PANEL_DELAY_MS = 2600;
             const DATA_HEALTH_EMPLOYEE_PANEL_DELAY_MS = 4200;
@@ -21442,6 +21548,10 @@
             };
             const dualOtaMetricComparisonText = (metric = {}) => {
                 const period = dualOtaPreviousPeriodLabel();
+                const currentText = String(metric.value || '').trim();
+                if ((currentText === '未返回' || currentText === '待更新') && metric.note) {
+                    return metric.note;
+                }
                 const explicit = String(metric.comparisonText || metric.changeText || '').trim();
                 if (explicit) return `相对${period}：${explicit}`;
                 const current = dualOtaFiniteNumber(metric.value);
@@ -21528,6 +21638,38 @@
                 ...(tone ? { tone } : {}),
             });
             const dualOtaMissingMetric = (label, note = '已查询，接口未返回该字段') => dualOtaMetric(label, '未返回', note, 'warning');
+            const dualOtaRangeText = () => ({
+                realtime: '今日实时',
+                yesterday: '昨日',
+                '7d': '近7天',
+                '30d': '近30天',
+            }[String(dualOtaSelectedRange.value || '').trim()] || '当前周期');
+            const dualOtaLocalDateString = (offsetDays = 0) => {
+                const date = new Date();
+                date.setDate(date.getDate() + offsetDays);
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+            const dualOtaCtripExpectedDate = () => {
+                const range = String(dualOtaSelectedRange.value || '').trim();
+                if (range === 'realtime') return dualOtaLocalDateString(0);
+                if (range === 'yesterday') return dualOtaLocalDateString(-1);
+                return '';
+            };
+            const dualOtaCtripMissingReason = (fallback = '当前携程指标未返回') => {
+                const rangeText = dualOtaRangeText();
+                const expectedDate = String(ctripLatestMeta.value?.target_data_date || dualOtaCtripExpectedDate() || '').trim();
+                const latestDate = String(ctripLatestMeta.value?.data_date || '').trim();
+                if (expectedDate) {
+                    return latestDate && latestDate !== expectedDate
+                        ? `${rangeText}携程未入库：${expectedDate}；最近 ${latestDate}`
+                        : `${rangeText}携程未入库：${expectedDate}`;
+                }
+                return latestDate ? `携程当前周期未命中；最近 ${latestDate}` : fallback;
+            };
+            const dualOtaMissingCtripMetric = (label, fallback = '当前携程指标未返回') => dualOtaMissingMetric(label, dualOtaCtripMissingReason(fallback));
             const dualOtaIsCtripTrafficPendingWindow = () => {
                 const hour = new Date().getHours();
                 return hour >= 0 && hour < 8;
@@ -21543,7 +21685,7 @@
                 if (dualOtaIsCtripTrafficPendingWindow()) {
                     return dualOtaMetric(label, '待更新', dualOtaCtripTrafficPendingNote, 'warning');
                 }
-                return dualOtaMissingMetric(label, note);
+                return dualOtaMissingCtripMetric(label, note);
             };
             const dualOtaExistingMetricText = (value) => {
                 const text = String(value || '').trim();
@@ -21679,14 +21821,14 @@
                     const result = collectionHealthCtripMetricValue(sections, labels, options);
                     return result?.status === 'ok'
                         ? dualOtaMetric(label, result.value, result.source || '携程已入库事实')
-                        : dualOtaMissingMetric(label, result?.source || '未命中携程已入库事实');
+                        : dualOtaMissingCtripMetric(label, result?.source || '未命中携程已入库事实');
                 };
                 return [
                     metric('竞争圈平均值', ['business_overview', 'competitor_overview'], ['竞争圈平均值', '竞争圈平均访客'], { dataTypes: ['traffic', 'business'], keys: ['competitor_average', 'competitor_amount', 'competitor_orders'], dimensionIncludes: ['competitor', 'avg'] }),
                     metric('竞品均价', ['business_overview', 'competitor_overview'], ['竞品均价', '竞争圈平均房价'], { dataTypes: ['business'], keys: ['competitor_avg_price', 'avg_price'], dimensionIncludes: ['competitor', 'avg'] }),
                     metric('竞争圈排名', ['business_overview', 'competitor_overview', 'competitor_rank'], ['竞争圈排名', '竞争圈成交排名'], { dataTypes: ['business'], keys: ['amount_rank', 'quantity_rank', 'book_order_num_rank', 'rank'] }),
                     metric('价格排名', ['business_overview', 'competitor_rank'], ['价格排名', '平均卖价排名'], { dataTypes: ['business'], keys: ['avg_price_rank', 'price_rank', 'amount_rank'] }),
-                    dualOtaMissingMetric('样本酒店', '未命中 /online-data/ctrip/latest 的 display_summary'),
+                    dualOtaMissingCtripMetric('样本酒店', '未命中 /online-data/ctrip/latest 的 display_summary'),
                 ];
             };
             const dualOtaCtripTopRow = () => {
@@ -21705,7 +21847,7 @@
                 const row = dualOtaCtripTopRow();
                 if (!row) {
                     return [
-                        dualOtaMissingMetric('第一酒店', '未命中携程最新快照的酒店明细'),
+                        dualOtaMissingCtripMetric('第一酒店', '未命中携程最新快照的酒店明细'),
                         ...dualOtaCtripAverageMetrics().slice(0, 4),
                     ];
                 }
@@ -21748,19 +21890,57 @@
                     : null;
                 return selfRow || rows.find(dualOtaRowMatchesSelectedHotel) || null;
             };
-            const dualOtaMeituanRowsMetricTotal = (fields = []) => dualOtaMeituanRows().reduce((sum, row) => {
+            const dualOtaMeituanMetricTextFields = {
+                roomRevenue: 'roomRevenueText',
+                sales: 'salesText',
+                roomNights: 'roomNightsText',
+                salesRoomNights: 'salesRoomNightsText',
+                exposure: 'exposureText',
+                views: 'viewsText',
+                orderCount: 'orderCountText',
+                payConversion: 'payConversionText',
+            };
+            const dualOtaMeituanRowMetricValue = (row = {}, field = '') => {
+                const value = dualOtaFiniteNumber(row?.[field]);
+                if (value <= 0) return 0;
+                const textField = dualOtaMeituanMetricTextFields[field] || '';
+                if (textField && Object.prototype.hasOwnProperty.call(row || {}, textField)) {
+                    return dualOtaExistingMetricText(row?.[textField]) ? value : 0;
+                }
+                return value;
+            };
+            const dualOtaRowsMetricTotal = (rows = [], fields = []) => rows.reduce((sum, row) => {
                 const fieldList = Array.isArray(fields) ? fields : [fields];
                 for (const field of fieldList) {
-                    const value = dualOtaFiniteNumber(row?.[field]);
+                    const value = dualOtaMeituanRowMetricValue(row, field);
                     if (value > 0) return sum + value;
                 }
                 return sum;
             }, 0);
-            const dualOtaMeituanRowsMetricAverage = (field) => {
-                const values = dualOtaMeituanRows()
-                    .map(row => dualOtaFiniteNumber(row?.[field]))
+            const dualOtaRowsMetricAverage = (rows = [], field) => {
+                const values = rows
+                    .map(row => dualOtaMeituanRowMetricValue(row, field))
                     .filter(value => value > 0);
                 return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+            };
+            const dualOtaMeituanComparisonRows = () => dualOtaComparisonRows(competitorSummary.value?.comparison || {});
+            const dualOtaMeituanMetricTotals = (metrics = {}, rows = []) => {
+                const rowList = Array.isArray(rows) ? rows : [];
+                const totalRevenue = dualOtaFiniteNumber(metrics.totalRoomRevenue) || dualOtaRowsMetricTotal(rowList, ['roomRevenue', 'sales']);
+                const totalRoomNights = dualOtaFiniteNumber(metrics.totalRoomNights) || dualOtaRowsMetricTotal(rowList, ['roomNights', 'salesRoomNights']);
+                const totalOrders = dualOtaFiniteNumber(metrics.totalOrderCount) || dualOtaRowsMetricTotal(rowList, 'orderCount');
+                const totalExposure = dualOtaFiniteNumber(metrics.totalExposure) || dualOtaRowsMetricTotal(rowList, 'exposure');
+                const avgRoomPrice = dualOtaFiniteNumber(metrics.avgRoomPrice) || (totalRevenue > 0 && totalRoomNights > 0 ? totalRevenue / totalRoomNights : 0);
+                const avgPayConversion = dualOtaFiniteNumber(metrics.avgPayConversionRate) || dualOtaRowsMetricAverage(rowList, 'payConversion');
+                return {
+                    hotelCount: dualOtaFiniteNumber(metrics.hotelCount) || rowList.length,
+                    totalRevenue,
+                    totalRoomNights,
+                    totalOrders,
+                    totalExposure,
+                    avgRoomPrice,
+                    avgPayConversion,
+                };
             };
             const dualOtaMeituanSummary = () => {
                 const summary = competitorSummary.value
@@ -21772,8 +21952,11 @@
                 const metrics = dualOtaMeituanSummary().metrics || {};
                 const previousMetrics = dualOtaComparisonMetrics(competitorSummary.value?.comparison || {});
                 const rows = dualOtaMeituanRows();
-                const hotelCount = dualOtaFiniteNumber(metrics.hotelCount) || rows.length;
-                const previousHotelCount = dualOtaFiniteNumber(previousMetrics.hotelCount);
+                const previousRows = dualOtaMeituanComparisonRows();
+                const currentTotals = dualOtaMeituanMetricTotals(metrics, rows);
+                const previousTotals = dualOtaMeituanMetricTotals(previousMetrics, previousRows);
+                const hotelCount = currentTotals.hotelCount;
+                const previousHotelCount = previousTotals.hotelCount;
                 if (hotelCount <= 0) {
                     return [
                         dualOtaMissingMetric('榜单酒店', '未命中美团竞对汇总'),
@@ -21782,19 +21965,13 @@
                         dualOtaMissingMetric('浏览→支付', '美团竞对汇总未返回 avgPayConversionRate'),
                     ];
                 }
-                const totalRevenue = dualOtaFiniteNumber(metrics.totalRoomRevenue) || dualOtaMeituanRowsMetricTotal(['roomRevenue', 'sales']);
-                const totalRoomNights = dualOtaFiniteNumber(metrics.totalRoomNights) || dualOtaMeituanRowsMetricTotal(['roomNights', 'salesRoomNights']);
-                const totalOrders = dualOtaFiniteNumber(metrics.totalOrderCount) || dualOtaMeituanRowsMetricTotal('orderCount');
-                const totalExposure = dualOtaFiniteNumber(metrics.totalExposure) || dualOtaMeituanRowsMetricTotal('exposure');
-                const avgRoomPrice = dualOtaFiniteNumber(metrics.avgRoomPrice) || (totalRevenue > 0 && totalRoomNights > 0 ? totalRevenue / totalRoomNights : 0);
-                const avgPayConversion = dualOtaFiniteNumber(metrics.avgPayConversionRate) || dualOtaMeituanRowsMetricAverage('payConversion');
                 return [
-                    dualOtaMetric('均营收', dualOtaMoneyText(totalRevenue / hotelCount), `美团榜单 ${hotelCount} 家`, '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? dualOtaFiniteNumber(previousMetrics.totalRoomRevenue) / previousHotelCount : 0)),
-                    dualOtaMetric('均间夜', dualOtaNumberText(totalRoomNights / hotelCount, 1), 'totalRoomNights / hotelCount', '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? dualOtaFiniteNumber(previousMetrics.totalRoomNights) / previousHotelCount : 0)),
-                    dualOtaMetric('均订单', dualOtaNumberText(totalOrders / hotelCount, 1), 'totalOrderCount / hotelCount', '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? dualOtaFiniteNumber(previousMetrics.totalOrderCount) / previousHotelCount : 0)),
-                    dualOtaMetric('平均房价', dualOtaMoneyText(avgRoomPrice), avgRoomPrice === dualOtaFiniteNumber(metrics.avgRoomPrice) ? 'display_summary.metrics.avgRoomPrice' : 'display_hotels 营收 / 间夜', '', dualOtaMetricPreviousExtra(previousMetrics.avgRoomPrice)),
-                    dualOtaMetric('均曝光', dualOtaNumberText(totalExposure / hotelCount, 1), 'totalExposure / hotelCount', '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? dualOtaFiniteNumber(previousMetrics.totalExposure) / previousHotelCount : 0)),
-                    dualOtaMetric('浏览→支付', dualOtaRateText(avgPayConversion), 'avgPayConversionRate / display_hotels', '', dualOtaRatePreviousExtra(previousMetrics.avgPayConversionRate)),
+                    dualOtaMetric('均营收', dualOtaMoneyText(currentTotals.totalRevenue / hotelCount), `美团榜单 ${hotelCount} 家`, '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? previousTotals.totalRevenue / previousHotelCount : 0)),
+                    dualOtaMetric('均间夜', dualOtaNumberText(currentTotals.totalRoomNights / hotelCount, 1), 'totalRoomNights / hotelCount', '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? previousTotals.totalRoomNights / previousHotelCount : 0)),
+                    dualOtaMetric('均订单', dualOtaNumberText(currentTotals.totalOrders / hotelCount, 1), 'totalOrderCount / hotelCount', '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? previousTotals.totalOrders / previousHotelCount : 0)),
+                    dualOtaMetric('平均房价', dualOtaMoneyText(currentTotals.avgRoomPrice), currentTotals.avgRoomPrice === dualOtaFiniteNumber(metrics.avgRoomPrice) ? 'display_summary.metrics.avgRoomPrice' : 'display_hotels 营收 / 间夜', '', dualOtaMetricPreviousExtra(previousTotals.avgRoomPrice)),
+                    dualOtaMetric('均曝光', dualOtaNumberText(currentTotals.totalExposure / hotelCount, 1), 'totalExposure / hotelCount', '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? previousTotals.totalExposure / previousHotelCount : 0)),
+                    dualOtaMetric('浏览→支付', dualOtaRateText(currentTotals.avgPayConversion), 'avgPayConversionRate / display_hotels', '', dualOtaRatePreviousExtra(previousTotals.avgPayConversion)),
                 ];
             };
             const dualOtaMeituanTopMetrics = () => {
@@ -21823,25 +22000,29 @@
                 const previousCtripMetrics = dualOtaComparisonMetrics(ctripLatestComparison.value || {});
                 const previousMeituanMetrics = dualOtaComparisonMetrics(competitorSummary.value?.comparison || {});
                 const ctripCount = dualOtaFiniteNumber(ctripMetrics.hotelCount);
-                const meituanCount = dualOtaFiniteNumber(meituanMetrics.hotelCount) || dualOtaMeituanRows().length;
+                const meituanRows = dualOtaMeituanRows();
                 const previousCtripCount = dualOtaFiniteNumber(previousCtripMetrics.hotelCount);
-                const previousMeituanCount = dualOtaFiniteNumber(previousMeituanMetrics.hotelCount);
-                const meituanTotalRevenue = dualOtaFiniteNumber(meituanMetrics.totalRoomRevenue) || dualOtaMeituanRowsMetricTotal(['roomRevenue', 'sales']);
-                const meituanTotalRoomNights = dualOtaFiniteNumber(meituanMetrics.totalRoomNights) || dualOtaMeituanRowsMetricTotal(['roomNights', 'salesRoomNights']);
+                const previousMeituanRows = dualOtaMeituanComparisonRows();
+                const meituanTotals = dualOtaMeituanMetricTotals(meituanMetrics, meituanRows);
+                const previousMeituanTotals = dualOtaMeituanMetricTotals(previousMeituanMetrics, previousMeituanRows);
+                const meituanCount = meituanTotals.hotelCount;
+                const previousMeituanCount = previousMeituanTotals.hotelCount;
                 return [
                     ctripCount > 0
                         ? dualOtaMetric('携程均销售额', dualOtaMoneyText(dualOtaFiniteNumber(ctripMetrics.totalAmount) / ctripCount), `携程竞争圈 ${ctripCount} 家`, '', dualOtaMetricPreviousExtra(previousCtripCount > 0 ? dualOtaFiniteNumber(previousCtripMetrics.totalAmount) / previousCtripCount : 0))
-                        : dualOtaMissingMetric('携程均销售额', '未命中携程 display_summary'),
+                        : dualOtaMissingCtripMetric('携程均销售额', '未命中携程 display_summary'),
                     meituanCount > 0
-                        ? dualOtaMetric('美团均营收', dualOtaMoneyText(meituanTotalRevenue / meituanCount), `美团榜单 ${meituanCount} 家`, '', dualOtaMetricPreviousExtra(previousMeituanCount > 0 ? dualOtaFiniteNumber(previousMeituanMetrics.totalRoomRevenue) / previousMeituanCount : 0))
+                        ? dualOtaMetric('美团均营收', dualOtaMoneyText(meituanTotals.totalRevenue / meituanCount), `美团榜单 ${meituanCount} 家`, '', dualOtaMetricPreviousExtra(previousMeituanCount > 0 ? previousMeituanTotals.totalRevenue / previousMeituanCount : 0))
                         : dualOtaMissingMetric('美团均营收', '未命中美团 display_summary'),
                     ctripCount > 0
                         ? dualOtaMetric('携程均间夜', dualOtaNumberText(dualOtaFiniteNumber(ctripMetrics.totalQuantity) / ctripCount, 1), '携程 totalQuantity / hotelCount', '', dualOtaMetricPreviousExtra(previousCtripCount > 0 ? dualOtaFiniteNumber(previousCtripMetrics.totalQuantity) / previousCtripCount : 0))
-                        : dualOtaMissingMetric('携程均间夜'),
+                        : dualOtaMissingCtripMetric('携程均间夜'),
                     meituanCount > 0
-                        ? dualOtaMetric('美团均间夜', dualOtaNumberText(meituanTotalRoomNights / meituanCount, 1), '美团 totalRoomNights / hotelCount', '', dualOtaMetricPreviousExtra(previousMeituanCount > 0 ? dualOtaFiniteNumber(previousMeituanMetrics.totalRoomNights) / previousMeituanCount : 0))
+                        ? dualOtaMetric('美团均间夜', dualOtaNumberText(meituanTotals.totalRoomNights / meituanCount, 1), '美团 totalRoomNights / hotelCount', '', dualOtaMetricPreviousExtra(previousMeituanCount > 0 ? previousMeituanTotals.totalRoomNights / previousMeituanCount : 0))
                         : dualOtaMissingMetric('美团均间夜'),
-                    dualOtaMetric('携程样本', ctripCount > 0 ? `${ctripCount} 家` : '未返回', '携程竞争圈'),
+                    ctripCount > 0
+                        ? dualOtaMetric('携程样本', `${ctripCount} 家`, '携程竞争圈')
+                        : dualOtaMissingCtripMetric('携程样本', '未命中携程竞争圈样本'),
                     dualOtaMetric('美团样本', meituanCount > 0 ? `${meituanCount} 家` : '未返回', '美团竞对榜单'),
                 ];
             };
@@ -21853,10 +22034,10 @@
                 return [
                     ctripTop
                         ? dualOtaMetric('携程第一', ctripTop.hotelName || '未返回', ctripTop.amountRank ? `销售额第 ${ctripTop.amountRank} 名` : '携程竞争圈')
-                        : dualOtaMissingMetric('携程第一', '未命中携程酒店明细'),
+                        : dualOtaMissingCtripMetric('携程第一', '未命中携程酒店明细'),
                     ctripTop
                         ? dualOtaMetric('携程第一销售额', dualOtaMoneyText(ctripTop.amount), '携程 amount', '', dualOtaMetricPreviousExtra(previousCtripTop.amount))
-                        : dualOtaMissingMetric('携程第一销售额'),
+                        : dualOtaMissingCtripMetric('携程第一销售额'),
                     meituanTop
                         ? dualOtaMetric('美团第一', meituanTop.hotelName || '未返回', meituanTop.circlePositionText || '美团榜单')
                         : dualOtaMissingMetric('美团第一', '未命中美团酒店明细'),
@@ -21865,7 +22046,7 @@
                         : dualOtaMissingMetric('美团第一营收'),
                     ctripTop
                         ? dualOtaMetric('携程第一间夜', dualOtaNumberText(ctripTop.quantity), '携程 quantity', '', dualOtaMetricPreviousExtra(previousCtripTop.quantity))
-                        : dualOtaMissingMetric('携程第一间夜'),
+                        : dualOtaMissingCtripMetric('携程第一间夜'),
                     meituanTop
                         ? dualOtaMetric('美团第一间夜', dualOtaNumberText(meituanTop.roomNights || meituanTop.salesRoomNights), '美团 roomNights / salesRoomNights', '', dualOtaMetricPreviousExtra(previousMeituanTop.roomNights || previousMeituanTop.salesRoomNights))
                         : dualOtaMissingMetric('美团第一间夜'),
@@ -21875,12 +22056,12 @@
                 const row = dualOtaCtripCurrentRow();
                 if (!row) {
                     return [
-                        dualOtaMissingMetric('销售额', '当前门店携程明细行未返回'),
-                        dualOtaMissingMetric('间夜', '当前门店携程明细行未返回'),
-                        dualOtaMissingMetric('订单', '当前门店携程明细行未返回'),
-                        dualOtaMissingMetric('平均房价', '当前门店携程明细行未返回'),
+                        dualOtaMissingCtripMetric('销售额', '当前门店携程明细行未返回'),
+                        dualOtaMissingCtripMetric('间夜', '当前门店携程明细行未返回'),
+                        dualOtaMissingCtripMetric('订单', '当前门店携程明细行未返回'),
+                        dualOtaMissingCtripMetric('平均房价', '当前门店携程明细行未返回'),
                         dualOtaMissingCtripTrafficMetric('携程访客', '当前门店携程明细行未返回'),
-                        dualOtaMissingMetric('竞争力指数', '当前门店携程明细行未返回'),
+                        dualOtaMissingCtripMetric('竞争力指数', '当前门店携程明细行未返回'),
                     ];
                 }
                 const quantity = dualOtaFiniteNumber(row.quantity);
@@ -21948,19 +22129,19 @@
                 return [
                     ctripRow
                         ? dualOtaMetric('携程销售额', dualOtaMoneyText(ctripRow.amount), '当前门店携程销售额', '', dualOtaMetricPreviousExtra(ctripPrevious.amount))
-                        : dualOtaMissingMetric('携程销售额', '当前门店携程明细行未返回'),
+                        : dualOtaMissingCtripMetric('携程销售额', '当前门店携程明细行未返回'),
                     meituanRow
                         ? dualOtaMetric('美团营收', dualOtaMoneyText(meituanRevenue), '当前门店美团营收', '', dualOtaMetricPreviousExtra(meituanPrevious.roomRevenue || meituanPrevious.sales))
                         : dualOtaMissingMetric('美团营收', '当前门店美团明细行未返回'),
                     ctripRow
                         ? dualOtaMetric('携程间夜', dualOtaNumberText(ctripRow.quantity), '当前门店携程间夜', '', dualOtaMetricPreviousExtra(ctripPrevious.quantity))
-                        : dualOtaMissingMetric('携程间夜', '当前门店携程明细行未返回'),
+                        : dualOtaMissingCtripMetric('携程间夜', '当前门店携程明细行未返回'),
                     meituanRow
                         ? dualOtaMetric('美团间夜', dualOtaNumberText(meituanRoomNights), '当前门店美团间夜', '', dualOtaMetricPreviousExtra(meituanPrevious.roomNights || meituanPrevious.salesRoomNights))
                         : dualOtaMissingMetric('美团间夜', '当前门店美团明细行未返回'),
                     ctripRow
                         ? dualOtaMetric('携程订单', dualOtaNumberText(ctripRow.totalOrderNum || ctripRow.bookOrderNum), '当前门店携程订单', '', dualOtaMetricPreviousExtra(ctripPrevious.totalOrderNum || ctripPrevious.bookOrderNum))
-                        : dualOtaMissingMetric('携程订单', '当前门店携程明细行未返回'),
+                        : dualOtaMissingCtripMetric('携程订单', '当前门店携程明细行未返回'),
                     meituanRow
                         ? dualOtaMetric('美团订单', dualOtaNumberText(meituanRow.orderCount), '当前门店美团订单', '', dualOtaMetricPreviousExtra(meituanPrevious.orderCount))
                         : dualOtaMissingMetric('美团订单', '当前门店美团明细行未返回'),
@@ -25774,13 +25955,6 @@
                     activeConfig?.browser_profile_id,
                     activeConfig?.browserProfileId,
                     activeConfig?.profile,
-                    activeConfig?.ota_hotel_id,
-                    activeConfig?.ctrip_hotel_id,
-                    activeConfig?.ctripHotelId,
-                    activeConfig?.platform_hotel_id,
-                    activeConfig?.platformHotelId,
-                    activeConfig?.node_id,
-                    activeConfig?.nodeId,
                     allowDefault ? defaultCtripBrowserProfileId(hotelId) : ''
                 );
             };
@@ -26496,91 +26670,50 @@
                 }
             };
 
-            const DATA_HEALTH_LIGHT_CACHE_TTL_MS = 45000;
-            let dataHealthLightCache = {
-                key: '',
-                expiresAt: 0,
-                promise: null,
-            };
-
-            const resetDataHealthLightCache = () => {
-                dataHealthLightCache = {
-                    key: '',
-                    expiresAt: 0,
-                    promise: null,
-                };
-            };
-
-            const dataHealthLightCacheKey = (hotelId) => [
-                String(hotelId || ''),
-                String(user.value?.id || ''),
-                user.value?.is_super_admin ? 'super' : 'normal',
-            ].join('|');
-
-            const buildDataHealthPanelJobs = (normalizedMode) => {
-                const jobs = [
-                    loadAutoFetchStatus({ detail: normalizedMode === 'full' }),
-                    loadDailyWorkbench({ limit: 10 }),
-                    loadDailyWorkbenchPatrols(),
-                    loadPhase3OperationEffectLoop({ limit: 20 }),
-                    loadPhase3OperationEffectLoopLedger(),
-                ];
-                if (normalizedMode === 'full') {
-                    jobs.push(
-                        loadCollectionReliability('full'),
-                        loadDataHealthOperationLogs(),
-                        loadPublicEndpointSecurity(),
-                        loadHotelDataDashboard(),
-                        loadPlatformCollectionResources()
-                    );
-                }
-                return jobs;
-            };
+            const dataHealthLightCacheKey = (hotelId) => dataHealthRefreshRequestState.lightCacheKey({
+                hotelId,
+                userId: user.value?.id,
+                isSuperAdmin: !!user.value?.is_super_admin,
+            });
 
             const scheduleDataHealthLightDiagnostics = () => {
-                return schedulePostFetchRefresh('data-health-light-diagnostics', () => {
-                    if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') return null;
-                    return Promise.allSettled([
-                        loadDataHealthOperationLogs(),
-                        loadPublicEndpointSecurity(),
-                    ]);
-                }, 360);
+                return scheduleDataHealthLightDiagnosticsRefresh({
+                    schedulePostFetchRefresh,
+                    shouldRun: () => currentPage.value === 'online-data' && onlineDataTab.value === 'data-health',
+                    loadDataHealthOperationLogs,
+                    loadPublicEndpointSecurity,
+                });
             };
 
             const loadDataHealthPanel = async (mode = 'light', options = {}) => {
-                const normalizedMode = mode === 'full' ? 'full' : 'light';
-                const force = !!options.force || normalizedMode === 'full';
+                const { normalizedMode, force, source } = normalizeDataHealthRefreshRequest(mode, options);
                 dataHealthLastRefreshMode.value = normalizedMode;
-                dataHealthLastRefreshSource.value = options.source || (force ? '手动刷新' : '页面自动刷新/缓存');
+                dataHealthLastRefreshSource.value = source;
                 const initialHotelId = String(getAutoFetchHotelId() || '');
                 const initialCacheKey = dataHealthLightCacheKey(initialHotelId);
                 if (normalizedMode === 'light' && !force) {
-                    const now = Date.now();
-                    if (dataHealthLightCache.key === initialCacheKey) {
-                        if (dataHealthLightCache.promise) {
-                            return dataHealthLightCache.promise;
-                        }
-                        if (dataHealthLightCache.expiresAt > now) {
-                            return;
-                        }
+                    const requestState = dataHealthRefreshRequestState.resolveLightRequest({ cacheKey: initialCacheKey, normalizedMode, force });
+                    if (requestState.promise) {
+                        return requestState.promise;
+                    }
+                    if (requestState.status === 'fresh') {
+                        return;
                     }
                 }
                 await syncCtripOverviewTargetHotel({ loadConfig: false });
                 const currentHotelId = String(getAutoFetchHotelId() || '');
                 const cacheKey = dataHealthLightCacheKey(currentHotelId);
                 if (normalizedMode === 'light' && !force && cacheKey !== initialCacheKey) {
-                    const now = Date.now();
-                    if (dataHealthLightCache.key === cacheKey) {
-                        if (dataHealthLightCache.promise) {
-                            return dataHealthLightCache.promise;
-                        }
-                        if (dataHealthLightCache.expiresAt > now) {
-                            return;
-                        }
+                    const requestState = dataHealthRefreshRequestState.resolveLightRequest({ cacheKey, normalizedMode, force });
+                    if (requestState.promise) {
+                        return requestState.promise;
+                    }
+                    if (requestState.status === 'fresh') {
+                        return;
                     }
                 }
                 if (force) {
-                    resetDataHealthLightCache();
+                    dataHealthRefreshRequestState.reset();
                 }
                 if (normalizedMode !== 'full') {
                     hotelDashboardError.value = '';
@@ -26588,20 +26721,28 @@
                         dataHealthFullDiagnosticsLoaded.value = false;
                     }
                 }
-                const jobs = buildDataHealthPanelJobs(normalizedMode);
+                const loadLatestDailyWorkbenchPatrols = () => loadDailyWorkbenchPatrols();
+                const jobs = buildDataHealthPanelRefreshJobs({
+                    normalizedMode,
+                    loadAutoFetchStatus,
+                    loadDailyWorkbench,
+                    loadDailyWorkbenchPatrols: loadLatestDailyWorkbenchPatrols,
+                    loadPhase3OperationEffectLoop,
+                    loadPhase3OperationEffectLoopLedger,
+                    loadCollectionReliability,
+                    loadDataHealthOperationLogs,
+                    loadPublicEndpointSecurity,
+                    loadHotelDataDashboard,
+                    loadPlatformCollectionResources,
+                });
                 const run = Promise.allSettled(jobs).finally(() => {
-                    if (normalizedMode === 'light' && dataHealthLightCache.key === cacheKey && dataHealthLightCache.promise === run) {
-                        dataHealthLightCache.promise = null;
-                        dataHealthLightCache.expiresAt = Date.now() + DATA_HEALTH_LIGHT_CACHE_TTL_MS;
+                    if (normalizedMode === 'light') {
+                        dataHealthRefreshRequestState.settleLightRequest({ cacheKey, promise: run });
                     }
                     dataHealthLastRefreshAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
                 });
                 if (normalizedMode === 'light') {
-                    dataHealthLightCache = {
-                        key: cacheKey,
-                        expiresAt: Date.now() + DATA_HEALTH_LIGHT_CACHE_TTL_MS,
-                        promise: run,
-                    };
+                    dataHealthRefreshRequestState.rememberLightRequest({ cacheKey, promise: run });
                 }
                 await run;
             };
@@ -27698,6 +27839,7 @@
                     testid: 'nav-lean-operation',
                     children: [
                         { type: 'source', sourcePath: 'ai-daily-report', overrides: { name: 'AI经营日报' } },
+                        { type: 'source', sourcePath: 'ai-governance', overrides: { name: 'AI决策追溯' } },
                         { type: 'source', sourcePath: 'ops-track', overrides: { name: '执行跟踪' } },
                     ],
                 },
@@ -27720,6 +27862,7 @@
                         { type: 'source', sourcePath: 'investment-decision', overrides: { name: '投决辅助' } },
                         { type: 'source', sourcePath: 'hotel-image-optimizer', overrides: { name: '图片优化' } },
                         { type: 'source', sourcePath: 'agent-center', overrides: { name: '高级AI工具箱' } },
+                        { type: 'source', sourcePath: 'ai-model-config', overrides: { name: 'AI模型配置' } },
                         {
                             type: 'source-group',
                             sourcePath: 'lifecycle-auxiliary',
@@ -27728,15 +27871,13 @@
                         },
                         {
                             type: 'system-group',
-                            name: '配置中心',
+                            name: '系统与权限',
                             icon: 'fas fa-cog',
                             sourcePaths: [
                                 'users',
                                 'roles',
                                 'operation-logs',
                                 'system-config',
-                                'ai-model-config',
-                                'ai-governance',
                                 'data-config',
                             ],
                         },
@@ -28889,7 +29030,7 @@
                 if (!systemHotelId) {
                     throw new Error('请选择归属门店');
                 }
-                const authToken = String(token.value || localStorage.getItem('token') || '').trim();
+                const authToken = String(token.value || readAuthToken() || '').trim();
                 if (!authToken) {
                     throw new Error('当前登录 token 为空，请先登录宿析OS');
                 }
@@ -29233,7 +29374,9 @@
                     showToast(res?.message || successMessage || `${actionLabel}完成`, ok ? 'success' : 'error');
                 } catch (error) {
                     const message = error.message || `${actionLabel}失败`;
-                    ctripReviewMatchResult.value = { code: 500, message, action: actionLabel };
+                    ctripReviewMatchResult.value = error.data && typeof error.data === 'object'
+                        ? error.data
+                        : { code: 500, message, action: actionLabel };
                     showToast(message, 'error');
                 } finally {
                     ctripReviewMatchLoading.value = '';
@@ -29291,7 +29434,7 @@
             const lookupCtripReviewOrderMatch = async (sample = null) => {
                 if (ctripReviewMatchLoading.value) return;
                 const sampleCommentId = String(sample?.comment_id || sample?.commentId || '').trim();
-                ctripReviewMatchLoading.value = '自动反查订单';
+                ctripReviewMatchLoading.value = '规则校验';
                 ctripReviewMatchLookupLoadingCommentId.value = sampleCommentId;
                 try {
                     const res = await request('/online-data/ctrip-review-matches/lookup', {
@@ -29305,17 +29448,17 @@
                         ctripReviewMatchResult.value = res;
                     }
                     const data = res?.data || {};
-                    const message = data.status_text || res?.message || '携程评价订单反查完成';
+                    const message = data.status_text || res?.message || '携程点评治理规则校验完成';
                     const displayOrderId = data.order_id || data.candidate_order_id || data.candidateOrderId || '';
                     showToast(
                         displayOrderId ? `${message}：${displayOrderId}${data.guest_name ? ` / ${data.guest_name}` : ''}` : message,
                         ok ? 'success' : 'error'
                     );
                 } catch (error) {
-                    const message = error.message || '自动反查订单失败';
-                    if (!sampleCommentId) {
-                        ctripReviewMatchResult.value = { code: 500, message, action: '自动反查订单' };
-                    }
+                    const message = error.message || '携程点评治理规则校验失败';
+                    ctripReviewMatchResult.value = error.data && typeof error.data === 'object'
+                        ? error.data
+                        : { code: 500, message, action: '规则校验' };
                     showToast(message, 'error');
                 } finally {
                     ctripReviewMatchLoading.value = '';
@@ -29350,20 +29493,20 @@
                 '携程评价订单匹配闭环检查完成'
             );
             const runCtripReviewMatchAutomation = () => runCtripReviewMatchAction(
-                '自动匹配',
+                '规则校验',
                 '/online-data/ctrip-review-matches/run',
                 () => ({
                     ...buildCtripReviewMatchAutomationPayload(),
                     review_collection_policy: 'explicit_review_match_only',
                 }),
-                '携程评价订单自动匹配完成'
+                '携程点评治理规则校验完成'
             ).then(() => {
                 if (ctripReviewMatchResult.value && typeof ctripReviewMatchResult.value === 'object') {
                     ctripReviewMatchResult.value = {
                         ...ctripReviewMatchResult.value,
                         data: {
                             ...(ctripReviewMatchResult.value.data || {}),
-                            review_policy: '匹配动作只读取已授权点评/IM/订单数据；不进入默认采集，不自动操作携程后台。',
+                            review_policy: '当前只返回点评治理规则和边界状态；不进入默认采集，不反查匿名身份，不自动操作携程后台。',
                         },
                     };
                 }
@@ -33344,7 +33487,7 @@
                             hotels.value = dedupeHotels(permittedHotels.value);
                         }
                         applyDefaultReportHotel();
-                        localStorage.setItem('token', token.value);
+                        writeAuthToken(token.value);
 
                         // 只记住账号，不持久化密码
                         applyRememberedLoginAccount({
@@ -33733,7 +33876,7 @@
                 }
                 if (statusCode === 'missing_config') {
                     return {
-                        text: '平台账号信息不完整，请重新登录或到高级设置补齐。',
+                        text: '平台账号信息不完整，请在本行操作区打开对应平台配置补齐后，再重新登录。',
                         className: 'bg-amber-50 border-amber-100 text-amber-700',
                     };
                 }
@@ -33872,13 +34015,10 @@
             const hotelAccountHealthText = (hotel = {}) => {
                 const key = hotelAccountHealthKey(hotel);
                 if (key === 'error') return '账号异常';
-                if (key === 'todo') {
-                    const action = hotelNextAction(hotel)?.text || '';
-                    return action && !['正常', '-'].includes(action) ? `待办：${action}` : '待办：补齐账号/采集';
-                }
+                if (key === 'todo') return '账号待补齐';
                 if (key === 'ready') return '可采集';
                 if (key === 'inactive') return '停用';
-                return '待办：补齐账号/采集';
+                return '账号待补齐';
             };
 
             const hotelAccountHealthClass = (hotel = {}) => ({
@@ -34116,6 +34256,96 @@
                 openCtripManualTab('ctrip-config');
             };
 
+            const buildHotelPlatformLoginItem = (hotel = {}, account = {}) => {
+                const baseItem = account?.loginItem && typeof account.loginItem === 'object' ? { ...account.loginItem } : {};
+                const platform = String(account?.platform || baseItem.platform || '').toLowerCase();
+                const baseBinding = baseItem.binding && typeof baseItem.binding === 'object' ? baseItem.binding : {};
+                const accountBinding = account?.binding && typeof account.binding === 'object' ? account.binding : {};
+                const binding = { ...baseBinding, ...accountBinding };
+                const config = account?.config && typeof account.config === 'object' ? account.config : {};
+                const sourceConfig = config?.config && typeof config.config === 'object' ? config.config : {};
+                const hotelId = firstNonEmptyText(
+                    hotel?.id,
+                    binding.system_hotel_id,
+                    baseItem.system_hotel_id,
+                    account?.system_hotel_id
+                );
+                const hotelName = firstNonEmptyText(hotel?.name, binding.hotel_name, account?.hotel_name, getHotelNameById(hotelId));
+
+                if (platform === 'ctrip') {
+                    const ctripHotelId = firstNonEmptyText(
+                        binding.ctrip_hotel_id,
+                        binding.hotel_id,
+                        sourceConfig.ctrip_hotel_id,
+                        sourceConfig.hotel_id,
+                        config.ctrip_hotel_id,
+                        config.ctripHotelId,
+                        config.ota_hotel_id
+                    );
+                    const profileId = firstNonEmptyText(
+                        binding.profile_id,
+                        sourceConfig.profile_id,
+                        sourceConfig.profileId,
+                        sourceConfig.browser_profile_id,
+                        sourceConfig.browserProfileId,
+                        config.profile_id,
+                        config.profileId,
+                        config.browser_profile_id,
+                        config.browserProfileId,
+                        defaultCtripBrowserProfileId(hotelId)
+                    );
+                    return {
+                        ...baseItem,
+                        platform,
+                        platform_name: baseItem.platform_name || account?.label || '携程',
+                        system_hotel_id: hotelId,
+                        hotel_id: hotelId,
+                        profile_key: profileId,
+                        binding: {
+                            ...binding,
+                            profile_id: profileId,
+                            hotel_id: ctripHotelId,
+                            ctrip_hotel_id: ctripHotelId,
+                            system_hotel_id: hotelId,
+                            hotel_name: hotelName,
+                        },
+                    };
+                }
+
+                if (platform === 'meituan') {
+                    const storeId = firstNonEmptyText(
+                        binding.store_id,
+                        binding.poi_id,
+                        sourceConfig.store_id,
+                        sourceConfig.poi_id,
+                        config.store_id,
+                        config.poi_id,
+                        config.poiId
+                    );
+                    const poiId = firstNonEmptyText(binding.poi_id, sourceConfig.poi_id, config.poi_id, config.poiId, storeId);
+                    const partnerId = firstNonEmptyText(binding.partner_id, sourceConfig.partner_id, config.partner_id, config.partnerId);
+                    return {
+                        ...baseItem,
+                        platform,
+                        platform_name: baseItem.platform_name || account?.label || '美团',
+                        system_hotel_id: hotelId,
+                        hotel_id: hotelId,
+                        profile_key: storeId,
+                        binding: {
+                            ...binding,
+                            store_id: storeId,
+                            poi_id: poiId,
+                            poi_name: firstNonEmptyText(binding.poi_name, sourceConfig.poi_name, sourceConfig.store_name, config.poi_name, config.store_name, hotelName),
+                            partner_id: partnerId,
+                            system_hotel_id: hotelId,
+                            hotel_name: hotelName,
+                        },
+                    };
+                }
+
+                return { ...baseItem, platform, binding };
+            };
+
             const openHotelPlatformCardLogin = async (hotel, account = {}) => {
                 if (!canManageOwnHotels()) return;
                 const platform = String(account?.platform || '').toLowerCase();
@@ -34130,24 +34360,30 @@
                 const platform = account?.platform || '';
                 const hotelId = await prepareHotelPlatformAccountContext(hotel, platform);
                 if (!hotelId) return;
-                const loginItem = account?.loginItem || { platform, binding: {} };
+                const loginItem = buildHotelPlatformLoginItem(hotel, account);
+                const binding = loginItem.binding || {};
                 if (platform === 'ctrip') {
-                    ctripBrowserCaptureForm.value.profileId = loginItem.binding?.profile_id || `system_${hotelId}`;
-                    ctripBrowserCaptureForm.value.hotelId = loginItem.binding?.hotel_id || '';
+                    ctripBrowserCaptureForm.value.profileId = binding.profile_id || defaultCtripBrowserProfileId(hotelId);
+                    ctripBrowserCaptureForm.value.hotelId = binding.ctrip_hotel_id || binding.hotel_id || '';
                     await triggerPlatformProfileLogin('ctrip', loginItem);
                     return;
                 }
                 if (platform === 'meituan') {
-                    const storeId = firstNonEmptyText(loginItem.binding?.store_id, loginItem.binding?.poi_id);
+                    const storeId = firstNonEmptyText(binding.store_id, binding.poi_id);
+                    const poiId = firstNonEmptyText(binding.poi_id, storeId);
+                    const partnerId = firstNonEmptyText(binding.partner_id);
                     const dataSourceId = Number(loginItem?.data_source_id || loginItem?.dataSourceId || 0);
                     if (storeId || dataSourceId) {
+                        meituanForm.value.hotelId = hotelId;
+                        if (partnerId) meituanForm.value.partnerId = partnerId;
+                        if (poiId) meituanForm.value.poiId = poiId;
                         meituanBrowserCaptureForm.value.storeId = storeId;
-                        meituanBrowserCaptureForm.value.poiId = loginItem.binding?.poi_id || storeId || (dataSourceId ? '' : meituanBrowserCaptureForm.value.poiId || '');
-                        meituanBrowserCaptureForm.value.poiName = loginItem.binding?.poi_name || hotel?.name || '';
+                        meituanBrowserCaptureForm.value.poiId = poiId || (dataSourceId ? '' : meituanBrowserCaptureForm.value.poiId || '');
+                        meituanBrowserCaptureForm.value.poiName = binding.poi_name || hotel?.name || '';
                         await triggerPlatformProfileLogin('meituan', loginItem);
                         return;
                     }
-                    showToast('美团账号还缺平台门店确认，请先打开高级设置补齐门店归属，再重新登录。', 'warning');
+                    showToast('美团账号还缺平台门店确认，请点击本行右侧“美团配置”补齐平台门店标识，再重新登录。', 'warning');
                     return;
                 }
                 await openHotelPlatformConsole(hotel, platform);
@@ -34156,7 +34392,7 @@
             const unbindHotelPlatformAccount = async (hotel, account) => {
                 const hotelId = await prepareHotelPlatformAccountContext(hotel, account?.platform || '');
                 if (!hotelId || !account?.unbindItem) {
-                    showToast('当前账号来自旧配置，请到高级设置停用，避免误删历史采集身份', 'warning');
+                    showToast('当前账号来自旧配置，不能在这里解绑；请到本行右侧对应平台配置处理，避免误删历史采集身份。', 'warning');
                     return;
                 }
                 await deletePlatformProfileBinding(account.unbindItem);
@@ -34412,6 +34648,63 @@
                 failed: 'border-red-100 bg-red-50 text-red-700',
                 skipped: 'border-gray-200 bg-gray-50 text-gray-600',
             }[String(status || '')] || 'border-gray-200 bg-gray-50 text-gray-600');
+            const canEditManualOneClickFetchRow = (row = {}) => {
+                return canManageOwnHotels()
+                    && ['failed', 'no_saved'].includes(String(row?.status || '').trim());
+            };
+            const manualOneClickFetchHotelFromRow = (row = {}) => {
+                const hotelId = String(row?.hotelId || '').trim();
+                if (!hotelId) return null;
+                return platformTargetHotelPool.value.find(item => String(item?.id || '') === hotelId)
+                    || hotels.value.find(item => String(item?.id || '') === hotelId)
+                    || {
+                        id: hotelId,
+                        name: String(row?.hotelName || getHotelNameById(hotelId) || `门店 ${hotelId}`),
+                    };
+            };
+            const editManualOneClickFetchFailure = async (row = {}) => {
+                if (!canEditManualOneClickFetchRow(row)) return;
+                const platform = row?.platform === 'meituan' ? 'meituan' : 'ctrip';
+                const hotelId = String(row?.hotelId || '').trim();
+                if (!hotelId) {
+                    showToast('缺少门店ID，无法打开配置', 'error');
+                    return;
+                }
+                await ensureHotelOtaConfigLists({ force: true });
+                const hotel = manualOneClickFetchHotelFromRow(row);
+                if (!hotel) {
+                    showToast('未找到门店档案，无法打开配置', 'error');
+                    return;
+                }
+                if (platform === 'meituan') {
+                    const config = findMeituanConfigByHotelId(hotelId);
+                    if (config) {
+                        await editMeituanConfig(config);
+                        currentPage.value = 'meituan-ebooking';
+                        meituanForm.value.hotelId = hotelId;
+                        await nextTick();
+                        openMeituanManualTab('meituan-config');
+                        showToast('已打开美团配置，可修正后重新执行手动获取', 'info');
+                        return;
+                    }
+                    await openHotelManualFetchConfig(hotel, 'meituan');
+                    showToast('未找到美团配置，已打开新增配置表单', 'warning');
+                    return;
+                }
+                const config = findCtripConfigByHotelId(hotelId);
+                if (config) {
+                    await editCtripConfig(config);
+                    selectedCtripHotelId.value = hotelId;
+                    ctripTargetHotelManuallySelected.value = true;
+                    currentPage.value = 'ctrip-ebooking';
+                    await nextTick();
+                    openCtripManualTab('ctrip-config');
+                    showToast('已打开携程配置，可修正后重新执行手动获取', 'info');
+                    return;
+                }
+                await openHotelManualFetchConfig(hotel, 'ctrip');
+                showToast('未找到携程配置，已打开新增配置表单', 'warning');
+            };
             const manualOneClickFetchSavedCount = (result = {}) => {
                 const candidates = [
                     result?.saved_count,
@@ -36516,6 +36809,298 @@
                     protectedBoundary: backendQuestionSource?.protected_boundary || '',
                 });
             });
+            const employeeOtaChecklistPriorityRank = (priority) => ({
+                high: 0,
+                medium: 1,
+                low: 2,
+                ok: 3,
+            }[String(priority || '').toLowerCase()] ?? 4);
+            const employeeOtaChecklistCategoryClass = (category) => ({
+                health: 'border-slate-200 bg-slate-50 text-slate-700',
+                gap: 'border-amber-200 bg-amber-50 text-amber-700',
+                anomaly: 'border-red-200 bg-red-50 text-red-700',
+                action: 'border-blue-200 bg-blue-50 text-blue-700',
+            }[String(category || '')] || 'border-gray-200 bg-gray-50 text-gray-600');
+            const employeeOtaChecklistCategoryText = (category) => ({
+                health: '健康',
+                gap: '缺口',
+                anomaly: '异常',
+                action: '今日动作',
+            }[String(category || '')] || '待确认');
+            const employeeOtaChecklistActionRunning = ref('');
+            const employeeOtaChecklistScopeText = computed(() => {
+                const scope = dailyWorkbench.value?.scope && typeof dailyWorkbench.value.scope === 'object' ? dailyWorkbench.value.scope : {};
+                const policy = phase1EmployeeEvidencePolicyText(String(scope.source_policy || 'read_existing_collection_reliability_only'));
+                return `${dailyWorkbenchScopeText.value} · ${dailyWorkbenchPatrolHealthText.value} · ${policy}`;
+            });
+            const employeeOtaChecklistCards = computed(() => {
+                const total = Math.max(0, Number(dailyWorkbenchSummary.value.total_hotels || dailyWorkbenchRows.value.length || 0));
+                const healthy = dailyWorkbenchRows.value.filter(row => row.sourceRows > 0 && String(row.statuses.today_ota_collected) === 'proved').length;
+                const gapCount = dataAcquisitionWorkbenchRows.value.filter(row => row.showFetchButton || row.fieldHasGap).length
+                    + phase1EmployeeMissingFieldRows.value.length;
+                const anomalyCount = dailyWorkbenchRows.value.filter(row => String(row.status) !== 'complete').length
+                    + dataHealthQualityTaskRows.value.length
+                    + Number(phase3OperationEffectLoopSummary.value.anomaly_count || 0);
+                const actionCount = dailyWorkbenchPatrolVisibleActions.value.length + dataHealthTodayWorkOrders.value.length;
+                return [
+                    {
+                        key: 'health',
+                        label: 'OTA数据健康',
+                        value: total ? `${healthy}/${total}` : '未返回',
+                        rawValue: `healthy=${healthy};total=${total}`,
+                        detail: total ? '目标日源数据已入库门店' : '每日工作台未返回门店',
+                        className: healthy === total && total > 0 ? 'text-emerald-700' : 'text-amber-700',
+                    },
+                    {
+                        key: 'gap',
+                        label: '缺口',
+                        value: `${gapCount}`,
+                        rawValue: String(gapCount),
+                        detail: '采集/字段/指标缺口',
+                        className: gapCount ? 'text-amber-700' : 'text-gray-900',
+                    },
+                    {
+                        key: 'anomaly',
+                        label: '异常',
+                        value: `${anomalyCount}`,
+                        rawValue: String(anomalyCount),
+                        detail: '工作台/数据健康异常信号',
+                        className: anomalyCount ? 'text-red-700' : 'text-gray-900',
+                    },
+                    {
+                        key: 'action',
+                        label: '今日动作',
+                        value: `${actionCount}`,
+                        rawValue: String(actionCount),
+                        detail: '员工需处理或留痕',
+                        className: actionCount ? 'text-blue-700' : 'text-gray-900',
+                    },
+                ];
+            });
+            const employeeOtaChecklistHeadline = computed(() => {
+                const hasHighPriority = employeeOtaChecklistRows.value.some(row => row.priority === 'high');
+                if (hasHighPriority) {
+                    return { text: '先处理高优先级', className: dataHealthPriorityClass('high') };
+                }
+                if (employeeOtaChecklistRows.value.length) {
+                    return { text: `${employeeOtaChecklistRows.value.length} 项待处理`, className: dataHealthPriorityClass('medium') };
+                }
+                return { text: '暂无待处理', className: dataHealthPriorityClass('ok') };
+            });
+            const employeeOtaChecklistRows = computed(() => {
+                const rows = [];
+                const pushRow = (row) => {
+                    if (!row || !row.key) return;
+                    rows.push({
+                        ...row,
+                        priorityText: dataHealthPriorityText(row.priority || 'medium'),
+                        categoryClass: employeeOtaChecklistCategoryClass(row.category),
+                        categoryText: employeeOtaChecklistCategoryText(row.category),
+                        statusClass: row.statusClass || dataHealthPriorityClass(row.priority || 'medium'),
+                        boundaryText: row.boundaryText || 'OTA渠道口径；缺失证据保持待证明。',
+                        verificationText: row.verificationText || '复核完成后刷新数据健康和每日工作台。',
+                    });
+                };
+
+                otaTodayCollectionReminderRows.value.forEach((item, index) => {
+                    const platform = String(item.platform || '').toLowerCase();
+                    const canManualFetch = ['ctrip', 'meituan'].includes(platform);
+                    const needsAction = String(item.status || '') !== 'ready';
+                    pushRow({
+                        key: `health-${item.key || index}`,
+                        category: 'health',
+                        priority: item.priority || (item.status === 'ready' ? 'ok' : 'high'),
+                        objectText: item.platformLabel || 'OTA平台',
+                        objectRawText: item.platform || '',
+                        sourceText: item.sourceLabel || '当日采集',
+                        statusText: item.statusText || (item.status === 'ready' ? '当日已采到' : '当日未采到'),
+                        statusClass: item.className,
+                        evidenceText: item.detail || item.targetText || '未返回目标日采集证据',
+                        evidenceRawText: [item.targetText, item.latestText].filter(Boolean).join('；'),
+                        actionText: item.nextActionText || '核对采集配置和目标日入库证据',
+                        actionRawText: item.nextActionText || '',
+                        entryText: item.entryText || '',
+                        entryRawText: item.entryRawText || '',
+                        verificationText: item.proofText || '完成判定：目标日 online_daily_data 有源数据行。',
+                        boundaryText: item.boundaryText || '只按 OTA 渠道目标日证据判断。',
+                        actionType: needsAction ? (canManualFetch ? 'manual_fetch_platform' : 'config') : '',
+                        actionPlatform: platform,
+                        primaryButtonText: needsAction ? (canManualFetch ? `补抓${item.platformLabel || '平台'}` : '查看配置') : '',
+                    });
+                });
+
+                dataAcquisitionWorkbenchRows.value
+                    .filter(item => item.showFetchButton || item.fieldHasGap)
+                    .forEach((item, index) => {
+                        const blocked = item.acquisitionStatusKind === 'blocked' || !item.canCookieFetch;
+                        pushRow({
+                            key: `gap-${item.hotelId || index}-${item.acquisitionStatusKind}`,
+                            category: 'gap',
+                            priority: blocked ? 'high' : 'medium',
+                            objectText: item.hotelName || `门店 ${item.hotelId || '-'}`,
+                            objectRawText: String(item.hotelId || ''),
+                            sourceText: `${item.targetDate || '目标日'} · ${item.sourceRowsText}`,
+                            statusText: item.acquisitionStatusText || '待确认',
+                            statusClass: item.acquisitionStatusClass,
+                            evidenceText: [item.issueText, item.fieldBriefText].filter(Boolean).join('；') || '缺口待复核',
+                            evidenceRawText: item.issueRawText || item.fieldIssueRawText || '',
+                            actionText: item.actionRawText || item.actionText || '按数据健康缺口处理',
+                            actionRawText: item.nextActionRawText || item.actionRawText || '',
+                            entryText: item.canCookieFetch ? '手动一键获取' : '配置：平台账号/自动采集',
+                            verificationText: '完成判定：目标日源数据行、字段可信状态和缺口状态同步转为已证明。',
+                            boundaryText: '仅整理采集/字段缺口；不改携程或美团采集口径。',
+                            actionType: item.canCookieFetch ? 'manual_fetch_all' : 'config',
+                            primaryButtonText: item.canCookieFetch ? '手动补抓' : '查看配置',
+                        });
+                    });
+
+                dailyWorkbenchRows.value
+                    .filter(item => String(item.status) !== 'complete')
+                    .forEach((item, index) => {
+                        const priority = String(item.nextAction?.priority || '').toLowerCase() || (String(item.status) === 'request_failed' ? 'high' : 'medium');
+                        pushRow({
+                            key: `anomaly-${item.hotelId || index}-${item.status}`,
+                            category: 'anomaly',
+                            priority,
+                            objectText: item.hotelName || `门店 ${item.hotelId || '-'}`,
+                            objectRawText: String(item.hotelId || ''),
+                            sourceText: item.provedText || '员工六问',
+                            statusText: dailyWorkbenchStatusText(item.status),
+                            statusClass: dailyWorkbenchStatusClass(item.status),
+                            evidenceText: item.workflowChainText || item.metricGapText || '链路证据待复核',
+                            evidenceRawText: item.workflowChainRawText || item.aiEvidenceRawText || '',
+                            actionText: item.nextActionText || '复核异常链路并补齐证据',
+                            actionRawText: item.nextActionRawText || '',
+                            entryText: item.nextAction?.entry || item.nextActionMetaText || '',
+                            entryRawText: item.nextActionMetaRawText || '',
+                            verificationText: item.aiEvidenceNextStepText || '完成判定：异常对应阶段不再阻断，动作进入执行或复盘。',
+                            boundaryText: item.aiEvidenceBoundaryText || '不把缺失证据转成 AI 可执行结论。',
+                            actionType: 'diagnosis',
+                            primaryButtonText: '完整诊断',
+                        });
+                    });
+
+                const actionItems = dailyWorkbenchPatrolVisibleActions.value.length
+                    ? dailyWorkbenchPatrolVisibleActions.value
+                    : dailyWorkbenchNextActions.value;
+                actionItems.forEach((item, index) => {
+                    const priority = String(item.priority || '').toLowerCase() || 'medium';
+                    const taskId = dailyWorkbenchPatrolTaskId(item);
+                    pushRow({
+                        key: `action-${item.hotelId || index}-${item.actionCode || item.questionKey || index}`,
+                        category: 'action',
+                        priority,
+                        objectText: item.hotelName || `门店 ${item.hotelId || '-'}`,
+                        objectRawText: String(item.hotelId || ''),
+                        sourceText: [item.platform, item.questionKey].filter(Boolean).join(' · ') || '每日巡检动作',
+                        statusText: dailyWorkbenchPatrolTrackedStatusText(item),
+                        statusClass: dataHealthPriorityClass(priority),
+                        evidenceText: item.actionCode || item.questionKey || '动作编码未返回',
+                        evidenceRawText: item.actionRawText || '',
+                        actionText: item.actionText || '处理并留痕',
+                        actionRawText: item.actionRawText || '',
+                        entryText: item.entry || '',
+                        verificationText: dailyWorkbenchPatrolExecutionText(item) || (taskId ? `任务 #${taskId}` : '生成巡检快照后可标记执行和复查。'),
+                        boundaryText: '动作来自每日工作台/巡检快照；只记录员工处理状态。',
+                        canTrackAction: !!dailyWorkbenchPatrolLatest.value && Number(item.hotelId || 0) > 0 && !!(item.actionCode || item.questionKey),
+                        actionSource: item,
+                        actionType: dailyWorkbenchPatrolLatest.value ? '' : 'patrol',
+                        primaryButtonText: dailyWorkbenchPatrolLatest.value ? '' : '生成巡检',
+                    });
+                });
+
+                dataHealthTodayWorkOrders.value
+                    .filter(item => String(item?.action_type || '') !== 'today_collection')
+                    .slice(0, 6)
+                    .forEach((item, index) => {
+                    const workActionType = item.action_type === 'fetch' && item.action_tab
+                        ? 'fetch_tab'
+                        : (item.action_type === 'log' ? 'log' : (item.action_type === 'cookie' ? 'config' : 'history'));
+                    pushRow({
+                        key: `workorder-${item.key || index}`,
+                        category: 'action',
+                        priority: item.priority || 'medium',
+                        objectText: item.platform_label || 'OTA',
+                        objectRawText: item.platform_label || '',
+                        sourceText: item.source_label || '数据健康',
+                        statusText: dataHealthPriorityText(item.priority || 'medium'),
+                        statusClass: dataHealthPriorityClass(item.priority || 'medium'),
+                        evidenceText: item.title || '数据健康工单',
+                        evidenceRawText: item.detail || '',
+                        actionText: item.detail || item.button_text || '处理数据健康工单',
+                        actionRawText: item.detail || '',
+                        entryText: item.button_text || '',
+                        verificationText: '处理后刷新数据健康；仍缺证据则继续保留待处理。',
+                        boundaryText: '来自数据健康信号；不代表全酒店经营结论。',
+                        actionType: workActionType,
+                        actionTab: item.action_tab || '',
+                        primaryButtonText: item.button_text || (workActionType === 'config' ? '查看配置' : (workActionType === 'log' ? '查看日志' : '查看历史')),
+                    });
+                });
+
+                const seen = new Set();
+                return rows
+                    .filter(row => {
+                        const key = `${row.category}|${row.objectText}|${row.evidenceText}|${row.actionText}`;
+                        if (seen.has(key)) return false;
+                        seen.add(key);
+                        return true;
+                    })
+                    .sort((left, right) => {
+                        const priorityDiff = employeeOtaChecklistPriorityRank(left.priority) - employeeOtaChecklistPriorityRank(right.priority);
+                        if (priorityDiff !== 0) return priorityDiff;
+                        const categoryRank = { health: 0, gap: 1, anomaly: 2, action: 3 };
+                        return (categoryRank[left.category] ?? 9) - (categoryRank[right.category] ?? 9);
+                    })
+                    .slice(0, 16);
+            });
+            const employeeOtaChecklistEmptyText = computed(() => {
+                if (dailyWorkbenchLoading.value || collectionReliabilityLoading.value) return '员工可执行清单正在加载...';
+                if (dailyWorkbenchError.value) return dailyWorkbenchError.value;
+                return '现有数据健康和每日工作台未返回待处理项；这不是全酒店经营已闭合结论。';
+            });
+            const runEmployeeOtaChecklistAction = async (row = {}) => {
+                if (!row?.key || employeeOtaChecklistActionRunning.value) return;
+                employeeOtaChecklistActionRunning.value = row.key;
+                try {
+                    const actionType = String(row.actionType || '');
+                    if (actionType === 'manual_fetch_platform') {
+                        const platform = ['ctrip', 'meituan'].includes(String(row.actionPlatform || '').toLowerCase())
+                            ? String(row.actionPlatform).toLowerCase()
+                            : 'all';
+                        await runManualOneClickFetch(platform);
+                        return;
+                    }
+                    if (actionType === 'manual_fetch_all') {
+                        await runManualOneClickFetch('all');
+                        return;
+                    }
+                    if (actionType === 'config') {
+                        openPlatformAutoTab();
+                        return;
+                    }
+                    if (actionType === 'diagnosis') {
+                        await loadDataHealthPanel('full', { source: '员工可执行清单' });
+                        return;
+                    }
+                    if (actionType === 'patrol') {
+                        await runDailyWorkbenchPatrol();
+                        return;
+                    }
+                    if (actionType === 'fetch_tab' && row.actionTab) {
+                        await runCtripOverviewFetchAction(row.actionTab);
+                        return;
+                    }
+                    if (actionType === 'log') {
+                        currentPage.value = 'operation-logs';
+                        reloadOperationLogs();
+                        return;
+                    }
+                    switchToDownloadCenter();
+                } finally {
+                    employeeOtaChecklistActionRunning.value = '';
+                }
+            };
             const getOtaDiagnosisHotelFetchFlow = async () => {
                 await ensureOtaDiagnosisStaticReady();
                 return requireOtaDiagnosisStatic('runOtaDiagnosisHotelFetchFlow');
@@ -40884,8 +41469,9 @@
                 if (!config) return;
                 ctripTargetHotelManuallySelected.value = true;
                 applyCtripConfigObject(config, true);
-                // 切换到榜单数据获取tab
-                onlineDataTab.value = 'ctrip-ranking';
+                currentPage.value = 'ctrip-ebooking';
+                await nextTick();
+                openCtripManualTab('ctrip-ranking');
                 loadLatestCtripData({ silent: true });
             };
 
@@ -40918,6 +41504,12 @@
                     approved_mappings_path: config.approved_mappings_path || config.approved_mapping_path || config.p3_mappings_path || '',
                     cookies: normalizeCtripManualAuxiliaryText(config.cookies || config.cookie || ''),
                 };
+                currentPage.value = 'ctrip-ebooking';
+                onlineDataTab.value = 'ctrip-config';
+                await nextTick();
+                const configForm = document.querySelector('[data-testid="ctrip-config-form"]');
+                configForm?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+                configForm?.querySelector?.('select, input, textarea')?.focus?.();
             };
 
             const toggleSelectAllCtripConfig = (event) => {
@@ -44627,7 +45219,7 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
@@ -44682,7 +45274,7 @@
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
                 onlineDataQualitySummary, onlineDataQualityStatusText, onlineDataQualityStatusClass, onlineDataQualityPromptList, onlineDataQualityScopeText, autoFetchRecordStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
-                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
+                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, editManualOneClickFetchFailure, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,
                 dashboardAccountSummaryCards, dashboardCoreKpis, dashboardRiskAlerts, dashboardTodayActions, dashboardPortraitSections, dashboardDataSourceDiagnostics,

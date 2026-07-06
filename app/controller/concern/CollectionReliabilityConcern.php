@@ -115,8 +115,8 @@ trait CollectionReliabilityConcern
                 'raw_count' => $rawCount,
                 'safe_count' => $safeCount,
                 'filtered_count' => $filteredCount,
-                'message' => '宸叉姄鍒版惡绋嬫暟鎹紝浣嗘湭鍛戒腑褰撳墠闂ㄥ簵韬唤锛岀郴缁熷凡闃绘灞曠ず閿欏簵椋庨櫓鏁版嵁銆?',
-                'next_action' => '璇锋鏌ュ綋鍓嶆惡绋?Cookie 鏄惁涓哄綋鍓嶉棬搴楋紝鎴栧湪鎼虹▼閰嶇疆涓ˉ鍏呯湡瀹?hotelId/nodeId 鍚庨噸鏂版姄鍙栥€?',
+                'message' => '已抓到携程数据，但未命中当前门店身份，系统已阻止展示错店风险数据。',
+                'next_action' => '请检查当前携程 Cookie 是否为当前门店，或在携程配置中补充真实 hotelId/nodeId 后重新抓取。',
             ]);
         }
 

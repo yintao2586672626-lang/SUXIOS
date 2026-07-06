@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-06-05",
+  "updated_at": "2026-07-06",
   "scope": [
     "@github",
     "@openai-developers",
@@ -11,9 +11,9 @@
   "overall_status": "not_release_ready",
   "current_pr": {
     "number": 2,
-    "status": "open_draft",
-    "checks": "green_on_last_verified_head; rerun required after each pushed release-evidence commit",
-    "source_of_truth": "GitHub PR #2 current head"
+    "status": "merged_stale",
+    "checks": "green_on_historical_head; not sufficient for final release handoff",
+    "source_of_truth": "npm run review:release-external-state on 2026-07-06 showed PR #2 is MERGED; set RELEASE_PR_NUMBER to the actual final open release PR before handoff"
   },
   "release_readiness_check": {
     "command": "npm run review:release-readiness",
@@ -88,8 +88,8 @@
       ],
       "status": "open",
       "title": "PR handoff state is not closed",
-      "evidence": "PR #2 is open, mergeable, and green on the latest verified head, local worktree is clean, .git/index.lock is absent, and database/backups has no tracked files; PR #2 remains draft",
-      "close_condition": "mark PR #2 ready for review only after release-readiness passes and pass review:release-external-state on the final head"
+      "evidence": "Current review:release-external-state shows PR #2 is MERGED, mergeable is UNKNOWN, and the local worktree is dirty; .git/index.lock is absent and database/backups has no tracked files",
+      "close_condition": "after release-readiness passes, set RELEASE_PR_NUMBER to the actual open non-draft final release PR, keep the local worktree clean, and pass review:release-external-state on the final head"
     }
   ],
   "external_state_check": {
@@ -98,16 +98,14 @@
     "evidence_file_template": "docs/release_external_state_evidence.example.json",
     "result_file_template": "docs/release_external_state_result.example.json",
     "resolved": [
-      "GitHub PR checks are green on the latest inspected PR #2 head",
-      "PR #2 is mergeable on the latest collected head",
-      "PR #2 is open",
       "database/backups is not tracked by git",
       ".git/index.lock is absent",
-      "local worktree is clean",
       "local external-state evidence can be collected with npm run collect:release-external-state when Node child_process is blocked"
     ],
     "open_failures": [
-      "PR #2 is still draft"
+      "configured PR #2 is already merged and cannot be marked ready from draft",
+      "local worktree is not clean",
+      "final open release PR has not been selected through RELEASE_PR_NUMBER"
     ],
     "warnings": [
       "rerun after every PR update because GitHub state changes outside the repository",
@@ -119,16 +117,16 @@
       "plugin": "@github",
       "status": "partial",
       "resolved": [
-        "PR #2 is open and mergeable on the latest inspected head",
-        "current GitHub Actions verify checks passed on the latest inspected head",
+        "configured PR #2 has historical green checks but is no longer the final release PR",
         ".git/index.lock is absent",
-        "local worktree is clean",
         "database/backups has no git-tracked files",
         "CI runs PHPUnit, guards, functional-readiness review, non-security review, release-status contracts, composer audit and npm audit",
         "npm run collect:release-external-state can capture PR head, PR checks, merge state, and database/backups tracking evidence"
       ],
       "open": [
-        "PR #2 remains draft and is not ready for release handoff"
+        "PR #2 is already merged and stale for final handoff",
+        "local worktree is dirty",
+        "the final open release PR must be selected with RELEASE_PR_NUMBER after release-readiness passes"
       ]
     },
     {
@@ -191,6 +189,6 @@
     "real Figma/Canva/design-token handoff is present and passes review:release-design plus review:release-readiness",
     "OTA credential rotation attestation is provided and passes review:release-ota-credentials plus review:release-readiness",
     "formal Codex Security scan artifacts remain available on the final head and review:release-security-scan still passes",
-    "PR #2 is marked ready for review and local git state is clean or contains only reviewed intentional release-evidence changes"
+    "the configured final release PR is open, non-draft, mergeable, green, and local git state is clean or contains only reviewed intentional release-evidence changes"
   ]
 }

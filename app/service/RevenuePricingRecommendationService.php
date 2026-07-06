@@ -701,6 +701,7 @@ class RevenuePricingRecommendationService
             ->find();
 
         if ($forecast) {
+            $sourceMetadata = $this->manualInputMetadata($forecast->historical_data ?? null, 'manual_demand_forecast');
             return [
                 'data_status' => 'ok',
                 'source' => 'demand_forecasts',
@@ -710,6 +711,7 @@ class RevenuePricingRecommendationService
                 'confidence_score' => $this->toFloat($forecast->confidence_score ?? 0),
                 'event_type' => (int)($forecast->event_type ?? 0),
                 'is_event_driven' => (int)($forecast->is_event_driven ?? 0),
+                'source_metadata' => $sourceMetadata,
                 'data_gaps' => [],
             ];
         }
@@ -745,6 +747,7 @@ class RevenuePricingRecommendationService
         $sourceScope = 'room_type';
         $sourceDate = null;
         $prices = [];
+        $sourceMetadataRows = [];
         foreach ($lookups as $candidate) {
             $candidateRows = (array)($candidate['lookup']['rows'] ?? []);
             $candidatePrices = $this->competitorPrices($candidateRows);
@@ -753,6 +756,7 @@ class RevenuePricingRecommendationService
                 $sourceScope = (string)$candidate['source_scope'];
                 $sourceDate = (string)($candidate['lookup']['source_date'] ?? '');
                 $prices = $candidatePrices;
+                $sourceMetadataRows = $this->manualInputMetadataRows($candidateRows, 'competitor_data', 'manual_ctrip_competitor_price_sample');
                 break;
             }
         }
@@ -799,6 +803,7 @@ class RevenuePricingRecommendationService
             'max_price' => round(max($prices), 2),
             'gap_percent' => $currentPrice > 0 ? round(($avgPrice - $currentPrice) / $currentPrice * 100, 2) : null,
             'sample_count' => count($prices),
+            'source_metadata' => $sourceMetadataRows,
             'data_gaps' => $this->uniqueStrings($dataGaps),
         ];
     }
@@ -866,15 +871,73 @@ class RevenuePricingRecommendationService
     /**
      * @return array<string, mixed>
      */
+    private function manualInputMetadata(mixed $value, string $inputType): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        if ((string)($value['input_type'] ?? '') !== $inputType) {
+            return [];
+        }
+
+        return $value;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function manualInputMetadataFromList(mixed $value, string $inputType): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $direct = $this->manualInputMetadata($value, $inputType);
+        if ($direct !== []) {
+            return $direct;
+        }
+
+        foreach ($value as $item) {
+            $metadata = $this->manualInputMetadata($item, $inputType);
+            if ($metadata !== []) {
+                return $metadata;
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function manualInputMetadataRows(array $rows, string $field, string $inputType): array
+    {
+        $result = [];
+        foreach ($rows as $row) {
+            $metadata = $this->manualInputMetadata($row[$field] ?? null, $inputType);
+            if ($metadata !== []) {
+                $result[] = $metadata;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function inventorySignal(array $roomType, array $forecast): array
     {
         $roomCount = (int)($roomType['room_count'] ?? 0);
+        $sourceMetadata = $this->manualInputMetadataFromList($roomType['facilities'] ?? null, 'manual_ctrip_room_type_pricing_guard');
         if ($roomCount <= 0) {
             return [
                 'data_status' => 'missing',
                 'capacity' => null,
                 'predicted_demand' => $forecast['predicted_demand'] ?? null,
                 'utilization_percent' => null,
+                'source_metadata' => $sourceMetadata,
                 'data_gaps' => ['room_type_room_count_missing'],
             ];
         }
@@ -891,6 +954,7 @@ class RevenuePricingRecommendationService
                 'capacity' => $roomCount,
                 'predicted_demand' => null,
                 'utilization_percent' => null,
+                'source_metadata' => $sourceMetadata,
                 'data_gaps' => ['inventory_demand_signal_missing'],
             ];
         }
@@ -900,6 +964,7 @@ class RevenuePricingRecommendationService
             'capacity' => $roomCount,
             'predicted_demand' => round($predictedDemand, 2),
             'utilization_percent' => round(min(150.0, $predictedDemand / $roomCount * 100), 2),
+            'source_metadata' => $sourceMetadata,
             'data_gaps' => [],
         ];
     }

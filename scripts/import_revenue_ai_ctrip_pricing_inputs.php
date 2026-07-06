@@ -20,6 +20,8 @@ function ctrip_pricing_import_parse_args(array $argv): array
 {
     $options = [
         'file' => '',
+        'csv-file' => '',
+        'csv_file' => '',
         'date' => '',
         'business-date' => '',
         'business_date' => '',
@@ -33,6 +35,8 @@ function ctrip_pricing_import_parse_args(array $argv): array
         'validate-only' => false,
         'print-template' => false,
         'print-current-template' => false,
+        'build-json-from-csv' => false,
+        'build_json_from_csv' => false,
     ];
 
     foreach (array_slice($argv, 1) as $arg) {
@@ -64,6 +68,10 @@ function ctrip_pricing_import_parse_args(array $argv): array
             $options['print-current-template'] = true;
             continue;
         }
+        if ($arg === '--build-json-from-csv') {
+            $options['build-json-from-csv'] = true;
+            continue;
+        }
         if (!str_starts_with($arg, '--') || !str_contains($arg, '=')) {
             continue;
         }
@@ -71,7 +79,7 @@ function ctrip_pricing_import_parse_args(array $argv): array
         if (!array_key_exists($key, $options)) {
             continue;
         }
-        if (in_array($key, ['force', 'execute', 'generate', 'lint-only', 'validate-only', 'print-template', 'print-current-template'], true)) {
+        if (in_array($key, ['force', 'execute', 'generate', 'lint-only', 'validate-only', 'print-template', 'print-current-template', 'build-json-from-csv', 'build_json_from_csv'], true)) {
             $options[$key] = in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'on'], true);
         } else {
             $options[$key] = trim($value);
@@ -85,6 +93,12 @@ function ctrip_pricing_import_parse_args(array $argv): array
     }
     if ((string)$options['hotel-id'] === '' && (string)$options['hotel_id'] !== '') {
         $options['hotel-id'] = (string)$options['hotel_id'];
+    }
+    if ((string)$options['csv-file'] === '' && (string)$options['csv_file'] !== '') {
+        $options['csv-file'] = (string)$options['csv_file'];
+    }
+    if ((bool)$options['build_json_from_csv']) {
+        $options['build-json-from-csv'] = true;
     }
 
     $hotelId = null;
@@ -100,6 +114,7 @@ function ctrip_pricing_import_parse_args(array $argv): array
 
     return [
         'file' => (string)$options['file'],
+        'csv_file' => (string)$options['csv-file'],
         'date' => (string)$options['date'],
         'hotel_id' => $hotelId,
         'output' => (string)$options['output'],
@@ -110,6 +125,7 @@ function ctrip_pricing_import_parse_args(array $argv): array
         'validate_only' => (bool)$options['validate-only'],
         'print_template' => (bool)$options['print-template'],
         'print_current_template' => (bool)$options['print-current-template'],
+        'build_json_from_csv' => (bool)$options['build-json-from-csv'],
     ];
 }
 
@@ -169,6 +185,296 @@ function ctrip_pricing_import_write_json_output(string $output, array $payload, 
 }
 
 /**
+ * @return array<int, string>
+ */
+function ctrip_pricing_import_required_csv_headers(): array
+{
+    return [
+        'section',
+        'business_date',
+        'hotel_id',
+        'room_type_key',
+        'room_type_name',
+        'base_price',
+        'min_price',
+        'max_price',
+        'room_count',
+        'is_enabled',
+        'sort_order',
+        'forecast_date',
+        'predicted_occupancy',
+        'predicted_demand',
+        'confidence_score',
+        'forecast_method',
+        'analysis_date',
+        'competitor_name',
+        'our_price',
+        'competitor_price',
+        'ota_platform',
+        'confirmed_by',
+        'confirmed_at',
+        'room_type_source',
+        'price_guard_source',
+        'demand_forecast_source',
+        'competitor_price_source',
+        'source_note',
+    ];
+}
+
+/**
+ * @param array<int, string> $header
+ */
+function ctrip_pricing_import_assert_csv_header(array $header, string $file): void
+{
+    $normalized = array_values(array_filter($header, static fn(string $key): bool => $key !== ''));
+    $seen = [];
+    $duplicates = [];
+    foreach ($normalized as $key) {
+        if (isset($seen[$key]) && !in_array($key, $duplicates, true)) {
+            $duplicates[] = $key;
+        }
+        $seen[$key] = true;
+    }
+    if ($duplicates !== []) {
+        throw new InvalidArgumentException('CSV header has duplicate columns: ' . implode(', ', $duplicates));
+    }
+
+    $missing = array_values(array_diff(ctrip_pricing_import_required_csv_headers(), $normalized));
+    if ($missing !== []) {
+        throw new InvalidArgumentException(
+            'CSV header missing required columns: ' . implode(', ', $missing) . '. Use pricing-input-intake.csv from the operator bundle: ' . $file
+        );
+    }
+}
+
+/**
+ * @return array<int, array<string, string>>
+ */
+function ctrip_pricing_import_read_csv_rows(string $file): array
+{
+    if ($file === '') {
+        throw new InvalidArgumentException('Missing --csv-file=<operator-intake-csv-path>.');
+    }
+    if (!is_file($file)) {
+        throw new InvalidArgumentException('CSV input file does not exist: ' . $file);
+    }
+    $handle = fopen($file, 'rb');
+    if (!is_resource($handle)) {
+        throw new RuntimeException('Unable to open CSV input file: ' . $file);
+    }
+
+    $header = null;
+    $rows = [];
+    while (($cells = fgetcsv($handle)) !== false) {
+        if ($header === null) {
+            $header = array_map(
+                static fn(mixed $value): string => strtolower(trim((string)preg_replace('/^\xEF\xBB\xBF/', '', (string)$value))),
+                $cells
+            );
+            ctrip_pricing_import_assert_csv_header($header, $file);
+            continue;
+        }
+        $row = [];
+        foreach ($header as $index => $key) {
+            if ($key === '') {
+                continue;
+            }
+            $row[$key] = trim((string)($cells[$index] ?? ''));
+        }
+        if (implode('', $row) !== '') {
+            $rows[] = $row;
+        }
+    }
+    fclose($handle);
+
+    if ($header === null) {
+        throw new InvalidArgumentException('CSV input file is empty: ' . $file);
+    }
+
+    return $rows;
+}
+
+/**
+ * @return array<int, array{line:int,row:array<string,string>}>
+ */
+function ctrip_pricing_import_read_csv_rows_with_lines(string $file): array
+{
+    if ($file === '') {
+        throw new InvalidArgumentException('Missing --csv-file=<operator-intake-csv-path>.');
+    }
+    if (!is_file($file)) {
+        throw new InvalidArgumentException('CSV input file does not exist: ' . $file);
+    }
+    $handle = fopen($file, 'rb');
+    if (!is_resource($handle)) {
+        throw new RuntimeException('Unable to open CSV input file: ' . $file);
+    }
+
+    $header = null;
+    $rows = [];
+    $lineNumber = 0;
+    while (($cells = fgetcsv($handle)) !== false) {
+        $lineNumber++;
+        if ($header === null) {
+            $header = array_map(
+                static fn(mixed $value): string => strtolower(trim((string)preg_replace('/^\xEF\xBB\xBF/', '', (string)$value))),
+                $cells
+            );
+            ctrip_pricing_import_assert_csv_header($header, $file);
+            continue;
+        }
+        $row = [];
+        foreach ($header as $index => $key) {
+            if ($key === '') {
+                continue;
+            }
+            $row[$key] = trim((string)($cells[$index] ?? ''));
+        }
+        if (implode('', $row) !== '') {
+            $rows[] = [
+                'line' => $lineNumber,
+                'row' => $row,
+            ];
+        }
+    }
+    fclose($handle);
+
+    if ($header === null) {
+        throw new InvalidArgumentException('CSV input file is empty: ' . $file);
+    }
+
+    return $rows;
+}
+
+function ctrip_pricing_import_csv_section(array $row): string
+{
+    return strtolower(str_replace(['-', ' '], '_', ctrip_pricing_import_csv_value($row, 'section')));
+}
+
+function ctrip_pricing_import_csv_value(array $row, string $key): string
+{
+    return trim((string)($row[$key] ?? ''));
+}
+
+function ctrip_pricing_import_csv_number_or_string(array $row, string $key): mixed
+{
+    $value = ctrip_pricing_import_csv_value($row, $key);
+    if ($value === '') {
+        return '';
+    }
+    return is_numeric($value) ? (str_contains($value, '.') ? (float)$value : (int)$value) : $value;
+}
+
+function ctrip_pricing_import_csv_bool_or_string(array $row, string $key): mixed
+{
+    $value = strtolower(ctrip_pricing_import_csv_value($row, $key));
+    if ($value === '') {
+        return '';
+    }
+    if (in_array($value, ['1', 'true', 'yes', 'on'], true)) {
+        return 1;
+    }
+    if (in_array($value, ['0', 'false', 'no', 'off'], true)) {
+        return 0;
+    }
+    return $value;
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function ctrip_pricing_import_payload_from_csv(string $file, string $date, ?int $hotelId): array
+{
+    if ($date === '') {
+        throw new InvalidArgumentException('--date=YYYY-MM-DD is required when building JSON from CSV.');
+    }
+    if ($hotelId === null || $hotelId <= 0) {
+        throw new InvalidArgumentException('--hotel-id=<id> is required when building JSON from CSV.');
+    }
+
+    $payload = [
+        'business_date' => $date,
+        'hotel_id' => $hotelId,
+        'platform' => 'ctrip',
+        'input_scope' => 'manual_pricing_configuration',
+        'source_scope' => 'ctrip_ota_channel',
+        'evidence_status' => 'operator_provided',
+        'target_workflow' => 'ctrip_revenue_ai_pricing_generation',
+        'auto_write_ota' => false,
+        'operator_input_evidence' => [],
+        'room_types' => [],
+        'demand_forecasts' => [],
+        'competitor_price_samples' => [],
+    ];
+
+    foreach (ctrip_pricing_import_read_csv_rows($file) as $index => $row) {
+        $rowDate = ctrip_pricing_import_csv_value($row, 'business_date');
+        if ($rowDate !== '' && $rowDate !== $date) {
+            throw new InvalidArgumentException('CSV row ' . ($index + 2) . ' business_date does not match --date.');
+        }
+        $rowHotelId = ctrip_pricing_import_csv_value($row, 'hotel_id');
+        if ($rowHotelId !== '' && (!ctype_digit($rowHotelId) || (int)$rowHotelId !== $hotelId)) {
+            throw new InvalidArgumentException('CSV row ' . ($index + 2) . ' hotel_id does not match --hotel-id.');
+        }
+        $section = ctrip_pricing_import_csv_section($row);
+        if ($section === '') {
+            continue;
+        }
+        if ($section === 'evidence' || $section === 'operator_input_evidence') {
+            foreach (['confirmed_by', 'confirmed_at', 'room_type_source', 'price_guard_source', 'demand_forecast_source', 'competitor_price_source'] as $key) {
+                $payload['operator_input_evidence'][$key] = ctrip_pricing_import_csv_value($row, $key);
+            }
+            continue;
+        }
+        if ($section === 'room' || $section === 'room_type' || $section === 'room_types') {
+            $sortOrder = ctrip_pricing_import_csv_number_or_string($row, 'sort_order');
+            $payload['room_types'][] = [
+                'key' => ctrip_pricing_import_csv_value($row, 'room_type_key'),
+                'name' => ctrip_pricing_import_csv_value($row, 'room_type_name'),
+                'base_price' => ctrip_pricing_import_csv_number_or_string($row, 'base_price'),
+                'min_price' => ctrip_pricing_import_csv_number_or_string($row, 'min_price'),
+                'max_price' => ctrip_pricing_import_csv_number_or_string($row, 'max_price'),
+                'room_count' => ctrip_pricing_import_csv_number_or_string($row, 'room_count'),
+                'sort_order' => $sortOrder === '' ? count($payload['room_types']) + 1 : $sortOrder,
+                'is_enabled' => ctrip_pricing_import_csv_bool_or_string($row, 'is_enabled'),
+                'source_note' => ctrip_pricing_import_csv_value($row, 'source_note'),
+            ];
+            continue;
+        }
+        if ($section === 'demand' || $section === 'demand_forecast' || $section === 'demand_forecasts') {
+            $forecastMethod = ctrip_pricing_import_csv_number_or_string($row, 'forecast_method');
+            $payload['demand_forecasts'][] = [
+                'room_type_key' => ctrip_pricing_import_csv_value($row, 'room_type_key'),
+                'forecast_date' => ctrip_pricing_import_csv_value($row, 'forecast_date') ?: $date,
+                'predicted_occupancy' => ctrip_pricing_import_csv_number_or_string($row, 'predicted_occupancy'),
+                'predicted_demand' => ctrip_pricing_import_csv_number_or_string($row, 'predicted_demand'),
+                'confidence_score' => ctrip_pricing_import_csv_number_or_string($row, 'confidence_score'),
+                'forecast_method' => $forecastMethod === '' ? 3 : $forecastMethod,
+                'remark' => ctrip_pricing_import_csv_value($row, 'source_note') ?: 'operator-provided demand forecast for Ctrip pricing generation',
+                'source_note' => ctrip_pricing_import_csv_value($row, 'source_note'),
+            ];
+            continue;
+        }
+        if ($section === 'competitor' || $section === 'competitor_price' || $section === 'competitor_price_sample') {
+            $payload['competitor_price_samples'][] = [
+                'room_type_key' => ctrip_pricing_import_csv_value($row, 'room_type_key'),
+                'analysis_date' => ctrip_pricing_import_csv_value($row, 'analysis_date') ?: $date,
+                'competitor_name' => ctrip_pricing_import_csv_value($row, 'competitor_name'),
+                'our_price' => ctrip_pricing_import_csv_number_or_string($row, 'our_price'),
+                'competitor_price' => ctrip_pricing_import_csv_number_or_string($row, 'competitor_price'),
+                'ota_platform' => ctrip_pricing_import_csv_value($row, 'ota_platform') ?: 'ctrip',
+                'source_note' => ctrip_pricing_import_csv_value($row, 'source_note'),
+            ];
+            continue;
+        }
+
+        throw new InvalidArgumentException('Unsupported CSV section at row ' . ($index + 2) . ': ' . $section);
+    }
+
+    return $payload;
+}
+
+/**
  * @return array<string, mixed>
  */
 function ctrip_pricing_import_template(): array
@@ -179,6 +485,14 @@ function ctrip_pricing_import_template(): array
         'input_scope' => 'manual_pricing_configuration',
         'source_scope' => 'ctrip_ota_channel',
         'evidence_status' => 'operator_provided',
+        'operator_input_evidence' => [
+            'confirmed_by' => '<operator_name_or_role>',
+            'confirmed_at' => '<YYYY-MM-DD HH:MM:SS>',
+            'room_type_source' => '<source_for_ctrip_room_type_and_room_count>',
+            'price_guard_source' => '<source_for_base_min_max_price_guards>',
+            'demand_forecast_source' => '<source_for_target_date_demand_forecast>',
+            'competitor_price_source' => '<source_for_recent_7d_ctrip_competitor_prices>',
+        ],
         'room_types' => [
             [
                 'key' => 'room_type_key_from_operator',
@@ -189,6 +503,7 @@ function ctrip_pricing_import_template(): array
                 'room_count' => 10,
                 'sort_order' => 1,
                 'is_enabled' => 1,
+                'source_note' => '',
             ],
         ],
         'demand_forecasts' => [
@@ -199,6 +514,7 @@ function ctrip_pricing_import_template(): array
                 'confidence_score' => 0.86,
                 'forecast_method' => 3,
                 'remark' => 'operator-provided demand forecast for Ctrip pricing generation',
+                'source_note' => '',
             ],
         ],
         'competitor_price_samples' => [
@@ -208,6 +524,7 @@ function ctrip_pricing_import_template(): array
                 'our_price' => 300,
                 'competitor_price' => 360,
                 'ota_platform' => 'ctrip',
+                'source_note' => '',
             ],
         ],
     ];
@@ -278,6 +595,14 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
         'evidence_status' => 'operator_provided',
         'target_workflow' => 'ctrip_revenue_ai_pricing_generation',
         'auto_write_ota' => false,
+        'operator_input_evidence' => [
+            'confirmed_by' => '<operator_name_or_role>',
+            'confirmed_at' => '<YYYY-MM-DD HH:MM:SS>',
+            'room_type_source' => '<source_for_ctrip_room_type_and_room_count>',
+            'price_guard_source' => '<source_for_base_min_max_price_guards>',
+            'demand_forecast_source' => '<source_for_target_date_demand_forecast>',
+            'competitor_price_source' => '<source_for_recent_7d_ctrip_competitor_prices>',
+        ],
         'current_preflight' => [
             'status' => $preflight['status'] ?? null,
             'reason' => $preflight['reason'] ?? null,
@@ -293,6 +618,7 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
         ],
         'operator_fill_required' => [
             'Replace every <...> placeholder with operator-verified Ctrip OTA channel values before importing.',
+            'Fill operator_input_evidence so every room, price guard, demand forecast, and competitor price input has a human-verifiable source.',
             'Do not paste sample, guessed, fallback, or whole-hotel values into this Ctrip OTA channel input file.',
             'Run the dry-run import first; only use the execute script after the dry-run reports pricing_generation_preflight.create_candidate_count > 0.',
         ],
@@ -306,6 +632,7 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
                 'room_count' => '<available_room_count_number>',
                 'sort_order' => 1,
                 'is_enabled' => 1,
+                'source_note' => '',
             ],
         ],
         'demand_forecasts' => [
@@ -317,6 +644,7 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
                 'confidence_score' => '<forecast_confidence_0_to_1>',
                 'forecast_method' => 3,
                 'remark' => 'operator-provided demand forecast for Ctrip pricing generation',
+                'source_note' => '',
             ],
         ],
         'competitor_price_samples' => [
@@ -327,6 +655,7 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
                 'our_price' => '<our_ctrip_price_number>',
                 'competitor_price' => '<competitor_ctrip_price_number>',
                 'ota_platform' => 'ctrip',
+                'source_note' => '',
             ],
         ],
         'verification_commands' => [
@@ -334,6 +663,7 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
             'export_operator_bundle' => 'npm.cmd run export:revenue-ai-ctrip-operator-bundle -- --date=' . $businessDate . $hotelArg . ' --output-dir=<operator-bundle-dir>',
             'inspect_current_ota_evidence' => 'npm.cmd run inspect:revenue-ai-ctrip-pricing-sources -- --date=' . $businessDate . $hotelArg,
             'export_to_file' => 'npm.cmd run export:revenue-ai-ctrip-pricing-template -- --date=' . $businessDate . $hotelArg . ' --output=<draft-json-path>',
+            'build_from_csv' => 'npm.cmd run build:revenue-ai-ctrip-pricing-input-from-csv -- --csv-file=<operator-intake-csv-path> --output=<filled-json-path> --date=' . $businessDate . $hotelArg,
             'lint_only' => 'npm.cmd run lint:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $businessDate . $hotelArg,
             'dry_run' => 'npm.cmd run import:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $businessDate . $hotelArg,
             'validate_only' => 'npm.cmd run validate:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $businessDate . $hotelArg,
@@ -398,6 +728,25 @@ function ctrip_pricing_import_map(mixed $value): array
 function ctrip_pricing_import_list(mixed $value): array
 {
     return is_array($value) ? array_values($value) : [];
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function ctrip_pricing_import_generation_source_metadata(array $generationData): array
+{
+    $createdList = ctrip_pricing_import_list($generationData['list'] ?? []);
+    $firstSuggestion = ctrip_pricing_import_map($createdList[0] ?? []);
+    $signals = ctrip_pricing_import_map(ctrip_pricing_import_map($firstSuggestion['factors'] ?? [])['signals'] ?? []);
+    if ($signals === []) {
+        return [];
+    }
+
+    return [
+        'inventory' => ctrip_pricing_import_map(ctrip_pricing_import_map($signals['inventory'] ?? [])['source_metadata'] ?? []),
+        'demand_forecast' => ctrip_pricing_import_map(ctrip_pricing_import_map($signals['demand_forecast'] ?? [])['source_metadata'] ?? []),
+        'competitor' => ctrip_pricing_import_list(ctrip_pricing_import_map($signals['competitor'] ?? [])['source_metadata'] ?? []),
+    ];
 }
 
 /**
@@ -519,7 +868,7 @@ function ctrip_pricing_import_rows(mixed $rows, string $key): array
 function ctrip_pricing_import_assert_no_placeholder(mixed $value, string $path = '$'): void
 {
     if ($path === '$' && is_array($value)) {
-        foreach (['room_types', 'demand_forecasts', 'competitor_price_samples'] as $inputKey) {
+        foreach (['operator_input_evidence', 'room_types', 'demand_forecasts', 'competitor_price_samples'] as $inputKey) {
             if (array_key_exists($inputKey, $value)) {
                 ctrip_pricing_import_assert_no_placeholder($value[$inputKey], '$.' . $inputKey);
             }
@@ -549,7 +898,7 @@ function ctrip_pricing_import_placeholder_paths(mixed $value, string $path = '$'
 {
     if ($path === '$' && is_array($value)) {
         $paths = [];
-        foreach (['room_types', 'demand_forecasts', 'competitor_price_samples'] as $inputKey) {
+        foreach (['operator_input_evidence', 'room_types', 'demand_forecasts', 'competitor_price_samples'] as $inputKey) {
             if (array_key_exists($inputKey, $value)) {
                 array_push($paths, ...ctrip_pricing_import_placeholder_paths($value[$inputKey], '$.' . $inputKey));
             }
@@ -604,6 +953,42 @@ function ctrip_pricing_import_lint_number(array &$issues, array $row, string $pa
     }
 }
 
+/**
+ * @param array<int, array<string, mixed>> $issues
+ * @param array<string, mixed> $evidence
+ */
+function ctrip_pricing_import_lint_evidence_text(
+    array &$issues,
+    array $evidence,
+    string $key,
+    bool $allowVerifierOnly
+): void {
+    $path = '$.operator_input_evidence.' . $key;
+    $value = trim((string)($evidence[$key] ?? ''));
+    if ($value === '') {
+        ctrip_pricing_import_lint_issue($issues, 'operator_input_evidence_missing', $path, $key . ' is required for true Ctrip pricing input evidence.');
+        return;
+    }
+    if (!$allowVerifierOnly && preg_match('/\b(sample|guess|guessed|fallback|verifier|fixture)\b/i', $value) === 1) {
+        ctrip_pricing_import_lint_issue($issues, 'operator_input_evidence_forbidden', $path, $key . ' must name a real operator-verifiable source, not a sample, guess, fallback, or verifier fixture.');
+    }
+}
+
+/**
+ * @param array<int, array<string, mixed>> $issues
+ * @param array<string, mixed> $row
+ */
+function ctrip_pricing_import_lint_optional_source_note(array &$issues, array $row, string $path, bool $allowVerifierOnly): void
+{
+    $value = trim((string)($row['source_note'] ?? ''));
+    if ($value === '') {
+        return;
+    }
+    if (!$allowVerifierOnly && preg_match('/\b(sample|guess|guessed|fallback|verifier|fixture)\b/i', $value) === 1) {
+        ctrip_pricing_import_lint_issue($issues, 'source_note_forbidden', $path . '.source_note', 'source_note must describe a real operator-verifiable source, not a sample, guess, fallback, or verifier fixture.');
+    }
+}
+
 function ctrip_pricing_import_date(string $value): ?DateTimeImmutable
 {
     $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
@@ -646,6 +1031,25 @@ function ctrip_pricing_import_lint_payload(array $payload, string $optionDate): 
     }
     if (($payload['auto_write_ota'] ?? false) === true) {
         ctrip_pricing_import_lint_issue($issues, 'auto_write_ota_forbidden', '$.auto_write_ota', 'auto_write_ota must not be true for this importer.');
+    }
+    $allowVerifierOnlyEvidence = (string)($payload['evidence_status'] ?? '') === 'verifier_transaction_only';
+    $operatorEvidence = is_array($payload['operator_input_evidence'] ?? null) ? $payload['operator_input_evidence'] : [];
+    if ($operatorEvidence === []) {
+        ctrip_pricing_import_lint_issue($issues, 'operator_input_evidence_missing', '$.operator_input_evidence', 'operator_input_evidence is required before importing true Ctrip pricing inputs.');
+    }
+    foreach ([
+        'confirmed_by',
+        'confirmed_at',
+        'room_type_source',
+        'price_guard_source',
+        'demand_forecast_source',
+        'competitor_price_source',
+    ] as $evidenceKey) {
+        ctrip_pricing_import_lint_evidence_text($issues, $operatorEvidence, $evidenceKey, $allowVerifierOnlyEvidence);
+    }
+    $confirmedAt = trim((string)($operatorEvidence['confirmed_at'] ?? ''));
+    if ($confirmedAt !== '' && preg_match('/^\d{4}-\d{2}-\d{2}/', $confirmedAt) !== 1) {
+        ctrip_pricing_import_lint_issue($issues, 'operator_input_evidence_date_invalid', '$.operator_input_evidence.confirmed_at', 'confirmed_at must start with YYYY-MM-DD.');
     }
 
     $roomRows = is_array($payload['room_types'] ?? null) && array_values($payload['room_types']) === $payload['room_types']
@@ -697,6 +1101,7 @@ function ctrip_pricing_import_lint_payload(array $payload, string $optionDate): 
         if ((int)($row['is_enabled'] ?? 0) !== 1) {
             ctrip_pricing_import_lint_issue($issues, 'room_type_not_enabled', $path . '.is_enabled', 'room type must be enabled for Ctrip pricing generation.');
         }
+        ctrip_pricing_import_lint_optional_source_note($issues, $row, $path, $allowVerifierOnlyEvidence);
     }
 
     foreach ($forecastRows as $index => $row) {
@@ -716,6 +1121,7 @@ function ctrip_pricing_import_lint_payload(array $payload, string $optionDate): 
         ctrip_pricing_import_lint_number($issues, $row, $path, 'predicted_occupancy', 0, 100);
         ctrip_pricing_import_lint_number($issues, $row, $path, 'predicted_demand', 0.01);
         ctrip_pricing_import_lint_number($issues, $row, $path, 'confidence_score', 0, 1);
+        ctrip_pricing_import_lint_optional_source_note($issues, $row, $path, $allowVerifierOnlyEvidence);
     }
 
     foreach ($competitorRows as $index => $row) {
@@ -754,6 +1160,7 @@ function ctrip_pricing_import_lint_payload(array $payload, string $optionDate): 
         }
         ctrip_pricing_import_lint_number($issues, $row, $path, 'our_price', 0.01);
         ctrip_pricing_import_lint_number($issues, $row, $path, 'competitor_price', 0.01);
+        ctrip_pricing_import_lint_optional_source_note($issues, $row, $path, $allowVerifierOnlyEvidence);
     }
 
     $codes = array_values(array_unique(array_column($issues, 'code')));
@@ -768,6 +1175,235 @@ function ctrip_pricing_import_lint_payload(array $payload, string $optionDate): 
         'issue_codes' => $codes,
         'issues' => $issues,
     ];
+}
+
+/**
+ * @return array{evidence:?array{line:int,row:array<string,string>},room_types:array<int,array{line:int,row:array<string,string>}>,demand_forecasts:array<int,array{line:int,row:array<string,string>}>,competitor_price_samples:array<int,array{line:int,row:array<string,string>}>}
+ */
+function ctrip_pricing_import_csv_section_rows(string $file): array
+{
+    $sections = [
+        'evidence' => null,
+        'room_types' => [],
+        'demand_forecasts' => [],
+        'competitor_price_samples' => [],
+    ];
+    foreach (ctrip_pricing_import_read_csv_rows_with_lines($file) as $item) {
+        $section = ctrip_pricing_import_csv_section($item['row']);
+        if ($section === 'evidence' || $section === 'operator_input_evidence') {
+            $sections['evidence'] = $item;
+            continue;
+        }
+        if ($section === 'room' || $section === 'room_type' || $section === 'room_types') {
+            $sections['room_types'][] = $item;
+            continue;
+        }
+        if ($section === 'demand' || $section === 'demand_forecast' || $section === 'demand_forecasts') {
+            $sections['demand_forecasts'][] = $item;
+            continue;
+        }
+        if ($section === 'competitor' || $section === 'competitor_price' || $section === 'competitor_price_sample') {
+            $sections['competitor_price_samples'][] = $item;
+        }
+    }
+
+    return $sections;
+}
+
+function ctrip_pricing_import_csv_column_for_issue(array $issue, string $jsonField): string
+{
+    $code = (string)($issue['code'] ?? '');
+    if ($jsonField === 'key') {
+        return 'room_type_key';
+    }
+    if ($jsonField === 'name') {
+        return 'room_type_name';
+    }
+    if ($jsonField !== '') {
+        return $jsonField;
+    }
+    if ($code === 'room_type_key_missing' || $code === 'room_type_key_unmatched') {
+        return 'room_type_key';
+    }
+    if ($code === 'room_type_name_missing') {
+        return 'room_type_name';
+    }
+    if ($code === 'competitor_identity_missing') {
+        return 'competitor_name';
+    }
+
+    return '';
+}
+
+function ctrip_pricing_import_csv_fill_hint(array $issue, string $csvColumn): string
+{
+    $code = (string)($issue['code'] ?? '');
+    if ($code === 'operator_input_evidence_missing') {
+        return 'Fill this evidence field with a real operator-verifiable Ctrip source note.';
+    }
+    if ($code === 'numeric_field_missing') {
+        return 'Fill this CSV cell with a real numeric value from the operator-verified Ctrip input.';
+    }
+    if ($code === 'room_type_key_missing' || $code === 'room_type_key_unmatched') {
+        return 'Use the same real room_type_key across room_type, demand_forecast, and competitor_price_sample rows.';
+    }
+    if ($code === 'room_type_name_missing') {
+        return 'Fill the operator-verified Ctrip room type name.';
+    }
+    if ($code === 'room_type_not_enabled') {
+        return 'Set is_enabled to true/1 only after the operator confirms this Ctrip room type is active.';
+    }
+    if ($code === 'competitor_identity_missing') {
+        return 'Fill the real Ctrip competitor name or verified competitor identifier.';
+    }
+    if ($code === 'source_note_forbidden' || $code === 'operator_input_evidence_forbidden') {
+        return 'Replace sample, guessed, fallback, or verifier-only text with a real evidence reference.';
+    }
+    if ($csvColumn !== '') {
+        return 'Fill this CSV cell with real operator-verified Ctrip-only input.';
+    }
+
+    return 'Review this CSV row against the Ctrip-only operator intake rules.';
+}
+
+/**
+ * @param array<int, array<string, mixed>> $issues
+ * @return array<int, array<string, mixed>>
+ */
+function ctrip_pricing_import_csv_issue_map(string $file, array $issues): array
+{
+    $sections = ctrip_pricing_import_csv_section_rows($file);
+    $mapped = [];
+    foreach ($issues as $issue) {
+        $path = (string)($issue['path'] ?? '');
+        $sectionKey = '';
+        $rowIndex = null;
+        $jsonField = '';
+        if (preg_match('/^\$\.operator_input_evidence\.([A-Za-z0-9_]+)$/', $path, $matches) === 1) {
+            $sectionKey = 'evidence';
+            $jsonField = $matches[1];
+        } elseif (preg_match('/^\$\.room_types\.(\d+)(?:\.([A-Za-z0-9_]+))?$/', $path, $matches) === 1) {
+            $sectionKey = 'room_types';
+            $rowIndex = (int)$matches[1];
+            $jsonField = $matches[2] ?? '';
+        } elseif (preg_match('/^\$\.demand_forecasts\.(\d+)(?:\.([A-Za-z0-9_]+))?$/', $path, $matches) === 1) {
+            $sectionKey = 'demand_forecasts';
+            $rowIndex = (int)$matches[1];
+            $jsonField = $matches[2] ?? '';
+        } elseif (preg_match('/^\$\.competitor_price_samples\.(\d+)(?:\.([A-Za-z0-9_]+))?$/', $path, $matches) === 1) {
+            $sectionKey = 'competitor_price_samples';
+            $rowIndex = (int)$matches[1];
+            $jsonField = $matches[2] ?? '';
+        }
+
+        $rowInfo = null;
+        if ($sectionKey === 'evidence') {
+            $rowInfo = $sections['evidence'];
+        } elseif ($sectionKey !== '' && $rowIndex !== null) {
+            $rowInfo = $sections[$sectionKey][$rowIndex] ?? null;
+        }
+        $csvColumn = ctrip_pricing_import_csv_column_for_issue($issue, $jsonField);
+        $mapped[] = [
+            'code' => (string)($issue['code'] ?? ''),
+            'json_path' => $path,
+            'csv_row_number' => is_array($rowInfo) ? $rowInfo['line'] : null,
+            'csv_section' => $sectionKey,
+            'csv_column' => $csvColumn,
+            'message' => (string)($issue['message'] ?? ''),
+            'fill_hint' => ctrip_pricing_import_csv_fill_hint($issue, $csvColumn),
+            'source_policy' => 'csv_issue_map_no_values_no_import',
+        ];
+    }
+
+    return $mapped;
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function ctrip_pricing_import_metadata(array $payload, string $fileHash, string $mode, string $inputType, array $row = []): array
+{
+    $metadata = [
+        'input_scope' => 'manual_pricing_configuration',
+        'source_scope' => 'ctrip_ota_channel',
+        'target_workflow' => 'ctrip_revenue_ai_pricing_generation',
+        'evidence_status' => (string)($payload['evidence_status'] ?? 'operator_provided'),
+        'auto_write_ota' => false,
+        'input_type' => $inputType,
+        'operator_input_evidence' => ctrip_pricing_import_map($payload['operator_input_evidence'] ?? []),
+        'source_file_sha256' => $fileHash,
+        'import_mode' => $mode,
+        'importer' => 'scripts/import_revenue_ai_ctrip_pricing_inputs.php',
+    ];
+    $sourceNote = ctrip_pricing_import_string($row, 'source_note');
+    if ($sourceNote !== '') {
+        $metadata['operator_row_source_note'] = $sourceNote;
+    }
+
+    return $metadata;
+}
+
+/**
+ * @return array<int, mixed>
+ */
+function ctrip_pricing_import_facilities_with_metadata(mixed $facilities, array $metadata): array
+{
+    $items = is_array($facilities) ? array_values($facilities) : [];
+    $items[] = $metadata;
+
+    return $items;
+}
+
+/**
+ * @param array<string, array<int, array<string, mixed>>> $imported
+ */
+function ctrip_pricing_import_saved_metadata_ready(array $imported, string $fileHash): bool
+{
+    foreach ($imported['room_types'] ?? [] as $row) {
+        $roomType = RoomType::find((int)($row['id'] ?? 0));
+        $facilities = is_array($roomType?->facilities ?? null) ? $roomType->facilities : [];
+        $matched = false;
+        foreach ($facilities as $item) {
+            if (
+                is_array($item)
+                && (string)($item['input_type'] ?? '') === 'manual_ctrip_room_type_pricing_guard'
+                && (string)($item['source_file_sha256'] ?? '') === $fileHash
+                && is_array($item['operator_input_evidence'] ?? null)
+            ) {
+                $matched = true;
+                break;
+            }
+        }
+        if (!$matched) {
+            return false;
+        }
+    }
+
+    foreach ($imported['demand_forecasts'] ?? [] as $row) {
+        $forecast = DemandForecast::find((int)($row['id'] ?? 0));
+        $historical = is_array($forecast?->historical_data ?? null) ? $forecast->historical_data : [];
+        if (
+            (string)($historical['input_type'] ?? '') !== 'manual_demand_forecast'
+            || (string)($historical['source_file_sha256'] ?? '') !== $fileHash
+            || !is_array($historical['operator_input_evidence'] ?? null)
+        ) {
+            return false;
+        }
+    }
+
+    foreach ($imported['competitor_price_samples'] ?? [] as $row) {
+        $sample = CompetitorAnalysis::find((int)($row['id'] ?? 0));
+        $competitorData = is_array($sample?->competitor_data ?? null) ? $sample->competitor_data : [];
+        if (
+            (string)($competitorData['input_type'] ?? '') !== 'manual_ctrip_competitor_price_sample'
+            || (string)($competitorData['source_file_sha256'] ?? '') !== $fileHash
+            || !is_array($competitorData['operator_input_evidence'] ?? null)
+        ) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -853,6 +1489,49 @@ try {
             'template' => $options['output'] === '' ? $template : null,
         ], 0);
     }
+    if ($options['build_json_from_csv']) {
+        if ($options['execute'] || $options['generate'] || $options['lint_only'] || $options['validate_only'] || $options['print_template'] || $options['print_current_template']) {
+            throw new InvalidArgumentException('--build-json-from-csv cannot be combined with execute, generate, lint, validate, or template modes.');
+        }
+        $payload = ctrip_pricing_import_payload_from_csv($options['csv_file'], $options['date'], $options['hotel_id']);
+        $lint = ctrip_pricing_import_lint_payload($payload, $options['date']);
+        $csvIssueMap = $lint['status'] === 'passed'
+            ? []
+            : ctrip_pricing_import_csv_issue_map($options['csv_file'], ctrip_pricing_import_list($lint['issues'] ?? []));
+        $outputFile = [];
+        if ($lint['status'] === 'passed') {
+            $outputFile = ctrip_pricing_import_write_json_output($options['output'], $payload, $options['force']);
+        }
+        ctrip_pricing_import_finish([
+            'status' => $lint['status'],
+            'mode' => 'build_json_from_csv',
+            'scope' => [
+                'business_date' => $payload['business_date'],
+                'platform' => 'ctrip',
+                'source_scope' => $payload['source_scope'],
+                'source_policy' => 'operator_provided_ctrip_pricing_csv_to_json_no_db',
+                'database_written' => false,
+                'auto_write_ota' => false,
+            ],
+            'summary' => [
+                'csv_file' => $options['csv_file'],
+                'output_file' => $outputFile === [] ? null : $outputFile,
+                'room_type_rows' => count($payload['room_types']),
+                'demand_forecast_rows' => count($payload['demand_forecasts']),
+                'competitor_sample_rows' => count($payload['competitor_price_samples']),
+                'issue_count' => $lint['issue_count'],
+                'issue_codes' => $lint['issue_codes'],
+                'csv_issue_map_count' => count($csvIssueMap),
+                'csv_issue_map_policy' => 'csv_issue_map_no_values_no_import',
+                'next_action' => $lint['status'] === 'passed'
+                    ? 'Run lint_only, validate_only, dry_run, and pre_execute_gate on the generated pricing-input-fillable.json before execute.'
+                    : 'Fill every required CSV field with real operator-verified Ctrip OTA channel values, then rebuild JSON.',
+            ],
+            'issues' => $lint['issues'],
+            'csv_issue_map' => $csvIssueMap,
+            'payload' => $options['output'] === '' && $lint['status'] === 'passed' ? $payload : null,
+        ], $lint['status'] === 'passed' ? 0 : 1);
+    }
 
     $payload = ctrip_pricing_import_load_payload($options['file']);
     if ($options['lint_only']) {
@@ -883,6 +1562,10 @@ try {
     }
 
     ctrip_pricing_import_assert_no_placeholder($payload);
+    $lint = ctrip_pricing_import_lint_payload($payload, $options['date']);
+    if ($lint['status'] !== 'passed') {
+        throw new InvalidArgumentException('Input lint failed: ' . implode(', ', array_map('strval', $lint['issue_codes'] ?? [])));
+    }
     if ($options['validate_only'] && ($options['execute'] || $options['generate'])) {
         throw new InvalidArgumentException('--validate-only cannot be combined with --execute or --generate.');
     }
@@ -945,12 +1628,21 @@ try {
             $roomPayload = $row;
             $roomPayload['hotel_id'] = $hotelId;
             $roomName = ctrip_pricing_import_string($roomPayload, 'name');
+            $existingRoomType = null;
             if ((int)($roomPayload['id'] ?? 0) <= 0 && $roomName !== '') {
                 $existing = RoomType::where('hotel_id', $hotelId)->where('name', $roomName)->find();
                 if ($existing) {
+                    $existingRoomType = $existing;
                     $roomPayload['id'] = (int)$existing->id;
                 }
             }
+            $facilitySource = array_key_exists('facilities', $roomPayload)
+                ? $roomPayload['facilities']
+                : ($existingRoomType?->facilities ?? []);
+            $roomPayload['facilities'] = ctrip_pricing_import_facilities_with_metadata(
+                $facilitySource,
+                ctrip_pricing_import_metadata($payload, $fileHash, $mode, 'manual_ctrip_room_type_pricing_guard', $row)
+            );
             $app->request->withPost($roomPayload);
             $data = ctrip_pricing_import_expect_success((new Agent($app))->saveRoomType(), 'save_room_type');
             $roomType = ctrip_pricing_import_map($data['room_type'] ?? []);
@@ -985,11 +1677,7 @@ try {
             $forecastPayload['room_type_id'] = $roomTypeId;
             $forecastPayload['historical_data'] = array_merge(
                 ctrip_pricing_import_map($row['historical_data'] ?? []),
-                [
-                    'source_file_sha256' => $fileHash,
-                    'import_mode' => $mode,
-                    'importer' => 'scripts/import_revenue_ai_ctrip_pricing_inputs.php',
-                ]
+                ctrip_pricing_import_metadata($payload, $fileHash, $mode, 'manual_demand_forecast', $row)
             );
             $app->request->withPost($forecastPayload);
             $data = ctrip_pricing_import_expect_success((new Agent($app))->createForecast(), 'create_forecast');
@@ -1013,11 +1701,7 @@ try {
             $competitorPayload['ota_platform'] = CompetitorAnalysis::PLATFORM_CTRIP;
             $competitorPayload['competitor_data'] = array_merge(
                 ctrip_pricing_import_map($row['competitor_data'] ?? []),
-                [
-                    'source_file_sha256' => $fileHash,
-                    'import_mode' => $mode,
-                    'importer' => 'scripts/import_revenue_ai_ctrip_pricing_inputs.php',
-                ]
+                ctrip_pricing_import_metadata($payload, $fileHash, $mode, 'manual_ctrip_competitor_price_sample', $row)
             );
             if (isset($row['competitor_name'])) {
                 $competitorPayload['competitor_data']['competitor_name'] = (string)$row['competitor_name'];
@@ -1079,6 +1763,17 @@ try {
             count($imported['competitor_price_samples']) === count($competitorRows),
             'Ctrip competitor price samples are saved through the Agent endpoint.',
             ['count' => count($imported['competitor_price_samples'])]
+        );
+        ctrip_pricing_import_check(
+            $checks,
+            'operator_input_evidence_attached',
+            ctrip_pricing_import_saved_metadata_ready($imported, $fileHash),
+            'Operator input evidence is attached to saved room, demand forecast, and Ctrip competitor sample records.',
+            [
+                'room_type_rows' => count($imported['room_types']),
+                'demand_forecast_rows' => count($imported['demand_forecasts']),
+                'competitor_sample_rows' => count($imported['competitor_price_samples']),
+            ]
         );
         ctrip_pricing_import_check(
             $checks,
@@ -1196,6 +1891,7 @@ try {
                 'source_channels' => $generationData['source_channels'] ?? null,
                 'auto_write_ota' => $generationData['auto_write_ota'] ?? null,
                 'ai_review_gate' => $generationData['ai_review_gate'] ?? null,
+                'source_metadata' => ctrip_pricing_import_generation_source_metadata($generationData),
             ],
             'next_action' => $options['execute']
                 ? ($options['generate']

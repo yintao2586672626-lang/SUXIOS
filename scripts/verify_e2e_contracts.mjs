@@ -156,7 +156,7 @@ requireText('public/index.html', "const dualOtaCtripTrafficPendingNote = '凌晨
 requireText('public/index.html', "return dualOtaMetric(label, '待更新', dualOtaCtripTrafficPendingNote, 'warning');", 'AI workbench renders missing Ctrip traffic as pending during the early-morning window');
 requireText('public/index.html', 'const dualOtaRowIsPlatformSelf = (row = {}) => {', 'AI workbench can identify the Ctrip platform self row when the OTA detail name differs from the system hotel name');
 requireText('public/index.html', 'return rows.find(dualOtaRowMatchesSelectedHotel) || rows.find(dualOtaRowIsPlatformSelf) || null;', 'AI workbench uses the Ctrip platform self row after explicit current-hotel matching fails');
-requireText('public/index.html', "dualOtaMissingMetric('销售额', '当前门店携程明细行未返回')", 'AI workbench current-store Ctrip column keeps the competitor-average metric shape when the self row is missing');
+requireText('public/index.html', "dualOtaMissingCtripMetric('销售额', '当前门店携程明细行未返回')", 'AI workbench current-store Ctrip column keeps the competitor-average metric shape and explains the missing range when the self row is missing');
 requireText('public/index.html', "dualOtaMetric('竞争力指数', sciValue, '当前门店携程综合竞争力'", 'AI workbench current-store Ctrip column shows own competitive index in the same slot as competitor average');
 requireText('public/index.html', "dualOtaMissingMetric('营收', '当前门店美团明细行未返回')", 'AI workbench current-store Meituan column keeps the competitor-average metric shape when the self row is missing');
 requireText('public/index.html', "dualOtaMetric('浏览→支付', payConversion, '当前门店美团支付转化'", 'AI workbench current-store Meituan column shows own conversion in the same slot as competitor average');
@@ -167,6 +167,9 @@ requireText('public/index.html', 'const dualOtaCompareEnabled = ref(false);', 'A
 requireText('public/index.html', '<small v-if="dualOtaCompareEnabled" :title="metric.note">{{ dualOtaMetricComparisonText(metric) }}</small>', 'AI workbench system metric footnotes show previous-period comparison only when enabled');
 requireText('public/index.html', '<small v-else class="dual-ota-system-metric-spacer" aria-hidden="true">&nbsp;</small>', 'AI workbench keeps metric card layout stable when comparison is disabled');
 requireText('public/index.html', 'const toggleDualOtaCompare = () => {', 'AI workbench exposes a local comparison display toggle');
+requireText('public/index.html', "if ((currentText === '未返回' || currentText === '待更新') && metric.note) {", 'AI workbench comparison line keeps missing-data reasons visible for missing current metrics');
+requireText('public/index.html', "const dualOtaCtripMissingReason = (fallback = '当前携程指标未返回') => {", 'AI workbench explains Ctrip missing metrics by selected range and target date');
+requireText('public/index.html', "return latestDate && latestDate !== expectedDate", 'AI workbench Ctrip missing reason includes the latest available Ctrip date when target date is absent');
 requireText('public/style.css', 'grid-template-columns: minmax(260px, 1fr) minmax(420px, 500px);', 'AI workbench keeps current-hotel selector and platform controls in a stable two-column strip');
 requireText('public/style.css', 'grid-template-columns: repeat(4, minmax(0, 1fr)) !important;', 'AI workbench keeps comparison switch and three platform buttons on one row');
 requireText('public/style.css', 'main[data-current-page="ai-workbench"] .dual-ota-store-scope-list > *', 'AI workbench keeps comparison switch and platform buttons stretched inside the four-column row');
@@ -178,6 +181,12 @@ requireText('public/index.html', "const res = await request(`/online-data/ctrip/
 requireText('public/index.html', "const summaryRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading Meituan competitor summary');
 requireText('public/index.html', "if (summaryRange) params.append('range', summaryRange);", 'AI workbench appends selected range to Meituan competitor summary request');
 requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true, force: true });', 'AI workbench refreshes Meituan competitor summary after changing top range');
+requireText('public/index.html', "const dualOtaMeituanComparisonRows = () => dualOtaComparisonRows(competitorSummary.value?.comparison || {});", 'AI workbench can reuse previous-period Meituan display rows when comparison summary metrics omit derived values');
+requireText('public/index.html', "const dualOtaMeituanMetricTotals = (metrics = {}, rows = []) => {", 'AI workbench centralizes Meituan summary-first row-backed metric totals');
+requireText('public/index.html', "const totalRevenue = dualOtaFiniteNumber(metrics.totalRoomRevenue) || dualOtaRowsMetricTotal(rowList, ['roomRevenue', 'sales']);", 'AI workbench Meituan comparison falls back to display rows for derived revenue');
+requireText('public/index.html', "return dualOtaExistingMetricText(row?.[textField]) ? value : 0;", 'AI workbench row-backed Meituan totals honor backend displayable metric status');
+requireText('public/index.html', "const previousTotals = dualOtaMeituanMetricTotals(previousMetrics, previousRows);", 'AI workbench Meituan average comparison uses previous-period row-backed metric totals');
+requireText('public/index.html', "const previousMeituanTotals = dualOtaMeituanMetricTotals(previousMeituanMetrics, previousMeituanRows);", 'AI workbench combined comparison uses previous-period Meituan row-backed metric totals');
 requireText('public/index.html', 'class="dual-ota-context-select dual-ota-hotel-select"', 'AI workbench current-hotel select uses the dedicated readable select styling');
 requireText('public/style.css', 'text-align-last: center;', 'AI workbench current-hotel select centers the displayed selected store');
 requireText('public/index.html', 'const refreshDualOtaWorkbenchData = async ({ allowFetch = false, silent = true } = {}) => {', 'AI workbench has one store/range/platform refresh entrypoint');
@@ -562,9 +571,14 @@ requireText('public/index.html', "review_collection_policy: 'explicit_review_mat
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'ctrip_comment_browser_capture.mjs', 'Ctrip review order automation can run dedicated authorized review capture');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'explicit_review_match_authorized_profile_or_existing_cache', 'Ctrip review order automation reports the explicit review-match collection policy');
 requireText('public/index.html', '携程点评-订单匹配台', 'Ctrip review order main UI exposes the matching workbench');
-requireText('public/index.html', '点击单条点评直接查订单；主流程只展示订单、客人和状态。', 'Ctrip review order main UI keeps matching details hidden');
-requireText('public/index.html', '点评订单查询', 'Ctrip review order main UI renders review lookup cards');
+requireText('public/index.html', '单条点评只做规则校验和边界提示；不反查匿名用户身份。', 'Ctrip review order main UI keeps matching details hidden');
+requireText('public/index.html', '点评治理结果', 'Ctrip review order main UI renders review governance cards');
 requireText('public/index.html', '@click="lookupCtripReviewOrderMatch(sample)"', 'Ctrip review order main UI can look up one review card directly');
+requireText('public/index.html', 'governance_rule_checks', 'Ctrip review order main UI renders governance rule checks from policy responses');
+requireText('app/service/OtaReviewRiskPolicyService.php', 'expired_90d', 'Ctrip review governance exposes the 90-day expiry rule');
+requireText('app/service/OtaReviewRiskPolicyService.php', 'third_party_display_only', 'Ctrip review governance exposes third-party display-only status');
+requireText('app/service/OtaReviewRiskPolicyService.php', 'privacy_not_queryable', 'Ctrip review governance exposes privacy-not-queryable status');
+requireText('app/service/OtaReviewRiskPolicyService.php', 'reply_contains_contact', 'Ctrip review governance exposes reply contact validation status');
 requireNoText('public/index.html', 'JSON.stringify(ctripReviewMatchResult, null, 2)', 'Ctrip review order main UI must not expose raw match JSON');
 requireText('public/index.html', "ctripReviewMatchResult.data.missing_sources.join(' / ')", 'Ctrip review order main UI reports missing sources directly');
 requireText('public/index.html', '<select v-model="ctripReviewMatchForm.systemHotelId"', 'Ctrip review order main UI keeps hotel scope selectable');
@@ -710,8 +724,8 @@ requireText('public/index.html', 'autoFetchStatusResultCache.set(requestKey, { e
 requireText('public/index.html', 'resetAutoFetchStatusResultCache();\n                return loadAutoFetchStatus({ detail: false });', 'scheduled auto-fetch status refresh clears the recent result cache before explicit refresh');
 requireText('public/index.html', '@change="schedulePlatformAutoFetchPanelLoad({ force: true, delayMs: 80 })"', 'platform auto-fetch hotel switches use the deferred non-blocking panel scheduler');
 requireNoText('public/index.html', '@change="loadAutoFetchStatus"', 'platform auto-fetch hotel switches must not directly trigger full status loading');
-requireText('public/index.html', "loadAutoFetchStatus({ detail: normalizedMode === 'full' })", 'data-health light refresh uses light auto-fetch status');
-requireText('public/index.html', "loadCollectionReliability('full')", 'data-health collection-reliability diagnostics run only in full mode');
+requireText('public/data-health-static.js', "requireDataHealthPanelLoader(loadAutoFetchStatus, 'loadAutoFetchStatus')({ detail: isFull })", 'data-health light refresh uses light auto-fetch status');
+requireText('public/data-health-static.js', "requireDataHealthPanelLoader(loadCollectionReliability, 'loadCollectionReliability')('full')", 'data-health collection-reliability diagnostics run only in full mode');
 requireNoText('public/index.html', 'loadCollectionReliability(normalizedMode)', 'data-health light first paint must not run collection-reliability');
 requireText('public/index.html', 'const platformProfileStatusRequestPromises = new Map();', 'platform profile status requests are deduplicated by hotel');
 requireText('public/index.html', 'ctrip_auto_fetch_mode: autoFetchMode.value', 'platform auto-fetch keeps Ctrip on the selected fast mode by default');
@@ -872,14 +886,16 @@ requireOnlineDataControllerText("'detail_loaded' => false", 'backend auto-fetch 
     detail: 'config and browser-profile source writes must invalidate the short light-status read caches',
   });
 }
-requireText('public/index.html', 'const buildDataHealthPanelJobs = (normalizedMode) =>', 'entry builds data-health panel jobs outside the main loader');
+requireText('public/data-health-static.js', 'const buildDataHealthPanelRefreshJobs = ({', 'entry delegates data-health panel job composition to the static helper');
+requireText('public/index.html', "const buildDataHealthPanelRefreshJobs = requireDataHealthStatic('buildDataHealthPanelRefreshJobs');", 'entry loads extracted data-health panel job composition helper');
 requireText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () =>', 'entry defers non-core light data-health diagnostics through a helper');
-requireText('public/index.html', "return schedulePostFetchRefresh('data-health-light-diagnostics', () => {", 'data-health light diagnostics use the shared deduplicated post-fetch scheduler');
-requireText('public/index.html', "if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') return null;", 'data-health light diagnostics do not run after the user leaves the data-health tab');
+requireText('public/data-health-static.js', "return requireDataHealthPanelLoader(schedulePostFetchRefresh, 'schedulePostFetchRefresh')('data-health-light-diagnostics', () => {", 'data-health light diagnostics use the shared deduplicated post-fetch scheduler');
+requireText('public/index.html', "shouldRun: () => currentPage.value === 'online-data' && onlineDataTab.value === 'data-health'", 'data-health light diagnostics do not run after the user leaves the data-health tab');
 requireNoText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () => {\n                deferUiTask(() => Promise.allSettled([', 'data-health light diagnostics must not use a bare deferred task without tab guards');
-requireText('public/index.html', "const initialHotelId = String(getAutoFetchHotelId() || '');\n                const initialCacheKey = dataHealthLightCacheKey(initialHotelId);", 'data-health light cache is checked before target hotel sync');
+requireText('public/index.html', "const initialHotelId = String(getAutoFetchHotelId() || '');", 'data-health light cache records target hotel before sync');
+requireText('public/index.html', 'const initialCacheKey = dataHealthLightCacheKey(initialHotelId);', 'data-health light cache is checked before target hotel sync');
 requireText('public/index.html', "if (normalizedMode === 'light' && !force && cacheKey !== initialCacheKey) {", 'data-health light cache is rechecked only when target hotel sync changes the cache key');
-requireText('public/index.html', 'const jobs = buildDataHealthPanelJobs(normalizedMode);', 'data-health panel loader uses extracted job composition');
+requireText('public/index.html', 'const jobs = buildDataHealthPanelRefreshJobs({', 'data-health panel loader uses extracted job composition');
 requireNoText('public/index.html', 'scheduleDataHealthLightDiagnostics();', 'light data-health first paint must not auto-run non-core diagnostics');
 requireNoText('public/index.html', 'loadCookieStatus(),\n                    loadCollectionReliability(normalizedMode)', 'data-health panel must not call cookie-status and collection-reliability in the same first-paint group');
 requireText('public/index.html', "if (!options.backendOnly) {\n                        scheduleDataHealthPanelRefresh('light');\n                    }\n                    await loadBackendGlobalNotifications();", 'global notification refresh schedules data-health status without waiting on it');
@@ -1257,7 +1273,7 @@ requireNoText('public/index.html', "error.name === 'AbortError'", 'knowledge imp
     label: 'hotel config helpers preserve formatting semantics',
     ok: helpers.getHotelCodeNumber('HOTEL042') === 42
       && helpers.getHotelCodeNumber('manual') === 0
-      && helpers.formatHotelCode(7) === 'HOTEL007'
+      && helpers.formatHotelCode(7) === '0007'
       && helpers.normalizeOtaConfigHotelName(' 天成美团数据源 ') === '天成'
       && helpers.normalizeOtaConfigHotelName('天成携程数据源') === '天成'
       && helpers.formatHotelBindingDate('2026-06-16T09:30:45') === '2026-06-16 09:30'

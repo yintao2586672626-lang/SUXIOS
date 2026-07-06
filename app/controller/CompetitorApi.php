@@ -13,6 +13,16 @@ class CompetitorApi extends Base
 {
     private const TASK_TOKEN_ENV = 'COMPETITOR_TASK_TOKEN';
     private const REPORT_TOKEN_ENV = 'COMPETITOR_REPORT_TOKEN';
+    private const SCREENSHOT_MAX_BYTES = 2 * 1024 * 1024;
+    private const SCREENSHOT_MAX_BASE64_CHARS = 2796404;
+    private const SCREENSHOT_MAX_WIDTH = 8000;
+    private const SCREENSHOT_MAX_HEIGHT = 8000;
+    private const SCREENSHOT_MAX_PIXELS = 20000000;
+    private const SCREENSHOT_ALLOWED_MIME_EXTENSIONS = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+    ];
 
     public function task(): Response
     {
@@ -163,7 +173,18 @@ class CompetitorApi extends Base
 
         $screenshotPath = '';
         if ($base64 !== '') {
-            $screenshotPath = $this->saveBase64Image($base64);
+            try {
+                $screenshotPath = $this->saveBase64Image($base64);
+            } catch (\InvalidArgumentException $e) {
+                OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 截图格式不合规', null, $hotelId, 'invalid_report_screenshot', [
+                    'audit_type' => 'operation',
+                    'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                    'platform' => $this->sanitizeExternalAuditText($platform),
+                    'store_id' => $storeId,
+                ]);
+                $status = $e->getCode() >= 400 && $e->getCode() <= 599 ? $e->getCode() : 400;
+                return $this->apiError($e->getMessage(), $status);
+            }
         }
 
         $log = new CompetitorPriceLog();
@@ -283,23 +304,80 @@ class CompetitorApi extends Base
 
     private function saveBase64Image(string $base64): string
     {
-        $data = $base64;
-        if (strpos($data, ',') !== false) {
-            $data = explode(',', $data, 2)[1];
-        }
+        [$data, $declaredMime] = $this->normalizeBase64ImagePayload($base64);
         $binary = base64_decode($data, true);
         if ($binary === false) {
-            return '';
+            throw new \InvalidArgumentException('截图base64格式错误', 400);
         }
+
+        if (strlen($binary) > self::SCREENSHOT_MAX_BYTES) {
+            throw new \InvalidArgumentException('截图文件超过2MB', 413);
+        }
+
+        $imageInfo = @getimagesizefromstring($binary);
+        if ($imageInfo === false || empty($imageInfo['mime'])) {
+            throw new \InvalidArgumentException('截图必须是有效图片', 400);
+        }
+
+        $detectedMime = strtolower((string)$imageInfo['mime']);
+        if (!isset(self::SCREENSHOT_ALLOWED_MIME_EXTENSIONS[$detectedMime])) {
+            throw new \InvalidArgumentException('截图仅支持JPEG、PNG或WEBP格式', 415);
+        }
+
+        if ($declaredMime !== '' && $declaredMime !== $detectedMime) {
+            throw new \InvalidArgumentException('截图声明格式与实际图片格式不一致', 400);
+        }
+
+        $width = (int)($imageInfo[0] ?? 0);
+        $height = (int)($imageInfo[1] ?? 0);
+        if ($width <= 0 || $height <= 0 || $width > self::SCREENSHOT_MAX_WIDTH || $height > self::SCREENSHOT_MAX_HEIGHT || ($width * $height) > self::SCREENSHOT_MAX_PIXELS) {
+            throw new \InvalidArgumentException('截图尺寸超出限制', 413);
+        }
+
         $datePath = date('Ymd');
         $dir = runtime_path() . 'upload/price/' . $datePath . '/';
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
-        $filename = uniqid('price_', true) . '.jpg';
+        $filename = uniqid('price_', true) . '.' . self::SCREENSHOT_ALLOWED_MIME_EXTENSIONS[$detectedMime];
         $path = $dir . $filename;
-        file_put_contents($path, $binary);
+        if (file_put_contents($path, $binary) === false) {
+            throw new \InvalidArgumentException('截图保存失败', 500);
+        }
 
         return 'runtime/upload/price/' . $datePath . '/' . $filename;
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function normalizeBase64ImagePayload(string $base64): array
+    {
+        $input = trim($base64);
+        if ($input === '') {
+            throw new \InvalidArgumentException('截图不能为空', 400);
+        }
+
+        $declaredMime = '';
+        if (preg_match('/^data:([^;,]+);base64,(.*)$/s', $input, $matches)) {
+            $declaredMime = strtolower(trim((string)$matches[1]));
+            $input = (string)$matches[2];
+            if (!isset(self::SCREENSHOT_ALLOWED_MIME_EXTENSIONS[$declaredMime])) {
+                throw new \InvalidArgumentException('截图仅支持JPEG、PNG或WEBP格式', 415);
+            }
+        } elseif (strpos($input, ',') !== false) {
+            throw new \InvalidArgumentException('截图Data URI格式错误', 400);
+        }
+
+        if (strlen($input) > self::SCREENSHOT_MAX_BASE64_CHARS) {
+            throw new \InvalidArgumentException('截图base64内容超过限制', 413);
+        }
+
+        $input = str_replace(["\r", "\n", "\t", ' '], '', $input);
+        if ($input === '' || strlen($input) > self::SCREENSHOT_MAX_BASE64_CHARS || !preg_match('/^[A-Za-z0-9+\/=]+$/', $input)) {
+            throw new \InvalidArgumentException('截图base64格式错误', 400);
+        }
+
+        return [$input, $declaredMime];
     }
 }

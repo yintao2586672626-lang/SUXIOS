@@ -27,11 +27,18 @@ $evidencePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFro
 New-Item -ItemType Directory -Force -Path $evidencePath | Out-Null
 $resolvedEvidenceDir = (Resolve-Path -LiteralPath $evidencePath).ProviderPath
 
+$env:RELEASE_EVIDENCE_DIR = $resolvedEvidenceDir
 $env:RELEASE_PR_NUMBER = [string]$PrNumber
 $env:RELEASE_ENV_FILE = Join-Path $resolvedEvidenceDir "production.env"
 $env:LLM_CONNECTIVITY_ATTESTATION_FILE = Join-Path $resolvedEvidenceDir "llm-attestation.json"
 $env:DESIGN_HANDOFF_MANIFEST_FILE = Join-Path $resolvedEvidenceDir "design_handoff_manifest.json"
 $env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE = Join-Path $resolvedEvidenceDir "ota_credential_rotation_attestation.json"
+if (-not $env:CODEX_SECURITY_SCAN_DIR) {
+    $evidenceSecurityScanDir = Join-Path $resolvedEvidenceDir "codex-security/latest"
+    if (Test-Path -LiteralPath $evidenceSecurityScanDir) {
+        $env:CODEX_SECURITY_SCAN_DIR = $evidenceSecurityScanDir
+    }
+}
 $env:RELEASE_EVIDENCE_RESULT_FILE = Join-Path $resolvedEvidenceDir "release-evidence-current-result.json"
 $env:RELEASE_READINESS_RESULT_FILE = Join-Path $resolvedEvidenceDir "release-readiness-current-result.json"
 $env:RELEASE_EXTERNAL_STATE_FILE = Join-Path $resolvedEvidenceDir "release-external-state-current-evidence.json"
@@ -39,6 +46,7 @@ $env:RELEASE_EXTERNAL_STATE_RESULT_FILE = Join-Path $resolvedEvidenceDir "releas
 
 Write-Host "Repo root: $repoRoot"
 Write-Host "Evidence dir: $resolvedEvidenceDir"
+Write-Host "RELEASE_EVIDENCE_DIR: $env:RELEASE_EVIDENCE_DIR"
 Write-Host "RELEASE_PR_NUMBER: $env:RELEASE_PR_NUMBER"
 
 Push-Location -LiteralPath $repoRoot

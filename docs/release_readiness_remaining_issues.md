@@ -1,6 +1,6 @@
 # Pre-Release Remaining Issues
 
-Updated: 2026-06-05
+Updated: 2026-07-06
 
 Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
@@ -30,13 +30,13 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 |---:|---|---|---|---|
 | 1 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real controlled manifest is present via `DESIGN_HANDOFF_MANIFEST_FILE` or `docs/design_handoff_manifest.json` with Figma source, Canva source, Brand Kit, design token, flow coverage, review date, and zero open design issues. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, required flow coverage, `last_reviewed_at` in `YYYY-MM-DD`, empty `open_issues`, and pass `npm run review:release-design`. |
 | 2 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. Current backup text scan reports no credential-shaped matches, but that does not prove real platform credential rotation or invalidation. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, readiness rerun, and pass `npm run review:release-ota-credentials`. |
-| 3 | `@github` | GitHub / local handoff state is not closed | PR #2 is open, mergeable, green on the current head, local worktree is clean, `.git/index.lock` is absent, and `database/backups` has no tracked files; PR #2 is still draft. | Mark PR #2 ready for review only after release-readiness passes, then pass `review:release-external-state` on the final head. |
+| 3 | `@github` | GitHub / local handoff state is not closed | Current `review:release-external-state` shows PR #2 is already `MERGED`, mergeability is `UNKNOWN`, and the local worktree is dirty; `.git/index.lock` is absent and `database/backups` has no tracked files. | After release-readiness passes, select the actual open final release PR via `RELEASE_PR_NUMBER`, keep local Git clean, and pass `review:release-external-state` on that final head. |
 
 ## Resolved Or Partially Controlled Items
 
 | Scope | Status | Evidence |
 |---|---|---|
-| GitHub CI | Resolved on latest verified PR #2 head | PR `#2` had successful `PHP Composer / verify` checks on the latest inspected head; rerun/confirm again after every pushed release-evidence commit. The workflow includes dependency audits, PHPUnit, P0 guards, non-security review, and release-status contracts. |
+| GitHub CI | Historical checks only | PR `#2` had successful `PHP Composer / verify` checks, but it is now merged and stale for release handoff. Rerun/confirm checks on the actual final release PR after evidence changes. The workflow includes dependency audits, PHPUnit, P0 guards, non-security review, and release-status contracts. |
 | Database rebuild | Fixed | `database/init_full.sql` no longer depends on local `hotelx_dump.sql`; SQL schema contracts pass in CI. |
 | Daily report formula execution risk | Fixed | `DailyReport.php` removed `eval` and uses an arithmetic parser path. |
 | Excel parsing command execution risk | Fixed | `DailyReport.php` removed `shell_exec` and uses array-form `proc_open`. |
@@ -115,6 +115,54 @@ Scope: `@codex-security`
 
 The current backup text scan is controlled, but there is still no credential-free attestation proving real OTA Cookie, Token, signature, or Authorization material was rotated or invalidated. A clean backup scan does not close platform credential risk by itself.
 
+Existing verifier constraints:
+
+- `npm run review:release-ota-credentials` reads `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE`, or defaults to `docs/ota_credential_rotation_attestation.json`.
+- Use `docs/ota_credential_rotation_attestation.example.json` as the fillable minimum template.
+- Preferred controlled evidence location: `../release-evidence-temp/ota_credential_rotation_attestation.json`, referenced through `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE`.
+- Repo default location, if intentionally used: `docs/ota_credential_rotation_attestation.json`.
+- Do not create the default file with placeholders as release evidence. The verifier must fail until real values are filled and `redaction_checked=true` is confirmed.
+- Supported platform actions are `rotated`, `invalidated`, `encrypted_archive`, or `sanitized`.
+- `backup_cleanup.database_backups_action` must be `deleted`, `encrypted_archive`, or `sanitized`.
+- `backup_cleanup.paths_reviewed` must include `database/backups`.
+
+Operator-filled real values required:
+
+- `reviewed_at`: real review or rotation completion date in `YYYY-MM-DD`.
+- `reviewer`: accountable person who reviewed the rotation or invalidation evidence.
+- `platforms[].platform`: real platform names actually used by this project, at minimum the applicable Ctrip and Meituan account scopes.
+- `platforms[].scope`: real account/store scope using non-secret identifiers only, such as hotel IDs, platform merchant IDs, or internal account labels.
+- `platforms[].action`: one of `rotated`, `invalidated`, `encrypted_archive`, or `sanitized`, matching what was actually done.
+- `platforms[].evidence_ref`: internal ticket, secure record, or audit artifact reference proving the action, without credential values.
+- `backup_cleanup.database_backups_action`: actual backup handling result.
+- `backup_cleanup.git_tracking_check`: real `git ls-files database/backups` command/date/result.
+- `backup_cleanup.release_readiness_check`: real rerun command/date/result after the attestation is filled.
+- `redaction_checked`: `true` only after confirming the file contains no real Cookie, Token, signature, Authorization header, account password, or reusable login state.
+
+One-time recheck command list for this item:
+
+```powershell
+# Run from the HOTEL repository root.
+
+$evidenceDir = Resolve-Path -LiteralPath '..\release-evidence-temp'
+$env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE = Join-Path $evidenceDir 'ota_credential_rotation_attestation.json'
+
+git ls-files database/backups
+npm.cmd run review:release-ota-credentials
+```
+
+Optional full release-readiness rerun after this item is filled:
+
+```powershell
+$env:RELEASE_ENV_FILE = Join-Path $evidenceDir 'production.env'
+$env:LLM_CONNECTIVITY_ATTESTATION_FILE = Join-Path $evidenceDir 'llm-attestation.json'
+$env:RELEASE_READINESS_RESULT_FILE = Join-Path $evidenceDir 'release-readiness-result.json'
+
+npm.cmd run review:release-readiness
+```
+
+If design handoff is still missing, the full release-readiness command can still fail on `design-handoff-missing`; that is outside this OTA credential item.
+
 Required close evidence:
 
 - Real OTA Cookie, Token, signature, and Authorization material is rotated or invalidated where applicable.
@@ -128,6 +176,52 @@ Required close evidence:
 Scope: `@figma`, `@canva`
 
 The repository has code-side UI review documentation, but no real design source of truth. This blocks listing material review, brand consistency review, and design-to-code traceability.
+
+Existing verifier constraints:
+
+- `npm run review:release-design` reads `DESIGN_HANDOFF_MANIFEST_FILE`, or defaults to `docs/design_handoff_manifest.json`.
+- If `DESIGN_HANDOFF_MANIFEST_FILE` is set, it must point outside the repository.
+- Use `docs/design_handoff_manifest.example.json` as the fillable minimum template.
+- Preferred controlled evidence location: `../release-evidence-temp/design_handoff_manifest.json`, referenced through `DESIGN_HANDOFF_MANIFEST_FILE`.
+- Repo default location, if intentionally used for local review: `docs/design_handoff_manifest.json`.
+- Do not create the default file with placeholders as release evidence. The verifier must fail until real source links, owner, review date, required flows, token path, and empty `open_issues` are present.
+- `design_tokens_path` must be an HTTPS URL or a repo-relative existing token file; the current repo token baseline is `docs/design-tokens.release.json`.
+- Standalone token files, screenshots, exported images, or code-side UI handoff notes do not close the Figma / Canva blocker.
+
+Operator-filled real values required:
+
+- `owner`: accountable design owner or release reviewer.
+- `last_reviewed_at`: real design handoff review date in `YYYY-MM-DD`.
+- `figma_url`: accessible real `https://www.figma.com/...` source link.
+- `canva_url`: accessible real `https://www.canva.com/...` editable design/source link.
+- `brand_kit_url`: accessible real `https://www.canva.com/...` Brand Kit link.
+- `design_tokens_path`: `docs/design-tokens.release.json` if that repo token baseline was reviewed, or a newer reviewed HTTPS token source.
+- `covered_flows`: must include `login`, `home-dashboard`, `ota-data`, `revenue-analysis`, `ai-decision`, `operations-management`, and `investment-decision`.
+- `open_issues`: empty array before release; any unresolved design issue keeps the blocker open.
+
+One-time recheck command list for this item:
+
+```powershell
+# Run from the HOTEL repository root.
+
+$evidenceDir = Resolve-Path -LiteralPath '..\release-evidence-temp'
+$env:DESIGN_HANDOFF_MANIFEST_FILE = Join-Path $evidenceDir 'design_handoff_manifest.json'
+
+npm.cmd run review:release-design
+```
+
+Optional full release-readiness rerun after this item is filled:
+
+```powershell
+$env:RELEASE_ENV_FILE = Join-Path $evidenceDir 'production.env'
+$env:LLM_CONNECTIVITY_ATTESTATION_FILE = Join-Path $evidenceDir 'llm-attestation.json'
+$env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE = Join-Path $evidenceDir 'ota_credential_rotation_attestation.json'
+$env:RELEASE_READINESS_RESULT_FILE = Join-Path $evidenceDir 'release-readiness-result.json'
+
+npm.cmd run review:release-readiness
+```
+
+If OTA credential rotation attestation is still missing, the full release-readiness command can still fail on `ota-credential-rotation-attestation-missing`; that is outside this design handoff item.
 
 Required close evidence:
 
@@ -143,11 +237,12 @@ Required close evidence:
 
 Scope: `@github`
 
-The PR branch is the current source of truth. PR #2 is open, mergeable, and green on the latest inspected head. Local worktree is clean, `.git/index.lock` is absent, and `database/backups` has no tracked files. PR #2 remains draft because release-readiness still fails on design handoff and OTA credential rotation evidence.
+The previous configured handoff target is stale. Current external-state verification shows PR #2 is already `MERGED`, mergeability is `UNKNOWN`, and the local worktree is dirty. `.git/index.lock` is absent and `database/backups` has no tracked files, but those two passing checks do not close final handoff without a clean worktree and an actual open final release PR.
 
 Required close evidence:
 
-- PR #2 is marked ready for review before release handoff.
+- The actual final release PR is selected through `RELEASE_PR_NUMBER` before release handoff.
+- The configured final release PR is open, non-draft, mergeable, and green.
 - `.git/index.lock` remains absent.
 - Local worktree remains clean or contains only intentionally reviewed release changes.
 - `npm run review:release-external-state` passes, or `RELEASE_EXTERNAL_STATE_FILE` captures equivalent `git` and `gh` evidence generated by `scripts/collect_release_external_state.ps1`.

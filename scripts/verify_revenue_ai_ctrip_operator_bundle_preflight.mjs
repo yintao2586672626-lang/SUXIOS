@@ -48,6 +48,69 @@ function parseJsonFromOutput(text) {
   }
 }
 
+function readJsonFile(file) {
+  if (!fs.existsSync(file)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function summarizeRealInputChecklist(file) {
+  const checklist = readJsonFile(file);
+  if (!checklist || typeof checklist !== 'object') {
+    return {
+      status: 'missing_or_invalid',
+      checklist_file: file,
+      placeholder_count: null,
+      missing_input_count: null,
+      first_missing_inputs: [],
+      next_required_gate: 'Regenerate the operator bundle before preflight.',
+    };
+  }
+
+  const items = Array.isArray(checklist.items) ? checklist.items : [];
+  const missingInputGroups = {};
+  for (const item of items) {
+    const group = String(item?.group || 'unknown');
+    if (!missingInputGroups[group]) {
+      missingInputGroups[group] = {
+        count: 0,
+        paths: [],
+      };
+    }
+    missingInputGroups[group].count += 1;
+    if (missingInputGroups[group].paths.length < 5) {
+      missingInputGroups[group].paths.push(String(item?.path || ''));
+    }
+  }
+
+  return {
+    status: String(checklist.status || 'unknown'),
+    checklist_file: file,
+    placeholder_count: Number.isFinite(Number(checklist.placeholder_count)) ? Number(checklist.placeholder_count) : null,
+    can_generate_pending_review: checklist.can_generate_pending_review === true,
+    next_required_gate: String(checklist.next_required_gate || 'Fill pricing-input-fillable.json, then rerun preflight.'),
+    required_before_execute: Array.isArray(checklist.current_blocker?.required_before_execute)
+      ? checklist.current_blocker.required_before_execute.map(String)
+      : [],
+    missing_input_count: items.length,
+    missing_input_groups: missingInputGroups,
+    first_missing_inputs: items.slice(0, 10).map((item) => ({
+      path: String(item?.path || ''),
+      group: String(item?.group || ''),
+      field: String(item?.field || ''),
+      expected_real_input: String(item?.expected_real_input || ''),
+      format_guard: String(item?.format_guard || ''),
+      forbidden_fill: String(item?.forbidden_fill || ''),
+    })),
+    stop_conditions: Array.isArray(checklist.stop_conditions) ? checklist.stop_conditions.map(String) : [],
+  };
+}
+
 function runProcess(root, script, command, args) {
   const run = spawnSync(command, args, {
     cwd: root,
@@ -79,6 +142,7 @@ try {
   const fillableFile = path.join(bundleDir, 'pricing-input-fillable.json');
   const fillableArgFile = path.join(options.dir, 'pricing-input-fillable.json');
   const manifestFile = path.join(bundleDir, 'manifest.json');
+  const realInputChecklistFile = path.join(bundleDir, 'real-input-checklist.json');
   const php = 'C:\\xampp\\php\\php.exe';
 
   if (!fs.existsSync(manifestFile)) {
@@ -88,6 +152,7 @@ try {
     throw new Error('Fillable pricing input file is missing: ' + fillableFile);
   }
 
+  const realInputHandoff = summarizeRealInputChecklist(realInputChecklistFile);
   const commonArgs = [
     `--file=${fillableArgFile}`,
     `--date=${options.date}`,
@@ -155,6 +220,7 @@ try {
       ready_for_execute_to_pending_review: passed,
       next_execute_command_allowed_only_after_pass: passed,
       fillable_file: fillableFile,
+      real_input_handoff: realInputHandoff,
     },
     steps: results,
   };

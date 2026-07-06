@@ -203,6 +203,53 @@ function ctrip_pending_review_text(mixed $value, int $limit = 160): string
 }
 
 /**
+ * @return array<string, mixed>
+ */
+function ctrip_pending_review_input_evidence_source(array $metadata, string $expectedInputType): array
+{
+    $operatorEvidence = ctrip_pending_review_map($metadata['operator_input_evidence'] ?? []);
+    if ($metadata === [] || (string)($metadata['input_type'] ?? '') !== $expectedInputType) {
+        return [
+            'status' => 'missing',
+            'expected_input_type' => $expectedInputType,
+            'operator_input_evidence_present' => false,
+        ];
+    }
+
+    return [
+        'status' => $operatorEvidence === [] ? 'evidence_missing' : 'present',
+        'input_type' => (string)($metadata['input_type'] ?? ''),
+        'source_scope' => (string)($metadata['source_scope'] ?? ''),
+        'evidence_status' => (string)($metadata['evidence_status'] ?? ''),
+        'confirmed_by' => ctrip_pending_review_text($operatorEvidence['confirmed_by'] ?? '', 80),
+        'confirmed_at' => ctrip_pending_review_text($operatorEvidence['confirmed_at'] ?? '', 40),
+        'room_type_source' => ctrip_pending_review_text($operatorEvidence['room_type_source'] ?? '', 120),
+        'price_guard_source' => ctrip_pending_review_text($operatorEvidence['price_guard_source'] ?? '', 120),
+        'demand_forecast_source' => ctrip_pending_review_text($operatorEvidence['demand_forecast_source'] ?? '', 120),
+        'competitor_price_source' => ctrip_pending_review_text($operatorEvidence['competitor_price_source'] ?? '', 120),
+        'source_file_sha256' => ctrip_pending_review_text($metadata['source_file_sha256'] ?? '', 80),
+        'operator_input_evidence_present' => $operatorEvidence !== [],
+    ];
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function ctrip_pending_review_operator_input_evidence_summary(array $signals): array
+{
+    $inventoryMetadata = ctrip_pending_review_map(ctrip_pending_review_map($signals['inventory'] ?? [])['source_metadata'] ?? []);
+    $demandMetadata = ctrip_pending_review_map(ctrip_pending_review_map($signals['demand_forecast'] ?? [])['source_metadata'] ?? []);
+    $competitorMetadataRows = ctrip_pending_review_list(ctrip_pending_review_map($signals['competitor'] ?? [])['source_metadata'] ?? []);
+    $competitorMetadata = ctrip_pending_review_map($competitorMetadataRows[0] ?? []);
+
+    return [
+        'room_type_guard' => ctrip_pending_review_input_evidence_source($inventoryMetadata, 'manual_ctrip_room_type_pricing_guard'),
+        'demand_forecast' => ctrip_pending_review_input_evidence_source($demandMetadata, 'manual_demand_forecast'),
+        'competitor_price' => ctrip_pending_review_input_evidence_source($competitorMetadata, 'manual_ctrip_competitor_price_sample'),
+    ];
+}
+
+/**
  * @param array<string, mixed> $overview
  */
 function ctrip_pending_review_resolve_hotel_id(?int $requestedHotelId, array $overview): ?int
@@ -392,6 +439,7 @@ function ctrip_pending_review_normalize_item(array $row, array $roomNames): arra
         'risk_level' => ctrip_pending_review_text($factors['risk_level'] ?? ($row['risk_level'] ?? ''), 40),
         'primary_signal_count' => (int)($factors['primary_signal_count'] ?? 0),
         'data_gaps' => $dataGaps,
+        'operator_input_evidence_summary' => ctrip_pending_review_operator_input_evidence_summary($signals),
         'missing_fields' => $missingFields,
         'price_guard_status' => $priceGuardStatus,
         'reason' => ctrip_pending_review_text($row['reason'] ?? ($row['remark'] ?? ''), 180),
@@ -400,10 +448,19 @@ function ctrip_pending_review_normalize_item(array $row, array $roomNames): arra
         'allowed_manual_actions' => ['approve', 'approve_with_changes', 'reject'],
         'review_checklist' => [
             'confirm_source_scope_is_ctrip_ota_channel',
+            'confirm_operator_input_evidence_sources',
             'confirm_suggested_or_approved_price_within_min_max',
+            'fill_operator_review_evidence',
             'add_manual_remark_for_approve_with_changes_or_reject',
             'do_not_write_ota_rate_from_review',
             'create_operation_execution_intent_only_after_approved_status',
+        ],
+        'operator_review_evidence_required' => [
+            'reviewed_by',
+            'reviewed_at',
+            'decision_basis',
+            'price_guard_source',
+            'operation_intent_source',
         ],
         'forbidden_actions' => [
             'apply_price',
@@ -437,6 +494,7 @@ function ctrip_pending_review_upstream_commands(string $date, ?int $hotelId): ar
         'execute_review_decision' => 'npm.cmd run run:revenue-ai-ctrip-review-decision -- --file=<review-decision-json-path> --date=' . $date . $hotelArg . ' --execute=1',
         'execute_review_decision_and_create_operation_intent' => 'npm.cmd run run:revenue-ai-ctrip-review-decision -- --file=<review-decision-json-path> --date=' . $date . $hotelArg . ' --execute=1 --create-intent=1',
         'verify_review_decision' => 'npm.cmd run verify:revenue-ai-ctrip-review-decision -- --date=' . $date . $hotelArg,
+        'verify_operation_roi_boundary' => 'npm.cmd run verify:revenue-ai-ctrip-operation-roi -- --date=' . $date . $hotelArg,
         'verify_current_scope' => 'npm.cmd run verify:revenue-ai-ctrip-scope -- --date=' . $date . $hotelArg,
     ];
 }
@@ -494,6 +552,7 @@ function ctrip_pending_review_render_markdown(array $payload): string
     $lines[] = '## Review Contract';
     $lines[] = '';
     $lines[] = '- allowed_manual_actions: `' . implode(', ', array_map('strval', ctrip_pending_review_list($contract['allowed_manual_actions'] ?? []))) . '`';
+    $lines[] = '- operator_review_evidence_required: `' . implode(', ', array_map('strval', ctrip_pending_review_list($contract['operator_review_evidence_required'] ?? []))) . '`';
     $lines[] = '- review_endpoint_base: `' . (string)($contract['review_endpoint_base'] ?? '') . '`';
     $lines[] = '- execution_intent_endpoint_base: `' . (string)($contract['execution_intent_endpoint_base'] ?? '') . '`';
     $lines[] = '- forbidden_actions: `' . implode(', ', array_map('strval', ctrip_pending_review_list($contract['forbidden_actions'] ?? []))) . '`';
@@ -518,6 +577,22 @@ function ctrip_pending_review_render_markdown(array $payload): string
                 . (string)($item['price_guard_status'] ?? 'unknown') . '` | `'
                 . (string)($item['confidence_score'] ?? '--') . '` | `'
                 . (string)($item['review_endpoint'] ?? '') . '` |';
+        }
+        $lines[] = '';
+        $lines[] = '### Operator Input Evidence';
+        foreach ($items as $item) {
+            $item = ctrip_pending_review_map($item);
+            $summary = ctrip_pending_review_map($item['operator_input_evidence_summary'] ?? []);
+            $lines[] = '';
+            $lines[] = '- suggestion_id: `' . (string)($item['id'] ?? 0) . '`';
+            foreach (['room_type_guard', 'demand_forecast', 'competitor_price'] as $key) {
+                $source = ctrip_pending_review_map($summary[$key] ?? []);
+                $lines[] = '  - ' . $key
+                    . ': status=`' . (string)($source['status'] ?? 'missing') . '`'
+                    . ', input_type=`' . (string)($source['input_type'] ?? ($source['expected_input_type'] ?? '')) . '`'
+                    . ', confirmed_by=`' . (string)($source['confirmed_by'] ?? '') . '`'
+                    . ', confirmed_at=`' . (string)($source['confirmed_at'] ?? '') . '`';
+            }
         }
     }
     $lines[] = '';
@@ -709,8 +784,16 @@ function ctrip_pending_review_build_packet(array $options): array
             'review_endpoint_base' => '/api/revenue-ai/price-suggestions/{id}/review',
             'execution_intent_endpoint_base' => '/api/revenue-ai/price-suggestions/{id}/execution-intent',
             'allowed_manual_actions' => ['approve', 'approve_with_changes', 'reject'],
+            'operator_review_evidence_required' => [
+                'reviewed_by',
+                'reviewed_at',
+                'decision_basis',
+                'price_guard_source',
+                'operation_intent_source',
+            ],
             'required_checks' => [
                 'price_suggestion.status must be pending before review.',
+                'operator_review_evidence must be filled with the reviewer, review time, decision basis, price guard source, and operation intent source.',
                 'approved_price must stay within min_price and max_price when using approve_with_changes.',
                 'review writes only manual review state under price_suggestions; it must not write OTA prices.',
                 'operation execution intent can be created only after approved status.',

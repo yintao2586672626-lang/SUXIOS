@@ -8,7 +8,7 @@ date_default_timezone_set('Asia/Shanghai');
 
 /**
  * @param array<int, string> $argv
- * @return array{date:string,hotel_id:int|null,format:string,bundle_dir:string}
+ * @return array{date:string,hotel_id:int|null,format:string,bundle_dir:string,run_p0_verifier:bool}
  */
 function ctrip_gap_pack_parse_args(array $argv): array
 {
@@ -21,6 +21,8 @@ function ctrip_gap_pack_parse_args(array $argv): array
         'format' => 'json',
         'bundle-dir' => '',
         'bundle_dir' => '',
+        'run-p0-verifier' => '0',
+        'run_p0_verifier' => '0',
     ];
 
     foreach (array_slice($argv, 1) as $arg) {
@@ -43,6 +45,9 @@ function ctrip_gap_pack_parse_args(array $argv): array
     }
     if ($options['bundle-dir'] === '' && $options['bundle_dir'] !== '') {
         $options['bundle-dir'] = $options['bundle_dir'];
+    }
+    if ($options['run-p0-verifier'] === '0' && $options['run_p0_verifier'] !== '0') {
+        $options['run-p0-verifier'] = $options['run_p0_verifier'];
     }
 
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $options['date'])) {
@@ -67,7 +72,13 @@ function ctrip_gap_pack_parse_args(array $argv): array
         'hotel_id' => $hotelId,
         'format' => $format,
         'bundle_dir' => $options['bundle-dir'],
+        'run_p0_verifier' => ctrip_gap_pack_bool($options['run-p0-verifier']),
     ];
+}
+
+function ctrip_gap_pack_bool(string $value): bool
+{
+    return in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'on'], true);
 }
 
 /**
@@ -104,6 +115,104 @@ function ctrip_gap_pack_positive_strings(mixed $value): array
     }
 
     return array_values(array_unique($items));
+}
+
+/**
+ * @param array<int, string> $args
+ * @return array{exit_code:int,stdout:string,stderr:string}
+ */
+function ctrip_gap_pack_run_process(array $args, string $cwd): array
+{
+    $command = implode(' ', array_map('escapeshellarg', $args));
+    $descriptors = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $process = proc_open($command, $descriptors, $pipes, $cwd);
+    if (!is_resource($process)) {
+        return [
+            'exit_code' => 1,
+            'stdout' => '',
+            'stderr' => 'Unable to start process.',
+        ];
+    }
+
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]) ?: '';
+    $stderr = stream_get_contents($pipes[2]) ?: '';
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exitCode = proc_close($process);
+
+    return [
+        'exit_code' => is_int($exitCode) ? $exitCode : 1,
+        'stdout' => $stdout,
+        'stderr' => $stderr,
+    ];
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function ctrip_gap_pack_decode_json_payload(string $stdout): array
+{
+    $text = trim($stdout);
+    if ($text === '') {
+        return [];
+    }
+    $start = strpos($text, '{');
+    $end = strrpos($text, '}');
+    if ($start === false || $end === false || $end < $start) {
+        return [];
+    }
+    $payload = json_decode(substr($text, $start, $end - $start + 1), true);
+
+    return is_array($payload) ? $payload : [];
+}
+
+/**
+ * @return array<int, string>
+ */
+function ctrip_gap_pack_p0_verifier_args(string $date, ?int $hotelId): array
+{
+    $args = ['C:\\xampp\\php\\php.exe', 'scripts\\verify_p0_ota_field_loop_closure.php', '--date=' . $date, '--platform=ctrip'];
+    if ($hotelId !== null) {
+        $args[] = '--system-hotel-id=' . $hotelId;
+    }
+
+    return $args;
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function ctrip_gap_pack_run_p0_authority(string $root, string $date, ?int $hotelId): array
+{
+    $run = ctrip_gap_pack_run_process(ctrip_gap_pack_p0_verifier_args($date, $hotelId), $root);
+    $payload = ctrip_gap_pack_decode_json_payload($run['stdout']);
+    $summary = ctrip_gap_pack_map($payload['summary'] ?? []);
+
+    return [
+        'status' => $run['exit_code'] === 0 && (string)($payload['status'] ?? '') === 'passed' ? 'passed' : 'failed_or_incomplete',
+        'exit_code' => $run['exit_code'],
+        'payload_status' => $payload['status'] ?? null,
+        'command' => ctrip_gap_pack_commands($date, $hotelId, '')['p0_authority_check'],
+        'summary' => [
+            'platform_count' => $summary['platform_count'] ?? null,
+            'platforms_ready' => $summary['platforms_ready'] ?? null,
+            'p0_platforms_ready' => $summary['p0_platforms_ready'] ?? null,
+            'p0_platforms_incomplete' => $summary['p0_platforms_incomplete'] ?? null,
+            'traffic_gates_ready' => $summary['traffic_gates_ready'] ?? null,
+            'traffic_gates_incomplete' => $summary['traffic_gates_incomplete'] ?? null,
+            'incomplete_issues' => $summary['incomplete_issues'] ?? null,
+            'failed_issues' => $summary['failed_issues'] ?? null,
+        ],
+        'stderr' => trim($run['stderr']),
+        'raw_capture_read_by_gap_pack' => false,
+        'database_written' => false,
+        'auto_write_ota' => false,
+    ];
 }
 
 function ctrip_gap_pack_default_bundle_dir(string $root, string $date, ?int $hotelId): string
@@ -150,8 +259,16 @@ function ctrip_gap_pack_field_guidance(string $path): array
         ? 'room_types'
         : (str_contains($path, '$.demand_forecasts.')
             ? 'demand_forecasts'
-            : (str_contains($path, '$.competitor_price_samples.') ? 'competitor_price_samples' : 'unknown'));
+            : (str_contains($path, '$.competitor_price_samples.')
+                ? 'competitor_price_samples'
+                : (str_contains($path, '$.operator_input_evidence.') ? 'operator_input_evidence' : 'unknown')));
     $guide = [
+        'confirmed_by' => 'Operator name or role accountable for the submitted Ctrip pricing inputs.',
+        'confirmed_at' => 'Confirmation timestamp, starting with YYYY-MM-DD.',
+        'room_type_source' => 'Human-verifiable source for Ctrip room type, room count, and room mapping.',
+        'price_guard_source' => 'Human-verifiable source for base price, floor/protection price, and max price guard.',
+        'demand_forecast_source' => 'Human-verifiable source for target-date demand forecast and confidence.',
+        'competitor_price_source' => 'Human-verifiable source for recent 7-day Ctrip competitor price samples.',
         'key' => 'Operator-confirmed stable room type key used to join room, forecast, and competitor rows.',
         'name' => 'Operator-verified Ctrip room type name.',
         'base_price' => 'Current operator-verified Ctrip sell price for the room type.',
@@ -201,7 +318,7 @@ function ctrip_gap_pack_bundle_status(string $bundleDir): array
     $decoded = json_decode((string)file_get_contents($fillable), true);
     $payload = is_array($decoded) ? $decoded : [];
     $input = [];
-    foreach (['room_types', 'demand_forecasts', 'competitor_price_samples'] as $key) {
+    foreach (['operator_input_evidence', 'room_types', 'demand_forecasts', 'competitor_price_samples'] as $key) {
         $input[$key] = $payload[$key] ?? [];
     }
     $placeholders = ctrip_gap_pack_placeholder_paths($input);
@@ -223,7 +340,7 @@ function ctrip_gap_pack_bundle_status(string $bundleDir): array
 /**
  * @return array<int, array<string, mixed>>
  */
-function ctrip_gap_pack_stages(array $overview, array $bundle, string $date): array
+function ctrip_gap_pack_stages(array $overview, array $bundle, string $date, array $p0Authority): array
 {
     $p0Gate = ctrip_gap_pack_map($overview['p0_downstream_gate'] ?? []);
     $metrics = ctrip_gap_pack_map($overview['metrics'] ?? []);
@@ -234,7 +351,11 @@ function ctrip_gap_pack_stages(array $overview, array $bundle, string $date): ar
     $operationToInvestment = ctrip_gap_pack_map($overview['operation_to_investment_handoff'] ?? []);
     $investmentPacket = ctrip_gap_pack_map($operationToInvestment['investment_precheck_packet'] ?? []);
 
-    $p0Ready = in_array((string)($p0Gate['status'] ?? ''), ['ready', 'passed'], true);
+    $p0AuthorityStatus = (string)($p0Authority['status'] ?? 'not_run');
+    $p0AuthorityPassed = $p0AuthorityStatus === 'passed';
+    $p0Ready = $p0Authority !== []
+        ? $p0AuthorityPassed
+        : in_array((string)($p0Gate['status'] ?? ''), ['ready', 'passed'], true);
     $metricStatuses = [];
     foreach ($metrics as $key => $metric) {
         if (is_array($metric)) {
@@ -252,15 +373,23 @@ function ctrip_gap_pack_stages(array $overview, array $bundle, string $date): ar
     return [
         [
             'stage' => 'ctrip_p0_target_day',
-            'status' => $p0Ready ? 'ready' : 'not_reverified_by_gap_pack',
-            'proved_by' => 'RevenueAiOverviewService.p0_downstream_gate',
+            'status' => $p0Ready ? 'ready' : ($p0Authority === [] ? 'not_reverified_by_gap_pack' : 'blocked_by_p0_authority_verifier'),
+            'proved_by' => $p0Authority === [] ? 'RevenueAiOverviewService.p0_downstream_gate' : 'verify:p0-ota-field-loop',
             'current_evidence' => [
-                'p0_status' => $p0Gate['status'] ?? null,
+                'p0_status' => $p0Authority === []
+                    ? ($p0Gate['status'] ?? null)
+                    : ($p0Ready ? 'ready' : 'blocked_by_p0_authority_verifier'),
+                'service_p0_status_snapshot' => $p0Gate['status'] ?? null,
                 'required_gate_command' => $p0Gate['required_gate_command'] ?? null,
-                'report_policy' => 'does_not_run_p0_verifier_or_read_raw_capture',
+                'report_policy' => $p0Authority === []
+                    ? 'does_not_run_p0_verifier_or_read_raw_capture'
+                    : 'ran_p0_authority_verifier_without_raw_capture_or_writes',
+                'p0_authority_verifier' => $p0Authority === [] ? null : $p0Authority,
                 'metric_statuses' => $metricStatuses,
             ],
-            'missing_real_inputs' => $p0Ready ? [] : ['latest P0 authority verifier output not re-run inside this gap pack'],
+            'missing_real_inputs' => $p0Ready
+                ? []
+                : ($p0Authority === [] ? ['latest P0 authority verifier output not re-run inside this gap pack'] : ['p0_field_loop_verifier_ready']),
         ],
         [
             'stage' => 'pricing_generation_inputs',
@@ -303,7 +432,16 @@ function ctrip_gap_pack_stages(array $overview, array $bundle, string $date): ar
                 'execution_summary_status' => $executionSummary['status'] ?? null,
                 'execution_total_count' => $executionTotal,
             ],
-            'missing_real_inputs' => $executionTotal > 0 ? [] : ['manual approval/rejection decision', 'approved target price', 'room/rate mapping for execution intent'],
+            'missing_real_inputs' => $executionTotal > 0 ? [] : [
+                'manual approval/rejection decision',
+                'approved target price',
+                'room/rate mapping for execution intent',
+                'operator_review_evidence.reviewed_by',
+                'operator_review_evidence.reviewed_at',
+                'operator_review_evidence.decision_basis',
+                'operator_review_evidence.price_guard_source',
+                'operator_review_evidence.operation_intent_source',
+            ],
         ],
         [
             'stage' => 'execution_evidence_and_roi_window',
@@ -321,9 +459,19 @@ function ctrip_gap_pack_stages(array $overview, array $bundle, string $date): ar
                 ],
             ],
             'missing_real_inputs' => $operationRoiReady ? [] : [
-                'manual execution proof',
+                'manual_execution_evidence.executed_by',
+                'manual_execution_evidence.executed_at',
+                'manual_execution_evidence.execution_basis',
+                'manual_execution_evidence.room_rate_mapping_source',
+                'manual_execution_evidence.execution_receipt_or_screenshot_path',
                 'previous-day Ctrip revenue/room_nights/orders/conversion/traffic',
                 'next-day Ctrip revenue/room_nights/orders/conversion/traffic',
+                'manual_roi_evidence.reviewed_by',
+                'manual_roi_evidence.reviewed_at',
+                'manual_roi_evidence.before_metric_source',
+                'manual_roi_evidence.after_metric_source',
+                'manual_roi_evidence.roi_calculation_basis',
+                'manual_roi_evidence.roi_receipt_or_screenshot_path',
                 'operator ROI review summary',
             ],
         ],
@@ -352,6 +500,7 @@ function ctrip_gap_pack_commands(string $date, ?int $hotelId, string $bundleDir)
 
     return [
         'p0_authority_check' => 'npm.cmd run verify:p0-ota-field-loop -- --date=' . $date . ' --platform=ctrip' . ($hotelId === null ? ' --system-hotel-id=<hotel-id>' : ' --system-hotel-id=' . $hotelId),
+        'pricing_operator_packet' => 'npm.cmd run report:revenue-ai-ctrip-pricing-operator-packet -- --date=' . $date . $hotelArg . ' --format=markdown',
         'operator_bundle_preflight' => 'npm.cmd run verify:revenue-ai-ctrip-operator-bundle-preflight -- --dir=' . $bundleArg . ' --date=' . $date . $hotelArg,
         'execute_inputs_and_generate_pending_review' => 'npm.cmd run run:revenue-ai-ctrip-pricing-file-to-pending-review -- --file=' . $bundleArg . '\\pricing-input-fillable.json --date=' . $date . $hotelArg . ' --execute=1 --generate=1',
         'pending_review_packet' => 'npm.cmd run report:revenue-ai-ctrip-pending-review-packet -- --date=' . $date . $hotelArg . ' --format=markdown',
@@ -472,7 +621,10 @@ try {
         $bundleDir = $root . DIRECTORY_SEPARATOR . $bundleDir;
     }
     $bundle = ctrip_gap_pack_bundle_status($bundleDir);
-    $stages = ctrip_gap_pack_stages($overview, $bundle, $options['date']);
+    $p0Authority = $options['run_p0_verifier']
+        ? ctrip_gap_pack_run_p0_authority($root, $options['date'], $resolvedHotelId)
+        : [];
+    $stages = ctrip_gap_pack_stages($overview, $bundle, $options['date'], $p0Authority);
     $blocked = array_values(array_filter(
         $stages,
         static fn(array $stage): bool => !in_array((string)($stage['status'] ?? ''), ['ready', 'pending_review', 'intent_exists_or_downstream', 'roi_ready', 'manual_review_only'], true)
@@ -486,11 +638,14 @@ try {
             'enabled_channels' => ['ctrip'],
             'hotel_id' => $resolvedHotelId,
             'source_scope' => 'ctrip_ota_channel',
-            'source_policy' => 'read_current_revenue_ai_overview_and_operator_bundle_only',
+            'source_policy' => $options['run_p0_verifier']
+                ? 'read_current_revenue_ai_overview_operator_bundle_and_p0_authority_verifier'
+                : 'read_current_revenue_ai_overview_and_operator_bundle_only',
             'raw_capture_read' => false,
             'database_written' => false,
             'auto_write_ota' => false,
             'meituan_scope_included' => false,
+            'p0_authority_verifier_run' => $options['run_p0_verifier'],
         ],
         'operator_bundle' => $bundle,
         'stages' => $stages,
@@ -499,6 +654,7 @@ try {
             'Do not use Meituan rows or whole-hotel values for this Ctrip gap pack.',
             'Do not fill missing room, price, demand, competitor, execution, or ROI values with samples, guesses, fallbacks, or verifier-only fixtures.',
             'Do not write OTA prices from AI suggestions; every generated suggestion remains pending manual review.',
+            'Manual review, execution, and ROI handoff evidence must carry operator fields; placeholders or verifier-only evidence do not close the real loop.',
             'Investment decision support requires operation_execution.roi_ready plus manual decision-record readiness.',
             'Ctrip OTA channel evidence must not be promoted to whole-hotel operating truth.',
         ],
