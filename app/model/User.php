@@ -88,6 +88,10 @@ class User extends Model
         $roleName = (string)($role->getAttr('name') ?? '');
         $roleLevel = (int)($role->getAttr('level') ?? 0);
 
+        if (in_array($roleId, [Role::BETA_USER, Role::NORMAL_USER], true)) {
+            return false;
+        }
+
         return $roleId === Role::SUPER_ADMIN || $roleName === 'admin' || $roleLevel === 1;
     }
 

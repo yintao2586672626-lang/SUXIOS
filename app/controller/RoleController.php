@@ -103,6 +103,11 @@ class RoleController extends Base
         }
 
         $data = $this->requestData();
+        $identityResponse = $this->validateBuiltInExternalRoleIdentity($role, $data);
+        if ($identityResponse) {
+            return $identityResponse;
+        }
+
         $nextName = !empty($data['name']) ? (string)$data['name'] : (string)$role->name;
         $permissions = isset($data['permissions'])
             ? $this->normalizePermissionPayload($data['permissions'])
@@ -211,6 +216,28 @@ class RoleController extends Base
     private function normalizePermissionPayload($permissions): array
     {
         return Role::normalizePermissions($permissions);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function validateBuiltInExternalRoleIdentity(Role $role, array $data): ?Response
+    {
+        $roleId = (int)$role->getAttr('id');
+        if (!in_array($roleId, [Role::BETA_USER, Role::NORMAL_USER], true)) {
+            return null;
+        }
+
+        $nameChanged = array_key_exists('name', $data)
+            && (string)$data['name'] !== (string)$role->getAttr('name');
+        $levelChanged = array_key_exists('level', $data)
+            && (int)$data['level'] !== (int)$role->getAttr('level');
+
+        if ($nameChanged || $levelChanged) {
+            return $this->error('内置外发角色的标识和等级不能修改', 422);
+        }
+
+        return null;
     }
 
     private function validateRolePermissionBoundary(string $roleName, array $permissions, ?Role $existingRole = null): ?Response

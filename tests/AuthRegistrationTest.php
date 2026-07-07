@@ -108,6 +108,26 @@ final class AuthRegistrationTest extends TestCase
         self::assertStringContainsString('普通用户角色不能包含 OTA 采集权限或其他高风险权限', (string)$response->getContent());
     }
 
+    public function testBuiltInExternalRoleIdentityCannotBeChanged(): void
+    {
+        $reflection = new ReflectionClass(RoleController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('validateBuiltInExternalRoleIdentity');
+        $method->setAccessible(true);
+
+        $betaRole = $this->roleWithPermissions(['can_view_online_data'], Role::BETA_USER, 'beta_user', 2);
+
+        $nameResponse = $method->invoke($controller, $betaRole, ['name' => 'admin', 'level' => 2]);
+        self::assertSame(422, $nameResponse->getCode());
+        self::assertStringContainsString('内置外发角色的标识和等级不能修改', (string)$nameResponse->getContent());
+
+        $levelResponse = $method->invoke($controller, $betaRole, ['name' => 'beta_user', 'level' => 1]);
+        self::assertSame(422, $levelResponse->getCode());
+        self::assertStringContainsString('内置外发角色的标识和等级不能修改', (string)$levelResponse->getContent());
+
+        self::assertNull($method->invoke($controller, $betaRole, ['name' => 'beta_user', 'level' => 2]));
+    }
+
     public function testLoginPermissionsHideLegacyDeniedGrantsForNormalExternalUser(): void
     {
         $reflection = new ReflectionClass(Auth::class);
@@ -150,6 +170,21 @@ final class AuthRegistrationTest extends TestCase
 
         self::assertFalse($betaUser->isSuperAdmin());
         self::assertFalse($betaUser->canManageUser());
+    }
+
+    public function testTamperedBuiltInExternalRoleStillCannotBecomeSuperAdmin(): void
+    {
+        $betaRole = $this->roleWithPermissions(['all'], Role::BETA_USER, 'admin', 1);
+        $betaUser = $this->userWithRole($betaRole, Role::BETA_USER);
+
+        self::assertFalse($betaUser->isSuperAdmin());
+        self::assertFalse($betaUser->canManageUser());
+
+        $normalRole = $this->roleWithPermissions(['all'], Role::NORMAL_USER, 'admin', 1);
+        $normalUser = $this->userWithRole($normalRole, Role::NORMAL_USER);
+
+        self::assertFalse($normalUser->isSuperAdmin());
+        self::assertFalse($normalUser->canManageUser());
     }
 
     public function testAdminLevelAllPermissionStillCountsAsSuperAdmin(): void
