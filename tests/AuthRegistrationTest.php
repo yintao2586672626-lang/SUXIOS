@@ -285,6 +285,31 @@ final class AuthRegistrationTest extends TestCase
         self::assertFalse($levelThreeUser->canManageOwnHotels());
     }
 
+    public function testLevelTwoCustomRoleIsTreatedAsBetaUser(): void
+    {
+        $levelTwoRole = $this->roleWithPermissions(['dashboard.view', 'hotel.view'], 9, 'external_beta_reader', 2);
+        $levelTwoUser = $this->userWithRole($levelTwoRole, 9);
+
+        self::assertTrue($levelTwoUser->isBetaUser());
+        self::assertTrue($levelTwoUser->isHotelManager());
+    }
+
+    public function testLevelTwoCustomRoleReceivesBetaBindingNotice(): void
+    {
+        $reflection = new ReflectionClass(Auth::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('buildLoginNotices');
+        $method->setAccessible(true);
+
+        $levelTwoRole = $this->roleWithPermissions(['dashboard.view', 'hotel.view'], 9, 'external_beta_reader', 2);
+        $levelTwoUser = $this->userWithRole($levelTwoRole, 9);
+
+        $notices = $method->invoke($controller, $levelTwoUser, [['id' => 7, 'name' => 'Test Hotel']]);
+
+        self::assertCount(1, $notices);
+        self::assertSame('beta_hotel_binding_deadline', $notices[0]['type']);
+    }
+
     /**
      * @param array<int, string> $permissions
      */

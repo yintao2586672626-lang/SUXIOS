@@ -120,7 +120,8 @@ class User extends Model
         $role = $this->role;
         return $role
             && (int)$role->status === Role::STATUS_ENABLED
-            && in_array((string)$role->name, ['beta_user', 'hotel_manager'], true);
+            && (in_array((string)$role->name, ['beta_user', 'hotel_manager'], true)
+                || (int)$role->level === Role::HOTEL_MANAGER);
     }
 
     /**
