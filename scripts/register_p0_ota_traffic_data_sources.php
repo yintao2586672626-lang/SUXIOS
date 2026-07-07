@@ -483,6 +483,9 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
     if ($existing !== null && (string)($existing['status'] ?? '') !== 'disabled') {
         $currentStatus = trim((string)($existing['status'] ?? ''));
         $currentLastSyncStatus = trim((string)($existing['last_sync_status'] ?? ''));
+        if ($currentLastSyncStatus !== '') {
+            $lastSyncStatus = $currentLastSyncStatus;
+        }
     }
     $data = [
         'tenant_id' => (int)$spec['system_hotel_id'],
