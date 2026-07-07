@@ -1018,6 +1018,122 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
     const publicEndpointPathText = (row = {}) => `${row.method || '-'} ${row.path || '-'}`;
 
+    const releaseEvidenceInputLabel = (id = '') => ({
+        design_handoff_manifest: '设计交付清单',
+        'design-handoff-missing': '设计交付清单',
+        ota_credential_rotation_attestation: 'OTA 凭据轮换证明',
+        'ota-credential-rotation-attestation-missing': 'OTA 凭据轮换证明',
+        final_release_pr_and_local_state: '最终 PR / 本地状态',
+        'local-git-state-open': '最终 PR / 本地状态',
+    }[String(id || '').trim()] || String(id || '').trim() || '发布证据输入');
+
+    const releaseEvidenceStatusText = (status = '') => ({
+        missing: '缺少证据',
+        open: '未关闭',
+        failed: '未通过',
+        pending: '待复核',
+        stale: '已过期',
+        blocked: '阻断',
+        blocked_until_clean_or_isolated: '需清理或隔离',
+        closed: '已关闭',
+        passed: '已通过',
+        pass: '已通过',
+        clean: '干净',
+    }[String(status || '').trim()] || String(status || '').trim() || '未知');
+
+    const releaseEvidencePriority = (status = '') => {
+        const value = String(status || '').trim();
+        if (['closed', 'passed', 'pass', 'clean'].includes(value)) return 'ok';
+        if (['pending', 'stale'].includes(value)) return 'medium';
+        if (!value || value === 'unknown') return 'medium';
+        return 'high';
+    };
+
+    const releaseEvidenceNoClosureText = () => '该面板只展示 release gap pack / operator intake 的证据缺口和下一步；不替代最终设计交付、OTA 凭据轮换证明、PR 外部状态或 review:release-readiness。';
+
+    const buildReleaseEvidencePanelRows = (payload = {}) => {
+        const packet = payload?.operator_intake_packet || payload || {};
+        const requirements = Array.isArray(payload?.blocking_requirements) ? payload.blocking_requirements : [];
+        const inputs = Array.isArray(packet?.required_external_inputs) ? packet.required_external_inputs : [];
+        const byId = new Map();
+
+        for (const input of inputs) {
+            const id = String(input?.id || '').trim();
+            if (!id) continue;
+            byId.set(id, {
+                key: id,
+                id,
+                label: releaseEvidenceInputLabel(id),
+                status: 'missing',
+                statusText: releaseEvidenceStatusText('missing'),
+                priority: 'high',
+                requiredFile: input?.required_file || input?.required_result_file || '',
+                creationCommand: input?.creation_command || input?.selection_command || '',
+                acceptanceCommand: input?.isolated_review_command || '',
+                evidenceText: input?.success_evidence || input?.success_condition || input?.description || '',
+                nextAction: input?.next_action || input?.creation_command || input?.selection_command || input?.isolated_review_command || '',
+                doesNotCloseReleaseReadiness: true,
+            });
+        }
+
+        for (const requirement of requirements) {
+            const id = String(requirement?.id || '').trim();
+            if (!id) continue;
+            const inputId = id === 'design-handoff-missing'
+                ? 'design_handoff_manifest'
+                : (id === 'ota-credential-rotation-attestation-missing'
+                    ? 'ota_credential_rotation_attestation'
+                    : (id === 'local-git-state-open' ? 'final_release_pr_and_local_state' : id));
+            const status = String(requirement?.status || 'open').trim();
+            byId.set(inputId, {
+                ...(byId.get(inputId) || {}),
+                key: inputId,
+                id: inputId,
+                blockerId: id,
+                label: releaseEvidenceInputLabel(id),
+                status,
+                statusText: releaseEvidenceStatusText(status),
+                priority: releaseEvidencePriority(status),
+                requiredFile: byId.get(inputId)?.requiredFile || requirement?.required_file || '',
+                creationCommand: byId.get(inputId)?.creationCommand || requirement?.creation_command || '',
+                acceptanceCommand: requirement?.acceptance_command || byId.get(inputId)?.acceptanceCommand || '',
+                evidenceText: requirement?.evidence || requirement?.success_evidence || byId.get(inputId)?.evidenceText || '',
+                nextAction: requirement?.next_action || requirement?.acceptance_command || byId.get(inputId)?.nextAction || '',
+                doesNotCloseReleaseReadiness: true,
+            });
+        }
+
+        return Array.from(byId.values());
+    };
+
+    const summarizeReleaseEvidencePanel = (payload = {}) => {
+        const rows = buildReleaseEvidencePanelRows(payload);
+        const blockerCount = rows.filter(row => row.priority !== 'ok').length;
+        const packet = payload?.operator_intake_packet || payload || {};
+        const worktree = payload?.source_status?.local_worktree_close_plan || packet?.worktree_staging_summary || {};
+        const changedEntries = Number(worktree?.changed_entries ?? worktree?.changedEntries ?? 0);
+        const releaseReady = payload?.release_ready === true || payload?.final_release_ready === true;
+        const doesNotClose = payload?.does_not_close_release_readiness === true
+            || packet?.does_not_close_release_readiness === true
+            || rows.some(row => row.doesNotCloseReleaseReadiness === true);
+        const status = releaseReady && blockerCount === 0 ? 'medium' : (blockerCount > 0 ? 'high' : 'medium');
+        const text = releaseReady && blockerCount === 0
+            ? '待最终门禁复核'
+            : (blockerCount > 0 ? `${blockerCount} 项阻断` : '待加载证据');
+        return {
+            status,
+            text,
+            blockerCount,
+            requiredInputCount: rows.length,
+            releaseReady,
+            doesNotCloseReleaseReadiness: doesNotClose,
+            worktreeStatus: worktree?.status || '',
+            changedEntries,
+            rows,
+            boundaryText: releaseEvidenceNoClosureText(),
+        };
+    };
+
     const dashboardStateText = (state) => ({
         ok: '已采集',
         zero: '0',
@@ -5244,6 +5360,12 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         publicEndpointSecurityBoundaryText,
         publicEndpointSecurityEvidenceText,
         publicEndpointPathText,
+        releaseEvidenceInputLabel,
+        releaseEvidenceStatusText,
+        releaseEvidencePriority,
+        releaseEvidenceNoClosureText,
+        buildReleaseEvidencePanelRows,
+        summarizeReleaseEvidencePanel,
         dashboardStateText,
         dashboardStateClass,
         dashboardMetricText,
