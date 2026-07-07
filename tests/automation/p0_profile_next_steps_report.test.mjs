@@ -241,6 +241,168 @@ test('P0 Profile next-step report suppresses sync actions for ready platforms', 
   }
 });
 
+test('P0 Profile next-step report keeps hotel steps actionable when platform gate is incomplete', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'p0-profile-next-steps-partial-platform-'));
+  const input = path.join(dir, 'verifier.json');
+  try {
+    writeFileSync(input, JSON.stringify({
+      status: 'incomplete',
+      scope: { date: '2026-07-08' },
+      platforms: [
+        {
+          platform: 'ctrip',
+          target_date_rows: 4,
+          p0_traffic_gate: {
+            status: 'traffic_field_fact_closure_incomplete',
+            traffic_rows: 3,
+            action_status: 'ready',
+            action_missing_inputs: [],
+            hotel_scoped_next_steps: [
+              {
+                system_hotel_id: 60,
+                data_source_id: 14,
+                data_source_status: 'success',
+                last_sync_status: 'success',
+                manual_login_state_verified: true,
+                profile_login_trigger: {
+                  status: 'available',
+                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  after_login_sync: {
+                    entry: '/api/online-data/data-sources/14/sync',
+                  },
+                },
+                p0_verifier_command: 'npm.cmd run verify:p0-ota-field-loop -- --date=2026-07-08 --platform=ctrip --system-hotel-id=60',
+              },
+              {
+                system_hotel_id: 64,
+                data_source_id: 15,
+                data_source_status: 'success',
+                last_sync_status: 'success',
+                manual_login_state_verified: true,
+                profile_login_trigger: {
+                  status: 'available',
+                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  after_login_sync: {
+                    entry: '/api/online-data/data-sources/15/sync',
+                  },
+                },
+                p0_verifier_command: 'npm.cmd run verify:p0-ota-field-loop -- --date=2026-07-08 --platform=ctrip --system-hotel-id=64',
+              },
+            ],
+          },
+        },
+      ],
+    }));
+
+    const result = spawnSync(process.execPath, ['scripts/report_p0_profile_next_steps.mjs', `--input=${input}`, '--json'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.platform_summaries[0].platform_ready, false);
+    assert.deepEqual(payload.next_steps.map(step => step.platform_ready), [false, false]);
+    assert.deepEqual(payload.next_steps.map(step => step.login_trigger_status), ['available', 'available']);
+    assert.deepEqual(payload.next_steps.map(step => step.after_login_sync_entry), [
+      '/api/online-data/data-sources/14/sync',
+      '/api/online-data/data-sources/15/sync',
+    ]);
+    assert.deepEqual(payload.operator_sequence.map(item => item.type), [
+      'manual_login',
+      'after_login_sync',
+      'single_scope_verifier',
+      'manual_login',
+      'after_login_sync',
+      'single_scope_verifier',
+    ]);
+    assert(payload.downstream_gate.blocking_missing_inputs.includes('traffic_field_fact_closure_incomplete'));
+    assert.doesNotMatch(result.stdout, /already_ready_no_login/);
+
+    const markdownResult = spawnSync(process.execPath, ['scripts/report_p0_profile_next_steps.mjs', `--input=${input}`], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+
+    assert.equal(markdownResult.status, 0, markdownResult.stderr);
+    assert.match(markdownResult.stdout, /platform_ready=false/);
+    assert.match(markdownResult.stdout, /\/api\/online-data\/data-sources\/14\/sync/);
+    assert.match(markdownResult.stdout, /\/api\/online-data\/data-sources\/15\/sync/);
+    assert.doesNotMatch(markdownResult.stdout, /already_ready_no_sync/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('P0 Profile next-step report does not inherit platform ready for unproved hotel steps', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'p0-profile-next-steps-unproved-step-'));
+  const input = path.join(dir, 'verifier.json');
+  try {
+    writeFileSync(input, JSON.stringify({
+      status: 'incomplete',
+      scope: { date: '2026-07-08' },
+      platforms: [
+        {
+          platform: 'ctrip',
+          target_date_rows: 4,
+          p0_traffic_gate: {
+            status: 'ready',
+            traffic_rows: 3,
+            action_status: 'ready',
+            action_missing_inputs: [],
+            hotel_scoped_next_steps: [
+              {
+                system_hotel_id: 60,
+                data_source_id: 14,
+                data_source_status: 'success',
+                last_sync_status: 'success',
+                manual_login_state_verified: true,
+                latest_sync_task: {
+                  status: 'success',
+                  diagnosis: 'sync_task_saved_rows_but_requires_p0_target_date_verifier',
+                  target_date_rows_proved: false,
+                },
+                profile_login_trigger: {
+                  status: 'available',
+                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  after_login_sync: {
+                    entry: '/api/online-data/data-sources/14/sync',
+                  },
+                },
+                p0_verifier_command: 'npm.cmd run verify:p0-ota-field-loop -- --date=2026-07-08 --platform=ctrip --system-hotel-id=60',
+              },
+            ],
+          },
+        },
+      ],
+    }));
+
+    const result = spawnSync(process.execPath, ['scripts/report_p0_profile_next_steps.mjs', `--input=${input}`, '--json'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.platform_summaries[0].platform_ready, true);
+    assert.equal(payload.next_steps[0].platform_ready, false);
+    assert.equal(payload.next_steps[0].login_trigger_status, 'available');
+    assert.equal(payload.next_steps[0].login_trigger_entry, '/api/online-data/profile-login-trigger/ctrip');
+    assert.equal(payload.next_steps[0].after_login_sync_entry, '/api/online-data/data-sources/14/sync');
+    assert.deepEqual(payload.operator_sequence.map(item => item.type), [
+      'manual_login',
+      'after_login_sync',
+      'single_scope_verifier',
+    ]);
+    assert.doesNotMatch(result.stdout, /already_ready_no_login/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('P0 Profile next-step report marks operator-skipped platform without sync action', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'p0-profile-next-steps-skip-'));
   const input = path.join(dir, 'verifier.json');

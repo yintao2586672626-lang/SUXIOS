@@ -22,6 +22,27 @@ class PermissionService
         'system.config',
     ];
 
+    private const NORMAL_EXTERNAL_DENIED_CAPABILITIES = [
+        'all',
+        'hotel.create',
+        'hotel.update',
+        'hotel.delete',
+        'ota.collect',
+        'ota.delete',
+        'ota.collect_batch',
+        'ota.export',
+        'report.fill',
+        'report.update',
+        'report.delete',
+        'report.export',
+        'ai.governance',
+        'ai.execute',
+        'operation.execute',
+        'investment.simulate',
+        'user.role_change',
+        'system.config',
+    ];
+
     public function __construct(private ?HotelScopeService $hotelScopeService = null)
     {
         $this->hotelScopeService ??= new HotelScopeService();
@@ -97,7 +118,7 @@ class PermissionService
             return false;
         }
 
-        if ($this->isNormalExternalUser($user) && $this->normalizeCapability($capability) === 'ota.collect') {
+        if ($this->isNormalExternalUser($user) && $this->isNormalExternalCapabilityDenied($capability)) {
             return false;
         }
 
@@ -122,7 +143,7 @@ class PermissionService
         if ($this->isNormalExternalUser($user)) {
             $capabilities = array_values(array_filter(
                 $capabilities,
-                fn(string $capability): bool => $this->normalizeCapability($capability) !== 'ota.collect'
+                fn(string $capability): bool => !$this->isNormalExternalCapabilityDenied($capability)
             ));
         }
 
@@ -151,6 +172,27 @@ class PermissionService
     public function isProtectedCapability(string $capability): bool
     {
         return in_array($this->normalizeCapability($capability), self::PROTECTED_CAPABILITIES, true);
+    }
+
+    public function isNormalExternalCapabilityDenied(string $capability): bool
+    {
+        return in_array($this->normalizeCapability($capability), self::NORMAL_EXTERNAL_DENIED_CAPABILITIES, true);
+    }
+
+    /**
+     * @param array<int, string> $permissions
+     * @return array<int, string>
+     */
+    public function normalExternalUnsafeCapabilities(array $permissions): array
+    {
+        $unsafe = [];
+        foreach (self::NORMAL_EXTERNAL_DENIED_CAPABILITIES as $capability) {
+            if (Role::permissionListAllows($permissions, $capability)) {
+                $unsafe[] = $capability;
+            }
+        }
+
+        return array_values(array_unique($unsafe));
     }
 
     /**

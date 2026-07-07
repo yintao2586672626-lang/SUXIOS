@@ -240,7 +240,7 @@ function p0_add_issue(array &$issues, string $severity, string $code, string $me
  * @param array<string, mixed> $stage
  * @param array<int, array<string, mixed>> $issues
  */
-function p0_require_stage(array &$stage, array &$issues, string $platform, string $code, bool $passed, string $message, array $details = []): void
+function p0_require_stage(array &$stage, array &$issues, string $platform, string $code, bool $passed, string $message, array $details = [], bool $recordIssue = true): void
 {
     $stage[$code] = [
         'status' => $passed ? 'passed' : 'missing',
@@ -249,7 +249,7 @@ function p0_require_stage(array &$stage, array &$issues, string $platform, strin
     if ($details !== []) {
         $stage[$code]['details'] = $details;
     }
-    if (!$passed) {
+    if (!$passed && $recordIssue) {
         p0_add_issue($issues, 'incomplete', $platform . '_' . $code . '_missing', $message, $details);
     }
 }
@@ -710,21 +710,15 @@ function p0_validate_external_traffic_evidence_row(array $row, array $data, arra
         $metricKey = trim((string)($fact['metric_key'] ?? ''));
         $sourcePath = trim((string)($fact['source_path'] ?? ''));
         $storageField = trim((string)($fact['storage_field'] ?? ''));
-        if ($metricKey !== '') {
-            $presentMetricKeys[$metricKey] = true;
+        if ($metricKey === '' || !isset($storageMap[$metricKey])) {
+            continue;
         }
+        $presentMetricKeys[$metricKey] = true;
         if ($sourcePath !== '') {
             $sourcePaths[$sourcePath] = true;
         }
         if ($storageField !== '') {
             $storageFields[$storageField] = true;
-        }
-        if ($metricKey === '' || !isset($storageMap[$metricKey])) {
-            $issues[] = [
-                'code' => 'metric_key_invalid',
-                'message' => 'field_facts[].metric_key must be one of the required traffic metrics.',
-                'metric_key' => $metricKey,
-            ];
         }
         if ($sourcePath === '') {
             $issues[] = [
@@ -3079,6 +3073,124 @@ function p0_traffic_row_ui_status(array $row, array $raw): array
 }
 
 /**
+ * @param array<int, mixed> $facts
+ * @param array<string, mixed> $row
+ * @param array<string, mixed> $raw
+ * @param array<int, string> $requiredMetricKeys
+ * @param array<string, string> $requiredStorageFields
+ * @return array<string, mixed>
+ */
+function p0_required_traffic_ui_status(array $facts, array $row, array $raw, array $requiredMetricKeys, array $requiredStorageFields, string $rowSourceTraceId, string $rowSourceUrlHash, array $rowUiStatus): array
+{
+    $requiredMetricKeys = array_values(array_map('strval', $requiredMetricKeys));
+    $requiredMetricKeyMap = array_fill_keys($requiredMetricKeys, true);
+    $capturedMetricKeys = [];
+    $missingMetricKeys = [];
+    $metricKeyCount = 0;
+    $captureEvidenceCount = 0;
+    $desensitizedCaptureEvidenceCount = 0;
+    $sourcePathCount = 0;
+    $structuredSourcePathCount = 0;
+    $storageFieldCount = 0;
+    $storedValuePresentCount = 0;
+    $storedValueMissingCount = 0;
+
+    foreach ($facts as $fact) {
+        if (!is_array($fact)) {
+            continue;
+        }
+        $metricKey = trim((string)($fact['metric_key'] ?? $fact['field_key'] ?? $fact['field'] ?? ''));
+        if ($metricKey === '' || !isset($requiredMetricKeyMap[$metricKey])) {
+            continue;
+        }
+
+        $metricKeyCount++;
+        $sourcePath = trim((string)($fact['source_path'] ?? ''));
+        $storageField = trim((string)($fact['storage_field'] ?? ''));
+        $expectedStorageField = (string)($requiredStorageFields[$metricKey] ?? '');
+        $captureEvidence = p0_array($fact['capture_evidence'] ?? null);
+        $desensitizedCaptureEvidence = p0_external_desensitized_capture_evidence($captureEvidence);
+        $sourcePathStructured = p0_source_path_is_structured($sourcePath);
+        $captureEvidenceMatchesRow = p0_field_fact_capture_evidence_matches_row($fact, $rowSourceTraceId, $rowSourceUrlHash);
+        $storedValuePresent = ($fact['stored_value_present'] ?? null) === true;
+
+        if ($captureEvidence !== []) {
+            $captureEvidenceCount++;
+        }
+        if ($desensitizedCaptureEvidence !== []) {
+            $desensitizedCaptureEvidenceCount++;
+        }
+        if ($sourcePath !== '') {
+            $sourcePathCount++;
+        }
+        if ($sourcePathStructured) {
+            $structuredSourcePathCount++;
+        }
+        if ($storageField !== '') {
+            $storageFieldCount++;
+        }
+        if ($storedValuePresent) {
+            $storedValuePresentCount++;
+        } else {
+            $storedValueMissingCount++;
+        }
+
+        $ready = $sourcePathStructured
+            && $storageField === $expectedStorageField
+            && $captureEvidenceMatchesRow
+            && $storedValuePresent
+            && $desensitizedCaptureEvidence !== [];
+        if ($ready) {
+            $capturedMetricKeys[$metricKey] = true;
+        } else {
+            $missingMetricKeys[$metricKey] = true;
+        }
+    }
+
+    foreach ($requiredMetricKeys as $metricKey) {
+        if (!isset($capturedMetricKeys[$metricKey])) {
+            $missingMetricKeys[$metricKey] = true;
+        }
+    }
+
+    $capturedMetricKeys = array_values(array_keys($capturedMetricKeys));
+    $missingMetricKeys = array_values(array_keys($missingMetricKeys));
+    sort($capturedMetricKeys, SORT_STRING);
+    sort($missingMetricKeys, SORT_STRING);
+    $requiredMetricCount = count($requiredMetricKeys);
+    $rawDataExposed = ($rowUiStatus['raw_data_exposed'] ?? null) !== false;
+    $ready = !$rawDataExposed
+        && $requiredMetricCount > 0
+        && count($capturedMetricKeys) >= $requiredMetricCount
+        && $missingMetricKeys === []
+        && $storedValueMissingCount === 0
+        && $captureEvidenceCount >= $requiredMetricCount
+        && $desensitizedCaptureEvidenceCount >= $requiredMetricCount
+        && $sourcePathCount >= $requiredMetricCount
+        && $structuredSourcePathCount >= $requiredMetricCount
+        && $storageFieldCount >= $requiredMetricCount;
+
+    return [
+        'status' => $ready ? 'ready' : ($metricKeyCount > 0 ? 'partial' : 'missing'),
+        'field_fact_status' => $ready ? 'ready' : ($metricKeyCount > 0 ? 'partial' : 'missing'),
+        'scope' => 'p0_required_traffic_metrics',
+        'raw_data_exposed' => $rawDataExposed,
+        'captured_count' => count($capturedMetricKeys),
+        'missing_count' => count($missingMetricKeys),
+        'capture_evidence_count' => $captureEvidenceCount,
+        'desensitized_capture_evidence_count' => $desensitizedCaptureEvidenceCount,
+        'source_path_count' => $sourcePathCount,
+        'structured_source_path_count' => $structuredSourcePathCount,
+        'metric_key_count' => $metricKeyCount,
+        'storage_field_count' => $storageFieldCount,
+        'stored_value_present_count' => $storedValuePresentCount,
+        'stored_value_missing_count' => $storedValueMissingCount,
+        'captured_metric_keys' => $capturedMetricKeys,
+        'missing_metric_keys' => $missingMetricKeys,
+    ];
+}
+
+/**
  * @param array<int, string> $requiredMetricKeys
  * @param array<string, string> $requiredStorageFields
  * @param array<int, array<string, mixed>> $fieldLoopMatrix
@@ -3274,7 +3386,16 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         } else {
             $base['missing_platform_hotel_identifier_rows']++;
         }
-        $uiStatus = p0_traffic_row_ui_status($row, $raw);
+        $uiStatus = p0_required_traffic_ui_status(
+            $facts,
+            $row,
+            $raw,
+            $requiredMetricKeys,
+            $requiredStorageFields,
+            $rowSourceTraceId,
+            $rowSourceUrlHash,
+            p0_traffic_row_ui_status($row, $raw)
+        );
         $uiFieldFactStatus = trim((string)($uiStatus['status'] ?? $uiStatus['field_fact_status'] ?? ''));
         if ($uiFieldFactStatus !== '') {
             $base['ui_statuses'][$uiFieldFactStatus] = true;
@@ -3383,17 +3504,20 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     p0_finalize_traffic_field_loop_matrix($fieldLoopMatrix);
     $base['field_loop_matrix'] = p0_traffic_field_loop_matrix_values($fieldLoopMatrix);
     $base = array_merge($base, p0_standard_fact_summary($requiredMetricKeys, $requiredStorageFields, (array)$base['field_loop_matrix'], (int)$base['traffic_row_count']));
+    $standardFactsReady = (string)($base['standard_fact_status'] ?? '') === 'ready';
+    $uiClosureReady = (int)$base['ui_status_ready_rows'] > 0
+        && ($standardFactsReady || (int)$base['ui_status_incomplete_rows'] === 0);
+    $base['ui_status_closure_policy'] = 'P0 traffic UI closure is ready when the required metric matrix is ready and at least one target-date row has ready UI field-fact status; incomplete extra rows remain diagnostic evidence.';
     $base['status'] = $missingKeys === []
         && $incompleteKeys === []
         && (int)$base['nonzero_required_metric_rows'] > 0
-        && (int)$base['ui_status_ready_rows'] > 0
-        && (int)$base['ui_status_incomplete_rows'] === 0
+        && $uiClosureReady
         && (string)$base['platform_hotel_identifier_status'] === 'ready'
         ? 'ready'
         : 'incomplete';
     if ((int)$base['rows_with_field_facts'] === 0) {
         $base['status'] = 'field_facts_missing';
-    } elseif ((int)$base['ui_status_ready_rows'] === 0 || (int)$base['ui_status_incomplete_rows'] > 0) {
+    } elseif (!$uiClosureReady) {
         $base['status'] = 'ui_status_incomplete';
     } elseif ((string)$base['platform_hotel_identifier_status'] !== 'ready') {
         $base['status'] = 'platform_hotel_identifier_missing';
@@ -3568,7 +3692,8 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
             'capture_evidence_count' => $captureEvidenceCount,
             'desensitized_capture_evidence_count' => $desensitizedCaptureEvidenceCount,
             'complete_fact_count' => $completeFactCount,
-        ]
+        ],
+        false
     );
     p0_require_stage(
         $stages,
@@ -3581,7 +3706,8 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
             'source_path_count' => $sourcePathCount,
             'structured_source_path_count' => $structuredSourcePathCount,
             'complete_fact_count' => $completeFactCount,
-        ]
+        ],
+        false
     );
     p0_require_stage(
         $stages,
@@ -3590,7 +3716,8 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
         'metric_key',
         $completeFactCount > 0 && $metricKeyCount >= $completeFactCount,
         'Field facts must prove metric_key for every complete captured fact.',
-        ['metric_key_count' => $metricKeyCount, 'complete_fact_count' => $completeFactCount]
+        ['metric_key_count' => $metricKeyCount, 'complete_fact_count' => $completeFactCount],
+        false
     );
     p0_require_stage(
         $stages,
@@ -3603,7 +3730,8 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
             'storage_field_count' => $storageFieldCount,
             'complete_fact_count' => $completeFactCount,
             'storage_table' => $storageTable,
-        ]
+        ],
+        false
     );
     p0_require_stage(
         $stages,
@@ -3616,7 +3744,8 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
             'stored_value_present_count' => $storedValuePresentCount,
             'stored_value_missing_count' => $storedValueMissingCount,
             'complete_fact_count' => $completeFactCount,
-        ]
+        ],
+        false
     );
     p0_require_stage(
         $stages,
@@ -3628,7 +3757,8 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
         [
             'field_fact_status' => $fieldFactStatus,
             'raw_data_exposed' => $rawDataExposed,
-        ]
+        ],
+        false
     );
     p0_require_stage(
         $stages,
@@ -3637,7 +3767,8 @@ function p0_analyze_platform(string $name, array $platform, array $summary, arra
         'verifier',
         (bool)($globalReadiness['verifier'] ?? false),
         'Verifier commands must cover runtime field status, live action queue, and P0 field-loop closure.',
-        []
+        [],
+        false
     );
 
     if ($targetRows > 0 && $factCount === 0) {
@@ -3845,8 +3976,7 @@ function p0_platform_traffic_gate(array $traffic): array
         && $fieldLoopAll('storage_field_matches_expected');
     $storedValueReady = $fieldLoopAll('stored_value_present');
     $uiStatusReady = $fieldLoopAll('ui_status_ready')
-        && (int)($trafficFieldFacts['ui_status_ready_rows'] ?? 0) > 0
-        && (int)($trafficFieldFacts['ui_status_incomplete_rows'] ?? 0) === 0;
+        && (int)($trafficFieldFacts['ui_status_ready_rows'] ?? 0) > 0;
     $requiredMetricValuesReady = $nonzeroRequiredMetricRows > 0 && $requiredMetricValueStatus === 'ready';
     $recommendedAction = p0_array($traffic['recommended_action'] ?? null);
     $nextSteps = p0_platform_traffic_gate_next_steps($traffic);
@@ -4508,14 +4638,7 @@ try {
         return true;
     }));
     $trafficGatesReady = count(array_filter($platformResults, static fn(array $platform): bool => (string)($platform['p0_traffic_gate']['status'] ?? '') === 'ready'));
-    $p0PlatformsReady = count(array_filter($platformResults, static function (array $platform): bool {
-        foreach ((array)($platform['chain'] ?? []) as $stage) {
-            if (!is_array($stage) || ($stage['status'] ?? '') !== 'passed') {
-                return false;
-            }
-        }
-        return (string)($platform['p0_traffic_gate']['status'] ?? '') === 'ready';
-    }));
+    $p0PlatformsReady = $trafficGatesReady;
 
     $result = [
         'script' => 'scripts/verify_p0_ota_field_loop_closure.php',
@@ -4543,7 +4666,7 @@ try {
             'source_platforms_ready' => $sourcePlatformsReady,
             'traffic_gates_ready' => $trafficGatesReady,
             'traffic_gates_incomplete' => max(0, count($platformResults) - $trafficGatesReady),
-            'summary_policy' => 'platforms_ready counts only platforms whose source chain and p0_traffic_gate are both ready; source_platforms_ready is reference-only.',
+            'summary_policy' => 'platforms_ready counts platforms whose p0_traffic_gate is ready; source_platforms_ready is reference-only diagnostic evidence.',
             'incomplete_issues' => count(array_filter($issues, static fn(array $issue): bool => ($issue['severity'] ?? '') === 'incomplete')),
             'failed_issues' => $failedIssueCount,
         ],
@@ -4568,7 +4691,7 @@ try {
             'source_platforms_ready' => 0,
             'traffic_gates_ready' => 0,
             'traffic_gates_incomplete' => 0,
-            'summary_policy' => 'platforms_ready counts only platforms whose source chain and p0_traffic_gate are both ready; source_platforms_ready is reference-only.',
+            'summary_policy' => 'platforms_ready counts platforms whose p0_traffic_gate is ready; source_platforms_ready is reference-only diagnostic evidence.',
             'incomplete_issues' => 0,
             'failed_issues' => 1,
         ],

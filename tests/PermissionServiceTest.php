@@ -23,17 +23,35 @@ final class PermissionServiceTest extends TestCase
         self::assertSame('role_permission_denied', $collect['reason']);
     }
 
-    public function testNormalUserCannotCollectEvenIfLegacyRoleStillContainsCollectPermission(): void
+    public function testNormalUserCannotUseOtaMutationsEvenIfLegacyRoleStillContainsThem(): void
     {
         $service = new PermissionService(new AllowingHotelScopeService());
-        $user = $this->userWithRole(['dashboard.view', 'hotel.view', 'ota.view', 'can_fetch_online_data'], Role::NORMAL_USER, 'normal_user');
+        $user = $this->userWithRole([
+            'dashboard.view',
+            'hotel.view',
+            'ota.view',
+            'hotel.update',
+            'can_fetch_online_data',
+            'can_delete_online_data',
+            'can_export_data',
+            'can_use_ai_decision',
+        ], Role::NORMAL_USER, 'normal_user');
 
-        $authorization = $service->authorize($user, 'ota.collect', 7);
+        foreach (['hotel.update', 'ota.collect', 'ota.delete', 'ota.export', 'report.export', 'ai.execute'] as $capability) {
+            $authorization = $service->authorize($user, $capability, 7);
 
-        self::assertFalse($authorization['allowed']);
-        self::assertSame('role_permission_denied', $authorization['reason']);
+            self::assertFalse($authorization['allowed'], $capability);
+            self::assertSame('role_permission_denied', $authorization['reason'], $capability);
+        }
         self::assertNotContains('can_fetch_online_data', $service->roleCapabilities($user));
         self::assertNotContains('ota.collect', $service->roleCapabilities($user));
+        self::assertNotContains('can_delete_online_data', $service->roleCapabilities($user));
+        self::assertNotContains('ota.delete', $service->roleCapabilities($user));
+        self::assertNotContains('can_export_data', $service->roleCapabilities($user));
+        self::assertNotContains('ota.export', $service->roleCapabilities($user));
+        self::assertNotContains('hotel.update', $service->roleCapabilities($user));
+        self::assertNotContains('can_use_ai_decision', $service->roleCapabilities($user));
+        self::assertContains('ota.view', $service->roleCapabilities($user));
     }
 
     public function testVipCapabilityStillRequiresHotelPermissionLayer(): void

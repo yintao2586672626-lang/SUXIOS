@@ -80,7 +80,15 @@ class User extends Model
         }
 
         $role = $this->role;
-        return $role && (int)$role->status === Role::STATUS_ENABLED && $role->hasPermission('all');
+        if (!$role || (int)$role->status !== Role::STATUS_ENABLED || !$role->hasPermission('all')) {
+            return false;
+        }
+
+        $roleId = (int)($role->getAttr('id') ?? 0);
+        $roleName = (string)($role->getAttr('name') ?? '');
+        $roleLevel = (int)($role->getAttr('level') ?? 0);
+
+        return $roleId === Role::SUPER_ADMIN || $roleName === 'admin' || $roleLevel === 1;
     }
 
     /**

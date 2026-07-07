@@ -5,6 +5,7 @@ namespace app\controller;
 
 use app\model\Role;
 use app\model\OperationLog;
+use app\service\PermissionService;
 use think\Response;
 
 class RoleController extends Base
@@ -106,7 +107,7 @@ class RoleController extends Base
         $permissions = isset($data['permissions'])
             ? $this->normalizePermissionPayload($data['permissions'])
             : Role::normalizePermissions($role->permissions);
-        $boundaryResponse = $this->validateRolePermissionBoundary($nextName, $permissions);
+        $boundaryResponse = $this->validateRolePermissionBoundary($nextName, $permissions, $role);
         if ($boundaryResponse) {
             return $boundaryResponse;
         }
@@ -212,16 +213,31 @@ class RoleController extends Base
         return Role::normalizePermissions($permissions);
     }
 
-    private function validateRolePermissionBoundary(string $roleName, array $permissions): ?Response
+    private function validateRolePermissionBoundary(string $roleName, array $permissions, ?Role $existingRole = null): ?Response
     {
-        if ($roleName !== 'normal_user') {
+        if (!$this->isNormalExternalRoleIdentity($roleName, $existingRole)) {
             return null;
         }
 
-        if (Role::permissionListAllows($permissions, 'ota.collect')) {
-            return $this->error('普通用户角色不能包含 OTA 采集权限，请先移除采集权限', 422);
+        $unsafeCapabilities = (new PermissionService())->normalExternalUnsafeCapabilities($permissions);
+        if (!empty($unsafeCapabilities)) {
+            return $this->error('普通用户角色不能包含 OTA 采集权限或其他高风险权限：' . implode('、', $unsafeCapabilities), 422);
         }
 
         return null;
+    }
+
+    private function isNormalExternalRoleIdentity(string $roleName, ?Role $existingRole = null): bool
+    {
+        if ($roleName === 'normal_user') {
+            return true;
+        }
+
+        if (!$existingRole instanceof Role) {
+            return false;
+        }
+
+        return (int)$existingRole->getAttr('id') === Role::NORMAL_USER
+            || (string)$existingRole->getAttr('name') === 'normal_user';
     }
 }

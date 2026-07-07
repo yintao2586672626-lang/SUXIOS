@@ -234,7 +234,11 @@ class Auth extends Base
     private function buildSelfRegistrationHotelPermissionDefaults(Role $role): array
     {
         $permissions = $role->getPermissionList();
-        $allows = static fn(string $permission): int => Role::permissionListAllows($permissions, $permission) ? 1 : 0;
+        $permissionService = new PermissionService();
+        $isNormalExternalRole = $this->isNormalExternalRole($role);
+        $allows = static fn(string $permission): int => $isNormalExternalRole && $permissionService->isNormalExternalCapabilityDenied($permission)
+            ? 0
+            : (Role::permissionListAllows($permissions, $permission) ? 1 : 0);
 
         return [
             'scope_type' => 'granted',
@@ -429,16 +433,18 @@ class Auth extends Base
 
     private function buildUserPermissions(User $user): array
     {
+        $allows = fn(string $permission): bool => $user->hasPermission($permission) && $this->roleAllows($user, $permission);
+
         return [
-            'can_view_report' => $user->hasPermission('can_view_report'),
-            'can_fill_daily_report' => $user->hasPermission('can_fill_daily_report'),
-            'can_fill_monthly_task' => $user->hasPermission('can_fill_monthly_task'),
-            'can_edit_report' => $user->hasPermission('can_edit_report'),
-            'can_delete_report' => $user->hasPermission('can_delete_report'),
-            'can_view_online_data' => $user->hasPermission('can_view_online_data'),
-            'can_fetch_online_data' => $user->hasPermission('can_fetch_online_data'),
-            'can_delete_online_data' => $user->hasPermission('can_delete_online_data'),
-            'can_manage_own_hotels' => $user->canManageOwnHotels(),
+            'can_view_report' => $allows('can_view_report'),
+            'can_fill_daily_report' => $allows('can_fill_daily_report'),
+            'can_fill_monthly_task' => $allows('can_fill_monthly_task'),
+            'can_edit_report' => $allows('can_edit_report'),
+            'can_delete_report' => $allows('can_delete_report'),
+            'can_view_online_data' => $allows('can_view_online_data'),
+            'can_fetch_online_data' => $allows('can_fetch_online_data'),
+            'can_delete_online_data' => $allows('can_delete_online_data'),
+            'can_manage_own_hotels' => $user->canManageOwnHotels() && $this->roleAllows($user, 'can_manage_own_hotels'),
             'can_manage_users' => $user->canManageUser(),
             'can_use_ai_decision' => $this->roleAllows($user, 'can_use_ai_decision'),
             'can_use_investment' => $this->roleAllows($user, 'can_use_investment'),
@@ -470,14 +476,12 @@ class Auth extends Base
 
     private function roleAllows(User $user, string $permission): bool
     {
-        if ($user->isSuperAdmin()) {
-            return true;
-        }
+        return (new PermissionService())->roleAllows($user, $permission);
+    }
 
-        $role = $user->role;
-        return $role instanceof Role
-            && (int)$role->status === Role::STATUS_ENABLED
-            && $role->hasPermission($permission);
+    private function isNormalExternalRole(Role $role): bool
+    {
+        return (int)$role->getAttr('id') === Role::NORMAL_USER || (string)$role->getAttr('name') === 'normal_user';
     }
 
     private function isEnabledConfigValue($value): bool

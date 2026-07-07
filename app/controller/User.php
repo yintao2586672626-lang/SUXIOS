@@ -7,6 +7,7 @@ use app\model\User as UserModel;
 use app\model\Hotel as HotelModel;
 use app\model\Role;
 use app\model\OperationLog;
+use app\service\PermissionService;
 use think\Response;
 use think\facade\Db;
 
@@ -470,8 +471,9 @@ class User extends Base
             return null;
         }
 
-        if (Role::permissionListAllows($role->getPermissionList(), 'ota.collect')) {
-            return $this->error('普通用户角色不能包含 OTA 采集权限，请先调整角色权限后再发放', 422);
+        $unsafeCapabilities = (new PermissionService())->normalExternalUnsafeCapabilities($role->getPermissionList());
+        if (!empty($unsafeCapabilities)) {
+            return $this->error('普通用户角色不能包含 OTA 采集权限或其他高风险权限：' . implode('、', $unsafeCapabilities), 422);
         }
 
         if (empty($hotelIds)) {

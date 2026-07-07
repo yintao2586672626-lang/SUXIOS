@@ -6,6 +6,13 @@ const root = process.cwd();
 const phpBinary = process.env.PHP_BINARY || 'C:\\xampp\\php\\php.exe';
 const importer = path.join(root, 'scripts', 'import_p0_ota_traffic_payload.php');
 const p0Verifier = path.join(root, 'scripts', 'verify_p0_ota_field_loop_closure.php');
+const p0RequiredTrafficMetricKeys = [
+  'detail_exposure',
+  'flow_rate',
+  'list_exposure',
+  'order_filling_num',
+  'order_submit_num',
+];
 
 const options = parseArgs(process.argv.slice(2));
 const platforms = options.platform === 'all' ? ['ctrip', 'meituan'] : [options.platform];
@@ -279,6 +286,11 @@ function isAllowedCandidateFile(filePath) {
 
 function summarizeTrafficEvidenceDiagnostics(trafficEvidence, summary = {}) {
   const rows = Array.isArray(trafficEvidence) ? trafficEvidence : [];
+  const requiredMetricKeys = new Set(
+    (Array.isArray(summary?.required_metric_keys) ? summary.required_metric_keys : p0RequiredTrafficMetricKeys)
+      .map(String)
+      .filter(Boolean),
+  );
   let sourcePathRows = 0;
   let structuredSourcePathRows = 0;
   let rawDataFieldFactsRows = 0;
@@ -310,7 +322,10 @@ function summarizeTrafficEvidenceDiagnostics(trafficEvidence, summary = {}) {
     }
     for (const fact of Array.isArray(row.field_facts) ? row.field_facts : []) {
       if (fact && typeof fact === 'object' && typeof fact.metric_key === 'string' && fact.metric_key.trim() !== '') {
-        metricKeys.add(fact.metric_key.trim());
+        const metricKey = fact.metric_key.trim();
+        if (requiredMetricKeys.has(metricKey)) {
+          metricKeys.add(metricKey);
+        }
       }
     }
   }

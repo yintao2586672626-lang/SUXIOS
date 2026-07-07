@@ -90,14 +90,39 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function isReadyStatus(status) {
+  return ['ready', 'passed'].includes(String(status || '').trim().toLowerCase());
+}
+
 function isPlatformReady(platformPayload, gate) {
-  const gateStatus = String(gate?.status || gate?.action_status || platformPayload?.status || '').trim().toLowerCase();
-  if (gateStatus === 'ready') {
-    return true;
+  const gateStatus = String(gate?.status || '').trim().toLowerCase();
+  if (gateStatus) {
+    return isReadyStatus(gateStatus);
+  }
+  const platformStatus = String(platformPayload?.status || '').trim().toLowerCase();
+  if (platformStatus) {
+    return isReadyStatus(platformStatus);
   }
   return Number(platformPayload?.target_date_rows || 0) > 0
     && Number(gate?.traffic_rows || 0) > 0
     && asArray(gate?.action_missing_inputs).length === 0;
+}
+
+function isStepReady(step, platformReady) {
+  if (!platformReady) {
+    return false;
+  }
+  const latestSyncTask = step?.latest_sync_task && typeof step.latest_sync_task === 'object'
+    ? step.latest_sync_task
+    : {};
+  if (latestSyncTask.target_date_rows_proved === false) {
+    return false;
+  }
+  const latestTaskDiagnosis = String(latestSyncTask.diagnosis || latestSyncTask.message_code || '').trim().toLowerCase();
+  if (latestTaskDiagnosis.includes('requires_p0_target_date_verifier')) {
+    return false;
+  }
+  return true;
 }
 
 function compactStep(platform, step, options = {}) {
@@ -146,7 +171,7 @@ function buildReport(verifier) {
     const platformReady = isPlatformReady(platformPayload, gate);
     const steps = asArray(gate.hotel_scoped_next_steps).map((step) => compactStep(platform, step, {
       operatorSkipActive,
-      platformReady,
+      platformReady: isStepReady(step, platformReady),
       platformGateStatus: gate.status || '',
       platformActionStatus: gate.action_status || '',
     }));
@@ -336,6 +361,12 @@ function buildDownstreamGate(payload, completionGate, platformSummaries = []) {
       : {};
     for (const item of asArray(gate.action_missing_inputs)) {
       if (item) blockingMissingInputs.add(String(item));
+    }
+    if (!isPlatformReady(platformPayload, gate)) {
+      const gateStatus = String(gate.status || '').trim();
+      if (gateStatus) {
+        blockingMissingInputs.add(gateStatus);
+      }
     }
     if (Number(platformPayload?.target_date_rows || 0) <= 0) {
       blockingMissingInputs.add('target_date_ota_rows');

@@ -104,6 +104,7 @@ assert.doesNotMatch(indexHtml, /todo:\s*'待办'/, 'hotel account health text sh
 assert.doesNotMatch(indexHtml, /user\?\.role_id\s*<=\s*2/, '用户管理入口不能继续用 role_id <= 2 放开内测用户');
 
 assert.match(userModel, /public function canManageUser\(\): bool[\s\S]*return \$this->isSuperAdmin\(\);/, '用户管理必须仅管理员可用');
+assert.match(userModel, /public function isSuperAdmin\(\): bool[\s\S]*role_id === Role::SUPER_ADMIN[\s\S]*role->hasPermission\('all'\)[\s\S]*roleName === 'admin'[\s\S]*roleLevel === 1/, 'super-admin checks must not promote beta or normal roles just because a dirty role contains all');
 assert.match(userController, /public function index\(\): Response[\s\S]*canManageUser\(\)/, '用户列表接口必须检查用户管理权限');
 
 assert.match(userController, /public function roles\(\): Response[\s\S]*canManageUser\(\)/, 'user role metadata endpoint must require user-management permission');
@@ -132,15 +133,23 @@ assert.match(userController, /private function normalizeAssignedHotelIds\(array 
 assert.match(userController, /\$data\['hotel_ids'\]\s*=/, 'user API responses must expose assigned hotel ids for editing');
 assert.match(userController, /private function validateExternalUserIssueBoundary\(Role \$role, array \$hotelIds\): \?Response/, 'user API must validate external-account issue boundaries');
 assert.match(userController, /private function isNormalExternalRole\(Role \$role\): bool/, 'user API must identify normal external roles explicitly');
-assert.match(userController, /Role::permissionListAllows\(\$role->getPermissionList\(\), 'ota\.collect'\)/, 'normal external user issuance must reject roles with OTA collection permission at the API layer');
+assert.match(userController, /normalExternalUnsafeCapabilities\(\$role->getPermissionList\(\)\)/, 'normal external user issuance must reject roles with denied high-risk permissions at the API layer');
 assert.match(userController, /\$hotelIds = \[\(int\)\$hotelId\];[\s\S]{0,240}\$issueBoundaryResponse = \$this->validateExternalUserIssueBoundary\(\$targetRole, \$hotelIds\);/, 'non-super user issuance must reuse the normal external OTA collection boundary');
-assert.match(userController, /普通用户角色不能包含 OTA 采集权限/, 'normal external user API rejection must explain the unsafe OTA collection permission');
+assert.match(userController, /普通用户角色不能包含 OTA 采集权限或其他高风险权限/, 'normal external user API rejection must explain the unsafe high-risk permissions');
 assert.match(userController, /普通用户必须先分配门店/, 'normal external users must be blocked without an assigned hotel scope');
-assert.match(roleController, /private function validateRolePermissionBoundary\(string \$roleName, array \$permissions\): \?Response/, 'role API must validate built-in external role permission boundaries');
-assert.match(roleController, /\$roleName !== 'normal_user'[\s\S]*Role::permissionListAllows\(\$permissions, 'ota\.collect'\)/, 'normal_user role saves must reject OTA collection permission');
-assert.match(roleController, /普通用户角色不能包含 OTA 采集权限/, 'normal_user role API rejection must explain the unsafe OTA collection permission');
-assert.match(permissionService, /isNormalExternalUser\(\$user\)[\s\S]*normalizeCapability\(\$capability\) === 'ota\.collect'/, 'runtime permission service must reject OTA collection for normal external users');
+assert.match(roleController, /private function validateRolePermissionBoundary\(string \$roleName, array \$permissions, \?Role \$existingRole = null\): \?Response/, 'role API must validate built-in external role permission boundaries with the existing role identity');
+assert.match(roleController, /validateRolePermissionBoundary\(\$nextName, \$permissions, \$role\)/, 'role update must preserve normal-user boundaries even after role renaming');
+assert.match(roleController, /private function isNormalExternalRoleIdentity\(string \$roleName, \?Role \$existingRole = null\): bool[\s\S]*Role::NORMAL_USER[\s\S]*normal_user/, 'role API must identify normal-user roles by current name, existing id, or existing name');
+assert.match(roleController, /isNormalExternalRoleIdentity\(\$roleName, \$existingRole\)[\s\S]*normalExternalUnsafeCapabilities\(\$permissions\)/, 'normal_user role saves must reject denied high-risk permissions');
+assert.match(roleController, /普通用户角色不能包含 OTA 采集权限或其他高风险权限/, 'normal_user role API rejection must explain the unsafe high-risk permissions');
+assert.match(permissionService, /NORMAL_EXTERNAL_DENIED_CAPABILITIES[\s\S]*'hotel\.update'[\s\S]*'ota\.collect'[\s\S]*'ota\.delete'[\s\S]*'ota\.export'[\s\S]*'report\.export'[\s\S]*'ai\.execute'/, 'runtime permission service must centralize denied high-risk capabilities for normal external users');
+assert.match(permissionService, /isNormalExternalUser\(\$user\)[\s\S]*isNormalExternalCapabilityDenied\(\$capability\)/, 'runtime permission service must apply the centralized normal external denial set');
 assert.match(permissionService, /getAttr\('name'\) === 'normal_user'/, 'runtime permission service must recognize normal external roles by role name as well as id');
+assert.match(authController, /\$allows = fn\(string \$permission\): bool => \$user->hasPermission\(\$permission\) && \$this->roleAllows\(\$user, \$permission\);/, 'login payload must gate permission booleans through the central runtime role policy');
+assert.match(authController, /'can_fetch_online_data'\s*=>\s*\$allows\('can_fetch_online_data'\)/, 'login payload must not expose legacy OTA collection grants unless runtime role policy also allows it');
+assert.match(authController, /'can_delete_online_data'\s*=>\s*\$allows\('can_delete_online_data'\)/, 'login payload must not expose legacy OTA deletion grants unless runtime role policy also allows it');
+assert.match(authController, /'can_manage_own_hotels'\s*=>\s*\$user->canManageOwnHotels\(\) && \$this->roleAllows\(\$user,\s*'can_manage_own_hotels'\)/, 'login payload must not expose legacy hotel-management grants to normal external users');
+assert.match(authController, /private function roleAllows\(User \$user, string \$permission\): bool\s*\{\s*return \(new PermissionService\(\)\)->roleAllows\(\$user, \$permission\);\s*\}/, 'auth payload permission helpers must reuse the central permission service');
 assert.match(userController, /private function validateUsernamePolicy\(string \$username\): \?string/, 'admin-created users must share the public registration username policy');
 assert.match(userController, /\^\[A-Za-z0-9_\]\{3,50\}\$/, 'admin-created users must allow underscores and the same length as public registration');
 assert.doesNotMatch(userController, /alphaNum\|min:3\|max:20/, 'admin-created users must not keep the stricter legacy alphaNum username rule');
