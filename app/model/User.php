@@ -226,18 +226,11 @@ class User extends Model
      */
     public function canManageOwnHotels(): bool
     {
-        if ($this->isSuperAdmin() || $this->isBetaUser()) {
+        if ($this->isSuperAdmin()) {
             return true;
         }
 
-        if ((int)$this->role_id === Role::NORMAL_USER) {
-            return false;
-        }
-
-        $role = $this->role;
-        return $role
-            && (int)$role->status === Role::STATUS_ENABLED
-            && ($role->hasPermission('can_manage_own_hotels') || $role->hasPermission('hotel.create'));
+        return (new PermissionService())->roleAllows($this, 'can_manage_own_hotels');
     }
 
     /**

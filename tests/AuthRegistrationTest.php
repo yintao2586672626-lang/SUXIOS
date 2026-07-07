@@ -270,6 +270,21 @@ final class AuthRegistrationTest extends TestCase
         self::assertTrue($adminUser->canManageUser());
     }
 
+    public function testCanManageOwnHotelsFollowsRuntimeRolePolicy(): void
+    {
+        $betaWithoutHotelCreateRole = $this->roleWithPermissions(['dashboard.view', 'hotel.view'], Role::BETA_USER, 'beta_user', 2);
+        $betaWithoutHotelCreate = $this->userWithRole($betaWithoutHotelCreateRole, Role::BETA_USER);
+        self::assertFalse($betaWithoutHotelCreate->canManageOwnHotels());
+
+        $betaWithHotelCreateRole = $this->roleWithPermissions(['dashboard.view', 'hotel.view', 'hotel.create'], Role::BETA_USER, 'beta_user', 2);
+        $betaWithHotelCreate = $this->userWithRole($betaWithHotelCreateRole, Role::BETA_USER);
+        self::assertTrue($betaWithHotelCreate->canManageOwnHotels());
+
+        $levelThreeRole = $this->roleWithPermissions(['dashboard.view', 'hotel.view', 'hotel.create'], 9, 'external_reader', 3);
+        $levelThreeUser = $this->userWithRole($levelThreeRole, 9);
+        self::assertFalse($levelThreeUser->canManageOwnHotels());
+    }
+
     /**
      * @param array<int, string> $permissions
      */
