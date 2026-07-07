@@ -293,26 +293,34 @@ trait MeituanCapturedDataConcern
 
     private function normalizeMeituanCapturedTrafficRow(array $item, array $context): ?array
     {
-        $exposure = (int)$this->meituanNumber($item, ['exposure_count', 'exposureCount', 'listExposure', 'impression', 'impressions', 'exposure'], 0);
-        $pageViews = (int)$this->meituanNumber($item, ['page_views', 'pageViews', 'detailExposure', 'detailVisitors', 'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount', 'uv', 'UV', 'pv', 'views'], 0);
+        $exposure = (int)$this->meituanNumber($item, ['mt_exposure', 'exposure_count', 'exposureCount', 'listExposure', 'impression', 'impressions', 'exposure', 'exposureUV', 'exposure_uv'], 0);
+        $pageViews = (int)$this->meituanNumber($item, ['mt_intention_uv', 'intentionUV', 'intention_uv', 'page_views', 'pageViews', 'detailExposure', 'detailVisitors', 'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount', 'uv', 'UV', 'pv', 'views'], 0);
         $clicks = (int)$this->meituanNumber($item, ['click_count', 'clickCount', 'clickNum', 'clicks', 'click'], 0);
-        $conversion = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['conversion_rate', 'conversionRate', 'flowRate', 'orderRate'], null));
+        $payOrders = (int)$this->meituanNumber($item, ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers', 'orderNum', 'order_count', 'orders'], 0);
+        $payRooms = (int)$this->meituanNumber($item, ['mt_pay_rooms', 'pay_rooms', 'payRooms', 'payRoomNum', 'pay_room_num', 'roomNights', 'room_nights', 'quantity'], 0);
+        $conversion = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['mt_conversion_rate', 'conversion_rate', 'conversionRate', 'flowRate', 'orderRate', 'payOrderPerIntention', 'pay_order_per_intention'], null));
         if ($conversion === null) {
             $conversion = CtripTrafficDisplayService::trafficRate((float)($pageViews ?: $clicks), (float)$exposure);
         }
 
-        if ($exposure <= 0 && $pageViews <= 0 && $clicks <= 0) {
+        if ($exposure <= 0 && $pageViews <= 0 && $clicks <= 0 && $payOrders <= 0 && $payRooms <= 0) {
             return null;
         }
 
         $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
             ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        $factSource = array_merge($item, [
+            'mt_exposure' => $exposure,
+            'mt_intention_uv' => $pageViews ?: $clicks,
+            'mt_pay_orders' => $payOrders,
+            'mt_pay_rooms' => $payRooms,
+        ]);
 
-        return $this->baseMeituanCapturedRow($item, $context, [
+        return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $dataDate,
             'amount' => 0,
-            'quantity' => 0,
-            'book_order_num' => 0,
+            'quantity' => $payRooms,
+            'book_order_num' => $payOrders,
             'comment_score' => 0,
             'data_value' => $exposure,
             'data_type' => 'traffic',
@@ -323,7 +331,7 @@ trait MeituanCapturedDataConcern
             'detail_exposure' => $pageViews ?: $clicks,
             'flow_rate' => round($conversion, 2),
             'order_filling_num' => $clicks,
-            'order_submit_num' => (int)$this->meituanNumber($item, ['order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers'], 0),
+            'order_submit_num' => $payOrders,
         ]);
     }
 
@@ -463,23 +471,35 @@ trait MeituanCapturedDataConcern
     {
         $exposure = (int)$this->meituanNumber($item, ['exposure_count', 'exposureCount', 'impression', 'impressions', 'exposure'], 0);
         $clicks = (int)$this->meituanNumber($item, ['click_count', 'clickCount', 'clickNum', 'clicks', 'click'], 0);
+        $spend = $this->meituanNumber($item, ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend', 'consume', 'consumption'], 0.0);
+        $orderAmount = $this->meituanNumber($item, ['order_amount', 'orderAmount', 'saleAmount', 'salesAmount', 'revenue', 'gmv'], 0.0);
+        $orders = (int)$this->meituanNumber($item, ['book_order_num', 'bookOrderNum', 'orderNum', 'order_count', 'orders', 'booking_count', 'bookingCount'], 0);
         $conversion = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['conversion_rate', 'conversionRate', 'flowRate', 'orderRate'], null));
         if ($conversion === null) {
             $conversion = CtripTrafficDisplayService::trafficRate((float)$clicks, (float)$exposure);
         }
+        $roas = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['roas', 'roi'], null));
+        if ($roas === null && $spend > 0 && $orderAmount > 0) {
+            $roas = $orderAmount / $spend;
+        }
 
-        if ($exposure <= 0 && $clicks <= 0) {
+        if ($exposure <= 0 && $clicks <= 0 && $spend <= 0 && $orderAmount <= 0 && $orders <= 0) {
             return null;
         }
 
         $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
             ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        $factSource = array_merge($item, [
+            'spend' => $spend,
+            'order_amount' => $orderAmount,
+            'book_order_num' => $orders,
+        ], $roas !== null ? ['roas' => $roas] : []);
 
-        return $this->baseMeituanCapturedRow($item, $context, [
+        return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $dataDate,
-            'amount' => 0,
-            'quantity' => 0,
-            'book_order_num' => 0,
+            'amount' => $spend,
+            'quantity' => $orders,
+            'book_order_num' => $orders,
             'comment_score' => 0,
             'data_value' => $exposure,
             'data_type' => 'advertising',
@@ -490,7 +510,7 @@ trait MeituanCapturedDataConcern
             'detail_exposure' => $clicks,
             'flow_rate' => round($conversion, 2),
             'order_filling_num' => $clicks,
-            'order_submit_num' => 0,
+            'order_submit_num' => $orders,
         ]);
     }
 

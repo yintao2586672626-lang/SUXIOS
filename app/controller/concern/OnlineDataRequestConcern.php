@@ -116,6 +116,8 @@ trait OnlineDataRequestConcern
         $lock = $this->acquirePlatformProfileCaptureLock('meituan', $storeId);
         if ($lock === null) {
             return $this->error('Meituan browser Profile capture is already running for this store.', 409, [
+                'status_code' => 'resource_busy_login',
+                'error_code' => 'resource_busy_login',
                 'lock_key' => 'meituan:' . BrowserProfileCaptureRequestService::safeFilePart($storeId),
             ]);
         }

@@ -42,6 +42,8 @@ const reportDir = resolve(args.reportDir || 'reports');
 const assetDir = join(reportDir, 'meituan_capture_assets');
 const capturedAt = new Date().toISOString();
 const defaultDataDate = String(args.dataDate || '').trim();
+const dataPeriod = String(args.dataPeriod || '').trim();
+const snapshotTime = String(args.snapshotTime || '').trim() || (dataPeriod === 'realtime_snapshot' ? capturedAt : '');
 const outputPath = resolve(args.output || join(reportDir, `meituan_capture_${safeName(storeId)}_${timestamp()}.json`));
 const captureSections = normalizeCaptureSections(args.sections || args.captureSections || args.only || 'traffic,orders');
 const loginOnly = booleanArg(args.loginOnly) || booleanArg(args.authOnly) || booleanArg(args.prepareProfile);
@@ -56,6 +58,8 @@ const payload = {
   poi_name: String(args.poiName || ''),
   system_hotel_id: args.systemHotelId ? Number(args.systemHotelId) : null,
   default_data_date: defaultDataDate,
+  data_period: dataPeriod,
+  snapshot_time: snapshotTime,
   captured_at: capturedAt,
   source: 'meituan_browser_profile',
   mode: loginOnly ? 'login_only' : 'capture',

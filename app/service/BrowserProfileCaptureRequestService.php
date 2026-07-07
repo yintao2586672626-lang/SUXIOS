@@ -5,6 +5,9 @@ namespace app\service;
 
 final class BrowserProfileCaptureRequestService
 {
+    public const MEITUAN_DEFAULT_SECTIONS = 'traffic,orders';
+    public const MEITUAN_FULL_SECTIONS = 'traffic,orders,ads,reviews';
+
     public static function safeFilePart(string $value): string
     {
         $safe = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $value) ?: 'default';
@@ -70,13 +73,53 @@ final class BrowserProfileCaptureRequestService
     public static function normalizeMeituanSections(array $requestData): string
     {
         $value = $requestData['sections'] ?? $requestData['capture_sections'] ?? $requestData['captureSections'] ?? '';
-        $sections = is_array($value)
-            ? implode(',', array_map('strval', $value))
+        return self::normalizeMeituanProfileSections($value, '');
+    }
+
+    public static function normalizeMeituanProfileSections($value, string $fallback = self::MEITUAN_DEFAULT_SECTIONS): string
+    {
+        $raw = is_array($value)
+            ? implode(',', array_map(static fn($item): string => (string)$item, $value))
             : trim((string)$value);
-        if ($sections === '') {
-            return '';
+        $raw = preg_replace('/[^a-zA-Z,_\-\s]+/', '', $raw) ?: '';
+        $items = preg_split('/[,\s]+/', strtolower($raw)) ?: [];
+        $sections = [];
+        foreach ($items as $item) {
+            $item = trim($item);
+            if ($item === '') {
+                continue;
+            }
+            if (in_array($item, ['full', 'complete', 'all'], true)) {
+                foreach (explode(',', self::MEITUAN_FULL_SECTIONS) as $fullSection) {
+                    $sections[$fullSection] = true;
+                }
+                continue;
+            }
+            if (in_array($item, ['default', 'core'], true)) {
+                foreach (explode(',', self::MEITUAN_DEFAULT_SECTIONS) as $defaultSection) {
+                    $sections[$defaultSection] = true;
+                }
+                continue;
+            }
+            $normalized = match ($item) {
+                'ad', 'ads', 'advertising' => 'ads',
+                'order', 'orders' => 'orders',
+                'review', 'reviews', 'comment', 'comments', 'review_data' => 'reviews',
+                'traffic', 'flow', 'flow_data', 'flowdata', 'businessdata', 'business_data',
+                'business', 'overview', 'realtime', 'realtime_snapshot', 'peer_rank', 'peerrank',
+                'competitor_rank', 'competitorrank', 'traffic_analysis', 'trafficanalysis',
+                'flow_analysis', 'flowanalysis', 'traffic_forecast', 'trafficforecast',
+                'flow_forecast', 'flowforecast', 'search_keyword', 'search_keywords',
+                'searchkeyword', 'searchkeywords', 'room_type', 'room_types', 'roomtype',
+                'roomtypes', 'product', 'products' => 'traffic',
+                default => '',
+            };
+            if ($normalized !== '') {
+                $sections[$normalized] = true;
+            }
         }
-        return preg_replace('/[^a-zA-Z,_\-\s]+/', '', $sections) ?: '';
+
+        return implode(',', array_keys($sections)) ?: $fallback;
     }
 
     public static function buildMeituanPlan(
@@ -123,6 +166,14 @@ final class BrowserProfileCaptureRequestService
         $captureSections = self::normalizeMeituanSections($requestData);
         if ($captureSections !== '') {
             $args[] = '--sections=' . $captureSections;
+        }
+        $dataPeriod = trim((string)($requestData['data_period'] ?? $requestData['dataPeriod'] ?? ''));
+        if ($dataPeriod !== '') {
+            $args[] = '--data-period=' . $dataPeriod;
+        }
+        $snapshotTime = trim((string)($requestData['snapshot_time'] ?? $requestData['snapshotTime'] ?? ''));
+        if ($snapshotTime !== '') {
+            $args[] = '--snapshot-time=' . $snapshotTime;
         }
 
         if ($loginOnly) {
@@ -268,8 +319,8 @@ final class BrowserProfileCaptureRequestService
             '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
             $interactiveBrowser ? '--headless=false' : '--headless=true',
             '--sections=' . self::normalizeProfileSections(
-                $config['profile_sections'] ?? $config['capture_sections'] ?? 'traffic,orders',
-                'traffic,orders'
+                self::normalizeMeituanProfileSections($config['profile_sections'] ?? $config['capture_sections'] ?? self::MEITUAN_DEFAULT_SECTIONS),
+                self::MEITUAN_DEFAULT_SECTIONS
             ),
         ];
 
@@ -280,6 +331,18 @@ final class BrowserProfileCaptureRequestService
         $poiName = trim((string)($config['name'] ?? $config['hotel_name'] ?? ''));
         if ($poiName !== '') {
             $args[] = '--poi-name=' . $poiName;
+        }
+        $adsUrl = trim((string)($config['ads_url'] ?? $config['adsUrl'] ?? ''));
+        if ($adsUrl !== '') {
+            $args[] = '--ads-url=' . $adsUrl;
+        }
+        $dataPeriod = trim((string)($config['data_period'] ?? $config['dataPeriod'] ?? ''));
+        if ($dataPeriod !== '') {
+            $args[] = '--data-period=' . $dataPeriod;
+        }
+        $snapshotTime = trim((string)($config['snapshot_time'] ?? $config['snapshotTime'] ?? ''));
+        if ($snapshotTime !== '') {
+            $args[] = '--snapshot-time=' . $snapshotTime;
         }
         if ($chromePath !== '') {
             $args[] = '--chrome-path=' . $chromePath;

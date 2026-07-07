@@ -118,7 +118,7 @@ requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'ope
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
 requireText('public/index.html', 'ctrip-static.js?v=20260707-cookie-only-identity-auto-resolve', 'entry bumps Ctrip static helper version after Cookie-only identity auto-resolve change');
-requireText('public/index.html', 'meituan-static.js?v=20260703-ai-estimated-nights', 'entry keeps Meituan static helper cache version stable when only Ctrip identity guard changes');
+requireText('public/index.html', 'meituan-static.js?v=20260708-ranking-pagination-helpers', 'entry bumps Meituan static helper cache version after ranking pagination helper extraction');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -422,8 +422,12 @@ requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 
 requireText('public/meituan-static.js', 'const runMeituanBatchFetchFlow', 'Meituan static runs batch fetch flow');
 requireText('public/meituan-static.js', 'const buildMeituanBrowserCaptureRequestContext', 'Meituan static builds browser capture request context');
 requireText('public/meituan-static.js', 'const runMeituanBrowserCaptureFlow', 'Meituan static runs browser capture flow');
+requireText('public/meituan-static.js', 'const getMeituanBrowserCapturePresets', 'Meituan static exposes browser capture operation presets');
 requireText('public/meituan-static.js', 'const getMeituanBrowserCaptureSupplementModules', 'Meituan static exposes browser capture supplemental modules');
 requireText('public/meituan-static.js', 'const buildMeituanBrowserCaptureSupplementCounts', 'Meituan static summarizes browser capture supplemental counts');
+requireText('public/index.html', '美团 Profile 采集', 'Meituan manual page exposes Profile capture panel');
+requireText('public/index.html', 'runMeituanBrowserCapturePreset(preset)', 'Meituan Profile capture panel runs preset captures');
+requireText('public/index.html', 'runMeituanBrowserProfileLoginOnly', 'Meituan Profile capture panel exposes login and binding action');
 requireText('public/meituan-static.js', 'const buildMeituanCapturedPayloadSaveContext', 'Meituan static builds captured payload save context');
 requireText('public/meituan-static.js', 'const runMeituanCapturedPayloadSaveFlow', 'Meituan static runs captured payload save flow');
 requireText('public/meituan-static.js', 'const buildMeituanTrafficFetchRequestBody', 'Meituan static builds traffic fetch request bodies');
@@ -2927,8 +2931,10 @@ try {
   const buildMeituanDisplayModelPayload = meituanStatic.buildMeituanDisplayModelPayload;
   const validateMeituanBatchFetchInput = meituanStatic.validateMeituanBatchFetchInput;
   const runMeituanBatchFetchFlow = meituanStatic.runMeituanBatchFetchFlow;
+  const createMeituanBrowserCaptureForm = meituanStatic.createMeituanBrowserCaptureForm;
   const buildMeituanBrowserCaptureRequestContext = meituanStatic.buildMeituanBrowserCaptureRequestContext;
   const runMeituanBrowserCaptureFlow = meituanStatic.runMeituanBrowserCaptureFlow;
+  const getMeituanBrowserCapturePresets = meituanStatic.getMeituanBrowserCapturePresets;
   const getMeituanBrowserCaptureSupplementModules = meituanStatic.getMeituanBrowserCaptureSupplementModules;
   const buildMeituanBrowserCaptureSupplementCounts = meituanStatic.buildMeituanBrowserCaptureSupplementCounts;
   const buildMeituanCapturedPayloadSaveContext = meituanStatic.buildMeituanCapturedPayloadSaveContext;
@@ -2955,8 +2961,10 @@ try {
     || typeof buildMeituanDisplayModelPayload !== 'function'
     || typeof validateMeituanBatchFetchInput !== 'function'
     || typeof runMeituanBatchFetchFlow !== 'function'
+    || typeof createMeituanBrowserCaptureForm !== 'function'
     || typeof buildMeituanBrowserCaptureRequestContext !== 'function'
     || typeof runMeituanBrowserCaptureFlow !== 'function'
+    || typeof getMeituanBrowserCapturePresets !== 'function'
     || typeof getMeituanBrowserCaptureSupplementModules !== 'function'
     || typeof buildMeituanBrowserCaptureSupplementCounts !== 'function'
     || typeof buildMeituanCapturedPayloadSaveContext !== 'function'
@@ -3341,9 +3349,14 @@ try {
       detail: 'Meituan batch result sample',
     });
 
+    const capturePresets = getMeituanBrowserCapturePresets();
     const supplementModules = getMeituanBrowserCaptureSupplementModules();
     const supplementCounts = buildMeituanBrowserCaptureSupplementCounts({
       payload_counts: {
+        traffic: 1,
+        orders: 2,
+        reviews: 3,
+        ads: 4,
         peer_rank: 2,
         traffic_analysis: 3,
         search_keywords: 4,
@@ -3353,6 +3366,10 @@ try {
     });
     const supplementCountsFromPayload = buildMeituanBrowserCaptureSupplementCounts({
       payload: {
+        traffic: [{}],
+        orders: [{}, {}],
+        reviews: [{}, {}, {}],
+        ads: [{}, {}, {}, {}],
         peerRank: [{}, {}],
         flowAnalysis: [{}],
         searchKeywords: [{}, {}, {}],
@@ -3362,15 +3379,25 @@ try {
     });
     checks.push({
       file: 'public/meituan-static.js',
-      label: 'Meituan browser capture supplemental modules and counts are displayable',
-      ok: Array.isArray(supplementModules)
+      label: 'Meituan browser capture presets, supplemental modules and counts are displayable',
+      ok: Array.isArray(capturePresets)
+        && capturePresets.map(item => item.key).join(',') === 'realtime,reviews,full,ads'
+        && capturePresets.find(item => item.key === 'realtime')?.dataPeriod === 'realtime_snapshot'
+        && capturePresets.find(item => item.key === 'full')?.requiresAdsUrl === true
+        && Array.isArray(supplementModules)
         && supplementModules.length === 4
         && supplementModules.some(item => item.key === 'peer_rank' && item.label === '同行排名')
+        && supplementCounts.find(item => item.key === 'traffic')?.count === 1
+        && supplementCounts.find(item => item.key === 'orders')?.count === 2
+        && supplementCounts.find(item => item.key === 'reviews')?.count === 3
+        && supplementCounts.find(item => item.key === 'ads')?.count === 4
         && supplementCounts.find(item => item.key === 'peer_rank')?.count === 2
         && supplementCounts.find(item => item.key === 'traffic_analysis')?.count === 3
         && supplementCounts.find(item => item.key === 'search_keywords')?.count === 4
         && supplementCounts.find(item => item.key === 'traffic_forecast')?.count === 5
         && supplementCounts.find(item => item.key === 'responses')?.count === 9
+        && supplementCountsFromPayload.find(item => item.key === 'traffic')?.count === 1
+        && supplementCountsFromPayload.find(item => item.key === 'reviews')?.count === 3
         && supplementCountsFromPayload.find(item => item.key === 'peer_rank')?.count === 2
         && supplementCountsFromPayload.find(item => item.key === 'search_keywords')?.count === 3,
       detail: 'buildMeituanBrowserCaptureSupplementCounts sample',
@@ -3387,6 +3414,16 @@ try {
     const browserMissingAdsUrl = buildMeituanBrowserCaptureRequestContext({
       form: { storeId: 'store-1', captureSections: ['ads'], adsUrl: '' },
       systemHotelId: '10',
+    });
+    const browserDefaultForm = createMeituanBrowserCaptureForm();
+    const browserFullRequestContext = buildMeituanBrowserCaptureRequestContext({
+      form: { storeId: 'store-full', captureSections: 'full', adsUrl: 'https://ads.example.test/full' },
+      systemHotelId: '10',
+    });
+    const browserRealtimeRequestContext = buildMeituanBrowserCaptureRequestContext({
+      form: { storeId: 'store-realtime', captureSections: 'realtime' },
+      systemHotelId: '10',
+      options: { dataPeriod: 'realtime_snapshot' },
     });
     const browserRequestContext = buildMeituanBrowserCaptureRequestContext({
       form: {
@@ -3418,6 +3455,13 @@ try {
         && browserMissingStore.message === '请填写美团门店标识'
         && browserMissingAdsUrl.status === 'missing_ads_url'
         && browserMissingAdsUrl.message === '请填写推广通广告入口 URL'
+        && browserDefaultForm.captureSections.join(',') === 'traffic,orders,reviews,ads'
+        && browserDefaultForm.dataPeriod === 'historical_daily'
+        && browserFullRequestContext.ok === true
+        && browserFullRequestContext.requestBody.sections.join(',') === 'traffic,orders,reviews,ads'
+        && browserRealtimeRequestContext.ok === true
+        && browserRealtimeRequestContext.requestBody.sections.join(',') === 'traffic'
+        && browserRealtimeRequestContext.requestBody.data_period === 'realtime_snapshot'
         && browserRequestContext.ok === true
         && browserRequestContext.requestBody.system_hotel_id === '10'
         && browserRequestContext.requestBody.store_id === 'store-10'

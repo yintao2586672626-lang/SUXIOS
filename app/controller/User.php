@@ -144,6 +144,10 @@ class User extends Base
             if ($invalidHotelResponse) {
                 return $invalidHotelResponse;
             }
+            $issueBoundaryResponse = $this->validateExternalUserIssueBoundary($targetRole, $hotelIds);
+            if ($issueBoundaryResponse) {
+                return $issueBoundaryResponse;
+            }
             $hotelId = $hotelIds[0] ?? null;
         } else {
             // 店长只能创建自己酒店的店员
@@ -265,6 +269,14 @@ class User extends Base
             $syncHotelIds = $this->existingAssignedHotelIds((int)$user->id, (int)($user->hotel_id ?? 0));
         }
 
+        if ($this->currentUser->isSuperAdmin() && ($roleChanged || $syncHotelIds !== null) && $targetRole instanceof Role) {
+            $candidateHotelIds = $syncHotelIds ?? $this->existingAssignedHotelIds((int)$user->id, (int)($user->hotel_id ?? 0));
+            $issueBoundaryResponse = $this->validateExternalUserIssueBoundary($targetRole, $candidateHotelIds);
+            if ($issueBoundaryResponse) {
+                return $issueBoundaryResponse;
+            }
+        }
+
         Db::transaction(function () use ($user, $syncHotelIds, $targetRole): void {
             $user->save();
             if ($syncHotelIds !== null && $targetRole instanceof Role) {
@@ -345,6 +357,10 @@ class User extends Base
      */
     public function roles(): Response
     {
+        if (!$this->currentUser->canManageUser()) {
+            return $this->error('权限不足', 403);
+        }
+
         $roles = Role::where('status', 1)->order('level', 'asc')->select();
         return $this->success($roles);
     }
@@ -442,6 +458,24 @@ class User extends Base
         }
 
         return null;
+    }
+
+    private function validateExternalUserIssueBoundary(Role $role, array $hotelIds): ?Response
+    {
+        if (!$this->isNormalExternalRole($role)) {
+            return null;
+        }
+
+        if (empty($hotelIds)) {
+            return $this->error('普通用户必须先分配门店，避免生成无业务范围的外部账号', 422);
+        }
+
+        return null;
+    }
+
+    private function isNormalExternalRole(Role $role): bool
+    {
+        return (int)$role->id === Role::NORMAL_USER || (string)$role->name === 'normal_user';
     }
 
     /**

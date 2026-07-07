@@ -1169,15 +1169,48 @@ trait BusinessDisplayConcern
 
     private function classifyMeituanBusinessDisplayMetric(string $dimName, string $metricName, string $rankType): string
     {
+        $rankType = strtoupper(trim($rankType));
         $upperMetric = strtoupper($metricName);
         $combined = $dimName . '|' . $upperMetric;
-        if (str_contains($upperMetric, 'P_RZ_NIGHT_COUNT') || str_contains($upperMetric, 'NIGHT_COUNT') || str_contains($upperMetric, 'ROOM_NIGHT') || str_contains($combined, '间夜')) {
+
+        $isNightMetric = str_contains($upperMetric, 'P_RZ_NIGHT_COUNT')
+            || str_contains($upperMetric, 'NIGHT_COUNT')
+            || str_contains($upperMetric, 'ROOM_NIGHT')
+            || str_contains($combined, '间夜');
+        $isMoneyMetric = str_contains($upperMetric, 'P_RZ_ROOM_PAY')
+            || str_contains($upperMetric, 'AMT')
+            || str_contains($upperMetric, 'AMOUNT')
+            || str_contains($combined, '房费')
+            || str_contains($combined, '销售额')
+            || str_contains($combined, '交易额')
+            || str_contains($combined, '收入')
+            || str_contains($combined, '金额');
+
+        if ($rankType === 'P_RZ') {
+            if ($isNightMetric) {
+                return 'roomNights';
+            }
+            if ($isMoneyMetric) {
+                return 'roomRevenue';
+            }
+        }
+
+        if ($rankType === 'P_XS') {
+            if ($isNightMetric) {
+                return 'salesRoomNights';
+            }
+            if ($isMoneyMetric) {
+                return 'sales';
+            }
+        }
+
+        if ($isNightMetric) {
             return str_contains($upperMetric, 'P_XS') ? 'salesRoomNights' : 'roomNights';
         }
         if (str_contains($upperMetric, 'P_RZ_ROOM_PAY') || str_contains($combined, '房费') || str_contains($combined, '收入')) {
             return 'roomRevenue';
         }
-        if ((str_contains($upperMetric, 'P_XS') && str_contains($upperMetric, 'AMT')) || str_contains($combined, '销售额')) {
+        if ((str_contains($upperMetric, 'P_XS') && str_contains($upperMetric, 'AMT')) || str_contains($combined, '销售额') || str_contains($combined, '交易额')) {
             return 'sales';
         }
         if (str_contains($upperMetric, 'VIEW_CONVERT') || str_contains($combined, '浏览转化')) {
@@ -1699,15 +1732,19 @@ trait BusinessDisplayConcern
 
     private function isMeituanDisplayableMoneyMetricSource(array $row, string $field, ?string $status = null): bool
     {
-        if ($this->isMeituanActualBusinessMetricSource($row, $field, $status)
-            || $this->isMeituanSelfAnchoredDerivedMetric($row, $field)
-        ) {
+        if ($this->isMeituanSelfAnchoredDerivedMetric($row, $field)) {
+            return (float)($row[$field] ?? 0) > 0;
+        }
+        if ($this->isMeituanActualBusinessMetricSource($row, $field, $status)) {
             return true;
         }
         if ($this->isMeituanPercentScaleDerivedMetric($row, $field)) {
             return false;
         }
         $status = $status ?? (string)($row['metricSourceStatus'][$field] ?? '');
+        if ($status === 'meituan_self_rank_value_derived') {
+            return (float)($row[$field] ?? 0) > 0;
+        }
         return (float)($row[$field] ?? 0) > 0 && $this->isMeituanMetricSourceUsable($status);
     }
 
@@ -3841,6 +3878,9 @@ trait BusinessDisplayConcern
         }
 
         $combined = strtoupper($dimName . '|' . $metricName);
+        if (str_contains($combined, 'P_XS')) {
+            return 'P_XS';
+        }
         if (str_contains($combined, 'P_RZ') || str_contains($combined, 'NIGHT_COUNT') || str_contains($combined, '入住') || str_contains($combined, '房费')) {
             return 'P_RZ';
         }

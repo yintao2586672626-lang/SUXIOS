@@ -133,7 +133,9 @@ trait PlatformProfileCaptureConcern
     {
         return match ($statusCode) {
             'logged_in' => 'logged_in',
+            'session_expired' => 'session_expired',
             'login_expired', 'login_required' => 'login_expired',
+            'anti_bot' => 'anti_bot',
             'permission_denied' => 'permission_denied',
             'hotel_mismatch' => 'hotel_mismatch',
             'capture_failed' => 'capture_failed',
@@ -155,11 +157,17 @@ trait PlatformProfileCaptureConcern
             'stdout' => $probe['stdout'] ?? '',
             'stderr' => $probe['stderr'] ?? '',
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+        if (preg_match('/anti[_-]?bot|captcha|verification_code|sms_code|required verification|slider|human verification|yoda|risk control|platform limit|rate limit|验证码|短信|人机|滑块|风控/', $text) === 1) {
+            return 'anti_bot';
+        }
         if (preg_match('/hotel_mismatch|store_mismatch|poi_mismatch|hotel scope mismatch|source hotel scope mismatch|门店不匹配|酒店不匹配/', $text) === 1) {
             return 'hotel_mismatch';
         }
         if (preg_match('/permission_denied|no_permission|forbidden|http\s*403|status\s*403|access\s*denied|not\s*authorized|无权|无权限|权限不足/', $text) === 1) {
             return 'permission_denied';
+        }
+        if (preg_match('/session_expired|session expired|session invalid|expired session/', $text) === 1) {
+            return 'session_expired';
         }
         return 'login_expired';
     }
@@ -274,9 +282,15 @@ trait PlatformProfileCaptureConcern
         $status['output'] = $probe['output'] ?? '';
         $status['last_login_check_time'] = date('Y-m-d H:i:s');
         $status['status'] = $isOk ? 'ready' : 'login_required';
-        $status['status_code'] = $isOk ? 'logged_in' : 'login_expired';
+        $probeStatusCode = $isOk ? 'logged_in' : $this->ctripProfileProbeStatusCode($probe, $authStatus);
+        $status['status_code'] = $probeStatusCode;
         $status['current_status'] = $isOk ? '登录态已验证' : '登录失效';
         $status['next_action'] = $isOk ? '登录态已验证；仍需执行目标日同步并检查入库结果' : '重新登录美团平台账号';
+
+        if (!$isOk) {
+            $status['current_status'] = $this->ctripProfileStatusText($probeStatusCode);
+            $status['next_action'] = $probeStatusCode;
+        }
 
         if ($hotelId > 0 && $storeId !== '') {
             $this->cachePlatformProfileStatus('meituan', $hotelId, $storeId, [

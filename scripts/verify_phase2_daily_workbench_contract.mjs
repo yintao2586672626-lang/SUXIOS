@@ -35,6 +35,8 @@ const runtimeVerifier = read('scripts/verify_phase2_daily_workbench_runtime.php'
 const acceptanceDoc = read('docs/phase2_daily_workbench_acceptance.md');
 const packageJson = read('package.json');
 const frontend = read('public/index.html');
+const ctripStatic = read('public/ctrip-static.js');
+const manualFetchConcern = read('app/controller/concern/OnlineDataManualFetchConcern.php');
 const compassStatic = read('public/compass-static.js');
 
 const dailyStart = controller.indexOf('public function dailyWorkbench(): Response');
@@ -314,6 +316,35 @@ includesAll('public/index.html', 'daily workbench frontend panel exposes manual 
   'reviewDailyWorkbenchPatrolAction',
   'updateDailyWorkbenchPatrolAction',
   'runDailyWorkbenchPatrol',
+]);
+
+includesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch treats zero Qunar visitors as partial capture', manualFetchConcern, [
+  'saved_with_qunar_visitor_gap',
+  'no_saved_with_qunar_visitor_gap',
+  'partial_qunar_visitor_gap',
+  '不代表整次抓取失败',
+]);
+
+includesAll('public/index.html', 'manual one-click Ctrip fetch keeps partial Qunar visitor gaps visible', frontend, [
+  '去哪儿访客为 0 表示本次携程返回不完整',
+  '去哪儿访客字段缺口',
+  '其他返回字段已保留',
+  'qunarVisitorIncomplete',
+]);
+
+includesAll('public/ctrip-static.js', 'single Ctrip fetch warns on partial Qunar visitor gaps without failing the fetch', ctripStatic, [
+  "data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap'",
+  '去哪儿访客为 0 表示本次返回不完整，其他返回字段已保留。',
+]);
+
+excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch no longer cancels the whole save on zero Qunar visitors', manualFetchConcern, [
+  '判定为本次抓取失败，已取消入库，请自动重抓',
+  "'reason' => 'ctrip_qunar_visitors_zero'",
+]);
+
+excludesAll('public/index.html', 'manual one-click fetch no longer auto-retries zero Qunar visitor gaps as total failure', frontend, [
+  '自动重抓第',
+  '本次不认定为有效入库',
 ]);
 
 includesAll('public/index.html', 'home entry points to daily workbench data-health view', frontend, [

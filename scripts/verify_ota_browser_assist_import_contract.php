@@ -74,6 +74,13 @@ $normalized = $service->normalizeCapturePackages([
                     'realtimeVisitors' => ['label' => '实时访客', 'value' => '56'],
                     'orderConversionRate' => ['label' => '订单转化率', 'value' => '3.2%'],
                 ],
+                'tongcheng' => [
+                    'realtimeVisitors' => ['label' => '实时访客', 'value' => '17'],
+                    'orderConversionRate' => ['label' => '订单转化率', 'value' => '2.1%'],
+                ],
+                'zhixing' => [
+                    'realtimeRank' => ['label' => '实时排名', 'value' => '9'],
+                ],
             ],
         ],
         'meituanStats' => [
@@ -101,9 +108,15 @@ $check(
     implode(',', $packageKeys)
 );
 $check(
-    'normalizer keeps ctrip and qunar under ctrip platform with dimensions',
+    'normalizer keeps ctrip family channels under ctrip platform with dimensions',
     count(array_filter($normalized['rows'], static fn(array $row): bool => ($row['source'] ?? '') === 'ctrip' && ($row['dimension'] ?? '') === 'realtime:qunar')) === 1,
     'dimension=realtime:qunar'
+);
+$check(
+    'normalizer preserves tongcheng and zhixing as Ctrip-family dimensions',
+    count(array_filter($normalized['rows'], static fn(array $row): bool => ($row['source'] ?? '') === 'ctrip' && ($row['dimension'] ?? '') === 'realtime:tongcheng')) === 1
+        && count(array_filter($normalized['rows'], static fn(array $row): bool => ($row['source'] ?? '') === 'ctrip' && ($row['dimension'] ?? '') === 'realtime:zhixing:rank')) === 1,
+    'dimension=realtime:tongcheng,realtime:zhixing:rank'
 );
 $check(
     'normalizer does not leak raw source urls',

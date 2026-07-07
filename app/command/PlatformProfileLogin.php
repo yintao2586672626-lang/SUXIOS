@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\command;
 
+use app\service\BrowserProfileCaptureRequestService;
 use app\service\PlatformDataSyncService;
 use think\console\Command;
 use think\console\Input;
@@ -241,13 +242,13 @@ class PlatformProfileLogin extends Command
 
     private function buildProfileLoginSyncOptions(string $platform, array $request): array
     {
-        $sections = $this->safeSections(
-            $request['capture_sections']
-                ?? $request['captureSections']
-                ?? $request['sections']
-                ?? ($platform === 'meituan' ? 'traffic,orders' : 'traffic'),
-            'traffic'
-        );
+        $sectionsValue = $request['capture_sections']
+            ?? $request['captureSections']
+            ?? $request['sections']
+            ?? ($platform === 'meituan' ? BrowserProfileCaptureRequestService::MEITUAN_DEFAULT_SECTIONS : 'traffic');
+        $sections = $platform === 'meituan'
+            ? BrowserProfileCaptureRequestService::normalizeMeituanProfileSections($sectionsValue)
+            : $this->safeSections($sectionsValue, 'traffic');
         $sectionList = array_values(array_filter(explode(',', $sections), static fn(string $item): bool => trim($item) !== ''));
         if ($sectionList === []) {
             $sectionList = ['traffic'];
@@ -358,10 +359,18 @@ class PlatformProfileLogin extends Command
             if ($poiName !== '') {
                 $args[] = '--poi-name=' . $poiName;
             }
-            $args[] = '--sections=' . $this->safeSections($request['sections'] ?? $request['capture_sections'] ?? 'traffic,orders', 'traffic,orders');
+            $args[] = '--sections=' . BrowserProfileCaptureRequestService::normalizeMeituanProfileSections($request['sections'] ?? $request['capture_sections'] ?? BrowserProfileCaptureRequestService::MEITUAN_DEFAULT_SECTIONS);
             $adsUrl = trim((string)($request['ads_url'] ?? $request['adsUrl'] ?? ''));
             if ($adsUrl !== '') {
                 $args[] = '--ads-url=' . $adsUrl;
+            }
+            $dataPeriod = trim((string)($request['data_period'] ?? $request['dataPeriod'] ?? ''));
+            if ($dataPeriod !== '') {
+                $args[] = '--data-period=' . $dataPeriod;
+            }
+            $snapshotTime = trim((string)($request['snapshot_time'] ?? $request['snapshotTime'] ?? ''));
+            if ($snapshotTime !== '') {
+                $args[] = '--snapshot-time=' . $snapshotTime;
             }
         }
 
@@ -413,18 +422,19 @@ class PlatformProfileLogin extends Command
 
     private function finishFailed(string $taskId, string $platform, int $hotelId, string $profileKey, string $message, string $outputPath, string $logPath, array $authStatus = [], $captureGate = null): void
     {
+        $statusCode = $this->profileLoginFailureStatusCode($message, $authStatus, $captureGate);
         Cache::set($this->profileStatusKey($platform, $hotelId, $profileKey), [
             'checked_at' => date('Y-m-d H:i:s'),
             'auth_status' => $authStatus,
             'capture_gate' => $captureGate,
-            'status_code' => 'login_expired',
+            'status_code' => $statusCode,
             'output' => $outputPath,
         ], 86400 * 30);
 
         $this->writeTask($taskId, [
             'status' => 'failed',
-            'status_code' => 'login_expired',
-            'error_code' => 'login_expired',
+            'status_code' => $statusCode,
+            'error_code' => $statusCode,
             'message' => $message,
             'finished_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
@@ -433,6 +443,22 @@ class PlatformProfileLogin extends Command
             'output' => $outputPath,
             'log' => $logPath,
         ]);
+    }
+
+    private function profileLoginFailureStatusCode(string $message, array $authStatus = [], $captureGate = null): string
+    {
+        $text = strtolower(json_encode([
+            'message' => $message,
+            'auth_status' => $authStatus,
+            'capture_gate' => $captureGate,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+        if (preg_match('/anti[_-]?bot|captcha|verification_code|sms_code|required verification|slider|human verification|yoda|risk control|platform limit|rate limit|验证码|短信|人机|滑块|风控/', $text) === 1) {
+            return 'anti_bot';
+        }
+        if (preg_match('/session_expired|session expired|session invalid|expired session/', $text) === 1) {
+            return 'session_expired';
+        }
+        return 'login_expired';
     }
 
     private function bindDataSource(string $platform, int $hotelId, string $profileKey, array $request, array $payload): ?array
@@ -463,7 +489,7 @@ class PlatformProfileLogin extends Command
                 'poi_id' => trim((string)($request['poi_id'] ?? $request['poiId'] ?? $payload['poi_id'] ?? '')),
                 'poi_name' => trim((string)($request['poi_name'] ?? $request['poiName'] ?? $payload['poi_name'] ?? '')),
                 'partner_id' => trim((string)($request['partner_id'] ?? $request['partnerId'] ?? '')),
-                'capture_sections' => $this->safeSections($request['capture_sections'] ?? $request['sections'] ?? 'traffic,orders', 'traffic,orders'),
+                'capture_sections' => BrowserProfileCaptureRequestService::normalizeMeituanProfileSections($request['capture_sections'] ?? $request['sections'] ?? BrowserProfileCaptureRequestService::MEITUAN_DEFAULT_SECTIONS),
             ];
         if (!$isCtrip && trim((string)($request['ads_url'] ?? $request['adsUrl'] ?? '')) !== '') {
             $config['ads_url'] = trim((string)($request['ads_url'] ?? $request['adsUrl']));

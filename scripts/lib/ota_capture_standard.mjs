@@ -6,6 +6,7 @@ export const PLATFORM_CONFIGS = {
     label: 'Meituan eBooking',
     profilePrefix: 'meituan_profile',
     defaultSections: ['traffic', 'orders'],
+    fullSections: ['traffic', 'orders', 'ads', 'reviews'],
     allowedSections: ['traffic', 'ads', 'orders', 'reviews'],
     cookieDomains: ['me.meituan.com', 'eb.meituan.com', '.meituan.com', '.dianping.com'],
     sectionAliases: {
@@ -34,6 +35,8 @@ export const PLATFORM_CONFIGS = {
       flow_forecast: 'traffic',
       trafficforecast: 'traffic',
       traffic_forecast: 'traffic',
+      realtime: 'traffic',
+      realtime_snapshot: 'traffic',
       searchkeyword: 'traffic',
       searchkeywords: 'traffic',
       search_keyword: 'traffic',
@@ -168,7 +171,7 @@ export function normalizeCaptureSections(platform, value = '') {
   const platformKey = normalizePlatform(platform);
   const config = PLATFORM_CONFIGS[platformKey];
   const raw = String(value || '').trim().toLowerCase();
-  if (!raw || raw === 'all' || raw === '*') {
+  if (!raw || raw === '*') {
     return [...config.defaultSections];
   }
 
@@ -177,6 +180,30 @@ export function normalizeCaptureSections(platform, value = '') {
   for (const item of raw.split(/[,\s]+/)) {
     const token = item.trim();
     if (!token) {
+      continue;
+    }
+    if (token === 'all' && !Array.isArray(config.fullSections)) {
+      for (const section of config.defaultSections) {
+        if (!selected.includes(section)) {
+          selected.push(section);
+        }
+      }
+      continue;
+    }
+    if (['all', 'full', 'complete'].includes(token) && Array.isArray(config.fullSections)) {
+      for (const section of config.fullSections) {
+        if (!selected.includes(section)) {
+          selected.push(section);
+        }
+      }
+      continue;
+    }
+    if (['default', 'core'].includes(token)) {
+      for (const section of config.defaultSections) {
+        if (!selected.includes(section)) {
+          selected.push(section);
+        }
+      }
       continue;
     }
     const section = config.sectionAliases[token] || '';

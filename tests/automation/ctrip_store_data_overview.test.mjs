@@ -566,6 +566,9 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(dataHealthStatic, /const buildDataHealthDiagnosticBoundary = /);
   assert.match(dataHealthStatic, /const buildDataHealthQualityTaskRows = /);
   assert.match(dataHealthStatic, /const summarizePublicEndpointSecurity = /);
+  assert.match(dataHealthStatic, /const publicEndpointDisplayName = /);
+  assert.match(dataHealthStatic, /const publicEndpointSecurityBoundaryText = /);
+  assert.match(dataHealthStatic, /daily_workbench_patrol_cron/);
   assert.match(dataHealthStatic, /const buildCollectionHealthAuthorizationRowsReadable = /);
   assert.match(dataHealthStatic, /const buildCollectionHealthPendingActionRows = /);
   assert.match(dataHealthStatic, /const buildCollectionHealthFieldAssetCards = /);
@@ -579,6 +582,8 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(html, /requireDataHealthStatic\('buildCollectionHealthFieldAssetCards'\)/);
   assert.match(html, /requireDataHealthStatic\('buildDataHealthQualityTaskRows'\)/);
   assert.match(html, /requireDataHealthStatic\('summarizePublicEndpointSecurity'\)/);
+  assert.match(html, /requireDataHealthStatic\('publicEndpointDisplayName'\)/);
+  assert.match(html, /requireDataHealthStatic\('publicEndpointSecurityBoundaryText'\)/);
   assert.match(html, /requireDataHealthStatic\('buildCollectionHealthCtripCatalogCards'\)/);
   assert.match(html, /requireDataHealthStatic\('buildCtripOverviewFetchModuleCards'\)/);
   assert.match(html, /buildDataHealthTodayWorkOrders\(\{/);

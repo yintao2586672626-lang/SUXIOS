@@ -117,14 +117,20 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
     const platformProfileStatusLabel = (item) => {
         const statusCode = String(item?.status_code || '').trim().toLowerCase();
         if (statusCode === 'cookies_incomplete') return 'Cookie incomplete';
+        if (statusCode === 'anti_bot') return 'Anti bot';
+        if (statusCode === 'session_expired') return 'Session expired';
+        if (statusCode === 'resource_busy_login') return 'Login busy';
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '无权限';
         if (statusCode === 'hotel_mismatch') return '门店不匹配';
         const map = {
             unconfigured: '未配置',
             waiting_login: '登录待验证',
             logged_in: '登录态已验证',
+            session_expired: 'Session expired',
             login_expired: '登录失效',
             login_required: '需要登录',
+            anti_bot: 'Anti bot',
+            resource_busy_login: 'Login busy',
             permission_denied: '无权限',
             no_permission: '无权限',
             unauthorized: '无权限',
@@ -146,6 +152,9 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
     ].join(' / ');
     const platformProfileStatusBadgeClass = (statusCode) => ({
         cookies_incomplete: 'bg-red-50 text-red-700 border-red-200',
+        anti_bot: 'bg-red-50 text-red-700 border-red-200',
+        session_expired: 'bg-red-50 text-red-700 border-red-200',
+        resource_busy_login: 'bg-amber-50 text-amber-700 border-amber-200',
         logged_in: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         waiting_login: 'bg-amber-50 text-amber-700 border-amber-200',
         login_expired: 'bg-red-50 text-red-700 border-red-200',
@@ -211,6 +220,9 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         const statusCode = String(item?.status_code || '').trim().toLowerCase();
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '查看权限';
         if (statusCode === 'hotel_mismatch') return '重新绑定门店';
+        if (statusCode === 'anti_bot') return '人工处理风控';
+        if (statusCode === 'resource_busy_login') return '等待当前任务完成';
+        if (statusCode === 'session_expired') return '重新登录平台账号';
         if (item?.status_code === 'login_expired') return '重新登录平台账号';
         return item?.platform === 'meituan' ? '登录美团' : '登录携程';
     };
@@ -218,6 +230,9 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         const raw = String(item?.next_action || '').trim();
         const statusCode = String(item?.status_code || '').trim().toLowerCase();
         if (statusCode === 'cookies_incomplete') return 'Refresh the platform Profile login; the page is reachable but required business cookies are incomplete.';
+        if (statusCode === 'anti_bot') return 'Platform risk-control or human verification was detected; stop automated retries and complete verification in the authorized browser Profile.';
+        if (statusCode === 'resource_busy_login') return 'A login window or collector lock is active for this platform/store; wait for it to finish before starting another login.';
+        if (statusCode === 'session_expired') return 'The platform session is expired; reopen the authorized browser Profile and verify login before retrying collection.';
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '当前账号无该门店采集权限，请切换账号或补授权。';
         if (statusCode === 'hotel_mismatch') return 'Profile 登录态存在，但绑定门店与当前门店不匹配，请重新绑定正确门店。';
         if (['logged_in'].includes(statusCode)) return '登录态已验证，不等于数据已入库；请执行目标日同步并检查入库结果。';

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import vm from 'node:vm';
 
 const root = process.cwd();
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
@@ -34,6 +35,34 @@ assert.match(
   systemStatic,
   /if \(currentUser\.is_super_admin\) return Array\.isArray\(items\) \? items : \[\];/,
   '超级管理员必须看到完整系统菜单'
+);
+assert.match(
+  systemStatic,
+  /if \(!isItemVisible\(item\)\) \{\s*return null;\s*\}/,
+  'parent menu permission gates must apply before child recursion'
+);
+
+const systemStaticSandbox = { window: {}, console, setTimeout, clearTimeout };
+vm.runInNewContext(systemStatic, systemStaticSandbox, { filename: 'public/system-static.js' });
+const systemStaticApi = systemStaticSandbox.window.SUXI_SYSTEM_STATIC;
+const flattenMenu = (items = []) => items.flatMap(item => [item, ...flattenMenu(item.children || [])]);
+const visiblePathsFor = (currentUser) => flattenMenu(systemStaticApi.filterVisibleMenuItems(systemStaticApi.menuItemDefinitions, currentUser))
+  .map(item => item.path)
+  .filter(Boolean);
+assert.equal(
+  visiblePathsFor({ is_super_admin: false, role_id: 3, is_hotel_manager: false, permissions: { can_view_online_data: true } }).includes('users'),
+  false,
+  'normal external users must not see the employee-management route'
+);
+assert.equal(
+  visiblePathsFor({ is_super_admin: false, role_id: 2, is_hotel_manager: true, permissions: { can_view_online_data: true, can_manage_own_hotels: true } }).includes('users'),
+  false,
+  'beta or hotel-manager users must not see the employee-management route'
+);
+assert.equal(
+  visiblePathsFor({ is_super_admin: true, role_id: 1, is_hotel_manager: false, permissions: {} }).includes('users'),
+  true,
+  'super admins must still see employee management'
 );
 
 assert.match(indexHtml, /const canManageOwnHotels = \(\) =>/, '前端必须提供统一门店管理权限判断');
@@ -73,6 +102,8 @@ assert.doesNotMatch(indexHtml, /user\?\.role_id\s*<=\s*2/, '用户管理入口�
 assert.match(userModel, /public function canManageUser\(\): bool[\s\S]*return \$this->isSuperAdmin\(\);/, '用户管理必须仅管理员可用');
 assert.match(userController, /public function index\(\): Response[\s\S]*canManageUser\(\)/, '用户列表接口必须检查用户管理权限');
 
+assert.match(userController, /public function roles\(\): Response[\s\S]*canManageUser\(\)/, 'user role metadata endpoint must require user-management permission');
+
 assert.match(authController, /private const TOKEN_TTL_SECONDS = 86400;/, 'website login token must expire after 24 hours');
 assert.match(authMiddleware, /private const TOKEN_MAX_AGE_SECONDS = 86400;/, 'auth middleware must reject tokens older than the 24-hour session limit');
 assert.match(authMiddleware, /if \(!is_array\(\$tokenData\)\) \{\s*return false;\s*\}/, 'auth middleware must preserve legacy scalar token cache entries until cache TTL');
@@ -95,6 +126,9 @@ assert.doesNotMatch(hotelScopeService, /if \(\$this->isVipUser\(\$user\)\)[\s\S]
 assert.match(userController, /private function syncUserHotelPermissions\(UserModel \$targetUser, array \$hotelIds, Role \$targetRole\): void/, 'super admin user saves must sync user_hotel_permissions');
 assert.match(userController, /private function normalizeAssignedHotelIds\(array \$data\): array/, 'user API must accept multi-hotel assignments');
 assert.match(userController, /\$data\['hotel_ids'\]\s*=/, 'user API responses must expose assigned hotel ids for editing');
+assert.match(userController, /private function validateExternalUserIssueBoundary\(Role \$role, array \$hotelIds\): \?Response/, 'user API must validate external-account issue boundaries');
+assert.match(userController, /private function isNormalExternalRole\(Role \$role\): bool/, 'user API must identify normal external roles explicitly');
+assert.match(userController, /普通用户必须先分配门店/, 'normal external users must be blocked without an assigned hotel scope');
 assert.match(userController, /private function validateUsernamePolicy\(string \$username\): \?string/, 'admin-created users must share the public registration username policy');
 assert.match(userController, /\^\[A-Za-z0-9_\]\{3,50\}\$/, 'admin-created users must allow underscores and the same length as public registration');
 assert.doesNotMatch(userController, /alphaNum\|min:3\|max:20/, 'admin-created users must not keep the stricter legacy alphaNum username rule');
@@ -109,6 +143,17 @@ const userManagementToolbarSlice = indexHtml.slice(
   indexHtml.indexOf('<!-- 员工数据表格 -->')
 );
 assert.match(indexHtml, /const userSummary = computed\(\(\) =>/, 'user management summary must be derived from current users instead of fixed role IDs');
+assert.match(indexHtml, /const roleIssueGuideCards = computed\(\(\) =>/, 'user management must expose beta/normal role issue guide cards');
+assert.match(indexHtml, /openUserModalWithRole\(card\.roleId\)/, 'user management must support issuing beta/normal roles from guide cards');
+assert.match(indexHtml, /selectedUserRoleGuide/, 'user modal must show the selected role issue boundary');
+assert.match(indexHtml, /const userIssueChecklistRows = computed\(\(\) =>/, 'user modal must show an issuance checklist before external accounts are saved');
+assert.match(indexHtml, /const validateUserIssueBeforeSave = \(data = \{\}, assignedHotelIds = \[\]\) =>/, 'user saves must validate issuance boundaries before calling the API');
+assert.match(indexHtml, /profile\.key === 'normal_user' && profile\.canCollectOta/, 'normal-user issuance must flag OTA collection as unsafe for external accounts');
+assert.match(indexHtml, /profile\.requiresHotelAssignment && assignedHotelIds\.length === 0/, 'external account issuance must block missing hotel scope');
+assert.match(indexHtml, /const issueError = validateUserIssueBeforeSave\(data, assignedHotelIds\)/, 'user save must run the issuance validator before request submission');
+assert.match(indexHtml, /const buildUserIssueGuideText = \(\) =>/, 'user modal must build a copyable issuance handoff message');
+assert.match(indexHtml, /const copyUserIssueGuide = \(\) =>/, 'user modal must expose a safe copy action for issuance guidance');
+assert.match(indexHtml, /初始密码请通过单独安全渠道发送/, 'copied issuance guidance must not mix the initial password into the normal message');
 assert.match(indexHtml, /const filterUserStatus = ref\(''\);/, 'user management must expose a status filter');
 assert.match(indexHtml, /const filterUserHotelId = ref\(''\);/, 'user management must expose a hotel-scope filter');
 assert.doesNotMatch(userManagementToolbarSlice, /users\.filter\(u => u\.role_id === [123]\)/, 'user management summary must not hard-code legacy role IDs 1/2/3');

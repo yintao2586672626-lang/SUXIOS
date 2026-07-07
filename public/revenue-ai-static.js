@@ -2063,6 +2063,168 @@
         };
     };
 
+    const aiDailyReportActionSources = (action) => {
+        const refs = action?.source_refs;
+        if (Array.isArray(refs)) return refs.filter(Boolean).join(' / ');
+        if (typeof refs === 'string') return refs;
+        return '';
+    };
+
+    const aiDailyReportEvidenceTarget = (item = {}) => {
+        const sourceRef = String(item.source_ref || item.sourceRef || item.ref || aiDailyReportActionSources(item) || '').trim();
+        const code = String(item.code || item.key || item.stage || item.blocked_reason || item.next_action || item.nextAction || item.action_readiness?.next_action || '').trim();
+        const text = `${sourceRef} ${code} ${item.label || ''} ${item.message || ''}`.toLowerCase();
+        if (/execution|execute|action_item|operation|ops|执行|闭环/.test(text)) {
+            return {
+                page: 'ops-track',
+                tab: '',
+                label: '查看执行闭环',
+                sourceRef: sourceRef || code || 'execution_flow',
+            };
+        }
+        if (/platform|resource_catalog|collection_status|data_source|sync|profile|authorization|账号|授权|平台/.test(text)) {
+            return {
+                page: 'online-data',
+                tab: 'platform-sources',
+                label: '查看平台数据源',
+                sourceRef: sourceRef || code || 'platform_sources',
+            };
+        }
+        if (/table_missing|missing_table|init|schema|初始化/.test(text)) {
+            return {
+                page: 'online-data',
+                tab: 'data-health',
+                label: '查看初始化状态',
+                sourceRef: sourceRef || code || 'data_health',
+            };
+        }
+        return {
+            page: 'online-data',
+            tab: 'data-health',
+            label: '查看数据健康',
+            sourceRef: sourceRef || code || 'data_health',
+        };
+    };
+
+    const aiDailyReportActionBlockedText = (action) => {
+        if (!action) return '';
+        if (action.can_create_execution_intent === false) {
+            return action.blocked_reason || action.action_readiness?.notice || action.action_readiness?.next_action || '该建议受数据缺口阻断，不能直接转执行单。';
+        }
+        if (action.execution_blocked_reason) return action.execution_blocked_reason;
+        const readiness = action.action_readiness || {};
+        const stage = String(readiness.stage || '');
+        if (['blocked_by_data_gap', 'blocked', 'rejected', 'failed'].includes(stage)) {
+            return readiness.notice || readiness.next_action || '当前阶段不可转执行，需先处理阻断原因。';
+        }
+        return '';
+    };
+
+    const aiDailyReportActionButtonText = (action) => {
+        if (action?.execution_intent_id) return '已转单';
+        if (action?.can_create_execution_intent === false) return '处理缺口';
+        if (aiDailyReportActionBlockedText(action)) return '待处理';
+        return '转单';
+    };
+
+    const buildAiDailyReportBlockingRows = ({ readinessMissing = [], actions = [] } = {}) => {
+        const rows = [];
+        (Array.isArray(readinessMissing) ? readinessMissing : []).forEach((item, index) => {
+            if (!item || typeof item !== 'object') return;
+            const target = aiDailyReportEvidenceTarget(item);
+            rows.push({
+                key: `readiness:${item.code || index}:${index}`,
+                label: item.label || item.code || '证据缺口',
+                nextAction: item.next_action || '先补齐证据再转执行',
+                target,
+                actionText: target.label,
+                sourceRef: target.sourceRef,
+                type: 'readiness',
+            });
+        });
+        (Array.isArray(actions) ? actions : []).forEach((action, index) => {
+            const blockedText = aiDailyReportActionBlockedText(action);
+            if (!blockedText) return;
+            const target = aiDailyReportEvidenceTarget({
+                ...action,
+                source_ref: aiDailyReportActionSources(action),
+                next_action: action?.action_readiness?.next_action || blockedText,
+            });
+            rows.push({
+                key: `action:${action?.title || index}:${index}`,
+                label: action?.title || `建议${index + 1}`,
+                nextAction: blockedText,
+                target,
+                actionText: target.label,
+                sourceRef: target.sourceRef,
+                type: 'action',
+            });
+        });
+        return rows;
+    };
+
+    const summarizeAiDailyReportBlockingRows = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const readinessCount = safeRows.filter(row => row.type === 'readiness').length;
+        const actionCount = safeRows.filter(row => row.type === 'action').length;
+        const sourceCount = new Set(safeRows.map(row => row.sourceRef).filter(Boolean)).size;
+        const opsCount = safeRows.filter(row => row.target?.page === 'ops-track').length;
+        const dataHealthCount = safeRows.filter(row => (row.target?.tab || 'data-health') === 'data-health').length;
+        return {
+            total: safeRows.length,
+            detail: `证据缺口 ${readinessCount} / 动作阻断 ${actionCount} / 来源 ${sourceCount || 0}`,
+            gateText: opsCount > 0
+                ? `运营执行门禁 ${opsCount}；数据健康门禁 ${dataHealthCount}`
+                : `数据健康门禁 ${dataHealthCount}`,
+            sourceCount,
+            readinessCount,
+            actionCount,
+            opsCount,
+            dataHealthCount,
+        };
+    };
+
+    const buildAiDailyReportEvidenceRows = ({ sourceRefs = [], dataGaps = [], actions = [] } = {}) => {
+        const rows = [];
+        (Array.isArray(sourceRefs) ? sourceRefs : []).forEach((item, index) => {
+            const source = item && typeof item === 'object' ? item : { label: String(item || ''), source_ref: String(item || '') };
+            const key = String(source.key || source.source_ref || `source_${index}`);
+            if (!key) return;
+            rows.push({
+                key: `source:${key}:${index}`,
+                type: '来源',
+                title: source.label || key,
+                detail: source.scope || source.message || '已纳入日报生成输入',
+                ref: key,
+                className: 'bg-blue-50 text-blue-700',
+            });
+        });
+        (Array.isArray(dataGaps) ? dataGaps : []).forEach((gap, index) => {
+            if (!gap || typeof gap !== 'object') return;
+            rows.push({
+                key: `gap:${gap.code || index}:${index}`,
+                type: '缺口',
+                title: gap.code || 'data_gap',
+                detail: gap.message || '数据缺口待处理',
+                ref: gap.source_ref || 'source pending',
+                className: 'bg-amber-50 text-amber-700',
+            });
+        });
+        (Array.isArray(actions) ? actions : []).forEach((action, index) => {
+            const refs = aiDailyReportActionSources(action);
+            if (!refs) return;
+            rows.push({
+                key: `action:${action?.title || index}:${index}`,
+                type: '动作',
+                title: action?.title || `建议${index + 1}`,
+                detail: action?.reason || action?.action || '建议动作引用',
+                ref: refs,
+                className: aiDailyReportActionBlockedText(action) ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700',
+            });
+        });
+        return rows.slice(0, 12);
+    };
+
     const buildRevenueAiExecutionIntentOpenRow = ({ payload = {}, item = {} } = {}) => {
         const data = payload && typeof payload === 'object' ? payload : {};
         const intent = data.execution_intent && typeof data.execution_intent === 'object' ? data.execution_intent : {};
@@ -2185,6 +2347,13 @@
         validateRevenueAiApprovedPrice,
         buildRevenueAiReviewConfirmText,
         buildRevenueAiReviewRequestBody,
+        aiDailyReportActionSources,
+        aiDailyReportEvidenceTarget,
+        aiDailyReportActionBlockedText,
+        aiDailyReportActionButtonText,
+        buildAiDailyReportBlockingRows,
+        summarizeAiDailyReportBlockingRows,
+        buildAiDailyReportEvidenceRows,
         buildRevenueAiExecutionIntentOpenRow,
         resolveRevenueAiReviewNavigation,
         buildRevenueAiReviewNavigationState,

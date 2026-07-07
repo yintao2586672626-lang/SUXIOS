@@ -59,6 +59,13 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'validateRevenueAiApprovedPrice',
     'buildRevenueAiReviewConfirmText',
     'buildRevenueAiReviewRequestBody',
+    'aiDailyReportActionSources',
+    'aiDailyReportEvidenceTarget',
+    'aiDailyReportActionBlockedText',
+    'aiDailyReportActionButtonText',
+    'buildAiDailyReportBlockingRows',
+    'summarizeAiDailyReportBlockingRows',
+    'buildAiDailyReportEvidenceRows',
     'buildRevenueAiExecutionIntentOpenRow',
     'resolveRevenueAiReviewNavigation',
     'buildRevenueAiReviewNavigationState',
@@ -85,7 +92,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
 });
 
 test('Revenue AI entry cache-busts the business closure helper contract', () => {
-  assert.match(html, /<script src="revenue-ai-static\.js\?v=20260704-revenue-ai-static-tools"><\/script>/);
+  assert.match(html, /<script src="revenue-ai-static\.js\?v=20260708-ai-daily-blocking-summary"><\/script>/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
   assert.match(html, /data-testid="revenue-ai-pricing-generation-preflight"/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
@@ -97,6 +104,52 @@ test('Revenue AI entry cache-busts the business closure helper contract', () => 
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiPricingGenerationPreflightSummary'\)/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiPriceSuggestionGenerateResult'\)/);
   assert.doesNotMatch(html, /已生成 \$\{res\.data\?\.created_count \|\| 0\} 条建议/);
+});
+
+test('AI daily report blocking helpers keep data gaps out of execution orders', () => {
+  const rows = helpers.buildAiDailyReportBlockingRows({
+    readinessMissing: [{
+      code: 'data_gaps',
+      label: 'data gaps',
+      next_action: 'resolve data gaps first',
+      source_ref: 'operation.execution_flow.data_gaps',
+    }],
+    actions: [{
+      title: 'Repair field evidence',
+      source_refs: ['operation.execution_flow.data_gaps'],
+      can_create_execution_intent: false,
+      blocked_reason: 'Data repair is checklist work, not an OTA execution order.',
+    }, {
+      title: 'Track execution',
+      source_refs: ['operation.execution_flow.actions'],
+      action_readiness: {
+        stage: 'blocked',
+        notice: 'Execution evidence missing.',
+        next_action: 'Complete execution review.',
+      },
+    }],
+  });
+
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].target.page, 'ops-track');
+  assert.equal(rows[1].type, 'action');
+  assert.match(rows[1].nextAction, /checklist work/);
+  assert.equal(helpers.aiDailyReportActionButtonText({ can_create_execution_intent: false }), '处理缺口');
+
+  const summary = helpers.summarizeAiDailyReportBlockingRows(rows);
+  assert.equal(summary.total, 3);
+  assert.equal(summary.readinessCount, 1);
+  assert.equal(summary.actionCount, 2);
+  assert.equal(summary.opsCount, 3);
+  assert.match(summary.gateText, /运营执行门禁 3/);
+
+  const evidenceRows = helpers.buildAiDailyReportEvidenceRows({
+    sourceRefs: [{ source_ref: 'operation.execution_flow', label: 'operation flow' }],
+    dataGaps: [{ code: 'missing_table', message: 'missing table', source_ref: 'schema.ai_daily_reports' }],
+    actions: rows,
+  });
+  assert.equal(evidenceRows.some(row => row.type === '缺口'), true);
+  assert.equal(evidenceRows.some(row => row.className.includes('amber')), true);
 });
 
 test('Agent pricing suggestion workbench exposes manual room type pricing guard input', () => {

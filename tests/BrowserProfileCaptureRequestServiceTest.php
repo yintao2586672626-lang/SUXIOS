@@ -18,6 +18,22 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         self::assertSame('traffic,orders', BrowserProfileCaptureRequestService::normalizeProfileSections(['traffic', '../orders', 'traffic'], 'fallback'));
     }
 
+    public function testMeituanProfileSectionsNormalizeFullRealtimeAndCommentAliases(): void
+    {
+        self::assertSame(
+            'traffic,orders,ads,reviews',
+            BrowserProfileCaptureRequestService::normalizeMeituanProfileSections('full')
+        );
+        self::assertSame(
+            'traffic,reviews,ads',
+            BrowserProfileCaptureRequestService::normalizeMeituanProfileSections('realtime comments advertising')
+        );
+        self::assertSame(
+            '',
+            BrowserProfileCaptureRequestService::normalizeMeituanProfileSections('unknown', '')
+        );
+    }
+
     public function testRuntimePathHelpersUseExplicitExistingFiles(): void
     {
         $oldNode = getenv('NODE_BINARY');
@@ -87,7 +103,7 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
             '--poi-id=poi-1',
             '--poi-name=Test POI',
             '--ads-url=https://example.test/ads',
-            '--sections=traffic,bad,orders',
+            '--sections=traffic,orders',
             '--login-only=true',
             '--chrome-path=C:\\Chrome\\chrome.exe',
         ], $plan['args']);
@@ -189,5 +205,28 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         self::assertContains('--poi-id=poi-1', $args);
         self::assertContains('--poi-name=Store Name', $args);
         self::assertContains('--chrome-path=C:\\Chrome\\chrome.exe', $args);
+    }
+
+    public function testBuildMeituanAutoArgsExpandsFullSectionsAndRealtimeMetadata(): void
+    {
+        $args = BrowserProfileCaptureRequestService::buildMeituanAutoArgs(
+            [
+                'capture_sections' => 'full',
+                'ads_url' => 'https://ads.example.test/full',
+                'data_period' => 'realtime_snapshot',
+                'snapshot_time' => '2026-07-08 13:15:00',
+            ],
+            'node',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs',
+            9,
+            'store-1',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'meituan_capture' . DIRECTORY_SEPARATOR . 'capture.json',
+            false
+        );
+
+        self::assertContains('--sections=traffic,orders,ads,reviews', $args);
+        self::assertContains('--ads-url=https://ads.example.test/full', $args);
+        self::assertContains('--data-period=realtime_snapshot', $args);
+        self::assertContains('--snapshot-time=2026-07-08 13:15:00', $args);
     }
 }

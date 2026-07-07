@@ -63,13 +63,25 @@ final class OnlineDataFieldFactService
                 'metric_key' => 'list_exposure',
                 'normalized_field' => 'list_exposure',
                 'storage_field' => 'list_exposure',
-                'source_keys' => ['list_exposure', 'listExposure', 'exposure_count', 'exposureCount', 'impression', 'impressions', 'exposure'],
+                'source_keys' => ['mt_exposure', 'list_exposure', 'listExposure', 'exposure_count', 'exposureCount', 'impression', 'impressions', 'exposure'],
+            ],
+            [
+                'metric_key' => 'mt_exposure',
+                'normalized_field' => 'list_exposure',
+                'storage_field' => 'list_exposure',
+                'source_keys' => ['mt_exposure', 'exposure_count', 'exposureCount', 'listExposure', 'exposureUV', 'exposure_uv', 'exposure'],
             ],
             [
                 'metric_key' => 'detail_exposure',
                 'normalized_field' => 'detail_exposure',
                 'storage_field' => 'detail_exposure',
-                'source_keys' => ['detail_exposure', 'detailExposure', 'page_views', 'pageViews', 'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount', 'click_count', 'clickCount', 'clicks', 'click', 'uv', 'UV', 'pv', 'views'],
+                'source_keys' => ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detail_exposure', 'detailExposure', 'page_views', 'pageViews', 'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount', 'click_count', 'clickCount', 'clicks', 'click', 'uv', 'UV', 'pv', 'views'],
+            ],
+            [
+                'metric_key' => 'mt_intention_uv',
+                'normalized_field' => 'detail_exposure',
+                'storage_field' => 'detail_exposure',
+                'source_keys' => ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detailExposure', 'uniqueVisitors', 'unique_visitors', 'views'],
             ],
             [
                 'metric_key' => 'flow_rate',
@@ -87,7 +99,19 @@ final class OnlineDataFieldFactService
                 'metric_key' => 'order_submit_num',
                 'normalized_field' => 'order_submit_num',
                 'storage_field' => 'order_submit_num',
-                'source_keys' => ['order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders'],
+                'source_keys' => ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders'],
+            ],
+            [
+                'metric_key' => 'mt_pay_orders',
+                'normalized_field' => 'order_submit_num',
+                'storage_field' => 'order_submit_num',
+                'source_keys' => ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'orderSubmitNum', 'orderNum', 'orders'],
+            ],
+            [
+                'metric_key' => 'mt_pay_rooms',
+                'normalized_field' => 'quantity',
+                'storage_field' => 'quantity',
+                'source_keys' => ['mt_pay_rooms', 'pay_rooms', 'payRooms', 'payRoomNum', 'pay_room_num', 'roomNights', 'room_nights', 'quantity'],
             ],
         ],
         'advertising' => [
@@ -108,6 +132,24 @@ final class OnlineDataFieldFactService
                 'normalized_field' => 'flow_rate',
                 'storage_field' => 'flow_rate',
                 'source_keys' => ['conversion_rate', 'conversionRate', 'flowRate', 'orderRate'],
+            ],
+            [
+                'metric_key' => 'ad_spend',
+                'normalized_field' => 'amount',
+                'storage_field' => 'amount',
+                'source_keys' => ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend', 'consume', 'consumption'],
+            ],
+            [
+                'metric_key' => 'ad_order_amount',
+                'normalized_field' => 'raw_data.order_amount',
+                'storage_field' => 'raw_data.order_amount',
+                'source_keys' => ['order_amount', 'orderAmount', 'saleAmount', 'salesAmount', 'revenue', 'gmv'],
+            ],
+            [
+                'metric_key' => 'ad_roas',
+                'normalized_field' => 'raw_data.roas',
+                'storage_field' => 'raw_data.roas',
+                'source_keys' => ['roas', 'roi'],
             ],
         ],
         'order' => [

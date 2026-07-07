@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\service\platform;
 
 use app\contract\DataSourceAdapter;
+use app\service\BrowserProfileCaptureRequestService;
 
 final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
 {
@@ -93,10 +94,13 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         if ($dataDate === '') {
             $dataDate = date('Y-m-d', strtotime('-1 day'));
         }
-        $sections = $this->sanitizeSections($this->firstString($options, $config, ['capture_sections', 'captureSections', 'sections', 'profile_sections'], 'traffic,orders'));
+        $requestedSections = $this->firstString($options, $config, ['capture_sections', 'captureSections', 'sections', 'profile_sections'], BrowserProfileCaptureRequestService::MEITUAN_DEFAULT_SECTIONS);
+        $sections = $this->sanitizeSections($requestedSections);
         $poiId = $this->firstString($options, $config, ['poi_id', 'poiId']);
         $poiName = $this->firstString($options, $config, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'name']);
         $adsUrl = $this->firstString($options, $config, ['ads_url', 'adsUrl']);
+        $dataPeriod = $this->firstString($options, $config, ['data_period', 'dataPeriod']);
+        $snapshotTime = $this->firstString($options, $config, ['snapshot_time', 'snapshotTime']);
         $timeoutSeconds = max(60, min(900, (int)($options['timeout_seconds'] ?? $options['timeoutSeconds'] ?? ($interactive ? 600 : 120))));
 
         $args = [
@@ -118,6 +122,12 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if ($adsUrl !== '') {
             $args[] = '--ads-url=' . $adsUrl;
+        }
+        if ($dataPeriod !== '') {
+            $args[] = '--data-period=' . $dataPeriod;
+        }
+        if ($snapshotTime !== '') {
+            $args[] = '--snapshot-time=' . $snapshotTime;
         }
 
         $cookieFile = $this->createCookieFile((string)($secret['cookies'] ?? $secret['cookie'] ?? ''));
@@ -166,9 +176,18 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'store_id' => $storeId,
             'poi_id' => $poiId,
             'capture_sections' => $sections,
+            'requested_capture_sections' => $requestedSections,
             'data_date' => $dataDate,
+            'data_period' => $dataPeriod,
+            'snapshot_time' => $snapshotTime,
             'captured_by' => 'platform_data_source_sync',
         ];
+        if ($dataPeriod !== '' && empty($payload['data_period'])) {
+            $payload['data_period'] = $dataPeriod;
+        }
+        if ($snapshotTime !== '' && empty($payload['snapshot_time'])) {
+            $payload['snapshot_time'] = $snapshotTime;
+        }
 
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
         if ($authStatus !== [] && empty($authStatus['ok'])) {
@@ -210,6 +229,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'traffic_count' => count(is_array($payload['traffic'] ?? null) ? $payload['traffic'] : []),
             'order_count' => count(is_array($payload['orders'] ?? null) ? $payload['orders'] : []),
             'ads_count' => count(is_array($payload['ads'] ?? null) ? $payload['ads'] : []),
+            'review_count' => count(is_array($payload['reviews'] ?? null) ? $payload['reviews'] : []),
         ];
 
         return [
@@ -236,6 +256,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ['data_type' => 'room_type', 'keys' => ['roomTypes', 'room_types', 'products', 'roomType']],
             ['data_type' => 'order', 'keys' => ['orders']],
             ['data_type' => 'advertising', 'keys' => ['ads']],
+            ['data_type' => 'review', 'keys' => ['reviews', 'review', 'comments', 'commentList', 'commentsInfo']],
         ];
 
         foreach ($sectionGroups as $sectionGroup) {
@@ -317,7 +338,10 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
 
         $capture = is_array($payload['data_source_capture'] ?? null) ? $payload['data_source_capture'] : [];
-        $sectionText = strtolower((string)($capture['capture_sections'] ?? ''));
+        $sectionText = strtolower((string)($capture['requested_capture_sections'] ?? $capture['capture_sections'] ?? ''));
+        if (preg_match('/[,\s]+/', $sectionText)) {
+            return '';
+        }
         $sectionType = $this->normalizeResourceDataType($sectionText);
         if (in_array($sectionType, ['business', 'peer_rank', 'traffic', 'search_keyword', 'room_type'], true)) {
             return $sectionType;
@@ -354,6 +378,12 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if (in_array($value, ['room_type', 'room_types', 'roomtype', 'roomtypes', 'product', 'products'], true)) {
             return 'room_type';
+        }
+        if (in_array($value, ['review', 'reviews', 'comment', 'comments', 'review_data', 'reviewdata'], true)) {
+            return 'review';
+        }
+        if (in_array($value, ['ad', 'ads', 'advertising', 'advertisement', 'campaign', 'campaigns'], true)) {
+            return 'advertising';
         }
 
         return $value;
@@ -494,9 +524,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
     private function sanitizeSections(string $sections): string
     {
-        $sections = strtolower(preg_replace('/[^a-z,_\-\s]+/i', '', $sections) ?: '');
-        $parts = array_values(array_unique(array_filter(array_map('trim', preg_split('/[,\s]+/', $sections) ?: []))));
-        return implode(',', $parts) ?: 'traffic,orders';
+        return BrowserProfileCaptureRequestService::normalizeMeituanProfileSections($sections);
     }
 
     private function normalizeDate(string $value): string

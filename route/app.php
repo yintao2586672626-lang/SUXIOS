@@ -256,6 +256,7 @@ Route::group('api/online-data', function () {
     Route::post('/profile-binding-unbind', 'OnlineData/deletePlatformProfileBinding');
     Route::post('/profile-login-trigger/:platform', 'OnlineData/triggerPlatformProfileLogin');
     Route::get('/profile-login-status/:platform', 'OnlineData/platformProfileLoginStatus');
+    Route::get('/ctrip-collector-contract', 'OnlineData/ctripCollectorContract');
     Route::post('/fetch-ctrip-cookie-api', 'OnlineData/fetchCtripCookieApiData');
     Route::post('/validate-ctrip-endpoint-evidence', 'OnlineData/validateCtripEndpointEvidence');
     Route::post('/fetch-ctrip-overview', 'OnlineData/fetchCtripOverviewData');

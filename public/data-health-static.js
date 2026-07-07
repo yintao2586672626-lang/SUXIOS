@@ -786,6 +786,30 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         return rows.slice(0, 12);
     };
 
+    const summarizeDataHealthFieldGapActions = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const statusCounts = safeRows.reduce((acc, row) => {
+            const status = String(row?.status || 'unknown').toLowerCase();
+            acc[status] = (acc[status] || 0) + 1;
+            return acc;
+        }, {});
+        const sourceCount = new Set(safeRows.map(row => row?.sourceRef).filter(Boolean)).size;
+        const forbiddenCount = Number(statusCounts.forbidden || 0);
+        const missingCount = safeRows.length - forbiddenCount;
+        const parts = [
+            missingCount > 0 ? `待补 ${missingCount}` : '',
+            forbiddenCount > 0 ? `禁止采集 ${forbiddenCount}` : '',
+            sourceCount > 0 ? `来源 ${sourceCount}` : '',
+        ].filter(Boolean);
+        return {
+            title: 'OTA 字段缺口行动台',
+            boundaryText: '只读展示字段缺口、来源路径和下一步；未返回字段不按成功处理。',
+            countText: `${safeRows.length} 项缺口`,
+            detailText: parts.length ? parts.join(' / ') : '暂无字段缺口',
+            hasForbidden: forbiddenCount > 0,
+        };
+    };
+
     const buildDataHealthCookieAlertRows = (
         authorizationRows = [],
         normalizeStatus = dataHealthNormalizeStatus,
@@ -981,6 +1005,16 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         if (value === false) return '未配置';
         return '登录令牌';
     };
+
+    const publicEndpointDisplayName = (endpoint) => ({
+        receive_cookies: 'receive-cookies',
+        cron_trigger: 'cron-trigger',
+        daily_workbench_patrol_cron: 'daily-workbench-patrol-cron',
+    }[endpoint] || endpoint || '-');
+
+    const publicEndpointSecurityBoundaryText = () => 'receive-cookies、cron-trigger 与 daily-workbench-patrol-cron 不走常规登录中间件，仅展示脱敏审计、限流和令牌配置状态。';
+
+    const publicEndpointSecurityEvidenceText = () => '证据来自 operation_logs 中的公开入口失败审计；Cookie、token、Authorization、spidertoken、mtgsig 等敏感值只保留遮罩状态，不展示原文。';
 
     const publicEndpointPathText = (row = {}) => `${row.method || '-'} ${row.path || '-'}`;
 
@@ -5198,6 +5232,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         buildDataHealthPanelRefreshJobs,
         scheduleDataHealthLightDiagnosticsRefresh,
         buildDataHealthFieldGapActionRows,
+        summarizeDataHealthFieldGapActions,
         buildDataHealthCookieAlertRows,
         summarizeDataHealthCookieAlerts,
         buildDataHealthQualityTaskRows,
@@ -5205,6 +5240,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         summarizeDataHealthHighRiskActions,
         summarizePublicEndpointSecurity,
         publicEndpointTokenText,
+        publicEndpointDisplayName,
+        publicEndpointSecurityBoundaryText,
+        publicEndpointSecurityEvidenceText,
         publicEndpointPathText,
         dashboardStateText,
         dashboardStateClass,

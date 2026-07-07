@@ -90,7 +90,9 @@ requireRegex('app/command/PlatformProfileLogin.php', /--login-only=true/, 'Profi
 requireText('app/command/PlatformProfileLogin.php', "--headless=false", 'manual Profile login uses a headed browser');
 requireText('app/command/PlatformProfileLogin.php', '--login-url=https://ebooking.ctrip.com/home/mainland', 'manual Ctrip login uses the China eBooking entry');
 requireText('app/command/PlatformProfileLogin.php', "'status_code' => 'resource_busy_login'", 'Profile login lock conflict is explicit');
-requireText('app/command/PlatformProfileLogin.php', "'status_code' => 'login_expired'", 'Profile login failure is explicit');
+requireText('app/command/PlatformProfileLogin.php', "return 'login_expired';", 'Profile login failure defaults to login_expired');
+requireText('app/command/PlatformProfileLogin.php', "return 'anti_bot';", 'Profile login preserves anti_bot failures');
+requireText('app/command/PlatformProfileLogin.php', "return 'session_expired';", 'Profile login preserves session_expired failures');
 requireText('app/command/PlatformProfileLogin.php', "'status_code' => 'logged_in'", 'Profile login success is explicit');
 requireText('app/command/PlatformProfileLogin.php', "'manual_login_state_verified' => true", 'Profile login records manual login verification');
 requireText('app/command/PlatformProfileLogin.php', "$config['profile_status'] = 'logged_in';", 'Profile login records logged-in Profile status');
@@ -104,6 +106,9 @@ requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'storag
 requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'storage/meituan_profile_'", 'Meituan Profile directory boundary is storage/meituan_profile_*');
 requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'status_code'] = 'cookies_incomplete';", 'Ctrip Cookie probe exposes cookies_incomplete');
 requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'cookies_incomplete' => 'cookies_incomplete'", 'Ctrip Profile status text maps cookies_incomplete');
+requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'anti_bot' => 'anti_bot'", 'Profile status text maps anti_bot');
+requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'session_expired' => 'session_expired'", 'Profile status text maps session_expired');
+requireText('app/controller/concern/AutoFetchConcern.php', 'platformProfileSourceHasAntiBotError', 'Profile status detects anti_bot blockers from source logs');
 requireText('app/service/platform/CtripBrowserProfileDataSourceAdapter.php', "'status_code' => 'resource_busy_login'", 'Ctrip adapter exposes resource_busy_login');
 requireText('app/service/platform/MeituanBrowserProfileDataSourceAdapter.php', "'status_code' => 'resource_busy_login'", 'Meituan adapter exposes resource_busy_login');
 
@@ -135,7 +140,15 @@ requireText('scripts/meituan_browser_capture.mjs', "if (wantsSection('traffic'))
 requireText('scripts/meituan_browser_capture.mjs', "if (args.adsUrl && wantsSection('ads'))", 'Meituan browser capture supports ads');
 requireText('scripts/meituan_browser_capture.mjs', "if (wantsSection('orders'))", 'Meituan browser capture supports orders');
 requireText('scripts/meituan_browser_capture.mjs', 'trafficForecast', 'Meituan browser capture keeps traffic forecast/realtime-like data');
+requireText('scripts/meituan_browser_capture.mjs', 'data_period: dataPeriod', 'Meituan browser capture preserves realtime period metadata');
+requireText('app/service/BrowserProfileCaptureRequestService.php', "MEITUAN_FULL_SECTIONS = 'traffic,orders,ads,reviews'", 'Meituan Profile capture exposes a full collection section set');
+requireText('app/service/BrowserProfileCaptureRequestService.php', 'normalizeMeituanProfileSections', 'Meituan Profile capture normalizes full/realtime/comment/ad section aliases');
+requireText('app/service/platform/MeituanBrowserProfileDataSourceAdapter.php', "'data_type' => 'review'", 'Meituan browser Profile data-source sync persists aggregate review rows');
+requireText('app/service/platform/MeituanBrowserProfileDataSourceAdapter.php', "'review_count' => count", 'Meituan browser Profile data-source sync reports aggregate review counts');
 requireText('public/auto-fetch-static.js', "data_period: 'realtime_snapshot'", 'Meituan traffic fetch can request realtime snapshot data');
+requireText('public/meituan-static.js', 'getMeituanBrowserCapturePresets', 'Meituan static exposes Profile capture presets for realtime/reviews/full/ads');
+requireText('public/index.html', '美团 Profile 采集', 'Meituan manual UI exposes Profile capture panel');
+requireText('public/index.html', 'runMeituanBrowserCapturePreset(preset)', 'Meituan manual UI runs preset Profile capture actions');
 requireText('app/controller/concern/MeituanCapturedDataConcern.php', "extractMeituanCapturedSection($payload, 'reviews')", 'Meituan captured payload maps reviews');
 requireText('app/controller/concern/MeituanCapturedDataConcern.php', "extractMeituanCapturedSection($payload, 'traffic')", 'Meituan captured payload maps traffic');
 requireText('app/controller/concern/MeituanCapturedDataConcern.php', "extractMeituanCapturedSection($payload, 'ads')", 'Meituan captured payload maps ads');
@@ -145,6 +158,15 @@ requireText('app/controller/concern/MeituanCapturedDataConcern.php', 'review[_-]
 requireText('app/controller/concern/MeituanCapturedDataConcern.php', 'guest|customer|userName|username|nick|phone|mobile|tel', 'Meituan review sanitizer removes guest and phone fields');
 requireText('app/controller/concern/MeituanCapturedDataConcern.php', "'data_type' => 'review'", 'Meituan review rows use review data type');
 requireText('app/controller/concern/MeituanCapturedDataConcern.php', "'data_type' => 'advertising'", 'Meituan ads rows use advertising data type');
+requireText('app/controller/concern/MeituanCapturedDataConcern.php', "'mt_pay_orders'", 'Meituan realtime traffic rows accept pay-order aliases');
+requireText('app/controller/concern/MeituanCapturedDataConcern.php', "'mt_pay_rooms'", 'Meituan realtime traffic rows accept pay-room aliases');
+requireText('app/controller/concern/MeituanCapturedDataConcern.php', "'spend' => $spend", 'Meituan ads rows preserve spend evidence');
+requireText('app/service/OnlineDataFieldFactService.php', "'metric_key' => 'mt_exposure'", 'field facts expose Meituan realtime exposure');
+requireText('app/service/OnlineDataFieldFactService.php', "'metric_key' => 'mt_pay_orders'", 'field facts expose Meituan realtime pay orders');
+requireText('app/service/OnlineDataFieldFactService.php', "'metric_key' => 'ad_spend'", 'field facts expose Meituan ad spend');
+requireText('app/service/PlatformDataSyncService.php', "'metric_key' => 'mt_exposure'", 'platform data-source sync exposes Meituan realtime exposure facts');
+requireText('app/service/PlatformDataSyncService.php', "'metric_key' => 'mt_pay_orders'", 'platform data-source sync exposes Meituan realtime pay-order facts');
+requireText('app/service/PlatformDataSyncService.php', 'review[_-]?id|comment[_-]?id', 'platform data-source sync removes review/comment identifiers from review rows');
 requireText('app/controller/DailyReport.php', "'mt_exposure' => 0", 'daily report keeps Meituan exposure metric');
 
 requireTextInFiles(onlineControllerFiles, 'function commentCollectionDisabledResponse', 'legacy disallowed review-detail response remains explicit');
@@ -166,8 +188,10 @@ requireText('public/index.html', 'fetchMeituanComments', 'frontend exposes Meitu
 requireText('public/index.html', "`/online-data/profile-login-trigger/${platform}`", 'frontend triggers Profile login task');
 requireText('public/index.html', "`/online-data/profile-login-status/${platform}?${params.toString()}`", 'frontend polls Profile login task');
 requireText('public/index.html', "`/online-data/collection-status?${params.toString()}`", 'frontend refreshes collection status');
-requireText('public/index.html', "'login_expired', 'cookies_incomplete', 'capture_failed', 'permission_denied', 'hotel_mismatch'", 'frontend blocks collection on explicit Profile failure states');
+requireText('public/index.html', "'session_expired', 'login_expired', 'anti_bot', 'resource_busy_login', 'cookies_incomplete', 'capture_failed', 'permission_denied', 'hotel_mismatch'", 'frontend blocks collection on explicit Profile failure states');
 requireText('public/auto-fetch-static.js', "if (statusCode === 'cookies_incomplete') return 'Cookie incomplete';", 'auto-fetch UI labels cookies_incomplete');
+requireText('public/auto-fetch-static.js', "if (statusCode === 'anti_bot') return 'Anti bot';", 'auto-fetch UI labels anti_bot');
+requireText('public/auto-fetch-static.js', "if (statusCode === 'resource_busy_login') return 'Login busy';", 'auto-fetch UI labels resource_busy_login');
 requireText('public/auto-fetch-static.js', "cookies_incomplete: 'bg-red-50 text-red-700 border-red-200'", 'auto-fetch UI badges cookies_incomplete');
 requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'auto-fetch can queue Ctrip aggregate comments through browser Profile', 'existing diagnosis verifier covers Ctrip aggregate comments');
 requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'auto-fetch can queue Meituan aggregate comments through browser Profile', 'existing diagnosis verifier covers Meituan aggregate comments');

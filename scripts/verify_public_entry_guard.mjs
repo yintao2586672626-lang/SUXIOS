@@ -135,7 +135,7 @@ if (!fs.existsSync(indexPath)) {
   }
 
   if (!content.includes('ctrip-static.js?v=20260707-cookie-only-identity-auto-resolve')
-    || !content.includes('meituan-static.js?v=20260703-ai-estimated-nights')) {
+    || !content.includes('meituan-static.js?v=20260708-ranking-pagination-helpers')) {
     failures.push('public/index.html must keep static helper cache versions aligned with changed helper files.');
   }
   if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';")
@@ -273,10 +273,24 @@ if (!fs.existsSync(indexPath)) {
     if (JSON.stringify(managerMenu).includes('"path":"agent-center"')) {
       failures.push('public/system-static.js manager-visible navigation must not expose the super-admin agent-center toolbox.');
     }
+    if (JSON.stringify(managerMenu).includes('"path":"users"')) {
+      failures.push('public/system-static.js manager-visible navigation must not expose employee management.');
+    }
+    const normalMenu = staticApi.filterVisibleMenuItems(staticApi.menuItemDefinitions, {
+      role_id: 3,
+      is_super_admin: false,
+      is_hotel_manager: false,
+      permissions: {
+        can_view_online_data: true,
+      },
+    });
+    if (JSON.stringify(normalMenu).includes('"path":"users"')) {
+      failures.push('public/system-static.js normal-user navigation must not expose employee management.');
+    }
   } catch (error) {
     failures.push(`public/system-static.js navigation guard could not evaluate menu definitions: ${error.message}`);
   }
-  if (!content.includes('revenue-ai-static.js?v=20260704-revenue-ai-static-tools')
+  if (!content.includes('revenue-ai-static.js?v=20260708-ai-daily-blocking-summary')
     || !revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
     || !revenueAiStaticContent.includes('buildRevenueAiBusinessClosure')
     || !revenueAiStaticContent.includes('buildRevenueAiGapRows')

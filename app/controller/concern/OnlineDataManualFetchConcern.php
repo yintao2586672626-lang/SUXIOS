@@ -154,6 +154,10 @@ trait OnlineDataManualFetchConcern
 
             $displayHotels = $this->buildCtripBusinessDisplayHotels(['date_results' => $dateResults]);
             $displaySummary = $this->buildCtripBusinessDisplaySummary($displayHotels);
+            $qunarVisitorQuality = $this->ctripBusinessQunarVisitorQuality($displayHotels);
+            $qunarVisitorGap = $autoSave
+                && $qunarVisitorQuality['row_count'] > 0
+                && $qunarVisitorQuality['visitor_total'] <= 0;
 
             $identityCheck = null;
             if ($autoSave) {
@@ -221,7 +225,9 @@ trait OnlineDataManualFetchConcern
 
             return json([
                 'code' => 200,
-                'message' => '获取成功',
+                'message' => $qunarVisitorGap
+                    ? '携程数据已获取；去哪儿访客为 0 表示本次返回不完整，已保留其他返回字段，不按整次失败处理。'
+                    : '获取成功',
                 'data' => [
                     'data' => $responseData,
                     'date_results' => $dateResults,
@@ -234,6 +240,10 @@ trait OnlineDataManualFetchConcern
                     'display_hotels' => $displayHotels,
                     'display_hotel_count' => count($displayHotels),
                     'display_summary' => $displaySummary,
+                    'qunar_visitor_quality' => $qunarVisitorQuality,
+                    'save_status' => $qunarVisitorGap
+                        ? ($savedCount > 0 ? 'saved_with_qunar_visitor_gap' : 'no_saved_with_qunar_visitor_gap')
+                        : ($autoSave ? 'saved_or_empty' : 'skipped'),
                 ]
             ]);
         } catch (\Throwable $e) {
@@ -243,6 +253,45 @@ trait OnlineDataManualFetchConcern
             ]);
             return json(['code' => 500, 'message' => '请求异常: ' . $e->getMessage(), 'data' => null]);
         }
+    }
+
+    private function ctripBusinessQunarVisitorQuality(array $displayHotels): array
+    {
+        $rowCount = 0;
+        $visitorTotal = 0.0;
+
+        foreach ($displayHotels as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $rowCount++;
+            $value = $row['qunarDetailVisitors']
+                ?? $row['qunar_detail_visitors']
+                ?? $row['views']
+                ?? $row['uv']
+                ?? $row['visitorCount']
+                ?? $row['detailUv']
+                ?? 0;
+            $number = is_numeric($value) ? (float)$value : 0.0;
+            if ($number > 0) {
+                $visitorTotal += $number;
+            }
+        }
+
+        $hasRows = $rowCount > 0;
+        $ready = $hasRows && $visitorTotal > 0;
+
+        return [
+            'row_count' => $rowCount,
+            'visitor_total' => $visitorTotal,
+            'ready' => $ready,
+            'status' => $ready ? 'ready' : ($hasRows ? 'partial_qunar_visitor_gap' : 'missing_rows'),
+            'message' => $ready
+                ? '去哪儿访客字段已返回有效值。'
+                : ($hasRows
+                    ? '去哪儿访客为 0 表示本次携程返回不完整，不代表整次抓取失败。'
+                    : '本次未返回可展示的竞争圈行。'),
+        ];
     }
 
     /**
@@ -255,19 +304,6 @@ trait OnlineDataManualFetchConcern
         $config = $this->resolveCtripManualBusinessIdentityConfig($systemHotelId, $requestData);
         $expectedIds = $this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId);
         $nodeIds = array_fill_keys($this->extractCtripNodeResourceIds($config), true);
-
-        if ($expectedIds === []) {
-            return [
-                'ok' => false,
-                'status' => 'expected_platform_hotel_id_missing',
-                'message' => '当前门店未维护携程平台酒店ID，已取消入库。请先在酒店管理/携程配置中补充真实携程 hotelId。',
-                'target_system_hotel_id' => $systemHotelId,
-                'target_hotel_name' => $targetHotelName,
-                'captured_hotel_ids' => [],
-                'expected_hotel_ids' => [],
-                'conflicts' => [],
-            ];
-        }
 
         $capturedIds = [];
         foreach ($dateResults as $dateResult) {
@@ -290,11 +326,25 @@ trait OnlineDataManualFetchConcern
         }
         $capturedIds = array_keys($capturedIds);
 
-        if ($capturedIds === []) {
+        if ($expectedIds === []) {
             return [
                 'ok' => false,
-                'status' => 'returned_current_hotel_id_missing',
-                'message' => '携程返回数据未识别到当前酒店身份，已取消入库。请确认 Cookie 对应当前门店，并补充真实携程 hotelId 后重试。',
+                'status' => 'expected_platform_hotel_id_missing',
+                'message' => '当前门店未维护携程平台酒店ID，已取消自动入库；请先补齐平台酒店ID后重试。',
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'captured_hotel_ids' => $capturedIds,
+                'expected_hotel_ids' => [],
+                'conflicts' => [],
+            ];
+        }
+
+        if ($capturedIds === []) {
+            return [
+                'ok' => true,
+                'status' => 'cookie_only_returned_current_hotel_id_missing',
+                'warning' => true,
+                'message' => '携程返回数据未识别到当前酒店身份，已按当前选择门店继续入库。',
                 'target_system_hotel_id' => $systemHotelId,
                 'target_hotel_name' => $targetHotelName,
                 'captured_hotel_ids' => [],
@@ -303,10 +353,10 @@ trait OnlineDataManualFetchConcern
             ];
         }
 
-        $conflicts = $this->findCtripPlatformHotelIdConflicts($capturedIds, $systemHotelId);
-        $blockingConflicts = array_values(array_filter($conflicts, function (array $conflict) use ($expectedIds): bool {
+        $conflicts = $expectedIds !== [] ? $this->findCtripPlatformHotelIdConflicts($capturedIds, $systemHotelId) : [];
+        $blockingConflicts = $expectedIds !== [] ? array_values(array_filter($conflicts, function (array $conflict) use ($expectedIds): bool {
             return $this->shouldBlockCtripCurrentHotelIdConflict((string)($conflict['hotel_id'] ?? ''), $expectedIds);
-        }));
+        })) : [];
         if ($blockingConflicts !== []) {
             return [
                 'ok' => false,
@@ -320,7 +370,7 @@ trait OnlineDataManualFetchConcern
             ];
         }
 
-        if (array_intersect($expectedIds, $capturedIds) === []) {
+        if ($expectedIds !== [] && array_intersect($expectedIds, $capturedIds) === []) {
             return [
                 'ok' => false,
                 'status' => 'expected_hotel_id_mismatch',
@@ -860,6 +910,26 @@ trait OnlineDataManualFetchConcern
             }
             $savedCount = 0;
 
+            $displayContext = $this->buildMeituanBusinessDisplayContext();
+            $displayContext['self_metric_values'] = $selfMetricValues;
+            $displayContext['self_metric_status'] = $selfMetricStatus;
+            $displayContext['rank_type'] = $rankType;
+            $displayHotels = $this->buildMeituanBusinessDisplayHotels($responseData, $displayContext);
+            $identityCheck = $this->validateMeituanManualFetchHotelIdentity($displayHotels, $systemHotelId ? (int)$systemHotelId : null);
+            if (!$identityCheck['ok']) {
+                return $this->error((string)$identityCheck['message'], 422, [
+                    'reason' => 'meituan_hotel_identity_mismatch',
+                    'save_status' => 'blocked',
+                    'expected_hotel_id' => $identityCheck['expected_hotel_id'] ?? null,
+                    'expected_hotel_name' => $identityCheck['expected_hotel_name'] ?? '',
+                    'returned_self_hotel_name' => $identityCheck['returned_self_hotel_name'] ?? '',
+                    'returned_self_poi_id' => $identityCheck['returned_self_poi_id'] ?? '',
+                    'display_hotels' => $displayHotels,
+                    'display_hotel_count' => count($displayHotels),
+                    'display_summary' => $this->buildMeituanBusinessDisplaySummary($displayHotels, $displayContext),
+                ]);
+            }
+
             if ($autoSave && is_array($responseData) && !empty($responseData)) {
                 $savedCount = $this->parseAndSaveMeituanData($responseData, $startDate, $endDate, $systemHotelId ? (int)$systemHotelId : null, [
                     'date_range' => (string)($params['dateRange'] ?? $dateRange),
@@ -873,11 +943,6 @@ trait OnlineDataManualFetchConcern
 
             // 确保所有数据都是有效的UTF-8编码
             $responseData = $this->ensureUtf8($responseData);
-            $displayContext = $this->buildMeituanBusinessDisplayContext();
-            $displayContext['self_metric_values'] = $selfMetricValues;
-            $displayContext['self_metric_status'] = $selfMetricStatus;
-            $displayContext['rank_type'] = $rankType;
-            $displayHotels = $this->buildMeituanBusinessDisplayHotels($responseData, $displayContext);
             $displaySummary = $this->buildMeituanBusinessDisplaySummary($displayHotels, $displayContext);
             $rawResponse = substr($this->ensureUtf8String($result['raw'] ?? ''), 0, 1000);
             if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
@@ -930,6 +995,104 @@ trait OnlineDataManualFetchConcern
         } catch (\Throwable $e) {
             return $this->error('请求异常: ' . $e->getMessage());
         }
+    }
+
+    private function validateMeituanManualFetchHotelIdentity(array $displayHotels, ?int $systemHotelId): array
+    {
+        if ($systemHotelId === null || $systemHotelId <= 0 || empty($displayHotels)) {
+            return ['ok' => true];
+        }
+
+        $expectedName = trim((string)(\think\facade\Db::name('hotels')->where('id', $systemHotelId)->value('name') ?? ''));
+        if ($expectedName === '') {
+            return ['ok' => true];
+        }
+
+        $selfRow = null;
+        foreach ($displayHotels as $row) {
+            if (is_array($row) && !empty($row['isSelf'])) {
+                $selfRow = $row;
+                break;
+            }
+        }
+        if (!is_array($selfRow)) {
+            return ['ok' => true];
+        }
+
+        $returnedName = trim((string)($selfRow['hotelName'] ?? $selfRow['name'] ?? ''));
+        if ($returnedName === '' || $this->isLikelySameMeituanHotelName($expectedName, $returnedName)) {
+            return ['ok' => true];
+        }
+
+        return [
+            'ok' => false,
+            'expected_hotel_id' => $systemHotelId,
+            'expected_hotel_name' => $expectedName,
+            'returned_self_hotel_name' => $returnedName,
+            'returned_self_poi_id' => (string)($selfRow['poiId'] ?? $selfRow['poi_id'] ?? ''),
+            'message' => "美团返回的本店为「{$returnedName}」，与当前选择门店「{$expectedName}」不一致，已阻止入库。请检查该门店美团 Partner/POI/Cookie 是否套用了其他门店配置。",
+        ];
+    }
+
+    private function isLikelySameMeituanHotelName(string $expectedName, string $returnedName): bool
+    {
+        $expected = $this->normalizeMeituanHotelIdentityName($expectedName);
+        $returned = $this->normalizeMeituanHotelIdentityName($returnedName);
+        if ($expected === '' || $returned === '') {
+            return true;
+        }
+        if (str_contains($returned, $expected) || str_contains($expected, $returned)) {
+            return true;
+        }
+
+        foreach ($this->meituanHotelIdentityTokens($expected) as $token) {
+            if (str_contains($returned, $token)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function normalizeMeituanHotelIdentityName(string $name): string
+    {
+        $name = mb_strtolower(trim($name), 'UTF-8');
+        $name = preg_replace('/[\\s\\x{3000}\\(\\)（）\\[\\]【】\\-_,，.。·]+/u', '', $name) ?? $name;
+        $name = str_replace([
+            '酒店',
+            '宾馆',
+            '旅馆',
+            '客栈',
+            '民宿',
+            '公寓',
+            '国际',
+            '连锁',
+            '测试',
+            '店',
+        ], '', $name);
+        return trim($name);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function meituanHotelIdentityTokens(string $normalizedName): array
+    {
+        $tokens = [];
+        $length = mb_strlen($normalizedName, 'UTF-8');
+        if ($length <= 2) {
+            return $normalizedName !== '' ? [$normalizedName] : [];
+        }
+
+        for ($i = 0; $i <= $length - 2; $i++) {
+            $token = mb_substr($normalizedName, $i, 2, 'UTF-8');
+            if (mb_strlen($token, 'UTF-8') < 2) {
+                continue;
+            }
+            $tokens[] = $token;
+        }
+
+        return array_values(array_unique($tokens));
     }
 
     /**
@@ -1563,14 +1726,24 @@ trait OnlineDataManualFetchConcern
     }
 
     /**
-     * Direct Meituan comment-detail collection is disabled.
+     * Meituan comment detail collection stays disabled; this route uses the aggregate Profile capture path.
      */
     public function fetchMeituanComments(): Response
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
-        return $this->commentCollectionDisabledResponse();
+        $requestData = $this->requestData();
+        $requestData['sections'] = 'reviews';
+        $requestData['capture_sections'] = 'reviews';
+        $requestData['profile_sections'] = 'reviews';
+        $requestData['scope'] = 'ota_channel_review_summary';
+        $requestData['privacy_boundary'] = 'aggregate_metrics_only_no_review_text';
+        $requestData['review_detail_collection'] = false;
+        $requestData['store_review_text'] = false;
+        $requestData['store_comment_text'] = false;
+
+        return $this->captureMeituanBrowserData($requestData);
     }
 
     /**

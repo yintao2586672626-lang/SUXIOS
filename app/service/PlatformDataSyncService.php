@@ -293,7 +293,15 @@ final class PlatformDataSyncService
                 'storage_table' => 'online_daily_data',
                 'storage_field' => 'list_exposure',
                 'missing_state' => 'field_missing',
-                'source_keys' => ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount'],
+                'source_keys' => ['mt_exposure', 'list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount', 'exposureUV', 'exposure_uv'],
+            ],
+            [
+                'metric_key' => 'mt_exposure',
+                'normalized_field' => 'list_exposure',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'list_exposure',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['mt_exposure', 'exposure_count', 'exposureCount', 'listExposure', 'exposureUV', 'exposure_uv'],
             ],
             [
                 'metric_key' => 'detail_exposure',
@@ -301,7 +309,15 @@ final class PlatformDataSyncService
                 'storage_table' => 'online_daily_data',
                 'storage_field' => 'detail_exposure',
                 'missing_state' => 'field_missing',
-                'source_keys' => ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount', 'visitors', 'visitorTotal', 'pv', 'uv'],
+                'source_keys' => ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount', 'visitors', 'visitorTotal', 'pv', 'uv'],
+            ],
+            [
+                'metric_key' => 'mt_intention_uv',
+                'normalized_field' => 'detail_exposure',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'detail_exposure',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detailExposure', 'visitors', 'visitorTotal', 'uv'],
             ],
             [
                 'metric_key' => 'flow_rate',
@@ -325,7 +341,23 @@ final class PlatformDataSyncService
                 'storage_table' => 'online_daily_data',
                 'storage_field' => 'order_submit_num',
                 'missing_state' => 'optional_missing',
-                'source_keys' => ['order_submit_num', 'orderSubmitNum', 'bookings', 'bookingCount', 'orderCount', 'orderQuantity'],
+                'source_keys' => ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'order_submit_num', 'orderSubmitNum', 'bookings', 'bookingCount', 'orderCount', 'orderQuantity', 'orderNum', 'orders'],
+            ],
+            [
+                'metric_key' => 'mt_pay_orders',
+                'normalized_field' => 'order_submit_num',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'order_submit_num',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'orderSubmitNum', 'orderNum', 'orders'],
+            ],
+            [
+                'metric_key' => 'mt_pay_rooms',
+                'normalized_field' => 'quantity',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'quantity',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['mt_pay_rooms', 'pay_rooms', 'payRooms', 'payRoomNum', 'pay_room_num', 'roomNights', 'room_nights', 'quantity'],
             ],
         ],
         'platform_identity' => [
@@ -490,7 +522,7 @@ final class PlatformDataSyncService
                     ? $rowDataType
                     : ($sourceDataType !== '' ? $sourceDataType : ($rowDataType !== '' ? $rowDataType : 'business'))
             );
-            if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($source, $payload)) {
+            if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($source, $payload, $dataType)) {
                 continue;
             }
             $periodMeta = $this->resolveDataPeriodMetadata($row, $payload, $source, $date);
@@ -500,7 +532,7 @@ final class PlatformDataSyncService
             }
             $allowReviewSummary = $dataType === 'review'
                 && $this->payloadRequestsReviewDetailStorage($payload)
-                && $this->isReviewCollectionAllowed($source, $payload);
+                && $this->isReviewCollectionAllowed($source, $payload, $dataType);
             $sanitizedRow = $dataType === 'review'
                 ? $this->sanitizeReviewPayloadForStorage($row, $allowReviewSummary)
                 : $this->sanitizePayloadForStorage($row, $dataType);
@@ -543,11 +575,11 @@ final class PlatformDataSyncService
                 'data_type' => $dataType,
                 'platform' => $this->stringValue($row, ['platform']) ?: $platform,
                 'compare_type' => $this->stringValue($row, ['compare_type', 'compareType', 'rank_type', 'rankType']),
-                'list_exposure' => (int)$this->numericValue($row, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']),
-                'detail_exposure' => (int)$this->numericValue($row, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount', 'visitors', 'visitorTotal', 'pv', 'uv']),
+                'list_exposure' => (int)$this->numericValue($row, ['mt_exposure', 'list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount', 'exposureUV', 'exposure_uv']),
+                'detail_exposure' => (int)$this->numericValue($row, ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount', 'visitors', 'visitorTotal', 'pv', 'uv']),
                 'flow_rate' => $this->numericValue($row, ['flow_rate', 'flowRate', 'cvr', 'ctr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate']),
                 'order_filling_num' => (int)$this->numericValue($row, ['order_filling_num', 'orderFillingNum', 'orderVisitors', 'clickCount', 'clicks']),
-                'order_submit_num' => (int)$this->numericValue($row, ['order_submit_num', 'orderSubmitNum', 'bookings', 'bookingCount', 'orderCount', 'orderQuantity']),
+                'order_submit_num' => (int)$this->numericValue($row, ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'order_submit_num', 'orderSubmitNum', 'bookings', 'bookingCount', 'orderCount', 'orderQuantity', 'orderNum', 'orders']),
                 'validation_status' => 'normal',
                 'validation_flags' => json_encode([], JSON_UNESCAPED_UNICODE),
                 'data_source_id' => isset($source['id']) ? (int)$source['id'] : null,
@@ -1486,7 +1518,7 @@ final class PlatformDataSyncService
             'config' => $config,
             'secret' => $secret,
         ];
-        if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($sourceForPolicy, $payload)) {
+        if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($sourceForPolicy, $payload, $dataType)) {
             throw new RuntimeException('Comment/review detail storage requires explicit authorization; aggregate metrics are allowed.', 422);
         }
 
@@ -1903,7 +1935,7 @@ final class PlatformDataSyncService
         $dataType = $this->normalizeDataType((string)($source['data_type'] ?? ''));
         if ($dataType === 'review') {
             $allowReviewSummary = $this->payloadRequestsReviewDetailStorage($payload)
-                && $this->isReviewCollectionAllowed($source, $payload);
+                && $this->isReviewCollectionAllowed($source, $payload, $dataType);
             $payload = $this->sanitizeReviewPayloadForStorage($payload, $allowReviewSummary);
         } else {
             $payload = $this->sanitizePayloadForStorage($payload, $dataType);
@@ -2195,9 +2227,10 @@ final class PlatformDataSyncService
      * @param array<string, mixed> $source
      * @param array<string, mixed> $payload
      */
-    private function isReviewCollectionAllowed(array $source, array $payload = []): bool
+    private function isReviewCollectionAllowed(array $source, array $payload = [], string $dataType = ''): bool
     {
-        if (!$this->isCommentDataType((string)($source['data_type'] ?? ''))) {
+        $effectiveDataType = $dataType !== '' ? $dataType : (string)($source['data_type'] ?? '');
+        if (!$this->isCommentDataType($effectiveDataType)) {
             return true;
         }
 
@@ -2272,6 +2305,11 @@ final class PlatformDataSyncService
 
         return (int)$this->numericValue($row, [
             'quantity',
+            'mt_pay_rooms',
+            'pay_rooms',
+            'payRooms',
+            'payRoomNum',
+            'pay_room_num',
             'room_nights',
             'roomNights',
             'nights',
@@ -2391,7 +2429,7 @@ final class PlatformDataSyncService
 
     private function isReviewPrivateKey(string $key): bool
     {
-        return preg_match('/content|commentContent|comment_text|review_text|guest|phone|mobile|tel|certificate|idcard|id_card|identity|openid|avatar|nickname/i', $key) === 1;
+        return preg_match('/content|commentContent|comment_text|review_text|review[_-]?id|comment[_-]?id|reply|guest|customer|userName|username|nick|phone|mobile|tel|certificate|idcard|id_card|identity|openid|avatar|order[_-]?(id|no|number)|room(type|name)|photo|image|pic/i', $key) === 1;
     }
 
     /**

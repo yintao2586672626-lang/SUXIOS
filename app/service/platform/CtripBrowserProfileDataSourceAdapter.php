@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\service\platform;
 
 use app\contract\DataSourceAdapter;
+use app\service\CtripCollectorWorkflowService;
 use think\facade\Db;
 
 final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
@@ -34,6 +35,20 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
     {
         $config = is_array($source['config'] ?? null) ? $source['config'] : [];
         $secret = is_array($source['secret'] ?? null) ? $source['secret'] : [];
+        $workflow = new CtripCollectorWorkflowService();
+        $gate = $workflow->collectionGate($source, $options);
+        if (empty($gate['allowed'])) {
+            return [
+                'status' => (string)$gate['status'],
+                'status_code' => (string)$gate['reason'],
+                'error_code' => (string)$gate['reason'],
+                'message' => (string)$gate['message'],
+                'payload' => [
+                    'ctrip_collector_contract' => $workflow->buildContract($source, $options),
+                ],
+            ];
+        }
+        $options = $workflow->applyFlowOptions($options, $config);
         $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
         $profileId = $this->firstString($options, $config, ['profile_id', 'profileId', 'browser_profile_id', 'browserProfileId']);
         if ($profileId === '') {

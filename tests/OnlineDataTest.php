@@ -866,6 +866,22 @@ final class OnlineDataTest extends TestCase
         self::assertSame('系统未返回', $rows[0]['metricSourceStatus']['totalDetailNum']);
     }
 
+    public function testBackendTreatsZeroQunarVisitorsAsPartialCtripCapture(): void
+    {
+        $controller = $this->controller();
+
+        $quality = $this->invokeNonPublic($controller, 'ctripBusinessQunarVisitorQuality', [[
+            ['hotelId' => 'A', 'hotelName' => 'A', 'amount' => 1000, 'quantity' => 5, 'qunarDetailVisitors' => 0],
+            ['hotelId' => 'B', 'hotelName' => 'B', 'amount' => 800, 'quantity' => 4, 'qunarDetailVisitors' => 0],
+        ]]);
+
+        self::assertSame(2, $quality['row_count']);
+        self::assertSame(0.0, $quality['visitor_total']);
+        self::assertFalse($quality['ready']);
+        self::assertSame('partial_qunar_visitor_gap', $quality['status']);
+        self::assertStringContainsString('不代表整次抓取失败', $quality['message']);
+    }
+
     public function testBackendBuildsCtripBusinessDisplayDerivedMetricsForFrontend(): void
     {
         $controller = $this->controller();
@@ -2879,6 +2895,54 @@ final class OnlineDataTest extends TestCase
         self::assertStringNotContainsString('must-not-store', $encoded);
         self::assertStringNotContainsString('ebooking.ctrip.com/path', $encoded);
         self::assertArrayNotHasKey('data_type', $config);
+    }
+
+    public function testPlatformProfileProbeKeepsAntiBotAndSessionExpiredStates(): void
+    {
+        $controller = $this->controller();
+        $command = $this->profileLoginCommand();
+
+        $antiBotStatus = $this->invokeNonPublic($controller, 'ctripProfileProbeStatusCode', [[
+            'message' => 'captcha required by platform risk control',
+        ], [
+            'ok' => false,
+            'status' => 'captcha_required',
+            'message' => 'captcha required by platform risk control',
+        ]]);
+        $sessionExpiredStatus = $this->invokeNonPublic($controller, 'ctripProfileProbeStatusCode', [[
+            'message' => 'session_expired',
+        ], [
+            'ok' => false,
+            'status' => 'session_expired',
+        ]]);
+        $loginTaskAntiBot = $this->invokeNonPublic($command, 'profileLoginFailureStatusCode', [
+            'human verification required',
+            ['ok' => false, 'status' => 'human_verification_required'],
+            null,
+        ]);
+
+        self::assertSame('anti_bot', $antiBotStatus);
+        self::assertSame('session_expired', $sessionExpiredStatus);
+        self::assertSame('anti_bot', $loginTaskAntiBot);
+    }
+
+    public function testPlatformProfileStatusDetectsAntiBotFromSourceLog(): void
+    {
+        $controller = $this->controller();
+
+        $status = $this->invokeNonPublic($controller, 'resolvePlatformProfileStatusCode', [
+            'store-7',
+            true,
+            [
+                'status' => 'failed',
+                'last_sync_status' => 'failed',
+                'last_error' => 'captcha required by platform risk control',
+            ],
+            [],
+            [],
+        ]);
+
+        self::assertSame('anti_bot', $status);
     }
 
     public function testBrowserProfileBindingDoesNotPersistRequestCookiesAsDataSourceSecret(): void
@@ -5168,6 +5232,8 @@ final class OnlineDataTest extends TestCase
                 'page_views' => 180,
                 'click_count' => 120,
                 'unique_visitors' => 80,
+                'mt_pay_orders' => 12,
+                'mt_pay_rooms' => 9,
                 'conversion_rate' => '12.5%',
                 'search_rank' => 3,
                 'keyword_rank_data' => ['hotel' => 2],
@@ -5176,6 +5242,9 @@ final class OnlineDataTest extends TestCase
                 'date' => '2026-05-18',
                 'exposure_count' => 500,
                 'click_count' => 50,
+                'cost' => 88.5,
+                'orderAmount' => 300,
+                'orderNum' => 2,
                 'conversion_rate' => 0.1,
                 'keyword_rank_data' => ['cureShops' => true],
             ]],
@@ -5198,7 +5267,11 @@ final class OnlineDataTest extends TestCase
         self::assertSame(180, $rows[0]['detail_exposure']);
         self::assertSame(12.5, $rows[0]['flow_rate']);
         self::assertSame(120, $rows[0]['order_filling_num']);
+        self::assertSame(9, $rows[0]['quantity']);
+        self::assertSame(12, $rows[0]['book_order_num']);
+        self::assertSame(12, $rows[0]['order_submit_num']);
         self::assertStringContainsString('"unique_visitors":80', $rows[0]['raw_data']);
+        self::assertStringContainsString('"mt_pay_orders":12', $rows[0]['raw_data']);
 
         self::assertSame('review', $rows[1]['data_type']);
         self::assertSame('2026-05-18', $rows[1]['data_date']);
@@ -5210,7 +5283,12 @@ final class OnlineDataTest extends TestCase
         self::assertSame('advertising', $rows[2]['data_type']);
         self::assertSame(500, $rows[2]['list_exposure']);
         self::assertSame(50, $rows[2]['detail_exposure']);
+        self::assertSame(88.5, $rows[2]['amount']);
+        self::assertSame(2, $rows[2]['quantity']);
+        self::assertSame(2, $rows[2]['book_order_num']);
+        self::assertSame(2, $rows[2]['order_submit_num']);
         self::assertSame(10.0, $rows[2]['flow_rate']);
+        self::assertStringContainsString('"order_amount":300', (string)$rows[2]['raw_data']);
 
         self::assertSame('order', $rows[3]['data_type']);
         self::assertSame(688.0, $rows[3]['amount']);

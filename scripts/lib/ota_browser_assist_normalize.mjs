@@ -5,6 +5,7 @@ import { attachOtaCaptureEvidence } from './ota_capture_standard.mjs';
 const CONTRACT_VERSION = 'ota_browser_assist_collection_contract.v1';
 const COLLECTION_MODE = 'browser_assist_dom';
 const KNOWN_SECTION_KEYS = ['ctrip', 'ctripStats', 'meituan', 'meituanStats', 'meituanHook', 'meituanPeerHook', 'platformIdentity'];
+const CTRIP_FAMILY_CHANNELS = ['ctrip', 'qunar', 'tongcheng', 'zhixing'];
 
 const PLATFORM_LABELS = {
   ctrip: 'Ctrip',
@@ -199,7 +200,7 @@ function normalizeCtripStatsSection(section, context, warnings) {
   }
   const metricsRoot = section.metrics && typeof section.metrics === 'object' ? section.metrics : {};
   const rows = [];
-  for (const channel of ['ctrip', 'qunar']) {
+  for (const channel of CTRIP_FAMILY_CHANNELS) {
     const channelMetrics = metricsRoot[channel] && typeof metricsRoot[channel] === 'object' ? metricsRoot[channel] : null;
     if (!channelMetrics) {
       continue;

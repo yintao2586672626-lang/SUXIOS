@@ -285,7 +285,7 @@ final class OtaBrowserAssistImportService
         }
         $metricsRoot = isset($section['metrics']) && is_array($section['metrics']) ? $section['metrics'] : [];
         $rows = [];
-        foreach (['ctrip', 'qunar'] as $channel) {
+        foreach (CtripCollectorWorkflowService::ctripFamilyChannels() as $channel) {
             $metrics = isset($metricsRoot[$channel]) && is_array($metricsRoot[$channel]) ? $metricsRoot[$channel] : null;
             if ($metrics === null) {
                 continue;

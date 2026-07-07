@@ -32,6 +32,55 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const meituanDisplayRowKey = (row, index) => String(row?.poiId || row?.hotelName || index);
 
+    const buildMeituanTopSummaryFallbackRows = (rankedRows = [], limit = 3) => {
+        if (!Array.isArray(rankedRows) || rankedRows.length === 0) {
+            return [];
+        }
+        return rankedRows.slice(0, limit).map(row => ({
+            poiId: row?.poiId || '',
+            hotelName: row?.hotelName || '',
+            positionText: row?.circlePositionText || '',
+            rankTrendText: row?.rankTrendText || '',
+            platformTagText: row?.platformTagText || '',
+            roomNights: row?.roomNights || 0,
+            sales: row?.sales || 0,
+            gapToNextText: row?.gapToNextText || '',
+        }));
+    };
+
+    const findMeituanDynamicSelfRankRow = (rankedRows = []) => {
+        if (!Array.isArray(rankedRows)) {
+            return null;
+        }
+        return rankedRows.find(row => row?.isSelf) || null;
+    };
+
+    const buildMeituanDisplayedHotelsList = (rankedRows = [], sortField = 'roomNights', sortOrder = 'desc') => {
+        const sourceRows = Array.isArray(rankedRows) ? rankedRows : [];
+        const ascending = String(sortOrder || '').toLowerCase() === 'asc';
+        return [...sourceRows].sort((a, b) => {
+            const aVal = meituanSortMetricValue(a, sortField);
+            const bVal = meituanSortMetricValue(b, sortField);
+            return ascending ? aVal - bVal : bVal - aVal;
+        });
+    };
+
+    const resolveMeituanSortState = (currentField = 'roomNights', currentOrder = 'desc', nextField = '') => {
+        const field = String(nextField || '').trim() || 'roomNights';
+        if (String(currentField || '') === field) {
+            return {
+                field,
+                order: String(currentOrder || '').toLowerCase() === 'asc' ? 'desc' : 'asc',
+            };
+        }
+        return { field, order: 'desc' };
+    };
+
+    const resolveMeituanTablePage = (page = 1, totalPages = 1) => Math.min(
+        Math.max(1, Number(page) || 1),
+        Number(totalPages) || 1,
+    );
+
     const getOnlineDataMetricNumber = (item, keys) => {
         for (const key of keys) {
             const value = item?.[key];
@@ -222,9 +271,74 @@ window.SUXI_MEITUAN_STATIC = (() => {
         poiId: '',
         poiName: '',
         adsUrl: defaultMeituanAdsUrl(),
-        captureSections: ['traffic'],
+        captureSections: ['traffic', 'orders', 'reviews', 'ads'],
+        dataPeriod: 'historical_daily',
         payloadJson: '',
     });
+
+    const getMeituanBrowserCapturePresets = () => ([
+        {
+            key: 'realtime',
+            label: '实时数据',
+            description: '曝光、访问、下单转化的实时快照',
+            sections: ['realtime'],
+            dataPeriod: 'realtime_snapshot',
+            icon: 'fas fa-bolt',
+            className: 'border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100',
+        },
+        {
+            key: 'reviews',
+            label: '评论聚合',
+            description: '评分、点评量、差评量；不保存评论正文',
+            sections: ['reviews'],
+            dataPeriod: 'historical_daily',
+            icon: 'fas fa-comment-dots',
+            className: 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100',
+        },
+        {
+            key: 'full',
+            label: '完整采集',
+            description: '流量、订单、评论聚合、推广通广告',
+            sections: ['full'],
+            dataPeriod: 'historical_daily',
+            requiresAdsUrl: true,
+            icon: 'fas fa-layer-group',
+            className: 'border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100',
+        },
+        {
+            key: 'ads',
+            label: '广告入口',
+            description: '推广通曝光、点击、消耗、成交',
+            sections: ['ads'],
+            dataPeriod: 'historical_daily',
+            requiresAdsUrl: true,
+            icon: 'fas fa-bullhorn',
+            className: 'border-red-200 bg-red-50 text-red-800 hover:bg-red-100',
+        },
+    ]);
+
+    const createEmptyMeituanBusinessSummary = () => ({ status: 'empty', metrics: {}, cards: [] });
+
+    const buildMeituanRankingFetchResetState = () => ({
+        formPatch: {
+            partnerId: '',
+            poiId: '',
+            cookies: '',
+            auth_data: {},
+            hotelRoomCount: '',
+            competitorRoomCount: '',
+        },
+        fetchSuccess: false,
+        hotelsList: [],
+        businessSummary: createEmptyMeituanBusinessSummary(),
+        onlineDataResult: null,
+        savedCount: 0,
+        dataFetchTime: '',
+    });
+
+    const isMeituanPendingResult = (result = {}) => ['fetching', 'submitting'].includes(String(result?.status || '').toLowerCase());
+
+    const isMeituanBackgroundResult = (result = {}) => ['accepted', 'running', 'queued'].includes(String(result?.status || '').toLowerCase());
 
     const getMeituanBrowserCaptureSupplementModules = () => ([
         { key: 'peer_rank', label: '同行排名', endpoint: 'peer/rank/data/detail' },
@@ -267,6 +381,26 @@ window.SUXI_MEITUAN_STATIC = (() => {
             result,
         ];
         return [
+            {
+                key: 'traffic',
+                label: '实时流量',
+                count: firstMeituanBrowserCaptureCount(sources, ['traffic', 'traffic_count', 'trafficCount']),
+            },
+            {
+                key: 'orders',
+                label: '订单数据',
+                count: firstMeituanBrowserCaptureCount(sources, ['orders', 'order_count', 'orders_count', 'orderCount', 'ordersCount']),
+            },
+            {
+                key: 'reviews',
+                label: '评论聚合',
+                count: firstMeituanBrowserCaptureCount(sources, ['reviews', 'review_count', 'reviews_count', 'reviewCount', 'reviewsCount', 'comment_count', 'commentCount']),
+            },
+            {
+                key: 'ads',
+                label: '推广通广告',
+                count: firstMeituanBrowserCaptureCount(sources, ['ads', 'ad_count', 'ads_count', 'adCount', 'adsCount']),
+            },
             {
                 key: 'peer_rank',
                 label: '同行排名',
@@ -329,11 +463,26 @@ window.SUXI_MEITUAN_STATIC = (() => {
             advertising: 'ads',
             orders: 'orders',
             order: 'orders',
+            full: 'full',
+            complete: 'full',
+            all: 'full',
+            default: 'default',
+            core: 'default',
+            realtime: 'traffic',
+            realtime_snapshot: 'traffic',
         };
         const raw = Array.isArray(sections) ? sections : String(sections || '').split(/[,\s]+/);
-        const normalized = raw
-            .map(item => aliases[String(item || '').trim().toLowerCase()] || '')
-            .filter(Boolean);
+        const normalized = [];
+        raw.forEach(item => {
+            const value = aliases[String(item || '').trim().toLowerCase()] || '';
+            if (value === 'full') {
+                normalized.push('traffic', 'orders', 'reviews', 'ads');
+            } else if (value === 'default') {
+                normalized.push('traffic', 'orders');
+            } else if (value) {
+                normalized.push(value);
+            }
+        });
         return Array.from(new Set(normalized));
     };
 
@@ -347,6 +496,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
     } = {}) => {
         const loginOnly = Boolean(options.loginOnly);
         const bindDataSource = options.bindDataSource !== false;
+        const dataPeriod = String(options.dataPeriod || options.data_period || form.dataPeriod || form.data_period || '').trim();
         const storeId = String(form.storeId || form.poiId || fallbackPoiId || '').trim();
         const sections = normalizeMeituanCaptureSections(form.captureSections);
         if (!systemHotelId) {
@@ -373,6 +523,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 sections,
                 login_only: loginOnly,
                 bind_data_source: bindDataSource,
+                ...(dataPeriod ? { data_period: dataPeriod } : {}),
             },
         };
     };
@@ -698,6 +849,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             credentialStatus: response.data?.credential_status || '',
             businessCode: response.data?.business_code ?? null,
             businessMessage: response.data?.business_message || '',
+            message: response.message || response.data?.business_message || '获取失败',
             error: response.message || response.data?.business_message || '获取失败',
         };
     };
@@ -822,6 +974,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
             return false;
         }
         return true;
+    };
+
+    const isMeituanConfigBoundToFormHotel = (form = {}, config = {}) => {
+        if (!form || !config) return false;
+        const formHotelId = String(form.hotelId || '').trim();
+        const configHotelId = firstMeituanConfigText(config.hotel_id, config.system_hotel_id);
+        return !!formHotelId && (!configHotelId || formHotelId === configHotelId);
     };
 
     const runMeituanManualTabSwitch = async ({
@@ -1561,6 +1720,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const selectedMeituanConfig = form.hotelId
             ? await ensureMeituanConfigSecret(getSelectedConfig())
             : null;
+        if (selectedMeituanConfig && !isMeituanConfigBoundToFormHotel(form, selectedMeituanConfig)) {
+            notify('当前选择门店与美团配置归属不一致，已阻止跨门店获取数据', 'error');
+            return { status: 'config_hotel_mismatch', form, selectedConfig: selectedMeituanConfig };
+        }
         if (!isMeituanRankingFormAlignedWithConfig(form, selectedMeituanConfig)) {
             if (selectedMeituanConfig) {
                 await applyMeituanHotelConfig(false, {
@@ -1570,6 +1733,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 });
                 form = getForm() || form;
             }
+        }
+        if (selectedMeituanConfig && !isMeituanRankingFormAlignedWithConfig(form, selectedMeituanConfig)) {
+            notify('当前门店美团配置未同步完成，已阻止本次获取，避免拿到其他门店数据', 'warning');
+            return { status: 'selected_config_not_applied', form, selectedConfig: selectedMeituanConfig };
         }
         const meituanCookies = String(form.cookies || '').trim();
         const partnerId = String(form.partnerId || '').trim();
@@ -1652,6 +1819,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     if (res.code === 200 && !accepted) {
                         totalSavedCount += res.data.saved_count || 0;
                     }
+                    setOnlineDataResult([...results]);
                 } catch (error) {
                     results[index] = {
                         ...buildMeituanBatchFetchPendingEntry(task),
@@ -1659,6 +1827,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                         message: error.message || '请求异常',
                         error: error.message || '请求异常',
                     };
+                    setOnlineDataResult([...results]);
                 }
                 scheduleResultUpdate();
             }));
@@ -1867,6 +2036,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
         meituanSortMetricValue,
         formatMeituanSortGapValue,
         meituanDisplayRowKey,
+        buildMeituanTopSummaryFallbackRows,
+        findMeituanDynamicSelfRankRow,
+        buildMeituanDisplayedHotelsList,
+        resolveMeituanSortState,
+        resolveMeituanTablePage,
         getOnlineDataMetricNumber,
         getMeituanExposureMetric,
         getMeituanClickMetric,
@@ -1883,6 +2057,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
         createMeituanOrderForm,
         createMeituanAdsForm,
         createMeituanBrowserCaptureForm,
+        createEmptyMeituanBusinessSummary,
+        buildMeituanRankingFetchResetState,
+        isMeituanPendingResult,
+        isMeituanBackgroundResult,
+        getMeituanBrowserCapturePresets,
         getMeituanBrowserCaptureSupplementModules,
         buildMeituanBrowserCaptureSupplementCounts,
         normalizeMeituanCaptureSections,

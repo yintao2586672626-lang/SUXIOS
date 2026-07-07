@@ -130,7 +130,7 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(ctripFetchFlow, /const selectedConfig = selectedCtripHotelId\s*\?\s*await ensureCtripConfigSecret\(getActiveCtripConfig\(\)\)\s*:\s*null;/);
   assert.match(ctripFetchFlow, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig/);
   assert.doesNotMatch(fetchCtripData, /scheduleOnlineHistoryRefresh\(1400\)/);
-  assert.match(html, /Cookie 获取；入库归属由返回酒店ID自动匹配/);
+  assert.match(html, /已保存 Cookie\/API 辅助；入库归属由返回酒店ID自动匹配/);
 });
 
 test('Ctrip config list actions route to visible destinations', () => {
@@ -212,6 +212,118 @@ test('Meituan ranking uses selected hotel config without exposing temporary fiel
   assert.match(meituanFetchFlow, /Cookie\/API/);
   assert.match(meituanFetchFlow, /const selectedMeituanConfig = form\.hotelId\s*\?\s*await ensureMeituanConfigSecret\(getSelectedConfig\(\)\)\s*:\s*null;/);
   assert.match(fetchMeituanData, /refreshOnlineHistory:\s*\(\)\s*=>\s*schedulePostFetchRefresh\('online-history',[\s\S]*,\s*1400\)/);
+});
+
+test('Meituan ranking reset state is owned by the static helper', () => {
+  const resetMeituanRankingFetchState = sliceFrom(
+    'const resetMeituanRankingFetchState = () => {',
+    '\n\n            watch(() => meituanForm.value.hotelId'
+  );
+  const meituanTopSummaryRows = sliceFrom(
+    'const meituanTopSummaryRows = computed(() => {',
+    '\n            const meituanFetchSuccess'
+  );
+  const sortMeituanTable = sliceFrom(
+    'const sortMeituanTable = (field) => {',
+    '\n            const meituanTablePage'
+  );
+  const meituanRankDisplayComputeds = sliceFrom(
+    'const meituanDynamicSelfRankRow = computed(() =>',
+    '\n            // 排序函数'
+  );
+  assert.match(meituanStatic, /const buildMeituanTopSummaryFallbackRows = \(rankedRows = \[\], limit = 3\) => \{/);
+  assert.match(meituanStatic, /const findMeituanDynamicSelfRankRow = \(rankedRows = \[\]\) => \{/);
+  assert.match(meituanStatic, /const buildMeituanDisplayedHotelsList = \(rankedRows = \[\], sortField = 'roomNights', sortOrder = 'desc'\) => \{/);
+  assert.match(meituanStatic, /const resolveMeituanSortState = \(currentField = 'roomNights', currentOrder = 'desc', nextField = ''\) => \{/);
+  assert.match(meituanStatic, /buildMeituanTopSummaryFallbackRows,/);
+  assert.match(meituanStatic, /findMeituanDynamicSelfRankRow,/);
+  assert.match(meituanStatic, /buildMeituanDisplayedHotelsList,/);
+  assert.match(meituanStatic, /resolveMeituanSortState,/);
+  assert.match(html, /requireMeituanStatic\('buildMeituanTopSummaryFallbackRows'\)/);
+  assert.match(html, /requireMeituanStatic\('findMeituanDynamicSelfRankRow'\)/);
+  assert.match(html, /requireMeituanStatic\('buildMeituanDisplayedHotelsList'\)/);
+  assert.match(html, /requireMeituanStatic\('resolveMeituanSortState'\)/);
+  assert.match(meituanTopSummaryRows, /return buildMeituanTopSummaryFallbackRows\(meituanRankedHotelsList\.value\);/);
+  assert.doesNotMatch(meituanTopSummaryRows, /rankedRows\.slice\(0, 3\)\.map/);
+  assert.match(meituanRankDisplayComputeds, /computed\(\(\) => findMeituanDynamicSelfRankRow\(meituanRankedHotelsList\.value\)\)/);
+  assert.match(meituanRankDisplayComputeds, /computed\(\(\) => buildMeituanDisplayedHotelsList\(meituanRankedHotelsList\.value, meituanSortField\.value, meituanSortOrder\.value\)\)/);
+  assert.doesNotMatch(meituanRankDisplayComputeds, /meituanSortMetricValue/);
+  assert.match(sortMeituanTable, /const nextSort = resolveMeituanSortState\(meituanSortField\.value, meituanSortOrder\.value, field\);/);
+  assert.match(sortMeituanTable, /meituanSortField\.value = nextSort\.field;/);
+  assert.match(sortMeituanTable, /meituanSortOrder\.value = nextSort\.order;/);
+  assert.doesNotMatch(sortMeituanTable, /meituanSortOrder\.value === 'asc' \? 'desc' : 'asc'/);
+  assert.doesNotMatch(html, /const meituanSortMetricValue = requireMeituanStatic\('meituanSortMetricValue'\);/);
+  assert.match(meituanStatic, /const createEmptyMeituanBusinessSummary = \(\) => \(\{ status: 'empty', metrics: \{\}, cards: \[\] \}\);/);
+  assert.match(meituanStatic, /const buildMeituanRankingFetchResetState = \(\) => \(\{/);
+  assert.match(meituanStatic, /buildMeituanRankingFetchResetState,/);
+  assert.match(meituanStatic, /const isMeituanPendingResult = \(result = \{\}\) =>/);
+  assert.match(meituanStatic, /const isMeituanBackgroundResult = \(result = \{\}\) =>/);
+  assert.match(meituanStatic, /isMeituanPendingResult,/);
+  assert.match(meituanStatic, /isMeituanBackgroundResult,/);
+  assert.match(html, /requireMeituanStatic\('createEmptyMeituanBusinessSummary'\)/);
+  assert.match(html, /requireMeituanStatic\('buildMeituanRankingFetchResetState'\)/);
+  assert.match(html, /requireMeituanStatic\('isMeituanPendingResult'\)/);
+  assert.match(html, /requireMeituanStatic\('isMeituanBackgroundResult'\)/);
+  assert.match(resetMeituanRankingFetchState, /Object\.assign\(meituanForm\.value, resetState\.formPatch\);/);
+  assert.doesNotMatch(resetMeituanRankingFetchState, /meituanForm\.value\.partnerId = '';/);
+  assert.doesNotMatch(html, /const isMeituanPendingResult = \(result = \{\}\) =>/);
+  assert.doesNotMatch(html, /const isMeituanBackgroundResult = \(result = \{\}\) =>/);
+
+  const resetState = meituanStaticApi.buildMeituanRankingFetchResetState();
+  const nextResetState = meituanStaticApi.buildMeituanRankingFetchResetState();
+  const normalizedFormPatch = JSON.parse(JSON.stringify(resetState.formPatch));
+  const normalizedBusinessSummary = JSON.parse(JSON.stringify(resetState.businessSummary));
+  assert.deepEqual(normalizedFormPatch, {
+    partnerId: '',
+    poiId: '',
+    cookies: '',
+    auth_data: {},
+    hotelRoomCount: '',
+    competitorRoomCount: '',
+  });
+  assert.deepEqual(normalizedBusinessSummary, { status: 'empty', metrics: {}, cards: [] });
+  assert.equal(resetState.fetchSuccess, false);
+  assert.equal(resetState.onlineDataResult, null);
+  assert.equal(resetState.savedCount, 0);
+  assert.equal(resetState.dataFetchTime, '');
+  assert.notEqual(resetState.formPatch.auth_data, nextResetState.formPatch.auth_data);
+  assert.notEqual(resetState.businessSummary, nextResetState.businessSummary);
+  assert.equal(meituanStaticApi.isMeituanPendingResult({ status: 'fetching' }), true);
+  assert.equal(meituanStaticApi.isMeituanPendingResult({ status: 'submitting' }), true);
+  assert.equal(meituanStaticApi.isMeituanPendingResult({ status: 'running' }), false);
+  assert.equal(meituanStaticApi.isMeituanBackgroundResult({ status: 'accepted' }), true);
+  assert.equal(meituanStaticApi.isMeituanBackgroundResult({ status: 'running' }), true);
+  assert.equal(meituanStaticApi.isMeituanBackgroundResult({ status: 'fetching' }), false);
+  const fallbackRows = meituanStaticApi.buildMeituanTopSummaryFallbackRows([
+    { poiId: 'p1', hotelName: 'A', circlePositionText: '第1', rankTrendText: '持平', platformTagText: 'VIP', roomNights: 3, sales: 120, gapToNextText: '领先' },
+    { poiId: 'p2', hotelName: 'B', circlePositionText: '第2', roomNights: 0, sales: 0 },
+    { poiId: 'p3', hotelName: 'C' },
+    { poiId: 'p4', hotelName: 'D' },
+  ], 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(fallbackRows)), [
+    { poiId: 'p1', hotelName: 'A', positionText: '第1', rankTrendText: '持平', platformTagText: 'VIP', roomNights: 3, sales: 120, gapToNextText: '领先' },
+    { poiId: 'p2', hotelName: 'B', positionText: '第2', rankTrendText: '', platformTagText: '', roomNights: 0, sales: 0, gapToNextText: '' },
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.buildMeituanTopSummaryFallbackRows(null))), []);
+  const rankRows = [
+    { hotelName: 'Self', isSelf: true, roomNights: 3, sales: 200 },
+    { hotelName: 'Low', roomNights: 1, sales: 100 },
+    { hotelName: 'High', roomNights: 8, sales: 300 },
+  ];
+  assert.equal(meituanStaticApi.findMeituanDynamicSelfRankRow(rankRows).hotelName, 'Self');
+  assert.equal(meituanStaticApi.findMeituanDynamicSelfRankRow(null), null);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(meituanStaticApi.buildMeituanDisplayedHotelsList(rankRows, 'roomNights', 'asc').map(row => row.hotelName))),
+    ['Low', 'Self', 'High']
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(meituanStaticApi.buildMeituanDisplayedHotelsList(rankRows, 'roomNights', 'desc').map(row => row.hotelName))),
+    ['High', 'Self', 'Low']
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.resolveMeituanSortState('roomNights', 'desc', 'roomNights'))), { field: 'roomNights', order: 'asc' });
+  assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.resolveMeituanSortState('roomNights', 'asc', 'roomNights'))), { field: 'roomNights', order: 'desc' });
+  assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.resolveMeituanSortState('roomNights', 'asc', 'sales'))), { field: 'sales', order: 'desc' });
+  assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.resolveMeituanSortState('', '', ''))), { field: 'roomNights', order: 'desc' });
 });
 
 test('Meituan API login failures stay explicit across backend and manual fetch response', () => {

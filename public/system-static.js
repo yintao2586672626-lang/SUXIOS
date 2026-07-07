@@ -1182,6 +1182,9 @@ window.SUXI_SYSTEM_STATIC = (() => {
         };
         const filterTree = (list = []) => (Array.isArray(list) ? list : [])
             .map((item) => {
+                if (!isItemVisible(item)) {
+                    return null;
+                }
                 const visibleChildren = filterTree(item.children || []);
                 if (visibleChildren.length) {
                     return { ...item, children: visibleChildren };

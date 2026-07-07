@@ -468,6 +468,47 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testBrowserProfileReviewRowsStayAggregateWhenSourceIsBusiness(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [
+                [
+                    'data_type' => 'review',
+                    'hotel_id' => 'mt-001',
+                    'data_date' => '2026-05-28',
+                    'score' => '4.2',
+                    'comment_count' => 8,
+                    'commentId' => 'COMMENT-SECRET-001',
+                    'orderId' => 'ORDER-SECRET-001',
+                    'userName' => 'Private User',
+                    'roomType' => 'Private Room',
+                    'content' => 'This Meituan review text must be redacted.',
+                    'replyContent' => 'This reply text must be redacted.',
+                ],
+            ],
+        ], [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'ingestion_method' => 'browser_profile',
+        ], 34);
+
+        self::assertCount(1, $rows);
+        self::assertSame('review', $rows[0]['data_type']);
+        self::assertSame(4.2, $rows[0]['comment_score']);
+        self::assertSame(8, $rows[0]['quantity']);
+        self::assertStringNotContainsString('COMMENT-SECRET-001', $rows[0]['raw_data']);
+        self::assertStringNotContainsString('ORDER-SECRET-001', $rows[0]['raw_data']);
+        self::assertStringNotContainsString('Private User', $rows[0]['raw_data']);
+        self::assertStringNotContainsString('Private Room', $rows[0]['raw_data']);
+        self::assertStringNotContainsString('This Meituan review text must be redacted.', $rows[0]['raw_data']);
+        self::assertStringNotContainsString('This reply text must be redacted.', $rows[0]['raw_data']);
+    }
+
     public function testReviewDetailStorageStillRequiresExplicitAuthorization(): void
     {
         $service = new PlatformDataSyncService();
@@ -487,6 +528,32 @@ final class PlatformDataSyncServiceTest extends TestCase
             'platform' => 'ctrip',
             'data_type' => 'review',
             'system_hotel_id' => 7,
+        ], 34);
+
+        self::assertSame([], $rows);
+    }
+
+    public function testBrowserProfileReviewDetailFlagRequiresAuthorizationForReviewRows(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'review_detail_collection' => true,
+            'rows' => [
+                [
+                    'data_type' => 'review',
+                    'hotel_id' => 'mt-001',
+                    'data_date' => '2026-05-28',
+                    'score' => '3.8',
+                    'content' => 'Detail text must not be stored.',
+                ],
+            ],
+        ], [
+            'id' => 78,
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'ingestion_method' => 'browser_profile',
         ], 34);
 
         self::assertSame([], $rows);
@@ -1756,6 +1823,105 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertContains('--data-date=2026-07-04', $capturedArgs);
             self::assertSame('2026-07-04', $result['payload']['data_source_capture']['data_date']);
             self::assertSame('2026-07-04', $result['payload']['rows'][0]['data_date']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterExpandsFullSectionsAndMapsRealtimeReviewRows(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+        $capturedArgs = [];
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', static function (array $args) use (&$capturedArgs): array {
+                $capturedArgs = $args;
+                $outputPath = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                        break;
+                    }
+                }
+                if ($outputPath === '') {
+                    return ['success' => false, 'message' => 'missing output path', 'stdout' => '', 'stderr' => ''];
+                }
+                file_put_contents($outputPath, json_encode([
+                    'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'capture_gate' => ['status' => 'pass'],
+                    'traffic' => [[
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'data_date' => '2026-07-08',
+                        'mt_exposure' => 1200,
+                        'mt_intention_uv' => 180,
+                        'mt_pay_orders' => 12,
+                        'mt_pay_rooms' => 9,
+                    ]],
+                    'ads' => [[
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'data_date' => '2026-07-08',
+                        'spend' => 88.5,
+                        'orderAmount' => 300,
+                        'orderNum' => 2,
+                    ]],
+                    'reviews' => [[
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'data_date' => '2026-07-08',
+                        'score' => 4.6,
+                        'comment_count' => 20,
+                    ]],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+
+            $source = $this->meituanBrowserProfileSource();
+            $source['config']['ads_url'] = 'https://ads.example.test/full';
+            $result = $adapter->fetch($source, [
+                'interactive_browser' => false,
+                'capture_sections' => 'full',
+                'data_period' => 'realtime_snapshot',
+                'snapshot_time' => '2026-07-08 13:15:00',
+                'data_date' => '2026-07-08',
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertContains('--sections=traffic,orders,ads,reviews', $capturedArgs);
+            self::assertContains('--ads-url=https://ads.example.test/full', $capturedArgs);
+            self::assertContains('--data-period=realtime_snapshot', $capturedArgs);
+            self::assertContains('--snapshot-time=2026-07-08 13:15:00', $capturedArgs);
+            self::assertSame(1, $result['payload']['sync_summary']['review_count']);
+            self::assertSame('realtime_snapshot', $result['payload']['data_period']);
+
+            $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload($result['payload'], $source, 89);
+            self::assertCount(3, $rows);
+
+            $trafficRow = array_values(array_filter($rows, static fn(array $row): bool => $row['data_type'] === 'traffic'))[0] ?? null;
+            $adRow = array_values(array_filter($rows, static fn(array $row): bool => $row['data_type'] === 'advertising'))[0] ?? null;
+            $reviewRow = array_values(array_filter($rows, static fn(array $row): bool => $row['data_type'] === 'review'))[0] ?? null;
+
+            self::assertIsArray($trafficRow);
+            self::assertSame(1200, $trafficRow['list_exposure']);
+            self::assertSame(180, $trafficRow['detail_exposure']);
+            self::assertSame(12, $trafficRow['order_submit_num']);
+            self::assertSame(9, $trafficRow['quantity']);
+            self::assertSame('realtime_snapshot', $trafficRow['data_period']);
+            $trafficRaw = json_decode((string)$trafficRow['raw_data'], true);
+            self::assertIsArray($trafficRaw);
+            $trafficFactsByKey = array_column($trafficRaw['field_facts'] ?? [], null, 'metric_key');
+            self::assertSame('online_daily_data.list_exposure', $trafficFactsByKey['mt_exposure']['storage_field'] ?? '');
+            self::assertSame('online_daily_data.order_submit_num', $trafficFactsByKey['mt_pay_orders']['storage_field'] ?? '');
+            self::assertSame('online_daily_data.quantity', $trafficFactsByKey['mt_pay_rooms']['storage_field'] ?? '');
+
+            self::assertIsArray($adRow);
+            self::assertSame(88.5, $adRow['amount']);
+            self::assertSame(2, $adRow['book_order_num']);
+            self::assertIsArray($reviewRow);
+            self::assertSame(4.6, $reviewRow['comment_score']);
+            self::assertSame(20, $reviewRow['quantity']);
         } finally {
             $this->removeDirectory($root);
         }

@@ -1368,6 +1368,9 @@ window.SUXI_CTRIP_STATIC = (() => {
                 const savedCount = data.saved_count || 0;
                 setSavedCount(savedCount);
                 setFetchSuccess(true);
+                if (data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap') {
+                    notify(data.qunar_visitor_quality?.message || '去哪儿访客为 0 表示本次返回不完整，其他返回字段已保留。', 'warning');
+                }
                 const currentFetchMeta = buildCtripFetchMeta({
                     hotelId: selectedCtripHotelId || '',
                     startDate,

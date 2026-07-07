@@ -1710,11 +1710,17 @@ trait AutoFetchConcern
         if ($this->platformProfileSourceHasPermissionError($source)) {
             return 'permission_denied';
         }
+        if ($this->platformProfileSourceHasAntiBotError($source)) {
+            return 'anti_bot';
+        }
+        if ($this->platformProfileSourceHasSessionExpiredError($source)) {
+            return 'session_expired';
+        }
         if ($this->platformProfileSourceHasLoginExpiredError($source)) {
             return 'login_expired';
         }
-        if (in_array((string)($cache['status_code'] ?? ''), ['login_expired', 'login_required'], true)) {
-            return 'login_expired';
+        if (in_array((string)($cache['status_code'] ?? ''), ['session_expired', 'login_expired', 'login_required'], true)) {
+            return (string)($cache['status_code'] ?? '') === 'session_expired' ? 'session_expired' : 'login_expired';
         }
         if (($cache['status_code'] ?? '') === 'logged_in' || !empty($cache['auth_status']['ok'])) {
             return 'logged_in';
@@ -1763,7 +1769,7 @@ trait AutoFetchConcern
             return false;
         }
 
-        if (in_array($syncStatus, ['login_expired', 'auth_failed'], true)) {
+        if (in_array($syncStatus, ['session_expired', 'login_expired', 'auth_failed'], true)) {
             return true;
         }
 
@@ -1788,6 +1794,32 @@ trait AutoFetchConcern
         return $message !== '' && preg_match('/permission_denied|no_permission|forbidden|http\s*403|status\s*403|access\s*denied|not\s*authorized|unauthorized_hotel|无权|无权限|权限不足/i', $message) === 1;
     }
 
+    private function platformProfileSourceHasAntiBotError(?array $source): bool
+    {
+        if (empty($source)) {
+            return false;
+        }
+
+        $syncStatus = strtolower(trim((string)($source['last_sync_status'] ?? $source['status'] ?? '')));
+        $message = strtolower(trim((string)($source['last_error'] ?? $source['message'] ?? '')));
+        if (in_array($syncStatus, ['anti_bot', 'manual_intervention_required'], true)) {
+            return true;
+        }
+        return $message !== '' && preg_match('/anti[_-]?bot|captcha|verification_code|sms_code|required verification|slider|human verification|yoda|risk control|platform limit|rate limit|验证码|短信|人机|滑块|风控/i', $message) === 1;
+    }
+
+    private function platformProfileSourceHasSessionExpiredError(?array $source): bool
+    {
+        if (empty($source)) {
+            return false;
+        }
+
+        $syncStatus = strtolower(trim((string)($source['last_sync_status'] ?? $source['status'] ?? '')));
+        $message = strtolower(trim((string)($source['last_error'] ?? $source['message'] ?? '')));
+        return $syncStatus === 'session_expired'
+            || ($message !== '' && preg_match('/session_expired|session expired|session invalid|expired session/i', $message) === 1);
+    }
+
     private function platformProfileSourceHasHotelMismatchError(?array $source): bool
     {
         if (empty($source)) {
@@ -1802,7 +1834,9 @@ trait AutoFetchConcern
     {
         return match ($statusCode) {
             'logged_in' => '登录态已验证',
+            'session_expired' => 'session_expired',
             'login_expired' => '登录失效',
+            'anti_bot' => 'anti_bot',
             'capture_failed' => '采集失败',
             'waiting_login' => '登录待验证',
             default => '未配置',
@@ -1814,7 +1848,9 @@ trait AutoFetchConcern
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => '登录态已验证；执行目标日同步并检查入库结果',
+            'session_expired' => 'session_expired',
             'login_expired' => '重新登录' . $name . '平台账号',
+            'anti_bot' => 'anti_bot',
             'capture_failed' => '查看最近同步日志后重新检测登录状态',
             'waiting_login' => '点击“登录' . $name . '”完成平台验证',
             default => '先配置酒店与平台账号/Profile 绑定',
@@ -1826,7 +1862,9 @@ trait AutoFetchConcern
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => ['run_profile_capture', '同步并检查入库', 'platform-auto'],
+            'session_expired' => ['login_platform_profile', 'session_expired', 'profile-login'],
             'login_expired' => ['login_platform_profile', '重新登录' . $name, 'profile-login'],
+            'anti_bot' => ['login_platform_profile', 'anti_bot', 'profile-login'],
             'capture_failed' => ['open_sync_logs', '查看日志并检测登录', 'sync-logs'],
             'waiting_login' => ['login_platform_profile', '登录' . $name, 'profile-login'],
             default => ['configure_platform_profile', '配置账号/Profile', 'platform-sources'],

@@ -1,18 +1,19 @@
 # 携程采集结果审计
 
-- 生成时间：2026-05-31T08:04:12.000Z
+- 生成时间：2026-07-07T19:09:01.756Z
 - 输入文件数：1
-- 已归档接口响应数：0
-- 已抽取字段事实数：0
-- 可入库标准行数：0
-- 正式接口覆盖：0/34
-- 字段覆盖：0/57
-- 登录状态：login_required
-- 未归档接口候选数：0
-- 页面交互触发：0/0
-- 页面交互未触发/异常：0/0
-- P3证据草稿数：0
-- P3完整证据数：0
+- 已归档接口响应数：10
+- 已抽取字段事实数：96
+- 可入库标准行数：14
+- 正式接口覆盖：2/2
+- 字段覆盖：8/20
+- 不适用模块：-
+- 登录状态：ok_or_unverified
+- 未归档接口候选数：1
+- 页面交互触发：1/3
+- 页面交互未触发/异常：2/0
+- P3证据草稿数：1
+- P3完整证据数：1
 
 ## 已归档模块覆盖
 
@@ -21,93 +22,47 @@
 
 ## capture_gap_report
 
-- Status: blocked_auth
-- Blockers: auth_session, response_count, standard_rows
-- Missing formal endpoints: 34
-- P3 candidate sections: -
+- Status: needs_evidence
+- Blockers: -
+- Not applicable sections: -
+- Missing formal endpoints: 0
+- P3 candidate sections: orders_detail
 
 | Action | Section | Endpoint/Field | Reason |
 |---|---|---|---|
-| login_and_rerun_capture | - | - | login_required |
-| capture_business_xhr | - | - | response_count_zero |
-| verify_standard_row_mapping | - | - | standard_row_count_zero |
-| capture_missing_formal_endpoint | business_overview | business_capacity | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | business_overview | business_flow_compete | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | business_overview | business_flow_transform | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | business_overview | business_hotel_seq | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | business_overview | business_market_overview | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | business_overview | business_realtime | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | business_overview | business_service_quantity | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | business_overview | business_visitor_title | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | business_overview | hotel_advice | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | business_overview | platform_notifications | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | business_overview | platform_resource_popups | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | business_overview | weekly_report | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | homepage | homepage_realtime | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | room_type | room_competing_hotels | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | room_type | room_competitive_market | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | room_type | room_type_info | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | room_type | room_venderbility | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | sales_report | sales_market_detail | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | sales_report | sales_market_room_tensity | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | sales_report | sales_min_price | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | sales_report | sales_occupied_room_trend | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | sales_report | sales_order_trend | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | sales_report | sales_tensities | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | sales_report | sales_tensity_overview | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | traffic_report | traffic_city_keywords | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | traffic_report | traffic_comment_score_summary | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | traffic_report | traffic_flow_source | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | traffic_report | traffic_flow_transform | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | traffic_report | traffic_hotel_min_price | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | traffic_report | traffic_order_overview | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | traffic_report | traffic_order_trend | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | traffic_report | traffic_picture_quality | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | traffic_report | traffic_scan_flow | endpoint_coverage_missing |
-| capture_missing_formal_endpoint | traffic_report | traffic_search_details | endpoint_coverage_missing |
-| capture_missing_fields | business_overview | advice_count, advice_text, avg_price, base_score, booking_days, comment_score_summary, competitor_average, config_name, config_value, conversion_rate, deduct_score, detail_visitor, diagnosis_level, diagnosis_score, flow_rate, hotel_collect, im_score, keyword, list_exposure, notice_text, notice_title, occupancy_rate, order_amount, order_count, order_page_visitor, order_submit_user, price_band, psi_score, rank, reply_rate, reward_score, room_nights, seq_rank, source_name, stay_days, strategy, target_url, tensity, user_age, user_sex | field_coverage_missing |
-| capture_missing_fields | homepage | avg_price, base_score, comment_score_summary, competitor_average, conversion_rate, deduct_score, detail_visitor, flow_rate, hotel_collect, im_score, keyword, list_exposure, loss_order_count, occupancy_rate, order_amount, order_count, order_page_visitor, order_submit_user, psi_score, rank, reply_rate, reward_score, room_nights, source_name, target_url, tensity, visitor_count | field_coverage_missing |
-| capture_missing_fields | room_type | available_room, avg_price, cancel_rate, competitor_average, competitor_hotel_name, conversion_rate, distance, occupancy_rate, order_amount, order_count, rank, room_nights, room_type_id, room_type_name, sale_status, star_level, suggest_action, tensity, total_room, zone_name | field_coverage_missing |
-| capture_missing_fields | sales_report | avg_price, competitor_average, conversion_rate, min_price, min_price_rank, occupancy_rate, order_amount, order_count, rank, room_nights, tensity | field_coverage_missing |
-| capture_missing_fields | traffic_report | avg_price, base_score, comment_score_summary, competitor_average, conversion_rate, deduct_score, detail_visitor, flow_rate, hotel_collect, im_score, keyword, list_exposure, min_price, min_price_rank, occupancy_rate, order_amount, order_count, order_page_visitor, order_submit_user, psi_score, rank, reply_rate, reward_score, room_nights, source_name, tensity, visitor_count | field_coverage_missing |
+| capture_missing_fields | comment_review | comment_date, comment_good_rate, comment_response_rate, comment_store_name, comment_unreply_count, review_cleanliness_score, review_environment_score, review_facility_score, review_photo_count, review_photo_rate, review_service_score, target_url | field_coverage_missing |
+| collect_p3_devtools_evidence | orders_detail | - | p3_candidate_needs_evidence |
+| comment_review | 10 | 96 | 14 | comment_hotel_rating, comment_review_aggregate | bad_review_count, comment_channel, comment_channel+comment_count+ctrip_comment_count, comment_channel+comment_count+elong_comment_count, comment_channel+comment_count+qunar_comment_count, comment_channel+comment_count+zx_comment_count, comment_count, comment_count+bad_review_count, comment_score, ctrip_comment_count, elong_comment_count, qunar_comment_count, zx_comment_count |
 
 ## 登录状态
 
-- 状态：login_required
-- 登录页数量：1
-- 登录页：https://ebooking.ctrip.com/login/index?targetPath=%2Fdatacenter%2Finland%2Fbusinessreport%2Foutline%3FmicroJump%3Dtrue
+- 状态：ok_or_unverified
+- 登录页数量：0
 
 ## 正式接口覆盖
 
 | 模块 | 预期接口 | 已命中 | 缺失 | 缺失接口 |
 |---|---:|---:|---:|---|
-| business_overview | 12 | 0 | 12 | business_capacity, business_flow_compete, business_flow_transform, business_hotel_seq, business_market_overview, business_realtime, business_service_quantity, business_visitor_title, hotel_advice, platform_notifications, platform_resource_popups, weekly_report |
-| homepage | 1 | 0 | 1 | homepage_realtime |
-| room_type | 4 | 0 | 4 | room_competing_hotels, room_competitive_market, room_type_info, room_venderbility |
-| sales_report | 7 | 0 | 7 | sales_market_detail, sales_market_room_tensity, sales_min_price, sales_occupied_room_trend, sales_order_trend, sales_tensities, sales_tensity_overview |
-| traffic_report | 10 | 0 | 10 | traffic_city_keywords, traffic_comment_score_summary, traffic_flow_source, traffic_flow_transform, traffic_hotel_min_price, traffic_order_overview, traffic_order_trend, traffic_picture_quality, traffic_scan_flow, traffic_search_details |
+| comment_review | 2 | 2 | 0 | - |
 
 ## 字段覆盖
 
 | 模块 | 预期字段 | 已命中 | 缺失 | 缺失字段 |
 |---|---:|---:|---:|---|
-| business_overview | 43 | 0 | 43 | advice_count, advice_text, avg_price, base_score, booking_days, comment_score_summary, competitor_average, config_name, config_value, conversion_rate, deduct_score, detail_visitor, diagnosis_level, diagnosis_score, flow_rate, hotel_collect, im_score, keyword, list_exposure, notice_text, notice_title, occupancy_rate, order_amount, order_count, order_page_visitor, order_submit_user, price_band, psi_score, rank, reply_rate |
-| homepage | 27 | 0 | 27 | avg_price, base_score, comment_score_summary, competitor_average, conversion_rate, deduct_score, detail_visitor, flow_rate, hotel_collect, im_score, keyword, list_exposure, loss_order_count, occupancy_rate, order_amount, order_count, order_page_visitor, order_submit_user, psi_score, rank, reply_rate, reward_score, room_nights, source_name, target_url, tensity, visitor_count |
-| room_type | 20 | 0 | 20 | available_room, avg_price, cancel_rate, competitor_average, competitor_hotel_name, conversion_rate, distance, occupancy_rate, order_amount, order_count, rank, room_nights, room_type_id, room_type_name, sale_status, star_level, suggest_action, tensity, total_room, zone_name |
-| sales_report | 11 | 0 | 11 | avg_price, competitor_average, conversion_rate, min_price, min_price_rank, occupancy_rate, order_amount, order_count, rank, room_nights, tensity |
-| traffic_report | 27 | 0 | 27 | avg_price, base_score, comment_score_summary, competitor_average, conversion_rate, deduct_score, detail_visitor, flow_rate, hotel_collect, im_score, keyword, list_exposure, min_price, min_price_rank, occupancy_rate, order_amount, order_count, order_page_visitor, order_submit_user, psi_score, rank, reply_rate, reward_score, room_nights, source_name, tensity, visitor_count |
+| comment_review | 20 | 8 | 12 | comment_date, comment_good_rate, comment_response_rate, comment_store_name, comment_unreply_count, review_cleanliness_score, review_environment_score, review_facility_score, review_photo_count, review_photo_rate, review_service_score, target_url |
 
 ## 页面交互触发覆盖
 
 | 模块 | 页面数 | 计划动作 | 已点击 | 未点击 | 异常 | 未触发动作 |
 |---|---:|---:|---:|---:|---:|---|
-| auth | 1 | 0 | 0 | 0 | 0 | - |
+| comment_review | 1 | 3 | 1 | 2 | 0 | 全部, 点评列表 |
 
 ## 未归档接口候选
 
 | 候选方向 | 数量 | 状态 | 需要补充 | 样例接口 |
 |---|---:|---|---|---|
-| orders_detail (订单明细) | 0 | needs_payload_response | Request URL / Payload / Preview / Response / page/tab context / hotel/date parameters | - |
+| traffic_report (经营报告-流量数据) | 0 | needs_payload_response | Request URL / Payload / Preview / Response / page/tab context / hotel/date parameters | - |
+| orders_detail (订单明细) | 1 | needs_payload_response | Request URL / Payload / Preview / Response / page/tab context / hotel/date parameters | https://ebooking.ctrip.com/ebkorderv2/api/order/domestic/unprocessOrderList?_fxpcqlniredt=09031060219661935072&x-traceID=09031060219661935072-1783451256121-8750537 |
 | price_inventory (价格房态) | 0 | needs_payload_response | Request URL / Payload / Preview / Response / page/tab context / hotel/date parameters | - |
 | promotion (促销活动) | 0 | needs_payload_response | Request URL / Payload / Preview / Response / page/tab context / hotel/date parameters | - |
 | settlement_finance (结算财务) | 0 | needs_payload_response | Request URL / Payload / Preview / Response / page/tab context / hotel/date parameters | - |
@@ -117,7 +72,8 @@
 
 | 候选方向 | 状态 | 完整证据 | 不完整证据 | 字段草案 | 缺失证据 |
 |---|---|---:|---:|---:|---|
-| orders_detail | missing_evidence | 0 | 0 | 0 | - |
+| traffic_report | missing_evidence | 0 | 0 | 0 | - |
+| orders_detail | ready_for_review | 1 | 0 | 15 | - |
 | price_inventory | missing_evidence | 0 | 0 | 0 | - |
 | promotion | missing_evidence | 0 | 0 | 0 | - |
 | settlement_finance | missing_evidence | 0 | 0 | 0 | - |
@@ -125,4 +81,8 @@
 
 ## 下一步证据
 
-- 暂无未归档候选接口。
+- Request URL
+- Payload
+- Preview / Response
+- page/tab context
+- hotel/date parameters

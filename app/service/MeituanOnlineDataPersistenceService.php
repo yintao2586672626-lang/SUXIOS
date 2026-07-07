@@ -68,7 +68,7 @@ final class MeituanOnlineDataPersistenceService
                 $aiMetricName = $item['_aiMetricName'] ?? ($item['aiMetricName'] ?? '');
 
                 // 判断榜单类型：P_XS=销售榜(包含销售间夜榜+销售额榜), P_RZ=入住榜, P_ZH=转化榜, P_LL=流量榜
-                $rankType = $item['rankType'] ?? $item['rank_type'] ?? '';
+                $rankType = strtoupper(trim((string)($item['rankType'] ?? $item['rank_type'] ?? $context['rank_type'] ?? $context['rankType'] ?? '')));
                 $platformTagInfo = $this->extractMeituanPlatformTagInfo($item);
                 $hasVipTag = $this->hasMeituanVipPlatformTag($platformTagInfo['tags']);
                 $platformTagText = !empty($platformTagInfo['tags']) ? implode(' / ', $platformTagInfo['tags']) : '未返回';
@@ -77,15 +77,25 @@ final class MeituanOnlineDataPersistenceService
                 // 结合dimName和aiMetricName进行判断，提高准确性
                 $combinedName = $dimName . '|' . $aiMetricName;
 
-                $isSalesAmountRank = strpos($combinedName, '销售额') !== false || strpos($combinedName, '交易额') !== false || strpos($combinedName, '房费收入') !== false || strpos($combinedName, '收入') !== false || strpos($combinedName, '金额') !== false;
+                $isAmountMetric = strpos($combinedName, '销售额') !== false
+                    || strpos($combinedName, '交易额') !== false
+                    || strpos($combinedName, '房费收入') !== false
+                    || strpos($combinedName, '房费') !== false
+                    || strpos($combinedName, '收入') !== false
+                    || strpos($combinedName, '金额') !== false
+                    || strpos(strtoupper($combinedName), 'AMT') !== false
+                    || strpos(strtoupper($combinedName), 'AMOUNT') !== false;
+                $isSalesAmountRank = $rankType === 'P_XS' && $isAmountMetric;
+                $isRoomRevenueRank = $rankType === 'P_RZ' && $isAmountMetric;
                 // 销售间夜榜：包含"间夜"但不包含"额"（避免与销售额混淆）
                 // 同时检查aiMetricName，因为有些API返回的dimName可能是"销售榜"，而aiMetricName才是"销售间夜"
-                $isRoomNightRank = (strpos($combinedName, '间夜') !== false && strpos($combinedName, '额') === false) || strpos($combinedName, '入住') !== false || strpos($combinedName, ' Nights') !== false || strpos($combinedName, 'nights') !== false || strpos($aiMetricName, '间夜') !== false;
+                $isRoomNightMetric = (strpos($combinedName, '间夜') !== false && strpos($combinedName, '额') === false) || strpos($combinedName, '入住') !== false || strpos($combinedName, ' Nights') !== false || strpos($combinedName, 'nights') !== false || strpos($aiMetricName, '间夜') !== false;
+                $isRoomNightRank = in_array($rankType, ['P_RZ', 'P_XS'], true) && $isRoomNightMetric;
                 $isConversionRank = strpos($combinedName, '转化') !== false || strpos($combinedName, '支付') !== false || $rankType === 'P_ZH';
                 $isTrafficRank = strpos($combinedName, '曝光') !== false || strpos($combinedName, '浏览') !== false || strpos($combinedName, '流量') !== false || strpos($combinedName, '访客') !== false || $rankType === 'P_LL';
 
                 // 详细调试日志：记录每个数据项的判断过程
-                \think\facade\Log::info("美团数据解析 - 详细判断: dimName=$dimName, rankType=$rankType, dataValue=$dataValue, percent=" . ($rankPercent ?? 'null') . ", metricStatus=$metricStatus, isSalesAmountRank=" . ($isSalesAmountRank ? 'true' : 'false') . ", isRoomNightRank=" . ($isRoomNightRank ? 'true' : 'false'));
+                \think\facade\Log::info("美团数据解析 - 详细判断: dimName=$dimName, rankType=$rankType, dataValue=$dataValue, percent=" . ($rankPercent ?? 'null') . ", metricStatus=$metricStatus, isSalesAmountRank=" . ($isSalesAmountRank ? 'true' : 'false') . ", isRoomRevenueRank=" . ($isRoomRevenueRank ? 'true' : 'false') . ", isRoomNightRank=" . ($isRoomNightRank ? 'true' : 'false'));
                 \think\facade\Log::info("美团数据解析 - 完整数据项: " . json_encode($item, JSON_UNESCAPED_UNICODE));
 
                 // 根据榜单类型设置 amount 和 quantity
@@ -93,7 +103,7 @@ final class MeituanOnlineDataPersistenceService
                     // 间夜榜（销售间夜榜、入住间夜榜）：dataValue 是间夜数
                     $amount = 0;
                     $quantity = intval($dataValue);
-                } elseif ($isSalesAmountRank) {
+                } elseif ($isSalesAmountRank || $isRoomRevenueRank) {
                     // 销售额榜（交易额榜、房费收入榜）：dataValue 是销售额（元）
                     $amount = $dataValue;
                     $quantity = 0;
@@ -102,16 +112,9 @@ final class MeituanOnlineDataPersistenceService
                     $amount = 0;
                     $quantity = 0;
                 } else {
-                    // 无法识别的榜单类型：根据数值大小智能判断
-                    if ($dataValue > 10000) {
-                        // 数值较大，可能是销售额
-                        $amount = $dataValue;
-                        $quantity = 0;
-                    } else {
-                        // 数值较小，可能是间夜数
-                        $amount = 0;
-                        $quantity = intval($dataValue);
-                    }
+                    // 无法识别的榜单类型：只保留 data_value，不按数值大小猜测金额或间夜
+                    $amount = 0;
+                    $quantity = 0;
                 }
 
                 // 详细记录榜单类型判断结果
