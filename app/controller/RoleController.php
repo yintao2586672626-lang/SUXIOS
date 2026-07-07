@@ -60,12 +60,18 @@ class RoleController extends Base
             return $this->error('角色标识已存在');
         }
 
+        $permissions = $this->normalizePermissionPayload($data['permissions'] ?? []);
+        $boundaryResponse = $this->validateRolePermissionBoundary((string)$data['name'], $permissions);
+        if ($boundaryResponse) {
+            return $boundaryResponse;
+        }
+
         $role = new Role();
         $role->name = $data['name'];
         $role->display_name = $data['display_name'];
         $role->description = $data['description'] ?? '';
         $role->level = $data['level'];
-        $role->permissions = isset($data['permissions']) ? json_encode($data['permissions']) : '[]';
+        $role->permissions = json_encode($permissions);
         $role->status = $data['status'] ?? Role::STATUS_ENABLED;
         $role->save();
 
@@ -96,6 +102,14 @@ class RoleController extends Base
         }
 
         $data = $this->requestData();
+        $nextName = !empty($data['name']) ? (string)$data['name'] : (string)$role->name;
+        $permissions = isset($data['permissions'])
+            ? $this->normalizePermissionPayload($data['permissions'])
+            : Role::normalizePermissions($role->permissions);
+        $boundaryResponse = $this->validateRolePermissionBoundary($nextName, $permissions);
+        if ($boundaryResponse) {
+            return $boundaryResponse;
+        }
 
         // 检查标识唯一性
         if (!empty($data['name']) && $data['name'] != $role->name) {
@@ -109,7 +123,7 @@ class RoleController extends Base
         $role->display_name = $data['display_name'] ?? $role->display_name;
         $role->description = $data['description'] ?? $role->description;
         $role->level = $data['level'] ?? $role->level;
-        $role->permissions = isset($data['permissions']) ? json_encode($data['permissions']) : $role->permissions;
+        $role->permissions = isset($data['permissions']) ? json_encode($permissions) : $role->permissions;
         $role->status = $data['status'] ?? $role->status;
         $role->save();
 
@@ -191,5 +205,23 @@ class RoleController extends Base
         if (!$this->currentUser->isSuperAdmin()) {
             abort(403, '需要超级管理员权限');
         }
+    }
+
+    private function normalizePermissionPayload($permissions): array
+    {
+        return Role::normalizePermissions($permissions);
+    }
+
+    private function validateRolePermissionBoundary(string $roleName, array $permissions): ?Response
+    {
+        if ($roleName !== 'normal_user') {
+            return null;
+        }
+
+        if (Role::permissionListAllows($permissions, 'ota.collect')) {
+            return $this->error('普通用户角色不能包含 OTA 采集权限，请先移除采集权限', 422);
+        }
+
+        return null;
     }
 }

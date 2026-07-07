@@ -85,6 +85,47 @@ final class OnlineDataTest extends TestCase
         self::assertStringNotContainsString('plain-cookie-value', $encoded);
     }
 
+    public function testCollectionStatusMarksStaleRunningTaskExplicitly(): void
+    {
+        $controller = $this->controller();
+        $oldRunningTask = [
+            'status' => 'running',
+            'update_time' => date('Y-m-d H:i:s', time() - 7200),
+            'message' => '',
+        ];
+        $freshRunningTask = [
+            'status' => 'running',
+            'update_time' => date('Y-m-d H:i:s', time() - 120),
+        ];
+
+        self::assertSame('collecting', $this->invokeNonPublic($controller, 'resolveCollectionStatus', [
+            false,
+            false,
+            $freshRunningTask,
+            [],
+            [],
+            [],
+        ]));
+        self::assertSame('stale_running', $this->invokeNonPublic($controller, 'resolveCollectionStatus', [
+            false,
+            false,
+            $oldRunningTask,
+            [],
+            [],
+            [],
+        ]));
+        self::assertSame('stale_running_task', $this->invokeNonPublic($controller, 'collectionStatusFailureReason', [
+            'stale_running',
+            $oldRunningTask,
+            null,
+            [],
+            [],
+            false,
+            [],
+            [],
+        ]));
+    }
+
     public function testCollectionReliabilityDefinitionsAndQualitySnapshot(): void
     {
         $controller = $this->controller();

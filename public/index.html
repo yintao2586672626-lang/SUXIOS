@@ -71,7 +71,7 @@
     <script src="vue.global.prod.js?v=20260628-static-router-fix"></script>
     <script src="shared-components.js?v=20260628-static-router-fix"></script>
     <script src="ctrip-static.js?v=20260707-cookie-only-identity-auto-resolve"></script>
-    <script src="meituan-static.js?v=20260708-ranking-pagination-helpers"></script>
+    <script src="meituan-static.js?v=20260708-ranking-summary-helpers"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
     <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints"></script>
     <script src="revenue-ai-static.js?v=20260708-ai-daily-blocking-summary"></script>
@@ -9771,7 +9771,7 @@
                                                     <div class="mt-1 text-xs leading-relaxed opacity-80">{{ card.note }}</div>
                                                 </div>
                                             </div>
-                                            <div class="rounded-lg border border-gray-200 bg-white p-3">
+                                            <div data-testid="meituan-ranking-vip-evidence" class="rounded-lg border border-gray-200 bg-white p-3">
                                                 <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3">
                                                     <div>
                                                         <div class="text-sm font-semibold text-gray-900">榜单与来源状态</div>
@@ -16410,7 +16410,7 @@
                                                             <tr v-for="task in platformSyncTasks" :key="task.id">
                                                                 <td class="px-3 py-2">#{{ task.id }}</td>
                                                                 <td class="px-3 py-2">{{ task.platform }} / {{ task.data_type }} / {{ task.trigger_type }}</td>
-                                                                <td class="px-3 py-2"><span :class="['px-2 py-1 rounded-full text-xs', platformTaskStatusClass(task.status)]">{{ task.status }}</span></td>
+                                                                <td class="px-3 py-2"><span :class="['px-2 py-1 rounded-full text-xs', platformTaskStatusClass(task.effective_status || task.status)]">{{ task.effective_status || task.status }}</span></td>
                                                                 <td class="px-3 py-2 text-gray-600">
                                                                     <div>{{ task.message || '-' }}</div>
                                                                     <div v-if="platformSyncActionText(task.message)" class="mt-1 text-xs text-amber-700">{{ platformSyncActionText(task.message) }}</div>
@@ -19855,6 +19855,7 @@
             const platformCollectionStatusText = (status) => ({
                 collected: '已采集',
                 collecting: '采集中',
+                stale_running: '任务运行超时',
                 partial: '部分模块成功',
                 failed: '采集失败',
                 stale: '已过期',
@@ -19874,6 +19875,7 @@
             const platformCollectionStatusClass = (status) => ({
                 collected: 'bg-emerald-100 text-emerald-700',
                 collecting: 'bg-blue-100 text-blue-700',
+                stale_running: 'bg-rose-100 text-rose-700',
                 partial: 'bg-amber-100 text-amber-700',
                 failed: 'bg-red-100 text-red-700',
                 stale: 'bg-amber-100 text-amber-700',
@@ -19927,12 +19929,13 @@
                 const storedRows = Number(row?.storedRowCount || 0);
                 if (!raw) {
                     if (status === 'collected' && storedRows > 0) return '-';
-                    if (['failed', 'partial', 'stale'].includes(status)) return '失败原因未返回';
+                    if (['failed', 'partial', 'stale', 'stale_running'].includes(status)) return '失败原因未返回';
                     if (['not_collected', 'not_loaded', ''].includes(status)) return '目标日期无入库行';
                     return '状态未解释';
                 }
                 const text = raw.replace(/\s+/g, ' ');
                 const lower = text.toLowerCase();
+                if (/stale_running|stale_running_task|running_task_stale|task_stale_running/.test(lower)) return '旧运行任务未结束或状态未闭合';
                 if (/policy_disabled|strategy_disabled|comment_collection_disabled|review_policy_disabled|disabled_by_policy/.test(lower)) return '策略禁用';
                 if (/sync_completed_without_saved_rows|saved_count\s*=\s*0|no business rows|empty_result|zero_saved_rows/.test(lower)) return '同步完成但没有真实入库数据';
                 if (/profile_reused_no_target_date_traffic_rows|target_date_traffic_rows_missing|missing_target_date_traffic_rows|no_target_date_traffic_rows/.test(lower)) return '登录态可用，但目标日期 traffic 未采到';
@@ -19956,7 +19959,7 @@
                 const raw = platformFailureReasonSourceText(reason, row).toLowerCase();
                 const text = platformCollectionFailureReasonText(reason, row);
                 if (text === '-') return 'text-slate-400';
-                if (/browser_runtime_error|spawn|eperm|eacces|platform_api_error|request failed|http\s*[45]\d\d|failed|error|异常|失败/.test(raw) || ['失败原因未返回', '平台接口返回异常', '浏览器运行环境异常'].includes(text)) {
+                if (/browser_runtime_error|spawn|eperm|eacces|platform_api_error|request failed|http\s*[45]\d\d|failed|error|异常|失败/.test(raw) || ['失败原因未返回', '平台接口返回异常', '浏览器运行环境异常', '旧运行任务未结束或状态未闭合'].includes(text)) {
                     return 'text-red-700';
                 }
                 if (['门店不匹配', '权限不足'].includes(text)) {
@@ -20346,7 +20349,11 @@
             const competitorSummaryLoading = ref(false);
             let competitorSummaryRequestSeq = 0;
             const hotelCompetitorSummaries = ref({});
-            const meituanRankSourceNotice = computed(() => meituanBusinessSummary.value?.source_notice || '');
+            const resolveMeituanRankSourceNotice = requireMeituanStatic('resolveMeituanRankSourceNotice');
+            const buildMeituanRankInsightCards = requireMeituanStatic('buildMeituanRankInsightCards');
+            const buildMeituanVisibleRankInsightCards = requireMeituanStatic('buildMeituanVisibleRankInsightCards');
+            const buildMeituanRankHealthRows = requireMeituanStatic('buildMeituanRankHealthRows');
+            const meituanRankSourceNotice = computed(() => resolveMeituanRankSourceNotice(meituanBusinessSummary.value));
             const meituanTableTab = ref('ranking'); // 美团数据表格Tab: ranking/traffic
             // 表格排序功能
             const meituanSortField = ref('roomNights'); // 当前排序字段
@@ -20528,17 +20535,9 @@
                     meituanFallbackCard('fallback-avg-absolute-conversion', '绝对转化率', meituanFallbackPercentText(meituanFallbackAverage(rows, 'absoluteConversion', true)), 'text-purple-700', 'bg-purple-50 border border-purple-200'),
                 ];
             });
-            const meituanRankInsightCards = computed(() => {
-                const cards = meituanBusinessSummary.value?.rank_insights;
-                return Array.isArray(cards) ? cards : [];
-            });
-            const meituanVisibleRankInsightCards = computed(() => meituanRankInsightCards.value
-                .filter(card => card?.key !== 'tag-metric-link')
-            );
-            const meituanRankHealthRows = computed(() => {
-                const rows = meituanBusinessSummary.value?.rank_health_rows;
-                return Array.isArray(rows) ? rows : [];
-            });
+            const meituanRankInsightCards = computed(() => buildMeituanRankInsightCards(meituanBusinessSummary.value));
+            const meituanVisibleRankInsightCards = computed(() => buildMeituanVisibleRankInsightCards(meituanRankInsightCards.value));
+            const meituanRankHealthRows = computed(() => buildMeituanRankHealthRows(meituanBusinessSummary.value));
             const meituanTopSummaryRows = computed(() => {
                 const rows = meituanBusinessSummary.value?.top_summary_rows;
                 if (Array.isArray(rows) && rows.length) {
@@ -21586,9 +21585,10 @@
                 return {
                     total: rows.length,
                     ready: rows.filter(row => row.collection_status === 'ready').length,
+                    staleRunning: rows.filter(row => row.collection_status === 'stale_running' || row.etl_status === 'stale_running').length,
                     stale: rows.filter(row => row.collection_status === 'stale' || row.freshness === 'stale').length,
                     loginRequired: rows.filter(row => ['login_required', 'manual_intervention_required'].includes(row.login_status)).length,
-                    etlBlocked: rows.filter(row => ['capture_success_not_stored', 'normalized_not_stored', 'not_stored', 'capture_failed'].includes(row.etl_status)).length,
+                    etlBlocked: rows.filter(row => ['capture_success_not_stored', 'normalized_not_stored', 'not_stored', 'capture_failed', 'stale_running'].includes(row.etl_status)).length,
                 };
             });
             const normalizePlatformTypeCollectionStatus = (row = {}) => {
@@ -21597,6 +21597,7 @@
                 const login = String(row.login_status || '').toLowerCase();
                 const storedRows = Number(row.stored_row_count || row.storedRowCount || 0);
                 if (['policy_disabled', 'strategy_disabled', 'disabled'].includes(raw)) return 'policy_disabled';
+                if (['stale_running', 'task_stale_running'].includes(raw) || etl === 'stale_running') return 'stale_running';
                 if (['running', 'collecting', 'syncing'].includes(raw)) return 'collecting';
                 if (['failed', 'capture_failed', 'not_stored'].includes(raw) || ['capture_failed', 'not_stored', 'capture_success_not_stored'].includes(etl)) return 'failed';
                 if (['stale', 'expired'].includes(raw) || row.freshness === 'stale') return 'stale';
@@ -21620,6 +21621,7 @@
                 if (status === 'collected') return '进入收益/运营分析复核，确认是否生成动作。';
                 if (status === 'policy_disabled') return '保持策略禁用；需要授权时单独开启，不进入默认采集。';
                 if (status === 'login_expired') return '由运营人员重新完成平台 Profile 登录验证。';
+                if (status === 'stale_running') return '检查旧任务和 Profile 锁；确认无活跃采集后再重试。';
                 if (status === 'failed') return reason && reason !== '-' ? reason : '查看同步日志并按失败原因重试。';
                 if (status === 'data_empty') return '确认平台目标日期是否真的为空，禁止用 0 代替缺口。';
                 if (status === 'stale') return '刷新目标日期采集，再复核最近同步时间。';
@@ -21629,6 +21631,7 @@
                 const reason = platformCollectionFailureReasonText(row.missing_reason || row.failureReason || row.failure_reason || '', row);
                 if (status === 'collected') return '收益/运营负责人';
                 if (status === 'policy_disabled') return '业务负责人';
+                if (status === 'stale_running') return '数据管理员';
                 if (status === 'login_expired' || /验证码|人机|登录|授权|Profile/.test(reason)) return '运营人员';
                 if (/权限|无权限/.test(reason)) return '系统管理员';
                 return '数据管理员';
@@ -24700,7 +24703,7 @@
                     const fieldFactsReady = Number(collectionRow?.fieldFactsReady || collectionRow?.field_facts_ready || 0);
                     const collectionDone = collectionStatus === 'collected' && targetTrafficRows > 0 && fieldFactStatus === 'ready';
                     const collectionPartial = collectionStatus === 'partial' || (targetDateRows > 0 && (targetTrafficRows <= 0 || fieldFactStatus !== 'ready'));
-                    const collectionBlocked = ['failed', 'stale', 'permission_denied', 'hotel_mismatch', 'login_expired'].includes(collectionStatus);
+                    const collectionBlocked = ['failed', 'stale', 'stale_running', 'permission_denied', 'hotel_mismatch', 'login_expired'].includes(collectionStatus);
                     const failureRaw = platformFailureReasonSourceText(collectionRow?.failureReason, collectionRow);
                     const failureText = platformCollectionFailureReasonText(collectionRow?.failureReason, collectionRow);
                     const normalizedProfileItem = profileItem || {
@@ -30099,7 +30102,7 @@
                         ...ctripReviewMatchResult.value,
                         data: {
                             ...(ctripReviewMatchResult.value.data || {}),
-                            review_policy: '当前只返回点评治理规则和边界状态；不进入默认采集，不反查匿名身份，不自动操作携程后台。',
+                            review_policy: '匹配动作只读取已授权点评/IM/订单数据；当前只返回点评治理规则和边界状态；不进入默认采集，不反查匿名身份，不自动操作携程后台。',
                         },
                     };
                 }

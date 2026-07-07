@@ -23,6 +23,19 @@ final class PermissionServiceTest extends TestCase
         self::assertSame('role_permission_denied', $collect['reason']);
     }
 
+    public function testNormalUserCannotCollectEvenIfLegacyRoleStillContainsCollectPermission(): void
+    {
+        $service = new PermissionService(new AllowingHotelScopeService());
+        $user = $this->userWithRole(['dashboard.view', 'hotel.view', 'ota.view', 'can_fetch_online_data'], Role::NORMAL_USER, 'normal_user');
+
+        $authorization = $service->authorize($user, 'ota.collect', 7);
+
+        self::assertFalse($authorization['allowed']);
+        self::assertSame('role_permission_denied', $authorization['reason']);
+        self::assertNotContains('can_fetch_online_data', $service->roleCapabilities($user));
+        self::assertNotContains('ota.collect', $service->roleCapabilities($user));
+    }
+
     public function testVipCapabilityStillRequiresHotelPermissionLayer(): void
     {
         $service = new PermissionService(new DenyingHotelPermissionScopeService());
@@ -37,15 +50,28 @@ final class PermissionServiceTest extends TestCase
     /**
      * @param array<int, string> $permissions
      */
-    private function userWithRole(array $permissions): User
+    private function userWithRole(array $permissions, int $roleId = Role::BETA_USER, string $roleName = 'operator'): User
     {
         $role = $this->getMockBuilder(Role::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getPermissionList', '__get'])
+            ->onlyMethods(['getPermissionList', 'getAttr', '__get'])
             ->getMock();
         $role->method('getPermissionList')->willReturn($permissions);
+        $role->method('getAttr')->willReturnCallback(
+            static fn(string $key) => match ($key) {
+                'id' => $roleId,
+                'name' => $roleName,
+                'status' => Role::STATUS_ENABLED,
+                default => null,
+            }
+        );
         $role->method('__get')->willReturnCallback(
-            static fn(string $key) => $key === 'status' ? Role::STATUS_ENABLED : null
+            static fn(string $key) => match ($key) {
+                'id' => $roleId,
+                'name' => $roleName,
+                'status' => Role::STATUS_ENABLED,
+                default => null,
+            }
         );
 
         $user = $this->getMockBuilder(User::class)
@@ -54,11 +80,12 @@ final class PermissionServiceTest extends TestCase
             ->getMock();
         $user->method('isSuperAdmin')->willReturn(false);
         $user->method('__isset')->willReturnCallback(
-            static fn(string $key): bool => in_array($key, ['id', 'role'], true)
+            static fn(string $key): bool => in_array($key, ['id', 'role_id', 'role'], true)
         );
         $user->method('__get')->willReturnCallback(
             static fn(string $key) => match ($key) {
                 'id' => 42,
+                'role_id' => $roleId,
                 'role' => $role,
                 default => null,
             }

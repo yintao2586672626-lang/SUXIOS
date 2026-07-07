@@ -164,6 +164,10 @@ class User extends Base
                 return $this->error('您只能创建店员账号');
             }
             $hotelIds = [(int)$hotelId];
+            $issueBoundaryResponse = $this->validateExternalUserIssueBoundary($targetRole, $hotelIds);
+            if ($issueBoundaryResponse) {
+                return $issueBoundaryResponse;
+            }
         }
 
         $user = new UserModel();
@@ -466,6 +470,10 @@ class User extends Base
             return null;
         }
 
+        if (Role::permissionListAllows($role->getPermissionList(), 'ota.collect')) {
+            return $this->error('普通用户角色不能包含 OTA 采集权限，请先调整角色权限后再发放', 422);
+        }
+
         if (empty($hotelIds)) {
             return $this->error('普通用户必须先分配门店，避免生成无业务范围的外部账号', 422);
         }
@@ -475,7 +483,7 @@ class User extends Base
 
     private function isNormalExternalRole(Role $role): bool
     {
-        return (int)$role->id === Role::NORMAL_USER || (string)$role->name === 'normal_user';
+        return (int)$role->getAttr('id') === Role::NORMAL_USER || (string)$role->getAttr('name') === 'normal_user';
     }
 
     /**

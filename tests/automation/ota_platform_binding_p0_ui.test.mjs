@@ -165,6 +165,7 @@ test('collection status vocabulary exposes explicit user-visible states', () => 
     'not_loaded',
     'not_collected',
     'collecting',
+    'stale_running',
     'failed',
     'login_expired',
     'unauthorized',

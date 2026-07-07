@@ -94,19 +94,20 @@ assert_regression_float(0.3704, $result['breakEvenOccupancy'], 'break-even occup
 $authSource = file_get_contents(__DIR__ . '/../app/controller/Auth.php');
 $baseSource = file_get_contents(__DIR__ . '/../app/controller/Base.php');
 $competitorSource = file_get_contents(__DIR__ . '/../app/controller/CompetitorApi.php');
-$onlineSource = file_get_contents(__DIR__ . '/../app/controller/OnlineData.php');
+$cookieEndpointSource = file_get_contents(__DIR__ . '/../app/controller/concern/CookieEndpointConcern.php');
+$onlineDataRequestSource = file_get_contents(__DIR__ . '/../app/controller/concern/OnlineDataRequestConcern.php');
 $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
 $hotelSource = file_get_contents(__DIR__ . '/../app/controller/Hotel.php');
 $authMiddlewareSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
 $compassViewSource = file_get_contents(__DIR__ . '/../app/view/admin/compass/index.html');
 
 $logoutSource = extract_method_source_regression($authSource, 'logout');
-$receiveCookiesSource = extract_method_source_regression($onlineSource, 'receiveCookies');
-$corsErrorSource = extract_method_source_regression($onlineSource, 'corsError');
-$corsSuccessSource = extract_method_source_regression($onlineSource, 'corsSuccess');
-$bookmarkletSource = extract_method_source_regression($onlineSource, 'bookmarklet');
-$ctripBookmarkletSource = extract_method_source_regression($onlineSource, 'generateCtripBookmarklet');
-$cookieBookmarkletHelperSource = extract_method_source_regression($onlineSource, 'buildCookieBookmarkletScript');
+$receiveCookiesSource = extract_method_source_regression($cookieEndpointSource, 'receiveCookies');
+$corsErrorSource = extract_method_source_regression($cookieEndpointSource, 'corsError');
+$corsSuccessSource = extract_method_source_regression($cookieEndpointSource, 'corsSuccess');
+$bookmarkletSource = extract_method_source_regression($cookieEndpointSource, 'bookmarklet');
+$ctripBookmarkletSource = extract_method_source_regression($onlineDataRequestSource, 'generateCtripBookmarklet');
+$cookieBookmarkletHelperSource = extract_method_source_regression($cookieEndpointSource, 'buildCookieBookmarkletScript');
 $competitorReportSource = extract_method_source_regression($competitorSource, 'report');
 $userDeleteSource = extract_method_source_regression($userSource, 'delete');
 $hotelDeleteSource = extract_method_source_regression($hotelSource, 'delete');

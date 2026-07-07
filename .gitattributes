@@ -1,6 +1,9 @@
 database/backups/* export-ignore
+storage/db_backups/* export-ignore
 reports/ctrip_browser_capture_*.json export-ignore
 reports/meituan_browser_capture_*.json export-ignore
+reports/ctrip_capture_summary.json export-ignore
+reports/p0_traffic_*.json export-ignore
 reports/ctrip_capture_assets/* export-ignore
 reports/meituan_capture_assets/* export-ignore
 hotelx_dump.sql export-ignore

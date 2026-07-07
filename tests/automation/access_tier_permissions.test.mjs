@@ -11,15 +11,19 @@ const indexHtml = read('public/index.html');
 const hotelController = read('app/controller/Hotel.php');
 const userModel = read('app/model/User.php');
 const userController = read('app/controller/User.php');
+const roleController = read('app/controller/RoleController.php');
 const authController = read('app/controller/Auth.php');
 const authMiddleware = read('app/middleware/Auth.php');
 const cookieEndpointConcern = read('app/controller/concern/CookieEndpointConcern.php');
 const initDatabaseCommand = read('app/command/InitDatabase.php');
 const routes = read('route/app.php');
 const hotelScopeService = read('app/service/HotelScopeService.php');
+const permissionService = read('app/service/PermissionService.php');
 const compassController = read('app/controller/admin/Compass.php');
 const migration = read('database/migrations/20260614_add_access_tier_hotel_owner_scope.sql');
 const initFull = read('database/init_full.sql');
+const seedSql = read('database/hotel_admin_mysql.sql');
+const seedNormalRoleLine = seedSql.split(/\r?\n/).find(line => line.includes("'normal_user'")) || '';
 
 assert.match(
   systemStatic,
@@ -128,7 +132,15 @@ assert.match(userController, /private function normalizeAssignedHotelIds\(array 
 assert.match(userController, /\$data\['hotel_ids'\]\s*=/, 'user API responses must expose assigned hotel ids for editing');
 assert.match(userController, /private function validateExternalUserIssueBoundary\(Role \$role, array \$hotelIds\): \?Response/, 'user API must validate external-account issue boundaries');
 assert.match(userController, /private function isNormalExternalRole\(Role \$role\): bool/, 'user API must identify normal external roles explicitly');
+assert.match(userController, /Role::permissionListAllows\(\$role->getPermissionList\(\), 'ota\.collect'\)/, 'normal external user issuance must reject roles with OTA collection permission at the API layer');
+assert.match(userController, /\$hotelIds = \[\(int\)\$hotelId\];[\s\S]{0,240}\$issueBoundaryResponse = \$this->validateExternalUserIssueBoundary\(\$targetRole, \$hotelIds\);/, 'non-super user issuance must reuse the normal external OTA collection boundary');
+assert.match(userController, /普通用户角色不能包含 OTA 采集权限/, 'normal external user API rejection must explain the unsafe OTA collection permission');
 assert.match(userController, /普通用户必须先分配门店/, 'normal external users must be blocked without an assigned hotel scope');
+assert.match(roleController, /private function validateRolePermissionBoundary\(string \$roleName, array \$permissions\): \?Response/, 'role API must validate built-in external role permission boundaries');
+assert.match(roleController, /\$roleName !== 'normal_user'[\s\S]*Role::permissionListAllows\(\$permissions, 'ota\.collect'\)/, 'normal_user role saves must reject OTA collection permission');
+assert.match(roleController, /普通用户角色不能包含 OTA 采集权限/, 'normal_user role API rejection must explain the unsafe OTA collection permission');
+assert.match(permissionService, /isNormalExternalUser\(\$user\)[\s\S]*normalizeCapability\(\$capability\) === 'ota\.collect'/, 'runtime permission service must reject OTA collection for normal external users');
+assert.match(permissionService, /getAttr\('name'\) === 'normal_user'/, 'runtime permission service must recognize normal external roles by role name as well as id');
 assert.match(userController, /private function validateUsernamePolicy\(string \$username\): \?string/, 'admin-created users must share the public registration username policy');
 assert.match(userController, /\^\[A-Za-z0-9_\]\{3,50\}\$/, 'admin-created users must allow underscores and the same length as public registration');
 assert.doesNotMatch(userController, /alphaNum\|min:3\|max:20/, 'admin-created users must not keep the stricter legacy alphaNum username rule');
@@ -171,6 +183,7 @@ assert.match(routes, /Route::post\('api\/hotels\/', 'Hotel\/create'\)->middlewar
 assert.match(hotelController, /owner_user_id/, 'hotel controller must write owner_user_id');
 assert.match(migration, /ADD COLUMN IF NOT EXISTS `owner_user_id`/, 'migration must add hotels.owner_user_id');
 assert.match(migration, /can_fetch_online_data` = CASE WHEN u\.`role_id` = 2 THEN 1 ELSE 0 END/, 'normal users must not collect OTA by default');
+assert.doesNotMatch(seedNormalRoleLine, /can_fetch_online_data/, 'legacy MySQL seed normal_user role must not include OTA collection permission');
 assert.match(
   migration,
   /DELETE uhp\s+FROM `user_hotel_permissions` uhp[\s\S]*LEFT JOIN `users` u ON u\.`id` = uhp\.`user_id`[\s\S]*LEFT JOIN `hotels` h ON h\.`id` = uhp\.`hotel_id`[\s\S]*WHERE u\.`id` IS NULL[\s\S]*OR h\.`id` IS NULL/,

@@ -97,6 +97,10 @@ class PermissionService
             return false;
         }
 
+        if ($this->isNormalExternalUser($user) && $this->normalizeCapability($capability) === 'ota.collect') {
+            return false;
+        }
+
         return Role::permissionListAllows($role->getPermissionList(), $capability);
     }
 
@@ -114,7 +118,15 @@ class PermissionService
             return [];
         }
 
-        return $this->expandCapabilities($role->getPermissionList());
+        $capabilities = $this->expandCapabilities($role->getPermissionList());
+        if ($this->isNormalExternalUser($user)) {
+            $capabilities = array_values(array_filter(
+                $capabilities,
+                fn(string $capability): bool => $this->normalizeCapability($capability) !== 'ota.collect'
+            ));
+        }
+
+        return $capabilities;
     }
 
     public function normalizeCapability(string $capability): string
@@ -158,5 +170,23 @@ class PermissionService
         }
 
         return array_values(array_unique(array_filter($expanded)));
+    }
+
+    private function isNormalExternalUser(User $user): bool
+    {
+        if ((int)($user->role_id ?? 0) === Role::NORMAL_USER) {
+            return true;
+        }
+
+        $role = $user->role;
+        if (!$role instanceof Role) {
+            return false;
+        }
+
+        try {
+            return (string)$role->getAttr('name') === 'normal_user';
+        } catch (\Throwable) {
+            return (string)($role->name ?? '') === 'normal_user';
+        }
     }
 }

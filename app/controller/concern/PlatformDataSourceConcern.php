@@ -496,6 +496,9 @@ trait PlatformDataSourceConcern
         $platformSources = array_values(array_filter($sources, static fn(array $source): bool => strtolower((string)($source['platform'] ?? '')) === $platform));
         $platformTasks = array_values(array_filter($tasks, static fn(array $task): bool => strtolower((string)($task['platform'] ?? '')) === $platform));
         $latestTask = $this->latestCollectionStatusTask($platformTasks);
+        $latestTaskStatus = PlatformDataSyncService::effectiveSyncTaskStatus($latestTask);
+        $latestTaskRawStatus = (string)($latestTask['status'] ?? '');
+        $latestTaskStale = PlatformDataSyncService::isStaleRunningSyncTask($latestTask);
         $latestSource = $this->latestCollectionStatusSource($platformSources);
         $resourceStatuses = $this->collectionStatusResourceRows($catalog, $platform);
         $profileRow = $this->collectionStatusProfileRow($profileStatus, $platform);
@@ -556,7 +559,10 @@ trait PlatformDataSourceConcern
             ],
             'latestTask' => $latestTask ? [
                 'id' => (int)($latestTask['id'] ?? 0),
-                'status' => (string)($latestTask['status'] ?? ''),
+                'status' => $latestTaskStatus,
+                'rawStatus' => $latestTaskRawStatus,
+                'isStaleRunning' => $latestTaskStale,
+                'staleAgeSeconds' => PlatformDataSyncService::syncTaskAgeSeconds($latestTask),
                 'message' => $this->redactCollectionStatusText((string)($latestTask['message'] ?? '')),
                 'syncDiagnostics' => $syncDiagnostics,
                 'targetDate' => (string)($syncDiagnostics['target_date'] ?? ''),
@@ -607,6 +613,8 @@ trait PlatformDataSourceConcern
             $status = 'hotel_mismatch';
         } elseif (in_array('login_expired', $statuses, true)) {
             $status = 'login_expired';
+        } elseif (in_array('stale_running', $statuses, true)) {
+            $status = 'stale_running';
         } elseif (in_array('failed', $statuses, true)) {
             $status = 'failed';
         } elseif (in_array('partial', $statuses, true)) {
@@ -741,7 +749,10 @@ trait PlatformDataSourceConcern
      */
     private function resolveCollectionStatus(bool $dataCollected, bool $hasStoredData, ?array $latestTask, array $resourceStatuses, array $dailySummary, array $profileRow): string
     {
-        $taskStatus = (string)($latestTask['status'] ?? '');
+        $taskStatus = PlatformDataSyncService::effectiveSyncTaskStatus($latestTask);
+        if ($taskStatus === 'stale_running') {
+            return 'stale_running';
+        }
         if ($taskStatus === 'running') {
             return 'collecting';
         }
@@ -771,6 +782,9 @@ trait PlatformDataSourceConcern
             return 'partial';
         }
         $resourceCollections = array_map(static fn(array $row): string => (string)($row['collectionStatus'] ?? ''), $resourceStatuses);
+        if (in_array('stale_running', $resourceCollections, true)) {
+            return 'stale_running';
+        }
         if (in_array('failed', $resourceCollections, true)) {
             return 'failed';
         }
@@ -796,6 +810,9 @@ trait PlatformDataSourceConcern
     {
         $taskMessage = $this->redactCollectionStatusText((string)($latestTask['message'] ?? ''));
         $profileStatus = (string)($profileRow['status_code'] ?? '');
+        if ($collectionStatus === 'stale_running') {
+            return $taskMessage !== '' ? $taskMessage : 'stale_running_task';
+        }
         if (in_array($profileStatus, ['permission_denied', 'no_permission', 'unauthorized'], true)) {
             return 'permission_denied';
         }

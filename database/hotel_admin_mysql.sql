@@ -54,7 +54,7 @@ CREATE TABLE `roles` (
 
 INSERT INTO `roles` VALUES (1, 'admin', '管理员', '全部权限，能看所有数据', 1, '[\"all\"]', 1, '2026-02-24 09:15:46', '2026-02-24 09:15:46');
 INSERT INTO `roles` VALUES (2, 'beta_user', '内测用户', '只能看授权且自己添加的酒店，可管理自己添加的酒店，不能管理用户/角色/系统配置', 2, '[\"can_view_online_data\",\"can_fetch_online_data\",\"can_manage_own_hotels\"]', 1, '2026-02-24 09:15:46', '2026-02-26 17:28:07.894610');
-INSERT INTO `roles` VALUES (3, 'normal_user', '普通用户', '只有 OTA 获取，只能看授权酒店，无法添加酒店', 3, '[\"can_view_online_data\",\"can_fetch_online_data\"]', 1, '2026-02-24 09:15:46', '2026-02-26 17:28:27.386559');
+INSERT INTO `roles` VALUES (3, 'normal_user', '普通用户', '只能查看授权酒店，不能添加酒店或发起 OTA 采集', 3, '[\"can_view_online_data\"]', 1, '2026-02-24 09:15:46', '2026-02-26 17:28:27.386559');
 
 
 -- ----------------------------

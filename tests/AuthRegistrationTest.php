@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\Auth;
+use app\controller\User as UserController;
 use app\model\Role;
 use app\model\SystemConfig;
 use PHPUnit\Framework\TestCase;
@@ -53,17 +54,42 @@ final class AuthRegistrationTest extends TestCase
         self::assertSame(1, $operatorDefaults['can_delete_online_data']);
     }
 
+    public function testNormalExternalUserIssueRejectsOtaCollectionPermission(): void
+    {
+        $reflection = new ReflectionClass(UserController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('validateExternalUserIssueBoundary');
+        $method->setAccessible(true);
+
+        $response = $method->invoke($controller, $this->roleWithPermissions([
+            'dashboard.view',
+            'hotel.view',
+            'ota.view',
+            'ota.collect',
+        ], Role::NORMAL_USER, 'normal_user'), [7]);
+
+        self::assertSame(422, $response->getCode());
+        self::assertStringContainsString('普通用户角色不能包含 OTA 采集权限', (string)$response->getContent());
+    }
+
     /**
      * @param array<int, string> $permissions
      */
-    private function roleWithPermissions(array $permissions): Role
+    private function roleWithPermissions(array $permissions, int $id = Role::BETA_USER, string $name = 'operator'): Role
     {
         $role = $this->getMockBuilder(Role::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getPermissionList'])
+            ->onlyMethods(['getPermissionList', 'getAttr'])
             ->getMock();
 
         $role->method('getPermissionList')->willReturn($permissions);
+        $role->method('getAttr')->willReturnCallback(
+            static fn(string $key) => match ($key) {
+                'id' => $id,
+                'name' => $name,
+                default => null,
+            }
+        );
 
         return $role;
     }

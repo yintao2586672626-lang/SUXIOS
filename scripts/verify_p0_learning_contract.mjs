@@ -26,6 +26,11 @@ const meituanVisibleRankInsightEnd = publicSource.indexOf('const meituanRankHeal
 const meituanVisibleRankInsightSource = meituanVisibleRankInsightStart >= 0 && meituanVisibleRankInsightEnd > meituanVisibleRankInsightStart
   ? publicSource.slice(meituanVisibleRankInsightStart, meituanVisibleRankInsightEnd)
   : '';
+const meituanVisibleRankInsightHelperStart = meituanStaticSource.indexOf('const buildMeituanVisibleRankInsightCards =');
+const meituanVisibleRankInsightHelperEnd = meituanStaticSource.indexOf('const buildMeituanRankHealthRows =', meituanVisibleRankInsightHelperStart);
+const meituanVisibleRankInsightHelperSource = meituanVisibleRankInsightHelperStart >= 0 && meituanVisibleRankInsightHelperEnd > meituanVisibleRankInsightHelperStart
+  ? meituanStaticSource.slice(meituanVisibleRankInsightHelperStart, meituanVisibleRankInsightHelperEnd)
+  : '';
 const onlineDataRuntimeSource = [
   controllerSource,
   autoFetchConcernSource,
@@ -92,7 +97,7 @@ const checks = [
   },
   {
     name: 'frontend renders P0 binding checks in platform profile panel',
-    pass: publicSource.includes('(item.checks || []).length')
+    pass: publicSource.includes('(item.binding_checks || item.checks || []).length')
       && publicSource.includes('platformProfileCheckClass(check.status)')
       && publicSource.includes('const platformProfileCheckClass = (status)'),
   },
@@ -123,7 +128,8 @@ const checks = [
   },
   {
     name: 'Meituan ranking insights are not overwritten by client table sort',
-    pass: meituanVisibleRankInsightSource.includes("card?.key !== 'tag-metric-link'")
+    pass: meituanVisibleRankInsightSource.includes('buildMeituanVisibleRankInsightCards(meituanRankInsightCards.value)')
+      && meituanVisibleRankInsightHelperSource.includes("card?.key !== 'tag-metric-link'")
       && !meituanVisibleRankInsightSource.includes('meituanDynamicSelfRankRow'),
   },
   {

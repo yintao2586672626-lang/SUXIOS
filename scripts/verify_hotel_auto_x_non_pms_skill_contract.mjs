@@ -102,6 +102,8 @@ requireText('app/service/PlatformDataSyncService.php', 'OTA account password cus
 requireText('app/service/PlatformDataSyncService.php', "$missing[] = 'manual_login_state_verified';", 'background Profile sync requires manual verification');
 requireText('app/service/PlatformDataSyncService.php', "$missing[] = 'profile_status_logged_in';", 'background Profile sync requires logged-in Profile status');
 requireText('app/service/PlatformDataSyncService.php', "$missing[] = 'last_login_verified_at';", 'background Profile sync requires last login verification time');
+requireText('app/service/PlatformDataSyncService.php', "return self::isStaleRunningSyncTask($task) ? 'stale_running' : $status;", 'stale running sync tasks stay explicit');
+requireText('app/controller/concern/PlatformDataSourceConcern.php', "'stale_running_task'", 'collection-status reports stale running task reason');
 requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'storage/ctrip_profile_'", 'Ctrip Profile directory boundary is storage/ctrip_profile_*');
 requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'storage/meituan_profile_'", 'Meituan Profile directory boundary is storage/meituan_profile_*');
 requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'status_code'] = 'cookies_incomplete';", 'Ctrip Cookie probe exposes cookies_incomplete');
@@ -188,6 +190,7 @@ requireText('public/index.html', 'fetchMeituanComments', 'frontend exposes Meitu
 requireText('public/index.html', "`/online-data/profile-login-trigger/${platform}`", 'frontend triggers Profile login task');
 requireText('public/index.html', "`/online-data/profile-login-status/${platform}?${params.toString()}`", 'frontend polls Profile login task');
 requireText('public/index.html', "`/online-data/collection-status?${params.toString()}`", 'frontend refreshes collection status');
+requireText('public/index.html', "stale_running: '任务运行超时'", 'frontend labels stale running collection tasks');
 requireText('public/index.html', "'session_expired', 'login_expired', 'anti_bot', 'resource_busy_login', 'cookies_incomplete', 'capture_failed', 'permission_denied', 'hotel_mismatch'", 'frontend blocks collection on explicit Profile failure states');
 requireText('public/auto-fetch-static.js', "if (statusCode === 'cookies_incomplete') return 'Cookie incomplete';", 'auto-fetch UI labels cookies_incomplete');
 requireText('public/auto-fetch-static.js', "if (statusCode === 'anti_bot') return 'Anti bot';", 'auto-fetch UI labels anti_bot');

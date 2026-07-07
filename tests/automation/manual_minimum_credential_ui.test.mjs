@@ -189,7 +189,10 @@ test('Meituan ranking uses selected hotel config without exposing temporary fiel
   assert.doesNotMatch(meituanStatic, /仅展示美团榜单已返回字段；未返回字段保留缺失状态。/);
   assert.doesNotMatch(businessDisplayConcern, /仅展示美团榜单已返回字段；未返回字段保留缺失状态。/);
   assert.match(html, /v-if="meituanRankSourceNotice"/);
-  assert.match(html, /const meituanRankSourceNotice = computed\(\(\) => meituanBusinessSummary\.value\?\.source_notice \|\| ''\);/);
+  assert.match(html, /const resolveMeituanRankSourceNotice = requireMeituanStatic\('resolveMeituanRankSourceNotice'\);/);
+  assert.match(html, /const meituanRankSourceNotice = computed\(\(\) => resolveMeituanRankSourceNotice\(meituanBusinessSummary\.value\)\);/);
+  assert.match(meituanStatic, /const resolveMeituanRankSourceNotice = \(summary = \{\}\) => summary\?\.source_notice \|\| '';/);
+  assert.match(meituanStatic, /resolveMeituanRankSourceNotice,/);
   assert.match(meituanStatic, /sourceNotice = '',/);
   assert.doesNotMatch(rankingPanel, /v-model="meituanForm\.partnerId"/);
   assert.doesNotMatch(rankingPanel, /v-model="meituanForm\.poiId"/);
@@ -227,6 +230,10 @@ test('Meituan ranking reset state is owned by the static helper', () => {
     'const sortMeituanTable = (field) => {',
     '\n            const meituanTablePage'
   );
+  const changeMeituanTablePage = sliceFrom(
+    'const changeMeituanTablePage = (page) => {',
+    '\n            watch([ctripHotelsList'
+  );
   const meituanRankDisplayComputeds = sliceFrom(
     'const meituanDynamicSelfRankRow = computed(() =>',
     '\n            // 排序函数'
@@ -235,14 +242,32 @@ test('Meituan ranking reset state is owned by the static helper', () => {
   assert.match(meituanStatic, /const findMeituanDynamicSelfRankRow = \(rankedRows = \[\]\) => \{/);
   assert.match(meituanStatic, /const buildMeituanDisplayedHotelsList = \(rankedRows = \[\], sortField = 'roomNights', sortOrder = 'desc'\) => \{/);
   assert.match(meituanStatic, /const resolveMeituanSortState = \(currentField = 'roomNights', currentOrder = 'desc', nextField = ''\) => \{/);
+  assert.match(meituanStatic, /const resolveMeituanTablePage = \(page = 1, totalPages = 1\) => Math\.min\(/);
+  assert.match(meituanStatic, /const resolveMeituanRankSourceNotice = \(summary = \{\}\) => summary\?\.source_notice \|\| '';/);
+  assert.match(meituanStatic, /const buildMeituanRankInsightCards = \(summary = \{\}\) => \{/);
+  assert.match(meituanStatic, /const buildMeituanVisibleRankInsightCards = \(cards = \[\]\) => \(/);
+  assert.match(meituanStatic, /const buildMeituanRankHealthRows = \(summary = \{\}\) => \{/);
   assert.match(meituanStatic, /buildMeituanTopSummaryFallbackRows,/);
   assert.match(meituanStatic, /findMeituanDynamicSelfRankRow,/);
   assert.match(meituanStatic, /buildMeituanDisplayedHotelsList,/);
   assert.match(meituanStatic, /resolveMeituanSortState,/);
+  assert.match(meituanStatic, /resolveMeituanTablePage,/);
+  assert.match(meituanStatic, /resolveMeituanRankSourceNotice,/);
+  assert.match(meituanStatic, /buildMeituanRankInsightCards,/);
+  assert.match(meituanStatic, /buildMeituanVisibleRankInsightCards,/);
+  assert.match(meituanStatic, /buildMeituanRankHealthRows,/);
   assert.match(html, /requireMeituanStatic\('buildMeituanTopSummaryFallbackRows'\)/);
   assert.match(html, /requireMeituanStatic\('findMeituanDynamicSelfRankRow'\)/);
   assert.match(html, /requireMeituanStatic\('buildMeituanDisplayedHotelsList'\)/);
   assert.match(html, /requireMeituanStatic\('resolveMeituanSortState'\)/);
+  assert.match(html, /requireMeituanStatic\('resolveMeituanTablePage'\)/);
+  assert.match(html, /requireMeituanStatic\('resolveMeituanRankSourceNotice'\)/);
+  assert.match(html, /requireMeituanStatic\('buildMeituanRankInsightCards'\)/);
+  assert.match(html, /requireMeituanStatic\('buildMeituanVisibleRankInsightCards'\)/);
+  assert.match(html, /requireMeituanStatic\('buildMeituanRankHealthRows'\)/);
+  assert.match(html, /const meituanRankInsightCards = computed\(\(\) => buildMeituanRankInsightCards\(meituanBusinessSummary\.value\)\);/);
+  assert.match(html, /const meituanVisibleRankInsightCards = computed\(\(\) => buildMeituanVisibleRankInsightCards\(meituanRankInsightCards\.value\)\);/);
+  assert.match(html, /const meituanRankHealthRows = computed\(\(\) => buildMeituanRankHealthRows\(meituanBusinessSummary\.value\)\);/);
   assert.match(meituanTopSummaryRows, /return buildMeituanTopSummaryFallbackRows\(meituanRankedHotelsList\.value\);/);
   assert.doesNotMatch(meituanTopSummaryRows, /rankedRows\.slice\(0, 3\)\.map/);
   assert.match(meituanRankDisplayComputeds, /computed\(\(\) => findMeituanDynamicSelfRankRow\(meituanRankedHotelsList\.value\)\)/);
@@ -252,6 +277,8 @@ test('Meituan ranking reset state is owned by the static helper', () => {
   assert.match(sortMeituanTable, /meituanSortField\.value = nextSort\.field;/);
   assert.match(sortMeituanTable, /meituanSortOrder\.value = nextSort\.order;/);
   assert.doesNotMatch(sortMeituanTable, /meituanSortOrder\.value === 'asc' \? 'desc' : 'asc'/);
+  assert.match(changeMeituanTablePage, /meituanTablePage\.value = resolveMeituanTablePage\(page, meituanTablePagination\.value\.totalPages\);/);
+  assert.doesNotMatch(changeMeituanTablePage, /Math\.min\(Math\.max\(1, Number\(page\) \|\| 1\), meituanTablePagination\.value\.totalPages\)/);
   assert.doesNotMatch(html, /const meituanSortMetricValue = requireMeituanStatic\('meituanSortMetricValue'\);/);
   assert.match(meituanStatic, /const createEmptyMeituanBusinessSummary = \(\) => \(\{ status: 'empty', metrics: \{\}, cards: \[\] \}\);/);
   assert.match(meituanStatic, /const buildMeituanRankingFetchResetState = \(\) => \(\{/);
@@ -324,6 +351,27 @@ test('Meituan ranking reset state is owned by the static helper', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.resolveMeituanSortState('roomNights', 'asc', 'roomNights'))), { field: 'roomNights', order: 'desc' });
   assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.resolveMeituanSortState('roomNights', 'asc', 'sales'))), { field: 'sales', order: 'desc' });
   assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.resolveMeituanSortState('', '', ''))), { field: 'roomNights', order: 'desc' });
+  assert.equal(meituanStaticApi.resolveMeituanTablePage(0, 5), 1);
+  assert.equal(meituanStaticApi.resolveMeituanTablePage(3, 5), 3);
+  assert.equal(meituanStaticApi.resolveMeituanTablePage(8, 5), 5);
+  assert.equal(meituanStaticApi.resolveMeituanTablePage('x', 4), 1);
+  assert.equal(meituanStaticApi.resolveMeituanRankSourceNotice({ source_notice: 'source ok' }), 'source ok');
+  assert.equal(meituanStaticApi.resolveMeituanRankSourceNotice(null), '');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(meituanStaticApi.buildMeituanRankInsightCards({ rank_insights: [{ key: 'rank-health' }] }))),
+    [{ key: 'rank-health' }]
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.buildMeituanRankInsightCards({}))), []);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(meituanStaticApi.buildMeituanVisibleRankInsightCards([{ key: 'tag-metric-link' }, { key: 'rank-health' }]))),
+    [{ key: 'rank-health' }]
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.buildMeituanVisibleRankInsightCards(null))), []);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(meituanStaticApi.buildMeituanRankHealthRows({ rank_health_rows: [{ key: 'traffic', status: 'ok' }] }))),
+    [{ key: 'traffic', status: 'ok' }]
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.buildMeituanRankHealthRows({}))), []);
 });
 
 test('Meituan API login failures stay explicit across backend and manual fetch response', () => {

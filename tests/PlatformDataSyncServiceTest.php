@@ -324,6 +324,50 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('platform_identifier_only_no_cookie_no_token', $resources['platformIdentity']['privacy_boundary']);
     }
 
+    public function testEffectiveSyncTaskStatusMarksOldRunningTasksStale(): void
+    {
+        $freshTask = [
+            'status' => 'running',
+            'update_time' => date('Y-m-d H:i:s', time() - 120),
+        ];
+        $oldTask = [
+            'status' => 'running',
+            'update_time' => date('Y-m-d H:i:s', time() - 7200),
+        ];
+
+        self::assertFalse(PlatformDataSyncService::isStaleRunningSyncTask($freshTask));
+        self::assertSame('running', PlatformDataSyncService::effectiveSyncTaskStatus($freshTask));
+        self::assertTrue(PlatformDataSyncService::isStaleRunningSyncTask($oldTask));
+        self::assertSame('stale_running', PlatformDataSyncService::effectiveSyncTaskStatus($oldTask));
+        self::assertGreaterThanOrEqual(7200, PlatformDataSyncService::syncTaskAgeSeconds($oldTask));
+    }
+
+    public function testCatalogStatusKeepsStaleRunningTaskExplicit(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $collection = new \ReflectionMethod($service, 'catalogCollectionStatus');
+        $collection->setAccessible(true);
+        self::assertSame(
+            'stale_running',
+            $collection->invoke($service, 'bound', 'task_stale_running', 'stale_running', 'missing', false)
+        );
+
+        $etl = new \ReflectionMethod($service, 'catalogEtlStatus');
+        $etl->setAccessible(true);
+        self::assertSame('stale_running', $etl->invoke($service, [
+            'status' => 'running',
+            'update_time' => date('Y-m-d H:i:s', time() - 7200),
+        ], null, 0, 0));
+
+        $reason = new \ReflectionMethod($service, 'catalogMissingReason');
+        $reason->setAccessible(true);
+        self::assertSame(
+            'stale_running_task',
+            $reason->invoke($service, 'bound', 'task_stale_running', 'stale_running', 'stale_running', 'missing', '')
+        );
+    }
+
     public function testUnifiedResourceAliasesNormalizeIntoCanonicalDataTypes(): void
     {
         $service = new PlatformDataSyncService();

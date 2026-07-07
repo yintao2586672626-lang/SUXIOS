@@ -209,6 +209,7 @@ function checkReleasePackageScope() {
     '.env',
     '.env.*',
     'database/backups/',
+    '/storage/db_backups/',
     'hotelx_dump.sql',
     '*_dump.sql',
     '*_backup*.sql',
@@ -218,6 +219,8 @@ function checkReleasePackageScope() {
     'reports/meituan_capture_assets/',
     'reports/ctrip_browser_capture_*.json',
     'reports/meituan_browser_capture_*.json',
+    'reports/ctrip_capture_summary.json',
+    'reports/p0_traffic_*.json',
   ];
 
   const missing = requiredIgnores.filter((entry) => {

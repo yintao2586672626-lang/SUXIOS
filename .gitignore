@@ -29,6 +29,8 @@ reports/ctrip_capture_assets/
 reports/meituan_capture_assets/
 reports/ctrip_browser_capture_*.json
 reports/meituan_browser_capture_*.json
+reports/ctrip_capture_summary.json
+reports/p0_traffic_*.json
 docs/release_external_state_evidence.local.json
 
 # Git / IDE / OS
@@ -51,6 +53,7 @@ Desktop.ini
 
 # Sensitive database backup
 database/backups/
+/storage/db_backups/
 hotelx_dump.sql
 *_dump.sql
 *_backup*.sql

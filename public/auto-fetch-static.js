@@ -281,6 +281,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
     const platformTaskStatusClass = (status) => {
         if (status === 'success') return 'bg-emerald-50 text-emerald-700';
         if (status === 'failed') return 'bg-red-50 text-red-700';
+        if (status === 'stale_running') return 'bg-rose-50 text-rose-700';
         if (status === 'partial_success') return 'bg-amber-50 text-amber-700';
         return 'bg-blue-50 text-blue-700';
     };

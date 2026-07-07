@@ -81,6 +81,22 @@ window.SUXI_MEITUAN_STATIC = (() => {
         Number(totalPages) || 1,
     );
 
+    const resolveMeituanRankSourceNotice = (summary = {}) => summary?.source_notice || '';
+
+    const buildMeituanRankInsightCards = (summary = {}) => {
+        const cards = summary?.rank_insights;
+        return Array.isArray(cards) ? cards : [];
+    };
+
+    const buildMeituanVisibleRankInsightCards = (cards = []) => (
+        Array.isArray(cards) ? cards.filter(card => card?.key !== 'tag-metric-link') : []
+    );
+
+    const buildMeituanRankHealthRows = (summary = {}) => {
+        const rows = summary?.rank_health_rows;
+        return Array.isArray(rows) ? rows : [];
+    };
+
     const getOnlineDataMetricNumber = (item, keys) => {
         for (const key of keys) {
             const value = item?.[key];
@@ -2041,6 +2057,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanDisplayedHotelsList,
         resolveMeituanSortState,
         resolveMeituanTablePage,
+        resolveMeituanRankSourceNotice,
+        buildMeituanRankInsightCards,
+        buildMeituanVisibleRankInsightCards,
+        buildMeituanRankHealthRows,
         getOnlineDataMetricNumber,
         getMeituanExposureMetric,
         getMeituanClickMetric,

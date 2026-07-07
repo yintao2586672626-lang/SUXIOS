@@ -15,6 +15,8 @@ final class PlatformDataSyncService
 {
     private const RAW_RECORD_PAYLOAD_LIMIT_BYTES = 262144;
     private const COLLECTION_RESOURCE_FRESH_HOURS = 24;
+    private const STALE_RUNNING_TASK_SECONDS = 3600;
+    private const ACTIVE_SYNC_TASK_STATUSES = ['pending', 'queued', 'running', 'browser_opened', 'syncing_after_login'];
     private const COLLECTION_RESOURCE_DEFINITIONS = [
         [
             'resource' => 'businessData',
@@ -1088,7 +1090,16 @@ final class PlatformDataSyncService
         if (!empty($filters['status'])) {
             $query->where('status', (string)$filters['status']);
         }
-        return $query->limit(max(1, min(200, (int)($filters['limit'] ?? 50))))->select()->toArray();
+        $rows = $query->limit(max(1, min(200, (int)($filters['limit'] ?? 50))))->select()->toArray();
+        foreach ($rows as &$row) {
+            $effectiveStatus = self::effectiveSyncTaskStatus(is_array($row) ? $row : []);
+            $row['effective_status'] = $effectiveStatus;
+            $row['is_stale_running'] = $effectiveStatus === 'stale_running';
+            $row['stale_age_seconds'] = self::syncTaskAgeSeconds(is_array($row) ? $row : []);
+        }
+        unset($row);
+
+        return $rows;
     }
 
     public function listSyncLogs($user, array $filters = []): array
@@ -1269,8 +1280,13 @@ final class PlatformDataSyncService
         $lastStoredAt = is_array($latestStored) ? (string)($latestStored['last_stored_at'] ?? '') : '';
         $freshness = $this->catalogFreshness($lastStoredAt);
         $sourceStatus = (string)($latestSource['status'] ?? '');
-        $taskStatus = (string)($latestTask['status'] ?? '');
+        $rawTaskStatus = (string)($latestTask['status'] ?? '');
+        $taskStatus = self::effectiveSyncTaskStatus($latestTask);
+        $taskStale = self::isStaleRunningSyncTask($latestTask);
         $message = (string)($latestTask['message'] ?? $latestSource['last_error'] ?? '');
+        if ($taskStale && trim($message) === '') {
+            $message = 'stale_running_task';
+        }
 
         $bindingStatus = $matchingSources === [] ? 'unbound' : 'bound';
         $loginStatus = $this->catalogLoginStatus($sourceStatus, $taskStatus, $message, $matchingSources);
@@ -1299,6 +1315,9 @@ final class PlatformDataSyncService
             'latest_task' => $latestTask ? [
                 'id' => (int)($latestTask['id'] ?? 0),
                 'status' => $taskStatus,
+                'raw_status' => $rawTaskStatus,
+                'is_stale_running' => $taskStale,
+                'stale_age_seconds' => self::syncTaskAgeSeconds($latestTask),
                 'started_at' => (string)($latestTask['started_at'] ?? ''),
                 'finished_at' => (string)($latestTask['finished_at'] ?? ''),
                 'message' => $message,
@@ -1347,6 +1366,66 @@ final class PlatformDataSyncService
     }
 
     /**
+     * @param array<string, mixed>|null $task
+     */
+    public static function effectiveSyncTaskStatus(?array $task): string
+    {
+        $status = strtolower(trim((string)($task['status'] ?? '')));
+        if ($status === '') {
+            return '';
+        }
+
+        return self::isStaleRunningSyncTask($task) ? 'stale_running' : $status;
+    }
+
+    /**
+     * @param array<string, mixed>|null $task
+     */
+    public static function isStaleRunningSyncTask(?array $task, int $staleSeconds = self::STALE_RUNNING_TASK_SECONDS): bool
+    {
+        if (empty($task)) {
+            return false;
+        }
+
+        $status = strtolower(trim((string)($task['status'] ?? '')));
+        if (!in_array($status, self::ACTIVE_SYNC_TASK_STATUSES, true)) {
+            return false;
+        }
+
+        $ageSeconds = self::syncTaskAgeSeconds($task);
+        return $ageSeconds !== null && $ageSeconds > max(60, $staleSeconds);
+    }
+
+    /**
+     * @param array<string, mixed>|null $task
+     */
+    public static function syncTaskAgeSeconds(?array $task): ?int
+    {
+        if (empty($task)) {
+            return null;
+        }
+
+        $timeText = trim((string)(
+            $task['update_time']
+            ?? $task['updated_at']
+            ?? $task['started_at']
+            ?? $task['create_time']
+            ?? $task['created_at']
+            ?? ''
+        ));
+        if ($timeText === '') {
+            return null;
+        }
+
+        $timestamp = strtotime($timeText);
+        if ($timestamp === false) {
+            return null;
+        }
+
+        return max(0, time() - $timestamp);
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $sources
      * @return array<string, mixed>|null
      */
@@ -1385,6 +1464,9 @@ final class PlatformDataSyncService
         if ($sources === []) {
             return 'unbound';
         }
+        if ($taskStatus === 'stale_running') {
+            return 'task_stale_running';
+        }
         if (str_contains($text, 'waiting_config')
             || str_contains($text, 'login_required')
             || str_contains($text, 'login expired')
@@ -1412,6 +1494,9 @@ final class PlatformDataSyncService
     {
         if ($bindingStatus === 'unbound') {
             return 'unbound';
+        }
+        if ($taskStatus === 'stale_running') {
+            return 'stale_running';
         }
         if (in_array($loginStatus, ['login_required', 'manual_intervention_required'], true)) {
             return $loginStatus;
@@ -1443,6 +1528,9 @@ final class PlatformDataSyncService
         if ($latestTask === null && $latestStored === null) {
             return 'not_started';
         }
+        if (self::isStaleRunningSyncTask($latestTask)) {
+            return 'stale_running';
+        }
         if ($latestTask !== null && (string)($latestTask['status'] ?? '') === 'running') {
             return 'pending';
         }
@@ -1468,6 +1556,9 @@ final class PlatformDataSyncService
     {
         if ($bindingStatus === 'unbound') {
             return 'data_source_not_bound';
+        }
+        if ($taskStatus === 'stale_running' || $loginStatus === 'task_stale_running' || $etlStatus === 'stale_running') {
+            return 'stale_running_task';
         }
         if ($loginStatus === 'login_required') {
             return 'profile_login_required';
