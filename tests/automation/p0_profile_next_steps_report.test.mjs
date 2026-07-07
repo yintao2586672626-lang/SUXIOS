@@ -341,7 +341,7 @@ test('P0 Profile next-step report does not inherit platform ready for unproved h
   const input = path.join(dir, 'verifier.json');
   try {
     writeFileSync(input, JSON.stringify({
-      status: 'incomplete',
+      status: 'passed',
       scope: { date: '2026-07-08' },
       platforms: [
         {
@@ -388,10 +388,22 @@ test('P0 Profile next-step report does not inherit platform ready for unproved h
     assert.equal(result.status, 0, result.stderr);
     const payload = JSON.parse(result.stdout);
     assert.equal(payload.platform_summaries[0].platform_ready, true);
+    assert.equal(payload.platform_summaries[0].hotel_scoped_ready, false);
+    assert.equal(payload.platform_summaries[0].hotel_step_count, 1);
+    assert.equal(payload.platform_summaries[0].hotel_step_ready_count, 0);
+    assert.equal(payload.platform_summaries[0].hotel_step_incomplete_count, 1);
+    assert(payload.platform_summaries[0].hotel_step_blocking_reason_codes.includes('target_date_rows_unproved'));
+    assert(payload.platform_summaries[0].hotel_step_blocking_reason_codes.includes('requires_p0_target_date_verifier'));
     assert.equal(payload.next_steps[0].platform_ready, false);
+    assert.equal(payload.next_steps[0].platform_gate_ready, true);
+    assert(payload.next_steps[0].blocking_reason_codes.includes('target_date_rows_unproved'));
     assert.equal(payload.next_steps[0].login_trigger_status, 'available');
     assert.equal(payload.next_steps[0].login_trigger_entry, '/api/online-data/profile-login-trigger/ctrip');
     assert.equal(payload.next_steps[0].after_login_sync_entry, '/api/online-data/data-sources/14/sync');
+    assert.equal(payload.completion_gate.current_status, 'incomplete_hotel_scoped_steps');
+    assert.equal(payload.downstream_gate.status, 'blocked_by_p0_ota_gate');
+    assert(payload.downstream_gate.blocking_missing_inputs.includes('ctrip_hotel_scoped_p0_steps_unproved'));
+    assert(payload.downstream_gate.blocking_missing_inputs.includes('target_date_rows_unproved'));
     assert.deepEqual(payload.operator_sequence.map(item => item.type), [
       'manual_login',
       'after_login_sync',

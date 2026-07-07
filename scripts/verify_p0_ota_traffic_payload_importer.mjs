@@ -1518,21 +1518,34 @@ for (const placeholder of placeholderEvidenceCases) {
 
 const browserProjectionCase = cases.find((item) => item.name === 'browser_capture_raw_metadata_projection_ready');
 if (browserProjectionCase) {
-  const importerResult = runImporterCase(browserProjectionCase);
-  const importerMarkdown = runImporterMarkdownCase(browserProjectionCase);
-  const verifierResult = runP0VerifierWithTrafficEvidence(importerResult, browserProjectionCase.platform);
-  const scopedVerifierResult = runP0VerifierWithTrafficEvidence(importerResult, browserProjectionCase.platform, systemHotelId);
-  const externalPlatform = verifierResult.external_traffic_evidence?.platforms?.[browserProjectionCase.platform] || {};
-  const scopedExternalPlatform = scopedVerifierResult.external_traffic_evidence?.platforms?.[browserProjectionCase.platform] || {};
-  check('browser_projection_external_evidence_contract', 'P0 verifier keeps DB closure incomplete with projected browser evidence only', verifierResult.status === 'incomplete', JSON.stringify(verifierResult.summary || {}));
-  check('browser_projection_external_evidence_contract', 'P0 verifier accepts projected browser importer evidence as valid external evidence', externalPlatform.status === 'valid', JSON.stringify(externalPlatform));
-  check('browser_projection_external_evidence_contract', 'P0 verifier accepts matching scoped projected browser evidence even when DB source scope is incomplete', scopedExternalPlatform.status === 'valid', JSON.stringify(scopedExternalPlatform));
-  check('browser_projection_external_evidence_contract', 'projected browser importer evidence includes platform hotel identity proof', Number(externalPlatform.platform_hotel_identifier_rows || 0) > 0 && (externalPlatform.platform_hotel_identifier_sources || []).includes('hotel_id_family'), JSON.stringify(externalPlatform));
-  check('browser_projection_external_evidence_contract', 'projected browser importer evidence keeps UI status ready', Number(externalPlatform.ui_status_ready_rows || 0) > 0 && (externalPlatform.ui_statuses || []).includes('ready'), JSON.stringify(externalPlatform));
-  check('browser_projection_external_evidence_contract', 'projected browser importer evidence does not expose raw URLs', !JSON.stringify(importerResult.traffic_evidence || []).includes('https://'), JSON.stringify(importerResult.traffic_evidence || []));
-  check('browser_projection_external_evidence_contract', 'projected browser importer evidence is not marked sensitive by P0 verifier', externalPlatform.sensitive_values_exposed === false, JSON.stringify(externalPlatform));
-  check('browser_projection_external_evidence_contract', 'importer markdown keeps traffic evidence non-completion policy visible', importerMarkdown.includes('traffic evidence contract') && importerMarkdown.includes('traffic evidence completion policy') && importerMarkdown.includes('P0 closure still requires --execute import plus verify:p0-ota-field-loop target-date traffic rows'), importerMarkdown);
-  check('browser_projection_external_evidence_contract', 'importer markdown keeps final completion policy and verifier command visible', importerMarkdown.includes('completion policy') && importerMarkdown.includes('next verifier command') && importerMarkdown.includes('Import is only accepted as P0 closure after verify:p0-ota-field-loop proves target-date traffic rows and traffic field facts.'), importerMarkdown);
+  const browserProjectionDate = runtimeExecuteDate;
+  const isolatedBrowserProjectionCase = JSON.parse(JSON.stringify(browserProjectionCase));
+  isolatedBrowserProjectionCase.payload.default_data_date = browserProjectionDate;
+  isolatedBrowserProjectionCase.payload.traffic = (isolatedBrowserProjectionCase.payload.traffic || []).map((row) => ({
+    ...row,
+    date: browserProjectionDate,
+  }));
+
+  cleanupP0RuntimeRows(isolatedBrowserProjectionCase.platform, browserProjectionDate, '');
+  try {
+    const importerResult = runImporterCase(isolatedBrowserProjectionCase, browserProjectionDate, systemHotelId);
+    const importerMarkdown = runImporterMarkdownCase(isolatedBrowserProjectionCase, browserProjectionDate, systemHotelId);
+    const verifierResult = runP0VerifierWithTrafficEvidence(importerResult, isolatedBrowserProjectionCase.platform, '', browserProjectionDate);
+    const scopedVerifierResult = runP0VerifierWithTrafficEvidence(importerResult, isolatedBrowserProjectionCase.platform, systemHotelId, browserProjectionDate);
+    const externalPlatform = verifierResult.external_traffic_evidence?.platforms?.[isolatedBrowserProjectionCase.platform] || {};
+    const scopedExternalPlatform = scopedVerifierResult.external_traffic_evidence?.platforms?.[isolatedBrowserProjectionCase.platform] || {};
+    check('browser_projection_external_evidence_contract', 'P0 verifier keeps DB closure incomplete with projected browser evidence only', verifierResult.status === 'incomplete', JSON.stringify(verifierResult.summary || {}));
+    check('browser_projection_external_evidence_contract', 'P0 verifier accepts projected browser importer evidence as valid external evidence', externalPlatform.status === 'valid', JSON.stringify(externalPlatform));
+    check('browser_projection_external_evidence_contract', 'P0 verifier accepts matching scoped projected browser evidence even when DB source scope is incomplete', scopedExternalPlatform.status === 'valid', JSON.stringify(scopedExternalPlatform));
+    check('browser_projection_external_evidence_contract', 'projected browser importer evidence includes platform hotel identity proof', Number(externalPlatform.platform_hotel_identifier_rows || 0) > 0 && (externalPlatform.platform_hotel_identifier_sources || []).includes('hotel_id_family'), JSON.stringify(externalPlatform));
+    check('browser_projection_external_evidence_contract', 'projected browser importer evidence keeps UI status ready', Number(externalPlatform.ui_status_ready_rows || 0) > 0 && (externalPlatform.ui_statuses || []).includes('ready'), JSON.stringify(externalPlatform));
+    check('browser_projection_external_evidence_contract', 'projected browser importer evidence does not expose raw URLs', !JSON.stringify(importerResult.traffic_evidence || []).includes('https://'), JSON.stringify(importerResult.traffic_evidence || []));
+    check('browser_projection_external_evidence_contract', 'projected browser importer evidence is not marked sensitive by P0 verifier', externalPlatform.sensitive_values_exposed === false, JSON.stringify(externalPlatform));
+    check('browser_projection_external_evidence_contract', 'importer markdown keeps traffic evidence non-completion policy visible', importerMarkdown.includes('traffic evidence contract') && importerMarkdown.includes('traffic evidence completion policy') && importerMarkdown.includes('P0 closure still requires --execute import plus verify:p0-ota-field-loop target-date traffic rows'), importerMarkdown);
+    check('browser_projection_external_evidence_contract', 'importer markdown keeps final completion policy and verifier command visible', importerMarkdown.includes('completion policy') && importerMarkdown.includes('next verifier command') && importerMarkdown.includes('Import is only accepted as P0 closure after verify:p0-ota-field-loop proves target-date traffic rows and traffic field facts.'), importerMarkdown);
+  } finally {
+    cleanupP0RuntimeRows(isolatedBrowserProjectionCase.platform, browserProjectionDate, '');
+  }
 }
 
 const importerSource = readFileSync(importer, 'utf8');
@@ -1670,6 +1683,7 @@ for (const executeCase of runtimeExecuteCases) {
     const trafficClosure = trafficAvailability.traffic_field_fact_closure || {};
     check('runtime_execute_contract', `${executeCase.name} P0 verifier marks the ingested target-date traffic gate ready`, trafficGate.status === 'ready' && Number(verifierResult.summary?.traffic_gates_ready || 0) === 1, JSON.stringify({ status: verifierResult.status, summary: verifierResult.summary || {}, trafficGate, issues: verifierResult.issues || [] }));
     check('runtime_execute_contract', `${executeCase.name} P0 verifier counts scoped traffic rows`, Number(trafficGate.traffic_rows || 0) > 0 && Number(trafficAvailability.target_date?.traffic_rows || 0) > 0, JSON.stringify({ trafficGate, trafficAvailability }));
+    check('runtime_execute_contract', `${executeCase.name} P0 verifier uses stored target-date rows as gate source`, trafficGate.traffic_row_source === 'stored_target_date_rows' && Number(trafficGate.traffic_rows || 0) === Number(trafficGate.stored_target_date_traffic_rows || 0), JSON.stringify({ trafficGate, trafficAvailability }));
     check('runtime_execute_contract', `${executeCase.name} P0 verifier closes every required metric key`, trafficClosure.status === 'ready' && requiredP0TrafficMetricKeys.every((key) => (trafficClosure.complete_metric_keys || []).includes(key)), JSON.stringify(trafficClosure));
     check('runtime_execute_contract', `${executeCase.name} P0 verifier keeps platform hotel identity ready`, trafficGate.platform_hotel_identifier_status === 'ready' && Number(trafficGate.platform_hotel_identifier_rows || 0) > 0, JSON.stringify(trafficGate));
   } finally {
@@ -1683,6 +1697,10 @@ for (const executeCase of runtimeExecuteCases) {
   check('runtime_execute_cleanup_contract', `${executeCase.name} cleanup removes synthetic target-date traffic rows`, cleanupTrafficGate.status === 'missing_target_date_traffic_rows' && Number(cleanupTrafficGate.traffic_rows || 0) === 0 && Number(cleanupTrafficAvailability.target_date?.traffic_rows || 0) === 0, JSON.stringify({
     status: cleanupVerifierResult.status,
     summary: cleanupVerifierResult.summary || {},
+    trafficGate: cleanupTrafficGate,
+    trafficAvailability: cleanupTrafficAvailability,
+  }));
+  check('runtime_execute_cleanup_contract', `${executeCase.name} cleanup keeps P0 gate row source on stored target-date rows`, cleanupTrafficGate.traffic_row_source === 'stored_target_date_rows' && Number(cleanupTrafficGate.traffic_rows || 0) === Number(cleanupTrafficGate.stored_target_date_traffic_rows || 0), JSON.stringify({
     trafficGate: cleanupTrafficGate,
     trafficAvailability: cleanupTrafficAvailability,
   }));
@@ -1720,7 +1738,7 @@ function trafficRow({ hotelId = '', poiId = '', storeId = '', date: rowDate = ''
   };
 }
 
-function runImporterCase(item) {
+function runImporterCase(item, importDate = date, scopedSystemHotelId = systemHotelId) {
   const dir = mkdtempSync(path.join(tmpdir(), 'p0-ota-importer-'));
   const payloadPath = path.join(dir, `${item.name}.json`);
   try {
@@ -1728,8 +1746,8 @@ function runImporterCase(item) {
     const child = spawnSync(phpBinary, [
       importer,
       `--platform=${item.platform}`,
-      `--date=${date}`,
-      `--system-hotel-id=${systemHotelId}`,
+      `--date=${importDate}`,
+      `--system-hotel-id=${scopedSystemHotelId}`,
       `--payload=${payloadPath}`,
       '--format=json',
     ], {
@@ -1750,7 +1768,7 @@ function runImporterCase(item) {
   }
 }
 
-function runImporterMarkdownCase(item) {
+function runImporterMarkdownCase(item, importDate = date, scopedSystemHotelId = systemHotelId) {
   const dir = mkdtempSync(path.join(tmpdir(), 'p0-ota-importer-markdown-'));
   const payloadPath = path.join(dir, `${item.name}.json`);
   try {
@@ -1758,8 +1776,8 @@ function runImporterMarkdownCase(item) {
     const child = spawnSync(phpBinary, [
       importer,
       `--platform=${item.platform}`,
-      `--date=${date}`,
-      `--system-hotel-id=${systemHotelId}`,
+      `--date=${importDate}`,
+      `--system-hotel-id=${scopedSystemHotelId}`,
       `--payload=${payloadPath}`,
       '--format=markdown',
     ], {
@@ -1807,7 +1825,7 @@ function runImporterExecuteCase(item, executeDate, scopedSystemHotelId) {
   }
 }
 
-function runP0VerifierWithTrafficEvidence(importerResult, platform, scopedSystemHotelId = '') {
+function runP0VerifierWithTrafficEvidence(importerResult, platform, scopedSystemHotelId = '', verifierDate = date) {
   const dir = mkdtempSync(path.join(tmpdir(), 'p0-ota-evidence-'));
   const evidencePath = path.join(dir, 'traffic-evidence.json');
   try {
@@ -1815,7 +1833,7 @@ function runP0VerifierWithTrafficEvidence(importerResult, platform, scopedSystem
     const args = [
       p0Verifier,
       `--platform=${platform}`,
-      `--date=${date}`,
+      `--date=${verifierDate}`,
       `--traffic-evidence=${evidencePath}`,
       '--format=json',
     ];
@@ -1874,7 +1892,7 @@ function cleanupP0RuntimeRows(platform, cleanupDate, scopedSystemHotelId) {
         ->where('source', ${source})
         ->where('data_date', ${dataDate})
         ->whereIn('data_type', ['traffic', 'flow', 'conversion']);
-    if (isset($columns['system_hotel_id'])) {
+    if (isset($columns['system_hotel_id']) && ${systemId} > 0) {
         $query->where('system_hotel_id', ${systemId});
     }
     $deleted = $query->delete();

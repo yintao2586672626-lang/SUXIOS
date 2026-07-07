@@ -125,6 +125,37 @@ function isStepReady(step, platformReady) {
   return true;
 }
 
+function stepBlockingReasonCodes(step, options = {}) {
+  if (options.stepReady === true) {
+    return [];
+  }
+
+  const codes = [];
+  const platformGateStatus = String(options.platformGateStatus || '').trim();
+  if (platformGateStatus && !isReadyStatus(platformGateStatus)) {
+    codes.push(platformGateStatus);
+  }
+  if (step?.manual_login_state_verified !== true) {
+    codes.push('manual_login_state_verified');
+  }
+
+  const latestSyncTask = step?.latest_sync_task && typeof step.latest_sync_task === 'object'
+    ? step.latest_sync_task
+    : {};
+  if (latestSyncTask.target_date_rows_proved === false) {
+    codes.push('target_date_rows_unproved');
+  }
+  const latestTaskDiagnosis = String(latestSyncTask.diagnosis || latestSyncTask.message_code || '').trim().toLowerCase();
+  if (latestTaskDiagnosis.includes('requires_p0_target_date_verifier')) {
+    codes.push('requires_p0_target_date_verifier');
+  }
+
+  if (codes.length === 0) {
+    codes.push('hotel_scoped_p0_step_unproved');
+  }
+  return Array.from(new Set(codes));
+}
+
 function compactStep(platform, step, options = {}) {
   const operatorSkipActive = options.operatorSkipActive === true;
   const platformReady = options.platformReady === true;
@@ -151,8 +182,13 @@ function compactStep(platform, step, options = {}) {
     verifier_command: step?.p0_verifier_command ?? '',
     operator_skip_active: operatorSkipActive,
     platform_ready: platformReady,
+    platform_gate_ready: options.platformGateReady === true,
     platform_gate_status: options.platformGateStatus || '',
     platform_action_status: options.platformActionStatus || '',
+    blocking_reason_codes: stepBlockingReasonCodes(step, {
+      stepReady: platformReady,
+      platformGateStatus: options.platformGateStatus || '',
+    }),
   };
 }
 
@@ -172,12 +208,16 @@ function buildReport(verifier) {
     const steps = asArray(gate.hotel_scoped_next_steps).map((step) => compactStep(platform, step, {
       operatorSkipActive,
       platformReady: isStepReady(step, platformReady),
+      platformGateReady: platformReady,
       platformGateStatus: gate.status || '',
       platformActionStatus: gate.action_status || '',
     }));
     const derivedManualLoginCount = steps.filter((step) => step.manual_login_state_verified).length;
     const derivedLoginTriggerCount = steps.filter((step) => step.login_trigger_entry).length;
     const derivedAfterLoginSyncCount = steps.filter((step) => step.after_login_sync_entry).length;
+    const hotelStepReadyCount = steps.filter((step) => step.platform_ready).length;
+    const hotelStepIncompleteCount = steps.filter((step) => !step.platform_ready && !step.operator_skip_active).length;
+    const hotelStepBlockingReasonCodes = Array.from(new Set(steps.flatMap((step) => asArray(step.blocking_reason_codes))));
     rows.push(...steps);
     return {
       platform,
@@ -187,6 +227,11 @@ function buildReport(verifier) {
       action_status: operatorSkipActive ? 'skipped_by_operator_no_capture' : (gate.action_status || ''),
       p0_traffic_gate_status: gate.status || '',
       platform_ready: platformReady,
+      hotel_scoped_ready: platformReady && hotelStepIncompleteCount === 0,
+      hotel_step_count: steps.length,
+      hotel_step_ready_count: hotelStepReadyCount,
+      hotel_step_incomplete_count: hotelStepIncompleteCount,
+      hotel_step_blocking_reason_codes: hotelStepBlockingReasonCodes,
       missing_inputs: asArray(gate.action_missing_inputs),
       next_step_count: Number(gate.p0_next_step_count || steps.length),
       manual_login_state_verified_count: Math.max(
@@ -205,12 +250,15 @@ function buildReport(verifier) {
       ),
     };
   });
+  const hotelScopedReady = platformSummaries.every((item) => item.hotel_scoped_ready);
+  const operatorSkipped = platformSummaries.some((item) => item.operator_skip_active);
+  const reportReady = p0VerifierReady(payload.status) && hotelScopedReady && !operatorSkipped;
   const completionGate = {
     command: targetDate
       ? `npm.cmd run verify:p0-ota-field-loop -- --date=${targetDate}`
       : 'npm.cmd run verify:p0-ota-field-loop -- --date=<target-date>',
     required_status: 'ready',
-    current_status: payload.status || '',
+    current_status: reportReady ? (payload.status || '') : (p0VerifierReady(payload.status) ? 'incomplete_hotel_scoped_steps' : (payload.status || '')),
     boundary: 'Completion requires target-date OTA rows and P0 field-loop evidence; this report is not completion proof.',
   };
 
@@ -342,12 +390,16 @@ function p0VerifierReady(status) {
 
 function buildDownstreamGate(payload, completionGate, platformSummaries = []) {
   const status = String(payload?.status || '');
-  const isReady = p0VerifierReady(status);
   const blockingMissingInputs = new Set();
   const operatorSkipped = asArray(platformSummaries)
     .filter((item) => item?.operator_skip_active === true)
     .map((item) => String(item.platform || '').trim())
     .filter(Boolean);
+  const hotelScopedIncomplete = asArray(platformSummaries)
+    .filter((item) => Number(item?.hotel_step_incomplete_count || 0) > 0);
+  const isReady = p0VerifierReady(status)
+    && operatorSkipped.length === 0
+    && hotelScopedIncomplete.length === 0;
   const stageDefinitions = [
     ['revenue_analysis', '收益分析'],
     ['ai_decision_advice', 'AI 决策建议'],
@@ -377,6 +429,13 @@ function buildDownstreamGate(payload, completionGate, platformSummaries = []) {
   }
   if (operatorSkipped.length > 0) {
     blockingMissingInputs.add('p0_skipped_by_operator');
+  }
+  for (const item of hotelScopedIncomplete) {
+    const platform = String(item.platform || '').trim();
+    blockingMissingInputs.add(platform ? `${platform}_hotel_scoped_p0_steps_unproved` : 'hotel_scoped_p0_steps_unproved');
+    for (const code of asArray(item.hotel_step_blocking_reason_codes)) {
+      if (code) blockingMissingInputs.add(String(code));
+    }
   }
 
   return {
