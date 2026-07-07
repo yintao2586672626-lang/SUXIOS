@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-06",
+  "updated_at": "2026-07-07",
   "scope": [
     "@github",
     "@openai-developers",
@@ -10,17 +10,46 @@
   ],
   "overall_status": "not_release_ready",
   "current_pr": {
-    "number": 2,
-    "status": "merged_stale",
+    "number": null,
+    "status": "not_selected",
     "checks": "green_on_historical_head; not sufficient for final release handoff",
-    "source_of_truth": "npm run review:release-external-state on 2026-07-06 showed PR #2 is MERGED; set RELEASE_PR_NUMBER to the actual final open release PR before handoff"
+    "source_of_truth": "Current npm run review:release-pr-candidates on 2026-07-07T00:36:42+08:00 ran gh pr list for base main and found no open PR candidates; docs/release_github_handoff_evidence.json was rechecked through the GitHub connector at 2026-07-07T00:32:42+08:00 and also reports no open PRs, but remains diagnostic-only and does not replace the current gh result; npm run review:release-external-state requires RELEASE_PR_NUMBER instead of falling back to merged PR #2",
+    "pr_candidate_review": {
+      "command": "npm run review:release-pr-candidates",
+      "result_file": "../release-evidence-temp/release-pr-candidates-current-result.json",
+      "status": "failed",
+      "gh_pr_list_checked_at": "2026-07-07T00:36:42+08:00",
+      "gh_pr_list_open_pr_count": 0,
+      "source_of_truth_for_current_pr_candidates": true,
+      "connector_diagnostic": {
+        "path": "docs/release_github_handoff_evidence.json",
+        "checked_at": "2026-07-07T00:32:42+08:00",
+        "current_gh_pr_list_checked_at": "2026-07-07T00:36:42+08:00",
+        "is_stale_for_current_review": false,
+        "does_not_close_release_readiness": true
+      }
+    },
+    "connector_evidence": {
+      "path": "docs/release_github_handoff_evidence.json",
+      "tool": "mcp__codex_apps__github._get_users_recent_prs_in_repo",
+      "state": "open",
+      "result": "blocked",
+      "pull_requests_count": 0,
+      "checked_at": "2026-07-07T00:32:42+08:00",
+      "does_not_close_release_readiness": true
+    }
   },
   "release_readiness_check": {
     "command": "npm run review:release-readiness",
     "status": "failing_as_expected",
+    "result_mode": "final",
+    "final_release_ready": false,
+    "default_evidence_dir": "../release-evidence-temp",
     "open_failures": [
-      "docs/design_handoff_manifest.json not provided with real Figma, Canva, Brand Kit, design token, and flow coverage",
-      "OTA credential rotation attestation not provided through OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE or docs/ota_credential_rotation_attestation.json"
+      "controlled design handoff manifest not provided with real Figma, Canva, Brand Kit, design token, and flow coverage",
+      "OTA credential rotation attestation not provided through controlled evidence or OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE",
+      "current gh pr list found no open final release PR candidate for base main through npm run review:release-pr-candidates",
+      "release external-state result under controlled evidence has not passed for the final open PR and clean local worktree"
     ],
     "warnings": [
       "verify git ls-files database/backups outside the script",
@@ -58,8 +87,8 @@
       ],
       "status": "open",
       "title": "Real Figma / Canva / design-token handoff is missing",
-      "evidence": "no real docs/design_handoff_manifest.json, Figma/Canva source, or design-token artifact is present",
-      "close_condition": "provide accessible Figma, Canva, Brand Kit, design_tokens_path, required flow coverage, YYYY-MM-DD review date, empty open_issues, and pass npm run review:release-design"
+      "evidence": "no real controlled design handoff manifest is present under ../release-evidence-temp, DESIGN_HANDOFF_MANIFEST_FILE, or docs/design_handoff_manifest.json; 2026-07-07 read-only Figma and Canva connector checks were blocked by reauthentication requirements",
+      "close_condition": "reauthenticate Figma and Canva connectors or provide independently controlled accessible source links, then provide Figma, Canva, Brand Kit, design_tokens_path, required flow coverage, non-future YYYY-MM-DD review date, empty open_issues, and pass npm run review:release-design"
     },
     {
       "id": "ota-credential-rotation-attestation-missing",
@@ -68,8 +97,8 @@
       ],
       "status": "open",
       "title": "OTA credential rotation attestation is missing",
-      "evidence": "docs/ota_credential_rotation_attestation.json is missing and OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE is not set",
-      "close_condition": "provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, release-readiness rerun, redaction_checked=true, and pass review:release-ota-credentials"
+      "evidence": "controlled OTA credential rotation attestation is missing under ../release-evidence-temp, OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE, and docs/ota_credential_rotation_attestation.json",
+      "close_condition": "provide a credential-free attestation covering Ctrip and Meituan platform rotation, backup cleanup, git tracking check, release-readiness rerun, reviewed_at inside the 30-day release evidence window, redaction_checked=true, and pass review:release-ota-credentials"
     },
     {
       "id": "codex-security-scan-missing",
@@ -88,8 +117,8 @@
       ],
       "status": "open",
       "title": "PR handoff state is not closed",
-      "evidence": "Current review:release-external-state shows PR #2 is MERGED, mergeable is UNKNOWN, and the local worktree is dirty; .git/index.lock is absent and database/backups has no tracked files",
-      "close_condition": "after release-readiness passes, set RELEASE_PR_NUMBER to the actual open non-draft final release PR, keep the local worktree clean, and pass review:release-external-state on the final head"
+      "evidence": "Current review:release-pr-candidates ran gh pr list on 2026-07-07T00:36:42+08:00 and found no open PR candidates for base main; docs/release_github_handoff_evidence.json was rechecked through the GitHub connector at 2026-07-07T00:32:42+08:00 and also reports no open PRs, but does not close PR state. Current review:release-staged-scope has no forbidden staged files but does not close clean-worktree or PR handoff; current review:release-external-state requires RELEASE_PR_NUMBER and shows the local worktree is dirty. .git/index.lock is absent and database/backups has no tracked files. Previous PR #2 is merged/stale and must not be reused.",
+      "close_condition": "after design and OTA evidence pass their isolated gates, create or select the actual open non-draft final release PR, pass review:release-pr-candidates, set RELEASE_PR_NUMBER, pass review:release-staged-scope for the final staged bundle, keep the local worktree clean, pass review:release-external-state from a checkout whose local HEAD matches the final PR head, and rerun review:release-readiness while it consumes the passing staged-scope and external-state results from outside the repository"
     }
   ],
   "external_state_check": {
@@ -103,14 +132,39 @@
       "local external-state evidence can be collected with npm run collect:release-external-state when Node child_process is blocked"
     ],
     "open_failures": [
-      "configured PR #2 is already merged and cannot be marked ready from draft",
+      "RELEASE_PR_NUMBER is not set to an actual final open release PR",
       "local worktree is not clean",
-      "final open release PR has not been selected through RELEASE_PR_NUMBER"
+      "final open release PR has not been selected through RELEASE_PR_NUMBER",
+      "gh pr view was not run against a final PR because no release PR number is configured"
     ],
     "warnings": [
       "rerun after every PR update because GitHub state changes outside the repository",
       "if Node child_process is unavailable, run npm run collect:release-external-state and set RELEASE_EXTERNAL_STATE_FILE to the captured JSON evidence"
     ]
+  },
+  "pr_candidate_check": {
+    "command": "npm run review:release-pr-candidates",
+    "status": "failing_as_expected",
+    "result_file": "../release-evidence-temp/release-pr-candidates-current-result.json",
+    "open_failures": [
+      "no open release PR candidates found for base main from current gh pr list checked_at=2026-07-07T00:36:42+08:00",
+      "docs/release_github_handoff_evidence.json is non-closing diagnostic connector evidence and does not close PR state"
+    ],
+    "close_condition": "create or select an open, non-draft, mergeable final release PR with green checks; if multiple viable PRs exist, set RELEASE_PR_NUMBER and rerun review:release-pr-candidates so the result records configured_release_pr_number and selected_release_pr_number before running review:release-staged-scope and review:release-external-state from a checkout whose local HEAD matches that final PR head"
+  },
+  "staged_scope_check": {
+    "command": "npm run review:release-staged-scope",
+    "status": "passing_not_release_closure",
+    "result_file": "../release-evidence-temp/release-staged-scope-current-result.json",
+    "resolved": [
+      "current Git index has no staged runtime/local files",
+      "current Git index has no staged entries requiring explicit operator decision"
+    ],
+    "warnings": [
+      "this does not prove the local worktree is clean",
+      "this does not close the release external-state gate"
+    ],
+    "close_condition": "rerun on the final staged release PR bundle, keep runtime/local files out of the index, and let review:release-readiness consume the passing staged-scope result from outside the repository"
   },
   "plugin_status": [
     {
@@ -120,13 +174,17 @@
         "configured PR #2 has historical green checks but is no longer the final release PR",
         ".git/index.lock is absent",
         "database/backups has no git-tracked files",
-        "CI runs PHPUnit, guards, functional-readiness review, non-security review, release-status contracts, composer audit and npm audit",
-        "npm run collect:release-external-state can capture PR head, PR checks, merge state, and database/backups tracking evidence"
+        "current review:release-pr-candidates runs gh pr list and records gh_pr_list_checked_at as the PR candidate source of truth",
+        "docs/release_github_handoff_evidence.json records non-closing diagnostic connector evidence from 2026-07-07T00:32:42+08:00 and does not close PR state",
+        "CI runs PHPUnit, guards, functional-readiness review, release issue register review, release evidence intake behavior guard, release readiness behavior guard, non-security review, release-status contracts, composer audit and npm audit",
+        "npm run collect:release-external-state can capture local HEAD, PR head, PR checks, merge state, and database/backups tracking evidence"
       ],
       "open": [
         "PR #2 is already merged and stale for final handoff",
+        "no open final release PR candidate is currently available from gh pr list checked_at=2026-07-07T00:36:42+08:00",
+        "GitHub connector open_pr_count=0 from 2026-07-07T00:32:42+08:00 is diagnostic evidence only",
         "local worktree is dirty",
-        "the final open release PR must be selected with RELEASE_PR_NUMBER after release-readiness passes"
+        "the final open release PR must be selected with RELEASE_PR_NUMBER after design and OTA isolated gates pass, then external-state must pass before final release-readiness"
       ]
     },
     {
@@ -166,7 +224,8 @@
         "release_functional_acceptance_matrix.md ties Figma to code-side UI handoff coverage"
       ],
       "open": [
-        "no real Figma URL, exported design source, or design token artifact is present",
+        "Figma connector _get_libraries returned UNAUTHORIZED / reauthentication required on 2026-07-07, so the existing Figma URL could not be revalidated through the connector",
+        "no final controlled manifest proves real Figma source handoff, Canva source handoff, Brand Kit, and design token review together",
         "docs/design_handoff_manifest.json has not been created with real values"
       ]
     },
@@ -178,7 +237,8 @@
         "release_functional_acceptance_matrix.md ties Canva to the design handoff contract"
       ],
       "open": [
-        "no real Canva design URL, Brand Kit URL, or export artifact is present",
+        "Canva connector _list_brand_kits and _list_comments returned UNAUTHORIZED / oauth_token_invalid_grant on 2026-07-07",
+        "no real Brand Kit URL or connector-verified Brand Kit source is present",
         "release materials cannot be verified against a real Canva source"
       ]
     }
@@ -187,8 +247,8 @@
     "production env evidence remains available outside the repository and passes review:release-env plus review:release-readiness on the final head",
     "production LLM connectivity attestation remains available outside the repository and passes review:release-llm plus review:release-readiness on the final head",
     "real Figma/Canva/design-token handoff is present and passes review:release-design plus review:release-readiness",
-    "OTA credential rotation attestation is provided and passes review:release-ota-credentials plus review:release-readiness",
+    "Ctrip and Meituan OTA credential rotation attestation is provided and passes review:release-ota-credentials plus review:release-readiness",
     "formal Codex Security scan artifacts remain available on the final head and review:release-security-scan still passes",
-    "the configured final release PR is open, non-draft, mergeable, green, and local git state is clean or contains only reviewed intentional release-evidence changes"
+    "review:release-pr-candidates identifies the actual final open release PR, review:release-staged-scope passes for the final staged bundle, that configured final release PR is open, non-draft, mergeable, green, local git state is clean, local HEAD matches the final PR head, and review:release-readiness consumes passing staged-scope and external-state results from outside the repository"
   ]
 }

@@ -14,6 +14,9 @@ class RevenuePricingRecommendationService
     private const MIN_MATERIAL_CHANGE = 1.0;
     private const MIN_PRIMARY_SIGNAL_COUNT = 2;
     private const COMPETITOR_LOOKBACK_DAYS = 7;
+    private const CTRIP_TRAFFIC_HISTORY_DAYS = 14;
+    private const CTRIP_TRAFFIC_SOURCE_ALIASES = ['ctrip', 'ctrip_business', 'ctrip_manual_overview', 'ctrip_browser_profile'];
+    private const CTRIP_COMPETITOR_PLATFORM_VALUES = [CompetitorAnalysis::PLATFORM_CTRIP, '1', 'ctrip'];
 
     /** @var array<string, array<string, mixed>> */
     private array $hotelSignalCache = [];
@@ -716,6 +719,11 @@ class RevenuePricingRecommendationService
             ];
         }
 
+        $trafficForecast = $this->ctripTrafficDemandForecastSignal($hotelId, $targetDate);
+        if (($trafficForecast['data_status'] ?? '') === 'ok') {
+            return $trafficForecast;
+        }
+
         return [
             'data_status' => 'missing',
             'source' => 'demand_forecasts',
@@ -723,7 +731,149 @@ class RevenuePricingRecommendationService
             'predicted_occupancy' => null,
             'predicted_demand' => null,
             'confidence_score' => null,
-            'data_gaps' => ['demand_forecast_missing'],
+            'fallback_source' => $trafficForecast,
+            'data_gaps' => $this->uniqueStrings(array_merge(
+                ['demand_forecast_missing'],
+                (array)($trafficForecast['data_gaps'] ?? [])
+            )),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function ctripTrafficDemandForecastSignal(int $hotelId, string $targetDate): array
+    {
+        $endDate = $this->ctripTrafficForecastHistoryEndDate($targetDate);
+        $startDate = date('Y-m-d', strtotime($endDate . ' -' . (self::CTRIP_TRAFFIC_HISTORY_DAYS - 1) . ' days'));
+
+        try {
+            $rows = $this->ctripTrafficRows($hotelId, $startDate, $endDate);
+        } catch (\Throwable) {
+            return $this->ctripTrafficDemandForecastUnavailable(
+                $targetDate,
+                $startDate,
+                $endDate,
+                $hotelId,
+                'failed',
+                'ctrip_traffic_demand_history_read_failed'
+            );
+        }
+
+        return $this->buildCtripTrafficDemandForecastSignal(
+            $this->ctripTrafficDailySeries($rows),
+            $targetDate,
+            $startDate,
+            $endDate,
+            $hotelId,
+            self::CTRIP_TRAFFIC_HISTORY_DAYS
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $daily
+     * @return array<string, mixed>
+     */
+    public function buildCtripTrafficDemandForecastSignal(
+        array $daily,
+        string $targetDate,
+        string $startDate,
+        string $endDate,
+        ?int $hotelId = null,
+        int $historyDays = self::CTRIP_TRAFFIC_HISTORY_DAYS
+    ): array {
+        $primaryMetric = $this->ctripTrafficPrimaryMetric($daily);
+        if ($primaryMetric === '') {
+            return $this->ctripTrafficDemandForecastUnavailable(
+                $targetDate,
+                $startDate,
+                $endDate,
+                $hotelId,
+                'missing',
+                'no_positive_ctrip_traffic_metric_found'
+            );
+        }
+
+        $values = [];
+        foreach ($daily as $day) {
+            $value = $this->toFloat(($day['metrics'] ?? [])[$primaryMetric] ?? 0);
+            if ($value > 0) {
+                $values[] = $value;
+            }
+        }
+        $usableDays = count($values);
+        if ($usableDays < 3) {
+            return $this->ctripTrafficDemandForecastUnavailable(
+                $targetDate,
+                $startDate,
+                $endDate,
+                $hotelId,
+                'insufficient',
+                'ctrip_traffic_demand_history_lt_3_days',
+                [
+                    'primary_metric' => $primaryMetric,
+                    'usable_history_days' => $usableDays,
+                ]
+            );
+        }
+
+        $baselineAverage = $this->average($values);
+        $recentAverage = $this->average(array_slice($values, -min(3, $usableDays)));
+        $demandIndex = $baselineAverage > 0 ? 100.0 * $recentAverage / $baselineAverage : 100.0;
+        $trendDeltaPercent = $demandIndex - 100.0;
+        $trendDirection = 'flat';
+        if ($trendDeltaPercent >= 5.0) {
+            $trendDirection = 'rising';
+        } elseif ($trendDeltaPercent <= -5.0) {
+            $trendDirection = 'falling';
+        }
+
+        $variation = $baselineAverage > 0 ? $this->stddev($values) / $baselineAverage : 0.0;
+        $coverageScore = $this->clamp($usableDays / min(14, max(3, $historyDays)), 0.0, 1.0);
+        $stabilityPenalty = $this->clamp($variation * 0.18, 0.0, 0.2);
+        $confidence = $this->clamp(0.45 + ($coverageScore * 0.35) - $stabilityPenalty, 0.2, 0.9);
+        $trendScore = $this->clamp(50.0 + ($trendDeltaPercent / 2.0), 1.0, 100.0);
+
+        $sourceMetadata = [
+            'input_type' => 'ctrip_historical_traffic_trend',
+            'input_scope' => 'traffic_derived_demand_forecast',
+            'source_scope' => 'ctrip_ota_channel',
+            'target_workflow' => 'ctrip_revenue_ai_pricing_generation',
+            'evidence_status' => 'derived_from_online_daily_data',
+            'source_policy' => 'derived_trend_only_no_raw_rows_no_import',
+            'history_window' => [
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'history_days_requested' => $historyDays,
+                'usable_history_days' => $usableDays,
+            ],
+            'primary_metric' => $primaryMetric,
+            'trend_direction' => $trendDirection,
+            'trend_delta_percent' => round($trendDeltaPercent, 2),
+            'predicted_demand_index' => round($demandIndex, 2),
+            'trend_score_0_100' => round($trendScore, 2),
+            'field_semantics' => [
+                'predicted_occupancy' => 'traffic_trend_score_0_100_for_Ctrip_channel_demand_trend_not_whole_hotel_occupancy_50_means_history_baseline',
+                'predicted_demand' => 'Ctrip historical traffic demand index where 100 means history-window baseline',
+            ],
+            'auto_write_ota' => false,
+        ];
+
+        return [
+            'data_status' => 'ok',
+            'source' => 'ctrip_historical_traffic_trend',
+            'id' => 0,
+            'forecast_date' => $targetDate,
+            'predicted_occupancy' => round($trendScore, 2),
+            'predicted_demand' => round($demandIndex, 2),
+            'confidence_score' => round($confidence, 2),
+            'event_type' => 0,
+            'is_event_driven' => 0,
+            'trend_direction' => $trendDirection,
+            'trend_delta_percent' => round($trendDeltaPercent, 2),
+            'primary_metric' => $primaryMetric,
+            'source_metadata' => $sourceMetadata,
+            'data_gaps' => [],
         ];
     }
 
@@ -816,6 +966,7 @@ class RevenuePricingRecommendationService
         $startDate = date('Y-m-d', strtotime($targetDate . ' -' . self::COMPETITOR_LOOKBACK_DAYS . ' days'));
         $query = CompetitorAnalysis::where('hotel_id', $hotelId)
             ->whereBetween('analysis_date', [$startDate, $targetDate])
+            ->whereIn('ota_platform', self::CTRIP_COMPETITOR_PLATFORM_VALUES)
             ->order('analysis_date', 'desc')
             ->order('id', 'desc');
 
@@ -1118,6 +1269,184 @@ class RevenuePricingRecommendationService
             ->toArray();
     }
 
+    private function ctripTrafficForecastHistoryEndDate(string $targetDate): string
+    {
+        $targetTimestamp = strtotime($targetDate);
+        if ($targetTimestamp === false) {
+            $targetTimestamp = time();
+        }
+        $targetPreviousDate = date('Y-m-d', strtotime(date('Y-m-d', $targetTimestamp) . ' -1 day'));
+        $yesterday = date('Y-m-d', strtotime('yesterday'));
+
+        return min($targetPreviousDate, $yesterday);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function ctripTrafficRows(int $hotelId, string $startDate, string $endDate): array
+    {
+        if (!$this->tableExists('online_daily_data')) {
+            return [];
+        }
+        $columns = $this->tableColumns('online_daily_data');
+        if (!isset($columns['source']) || !isset($columns['data_date'])) {
+            return [];
+        }
+        $hotelColumn = isset($columns['system_hotel_id']) ? 'system_hotel_id' : (isset($columns['hotel_id']) ? 'hotel_id' : '');
+        if ($hotelColumn === '') {
+            return [];
+        }
+
+        $fields = array_values(array_intersect([
+            'id',
+            'system_hotel_id',
+            'hotel_id',
+            'source',
+            'data_date',
+            'data_type',
+            'dimension',
+            'quantity',
+            'book_order_num',
+            'list_exposure',
+            'detail_exposure',
+            'order_filling_num',
+            'order_submit_num',
+            'raw_data',
+        ], array_keys($columns)));
+
+        $query = Db::name('online_daily_data')
+            ->field(implode(',', $fields))
+            ->whereIn('source', self::CTRIP_TRAFFIC_SOURCE_ALIASES)
+            ->whereBetween('data_date', [$startDate, $endDate])
+            ->where($hotelColumn, $hotelId);
+        if (isset($columns['data_type'])) {
+            $query->where(function ($q): void {
+                $q->whereIn('data_type', ['traffic', 'traffic_analysis', 'flow', 'flow_analysis'])
+                    ->whereOr('data_type', 'like', '%traffic%')
+                    ->whereOr('data_type', 'like', '%flow%');
+            });
+        }
+
+        return $query->order('data_date', 'asc')->order('id', 'asc')->limit(2000)->select()->toArray();
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function ctripTrafficDailySeries(array $rows): array
+    {
+        $daily = [];
+        foreach ($rows as $row) {
+            $date = (string)($row['data_date'] ?? '');
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+                continue;
+            }
+            $metrics = $this->ctripTrafficMetrics($row);
+            $trafficSignal = $metrics['list_exposure']
+                + $metrics['detail_exposure']
+                + $metrics['order_filling_num']
+                + $metrics['order_submit_num'];
+            if ($trafficSignal <= 0.0) {
+                continue;
+            }
+            if (!isset($daily[$date])) {
+                $daily[$date] = [
+                    'date' => $date,
+                    'row_count' => 0,
+                    'metrics' => [
+                        'list_exposure' => 0.0,
+                        'detail_exposure' => 0.0,
+                        'order_filling_num' => 0.0,
+                        'order_submit_num' => 0.0,
+                        'book_order_num' => 0.0,
+                        'room_nights' => 0.0,
+                    ],
+                ];
+            }
+            $daily[$date]['row_count']++;
+            foreach (array_keys($daily[$date]['metrics']) as $metric) {
+                $daily[$date]['metrics'][$metric] += $metrics[$metric] ?? 0.0;
+            }
+        }
+
+        return array_values($daily);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, float>
+     */
+    private function ctripTrafficMetrics(array $row): array
+    {
+        $raw = $this->decodeJsonObject($row['raw_data'] ?? null);
+        return [
+            'list_exposure' => max(0.0, (float)($this->rowNumber($row, ['list_exposure']) ?? $this->rawNumber($raw, ['listExposure', 'list_exposure', 'exposure']) ?? 0)),
+            'detail_exposure' => max(0.0, (float)($this->rowNumber($row, ['detail_exposure']) ?? $this->rawNumber($raw, ['detailExposure', 'detail_exposure', 'totalDetailNum', 'detailVisitors', 'qunarDetailVisitors']) ?? 0)),
+            'order_filling_num' => max(0.0, (float)($this->rowNumber($row, ['order_filling_num']) ?? $this->rawNumber($raw, ['orderFillingNum', 'order_filling_num', 'orderVisitors']) ?? 0)),
+            'order_submit_num' => max(0.0, (float)($this->rowNumber($row, ['order_submit_num']) ?? $this->rawNumber($raw, ['orderSubmitNum', 'order_submit_num', 'submitUsers']) ?? 0)),
+            'book_order_num' => max(0.0, (float)($this->rowNumber($row, ['book_order_num']) ?? $this->rawNumber($raw, ['bookOrderNum', 'book_order_num', 'orderCount', 'orders']) ?? 0)),
+            'room_nights' => max(0.0, (float)($this->rowNumber($row, ['quantity']) ?? $this->rawNumber($raw, ['roomNights', 'room_nights', 'quantity']) ?? 0)),
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $daily
+     */
+    private function ctripTrafficPrimaryMetric(array $daily): string
+    {
+        foreach (['order_submit_num', 'order_filling_num', 'detail_exposure', 'list_exposure'] as $metric) {
+            $sum = 0.0;
+            foreach ($daily as $day) {
+                $sum += $this->toFloat(($day['metrics'] ?? [])[$metric] ?? 0);
+            }
+            if ($sum > 0.0) {
+                return $metric;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $extra
+     * @return array<string, mixed>
+     */
+    private function ctripTrafficDemandForecastUnavailable(
+        string $targetDate,
+        string $startDate,
+        string $endDate,
+        ?int $hotelId,
+        string $status,
+        string $reason,
+        array $extra = []
+    ): array {
+        return array_merge([
+            'data_status' => $status,
+            'source' => 'ctrip_historical_traffic_trend',
+            'id' => 0,
+            'forecast_date' => $targetDate,
+            'predicted_occupancy' => null,
+            'predicted_demand' => null,
+            'confidence_score' => null,
+            'source_metadata' => [
+                'input_type' => 'ctrip_historical_traffic_trend',
+                'source_scope' => 'ctrip_ota_channel',
+                'source_policy' => 'derived_trend_only_no_raw_rows_no_import',
+                'history_window' => [
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'history_days_requested' => self::CTRIP_TRAFFIC_HISTORY_DAYS,
+                    'usable_history_days' => (int)($extra['usable_history_days'] ?? 0),
+                ],
+                'hotel_id' => $hotelId,
+                'auto_write_ota' => false,
+            ],
+            'data_gaps' => [$reason],
+        ], $extra);
+    }
+
     /**
      * @param array<int, array<string, mixed>> $rows
      * @return array<string, array<string, float>>
@@ -1394,6 +1723,139 @@ class RevenuePricingRecommendationService
         return array_keys($result);
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    private function decodeJsonObject(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        $text = trim((string)($value ?? ''));
+        if ($text === '') {
+            return [];
+        }
+        $text = preg_replace('/^\xEF\xBB\xBF/', '', $text) ?? $text;
+        $decoded = json_decode($text, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, string> $keys
+     */
+    private function rowNumber(array $row, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $row)) {
+                $number = $this->toNullableFloat($row[$key]);
+                if ($number !== null) {
+                    return $number;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<int, string> $keys
+     */
+    private function rawNumber(mixed $value, array $keys, int $depth = 0): ?float
+    {
+        if ($depth > 8 || !is_array($value)) {
+            return null;
+        }
+        $wanted = array_fill_keys(array_map('strtolower', $keys), true);
+        foreach ($value as $key => $child) {
+            $normalized = strtolower((string)$key);
+            if (isset($wanted[$normalized])) {
+                $number = $this->toNullableFloat($child);
+                if ($number !== null) {
+                    return $number;
+                }
+            }
+            if (is_array($child)) {
+                $number = $this->rawNumber($child, $keys, $depth + 1);
+                if ($number !== null) {
+                    return $number;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function tableExists(string $table): bool
+    {
+        if (!preg_match('/^[A-Za-z0-9_]+$/', $table)) {
+            return false;
+        }
+        try {
+            return !empty(Db::query("SHOW TABLES LIKE '" . addslashes($table) . "'"));
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function tableColumns(string $table): array
+    {
+        if (!preg_match('/^[A-Za-z0-9_]+$/', $table)) {
+            return [];
+        }
+        $columns = [];
+        try {
+            foreach (Db::query('SHOW COLUMNS FROM `' . str_replace('`', '``', $table) . '`') as $row) {
+                $field = (string)($row['Field'] ?? '');
+                if ($field !== '') {
+                    $columns[$field] = true;
+                }
+            }
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return $columns;
+    }
+
+    /**
+     * @param array<int, float> $values
+     */
+    private function average(array $values): float
+    {
+        if ($values === []) {
+            return 0.0;
+        }
+
+        return array_sum($values) / count($values);
+    }
+
+    /**
+     * @param array<int, float> $values
+     */
+    private function stddev(array $values): float
+    {
+        if (count($values) < 2) {
+            return 0.0;
+        }
+        $average = $this->average($values);
+        $sum = 0.0;
+        foreach ($values as $value) {
+            $sum += ($value - $average) ** 2;
+        }
+
+        return sqrt($sum / count($values));
+    }
+
+    private function clamp(float $value, float $min, float $max): float
+    {
+        return min($max, max($min, $value));
+    }
+
     private function toFloat(mixed $value): float
     {
         if ($value === null || $value === '') {
@@ -1411,6 +1873,13 @@ class RevenuePricingRecommendationService
         if ($value === null || $value === '') {
             return null;
         }
-        return is_numeric($value) ? (float)$value : null;
+        if (is_int($value) || is_float($value)) {
+            return is_finite((float)$value) ? (float)$value : null;
+        }
+        $text = str_replace([',', '%'], '', trim((string)$value));
+        if ($text === '') {
+            return null;
+        }
+        return is_numeric($text) ? (float)$text : null;
     }
 }

@@ -124,14 +124,12 @@ function ctrip_pricing_pipeline_generation_source_metadata(array $generation): a
     $competitorMetadataRows = ctrip_pricing_pipeline_list($sourceMetadata['competitor'] ?? []);
     $competitorMetadata = ctrip_pricing_pipeline_map($competitorMetadataRows[0] ?? []);
 
-    $required = [
-        'inventory' => [$inventoryMetadata, 'manual_ctrip_room_type_pricing_guard'],
-        'demand_forecast' => [$demandMetadata, 'manual_demand_forecast'],
-        'competitor' => [$competitorMetadata, 'manual_ctrip_competitor_price_sample'],
-    ];
     $ready = $sourceMetadata !== [];
     $details = [];
-    foreach ($required as $key => [$metadata, $inputType]) {
+    foreach ([
+        'inventory' => [$inventoryMetadata, 'manual_ctrip_room_type_pricing_guard'],
+        'competitor' => [$competitorMetadata, 'manual_ctrip_competitor_price_sample'],
+    ] as $key => [$metadata, $inputType]) {
         $operatorEvidence = ctrip_pricing_pipeline_map($metadata['operator_input_evidence'] ?? []);
         $rowSourceNote = trim((string)($metadata['operator_row_source_note'] ?? ''));
         $ok = (string)($metadata['input_type'] ?? '') === $inputType
@@ -146,6 +144,29 @@ function ctrip_pricing_pipeline_generation_source_metadata(array $generation): a
             'operator_row_source_note_present' => $rowSourceNote !== '',
         ];
     }
+    $demandInputType = (string)($demandMetadata['input_type'] ?? '');
+    $demandOperatorEvidence = ctrip_pricing_pipeline_map($demandMetadata['operator_input_evidence'] ?? []);
+    $demandRowSourceNote = trim((string)($demandMetadata['operator_row_source_note'] ?? ''));
+    $demandOk = false;
+    if ($demandInputType === 'manual_demand_forecast') {
+        $demandOk = (string)($demandMetadata['source_scope'] ?? '') === 'ctrip_ota_channel'
+            && $demandOperatorEvidence !== []
+            && $demandRowSourceNote !== '';
+    } elseif ($demandInputType === 'ctrip_historical_traffic_trend') {
+        $demandOk = (string)($demandMetadata['source_scope'] ?? '') === 'ctrip_ota_channel'
+            && (string)($demandMetadata['source_policy'] ?? '') === 'derived_trend_only_no_raw_rows_no_import'
+            && ($demandMetadata['auto_write_ota'] ?? true) === false
+            && str_contains((string)(ctrip_pricing_pipeline_map($demandMetadata['field_semantics'] ?? [])['predicted_occupancy'] ?? ''), 'not_whole_hotel_occupancy');
+    }
+    $ready = $ready && $demandOk;
+    $details['demand_forecast'] = [
+        'input_type' => $demandInputType,
+        'source_scope' => $demandMetadata['source_scope'] ?? null,
+        'source_policy' => $demandMetadata['source_policy'] ?? null,
+        'operator_input_evidence_keys' => array_keys($demandOperatorEvidence),
+        'operator_row_source_note_present' => $demandRowSourceNote !== '',
+        'traffic_trend_semantics_present' => str_contains((string)(ctrip_pricing_pipeline_map($demandMetadata['field_semantics'] ?? [])['predicted_occupancy'] ?? ''), 'not_whole_hotel_occupancy'),
+    ];
 
     return [
         'ready' => $ready,
@@ -375,6 +396,18 @@ function ctrip_pricing_pipeline_filled_payload(string $date, int $hotelId, strin
 }
 
 /**
+ * @return array<string, mixed>
+ */
+function ctrip_pricing_pipeline_filled_traffic_trend_payload(string $date, int $hotelId, string $marker): array
+{
+    $payload = ctrip_pricing_pipeline_filled_payload($date, $hotelId, $marker . '_traffic');
+    $payload['operator_input_evidence']['demand_forecast_source'] = 'ctrip_historical_traffic_trend via report:revenue-ai-ctrip-traffic-demand-trend -- --date=' . $date . ' --hotel-id=' . $hotelId;
+    $payload['demand_forecasts'] = [];
+
+    return $payload;
+}
+
+/**
  * @param array<string, mixed> $payload
  */
 function ctrip_pricing_pipeline_write_json(string $path, array $payload): void
@@ -445,7 +478,8 @@ try {
     $marker = 'ctrip_pipeline_' . date('YmdHis') . '_' . getmypid();
     $templatePath = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $marker . '_template.json';
     $filledPath = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $marker . '_filled.json';
-    $tempFiles = [$templatePath, $filledPath];
+    $trafficTrendFilledPath = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $marker . '_traffic_trend_filled.json';
+    $tempFiles = [$templatePath, $filledPath, $trafficTrendFilledPath];
 
     if ($options['file'] !== '') {
         $inputPayload = ctrip_pricing_pipeline_load_input_payload($options['file']);
@@ -827,7 +861,106 @@ try {
         'dry_run_generation_preserves_operator_source_metadata',
         (bool)($sourceMetadata['ready'] ?? false),
         'Dry-run pending suggestion preserves operator source metadata across room guard, demand forecast, and Ctrip competitor signals.',
-        $sourceMetadata
+            $sourceMetadata
+        );
+
+    ctrip_pricing_pipeline_write_json($trafficTrendFilledPath, ctrip_pricing_pipeline_filled_traffic_trend_payload($date, $hotelId, $marker));
+
+    $trafficTrendLintRun = ctrip_pricing_pipeline_run_importer($root, [
+        '--lint-only=1',
+        '--file=' . $trafficTrendFilledPath,
+        '--date=' . $date,
+    ]);
+    $trafficTrendLintPayload = ctrip_pricing_pipeline_decode_json_payload($trafficTrendLintRun['stdout']);
+    $trafficTrendLintSummary = ctrip_pricing_pipeline_map($trafficTrendLintPayload['summary'] ?? []);
+    ctrip_pricing_pipeline_check(
+        $checks,
+        'traffic_trend_input_lint_passes_without_demand_rows',
+        $trafficTrendLintRun['exit_code'] === 0
+            && ($trafficTrendLintPayload['status'] ?? null) === 'passed'
+            && ($trafficTrendLintPayload['mode'] ?? null) === 'lint_only'
+            && ($trafficTrendLintSummary['database_touched'] ?? true) === false
+            && (int)($trafficTrendLintSummary['demand_forecast_rows'] ?? 1) === 0
+            && (int)($trafficTrendLintSummary['issue_count'] ?? 1) === 0,
+        'Filled Ctrip pricing input can use Ctrip historical traffic trend without demand_forecasts rows.',
+        [
+            'run' => ctrip_pricing_pipeline_run_summary($trafficTrendLintRun, $trafficTrendLintPayload),
+            'summary' => $trafficTrendLintSummary,
+        ]
+    );
+
+    $trafficTrendValidateRun = ctrip_pricing_pipeline_run_importer($root, [
+        '--validate-only=1',
+        '--file=' . $trafficTrendFilledPath,
+        '--date=' . $date,
+    ]);
+    $trafficTrendValidatePayload = ctrip_pricing_pipeline_decode_json_payload($trafficTrendValidateRun['stdout']);
+    $trafficTrendValidateSummary = ctrip_pricing_pipeline_map($trafficTrendValidatePayload['summary'] ?? []);
+    $trafficTrendValidatePreflight = ctrip_pricing_pipeline_map($trafficTrendValidateSummary['pricing_generation_preflight'] ?? []);
+    ctrip_pricing_pipeline_check(
+        $checks,
+        'traffic_trend_input_validate_only_rolls_back_without_generation',
+        $trafficTrendValidateRun['exit_code'] === 0
+            && ($trafficTrendValidatePayload['status'] ?? null) === 'passed'
+            && ($trafficTrendValidatePayload['mode'] ?? null) === 'validate_only'
+            && ($trafficTrendValidateSummary['rolled_back'] ?? false) === true
+            && ($trafficTrendValidateSummary['committed'] ?? true) === false
+            && ($trafficTrendValidateSummary['generation'] ?? null) === null
+            && ($trafficTrendValidateSummary['demand_forecast_source'] ?? null) === 'ctrip_historical_traffic_trend'
+            && ((int)($trafficTrendValidatePreflight['create_candidate_count'] ?? 0) > 0 || (int)($trafficTrendValidatePreflight['pending_suggestion_count'] ?? 0) > 0),
+        'Validate-only accepts Ctrip traffic trend demand source and rolls back without generation.',
+        [
+            'run' => ctrip_pricing_pipeline_run_summary($trafficTrendValidateRun, $trafficTrendValidatePayload),
+            'summary' => [
+                'committed' => $trafficTrendValidateSummary['committed'] ?? null,
+                'rolled_back' => $trafficTrendValidateSummary['rolled_back'] ?? null,
+                'demand_forecast_source' => $trafficTrendValidateSummary['demand_forecast_source'] ?? null,
+                'generation' => $trafficTrendValidateSummary['generation'] ?? null,
+                'pricing_generation_preflight' => $trafficTrendValidatePreflight,
+            ],
+        ]
+    );
+
+    $trafficTrendDryRun = ctrip_pricing_pipeline_run_importer($root, [
+        '--file=' . $trafficTrendFilledPath,
+        '--date=' . $date,
+    ]);
+    $trafficTrendDryPayload = ctrip_pricing_pipeline_decode_json_payload($trafficTrendDryRun['stdout']);
+    $trafficTrendDrySummary = ctrip_pricing_pipeline_map($trafficTrendDryPayload['summary'] ?? []);
+    $trafficTrendDryGeneration = ctrip_pricing_pipeline_map($trafficTrendDrySummary['generation'] ?? []);
+    ctrip_pricing_pipeline_check(
+        $checks,
+        'traffic_trend_input_dry_run_generates_pending_review_and_rolls_back',
+        $trafficTrendDryRun['exit_code'] === 0
+            && ($trafficTrendDryPayload['status'] ?? null) === 'passed'
+            && ($trafficTrendDryPayload['mode'] ?? null) === 'dry_run'
+            && ($trafficTrendDrySummary['rolled_back'] ?? false) === true
+            && ($trafficTrendDrySummary['committed'] ?? true) === false
+            && ($trafficTrendDrySummary['demand_forecast_source'] ?? null) === 'ctrip_historical_traffic_trend'
+            && ((int)($trafficTrendDryGeneration['created_count'] ?? 0) > 0 || (string)($trafficTrendDryGeneration['reason'] ?? '') === 'price_suggestions_pending_review'),
+        'Dry-run can create or expose pending Ctrip AI review using Ctrip traffic trend demand source, then rolls back.',
+        [
+            'run' => ctrip_pricing_pipeline_run_summary($trafficTrendDryRun, $trafficTrendDryPayload),
+            'generation' => $trafficTrendDryGeneration,
+        ]
+    );
+    ctrip_pricing_pipeline_check(
+        $checks,
+        'traffic_trend_input_dry_run_keeps_manual_review_gate',
+        ($trafficTrendDryGeneration['source_scope'] ?? null) === 'ctrip_ota_channel'
+            && ctrip_pricing_pipeline_list($trafficTrendDryGeneration['source_channels'] ?? []) === ['ctrip']
+            && ($trafficTrendDryGeneration['auto_write_ota'] ?? true) === false
+            && (ctrip_pricing_pipeline_map($trafficTrendDryGeneration['ai_review_gate'] ?? [])['operation_intake_allowed'] ?? true) === false,
+        'Traffic trend dry-run stays Ctrip-only, manual-review gated, and never writes OTA.',
+        $trafficTrendDryGeneration
+    );
+    $trafficTrendSourceMetadata = ctrip_pricing_pipeline_generation_source_metadata($trafficTrendDryGeneration);
+    ctrip_pricing_pipeline_check(
+        $checks,
+        'traffic_trend_input_dry_run_preserves_source_boundaries',
+        (bool)($trafficTrendSourceMetadata['ready'] ?? false),
+        'Traffic trend dry-run preserves operator metadata for room/competitor signals and Ctrip-derived demand metadata.',
+        $trafficTrendSourceMetadata
     );
 
     $scopeAfterRun = ctrip_pricing_pipeline_run_scope_verifier($root, $date, $options['hotel_id']);

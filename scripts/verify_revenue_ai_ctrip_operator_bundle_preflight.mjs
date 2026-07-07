@@ -60,11 +60,23 @@ function readJsonFile(file) {
 }
 
 function summarizeRealInputChecklist(file) {
+  const operatorActionSheetFile = path.join(path.dirname(file), 'operator-action-sheet.csv');
+  const operatorConfirmationBriefFile = path.join(path.dirname(file), 'OPERATOR_CONFIRMATION_BRIEF.md');
+  const operatorConfirmationBriefCsvFile = path.join(path.dirname(file), 'operator-confirmation-brief.csv');
   const checklist = readJsonFile(file);
   if (!checklist || typeof checklist !== 'object') {
     return {
       status: 'missing_or_invalid',
       checklist_file: file,
+      operator_action_sheet_file: operatorActionSheetFile,
+      operator_action_sheet_status: fs.existsSync(operatorActionSheetFile) ? 'candidate_to_operator_action_sheet_not_importable' : 'missing',
+      operator_action_sheet_use: 'Regenerate the operator bundle before using candidate-to-field guidance.',
+      operator_confirmation_brief_file: operatorConfirmationBriefFile,
+      operator_confirmation_brief_csv_file: operatorConfirmationBriefCsvFile,
+      operator_confirmation_brief_status: fs.existsSync(operatorConfirmationBriefFile) && fs.existsSync(operatorConfirmationBriefCsvFile)
+        ? 'minimum_human_confirmation_brief_not_importable'
+        : 'missing',
+      operator_confirmation_brief_use: 'Regenerate the operator bundle before using the minimum confirmation brief.',
       placeholder_count: null,
       missing_input_count: null,
       first_missing_inputs: [],
@@ -91,6 +103,21 @@ function summarizeRealInputChecklist(file) {
   return {
     status: String(checklist.status || 'unknown'),
     checklist_file: file,
+    operator_action_sheet_file: operatorActionSheetFile,
+    operator_action_sheet_status: fs.existsSync(operatorActionSheetFile) ? 'candidate_to_operator_action_sheet_not_importable' : 'missing',
+    operator_action_sheet_use: 'Open this CSV to map Ctrip candidate hints to pricing-input-intake.csv fields; it is not importable and does not replace operator-confirmed values.',
+    operator_action_sheet_target_file: 'pricing-input-intake.csv',
+    operator_action_sheet_importable_value: false,
+    operator_action_sheet_auto_write_ota: false,
+    operator_confirmation_brief_file: operatorConfirmationBriefFile,
+    operator_confirmation_brief_csv_file: operatorConfirmationBriefCsvFile,
+    operator_confirmation_brief_status: fs.existsSync(operatorConfirmationBriefFile) && fs.existsSync(operatorConfirmationBriefCsvFile)
+      ? 'minimum_human_confirmation_brief_not_importable'
+      : 'missing',
+    operator_confirmation_brief_use: 'Open this brief first for the shortest Ctrip-only list of fields that still require operator confirmation; it is not importable and carries no confirmed business values.',
+    operator_confirmation_brief_target_file: 'pricing-input-intake.csv',
+    operator_confirmation_brief_importable_value: false,
+    operator_confirmation_brief_auto_write_ota: false,
     placeholder_count: Number.isFinite(Number(checklist.placeholder_count)) ? Number(checklist.placeholder_count) : null,
     can_generate_pending_review: checklist.can_generate_pending_review === true,
     next_required_gate: String(checklist.next_required_gate || 'Fill pricing-input-fillable.json, then rerun preflight.'),
@@ -103,6 +130,10 @@ function summarizeRealInputChecklist(file) {
       path: String(item?.path || ''),
       group: String(item?.group || ''),
       field: String(item?.field || ''),
+      csv_file: String(item?.csv_file || ''),
+      csv_row_number: Number.isFinite(Number(item?.csv_row_number)) ? Number(item.csv_row_number) : null,
+      csv_section: String(item?.csv_section || ''),
+      csv_column: String(item?.csv_column || ''),
       expected_real_input: String(item?.expected_real_input || ''),
       format_guard: String(item?.format_guard || ''),
       forbidden_fill: String(item?.forbidden_fill || ''),

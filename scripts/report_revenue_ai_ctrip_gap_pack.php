@@ -293,6 +293,32 @@ function ctrip_gap_pack_field_guidance(string $path): array
 }
 
 /**
+ * @return array<int, array<string, mixed>>
+ */
+function ctrip_gap_pack_real_input_checklist_items(string $bundleDir, array $placeholderPaths): array
+{
+    $checklistFile = $bundleDir . DIRECTORY_SEPARATOR . 'real-input-checklist.json';
+    if (is_file($checklistFile)) {
+        $decoded = json_decode((string)file_get_contents($checklistFile), true);
+        $items = is_array($decoded) ? ctrip_gap_pack_list($decoded['items'] ?? []) : [];
+        if ($items !== []) {
+            return array_values(array_filter(
+                array_map(
+                    static fn(mixed $item): array => ctrip_gap_pack_map($item),
+                    $items
+                ),
+                static fn(array $item): bool => (string)($item['path'] ?? '') !== ''
+            ));
+        }
+    }
+
+    return array_map(
+        static fn(string $path): array => ctrip_gap_pack_field_guidance($path),
+        array_slice($placeholderPaths, 0, 30)
+    );
+}
+
+/**
  * @return array<string, mixed>
  */
 function ctrip_gap_pack_bundle_status(string $bundleDir): array
@@ -317,11 +343,26 @@ function ctrip_gap_pack_bundle_status(string $bundleDir): array
 
     $decoded = json_decode((string)file_get_contents($fillable), true);
     $payload = is_array($decoded) ? $decoded : [];
+    $manifestFile = $bundleDir . DIRECTORY_SEPARATOR . 'manifest.json';
+    $manifest = [];
+    if (is_file($manifestFile)) {
+        $decodedManifest = json_decode((string)file_get_contents($manifestFile), true);
+        $manifest = is_array($decodedManifest) ? $decodedManifest : [];
+    }
+    $operatorEvidence = ctrip_gap_pack_map($payload['operator_input_evidence'] ?? []);
+    $demandForecastSource = trim((string)($operatorEvidence['demand_forecast_source'] ?? ''));
+    $demandForecastSourceStatus = $demandForecastSource !== ''
+        && str_contains($demandForecastSource, 'ctrip_historical_traffic_trend')
+        && str_contains($demandForecastSource, 'report:revenue-ai-ctrip-traffic-demand-trend')
+        ? 'ctrip_historical_traffic_trend'
+        : ($demandForecastSource === '' || str_contains($demandForecastSource, '<') ? 'missing_or_placeholder' : 'operator_or_model_source');
+    $manifestBlocker = ctrip_gap_pack_map($manifest['current_blocker'] ?? []);
     $input = [];
     foreach (['operator_input_evidence', 'room_types', 'demand_forecasts', 'competitor_price_samples'] as $key) {
         $input[$key] = $payload[$key] ?? [];
     }
     $placeholders = ctrip_gap_pack_placeholder_paths($input);
+    $placeholderDetails = ctrip_gap_pack_real_input_checklist_items($bundleDir, $placeholders);
 
     return [
         'status' => $placeholders === [] ? 'filled_or_needs_lint' : 'pending_operator_real_values',
@@ -329,10 +370,11 @@ function ctrip_gap_pack_bundle_status(string $bundleDir): array
         'fillable_file' => $fillable,
         'placeholder_count' => count($placeholders),
         'placeholder_paths' => array_slice($placeholders, 0, 30),
-        'placeholder_details' => array_map(
-            static fn(string $path): array => ctrip_gap_pack_field_guidance($path),
-            array_slice($placeholders, 0, 30)
-        ),
+        'placeholder_details' => array_slice($placeholderDetails, 0, 30),
+        'demand_forecast_source' => $demandForecastSource,
+        'demand_forecast_source_status' => $demandForecastSourceStatus,
+        'demand_forecast_rows' => is_array($payload['demand_forecasts'] ?? null) ? count($payload['demand_forecasts']) : null,
+        'ctrip_traffic_demand_forecast_count' => $manifestBlocker['ctrip_traffic_demand_forecast_count'] ?? null,
         'can_generate_pending_review' => $placeholders === [],
     ];
 }
@@ -400,9 +442,14 @@ function ctrip_gap_pack_stages(array $overview, array $bundle, string $date, arr
                 'preflight_reason' => $preflight['reason'] ?? null,
                 'room_type_count' => $preflight['room_type_count'] ?? null,
                 'demand_forecast_count' => $preflight['demand_forecast_count'] ?? null,
+                'demand_forecast_source' => $bundle['demand_forecast_source_status'] ?? null,
+                'demand_forecast_source_ref' => $bundle['demand_forecast_source'] ?? null,
+                'ctrip_traffic_demand_forecast_count' => $preflight['ctrip_traffic_demand_forecast_count']
+                    ?? ($bundle['ctrip_traffic_demand_forecast_count'] ?? null),
                 'competitor_analysis_recent_count' => $preflight['competitor_analysis_recent_count'] ?? null,
                 'create_candidate_count' => $preflight['create_candidate_count'] ?? null,
                 'bundle_status' => $bundle['status'] ?? null,
+                'bundle_demand_forecast_rows' => $bundle['demand_forecast_rows'] ?? null,
                 'placeholder_count' => $bundle['placeholder_count'] ?? null,
             ],
             'missing_real_inputs' => $requiredInputs !== [] ? $requiredInputs : [
@@ -491,6 +538,162 @@ function ctrip_gap_pack_stages(array $overview, array $bundle, string $date, arr
 }
 
 /**
+ * @return array<int, array<string, mixed>>
+ */
+function ctrip_gap_pack_post_pricing_handoff_checklist(string $date): array
+{
+    $previousDay = date('Y-m-d', strtotime($date . ' -1 day'));
+    $nextDay = date('Y-m-d', strtotime($date . ' +1 day'));
+    $forbiddenFill = 'sample, guessed, fallback, verifier-only, Meituan, whole-hotel, or OTA-write value';
+    $items = [
+        [
+            'stage' => 'human_review_to_operation_intent',
+            'field' => 'operator_review_evidence.reviewed_by',
+            'required_after' => 'ai_pending_review_suggestion',
+            'expected_real_input' => 'Operator name or role that manually reviewed the Ctrip AI pricing suggestion.',
+            'format_guard' => 'non-empty text',
+            'source_scope' => 'ctrip_ota_channel_manual_review',
+        ],
+        [
+            'stage' => 'human_review_to_operation_intent',
+            'field' => 'operator_review_evidence.reviewed_at',
+            'required_after' => 'ai_pending_review_suggestion',
+            'expected_real_input' => 'Manual review timestamp for the Ctrip AI pricing suggestion.',
+            'format_guard' => 'YYYY-MM-DD HH:MM:SS or ISO-8601 datetime',
+            'source_scope' => 'ctrip_ota_channel_manual_review',
+        ],
+        [
+            'stage' => 'human_review_to_operation_intent',
+            'field' => 'operator_review_evidence.decision_basis',
+            'required_after' => 'ai_pending_review_suggestion',
+            'expected_real_input' => 'Operator decision basis for approve, approve_with_changes, or reject.',
+            'format_guard' => 'non-empty text with evidence source note',
+            'source_scope' => 'ctrip_ota_channel_manual_review',
+        ],
+        [
+            'stage' => 'human_review_to_operation_intent',
+            'field' => 'operator_review_evidence.price_guard_source',
+            'required_after' => 'ai_pending_review_suggestion',
+            'expected_real_input' => 'Human-verifiable source for the approved price guard used in review.',
+            'format_guard' => 'non-empty source note or attachment path',
+            'source_scope' => 'ctrip_ota_channel_manual_review',
+        ],
+        [
+            'stage' => 'human_review_to_operation_intent',
+            'field' => 'operator_review_evidence.operation_intent_source',
+            'required_after' => 'ai_pending_review_suggestion',
+            'expected_real_input' => 'Source note for the operation intent created after manual approval.',
+            'format_guard' => 'non-empty source note or operation-intent reference',
+            'source_scope' => 'ctrip_ota_channel_manual_review',
+        ],
+        [
+            'stage' => 'execution_evidence_and_roi_window',
+            'field' => 'manual_execution_evidence.executed_by',
+            'required_after' => 'operation_intent_approved',
+            'expected_real_input' => 'Operator name or role that manually executed the approved Ctrip action.',
+            'format_guard' => 'non-empty text',
+            'source_scope' => 'ctrip_ota_channel_execution_evidence',
+        ],
+        [
+            'stage' => 'execution_evidence_and_roi_window',
+            'field' => 'manual_execution_evidence.executed_at',
+            'required_after' => 'operation_intent_approved',
+            'expected_real_input' => 'Manual execution timestamp for the approved Ctrip action.',
+            'format_guard' => 'YYYY-MM-DD HH:MM:SS or ISO-8601 datetime',
+            'source_scope' => 'ctrip_ota_channel_execution_evidence',
+        ],
+        [
+            'stage' => 'execution_evidence_and_roi_window',
+            'field' => 'manual_execution_evidence.execution_basis',
+            'required_after' => 'operation_intent_approved',
+            'expected_real_input' => 'Source note proving why the manual execution followed the approved suggestion.',
+            'format_guard' => 'non-empty text with source note',
+            'source_scope' => 'ctrip_ota_channel_execution_evidence',
+        ],
+        [
+            'stage' => 'execution_evidence_and_roi_window',
+            'field' => 'manual_execution_evidence.room_rate_mapping_source',
+            'required_after' => 'operation_intent_approved',
+            'expected_real_input' => 'Source proving the room/rate mapping used during manual execution.',
+            'format_guard' => 'non-empty source note or attachment path',
+            'source_scope' => 'ctrip_ota_channel_execution_evidence',
+        ],
+        [
+            'stage' => 'execution_evidence_and_roi_window',
+            'field' => 'manual_execution_evidence.execution_receipt_or_screenshot_path',
+            'required_after' => 'operation_intent_approved',
+            'expected_real_input' => 'Local receipt, screenshot, or evidence path for manual execution.',
+            'format_guard' => 'local path or evidence reference',
+            'source_scope' => 'ctrip_ota_channel_execution_evidence',
+        ],
+        [
+            'stage' => 'execution_evidence_and_roi_window',
+            'field' => 'manual_roi_evidence.before_metric_source',
+            'required_after' => 'manual_execution_recorded',
+            'expected_real_input' => 'Source for previous-day Ctrip revenue, room_nights, orders, conversion, and traffic.',
+            'format_guard' => 'source note covering ' . $previousDay . ' Ctrip metrics',
+            'source_scope' => 'ctrip_ota_channel_roi_evidence',
+        ],
+        [
+            'stage' => 'execution_evidence_and_roi_window',
+            'field' => 'manual_roi_evidence.after_metric_source',
+            'required_after' => 'manual_execution_recorded',
+            'expected_real_input' => 'Source for next-day Ctrip revenue, room_nights, orders, conversion, and traffic.',
+            'format_guard' => 'source note covering ' . $nextDay . ' Ctrip metrics',
+            'source_scope' => 'ctrip_ota_channel_roi_evidence',
+        ],
+        [
+            'stage' => 'execution_evidence_and_roi_window',
+            'field' => 'manual_roi_evidence.reviewed_by',
+            'required_after' => 'manual_roi_metrics_collected',
+            'expected_real_input' => 'Operator name or role that reviewed the Ctrip ROI evidence.',
+            'format_guard' => 'non-empty text',
+            'source_scope' => 'ctrip_ota_channel_roi_evidence',
+        ],
+        [
+            'stage' => 'execution_evidence_and_roi_window',
+            'field' => 'manual_roi_evidence.reviewed_at',
+            'required_after' => 'manual_roi_metrics_collected',
+            'expected_real_input' => 'Manual ROI evidence review timestamp.',
+            'format_guard' => 'YYYY-MM-DD HH:MM:SS or ISO-8601 datetime',
+            'source_scope' => 'ctrip_ota_channel_roi_evidence',
+        ],
+        [
+            'stage' => 'execution_evidence_and_roi_window',
+            'field' => 'manual_roi_evidence.roi_calculation_basis',
+            'required_after' => 'manual_roi_metrics_collected',
+            'expected_real_input' => 'Operator-approved calculation basis for incremental Ctrip-channel ROI.',
+            'format_guard' => 'non-empty text with calculation source',
+            'source_scope' => 'ctrip_ota_channel_roi_evidence',
+        ],
+        [
+            'stage' => 'execution_evidence_and_roi_window',
+            'field' => 'manual_roi_evidence.roi_receipt_or_screenshot_path',
+            'required_after' => 'manual_roi_metrics_collected',
+            'expected_real_input' => 'Local receipt, screenshot, or evidence path for ROI review.',
+            'format_guard' => 'local path or evidence reference',
+            'source_scope' => 'ctrip_ota_channel_roi_evidence',
+        ],
+        [
+            'stage' => 'investment_manual_review',
+            'field' => 'operator_roi_review_summary',
+            'required_after' => 'operation_execution.roi_ready',
+            'expected_real_input' => 'Manual operator summary for investment review; Ctrip-channel ROI only.',
+            'format_guard' => 'non-empty text, explicitly not whole-hotel truth',
+            'source_scope' => 'ctrip_ota_channel_roi_evidence',
+        ],
+    ];
+
+    return array_map(
+        static fn(array $item): array => $item + [
+            'auto_write_ota' => false,
+            'forbidden_fill' => $forbiddenFill,
+        ],
+        $items
+    );
+}
+
+/**
  * @return array<string, string>
  */
 function ctrip_gap_pack_commands(string $date, ?int $hotelId, string $bundleDir): array
@@ -500,7 +703,10 @@ function ctrip_gap_pack_commands(string $date, ?int $hotelId, string $bundleDir)
 
     return [
         'p0_authority_check' => 'npm.cmd run verify:p0-ota-field-loop -- --date=' . $date . ' --platform=ctrip' . ($hotelId === null ? ' --system-hotel-id=<hotel-id>' : ' --system-hotel-id=' . $hotelId),
+        'input_readiness_scan' => 'npm.cmd run report:revenue-ai-ctrip-input-readiness -- --date=' . $date . $hotelArg . ' --format=markdown',
+        'external_input_candidates' => 'npm.cmd run report:revenue-ai-ctrip-external-input-candidates -- --date=' . $date . $hotelArg . ' --format=markdown',
         'pricing_operator_packet' => 'npm.cmd run report:revenue-ai-ctrip-pricing-operator-packet -- --date=' . $date . $hotelArg . ' --format=markdown',
+        'csv_to_json_preflight' => 'npm.cmd run verify:revenue-ai-ctrip-operator-csv-preflight -- --dir=' . $bundleArg . ' --date=' . $date . $hotelArg,
         'operator_bundle_preflight' => 'npm.cmd run verify:revenue-ai-ctrip-operator-bundle-preflight -- --dir=' . $bundleArg . ' --date=' . $date . $hotelArg,
         'execute_inputs_and_generate_pending_review' => 'npm.cmd run run:revenue-ai-ctrip-pricing-file-to-pending-review -- --file=' . $bundleArg . '\\pricing-input-fillable.json --date=' . $date . $hotelArg . ' --execute=1 --generate=1',
         'pending_review_packet' => 'npm.cmd run report:revenue-ai-ctrip-pending-review-packet -- --date=' . $date . $hotelArg . ' --format=markdown',
@@ -543,16 +749,49 @@ function ctrip_gap_pack_markdown(array $payload): string
     $lines[] = '- status: `' . (string)($bundle['status'] ?? 'unknown') . '`';
     $lines[] = '- fillable_file: `' . (string)($bundle['fillable_file'] ?? '') . '`';
     $lines[] = '- placeholder_count: `' . (string)($bundle['placeholder_count'] ?? 'unknown') . '`';
+    $lines[] = '- demand_forecast_source_status: `' . (string)($bundle['demand_forecast_source_status'] ?? 'unknown') . '`';
+    if ((string)($bundle['demand_forecast_source'] ?? '') !== '') {
+        $lines[] = '- demand_forecast_source: `' . (string)$bundle['demand_forecast_source'] . '`';
+    }
     $lines[] = '';
     $placeholderDetails = ctrip_gap_pack_list($bundle['placeholder_details'] ?? []);
     if ($placeholderDetails !== []) {
         $lines[] = '## Fillable Placeholder Checklist';
         $lines[] = '';
-        $lines[] = '| Path | Expected real input | Forbidden fill |';
-        $lines[] = '|---|---|---|';
+        $lines[] = '| Path | CSV row | CSV section | CSV column | Expected real input | Forbidden fill |';
+        $lines[] = '|---|---:|---|---|---|---|';
         foreach ($placeholderDetails as $detail) {
             $row = ctrip_gap_pack_map($detail);
-            $lines[] = '| `' . (string)($row['path'] ?? '') . '` | ' . (string)($row['expected_real_input'] ?? '') . ' | `' . (string)($row['forbidden_fill'] ?? '') . '` |';
+            $csvRow = $row['csv_row_number'] ?? null;
+            $lines[] = '| `' . (string)($row['path'] ?? '') . '` | `'
+                . ($csvRow === null ? 'unknown' : (string)$csvRow) . '` | `'
+                . (string)($row['csv_section'] ?? 'unknown') . '` | `'
+                . (string)($row['csv_column'] ?? 'unknown') . '` | '
+                . (string)($row['expected_real_input'] ?? '') . ' | `'
+                . (string)($row['forbidden_fill'] ?? '') . '` |';
+        }
+        $lines[] = '';
+        $lines[] = '> CSV coordinates refer to `pricing-input-intake.csv`; they are fill locations, not evidence values.';
+        $lines[] = '';
+    }
+    $handoffChecklist = ctrip_gap_pack_list($payload['post_pricing_handoff_checklist'] ?? []);
+    if ($handoffChecklist !== []) {
+        $lines[] = '## Post-Pricing Handoff Checklist';
+        $lines[] = '';
+        $lines[] = '- policy: `manual_operator_evidence_only_no_ota_write`';
+        $lines[] = '- auto_write_ota: `false`';
+        $lines[] = '';
+        $lines[] = '| Stage | Field | Required after | Expected real input | Format guard | Source scope | Forbidden fill |';
+        $lines[] = '|---|---|---|---|---|---|---|';
+        foreach ($handoffChecklist as $detail) {
+            $row = ctrip_gap_pack_map($detail);
+            $lines[] = '| `' . (string)($row['stage'] ?? '') . '` | `'
+                . (string)($row['field'] ?? '') . '` | `'
+                . (string)($row['required_after'] ?? '') . '` | '
+                . (string)($row['expected_real_input'] ?? '') . ' | `'
+                . (string)($row['format_guard'] ?? '') . '` | `'
+                . (string)($row['source_scope'] ?? '') . '` | `'
+                . (string)($row['forbidden_fill'] ?? '') . '` |';
         }
         $lines[] = '';
     }
@@ -649,6 +888,7 @@ try {
         ],
         'operator_bundle' => $bundle,
         'stages' => $stages,
+        'post_pricing_handoff_checklist' => ctrip_gap_pack_post_pricing_handoff_checklist($options['date']),
         'commands' => ctrip_gap_pack_commands($options['date'], $resolvedHotelId, $bundleDir),
         'boundaries' => [
             'Do not use Meituan rows or whole-hotel values for this Ctrip gap pack.',

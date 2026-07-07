@@ -5,12 +5,20 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, timestamp } from './lib/shared_helpers.mjs';
+import {
+  categorizeReleasePath,
+  classifyReleaseWorktreeEntry,
+  gitStatusCategoryOrder,
+  isReleaseLocalArtifactPath,
+  releaseStagingReviewFiles,
+} from './lib/release_worktree_scope.mjs';
 
 const scriptRepoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = parseArgs(process.argv.slice(2));
 const repoRoot = path.resolve(args.repo || scriptRepoRoot);
 const dryRun = args.dryRun === 'true';
 const includeAgents = args.includeAgents !== 'false';
+const includeLocalArtifacts = args.includeLocalArtifacts === 'true';
 const outputRoot = path.resolve(args.output || path.join(repoRoot, 'reports', 'worktree-quarantine', timestamp()));
 
 function runGit(gitArgs, options = {}) {
@@ -48,6 +56,40 @@ function isAgentPath(relativePath) {
   return normalized === '.agents' || normalized.startsWith('.agents/');
 }
 
+function buildReleaseStagingPlan(entries) {
+  const buckets = {
+    candidate_release_scope: [],
+    needs_explicit_operator_decision: [],
+    must_remain_local_by_default: [],
+  };
+  for (const entry of entries.map(classifyReleaseWorktreeEntry)) {
+    buckets[entry.bucket].push(entry);
+  }
+
+  const byCategory = {};
+  for (const category of gitStatusCategoryOrder) {
+    const count = entries.filter((entry) => categorizeReleasePath(entry.path) === category).length;
+    if (count > 0) {
+      byCategory[category] = count;
+    }
+  }
+
+  return {
+    status: entries.length === 0 ? 'clean_no_release_staging_needed' : 'requires_review_before_release_pr',
+    counts: Object.fromEntries(Object.entries(buckets).map(([bucket, bucketEntries]) => [bucket, bucketEntries.length])),
+    by_category: byCategory,
+    buckets,
+    review_files: releaseStagingReviewFiles,
+    close_condition: 'Use this plan as review input only; final release still requires a clean worktree, explicit PR selection, and passing release-readiness.',
+    forbidden_actions: [
+      'Do not stage this plan automatically.',
+      'Do not include runtime, storage, reports, or local evidence files in the final release PR by default.',
+      'Do not include frontend, revenue-AI, or other non-release-evidence changes without an explicit operator decision.',
+    ],
+    does_not_close_release_readiness: true,
+  };
+}
+
 function ensureInside(parent, target) {
   const relative = path.relative(parent, target);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -57,7 +99,7 @@ function ensureInside(parent, target) {
 
 function statusEntries() {
   const result = runGit(['status', '--porcelain=v1', '-z'], { encoding: 'buffer' });
-  return result.stdout.toString('utf8').split('\0').filter(Boolean).map((entry) => ({
+  return result.stdout.toString('utf8').split('\0').filter(Boolean).map((entry) => classifyReleaseWorktreeEntry({
     status: entry.slice(0, 2),
     path: normalizePath(entry.slice(3)),
   }));
@@ -132,9 +174,24 @@ function gitDiffFor(paths, binary = true) {
   return runGit(gitArgs).stdout;
 }
 
-function buildManifest(entries, divergence, copiedUntracked) {
+function renderReleaseStagingTsv(entries) {
+  const rows = ['status\tpath\tcategory\tbucket'];
+  for (const entry of entries) {
+    rows.push([
+      String(entry.status || '').trim(),
+      entry.path,
+      entry.category,
+      entry.bucket,
+    ].join('\t'));
+  }
+  rows.push('');
+  return rows.join('\n');
+}
+
+function buildManifest(entries, divergence, copiedUntracked, skippedUntracked = []) {
   const tracked = trackedChanged(entries);
   const loose = untracked(entries);
+  const releaseStagingPlan = buildReleaseStagingPlan(entries);
   return {
     schema_version: 1,
     generated_at: new Date().toISOString(),
@@ -142,22 +199,29 @@ function buildManifest(entries, divergence, copiedUntracked) {
     output_root: outputRoot,
     dry_run: dryRun,
     include_agents: includeAgents,
+    include_local_artifacts: includeLocalArtifacts,
     base: {
       head: runGit(['rev-parse', 'HEAD']).stdout.trim(),
       branch: runGit(['status', '--short', '--branch']).stdout.split(/\r?\n/).find((line) => line.startsWith('##'))?.replace(/^##\s*/, '') || '',
     },
     divergence,
     changed_paths: entries,
+    release_staging_plan: releaseStagingPlan,
     tracked_patch: tracked.length > 0 ? 'tracked.patch' : null,
     agent_patch: tracked.some((entry) => isAgentPath(entry.path)) ? 'agent.patch' : null,
     untracked_files: loose.map((entry) => ({
       path: entry.path,
       copied: copiedUntracked.includes(entry.path),
       target: copiedUntracked.includes(entry.path) ? normalizePath(path.join('untracked', entry.path)) : null,
+      skipped_reason: skippedUntracked.includes(entry.path)
+        ? 'local/runtime artifact excluded by default; rerun with --includeLocalArtifacts=true only after explicit review'
+        : null,
     })),
     safe_next_steps: [
       'Review manifest.json and tracked.patch before changing the source worktree.',
+      'Use release_staging_plan and release-staging-*.tsv as review checklists only; do not stage candidate paths automatically.',
       'Do not run git reset, clean, pull, or merge until the risky local changes are either preserved or explicitly discarded.',
+      'Do not copy reports, storage, runtime, output, test-results, or database/backups into a release bundle unless explicitly reviewed.',
       'After manual approval, sync the worktree to origin/codex/save-project-20260531 and rerun inspect:worktree-divergence.',
     ],
   };
@@ -171,6 +235,10 @@ function renderPlan(manifest) {
   console.log(`Changed paths: ${manifest.changed_paths.length}`);
   console.log(`Tracked patch: ${manifest.tracked_patch ? 'yes' : 'no'}`);
   console.log(`Untracked files: ${manifest.untracked_files.length}`);
+  console.log(`Skipped local artifacts: ${manifest.untracked_files.filter((entry) => entry.skipped_reason).length}`);
+  console.log(`Candidate release scope: ${manifest.release_staging_plan?.counts?.candidate_release_scope ?? 0}`);
+  console.log(`Needs operator decision: ${manifest.release_staging_plan?.counts?.needs_explicit_operator_decision ?? 0}`);
+  console.log(`Must remain local: ${manifest.release_staging_plan?.counts?.must_remain_local_by_default ?? 0}`);
   console.log(`Risk count: ${manifest.divergence?.risks?.count ?? 'unknown'}`);
   if (dryRun) {
     console.log('No files written.');
@@ -189,8 +257,11 @@ try {
   const trackedPaths = changedPathArgs(tracked.filter((entry) => !isAgentPath(entry.path)));
   const agentPaths = changedPathArgs(tracked.filter((entry) => isAgentPath(entry.path)));
   const copiedUntracked = [];
+  const skippedUntracked = includeLocalArtifacts
+    ? []
+    : loose.filter((entry) => isReleaseLocalArtifactPath(entry.path)).map((entry) => entry.path);
 
-  const manifest = buildManifest(entries, divergence, copiedUntracked);
+  const manifest = buildManifest(entries, divergence, copiedUntracked, skippedUntracked);
 
   if (!dryRun) {
     fs.mkdirSync(outputRoot, { recursive: true });
@@ -201,22 +272,31 @@ try {
       writeFileSafe('agent.patch', gitDiffFor(agentPaths));
     }
     for (const entry of loose) {
+      if (!includeLocalArtifacts && isReleaseLocalArtifactPath(entry.path)) {
+        continue;
+      }
       if (copyPathSafe(entry.path, 'untracked')) {
         copiedUntracked.push(entry.path);
       }
     }
-    const finalManifest = buildManifest(entries, divergence, copiedUntracked);
+    const finalManifest = buildManifest(entries, divergence, copiedUntracked, skippedUntracked);
     writeFileSafe('manifest.json', JSON.stringify(finalManifest, null, 2));
+    for (const [bucket, fileName] of Object.entries(releaseStagingReviewFiles)) {
+      writeFileSafe(fileName, renderReleaseStagingTsv(finalManifest.release_staging_plan.buckets[bucket] || []));
+    }
     writeFileSafe('README.md', [
       '# Worktree Quarantine Bundle',
       '',
       'This bundle preserves local dirty-worktree evidence without modifying source files.',
       '',
       '- `manifest.json`: structured status and risk inventory.',
+      '- `manifest.json.release_staging_plan`: release candidate, operator-decision, and local-only buckets for review only.',
+      '- `release-staging-*.tsv`: review-only path lists generated from `manifest.json.release_staging_plan`.',
       '- `tracked.patch`: non-agent tracked changes.',
       '- `agent.patch`: `.agents` tracked changes, when present.',
       '- `untracked/`: copied untracked files, when present.',
       '',
+      'Do not stage `release_staging_plan` or `release-staging-*.tsv` automatically.',
       'Do not treat this bundle as approval to reset or delete source changes.',
       '',
     ].join('\n'));

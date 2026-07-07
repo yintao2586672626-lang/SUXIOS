@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+const RELEASE_EVIDENCE_MAX_AGE_DAYS = 30;
+
 function walkFiles(repoRoot, dir, warnings, output = []) {
   const absolute = path.join(repoRoot, dir);
   if (!fs.existsSync(absolute)) {
@@ -39,6 +41,146 @@ function isPathInsideRepo(repoRoot, filePath) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
+function isDateOnly(value) {
+  const text = String(value ?? '').trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return false;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+function isFutureDateOnly(value) {
+  const [year, month, day] = String(value ?? '').trim().split('-').map(Number);
+  const date = Date.UTC(year, month - 1, day);
+  const today = new Date();
+  const todayDate = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  return date > todayDate;
+}
+
+function isOlderThanReleaseEvidenceWindow(value) {
+  const [year, month, day] = String(value ?? '').trim().split('-').map(Number);
+  const date = Date.UTC(year, month - 1, day);
+  const today = new Date();
+  const todayDate = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  return todayDate - date > RELEASE_EVIDENCE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function isWeakDesignOwner(value) {
+  const text = String(value ?? '').trim();
+  return text === ''
+    || /TODO|CHANGE_ME|example|placeholder/i.test(text)
+    || /^Codex release handoff$/i.test(text)
+    || /\b(test|fixture|dummy)\b/i.test(text);
+}
+
+function isPlaceholderString(value) {
+  const text = String(value ?? '').trim();
+  return text === ''
+    || /TODO|CHANGE_ME|example|placeholder|Draft only|Do not rename or copy/i.test(text);
+}
+
+const sourceReviewRequiredTrueFields = [
+  'figma_source_verified',
+  'canva_source_verified',
+  'brand_kit_source_verified',
+  'design_tokens_reviewed',
+  'required_flows_reviewed',
+];
+
+function collectNonClosingSourceEvidenceFailures(repoRoot, evidenceRef) {
+  const failures = [];
+  const text = String(evidenceRef ?? '');
+  for (const evidencePath of [
+    'docs/release_figma_handoff_evidence.json',
+    'docs/release_canva_handoff_evidence.json',
+  ]) {
+    if (!text.includes(evidencePath)) {
+      continue;
+    }
+    const absolutePath = path.join(repoRoot, evidencePath);
+    if (!fs.existsSync(absolutePath)) {
+      continue;
+    }
+    try {
+      const evidence = JSON.parse(fs.readFileSync(absolutePath, 'utf8').replace(/^\uFEFF/, ''));
+      if (evidence?.does_not_close_release_design_gate === true) {
+        failures.push(`Design handoff manifest source_review.evidence_ref must not reference non-closing connector blocker evidence: ${evidencePath}.`);
+      }
+    } catch (error) {
+      failures.push(`Design handoff manifest source_review.evidence_ref references unreadable connector evidence ${evidencePath}: ${error.message}`);
+    }
+  }
+  return failures;
+}
+
+function collectSourceReviewFailures(repoRoot, sourceReview) {
+  const failures = [];
+  if (!sourceReview || typeof sourceReview !== 'object' || Array.isArray(sourceReview)) {
+    return [
+      'Design handoff manifest source_review must record how Figma, Canva, Brand Kit, design tokens, and required flows were verified.',
+      'Design handoff manifest source_review.review_method must record connector_verified, manual_access_review, or independent_design_audit.',
+      'Design handoff manifest source_review.evidence_ref must reference a controlled connector result, ticket, or audit record.',
+      ...sourceReviewRequiredTrueFields.map((field) => `Design handoff manifest source_review.${field} must be true before release.`),
+    ];
+  }
+
+  if (isPlaceholderString(sourceReview.review_method)) {
+    failures.push('Design handoff manifest source_review.review_method must record connector_verified, manual_access_review, or independent_design_audit.');
+  } else if (!/^(connector_verified|manual_access_review|independent_design_audit)$/i.test(String(sourceReview.review_method).trim())) {
+    failures.push('Design handoff manifest source_review.review_method must be connector_verified, manual_access_review, or independent_design_audit.');
+  }
+
+  if (isPlaceholderString(sourceReview.evidence_ref)) {
+    failures.push('Design handoff manifest source_review.evidence_ref must reference a controlled connector result, ticket, or audit record.');
+  } else {
+    failures.push(...collectNonClosingSourceEvidenceFailures(repoRoot, sourceReview.evidence_ref));
+  }
+
+  for (const field of sourceReviewRequiredTrueFields) {
+    if (sourceReview[field] !== true) {
+      failures.push(`Design handoff manifest source_review.${field} must be true before release.`);
+    }
+  }
+
+  return failures;
+}
+
+function collectDraftResidue(value, failures, pathParts = []) {
+  const pathLabel = pathParts.length > 0 ? pathParts.join('.') : '<root>';
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      collectDraftResidue(item, failures, [...pathParts, String(index)]);
+    }
+    return;
+  }
+
+  if (value && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      if (key === '_draft_notice') {
+        failures.push(`Design handoff manifest ${[...pathParts, key].join('.')} must be removed before release.`);
+        continue;
+      }
+      collectDraftResidue(child, failures, [...pathParts, key]);
+    }
+    return;
+  }
+
+  if (typeof value !== 'string') {
+    return;
+  }
+
+  if (/\bTODO\b|CHANGE_ME|placeholder|Draft only|Do not rename or copy|example\.com/i.test(value)) {
+    failures.push(`Design handoff manifest ${pathLabel} still contains draft or placeholder text.`);
+  }
+}
+
 export function checkDesignHandoff({ repoRoot, manifestPath = 'docs/design_handoff_manifest.json', requireOutsideRepo = false } = {}) {
   const failures = [];
   const warnings = [];
@@ -73,11 +215,12 @@ export function checkDesignHandoff({ repoRoot, manifestPath = 'docs/design_hando
 
   let manifest = null;
   try {
-    manifest = JSON.parse(fs.readFileSync(resolvedManifestPath, 'utf8'));
+    manifest = JSON.parse(fs.readFileSync(resolvedManifestPath, 'utf8').replace(/^\uFEFF/, ''));
   } catch (error) {
     failures.push(`Design handoff manifest is not valid JSON: ${error.message}`);
     return { passes, warnings, failures };
   }
+  collectDraftResidue(manifest, failures);
 
   const requiredStringFields = [
     'owner',
@@ -89,7 +232,10 @@ export function checkDesignHandoff({ repoRoot, manifestPath = 'docs/design_hando
   ];
   const missingFields = requiredStringFields.filter((field) => {
     const value = String(manifest[field] ?? '').trim();
-    return value === '' || value.includes('TODO') || value.includes('example.com');
+    if (field === 'owner') {
+      return false;
+    }
+    return value === '' || /TODO|CHANGE_ME|example\.com/i.test(value);
   });
   const coveredFlows = Array.isArray(manifest.covered_flows) ? manifest.covered_flows : [];
   const missingFlows = requiredFlows.filter((flow) => !coveredFlows.includes(flow));
@@ -97,11 +243,19 @@ export function checkDesignHandoff({ repoRoot, manifestPath = 'docs/design_hando
   const tokenPath = String(manifest.design_tokens_path ?? '').trim();
   const tokenPathIsUrl = /^https:\/\/\S+$/i.test(tokenPath);
   const tokenPathExists = tokenPath !== '' && !path.isAbsolute(tokenPath) && fs.existsSync(path.join(repoRoot, tokenPath));
+  const sourceReviewFailures = collectSourceReviewFailures(repoRoot, manifest.source_review);
+  failures.push(...sourceReviewFailures);
 
   if (missingFields.length > 0) {
     failures.push(`Design handoff manifest is incomplete: ${missingFields.join(', ')}`);
-  } else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(manifest.last_reviewed_at))) {
-    failures.push('Design handoff manifest last_reviewed_at must use YYYY-MM-DD.');
+  } else if (isWeakDesignOwner(manifest.owner)) {
+    failures.push('Design handoff manifest owner must be a real accountable design owner, not a placeholder, test owner, or script identity.');
+  } else if (!isDateOnly(manifest.last_reviewed_at)) {
+    failures.push('Design handoff manifest last_reviewed_at must be a real YYYY-MM-DD date.');
+  } else if (isFutureDateOnly(manifest.last_reviewed_at)) {
+    failures.push('Design handoff manifest last_reviewed_at must not be in the future.');
+  } else if (isOlderThanReleaseEvidenceWindow(manifest.last_reviewed_at)) {
+    failures.push(`Design handoff manifest last_reviewed_at must be within the ${RELEASE_EVIDENCE_MAX_AGE_DAYS}-day release evidence window.`);
   } else if (!/^https:\/\/(www\.)?figma\.com\//.test(String(manifest.figma_url))) {
     failures.push('Design handoff manifest figma_url must be a figma.com URL.');
   } else if (!/^https:\/\/(www\.)?canva\.com\//.test(String(manifest.canva_url))) {
@@ -116,8 +270,8 @@ export function checkDesignHandoff({ repoRoot, manifestPath = 'docs/design_hando
     failures.push('Design handoff manifest open_issues must be an array.');
   } else if (openIssues.length > 0) {
     failures.push('Design handoff manifest open_issues must be empty before release.');
-  } else {
-    passes.push('Design handoff manifest is present with Figma, Canva, brand-kit, token, flow coverage, and no open design issues.');
+  } else if (failures.length === 0) {
+    passes.push('Design handoff manifest is present with Figma, Canva, brand-kit, token, flow coverage, source review, and no open design issues.');
   }
 
   if (matches.length > 0) {

@@ -213,6 +213,46 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         self::assertGreaterThanOrEqual(70, $elasticity['backtest']['hit_rate']);
     }
 
+    public function testCtripTrafficTrendBuildsExplicitDemandForecastSource(): void
+    {
+        $service = new RevenuePricingRecommendationService();
+        $daily = [];
+        for ($i = 1; $i <= 14; $i++) {
+            $daily[] = [
+                'date' => sprintf('2026-06-%02d', $i),
+                'metrics' => [
+                    'order_submit_num' => $i <= 11 ? 100 : 130,
+                    'order_filling_num' => 0,
+                    'detail_exposure' => 0,
+                    'list_exposure' => 0,
+                ],
+            ];
+        }
+
+        $forecast = $service->buildCtripTrafficDemandForecastSignal(
+            $daily,
+            '2026-06-15',
+            '2026-06-01',
+            '2026-06-14',
+            94
+        );
+
+        self::assertSame('ok', $forecast['data_status']);
+        self::assertSame('ctrip_historical_traffic_trend', $forecast['source']);
+        self::assertSame(0, $forecast['id']);
+        self::assertSame('order_submit_num', $forecast['primary_metric']);
+        self::assertSame('rising', $forecast['trend_direction']);
+        self::assertGreaterThan(100, $forecast['predicted_demand']);
+        self::assertGreaterThan(50, $forecast['predicted_occupancy']);
+        self::assertSame('ctrip_ota_channel', $forecast['source_metadata']['source_scope']);
+        self::assertFalse($forecast['source_metadata']['auto_write_ota']);
+        self::assertSame(
+            'traffic_trend_score_0_100_for_Ctrip_channel_demand_trend_not_whole_hotel_occupancy_50_means_history_baseline',
+            $forecast['source_metadata']['field_semantics']['predicted_occupancy']
+        );
+        self::assertSame([], $forecast['data_gaps']);
+    }
+
     public function testEffectReviewWaitsForCompleteWindow(): void
     {
         $service = new RevenuePricingRecommendationService();

@@ -1,6 +1,6 @@
 {
   "owner": "TODO: real accountable design owner",
-  "last_reviewed_at": "TODO: YYYY-MM-DD reviewed source handoff date",
+  "last_reviewed_at": "TODO: YYYY-MM-DD reviewed source handoff date inside the 30-day release evidence window",
   "figma_url": "https://www.figma.com/file/TODO-real-design-source",
   "canva_url": "https://www.canva.com/design/TODO-real-editable-design",
   "brand_kit_url": "https://www.canva.com/brand/TODO-real-brand-kit",
@@ -14,6 +14,15 @@
     "operations-management",
     "investment-decision"
   ],
+  "source_review": {
+    "review_method": "TODO: connector_verified | manual_access_review | independent_design_audit",
+    "evidence_ref": "TODO: controlled connector result, ticket, or audit record proving accessible sources",
+    "figma_source_verified": false,
+    "canva_source_verified": false,
+    "brand_kit_source_verified": false,
+    "design_tokens_reviewed": false,
+    "required_flows_reviewed": false
+  },
   "open_issues": [],
   "notes": "Do not use screenshots, exported images, inaccessible links, standalone token files, or placeholder URLs as release design handoff evidence."
 }

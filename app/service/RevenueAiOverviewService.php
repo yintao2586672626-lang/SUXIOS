@@ -27,6 +27,7 @@ class RevenueAiOverviewService
         'demand_forecasts_empty',
         'demand_forecasts_metric_missing',
     ];
+    private const CTRIP_COMPETITOR_PLATFORM_VALUES = [1, '1', 'ctrip'];
 
     /**
      * @param array<string, mixed> $filters
@@ -1917,6 +1918,7 @@ class RevenueAiOverviewService
         $hotelChecks = [];
         $pendingSuggestionCount = 0;
         $demandForecastCount = 0;
+        $ctripTrafficDemandForecastCount = 0;
         $competitorAnalysisRecentCount = 0;
         $createCandidateCount = 0;
         $skippedCandidateCount = 0;
@@ -1952,14 +1954,34 @@ class RevenueAiOverviewService
                 $tableGaps[] = 'demand_forecasts_read_failed';
                 $demandCount = 0;
             }
+            $trafficDemandForecast = [];
+            $trafficDemandForecastReady = false;
+            if ($demandCount <= 0 && count($sourceChannels) === 1 && $sourceChannels[0] === 'ctrip') {
+                try {
+                    $trafficDemandForecast = $pricingService->ctripTrafficDemandForecastSignal($targetHotelId, $businessDate);
+                    $trafficDemandForecastReady = ($trafficDemandForecast['data_status'] ?? '') === 'ok';
+                } catch (\Throwable) {
+                    $trafficDemandForecast = ['data_status' => 'failed', 'source' => 'ctrip_historical_traffic_trend'];
+                    $trafficDemandForecastReady = false;
+                }
+            }
+            if ($demandCount <= 0 && $trafficDemandForecastReady) {
+                $ctripTrafficDemandForecastCount++;
+            }
+            $demandCountForRequiredInput = $trafficDemandForecastReady ? 1 : $demandCount;
 
             $competitorStartDate = date('Y-m-d', strtotime($businessDate . ' -7 days'));
+            $competitorColumns = $this->tableColumns('competitor_analysis');
+            $competitorHasPlatform = isset($competitorColumns['ota_platform']);
             $competitorCount = $this->pricingPreflightCountRows(
                 'competitor_analysis',
                 ['hotel_id', 'analysis_date'],
-                static function ($query) use ($targetHotelId, $competitorStartDate, $businessDate): void {
+                static function ($query) use ($targetHotelId, $competitorStartDate, $businessDate, $competitorHasPlatform): void {
                     $query->where('hotel_id', $targetHotelId)
                         ->whereBetween('analysis_date', [$competitorStartDate, $businessDate]);
+                    if ($competitorHasPlatform) {
+                        $query->whereIn('ota_platform', self::CTRIP_COMPETITOR_PLATFORM_VALUES);
+                    }
                 }
             );
             if ($competitorCount === null) {
@@ -2012,7 +2034,7 @@ class RevenueAiOverviewService
                     '为启用房型补齐基础价和最低保护价。'
                 );
             }
-            if ($demandCount <= 0) {
+            if ($demandCountForRequiredInput <= 0) {
                 $requiredInputs[] = $this->pricingPreflightRequiredInput(
                     'demand_forecast',
                     'demand_forecasts',
@@ -2032,12 +2054,18 @@ class RevenueAiOverviewService
             $competitorAnalysisRecentCount += $competitorCount;
             $createCandidateCount += $hotelCreateCandidates;
             $skippedCandidateCount += $hotelSkippedCandidates;
+            $demandForecastSource = $demandCount > 0
+                ? 'demand_forecasts'
+                : ($trafficDemandForecastReady ? 'ctrip_historical_traffic_trend' : 'missing');
             $hotelChecks[] = [
                 'hotel_id' => $targetHotelId,
                 'target_date_rows' => (int)($targetRowsByHotel[$targetHotelId] ?? 0),
                 'room_type_count' => $hotelRoomTypeCount,
                 'pending_suggestions' => $pendingCount,
                 'demand_forecasts' => $demandCount,
+                'demand_forecast_source' => $demandForecastSource,
+                'ctrip_traffic_demand_forecast_status' => (string)($trafficDemandForecast['data_status'] ?? 'not_checked'),
+                'ctrip_traffic_demand_primary_metric' => (string)($trafficDemandForecast['primary_metric'] ?? ''),
                 'competitor_analysis_recent' => $competitorCount,
                 'create_candidate_count' => $hotelCreateCandidates,
                 'skipped_candidate_count' => $hotelSkippedCandidates,
@@ -2104,6 +2132,7 @@ class RevenueAiOverviewService
             'room_type_count' => $roomTypeCount,
             'pending_suggestion_count' => $pendingSuggestionCount,
             'demand_forecast_count' => $demandForecastCount,
+            'ctrip_traffic_demand_forecast_count' => $ctripTrafficDemandForecastCount,
             'competitor_analysis_recent_count' => $competitorAnalysisRecentCount,
             'create_candidate_count' => $createCandidateCount,
             'skipped_candidate_count' => $skippedCandidateCount,

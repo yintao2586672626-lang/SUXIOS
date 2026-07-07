@@ -9,6 +9,7 @@ use app\service\CtripTrafficDisplayService;
 use app\service\ManualOnlineFetchTaskService;
 use app\service\MeituanManualFetchRequestService;
 use think\Response;
+use think\facade\Db;
 
 trait OnlineDataManualFetchConcern
 {
@@ -24,8 +25,11 @@ trait OnlineDataManualFetchConcern
         $authDataStr = $this->request->post('auth_data', '');
         $startDate = $this->request->post('start_date', '');
         $endDate = $this->request->post('end_date', '');
-        $autoSave = $this->request->post('auto_save', true);
-        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
+        $autoSave = $this->isTruthyRequestValue($this->request->post('auto_save', true));
+        $systemHotelIdInput = $this->request->post('system_hotel_id', null);
+        $systemHotelId = ($systemHotelIdInput !== null && $systemHotelIdInput !== '')
+            ? $this->resolveOnlineDataSystemHotelId($systemHotelIdInput)
+            : null;
         $backgroundRequested = $this->isTruthyRequestValue($requestData['async'] ?? $requestData['background'] ?? false)
             && !$this->isTruthyRequestValue($requestData['background_task'] ?? false);
 
@@ -33,7 +37,6 @@ trait OnlineDataManualFetchConcern
             return json(['code' => 400, 'message' => '请提供登录Cookies', 'data' => null]);
         }
 
-        // 解析认证数据
         $authData = [];
         if (!empty($authDataStr)) {
             if (is_string($authDataStr)) {
@@ -149,6 +152,45 @@ trait OnlineDataManualFetchConcern
                 ]);
             }
 
+            $displayHotels = $this->buildCtripBusinessDisplayHotels(['date_results' => $dateResults]);
+            $displaySummary = $this->buildCtripBusinessDisplaySummary($displayHotels);
+
+            $identityCheck = null;
+            if ($autoSave) {
+                if ($systemHotelId) {
+                    $identityCheck = $this->validateCtripManualBusinessHotelIdentity($dateResults, (int)$systemHotelId, is_array($requestData) ? $requestData : []);
+                } else {
+                    $identityCheck = $this->resolveCtripManualBusinessHotelIdentityFromResponse($dateResults, is_array($requestData) ? $requestData : []);
+                    if (!empty($identityCheck['ok']) && !empty($identityCheck['target_system_hotel_id'])) {
+                        $systemHotelId = $this->resolveOnlineDataSystemHotelId((int)$identityCheck['target_system_hotel_id']);
+                    }
+                }
+
+                if (empty($identityCheck['ok'])) {
+                    $payload = [
+                        'data' => $responseData,
+                        'date_results' => $dateResults,
+                        'raw_response' => $rawResponse,
+                        'saved_count' => 0,
+                        'request_start_date' => $startDate,
+                        'request_end_date' => $endDate,
+                        'identity_check' => $identityCheck,
+                        'display_hotels' => $displayHotels,
+                        'display_hotel_count' => count($displayHotels),
+                        'display_summary' => $displaySummary,
+                        'save_status' => 'blocked',
+                    ];
+                    $responseCode = $systemHotelId ? 409 : 200;
+                    return json([
+                        'code' => $responseCode,
+                        'message' => (string)($identityCheck['message'] ?? '携程返回酒店身份未能自动匹配本系统门店，已获取但未入库。'),
+                        'data' => array_merge([
+                            'reason' => (string)($identityCheck['status'] ?? 'ctrip_hotel_identity_blocked'),
+                        ], $payload),
+                    ]);
+                }
+            }
+
             $fetchedAt = date('Y-m-d H:i:s');
             foreach ($dateResults as &$dateResult) {
                 if ($autoSave) {
@@ -177,9 +219,6 @@ trait OnlineDataManualFetchConcern
                 OperationLog::record('online_data', 'fetch_ctrip', "获取携程线上数据: {$savedCount}条", $this->currentUser->id, $systemHotelId);
             }
 
-            $displayHotels = $this->buildCtripBusinessDisplayHotels(['date_results' => $dateResults]);
-            $displaySummary = $this->buildCtripBusinessDisplaySummary($displayHotels);
-
             return json([
                 'code' => 200,
                 'message' => '获取成功',
@@ -191,6 +230,7 @@ trait OnlineDataManualFetchConcern
                     'fetched_at' => $fetchedAt,
                     'request_start_date' => $startDate,
                     'request_end_date' => $endDate,
+                    'identity_check' => $identityCheck,
                     'display_hotels' => $displayHotels,
                     'display_hotel_count' => count($displayHotels),
                     'display_summary' => $displaySummary,
@@ -205,6 +245,355 @@ trait OnlineDataManualFetchConcern
      * 获取线上数据 - 美团ebooking接口
      * 支持竞对排名数据接口，支持时间维度选择
      */
+    private function validateCtripManualBusinessHotelIdentity(array $dateResults, int $systemHotelId, array $requestData = []): array
+    {
+        $targetHotelName = $this->getSystemHotelName($systemHotelId);
+        $config = $this->resolveCtripManualBusinessIdentityConfig($systemHotelId, $requestData);
+        $expectedIds = $this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId);
+        $nodeIds = array_fill_keys($this->extractCtripNodeResourceIds($config), true);
+
+        if ($expectedIds === []) {
+            return [
+                'ok' => false,
+                'status' => 'expected_platform_hotel_id_missing',
+                'message' => '当前门店未维护携程平台酒店ID，已取消入库。请先在酒店管理/携程配置中补充真实携程 hotelId。',
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'captured_hotel_ids' => [],
+                'expected_hotel_ids' => [],
+                'conflicts' => [],
+            ];
+        }
+
+        $capturedIds = [];
+        foreach ($dateResults as $dateResult) {
+            if (!is_array($dateResult)) {
+                continue;
+            }
+            foreach ($this->extractCtripManualBusinessSelfHotelIds($dateResult['data'] ?? [], $systemHotelId, $targetHotelName) as $id) {
+                if ($this->isMeaningfulCtripPlatformHotelId($id, $systemHotelId) && !isset($nodeIds[$id])) {
+                    $capturedIds[$id] = true;
+                }
+            }
+        }
+        $capturedIds = array_keys($capturedIds);
+
+        if ($capturedIds === []) {
+            return [
+                'ok' => false,
+                'status' => 'returned_current_hotel_id_missing',
+                'message' => '携程返回数据未识别到当前酒店身份，已取消入库。请确认 Cookie 对应当前门店，并补充真实携程 hotelId 后重试。',
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'captured_hotel_ids' => [],
+                'expected_hotel_ids' => $expectedIds,
+                'conflicts' => [],
+            ];
+        }
+
+        $conflicts = $this->findCtripPlatformHotelIdConflicts($capturedIds, $systemHotelId);
+        $blockingConflicts = array_values(array_filter($conflicts, function (array $conflict) use ($expectedIds): bool {
+            return $this->shouldBlockCtripCurrentHotelIdConflict((string)($conflict['hotel_id'] ?? ''), $expectedIds);
+        }));
+        if ($blockingConflicts !== []) {
+            return [
+                'ok' => false,
+                'status' => 'platform_hotel_conflict',
+                'message' => '携程返回酒店ID已绑定到其他系统门店，已取消入库，避免错店数据覆盖。',
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'captured_hotel_ids' => $capturedIds,
+                'expected_hotel_ids' => $expectedIds,
+                'conflicts' => $blockingConflicts,
+            ];
+        }
+
+        if (array_intersect($expectedIds, $capturedIds) === []) {
+            return [
+                'ok' => false,
+                'status' => 'expected_hotel_id_mismatch',
+                'message' => '携程返回酒店ID与当前门店配置不一致，已取消入库。当前门店：' . ($targetHotelName !== '' ? $targetHotelName : ('门店ID ' . $systemHotelId)) . '；配置hotelId：' . implode('、', $expectedIds) . '；返回hotelId：' . implode('、', $capturedIds),
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'captured_hotel_ids' => $capturedIds,
+                'expected_hotel_ids' => $expectedIds,
+                'conflicts' => [],
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'status' => 'matched',
+            'target_system_hotel_id' => $systemHotelId,
+            'target_hotel_name' => $targetHotelName,
+            'captured_hotel_ids' => $capturedIds,
+            'expected_hotel_ids' => $expectedIds,
+            'conflicts' => [],
+        ];
+    }
+
+    private function resolveCtripManualBusinessIdentityConfig(int $systemHotelId, array $requestData = []): array
+    {
+        $requestConfig = [];
+        foreach (['masterHotelId', 'master_hotel_id', 'ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId', 'platform_hotel_id', 'platformHotelId', 'node_id', 'nodeId'] as $key) {
+            if (array_key_exists($key, $requestData)) {
+                $requestConfig[$key] = $requestData[$key];
+            }
+        }
+
+        foreach ($this->getStoredCtripConfigList() as $config) {
+            if (!is_array($config)) {
+                continue;
+            }
+            $configHotelId = trim((string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? ''));
+            if ($configHotelId !== '' && $configHotelId === (string)$systemHotelId) {
+                return array_merge($config, $requestConfig);
+            }
+        }
+
+        return $requestConfig;
+    }
+
+    private function resolveCtripManualBusinessHotelIdentityFromResponse(array $dateResults, array $requestData = []): array
+    {
+        $capturedIds = $this->extractCtripManualBusinessCapturedSelfHotelIds($dateResults, 0, '', $requestData);
+        return $this->resolveCtripSystemHotelIdentityFromPlatformIds($capturedIds, $requestData);
+    }
+
+    private function extractCtripManualBusinessCapturedSelfHotelIds(array $dateResults, int $systemHotelId = 0, string $targetHotelName = '', array $requestData = []): array
+    {
+        $nodeIds = array_fill_keys($this->extractCtripNodeResourceIds($requestData), true);
+        $capturedIds = [];
+        foreach ($dateResults as $dateResult) {
+            if (!is_array($dateResult)) {
+                continue;
+            }
+            foreach ($this->extractCtripManualBusinessSelfHotelIds($dateResult['data'] ?? [], $systemHotelId, $targetHotelName) as $id) {
+                if ($this->isMeaningfulCtripPlatformHotelId($id, $systemHotelId) && !isset($nodeIds[$id])) {
+                    $capturedIds[$id] = true;
+                }
+            }
+        }
+        return array_keys($capturedIds);
+    }
+
+    private function resolveCtripSystemHotelIdentityFromPlatformIds(array $platformHotelIds, array $requestData = []): array
+    {
+        $nodeIds = array_fill_keys($this->extractCtripNodeResourceIds($requestData), true);
+        $capturedIds = [];
+        foreach ($platformHotelIds as $id) {
+            $value = trim((string)$id);
+            if ($this->isMeaningfulCtripPlatformHotelId($value, 0) && !isset($nodeIds[$value])) {
+                $capturedIds[$value] = true;
+            }
+        }
+        $capturedIds = array_keys($capturedIds);
+
+        if ($capturedIds === []) {
+            return [
+                'ok' => false,
+                'status' => 'returned_current_hotel_id_missing',
+                'message' => '携程返回数据未识别到当前酒店身份，已获取但未入库。请确认 Cookie 对应正确门店后重试。',
+                'target_system_hotel_id' => null,
+                'target_hotel_name' => '',
+                'captured_hotel_ids' => [],
+                'expected_hotel_ids' => [],
+                'conflicts' => [],
+                'auto_resolved' => false,
+            ];
+        }
+
+        $matches = $this->findCtripSystemHotelMatchesByPlatformIds($capturedIds);
+        if ($matches === []) {
+            return [
+                'ok' => false,
+                'status' => 'platform_hotel_unbound',
+                'message' => '携程数据已获取，但返回酒店ID未绑定到本系统门店，已取消入库。请在酒店管理中补充该携程 hotelId 后重试。',
+                'target_system_hotel_id' => null,
+                'target_hotel_name' => '',
+                'captured_hotel_ids' => $capturedIds,
+                'expected_hotel_ids' => [],
+                'conflicts' => [],
+                'auto_resolved' => false,
+            ];
+        }
+
+        if (count($matches) > 1) {
+            return [
+                'ok' => false,
+                'status' => 'platform_hotel_ambiguous',
+                'message' => '携程返回酒店ID匹配到多个本系统门店，已取消入库。请先清理重复绑定。',
+                'target_system_hotel_id' => null,
+                'target_hotel_name' => '',
+                'captured_hotel_ids' => $capturedIds,
+                'expected_hotel_ids' => [],
+                'conflicts' => array_values($matches),
+                'auto_resolved' => false,
+            ];
+        }
+
+        $match = reset($matches);
+        $systemHotelId = (int)($match['system_hotel_id'] ?? 0);
+        $targetHotelName = $this->getSystemHotelName($systemHotelId);
+        $matchedIds = array_values(array_unique(array_map('strval', $match['matched_hotel_ids'] ?? [])));
+
+        return [
+            'ok' => true,
+            'status' => 'auto_resolved',
+            'message' => '已通过携程返回酒店ID自动匹配本系统门店。',
+            'target_system_hotel_id' => $systemHotelId,
+            'target_hotel_name' => $targetHotelName,
+            'captured_hotel_ids' => $capturedIds,
+            'expected_hotel_ids' => $matchedIds,
+            'conflicts' => [],
+            'auto_resolved' => true,
+            'match_source' => $match['source'] ?? '',
+            'match_source_ids' => $match['source_ids'] ?? [],
+        ];
+    }
+
+    private function findCtripSystemHotelMatchesByPlatformIds(array $platformHotelIds): array
+    {
+        $wanted = array_fill_keys(array_values(array_unique(array_filter(array_map(
+            static fn($value): string => trim((string)$value),
+            $platformHotelIds
+        ), static fn(string $value): bool => $value !== '' && $value !== '-1'))), true);
+        if ($wanted === []) {
+            return [];
+        }
+
+        $matches = [];
+        foreach ($this->getStoredCtripConfigList() as $config) {
+            if (!is_array($config)) {
+                continue;
+            }
+            $systemHotelId = (int)($config['system_hotel_id'] ?? $config['hotel_id'] ?? 0);
+            if ($systemHotelId <= 0) {
+                continue;
+            }
+            $ids = $this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId);
+            $this->appendCtripSystemHotelIdentityMatches($matches, $wanted, $systemHotelId, $ids, 'ctrip_config_list', (string)($config['id'] ?? ''));
+        }
+
+        foreach ($this->readCtripPlatformDataSourceIdentityRows() as $row) {
+            $systemHotelId = (int)($row['system_hotel_id'] ?? 0);
+            if ($systemHotelId <= 0) {
+                continue;
+            }
+            $config = json_decode((string)($row['config_json'] ?? ''), true);
+            if (!is_array($config)) {
+                $config = [];
+            }
+            $config['system_hotel_id'] = $systemHotelId;
+            $ids = $this->extractCtripBindingPlatformHotelIds($config, $systemHotelId);
+            $this->appendCtripSystemHotelIdentityMatches($matches, $wanted, $systemHotelId, $ids, 'platform_data_sources', (string)($row['id'] ?? ''));
+        }
+
+        return array_values($matches);
+    }
+
+    private function appendCtripSystemHotelIdentityMatches(array &$matches, array $wanted, int $systemHotelId, array $candidateIds, string $source, string $sourceId = ''): void
+    {
+        $matchedIds = array_values(array_filter(array_unique(array_map(
+            static fn($value): string => trim((string)$value),
+            $candidateIds
+        )), static fn(string $value): bool => $value !== '' && isset($wanted[$value])));
+        if ($matchedIds === []) {
+            return;
+        }
+
+        if (!isset($matches[$systemHotelId])) {
+            $matches[$systemHotelId] = [
+                'system_hotel_id' => $systemHotelId,
+                'matched_hotel_ids' => [],
+                'source' => $source,
+                'source_ids' => [],
+            ];
+        }
+        $matches[$systemHotelId]['matched_hotel_ids'] = array_values(array_unique(array_merge(
+            $matches[$systemHotelId]['matched_hotel_ids'],
+            $matchedIds
+        )));
+        if ($sourceId !== '') {
+            $matches[$systemHotelId]['source_ids'][] = $sourceId;
+            $matches[$systemHotelId]['source_ids'] = array_values(array_unique($matches[$systemHotelId]['source_ids']));
+        }
+        if (!str_contains((string)$matches[$systemHotelId]['source'], $source)) {
+            $matches[$systemHotelId]['source'] .= '+' . $source;
+        }
+    }
+
+    private function extractCtripBindingPlatformHotelIds(array $config, int $systemHotelId): array
+    {
+        $ids = array_fill_keys($this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId), true);
+        $nodeIds = array_fill_keys($this->extractCtripNodeResourceIds($config), true);
+        foreach (['hotel_id', 'hotelId', 'external_hotel_id', 'externalHotelId', 'request_hotel_id', 'requestHotelId'] as $key) {
+            $value = trim((string)($config[$key] ?? ''));
+            if ($this->isMeaningfulCtripPlatformHotelId($value, $systemHotelId) && !isset($nodeIds[$value])) {
+                $ids[$value] = true;
+            }
+        }
+        return array_keys($ids);
+    }
+
+    private function readCtripPlatformDataSourceIdentityRows(): array
+    {
+        try {
+            return Db::name('platform_data_sources')
+                ->field('id,system_hotel_id,config_json,enabled,status')
+                ->where('platform', 'ctrip')
+                ->where('enabled', 1)
+                ->select()
+                ->toArray();
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function extractCtripManualBusinessSelfHotelIds($responseData, int $systemHotelId, string $targetHotelName = ''): array
+    {
+        $ids = [];
+        foreach ($this->extractCtripBusinessDataList($responseData) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            if (!$this->isCtripManualBusinessSelfRow($item, $targetHotelName)) {
+                continue;
+            }
+            $id = $this->resolveCtripPlatformHotelId($item);
+            if ($this->isMeaningfulCtripPlatformHotelId($id, $systemHotelId)) {
+                $ids[$id] = true;
+            }
+        }
+
+        return array_keys($ids);
+    }
+
+    private function isCtripManualBusinessSelfRow(array $item, string $targetHotelName = ''): bool
+    {
+        foreach (['hotelName', 'hotel_name', 'HotelName', 'name', 'metric_hotel_name'] as $key) {
+            $hotelName = trim((string)($item[$key] ?? ''));
+            if ($hotelName !== '' && ($this->isCtripGenericSelfHotelName($hotelName) || $this->ctripHotelNameMatches($hotelName, $targetHotelName))) {
+                return true;
+            }
+        }
+
+        foreach (['compare_type', 'compareType', 'role', 'scope', 'type'] as $key) {
+            $value = strtolower(trim((string)($item[$key] ?? '')));
+            if (in_array($value, ['self', 'current', 'mine', 'myhotel', 'currenthotel'], true)) {
+                return true;
+            }
+        }
+
+        foreach (['isSelf', 'is_self', 'isMine', 'is_mine', 'currentHotel', 'current_hotel'] as $key) {
+            if (!empty($item[$key])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function fetchMeituan(): Response
     {
         $this->checkPermission();

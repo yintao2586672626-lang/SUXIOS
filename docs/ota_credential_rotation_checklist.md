@@ -10,7 +10,7 @@
 
 | 项目 | 要求 | 验收证据 |
 |---|---|---|
-| 凭证轮换 | 对命中的真实 OTA Cookie/Token/UserSign 执行失效或重新授权 | 轮换日期、平台、门店范围、执行人 |
+| 凭证轮换 | 对携程和美团命中的真实 OTA Cookie/Token/UserSign 执行失效或重新授权 | 轮换日期、平台覆盖（携程、美团）、门店范围、执行人、复核人 |
 | 本地备份清理 | 删除、加密归档或脱敏含凭证备份 | 清理路径、清理方式、复查时间 |
 | 发布包排除 | `.gitignore` 与 `.gitattributes` 排除备份、采集 profile、采集报告、截图资产 | `npm run review:release-readiness` 相关 pass |
 | Git 跟踪检查 | 备份文件未进入 Git | `git ls-files database/backups` 无输出 |

@@ -1,11 +1,20 @@
 param(
     [string]$EvidenceDir,
+    [string]$PrNumber = $env:RELEASE_PR_NUMBER,
     [switch]$ApplyEvidenceFiles,
     [switch]$MarkPrReady,
     [switch]$AfterPrReady
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($MarkPrReady -and $AfterPrReady) {
+    throw "Do not combine -MarkPrReady and -AfterPrReady in one invocation. Mark the PR ready first, wait for GitHub Actions to remain green on the non-draft head, then rerun with -AfterPrReady."
+}
+
+if (($MarkPrReady -or $AfterPrReady) -and [string]::IsNullOrWhiteSpace($PrNumber)) {
+    throw "RELEASE_PR_NUMBER is required for release handoff PR-ready continuation. Run npm run review:release-pr-candidates and set RELEASE_PR_NUMBER to the selected open final release PR."
+}
 
 function Invoke-ReleaseCommand {
     param(
@@ -22,6 +31,43 @@ function Invoke-ReleaseCommand {
     }
 }
 
+function Resolve-SelectedReleasePrNumber {
+    param(
+        [string]$ConfiguredPrNumber,
+        [string]$CandidateResultPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ConfiguredPrNumber)) {
+        return [string]$ConfiguredPrNumber
+    }
+
+    if (-not (Test-Path -LiteralPath $CandidateResultPath)) {
+        return ''
+    }
+
+    $candidateResult = Get-Content -LiteralPath $CandidateResultPath -Raw | ConvertFrom-Json
+    $selected = [string]$candidateResult.selected_release_pr_number
+    if (-not [string]::IsNullOrWhiteSpace($selected)) {
+        Write-Host "Selected RELEASE_PR_NUMBER from release-pr-candidates result: $selected"
+        return $selected
+    }
+
+    return ''
+}
+
+function Require-ReleasePrNumber {
+    param(
+        [string]$Value,
+        [string]$Context
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        throw "RELEASE_PR_NUMBER is required for $Context. Run npm run review:release-pr-candidates and set RELEASE_PR_NUMBER to the selected open final release PR."
+    }
+
+    return [string]$Value
+}
+
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath
 if ([string]::IsNullOrWhiteSpace($EvidenceDir)) {
     $EvidenceDir = (Resolve-Path -LiteralPath (Join-Path $RepoRoot '..\release-evidence-temp')).ProviderPath
@@ -34,6 +80,11 @@ $productionEnv = Join-Path $EvidenceDir 'production.env'
 $llmAttestation = Join-Path $EvidenceDir 'llm-attestation.json'
 $designManifestEvidence = Join-Path $EvidenceDir 'design_handoff_manifest.json'
 $otaAttestationEvidence = Join-Path $EvidenceDir 'ota_credential_rotation_attestation.json'
+$releaseEvidenceResult = Join-Path $EvidenceDir 'release-evidence-result.json'
+$prCandidatesResult = Join-Path $EvidenceDir 'release-pr-candidates-result.json'
+$stagedScopeResult = Join-Path $EvidenceDir 'release-staged-scope-result.json'
+$externalStateEvidence = Join-Path $EvidenceDir 'release-external-state-evidence.json'
+$externalStateResult = Join-Path $EvidenceDir 'release-external-state-result.json'
 
 Write-Host "Repo root: $RepoRoot"
 Write-Host "Evidence dir: $EvidenceDir"
@@ -90,7 +141,22 @@ $env:RELEASE_ENV_FILE = $productionEnv
 $env:LLM_CONNECTIVITY_ATTESTATION_FILE = $llmAttestation
 $env:DESIGN_HANDOFF_MANIFEST_FILE = $designManifestEvidence
 $env:OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE = $otaAttestationEvidence
-$env:RELEASE_PR_NUMBER = '2'
+$env:RELEASE_EVIDENCE_RESULT_FILE = $releaseEvidenceResult
+$env:RELEASE_PR_CANDIDATES_RESULT_FILE = $prCandidatesResult
+$env:RELEASE_STAGED_SCOPE_RESULT_FILE = $stagedScopeResult
+$env:RELEASE_EXTERNAL_STATE_FILE = $externalStateEvidence
+$env:RELEASE_EXTERNAL_STATE_RESULT_FILE = $externalStateResult
+if (-not [string]::IsNullOrWhiteSpace($PrNumber)) {
+    $env:RELEASE_PR_NUMBER = [string]$PrNumber
+} else {
+    Remove-Item Env:\RELEASE_PR_NUMBER -ErrorAction SilentlyContinue
+}
+
+Write-Host "Release evidence result: $env:RELEASE_EVIDENCE_RESULT_FILE"
+Write-Host "Release PR candidates result: $env:RELEASE_PR_CANDIDATES_RESULT_FILE"
+Write-Host "Release staged-scope result: $env:RELEASE_STAGED_SCOPE_RESULT_FILE"
+Write-Host "Release external-state evidence: $env:RELEASE_EXTERNAL_STATE_FILE"
+Write-Host "Release external-state result: $env:RELEASE_EXTERNAL_STATE_RESULT_FILE"
 
 Push-Location -LiteralPath $RepoRoot
 try {
@@ -106,28 +172,42 @@ try {
         npm.cmd run review:release-ota-credentials
     }
 
-    Invoke-ReleaseCommand "release readiness" {
-        npm.cmd run review:release-readiness
+    Invoke-ReleaseCommand "release PR candidates" {
+        npm.cmd run review:release-pr-candidates
     }
 
-    Invoke-ReleaseCommand "collect PR #2 external state" {
-        npm.cmd run collect:release-external-state
+    $PrNumber = Resolve-SelectedReleasePrNumber -ConfiguredPrNumber $PrNumber -CandidateResultPath $env:RELEASE_PR_CANDIDATES_RESULT_FILE
+    if (-not [string]::IsNullOrWhiteSpace($PrNumber)) {
+        $env:RELEASE_PR_NUMBER = [string]$PrNumber
     }
 
-    $env:RELEASE_EXTERNAL_STATE_FILE = 'docs/release_external_state_evidence.local.json'
-    Invoke-ReleaseCommand "release external state" {
-        npm.cmd run review:release-external-state
+    Invoke-ReleaseCommand "release staged scope" {
+        npm.cmd run review:release-staged-scope
     }
 
     if ($MarkPrReady) {
         Invoke-ReleaseCommand "guarded PR ready transition" {
             npm.cmd run release:mark-pr-ready
         }
+    } else {
+        $PrNumber = Require-ReleasePrNumber -Value $PrNumber -Context "release external-state collection"
+        $env:RELEASE_PR_NUMBER = [string]$PrNumber
+        Invoke-ReleaseCommand "collect PR #$PrNumber external state" {
+            powershell -NoProfile -ExecutionPolicy Bypass -File scripts/collect_release_external_state.ps1 -OutputPath $env:RELEASE_EXTERNAL_STATE_FILE -PrNumber $PrNumber
+        }
+
+        Invoke-ReleaseCommand "release external state" {
+            npm.cmd run review:release-external-state
+        }
+
+        Invoke-ReleaseCommand "release readiness" {
+            npm.cmd run review:release-readiness
+        }
     }
 
     if ($AfterPrReady) {
         Invoke-ReleaseCommand "final handoff after PR ready" {
-            powershell -NoProfile -ExecutionPolicy Bypass -File scripts/review_release_final_handoff.ps1 -EvidenceDir $EvidenceDir -AfterPrReady
+            powershell -NoProfile -ExecutionPolicy Bypass -File scripts/review_release_final_handoff.ps1 -EvidenceDir $EvidenceDir -PrNumber $PrNumber -AfterPrReady
         }
     }
 } finally {

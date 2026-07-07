@@ -117,8 +117,8 @@ requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user f
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
-requireText('public/index.html', 'ctrip-static.js?v=20260703-ai-estimated-nights', 'entry bumps Ctrip static helper version after AI estimated room-night sorter change');
-requireText('public/index.html', 'meituan-static.js?v=20260703-ai-estimated-nights', 'entry keeps Meituan static helper cache version aligned with the Ctrip AI estimated room-night update');
+requireText('public/index.html', 'ctrip-static.js?v=20260707-cookie-only-identity-auto-resolve', 'entry bumps Ctrip static helper version after Cookie-only identity auto-resolve change');
+requireText('public/index.html', 'meituan-static.js?v=20260703-ai-estimated-nights', 'entry keeps Meituan static helper cache version stable when only Ctrip identity guard changes');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -322,8 +322,12 @@ requireText('public/index.html', "requireCtripStatic('isCtripRankingFormAlignedW
 requireText('public/ctrip-static.js', 'const buildCtripFetchDateRange', 'Ctrip static builds fetch date ranges');
 requireText('public/ctrip-static.js', 'const buildCtripFetchRequestBody', 'Ctrip static builds fetch request bodies');
 requireText('public/ctrip-static.js', 'const buildCtripFetchRequestContext', 'Ctrip static builds fetch request context');
+requireText('public/ctrip-static.js', 'const resolveCtripPlatformHotelIdFromConfig', 'Ctrip manual fetch resolves platform hotel ids from explicit OTA identity fields');
 requireText('public/ctrip-static.js', 'const runCtripFetchDataFlow', 'Ctrip static runs fetch flow');
 requireText('public/ctrip-static.js', 'const isCtripRankingFormAlignedWithConfig', 'Ctrip static skips redundant ranking config application');
+requireText('app/controller/concern/OnlineDataManualFetchConcern.php', 'private function validateCtripManualBusinessHotelIdentity', 'manual Ctrip business fetch validates returned hotel identity before autosave');
+requireText('app/controller/concern/OnlineDataManualFetchConcern.php', 'expected_platform_hotel_id_missing', 'manual Ctrip business fetch blocks autosave without configured platform hotel id');
+requireText('app/controller/concern/OnlineDataManualFetchConcern.php', 'private function resolveCtripSystemHotelIdentityFromPlatformIds', 'manual Ctrip business fetch can auto-resolve system hotel identity from returned platform hotel id');
 requireText('public/index.html', "requireCtripStatic('buildLatestCtripSnapshotModel')", 'entry uses extracted Ctrip latest snapshot model builder');
 requireText('public/ctrip-static.js', 'const buildLatestCtripSnapshotModel', 'Ctrip static builds latest snapshot models');
 requireText('public/index.html', "requireCtripStatic('runCtripTrafficFetchFlow')", 'entry uses extracted Ctrip traffic fetch flow runner');
@@ -5907,6 +5911,7 @@ try {
       startDate: '2026-06-01',
       endDate: '2026-06-10',
       systemHotelId: '58',
+      platformHotelId: 'ctrip-58',
     });
     const fallbackBody = buildCtripFetchRequestBody({
       form: { url: '   ' },
@@ -5924,10 +5929,21 @@ try {
         auth_data: { token: 'ctx' },
       },
       selectedCtripHotelId: '58',
+      platformHotelId: 'ctrip-58',
     });
     const missingCredentialContext = buildCtripFetchRequestContext({
       form: { cookies: '   ' },
       selectedCtripHotelId: '58',
+      platformHotelId: 'ctrip-58',
+    });
+    const cookieOnlyFetchContext = buildCtripFetchRequestContext({
+      form: {
+        url: ' https://ebooking.ctrip.test/api ',
+        cookies: ' sid=only ',
+        nodeId: '24588',
+        startDate: '2026-06-10',
+        endDate: '2026-06-10',
+      },
     });
     const multiDatePayload = selectCtripFetchResponsePayload({
       date_results: [{ date: '2026-06-09' }, { date: '2026-06-10' }],
@@ -5962,7 +5978,7 @@ try {
       isLoggedIn: () => true,
       getSelectedCtripHotelId: () => '58',
       notify: (message, level) => fetchFlowEvents.push(`notify:${level || 'info'}:${message}`),
-      getActiveCtripConfig: () => ({ id: 1, hotel_id: '58', cookies: 'sid=config' }),
+      getActiveCtripConfig: () => ({ id: 1, hotel_id: '58', ota_hotel_id: 'ctrip-58', cookies: 'sid=config' }),
       ensureCtripConfigSecret: async config => {
         fetchFlowEvents.push('ensure-config');
         return config;
@@ -6033,7 +6049,7 @@ try {
       isLoggedIn: () => true,
       getSelectedCtripHotelId: () => '58',
       notify: (message, level) => acceptedFetchFlowEvents.push(`notify:${level || 'info'}:${message}`),
-      getActiveCtripConfig: () => ({ id: 1, hotel_id: '58', cookies: 'sid=config' }),
+      getActiveCtripConfig: () => ({ id: 1, hotel_id: '58', ota_hotel_id: 'ctrip-58', cookies: 'sid=config' }),
       ensureCtripConfigSecret: async config => config,
       applyCtripConfigObject: config => acceptedFetchFlowEvents.push(`apply:${config.hotel_id}`),
       getForm: () => ({
@@ -6067,7 +6083,7 @@ try {
       isLoggedIn: () => true,
       getSelectedCtripHotelId: () => '58',
       notify: (message, level) => failedFlowEvents.push(`notify:${level || 'info'}:${message}`),
-      getActiveCtripConfig: () => ({ hotel_id: '58' }),
+      getActiveCtripConfig: () => ({ hotel_id: '58', ota_hotel_id: 'ctrip-58' }),
       ensureCtripConfigSecret: async config => config,
       getForm: () => ({ cookies: 'sid=fetch', startDate: '2026-06-10', endDate: '2026-06-10' }),
       requestFetch: async () => ({
@@ -6590,14 +6606,23 @@ try {
         && fetchContext.requestBody.cookies === 'sid=context'
         && fetchContext.requestBody.node_id === '24588'
         && fetchContext.requestBody.system_hotel_id === '58'
+        && fetchContext.requestBody.ctrip_hotel_id === 'ctrip-58'
+        && fetchContext.requestBody.ota_hotel_id === 'ctrip-58'
+        && fetchContext.requestBody.platform_hotel_id === 'ctrip-58'
         && fetchContext.requestBody.start_date === '2026-06-01'
         && fetchContext.requestBody.end_date === '2026-06-10'
         && fetchContext.debugMeta.node_id === '24588'
+        && cookieOnlyFetchContext.ok === true
+        && cookieOnlyFetchContext.requestBody.cookies === 'sid=only'
+        && cookieOnlyFetchContext.requestBody.system_hotel_id === null
+        && cookieOnlyFetchContext.requestBody.ctrip_hotel_id === undefined
+        && cookieOnlyFetchContext.debugMeta.system_hotel_id === 'auto_resolve_from_cookie_response'
         && missingCredentialContext.ok === false
         && missingCredentialContext.message.includes('临时 Cookie/API 辅助内容')
         && fetchBody.url === 'https://ebooking.ctrip.test/api'
         && fetchBody.node_id === '24588'
         && fetchBody.system_hotel_id === '58'
+        && fetchBody.ctrip_hotel_id === 'ctrip-58'
         && fetchBody.cookies === 'sid=abc'
         && fallbackBody.url === undefined
         && fallbackBody.node_id === undefined
@@ -6644,6 +6669,8 @@ try {
         && fetchFlowRequestedBody.cookies === 'sid=fetch'
         && fetchFlowRequestedBody.node_id === '24588'
         && fetchFlowRequestedBody.system_hotel_id === '58'
+        && fetchFlowRequestedBody.ctrip_hotel_id === 'ctrip-58'
+        && fetchFlowRequestedBody.ota_hotel_id === 'ctrip-58'
         && fetchFlowResultPayload[0].order_id === 'o1'
         && fetchFlowFilterDates.startDate === '2026-06-01'
         && fetchFlowFilterDates.endDate === '2026-06-10'
@@ -6662,6 +6689,7 @@ try {
         && acceptedFetchFlowResult.status === 'accepted'
         && acceptedFetchFlowRequestedBody.async === false
         && acceptedFetchFlowRequestedBody.background === false
+        && acceptedFetchFlowRequestedBody.ctrip_hotel_id === 'ctrip-58'
         && acceptedFetchFlowResultPayload.status === 'running'
         && acceptedFetchFlowResultPayload.task_id === 'manual-task-1'
         && acceptedFetchFlowEvents.includes('notify:info:queued')

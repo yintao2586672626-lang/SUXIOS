@@ -12,6 +12,8 @@
     "release_readiness_check",
     "blockers",
     "external_state_check",
+    "pr_candidate_check",
+    "staged_scope_check",
     "plugin_status",
     "do_not_claim_ready_until"
   ],
@@ -37,11 +39,106 @@
     },
     "current_pr": {
       "type": "object",
-      "required": ["number", "status", "checks", "source_of_truth"]
+      "required": ["number", "status", "checks", "source_of_truth", "pr_candidate_review", "connector_evidence"],
+      "properties": {
+        "pr_candidate_review": {
+          "type": "object",
+          "required": ["command", "result_file", "status", "gh_pr_list_checked_at", "gh_pr_list_open_pr_count", "source_of_truth_for_current_pr_candidates", "connector_diagnostic"],
+          "properties": {
+            "command": {
+              "const": "npm run review:release-pr-candidates"
+            },
+            "result_file": {
+              "const": "../release-evidence-temp/release-pr-candidates-current-result.json"
+            },
+            "status": {
+              "const": "failed"
+            },
+            "gh_pr_list_checked_at": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}$"
+            },
+            "gh_pr_list_open_pr_count": {
+              "type": "number",
+              "minimum": 0
+            },
+            "source_of_truth_for_current_pr_candidates": {
+              "const": true
+            },
+            "connector_diagnostic": {
+              "type": "object",
+              "required": ["path", "checked_at", "is_stale_for_current_review", "does_not_close_release_readiness"],
+              "properties": {
+                "path": {
+                  "const": "docs/release_github_handoff_evidence.json"
+                },
+                "checked_at": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}$"
+                },
+                "is_stale_for_current_review": {
+                  "const": true
+                },
+                "does_not_close_release_readiness": {
+                  "const": true
+                }
+              }
+            }
+          }
+        },
+        "connector_evidence": {
+          "type": "object",
+          "required": ["path", "tool", "state", "result", "pull_requests_count", "checked_at", "does_not_close_release_readiness"],
+          "properties": {
+            "path": {
+              "const": "docs/release_github_handoff_evidence.json"
+            },
+            "tool": {
+              "const": "mcp__codex_apps__github._get_users_recent_prs_in_repo"
+            },
+            "state": {
+              "const": "open"
+            },
+            "result": {
+              "const": "blocked"
+            },
+            "pull_requests_count": {
+              "const": 0
+            },
+            "checked_at": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}$"
+            },
+            "does_not_close_release_readiness": {
+              "const": true
+            }
+          }
+        }
+      }
     },
     "release_readiness_check": {
       "type": "object",
-      "required": ["command", "status", "open_failures", "warnings", "result_file_template"]
+      "required": ["command", "status", "result_mode", "final_release_ready", "default_evidence_dir", "open_failures", "warnings", "result_file_template"],
+      "properties": {
+        "command": {
+          "const": "npm run review:release-readiness"
+        },
+        "status": {
+          "const": "failing_as_expected"
+        },
+        "result_mode": {
+          "const": "final"
+        },
+        "final_release_ready": {
+          "const": false
+        },
+        "default_evidence_dir": {
+          "const": "../release-evidence-temp"
+        },
+        "result_file_template": {
+          "const": "docs/release_readiness_result.example.json"
+        }
+      }
     },
     "blockers": {
       "type": "array",
@@ -89,7 +186,51 @@
     },
     "external_state_check": {
       "type": "object",
-      "required": ["command", "status", "evidence_file_template", "result_file_template", "resolved", "open_failures", "warnings"]
+      "required": ["command", "status", "evidence_file_template", "result_file_template", "resolved", "open_failures", "warnings"],
+      "properties": {
+        "command": {
+          "const": "npm run review:release-external-state"
+        },
+        "status": {
+          "const": "failing_as_expected"
+        },
+        "evidence_file_template": {
+          "const": "docs/release_external_state_evidence.example.json"
+        },
+        "result_file_template": {
+          "const": "docs/release_external_state_result.example.json"
+        }
+      }
+    },
+    "pr_candidate_check": {
+      "type": "object",
+      "required": ["command", "status", "result_file", "open_failures", "close_condition"],
+      "properties": {
+        "command": {
+          "const": "npm run review:release-pr-candidates"
+        },
+        "status": {
+          "const": "failing_as_expected"
+        },
+        "result_file": {
+          "const": "../release-evidence-temp/release-pr-candidates-current-result.json"
+        }
+      }
+    },
+    "staged_scope_check": {
+      "type": "object",
+      "required": ["command", "status", "result_file", "resolved", "warnings", "close_condition"],
+      "properties": {
+        "command": {
+          "const": "npm run review:release-staged-scope"
+        },
+        "status": {
+          "const": "passing_not_release_closure"
+        },
+        "result_file": {
+          "const": "../release-evidence-temp/release-staged-scope-current-result.json"
+        }
+      }
     },
     "plugin_status": {
       "type": "array",

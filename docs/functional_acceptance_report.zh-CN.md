@@ -36,7 +36,7 @@
 
 PR：`https://github.com/yintao2586672626-lang/SUXIOS/pull/2`
 
-当前 head：以 PR #2 final head 为准；每次推送后需重新确认 GitHub Actions。
+当前 head：以实际 open final release PR head 为准；不要复用已 merged 的 PR #2，每次推送后需重新确认 GitHub Actions。
 
 GitHub Actions：2 个 `PHP Composer / verify` checks 均通过。CI 覆盖 Composer audit、npm audit、PHPUnit、P0 guards、OTA 批量校验、开业批量动作、功能验收、问题登记、非安全评审和 release status contract。
 
@@ -49,7 +49,7 @@ GitHub Actions：2 个 `PHP Composer / verify` checks 均通过。CI 覆盖 Comp
 | Figma / Canva 真实交付 | 缺真实设计源和 Brand Kit，后续执行 `npm run review:release-design`。 |
 | OTA 凭据与备份 | `database/backups` 仍有凭据形态字段，后续执行 `npm run review:release-ota-credentials`。 |
 | Codex Security 正式扫描 | 已生成 `docs/security/codex-security/latest` artifacts，`npm run review:release-security-scan` 已通过；最终 PR head 仍需复验。 |
-| GitHub / 本地交接 | PR 仍是 draft，`.git/index.lock` 存在，本地 worktree dirty，后续执行 `npm run review:release-external-state`。 |
+| GitHub / 本地交接 | 当前配置的 PR #2 已 merged/stale；需设置实际 open final release PR 的 `RELEASE_PR_NUMBER`，并在 worktree clean 后执行 `npm run review:release-external-state`。 |
 
 ## 验收口径
 

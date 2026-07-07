@@ -161,6 +161,26 @@ window.SUXI_CTRIP_STATIC = (() => {
         }
         return '';
     };
+    const resolveCtripPlatformHotelIdFromConfig = (config = {}, systemHotelId = '') => {
+        const systemIdText = String(systemHotelId || '').trim();
+        const candidates = [
+            config?.masterHotelId,
+            config?.master_hotel_id,
+            config?.ota_hotel_id,
+            config?.otaHotelId,
+            config?.ctrip_hotel_id,
+            config?.ctripHotelId,
+            config?.platform_hotel_id,
+            config?.platformHotelId,
+        ];
+        for (const candidate of candidates) {
+            const value = String(candidate || '').trim();
+            if (value && value !== '-1' && value !== '24588' && value !== systemIdText) {
+                return value;
+            }
+        }
+        return '';
+    };
     const hasCtripObjectValue = (value) => value && typeof value === 'object' && Object.keys(value).length > 0;
     const isSameCtripJsonObject = (left = {}, right = {}) => {
         try {
@@ -1151,6 +1171,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         startDate = '',
         endDate = '',
         systemHotelId = null,
+        platformHotelId = '',
     } = {}) => {
         const requestUrl = String(form.url || '').trim();
         const body = {
@@ -1161,6 +1182,12 @@ window.SUXI_CTRIP_STATIC = (() => {
             auto_save: true,
             system_hotel_id: systemHotelId || null,
         };
+        const ctripHotelId = String(platformHotelId || '').trim();
+        if (ctripHotelId) {
+            body.ctrip_hotel_id = ctripHotelId;
+            body.ota_hotel_id = ctripHotelId;
+            body.platform_hotel_id = ctripHotelId;
+        }
         if (requestUrl) {
             body.url = requestUrl;
         }
@@ -1172,11 +1199,13 @@ window.SUXI_CTRIP_STATIC = (() => {
     const buildCtripFetchRequestContext = ({
         form = {},
         selectedCtripHotelId = '',
+        platformHotelId = '',
     } = {}) => {
         const cookies = String(form.cookies || '').trim();
         if (!cookies) {
             return {
                 ok: false,
+                status: 'missing_cookie',
                 message: '请输入临时 Cookie/API 辅助内容',
                 level: 'error',
             };
@@ -1190,6 +1219,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             startDate,
             endDate,
             systemHotelId: selectedCtripHotelId || null,
+            platformHotelId,
         });
         return {
             ok: true,
@@ -1199,6 +1229,8 @@ window.SUXI_CTRIP_STATIC = (() => {
             endDate,
             requestBody,
             debugMeta: {
+                system_hotel_id: selectedCtripHotelId || 'auto_resolve_from_cookie_response',
+                platform_hotel_id: platformHotelId || 'auto_resolve_from_cookie_response',
                 node_id: nodeId || 'backend_default',
                 start_date: startDate,
                 end_date: endDate,
@@ -1283,10 +1315,12 @@ window.SUXI_CTRIP_STATIC = (() => {
             applyCtripConfigObject(selectedConfig);
             form = getForm() || form;
         }
+        const platformHotelId = resolveCtripPlatformHotelIdFromConfig(selectedConfig || {}, selectedCtripHotelId);
 
         const requestContext = buildCtripFetchRequestContext({
             form,
             selectedCtripHotelId,
+            platformHotelId,
         });
         if (!requestContext.ok) {
             notify(requestContext.message, requestContext.level || 'error');
@@ -1834,6 +1868,9 @@ window.SUXI_CTRIP_STATIC = (() => {
     } = {}) => ({
         system_hotel_id: systemHotelId,
         hotel_id: hotelId,
+        ctrip_hotel_id: hotelId,
+        ota_hotel_id: hotelId,
+        platform_hotel_id: hotelId,
         hotel_name: hotelName,
         profile_id: profileId,
         data_date: dataDate,
@@ -1874,17 +1911,18 @@ window.SUXI_CTRIP_STATIC = (() => {
         shouldRefreshDataHealthPanel = () => false,
         refreshDataHealthPanel = async () => {},
     } = {}) => {
+        const form = getForm() || {};
+        const pastedCookies = String(form.cookies || '').trim();
         const targetContext = buildCtripBrowserCaptureTargetContext({
             selectedCtripHotelId: getSelectedCtripHotelId(),
             autoFetchHotelId: getAutoFetchHotelId(),
             userHotelId: getUserHotelId(),
         });
-        if (!targetContext.ok) {
+        if (!targetContext.ok && !pastedCookies) {
             notify(targetContext.result.message, 'error');
             return { status: 'missing_hotel', result: targetContext.result };
         }
-        const { systemHotelId } = targetContext;
-        const form = getForm() || {};
+        const systemHotelId = targetContext.ok ? targetContext.systemHotelId : null;
         const requestUrl = String(form.requestUrl || '').trim();
         const endpointsJson = String(form.endpointsJson || '').trim();
         if (!requestUrl && !endpointsJson) {
@@ -1907,18 +1945,19 @@ window.SUXI_CTRIP_STATIC = (() => {
             applyCtripConfigObject(activeConfig, false);
         }
 
-        const cookies = String(form.cookies || activeConfig?.cookies || activeConfig?.cookie || '').trim();
+        const cookies = String(pastedCookies || activeConfig?.cookies || activeConfig?.cookie || '').trim();
         const profileId = resolveProfileId(systemHotelId, activeConfig);
-        if (!profileId) {
+        if (!profileId && !cookies) {
             notify('请填写携程登录会话标识，或先绑定携程登录会话数据源', 'error');
             return { status: 'missing_profile' };
         }
         setProfileId(profileId);
 
         const overviewForm = getOverviewForm() || {};
+        const requestHotelId = resolveRequestHotelId(systemHotelId, activeConfig);
         const requestBody = buildCtripCookieApiFetchRequestBody({
             systemHotelId,
-            hotelId: resolveRequestHotelId(systemHotelId, activeConfig),
+            hotelId: requestHotelId,
             hotelName: getHotelNameById(systemHotelId),
             profileId,
             dataDate: overviewForm.dataDate,
@@ -2627,6 +2666,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripFetchRequestBody,
         buildCtripFetchRequestContext,
         selectCtripFetchResponsePayload,
+        resolveCtripPlatformHotelIdFromConfig,
         buildCtripFetchMeta,
         buildCtripFetchRawFailureResult,
         runCtripFetchDataFlow,

@@ -500,6 +500,21 @@ trait PlatformProfileCaptureConcern
             ?? $requestData['ctripHotelId']
             ?? ''
         ));
+        $platformHotelId = trim((string)(
+            $requestData['ota_hotel_id']
+            ?? $requestData['otaHotelId']
+            ?? $requestData['ctrip_hotel_id']
+            ?? $requestData['ctripHotelId']
+            ?? $requestData['platform_hotel_id']
+            ?? $requestData['platformHotelId']
+            ?? $hotelId
+        ));
+        if (!$this->isMeaningfulCtripPlatformHotelId($platformHotelId, (int)($systemHotelId ?? 0))) {
+            $platformHotelId = '';
+        }
+        if ($hotelId === '' && $platformHotelId !== '') {
+            $hotelId = $platformHotelId;
+        }
         $profileId = trim((string)($requestData['profile_id'] ?? $requestData['profileId'] ?? $hotelId ?: 'ctrip_cookie_api'));
         $endpoints = $this->normalizeCtripCookieApiEndpointsFromRequest($requestData, $dataDate, $hotelId);
         if ($endpoints === []) {
@@ -510,6 +525,10 @@ trait PlatformProfileCaptureConcern
             'source' => 'ctrip_cookie_api',
             'profile_id' => $profileId,
             'hotel_id' => $hotelId,
+            'ctrip_hotel_id' => $platformHotelId,
+            'ctripHotelId' => $platformHotelId,
+            'ota_hotel_id' => $platformHotelId,
+            'platform_hotel_id' => $platformHotelId,
             'hotel_name' => trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? '')),
             'system_hotel_id' => $systemHotelId,
             'data_date' => $dataDate,

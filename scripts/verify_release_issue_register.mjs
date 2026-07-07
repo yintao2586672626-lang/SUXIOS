@@ -28,6 +28,8 @@ const requiredCommands = [
   'npm run review:release-design',
   'npm run review:release-ota-credentials',
   'npm run review:release-security-scan',
+  'npm run review:release-pr-candidates',
+  'npm run review:release-staged-scope',
   'npm run review:release-external-state',
   'npm run review:release-readiness',
   'npm run review:functional-readiness',
@@ -128,7 +130,7 @@ if (chineseReport) {
 
   for (const phrase of [
     '仍不能上线使用',
-    '2 failures',
+    '4 failures',
     '.git/index.lock',
     '不允许用口头说明替代验收命令',
     '不允许把模板文件当作生产证据',

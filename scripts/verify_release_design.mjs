@@ -1,13 +1,29 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDesignHandoff } from './lib/design_handoff_checks.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const manifestPath = process.env.DESIGN_HANDOFF_MANIFEST_FILE || 'docs/design_handoff_manifest.json';
+const releaseEvidenceDir = path.resolve(repoRoot, process.env.RELEASE_EVIDENCE_DIR || '../release-evidence-temp');
+
+function existingEvidenceOrRepo(evidenceFileName, repoRelativeFallback) {
+  const candidate = path.join(releaseEvidenceDir, evidenceFileName);
+  if (fs.existsSync(candidate)) {
+    return candidate;
+  }
+  const fallbackPath = path.join(repoRoot, repoRelativeFallback);
+  if (fs.existsSync(fallbackPath)) {
+    return repoRelativeFallback;
+  }
+  return candidate;
+}
+
+const manifestPath = process.env.DESIGN_HANDOFF_MANIFEST_FILE
+  || existingEvidenceOrRepo('design_handoff_manifest.json', 'docs/design_handoff_manifest.json');
 const result = checkDesignHandoff({
   repoRoot,
   manifestPath,
-  requireOutsideRepo: Boolean(process.env.DESIGN_HANDOFF_MANIFEST_FILE),
+  requireOutsideRepo: Boolean(process.env.DESIGN_HANDOFF_MANIFEST_FILE) || manifestPath !== 'docs/design_handoff_manifest.json',
 });
 
 for (const message of result.passes) {

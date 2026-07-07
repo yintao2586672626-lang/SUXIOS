@@ -6,7 +6,7 @@ Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
 ## Current Conclusion
 
-The existing contract and review checks can pass while the project remains not release-ready. With `RELEASE_ENV_FILE` and `LLM_CONNECTIVITY_ATTESTATION_FILE` pointing to the external evidence under `../release-evidence-temp`, `npm run review:release-readiness` currently reports 2 release-evidence failures: design handoff and OTA credential rotation attestation. The production env, production LLM attestation, and formal Codex Security scan artifact blockers are closed for the current evidence head and must keep passing on the final head. The `@github` local-state blocker remains separate and must be checked through `git status --short --branch` plus `npm run review:release-external-state`.
+The existing contract and review checks can pass while the project remains not release-ready. `npm run review:release-readiness` now defaults to `RELEASE_EVIDENCE_DIR` or `../release-evidence-temp` for controlled production env, LLM attestation, PR-candidate, staged-scope, and external-state result evidence, and currently reports 4 release-readiness failures: design handoff, OTA credential rotation attestation, no open final PR candidate, and external-state final handoff. The production env, production LLM attestation, and formal Codex Security scan artifact blockers are closed for the current evidence head and must keep passing on the final head. The `@github` local-state blocker is now also supported by controlled PR-candidate, staged-scope, and external-state result files outside the repository, after `npm run review:release-pr-candidates`, `npm run review:release-staged-scope`, and `npm run review:release-external-state` are rerun from a checkout whose local HEAD matches the actual final PR head.
 
 Machine-readable status: `docs/release_readiness_status.json`.
 
@@ -20,23 +20,23 @@ Chinese operator report: `docs/release_problem_report.zh-CN.md`.
 
 Evidence collection checklist: `docs/release_evidence_collection.zh-CN.md`.
 
-Optional command result evidence: set `RELEASE_READINESS_RESULT_FILE=<controlled-path>` when running `npm run review:release-readiness`. The generated JSON follows `docs/release_readiness_result.example.json` and is intended for audit handoff without embedding secrets.
+Command result evidence: `npm run review:release-readiness` writes `release-readiness-result.json` under `RELEASE_READINESS_RESULT_FILE` or the default `RELEASE_EVIDENCE_DIR` / `../release-evidence-temp` controlled evidence directory outside the repository. The generated JSON follows `docs/release_readiness_result.example.json`, records `mode=final` or `mode=pre_ready`, and is intended for audit handoff without embedding secrets. Only `mode=final` with `final_release_ready=true` is release-ready evidence.
 
-Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_FILE=<controlled-path>` when running `npm run review:release-external-state`. If Node child_process is blocked, generate equivalent command evidence with `npm run collect:release-external-state`, then rerun with `RELEASE_EXTERNAL_STATE_FILE=docs/release_external_state_evidence.local.json`. On Windows, `npm run review:release-external-state:local` performs both steps. The result JSON follows `docs/release_external_state_result.example.json`.
+Optional GitHub/local-state result evidence: run `npm run review:release-pr-candidates` to discover open viable release PRs; if exactly one viable PR exists it is selected automatically, and if multiple viable PRs exist set `RELEASE_PR_NUMBER` to the intended final PR and rerun `npm run review:release-pr-candidates` so the result records both `configured_release_pr_number` and `selected_release_pr_number`. The command writes `release-pr-candidates-result.json` under `RELEASE_PR_CANDIDATES_RESULT_FILE` or `RELEASE_EVIDENCE_DIR` / `../release-evidence-temp`, outside the repository. Run `npm run review:release-staged-scope` before final PR staging; it writes `release-staged-scope-result.json` under `RELEASE_STAGED_SCOPE_RESULT_FILE` or the same controlled evidence directory and rejects runtime/local staged files. Then set `RELEASE_EXTERNAL_STATE_RESULT_FILE=<controlled-path>` when running `npm run review:release-external-state`; otherwise the command writes `release-external-state-result.json` under `RELEASE_EVIDENCE_DIR` / `../release-evidence-temp`, and `review:release-readiness` consumes the latest controlled result. External-state also records `git rev-parse HEAD` and fails unless the captured local HEAD matches the selected final PR head. If Node child_process is blocked, use `npm run review:release-external-state:local`; the wrapper collects equivalent command evidence and writes both the evidence JSON and result JSON under the controlled evidence directory outside the repository. The raw collector can still write `docs/release_external_state_evidence.local.json`, which must stay ignored and is not the final readiness result. The result JSON follows `docs/release_external_state_result.example.json`.
 
 ## Current Hard Blocker Matrix
 
 | # | Scope | Blocker | Current evidence | Close condition |
 |---:|---|---|---|---|
-| 1 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real controlled manifest is present via `DESIGN_HANDOFF_MANIFEST_FILE` or `docs/design_handoff_manifest.json` with Figma source, Canva source, Brand Kit, design token, flow coverage, review date, and zero open design issues. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, required flow coverage, `last_reviewed_at` in `YYYY-MM-DD`, empty `open_issues`, and pass `npm run review:release-design`. |
-| 2 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. Current backup text scan reports no credential-shaped matches, but that does not prove real platform credential rotation or invalidation. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, readiness rerun, and pass `npm run review:release-ota-credentials`. |
-| 3 | `@github` | GitHub / local handoff state is not closed | Current `review:release-external-state` shows PR #2 is already `MERGED`, mergeability is `UNKNOWN`, and the local worktree is dirty; `.git/index.lock` is absent and `database/backups` has no tracked files. | After release-readiness passes, select the actual open final release PR via `RELEASE_PR_NUMBER`, keep local Git clean, and pass `review:release-external-state` on that final head. |
+| 1 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real controlled manifest is present under `../release-evidence-temp/design_handoff_manifest.json`, via `DESIGN_HANDOFF_MANIFEST_FILE`, or via `docs/design_handoff_manifest.json` with Figma source, Canva source, Brand Kit, design token, flow coverage, review date, and zero open design issues. A 2026-07-06 read-only connector recheck was blocked by Figma/Canva reauthentication requirements. | Reauthenticate Figma and Canva or provide independently controlled accessible source links; then provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, required flow coverage, `last_reviewed_at` inside the 30-day release evidence window, empty `open_issues`, and pass `npm run review:release-design`. |
+| 2 | `@codex-security` | OTA credential rotation attestation is missing | `../release-evidence-temp/ota_credential_rotation_attestation.json` and `docs/ota_credential_rotation_attestation.json` are missing, and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. Current backup text scan reports no credential-shaped matches, but that does not prove real platform credential rotation or invalidation. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, `reviewed_at` inside the 30-day release evidence window, readiness rerun, and pass `npm run review:release-ota-credentials`. |
+| 3 | `@github` | GitHub / local handoff state is not closed | Current `review:release-pr-candidates` finds no open PR candidate for base `main`. Current `review:release-staged-scope` has no forbidden staged files but does not prove a clean worktree. Current `review:release-external-state` refuses an implicit PR #2 fallback and fails because `RELEASE_PR_NUMBER` is not set and the local worktree is dirty; `.git/index.lock` is absent and `database/backups` has no tracked files. | After design and OTA isolated gates pass, create or select the actual open final release PR, pass `review:release-pr-candidates`, set `RELEASE_PR_NUMBER`, pass `review:release-staged-scope` for the final staged bundle, keep local Git clean, pass `review:release-external-state` from a checkout whose local HEAD matches that final PR head, and rerun `review:release-readiness` while it consumes the passing staged-scope and external-state results from outside the repository. |
 
 ## Resolved Or Partially Controlled Items
 
 | Scope | Status | Evidence |
 |---|---|---|
-| GitHub CI | Historical checks only | PR `#2` had successful `PHP Composer / verify` checks, but it is now merged and stale for release handoff. Rerun/confirm checks on the actual final release PR after evidence changes. The workflow includes dependency audits, PHPUnit, P0 guards, non-security review, and release-status contracts. |
+| GitHub CI | Historical checks only | PR `#2` had successful `PHP Composer / verify` checks, but it is now merged and stale for release handoff. Rerun/confirm checks on the actual final release PR after evidence changes. The workflow includes dependency audits, PHPUnit, P0 guards, functional-readiness review, release issue register review, release evidence intake behavior guard, release readiness behavior guard, non-security review, and release-status contracts. |
 | Database rebuild | Fixed | `database/init_full.sql` no longer depends on local `hotelx_dump.sql`; SQL schema contracts pass in CI. |
 | Daily report formula execution risk | Fixed | `DailyReport.php` removed `eval` and uses an arithmetic parser path. |
 | Excel parsing command execution risk | Fixed | `DailyReport.php` removed `shell_exec` and uses array-form `proc_open`. |
@@ -49,7 +49,7 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 | UI code-side handoff checklist | Added | `docs/ui-handoff/README.md` covers login, OTA data, revenue analysis, AI decision, operations management, and investment decision code-side review points. |
 | Local functional acceptance gate | Added | `npm run review:functional-readiness` checks structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |
 | Release issue register | Added | `docs/release_issue_register.md` lists every open blocker, scope, evidence, acceptance command, and close condition. |
-| GitHub external-state collector | Added | `npm run collect:release-external-state` captures PR head, open/draft state, merge state, checks, backup tracking, local worktree status, and `.git/index.lock` state for `review:release-external-state`. |
+| GitHub external-state collector | Added | `npm run collect:release-external-state` captures local HEAD, PR head, open/draft state, merge state, checks, backup tracking, local worktree status, and `.git/index.lock` state for `review:release-external-state`. |
 
 ## Open Problem Details
 
@@ -117,22 +117,23 @@ The current backup text scan is controlled, but there is still no credential-fre
 
 Existing verifier constraints:
 
-- `npm run review:release-ota-credentials` reads `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE`, or defaults to `docs/ota_credential_rotation_attestation.json`.
+- `npm run review:release-ota-credentials` reads `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE`, then `RELEASE_EVIDENCE_DIR` / `../release-evidence-temp`, then `docs/ota_credential_rotation_attestation.json` only as an intentional local fallback.
 - Use `docs/ota_credential_rotation_attestation.example.json` as the fillable minimum template.
-- Preferred controlled evidence location: `../release-evidence-temp/ota_credential_rotation_attestation.json`, referenced through `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE`.
+- Preferred controlled evidence location: `../release-evidence-temp/ota_credential_rotation_attestation.json`, read automatically through `RELEASE_EVIDENCE_DIR` / the default evidence directory or explicitly through `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE`.
 - Repo default location, if intentionally used: `docs/ota_credential_rotation_attestation.json`.
 - Do not create the default file with placeholders as release evidence. The verifier must fail until real values are filled and `redaction_checked=true` is confirmed.
-- Supported platform actions are `rotated`, `invalidated`, `encrypted_archive`, or `sanitized`.
+- Supported platform credential actions are only `rotated` or `invalidated`.
+- `encrypted_archive` and `sanitized` are backup cleanup actions only, and must not be used as `platforms[].action`.
 - `backup_cleanup.database_backups_action` must be `deleted`, `encrypted_archive`, or `sanitized`.
 - `backup_cleanup.paths_reviewed` must include `database/backups`.
 
 Operator-filled real values required:
 
-- `reviewed_at`: real review or rotation completion date in `YYYY-MM-DD`.
+- `reviewed_at`: real review or rotation completion date in `YYYY-MM-DD`, inside the 30-day release evidence window.
 - `reviewer`: accountable person who reviewed the rotation or invalidation evidence.
 - `platforms[].platform`: real platform names actually used by this project, at minimum the applicable Ctrip and Meituan account scopes.
 - `platforms[].scope`: real account/store scope using non-secret identifiers only, such as hotel IDs, platform merchant IDs, or internal account labels.
-- `platforms[].action`: one of `rotated`, `invalidated`, `encrypted_archive`, or `sanitized`, matching what was actually done.
+- `platforms[].action`: one of `rotated` or `invalidated`, matching what was actually done to the platform credentials.
 - `platforms[].evidence_ref`: internal ticket, secure record, or audit artifact reference proving the action, without credential values.
 - `backup_cleanup.database_backups_action`: actual backup handling result.
 - `backup_cleanup.git_tracking_check`: real `git ls-files database/backups` command/date/result.
@@ -177,12 +178,17 @@ Scope: `@figma`, `@canva`
 
 The repository has code-side UI review documentation, but no real design source of truth. This blocks listing material review, brand consistency review, and design-to-code traceability.
 
+Latest connector status on 2026-07-06:
+
+- Figma `_get_libraries` for `ngtbNGUVP77kO1hh9SOLQA` returned `UNAUTHORIZED` with reauthentication required.
+- Canva `_list_brand_kits` and `_search_designs` returned `UNAUTHORIZED` with `oauth_token_invalid_grant`; Brand Kit and design source cannot currently be revalidated through the connector.
+
 Existing verifier constraints:
 
-- `npm run review:release-design` reads `DESIGN_HANDOFF_MANIFEST_FILE`, or defaults to `docs/design_handoff_manifest.json`.
+- `npm run review:release-design` reads `DESIGN_HANDOFF_MANIFEST_FILE`, then `RELEASE_EVIDENCE_DIR` / `../release-evidence-temp`, then `docs/design_handoff_manifest.json` only as an intentional local fallback.
 - If `DESIGN_HANDOFF_MANIFEST_FILE` is set, it must point outside the repository.
 - Use `docs/design_handoff_manifest.example.json` as the fillable minimum template.
-- Preferred controlled evidence location: `../release-evidence-temp/design_handoff_manifest.json`, referenced through `DESIGN_HANDOFF_MANIFEST_FILE`.
+- Preferred controlled evidence location: `../release-evidence-temp/design_handoff_manifest.json`, read automatically through `RELEASE_EVIDENCE_DIR` / the default evidence directory or explicitly through `DESIGN_HANDOFF_MANIFEST_FILE`.
 - Repo default location, if intentionally used for local review: `docs/design_handoff_manifest.json`.
 - Do not create the default file with placeholders as release evidence. The verifier must fail until real source links, owner, review date, required flows, token path, and empty `open_issues` are present.
 - `design_tokens_path` must be an HTTPS URL or a repo-relative existing token file; the current repo token baseline is `docs/design-tokens.release.json`.
@@ -191,7 +197,7 @@ Existing verifier constraints:
 Operator-filled real values required:
 
 - `owner`: accountable design owner or release reviewer.
-- `last_reviewed_at`: real design handoff review date in `YYYY-MM-DD`.
+- `last_reviewed_at`: real design handoff review date in `YYYY-MM-DD`, inside the 30-day release evidence window.
 - `figma_url`: accessible real `https://www.figma.com/...` source link.
 - `canva_url`: accessible real `https://www.canva.com/...` editable design/source link.
 - `brand_kit_url`: accessible real `https://www.canva.com/...` Brand Kit link.
@@ -226,9 +232,9 @@ If OTA credential rotation attestation is still missing, the full release-readin
 Required close evidence:
 
 - `DESIGN_HANDOFF_MANIFEST_FILE` points to a controlled manifest outside the repo, or `docs/design_handoff_manifest.json` is created from `docs/design_handoff_manifest.example.json` for local default review; standalone design-token files or screenshots are not sufficient.
-- It includes accessible Figma URL, Canva URL, Brand Kit URL, `design_tokens_path`, owner, review date, covered flows, and open issues.
+- It includes accessible Figma URL, Canva URL, Brand Kit URL, `design_tokens_path`, owner, review date inside the 30-day release evidence window, covered flows, and open issues.
 - Covered flows include login, OTA data, revenue analysis, AI decision, operations management, and investment decision.
-- `last_reviewed_at` uses `YYYY-MM-DD`.
+- `last_reviewed_at` uses `YYYY-MM-DD` and is inside the 30-day release evidence window.
 - `open_issues` is an empty array before release.
 - `npm run review:release-design` passes against the real manifest.
 - `npm run review:release-readiness` no longer reports the design handoff failure.
@@ -237,7 +243,7 @@ Required close evidence:
 
 Scope: `@github`
 
-The previous configured handoff target is stale. Current external-state verification shows PR #2 is already `MERGED`, mergeability is `UNKNOWN`, and the local worktree is dirty. `.git/index.lock` is absent and `database/backups` has no tracked files, but those two passing checks do not close final handoff without a clean worktree and an actual open final release PR.
+The previous configured handoff target is stale. Current external-state verification no longer defaults to PR #2; it fails because `RELEASE_PR_NUMBER` is not set and the local worktree is dirty. `.git/index.lock` is absent and `database/backups` has no tracked files, but those two passing checks do not close final handoff without a clean worktree, matching local HEAD, and an actual open final release PR.
 
 Required close evidence:
 
@@ -246,6 +252,7 @@ Required close evidence:
 - `.git/index.lock` remains absent.
 - Local worktree remains clean or contains only intentionally reviewed release changes.
 - `npm run review:release-external-state` passes, or `RELEASE_EXTERNAL_STATE_FILE` captures equivalent `git` and `gh` evidence generated by `scripts/collect_release_external_state.ps1`.
+- Captured local `git rev-parse HEAD` matches the final PR head SHA selected by `npm run review:release-pr-candidates`.
 - GitHub Actions are green on the final PR head.
 
 ## Minimum Release Gate

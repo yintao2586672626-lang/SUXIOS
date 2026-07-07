@@ -9,8 +9,46 @@
   "page_count": 7,
   "brand_kits_available": false,
   "brand_kit_source": "Canva list_brand_kits returned an empty items array for the connected account.",
-  "comments_reviewed": true,
-  "comments_source": "Canva list_comments returned an empty items array for design DAHLt0238Uk.",
+  "comments_reviewed": false,
+  "comments_source": "Historical Canva list_comments returned an empty items array for design DAHLt0238Uk, but the 2026-07-07 connector recheck cannot currently revalidate comments because reauthentication is required.",
+  "latest_connector_checks": [
+    {
+      "checked_at": "2026-07-07T00:32:42+08:00",
+      "tool": "mcp__codex_apps__canva._list_brand_kits",
+      "result": "blocked",
+      "error_code": "UNAUTHORIZED",
+      "reason": "oauth_token_invalid_grant; reauthentication required",
+      "error_data": {
+        "detail": "Reauthentication required",
+        "action": "TRIGGER_REAUTHENTICATION",
+        "reason": "oauth_token_invalid_grant"
+      }
+    },
+    {
+      "checked_at": "2026-07-06T20:34:34+08:00",
+      "tool": "mcp__codex_apps__canva._search_designs",
+      "result": "blocked",
+      "error_code": "UNAUTHORIZED",
+      "reason": "oauth_token_invalid_grant; reauthentication required",
+      "error_data": {
+        "detail": "Reauthentication required",
+        "action": "TRIGGER_REAUTHENTICATION",
+        "reason": "oauth_token_invalid_grant"
+      }
+    },
+    {
+      "checked_at": "2026-07-07T00:32:42+08:00",
+      "tool": "mcp__codex_apps__canva._list_comments",
+      "result": "blocked",
+      "error_code": "UNAUTHORIZED",
+      "reason": "oauth_token_invalid_grant; reauthentication required",
+      "error_data": {
+        "detail": "Reauthentication required",
+        "action": "TRIGGER_REAUTHENTICATION",
+        "reason": "oauth_token_invalid_grant"
+      }
+    }
+  ],
   "does_not_close_release_design_gate": true,
   "remaining_design_gate_inputs": [
     "real canva.com Brand Kit URL",

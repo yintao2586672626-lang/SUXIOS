@@ -16,13 +16,27 @@ function resolveOutputPath(outputPath) {
   return path.isAbsolute(outputPath) ? outputPath : path.join(repoRoot, outputPath);
 }
 
+function isPathInsideRepo(targetPath) {
+  const relativePath = path.relative(repoRoot, path.resolve(targetPath));
+  return Boolean(relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
 function evidencePath(fileName) {
   return path.join(evidenceDir, fileName);
 }
 
 function existingEvidenceOrRepo(evidenceFileName, repoRelativeFallback) {
   const candidate = evidencePath(evidenceFileName);
-  return fs.existsSync(candidate) ? candidate : repoRelativeFallback;
+  if (fs.existsSync(candidate)) {
+    return candidate;
+  }
+  const fallbackPath = path.isAbsolute(repoRelativeFallback)
+    ? repoRelativeFallback
+    : path.join(repoRoot, repoRelativeFallback);
+  if (fs.existsSync(fallbackPath)) {
+    return repoRelativeFallback;
+  }
+  return candidate;
 }
 
 function addSection(name, input, result) {
@@ -67,7 +81,7 @@ const designManifestFile = process.env.DESIGN_HANDOFF_MANIFEST_FILE
 const designResult = checkDesignHandoff({
   repoRoot,
   manifestPath: designManifestFile,
-  requireOutsideRepo: Boolean(process.env.DESIGN_HANDOFF_MANIFEST_FILE),
+  requireOutsideRepo: Boolean(process.env.DESIGN_HANDOFF_MANIFEST_FILE) || designManifestFile !== 'docs/design_handoff_manifest.json',
 });
 addSection(
   'design-handoff',
@@ -81,6 +95,7 @@ addSection(
   checkOtaCredentialRelease({
     repoRoot,
     attestationPath: otaAttestationFile,
+    requireOutsideRepo: Boolean(process.env.OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE) || otaAttestationFile !== 'docs/ota_credential_rotation_attestation.json',
   }),
 );
 
@@ -96,6 +111,15 @@ addSection(
 const passes = sections.flatMap((section) => section.passes.map((message) => `${section.name}: ${message}`));
 const warnings = sections.flatMap((section) => section.warnings.map((message) => `${section.name}: ${message}`));
 const failures = sections.flatMap((section) => section.failures.map((message) => `${section.name}: ${message}`));
+const outputFailures = [];
+
+const resultOutputPath = process.env.RELEASE_EVIDENCE_RESULT_FILE
+  ? resolveOutputPath(process.env.RELEASE_EVIDENCE_RESULT_FILE)
+  : evidencePath('release-evidence-result.json');
+if (isPathInsideRepo(resultOutputPath)) {
+  outputFailures.push(`Release evidence result output must be stored outside the repository in a controlled evidence directory: ${resultOutputPath}.`);
+  failures.push(...outputFailures);
+}
 
 const result = {
   schema_version: 1,
@@ -124,11 +148,13 @@ for (const section of sections) {
     console.error(`FAIL: ${message}`);
   }
 }
+for (const message of outputFailures) {
+  console.error(`FAIL: ${message}`);
+}
 
-if (process.env.RELEASE_EVIDENCE_RESULT_FILE) {
-  const outputPath = resolveOutputPath(process.env.RELEASE_EVIDENCE_RESULT_FILE);
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+if (!isPathInsideRepo(resultOutputPath)) {
+  fs.mkdirSync(path.dirname(resultOutputPath), { recursive: true });
+  fs.writeFileSync(resultOutputPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
 }
 
 console.log(`\nRelease evidence summary: ${passes.length} passed, ${warnings.length} warnings, ${failures.length} failures.`);

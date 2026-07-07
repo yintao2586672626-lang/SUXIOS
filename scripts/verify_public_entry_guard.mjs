@@ -134,9 +134,9 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
-  if (!content.includes('ctrip-static.js?v=20260703-ai-estimated-nights')
+  if (!content.includes('ctrip-static.js?v=20260707-cookie-only-identity-auto-resolve')
     || !content.includes('meituan-static.js?v=20260703-ai-estimated-nights')) {
-    failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance/metric exports change.');
+    failures.push('public/index.html must keep static helper cache versions aligned with changed helper files.');
   }
   if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';")
     || !content.includes("const PlatformAutoSettingsPanels = {")

@@ -2,25 +2,295 @@
   "schema_version": 1,
   "generated_at": "2026-06-05T00:00:00.000Z",
   "command": "npm run review:release-external-state",
+  "expected_release_pr_number": null,
+  "expected_local_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "expected_release_pr_head_sha": null,
   "status": "failed",
   "summary": {
-    "passed": 7,
-    "warnings": 1,
-    "failures": 1
+    "passed": 5,
+    "warnings": 0,
+    "failures": 3
   },
   "passes": [
+    "external state evidence has reviewed_at.",
+    "external state evidence has reviewer.",
     "database/backups has no git-tracked files.",
-    ".git/index.lock is absent.",
-    "local worktree is clean.",
-    "PR head sha is recorded by the live external-state check.",
-    "PR #2 is open.",
-    "PR #2 is mergeable at the recorded head.",
-    "PR #2 status checks are all green (2 checks)."
+    ".git/index.lock is absent in external evidence.",
+    "local HEAD sha is recorded: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."
   ],
-  "warnings": [
-    "Release external state was checked against https://github.com/yintao2586672626-lang/SUXIOS/pull/2; rerun this command after every PR update."
-  ],
+  "warnings": [],
   "failures": [
-    "PR #2 is still draft; mark it ready for review before release handoff."
-  ]
+    "RELEASE_PR_NUMBER is required. Run npm run review:release-pr-candidates and set RELEASE_PR_NUMBER to the selected open final release PR before release external-state review.",
+    "local worktree is not clean (50 changed entries; categories: release-docs=18, release-scripts=21, frontend=1, revenue-ai=7, runtime-or-local=2, other=1). Review, commit, or intentionally isolate them before release.",
+    "external evidence command gh pr view did not exit 0. stderr: RELEASE_PR_NUMBER is required. Run npm run review:release-pr-candidates and set RELEASE_PR_NUMBER to the selected open final release PR before collecting external-state evidence."
+  ],
+  "diagnostics": {
+    "git_status_changed_entries": [
+      {
+        "status": "M",
+        "path": "docs/deployment_env_checklist.md",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/formal_release_final_handoff.md",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/functional_acceptance_report.zh-CN.md",
+        "category": "other"
+      },
+      {
+        "status": "M",
+        "path": "docs/ota_credential_rotation_checklist.md",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_blocker_close_plan.md",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_canva_handoff_evidence.json",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_evidence_bundle_intake.md",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_evidence_collection.zh-CN.md",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_external_state_result.example.json",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_figma_handoff_evidence.json",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_issue_register.md",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_problem_report.zh-CN.md",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_readiness_remaining_issues.md",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_readiness_result.example.json",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_readiness_status.json",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_readiness_status.schema.json",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/release_verification_command_matrix.md",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/security/codex-security/latest/report.html",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "docs/security/codex-security/latest/report.md",
+        "category": "release-docs"
+      },
+      {
+        "status": "M",
+        "path": "package.json",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "public/index.html",
+        "category": "frontend"
+      },
+      {
+        "status": "M",
+        "path": "scripts/collect_release_external_state.ps1",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/continue_release_handoff.ps1",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/create_release_design_manifest.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/export_revenue_ai_ctrip_operator_bundle.php",
+        "category": "revenue-ai"
+      },
+      {
+        "status": "M",
+        "path": "scripts/import_revenue_ai_ctrip_pricing_inputs.php",
+        "category": "revenue-ai"
+      },
+      {
+        "status": "M",
+        "path": "scripts/inspect_revenue_ai_ctrip_pricing_source_fields.php",
+        "category": "revenue-ai"
+      },
+      {
+        "status": "M",
+        "path": "scripts/lib/design_handoff_checks.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/lib/ota_credential_checks.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/mark_release_pr_ready.ps1",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/refresh_release_current_evidence.ps1",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/report_revenue_ai_ctrip_pricing_operator_packet.php",
+        "category": "revenue-ai"
+      },
+      {
+        "status": "M",
+        "path": "scripts/review_release_final_handoff.ps1",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/verify_release_design.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/verify_release_evidence_bundle.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/verify_release_external_state.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/verify_release_issue_register.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/verify_release_ota_credentials.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/verify_release_readiness.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/verify_release_status_contract.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "M",
+        "path": "scripts/verify_revenue_ai_closure_contract.mjs",
+        "category": "revenue-ai"
+      },
+      {
+        "status": "M",
+        "path": "scripts/verify_revenue_ai_ctrip_operator_bundle.mjs",
+        "category": "revenue-ai"
+      },
+      {
+        "status": "??",
+        "path": "reports/p0_traffic_ctrip_58_20260629.json",
+        "category": "runtime-or-local"
+      },
+      {
+        "status": "??",
+        "path": "scripts/prepare_release_evidence_drafts.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "??",
+        "path": "scripts/promote_release_evidence_drafts.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "??",
+        "path": "scripts/report_release_evidence_gap_pack.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "??",
+        "path": "scripts/report_revenue_ai_ctrip_traffic_demand_trend.php",
+        "category": "revenue-ai"
+      },
+      {
+        "status": "??",
+        "path": "scripts/review_release_external_state_local.ps1",
+        "category": "release-scripts"
+      },
+      {
+        "status": "??",
+        "path": "scripts/review_release_pr_candidates.mjs",
+        "category": "release-scripts"
+      },
+      {
+        "status": "??",
+        "path": "storage/",
+        "category": "runtime-or-local"
+      }
+    ],
+    "git_status_changed_summary": {
+      "total": 50,
+      "by_category": {
+        "release-docs": 18,
+        "release-scripts": 21,
+        "frontend": 1,
+        "revenue-ai": 7,
+        "runtime-or-local": 2,
+        "other": 1
+      },
+      "by_status": {
+        "??": 8,
+        "M": 42
+      }
+    }
+  }
 }

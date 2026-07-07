@@ -1,6 +1,7 @@
 {
   "reviewed_at": "TODO: YYYY-MM-DD",
   "reviewer": "TODO: reviewer name",
+  "target_release_pr_number": "1",
   "commands": {
     "git_ls_files_database_backups": {
       "command": "git ls-files database/backups",
@@ -18,15 +19,20 @@
       "exit_code": 0,
       "stdout": "## main...origin/main"
     },
+    "git_rev_parse_head": {
+      "command": "git rev-parse HEAD",
+      "exit_code": 0,
+      "stdout": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
     "gh_pr_view": {
       "command": "gh pr view 1 --json number,url,state,isDraft,headRefOid,mergeable,statusCheckRollup",
       "exit_code": 0,
       "json": {
         "number": 1,
-        "url": "https://github.com/OWNER/REPO/pull/2",
+        "url": "https://github.com/OWNER/REPO/pull/1",
         "state": "OPEN",
         "isDraft": false,
-        "headRefOid": "TODO: current PR head sha",
+        "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "mergeable": "MERGEABLE",
         "statusCheckRollup": [
           {

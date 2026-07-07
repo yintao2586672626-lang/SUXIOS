@@ -80,6 +80,29 @@ function ctrip_pricing_packet_list(mixed $value): array
 }
 
 /**
+ * @return array<int, string>
+ */
+function ctrip_pricing_packet_required_codes_from_preflight(array $preflight): array
+{
+    $direct = ctrip_pricing_packet_list($preflight['required_input_codes'] ?? []);
+    if ($direct !== []) {
+        return array_values(array_unique(array_map('strval', $direct)));
+    }
+    $codes = [];
+    foreach (ctrip_pricing_packet_list($preflight['required_inputs'] ?? []) as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $code = trim((string)($row['code'] ?? ''));
+        if ($code !== '') {
+            $codes[] = $code;
+        }
+    }
+
+    return array_values(array_unique($codes));
+}
+
+/**
  * @param array<int, string> $args
  * @return array{exit_code:int,stdout:string,stderr:string}
  */
@@ -247,6 +270,7 @@ function ctrip_pricing_packet_collection_priorities(array $observedHints, array 
     $tableCounts = ctrip_pricing_packet_map($candidateSourceAudit['required_input_table_counts'] ?? []);
     $pricingCounts = ctrip_pricing_packet_map($candidateSourceAudit['ctrip_room_pricing_evidence_counts'] ?? []);
     $required = array_flip(array_map('strval', $requiredBeforeExecute));
+    $demandRequiredNow = isset($required['demand_forecast']);
 
     return [
         [
@@ -277,13 +301,21 @@ function ctrip_pricing_packet_collection_priorities(array $observedHints, array 
         ],
         [
             'input_code' => 'demand_forecast',
-            'required_now' => isset($required['demand_forecast']),
+            'required_now' => $demandRequiredNow,
             'current_table_count' => (int)($tableCounts['demand_forecasts_target_date'] ?? 0),
-            'ctrip_source_hint_present' => (bool)($observedHints['demand_or_forecast_key'] ?? false),
-            'hint_counts' => [],
-            'operator_action' => 'Provide target-date predicted_occupancy, predicted_demand, confidence_score, and forecast source.',
-            'acceptable_source' => 'Operator forecast, approved forecast model output, booking pace review, or revenue-manager note.',
-            'must_not_use' => 'Do not treat Ctrip traffic, exposure, or rank metrics as a demand forecast by default.',
+            'ctrip_source_hint_present' => !$demandRequiredNow || (bool)($observedHints['demand_or_forecast_key'] ?? false),
+            'hint_counts' => [
+                'ctrip_historical_traffic_trend_ready' => $demandRequiredNow ? 0 : 1,
+            ],
+            'operator_action' => $demandRequiredNow
+                ? 'Provide target-date predicted_occupancy, predicted_demand, confidence_score, and forecast source.'
+                : 'No demand_forecasts row is required now; keep operator_input_evidence.demand_forecast_source on the Ctrip historical traffic trend unless replacing it with a manual forecast.',
+            'acceptable_source' => $demandRequiredNow
+                ? 'Operator forecast, approved forecast model output, booking pace review, revenue-manager note, or report:revenue-ai-ctrip-traffic-demand-trend.'
+                : 'Existing operator_input_evidence.demand_forecast_source from report:revenue-ai-ctrip-traffic-demand-trend.',
+            'must_not_use' => $demandRequiredNow
+                ? 'Do not treat raw Ctrip traffic, exposure, or rank metrics as a demand forecast by default; only the approved traffic-demand trend report may produce the demand trend draft.'
+                : 'Do not add a placeholder demand_forecasts row; do not treat the traffic trend score as whole-hotel occupancy.',
         ],
         [
             'input_code' => 'competitor_price_samples',
@@ -309,6 +341,7 @@ function ctrip_pricing_packet_allowed_commands(string $date, ?int $hotelId): arr
         'operator_packet' => 'npm.cmd run report:revenue-ai-ctrip-pricing-operator-packet -- --date=' . $date . $hotelArg . ' --format=markdown',
         'export_operator_bundle' => 'npm.cmd run export:revenue-ai-ctrip-operator-bundle -- --date=' . $date . $hotelArg . ' --output-dir=<operator-bundle-dir>',
         'inspect_current_ota_evidence' => 'npm.cmd run inspect:revenue-ai-ctrip-pricing-sources -- --date=' . $date . $hotelArg,
+        'demand_trend_draft' => 'npm.cmd run report:revenue-ai-ctrip-traffic-demand-trend -- --date=' . $date . $hotelArg . ' --format=markdown',
         'export_template' => 'npm.cmd run export:revenue-ai-ctrip-pricing-template -- --date=' . $date . $hotelArg . ' --output=<draft-json-path>',
         'lint_only' => 'npm.cmd run lint:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $date . $hotelArg,
         'dry_run' => 'npm.cmd run import:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $date . $hotelArg,
@@ -336,7 +369,7 @@ function ctrip_pricing_packet_forbidden_shortcuts(): array
 {
     return [
         'Do not use Meituan rows or whole-hotel operating values in this Ctrip OTA channel packet.',
-        'Do not convert traffic, business, quality, or peer-rank rows into room types, demand forecasts, or competitor prices.',
+        'Do not convert traffic, business, quality, or peer-rank rows into room types, price guards, or competitor prices; demand forecast can only use report:revenue-ai-ctrip-traffic-demand-trend.',
         'Do not fill missing prices with sample, guessed, fallback, or verifier-only values.',
         'Do not set auto_write_ota=true or create OTA price writes from this packet.',
         'Do not create operation execution or investment decisions before pending AI suggestions pass manual review and ROI evidence.',
@@ -356,6 +389,11 @@ function ctrip_pricing_packet_render_markdown(array $payload): string
     $requiredFields = ctrip_pricing_packet_map($payload['operator_required_fields'] ?? []);
     $collectionPriorities = ctrip_pricing_packet_list($payload['operator_collection_priorities'] ?? []);
     $locatorItems = ctrip_pricing_packet_map(ctrip_pricing_packet_map($payload['operator_input_locators'] ?? [])['items'] ?? []);
+    $demandForecastRequiredNow = in_array(
+        'demand_forecast',
+        array_map('strval', ctrip_pricing_packet_list($sourceAudit['required_before_execute'] ?? [])),
+        true
+    );
 
     $lines = [];
     $lines[] = '# Ctrip Revenue AI Pricing Operator Packet';
@@ -437,6 +475,10 @@ function ctrip_pricing_packet_render_markdown(array $payload): string
     $lines[] = '## Operator Required Fields';
     foreach ($requiredFields as $group => $fields) {
         $lines[] = '';
+        if ((string)$group === 'demand_forecasts' && !$demandForecastRequiredNow) {
+            $lines[] = '- demand_forecasts: `optional manual override only; leave empty when using Ctrip historical traffic trend`';
+            continue;
+        }
         $lines[] = '- ' . (string)$group . ': `' . implode(', ', array_map('strval', ctrip_pricing_packet_list($fields))) . '`';
     }
     $lines[] = '';
@@ -512,7 +554,10 @@ try {
         ?: (int)($inspectScope['hotel_id'] ?? 0)
         ?: null;
     $canPrefill = $operatorGap['can_prefill_import_file'] ?? null;
-    $requiredBeforeExecute = ctrip_pricing_packet_list($operatorGap['required_before_execute'] ?? ($templatePreflight['required_input_codes'] ?? []));
+    $preflightRequiredCodes = ctrip_pricing_packet_required_codes_from_preflight($preflight);
+    $requiredBeforeExecute = $preflightRequiredCodes !== []
+        ? $preflightRequiredCodes
+        : ctrip_pricing_packet_list($operatorGap['required_before_execute'] ?? []);
 
     $commands = ctrip_pricing_packet_allowed_commands($options['date'], $hotelId);
     $collectionPriorities = ctrip_pricing_packet_collection_priorities(
@@ -591,13 +636,17 @@ try {
             break;
         }
     }
+    $demandRequired = in_array('demand_forecast', $requiredBeforeExecute, true);
     ctrip_pricing_packet_check(
         $checks,
         'operator_collection_priorities_present',
         $collectionPriorities !== []
-            && ($demandPriority['required_now'] ?? false) === true
-            && ($demandPriority['ctrip_source_hint_present'] ?? true) === false,
-        'Operator packet must expose collection priorities and keep missing demand forecast explicit.'
+            && (
+                !$demandRequired
+                || (($demandPriority['required_now'] ?? false) === true
+                    && ($demandPriority['ctrip_source_hint_present'] ?? true) === false)
+            ),
+        'Operator packet must expose collection priorities and keep currently required inputs explicit.'
     );
 
     $failed = array_values(array_filter(
@@ -627,6 +676,7 @@ try {
             'room_type_count' => $preflight['room_type_count'] ?? null,
             'pending_suggestion_count' => $preflight['pending_suggestion_count'] ?? null,
             'demand_forecast_count' => $preflight['demand_forecast_count'] ?? null,
+            'ctrip_traffic_demand_forecast_count' => $preflight['ctrip_traffic_demand_forecast_count'] ?? null,
             'competitor_analysis_recent_count' => $preflight['competitor_analysis_recent_count'] ?? null,
             'create_candidate_count' => $preflight['create_candidate_count'] ?? null,
             'required_before_execute' => $requiredBeforeExecute,

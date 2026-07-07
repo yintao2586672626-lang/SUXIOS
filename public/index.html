@@ -70,7 +70,7 @@
     </script>
     <script src="vue.global.prod.js?v=20260628-static-router-fix"></script>
     <script src="shared-components.js?v=20260628-static-router-fix"></script>
-    <script src="ctrip-static.js?v=20260703-ai-estimated-nights"></script>
+    <script src="ctrip-static.js?v=20260707-cookie-only-identity-auto-resolve"></script>
     <script src="meituan-static.js?v=20260703-ai-estimated-nights"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
     <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state"></script>
@@ -3587,7 +3587,10 @@
                                 </div>
                                 <div class="mt-4 rounded-lg border border-gray-100 overflow-hidden">
                                     <div v-if="aiDailyReportBlockingRows.length" class="border-b border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                                        <div class="font-semibold">执行门禁：{{ aiDailyReportBlockingRows.length }} 项仍需先处理</div>
+                                        <div class="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                                            <div class="font-semibold">执行门禁：{{ aiDailyReportBlockingSummary.total }} 项仍需先处理</div>
+                                            <div class="text-[11px] text-amber-700">{{ aiDailyReportBlockingSummary.detail }}</div>
+                                        </div>
                                         <div class="mt-1 flex flex-wrap gap-2">
                                             <button v-for="row in aiDailyReportBlockingRows.slice(0, 4)" :key="row.key" type="button" @click="openAiDailyReportEvidenceTarget(row)" class="rounded-md border border-amber-200 bg-white px-2 py-1 text-left hover:bg-amber-100">
                                                 <span class="block font-medium">{{ row.label }}：{{ row.nextAction }}</span>
@@ -3622,7 +3625,7 @@
                                             </div>
                                         </div>
                                         <div class="col-span-12 md:col-span-1 md:text-right">
-                                            <button @click="createAiDailyExecutionIntent(action, index)" :disabled="operationLoading.aiDailyReport || action.execution_intent_id || action.can_create_execution_intent === false" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 disabled:opacity-50">{{ aiDailyReportActionButtonText(action) }}</button>
+                                            <button @click="handleAiDailyReportActionPrimary(action, index)" :disabled="operationLoading.aiDailyReport || action.execution_intent_id" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 disabled:opacity-50">{{ aiDailyReportActionButtonText(action) }}</button>
                                         </div>
                                     </div>
                                 </div>
@@ -6823,20 +6826,22 @@
                                         </h4>
                                         <p class="text-sm text-blue-700">
                                             从携程 eBooking 后台获取竞争圈经营数据（预订销售额、在店间夜、预订订单量、点评分等）。
-                                            请先在"酒店管理"中维护该酒店的数据源配置；日常默认使用浏览器 Profile 登录态，手动 Cookie/API 辅助只用于临时补数或排障。
+                                            这里只需要粘贴当前登录账号的 Cookie；系统会从携程返回的“我的酒店”自动识别归属门店，识别不到时只展示数据、不入库。
                                         </p>
                                         <div class="mt-3 inline-flex items-center px-3 py-1 rounded-full bg-white border border-blue-200 text-xs text-blue-700">
-                                            <i class="fas fa-key mr-2"></i>采集方式：已绑定门店使用已保存配置；未选门店时才显示临时辅助
+                                            <i class="fas fa-key mr-2"></i>采集方式：Cookie 获取；入库归属由返回酒店ID自动匹配
                                         </div>
                                     </div>
 
-                                    <!-- 目标酒店 -->
-                                    <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店</label>
+                                    <!-- 可选归属门店 -->
+                                    <details class="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                        <summary class="cursor-pointer text-sm font-medium text-gray-700">可选：手动指定归属门店</summary>
+                                        <div class="mt-3">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">归属门店</label>
                                         <div class="flex gap-2">
                                             <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply"
                                                 class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                                <option value="">请选择目标酒店</option>
+                                                <option value="">不指定，按 Cookie 返回酒店ID自动识别</option>
                                                 <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">
                                                     {{ hotel.name }}
                                                 </option>
@@ -6856,17 +6861,18 @@
                                                 去配置
                                             </button>
                                         </div>
-                                    </div>
+                                        </div>
+                                    </details>
 
                                     <input type="hidden" v-model="ctripForm.nodeId">
 
                                     <!-- Cookies -->
                                     <div v-if="shouldShowCtripRankingManualAuxiliary" class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">临时 Cookie/API 辅助内容</label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Cookie</label>
                                         <textarea v-model="ctripForm.cookies" rows="3"
                                             @blur="ctripForm.cookies = normalizeCtripManualAuxiliaryText(ctripForm.cookies)"
                                             class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            placeholder="仅用于临时排障或补数；默认主线请使用 Profile 登录并检查入库结果..."></textarea>
+                                            placeholder="粘贴携程 eBooking 请求头中的 Cookie；系统会自动识别返回酒店ID..."></textarea>
                                     </div>
 
                                     <!-- 操作按钮 -->
@@ -15785,6 +15791,16 @@
                                                     </div>
                                                 </div>
                                             </div>
+                                            <div v-if="platformCollectionBoundaryRows.length" class="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-3" data-testid="platform-collection-boundary-lock">
+                                                <div v-for="row in platformCollectionBoundaryRows" :key="row.key" class="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="text-xs font-semibold text-blue-900">{{ row.label }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px]', row.className]">{{ row.badge }}</span>
+                                                    </div>
+                                                    <div class="mt-1 text-xs leading-5 text-blue-800">{{ row.value }}</div>
+                                                    <div class="mt-1 text-[11px] leading-4 text-blue-600">{{ row.note }}</div>
+                                                </div>
+                                            </div>
                                             <div data-testid="platform-collection-type-breakdown" class="mt-3 overflow-x-auto rounded-lg border border-slate-200 bg-white">
                                                 <table class="min-w-full text-xs">
                                                     <thead class="bg-slate-50 text-slate-500">
@@ -19543,6 +19559,40 @@
                         value: platformCollectionStatusText(summary.collectionStatus || 'not_loaded'),
                         badge: platformCollectionStatusText(summary.collectionStatus || 'not_loaded'),
                         statusClass: platformCollectionStatusClass(summary.collectionStatus || 'not_loaded'),
+                    },
+                ];
+            });
+            const platformCollectionBoundaryRows = computed(() => {
+                if (!platformCollectionStatus.value) return [];
+                const context = platformCollectionStatus.value.context || {};
+                const dataScope = platformCollectionStatus.value.dataScope || context.dataScope || platformCollectionStatusRows.value[0]?.dataScope || 'ota_channel';
+                const targetDate = platformCollectionStatus.value.targetDate || context.targetDate || platformCollectionStatusRows.value[0]?.targetDate || '未选择';
+                const reviewStatus = platformCollectionStatus.value.reviewCollectionStatus || platformCollectionStatusRows.value[0]?.reviewCollection?.status || 'policy_disabled';
+                const reviewText = reviewStatus === 'policy_disabled' ? '点评/评论采集默认策略禁用' : platformCollectionStatusText(reviewStatus);
+                return [
+                    {
+                        key: 'scope-lock',
+                        label: '数据口径锁定',
+                        badge: dataScope === 'ota_channel' ? 'OTA渠道' : '待核验',
+                        value: dataScope === 'ota_channel' ? '仅代表携程/美团 OTA 授权采集数据。' : `当前口径：${dataScope || 'unknown'}`,
+                        note: '不得直接包装成全酒店经营事实；需进入收益、AI、运营、投决链路再判断。',
+                        className: dataScope === 'ota_channel' ? 'border-blue-200 bg-white text-blue-700' : 'border-amber-200 bg-amber-50 text-amber-700',
+                    },
+                    {
+                        key: 'review-policy',
+                        label: '点评采集边界',
+                        badge: reviewStatus === 'policy_disabled' ? '策略禁用' : '需复核',
+                        value: reviewText,
+                        note: '如需启用评论/点评采集，必须单独授权，不进入默认 OTA 采集口径。',
+                        className: reviewStatus === 'policy_disabled' ? 'border-slate-200 bg-white text-slate-600' : 'border-amber-200 bg-amber-50 text-amber-700',
+                    },
+                    {
+                        key: 'target-date',
+                        label: '目标日期证据',
+                        badge: targetDate || '未知',
+                        value: `当前采集状态目标日期：${targetDate || '未选择'}`,
+                        note: '采集成功、登录成功、字段闭环必须以目标日期真实入库和字段状态为准。',
+                        className: targetDate && targetDate !== '未选择' ? 'border-blue-200 bg-white text-blue-700' : 'border-amber-200 bg-amber-50 text-amber-700',
                     },
                 ];
             });
@@ -31589,13 +31639,15 @@
                     : [];
                 readinessMissing.forEach((item, index) => {
                     if (!item || typeof item !== 'object') return;
+                    const target = aiDailyReportEvidenceTarget(item);
                     rows.push({
                         key: `readiness:${item.code || index}:${index}`,
                         label: item.label || item.code || '证据缺口',
                         nextAction: item.next_action || '先补齐证据再转执行',
-                        target: aiDailyReportEvidenceTarget(item),
-                        actionText: aiDailyReportEvidenceTarget(item).label,
-                        sourceRef: aiDailyReportEvidenceTarget(item).sourceRef,
+                        target,
+                        actionText: target.label,
+                        sourceRef: target.sourceRef,
+                        type: 'readiness',
                     });
                 });
                 aiDailyReportActions.value.forEach((action, index) => {
@@ -31613,9 +31665,20 @@
                         target,
                         actionText: target.label,
                         sourceRef: target.sourceRef,
+                        type: 'action',
                     });
                 });
                 return rows;
+            });
+            const aiDailyReportBlockingSummary = computed(() => {
+                const rows = aiDailyReportBlockingRows.value;
+                const readinessCount = rows.filter(row => row.type === 'readiness').length;
+                const actionCount = rows.filter(row => row.type === 'action').length;
+                const sourceCount = new Set(rows.map(row => row.sourceRef).filter(Boolean)).size;
+                return {
+                    total: rows.length,
+                    detail: `证据缺口 ${readinessCount} / 动作阻断 ${actionCount} / 来源 ${sourceCount || 0}`,
+                };
             });
             const aiDailyReportEvidenceRows = computed(() => {
                 const rows = [];
@@ -31712,6 +31775,17 @@
                 if (action?.can_create_execution_intent === false) return '处理缺口';
                 if (aiDailyReportActionBlockedText(action)) return '待处理';
                 return '转单';
+            };
+            const handleAiDailyReportActionPrimary = async (action, index) => {
+                if (action?.can_create_execution_intent === false || aiDailyReportActionBlockedText(action)) {
+                    await openAiDailyReportEvidenceTarget({
+                        ...action,
+                        source_ref: aiDailyReportActionSources(action),
+                        next_action: action?.action_readiness?.next_action || aiDailyReportActionBlockedText(action),
+                    });
+                    return;
+                }
+                await createAiDailyExecutionIntent(action, index);
             };
             const aiDailyReportReadinessClass = (stage) => {
                 if (['daily_loop_closed', 'action_closed_loop'].includes(stage)) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
@@ -34533,7 +34607,7 @@
                 return primaryHotelId;
             };
 
-            const shouldShowCtripRankingManualAuxiliary = computed(() => !ctripTargetHotelOptionExists(selectedCtripHotelId.value));
+            const shouldShowCtripRankingManualAuxiliary = computed(() => true);
 
             const meituanTargetHotelOptions = computed(() => {
                 return mergePlatformTargetOptions(
@@ -45173,10 +45247,10 @@
                 operationSourceBrief, operationDecisionCards,
                 operationUnreadCount, filteredOperationAlerts, loadOperationFullData, analyzeOperationRootCause, loadOperationAlerts,
                 markOperationAlertsRead, simulateOperationStrategy, createOperationAction, loadOperationActions, finishOperationAction,
-                aiDailyReport, aiDailyReportForm, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportReadiness, aiDailyReportReadinessCards, aiDailyReportBlockingRows, aiDailyReportEvidenceRows,
+                aiDailyReport, aiDailyReportForm, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportReadiness, aiDailyReportReadinessCards, aiDailyReportBlockingRows, aiDailyReportBlockingSummary, aiDailyReportEvidenceRows,
                 aiDailyReportModelText, aiDailyReportModelClass, aiDailyReportMetricValue, aiDailyReportActionSources, aiDailyReportActionStatusText, aiDailyReportActionStatusClass, aiDailyReportActionBlockedText, aiDailyReportActionButtonText,
                 aiDailyReportReadinessClass, aiDailyReportGapActionText, goAiDailyReportDataGap, openAiDailyReportEvidenceTarget,
-                loadAiDailyReport, generateAiDailyReport, createAiDailyExecutionIntent,
+                loadAiDailyReport, generateAiDailyReport, createAiDailyExecutionIntent, handleAiDailyReportActionPrimary,
                 operationValue, operationMoney, operationPercent, operationDataStatusText, operationProblemLevelLabel, operationAlertLevelLabel,
                 operationAlertStatusLabel, operationAlertLevelClass, operationAlertSuggestion, operationRiskLevelLabel, operationStrategyTypeLabel,
                 operationActionStatusLabel, operationMetricRows, operationActionDataText, operationActionTarget,
@@ -45267,7 +45341,7 @@
                 runCtripReviewMatchPreflight,
                 runCtripReviewMatchDryRun,
                 checkCtripReviewMatchClosure,
-                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionTypeRows, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, browserAssistImporting, browserAssistImportResult, browserAssistImportFileName, browserAssistImportForm, browserAssistImportPackages, browserAssistImportWarnings, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, readBrowserAssistCaptureFile, copyBrowserAssistCollectorScript, importBrowserAssistCaptureFromText, clearBrowserAssistImportForm, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionBoundaryRows, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionTypeRows, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, browserAssistImporting, browserAssistImportResult, browserAssistImportFileName, browserAssistImportForm, browserAssistImportPackages, browserAssistImportWarnings, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, readBrowserAssistCaptureFile, copyBrowserAssistCollectorScript, importBrowserAssistCaptureFromText, clearBrowserAssistImportForm, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldConfigPanelReady, ctripProfileFieldConfigPanelBody, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录

@@ -130,7 +130,7 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(ctripFetchFlow, /const selectedConfig = selectedCtripHotelId\s*\?\s*await ensureCtripConfigSecret\(getActiveCtripConfig\(\)\)\s*:\s*null;/);
   assert.match(ctripFetchFlow, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig/);
   assert.doesNotMatch(fetchCtripData, /scheduleOnlineHistoryRefresh\(1400\)/);
-  assert.match(html, /只需 Cookie\/API 辅助/);
+  assert.match(html, /Cookie 获取；入库归属由返回酒店ID自动匹配/);
 });
 
 test('Ctrip config list actions route to visible destinations', () => {

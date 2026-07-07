@@ -380,6 +380,17 @@ function ctrip_pricing_import_csv_bool_or_string(array $row, string $key): mixed
     return $value;
 }
 
+function ctrip_pricing_import_csv_blank_demand_forecast_row(array $row): bool
+{
+    foreach (['room_type_key', 'predicted_occupancy', 'predicted_demand', 'confidence_score', 'forecast_method', 'source_note'] as $key) {
+        if (ctrip_pricing_import_csv_value($row, $key) !== '') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 /**
  * @return array<string, mixed>
  */
@@ -407,7 +418,8 @@ function ctrip_pricing_import_payload_from_csv(string $file, string $date, ?int 
         'competitor_price_samples' => [],
     ];
 
-    foreach (ctrip_pricing_import_read_csv_rows($file) as $index => $row) {
+    $csvRows = ctrip_pricing_import_read_csv_rows($file);
+    foreach ($csvRows as $index => $row) {
         $rowDate = ctrip_pricing_import_csv_value($row, 'business_date');
         if ($rowDate !== '' && $rowDate !== $date) {
             throw new InvalidArgumentException('CSV row ' . ($index + 2) . ' business_date does not match --date.');
@@ -426,6 +438,14 @@ function ctrip_pricing_import_payload_from_csv(string $file, string $date, ?int 
             }
             continue;
         }
+    }
+
+    $usesTrafficTrendDemand = ctrip_pricing_import_uses_traffic_trend_demand($payload);
+    foreach ($csvRows as $index => $row) {
+        $section = ctrip_pricing_import_csv_section($row);
+        if ($section === '' || $section === 'evidence' || $section === 'operator_input_evidence') {
+            continue;
+        }
         if ($section === 'room' || $section === 'room_type' || $section === 'room_types') {
             $sortOrder = ctrip_pricing_import_csv_number_or_string($row, 'sort_order');
             $payload['room_types'][] = [
@@ -442,6 +462,9 @@ function ctrip_pricing_import_payload_from_csv(string $file, string $date, ?int 
             continue;
         }
         if ($section === 'demand' || $section === 'demand_forecast' || $section === 'demand_forecasts') {
+            if ($usesTrafficTrendDemand && ctrip_pricing_import_csv_blank_demand_forecast_row($row)) {
+                continue;
+            }
             $forecastMethod = ctrip_pricing_import_csv_number_or_string($row, 'forecast_method');
             $payload['demand_forecasts'][] = [
                 'room_type_key' => ctrip_pricing_import_csv_value($row, 'room_type_key'),
@@ -490,7 +513,7 @@ function ctrip_pricing_import_template(): array
             'confirmed_at' => '<YYYY-MM-DD HH:MM:SS>',
             'room_type_source' => '<source_for_ctrip_room_type_and_room_count>',
             'price_guard_source' => '<source_for_base_min_max_price_guards>',
-            'demand_forecast_source' => '<source_for_target_date_demand_forecast>',
+            'demand_forecast_source' => '<source_for_target_date_demand_forecast_or_ctrip_traffic_trend_report>',
             'competitor_price_source' => '<source_for_recent_7d_ctrip_competitor_prices>',
         ],
         'room_types' => [
@@ -549,6 +572,18 @@ function ctrip_pricing_import_required_input_codes(array $preflight): array
 }
 
 /**
+ * @param array<string, mixed> $payload
+ */
+function ctrip_pricing_import_uses_traffic_trend_demand(array $payload): bool
+{
+    $evidence = is_array($payload['operator_input_evidence'] ?? null) ? $payload['operator_input_evidence'] : [];
+    $source = strtolower(trim((string)($evidence['demand_forecast_source'] ?? $payload['demand_forecast_source'] ?? '')));
+    return str_contains($source, 'ctrip_historical_traffic_trend')
+        || str_contains($source, 'report:revenue-ai-ctrip-traffic-demand-trend')
+        || str_contains($source, 'revenue-ai-ctrip-traffic-demand-trend');
+}
+
+/**
  * @return array<int, array<string, mixed>>
  */
 function ctrip_pricing_import_hotel_checks_for_template(array $preflight, int $hotelId): array
@@ -568,6 +603,9 @@ function ctrip_pricing_import_hotel_checks_for_template(array $preflight, int $h
             'room_type_count' => (int)($row['room_type_count'] ?? 0),
             'pending_suggestions' => (int)($row['pending_suggestions'] ?? 0),
             'demand_forecasts' => (int)($row['demand_forecasts'] ?? 0),
+            'demand_forecast_source' => (string)($row['demand_forecast_source'] ?? ''),
+            'ctrip_traffic_demand_forecast_status' => (string)($row['ctrip_traffic_demand_forecast_status'] ?? ''),
+            'ctrip_traffic_demand_primary_metric' => (string)($row['ctrip_traffic_demand_primary_metric'] ?? ''),
             'competitor_analysis_recent' => (int)($row['competitor_analysis_recent'] ?? 0),
             'create_candidate_count' => (int)($row['create_candidate_count'] ?? 0),
             'skipped_candidate_count' => (int)($row['skipped_candidate_count'] ?? 0),
@@ -585,6 +623,23 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
     $preflight = ctrip_pricing_import_map($overview['pricing_generation_preflight'] ?? []);
     $requiredInputCodes = ctrip_pricing_import_required_input_codes($preflight);
     $hotelArg = ' --hotel-id=' . $hotelId;
+    $trafficTrendDemandReady = (int)($preflight['ctrip_traffic_demand_forecast_count'] ?? 0) > 0
+        && !in_array('demand_forecast', $requiredInputCodes, true);
+    $demandForecastSource = $trafficTrendDemandReady
+        ? 'ctrip_historical_traffic_trend via report:revenue-ai-ctrip-traffic-demand-trend -- --date=' . $businessDate . $hotelArg
+        : '<source_for_target_date_demand_forecast_or_ctrip_traffic_trend_report>';
+    $demandForecastRows = $trafficTrendDemandReady ? [] : [
+        [
+            'room_type_key' => 'room_type_1',
+            'forecast_date' => $businessDate,
+            'predicted_occupancy' => '<target_date_predicted_occupancy_percent>',
+            'predicted_demand' => '<target_date_predicted_room_nights>',
+            'confidence_score' => '<forecast_confidence_0_to_1>',
+            'forecast_method' => 3,
+            'remark' => 'operator-provided or Ctrip historical traffic trend demand forecast for Ctrip pricing generation',
+            'source_note' => '',
+        ],
+    ];
 
     return [
         'business_date' => $businessDate,
@@ -600,7 +655,7 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
             'confirmed_at' => '<YYYY-MM-DD HH:MM:SS>',
             'room_type_source' => '<source_for_ctrip_room_type_and_room_count>',
             'price_guard_source' => '<source_for_base_min_max_price_guards>',
-            'demand_forecast_source' => '<source_for_target_date_demand_forecast>',
+            'demand_forecast_source' => $demandForecastSource,
             'competitor_price_source' => '<source_for_recent_7d_ctrip_competitor_prices>',
         ],
         'current_preflight' => [
@@ -611,6 +666,7 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
             'room_type_count' => $preflight['room_type_count'] ?? null,
             'pending_suggestion_count' => $preflight['pending_suggestion_count'] ?? null,
             'demand_forecast_count' => $preflight['demand_forecast_count'] ?? null,
+            'ctrip_traffic_demand_forecast_count' => $preflight['ctrip_traffic_demand_forecast_count'] ?? null,
             'competitor_analysis_recent_count' => $preflight['competitor_analysis_recent_count'] ?? null,
             'create_candidate_count' => $preflight['create_candidate_count'] ?? null,
             'required_input_codes' => $requiredInputCodes,
@@ -618,7 +674,10 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
         ],
         'operator_fill_required' => [
             'Replace every <...> placeholder with operator-verified Ctrip OTA channel values before importing.',
-            'Fill operator_input_evidence so every room, price guard, demand forecast, and competitor price input has a human-verifiable source.',
+            $trafficTrendDemandReady
+                ? 'Ctrip historical traffic trend is already the demand source; demand_forecasts can stay empty for this hotel/date.'
+                : 'Fill demand_forecasts or provide an accepted Ctrip historical traffic trend source before importing.',
+            'Fill operator_input_evidence so every room, price guard, and competitor price input has a human-verifiable source.',
             'Do not paste sample, guessed, fallback, or whole-hotel values into this Ctrip OTA channel input file.',
             'Run the dry-run import first; only use the execute script after the dry-run reports pricing_generation_preflight.create_candidate_count > 0.',
         ],
@@ -635,18 +694,7 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
                 'source_note' => '',
             ],
         ],
-        'demand_forecasts' => [
-            [
-                'room_type_key' => 'room_type_1',
-                'forecast_date' => $businessDate,
-                'predicted_occupancy' => '<target_date_predicted_occupancy_percent>',
-                'predicted_demand' => '<target_date_predicted_room_nights>',
-                'confidence_score' => '<forecast_confidence_0_to_1>',
-                'forecast_method' => 3,
-                'remark' => 'operator-provided demand forecast for Ctrip pricing generation',
-                'source_note' => '',
-            ],
-        ],
+        'demand_forecasts' => $demandForecastRows,
         'competitor_price_samples' => [
             [
                 'room_type_key' => 'room_type_1',
@@ -662,6 +710,7 @@ function ctrip_pricing_import_current_template(string $businessDate, int $hotelI
             'operator_packet' => 'npm.cmd run report:revenue-ai-ctrip-pricing-operator-packet -- --date=' . $businessDate . $hotelArg . ' --format=markdown',
             'export_operator_bundle' => 'npm.cmd run export:revenue-ai-ctrip-operator-bundle -- --date=' . $businessDate . $hotelArg . ' --output-dir=<operator-bundle-dir>',
             'inspect_current_ota_evidence' => 'npm.cmd run inspect:revenue-ai-ctrip-pricing-sources -- --date=' . $businessDate . $hotelArg,
+            'demand_trend_draft' => 'npm.cmd run report:revenue-ai-ctrip-traffic-demand-trend -- --date=' . $businessDate . $hotelArg . ' --format=markdown',
             'export_to_file' => 'npm.cmd run export:revenue-ai-ctrip-pricing-template -- --date=' . $businessDate . $hotelArg . ' --output=<draft-json-path>',
             'build_from_csv' => 'npm.cmd run build:revenue-ai-ctrip-pricing-input-from-csv -- --csv-file=<operator-intake-csv-path> --output=<filled-json-path> --date=' . $businessDate . $hotelArg,
             'lint_only' => 'npm.cmd run lint:revenue-ai-ctrip-pricing-inputs -- --file=<filled-json-path> --date=' . $businessDate . $hotelArg,
@@ -856,6 +905,25 @@ function ctrip_pricing_import_rows(mixed $rows, string $key): array
 {
     if (!is_array($rows) || array_values($rows) !== $rows || $rows === []) {
         throw new InvalidArgumentException($key . ' must be a non-empty array.');
+    }
+    foreach ($rows as $index => $row) {
+        if (!is_array($row)) {
+            throw new InvalidArgumentException($key . '[' . $index . '] must be an object.');
+        }
+    }
+    return $rows;
+}
+
+/**
+ * @return array<int, array<string, mixed>>
+ */
+function ctrip_pricing_import_optional_rows(mixed $rows, string $key): array
+{
+    if ($rows === null || $rows === []) {
+        return [];
+    }
+    if (!is_array($rows) || array_values($rows) !== $rows) {
+        throw new InvalidArgumentException($key . ' must be an array.');
     }
     foreach ($rows as $index => $row) {
         if (!is_array($row)) {
@@ -1061,12 +1129,13 @@ function ctrip_pricing_import_lint_payload(array $payload, string $optionDate): 
     $competitorRows = is_array($payload['competitor_price_samples'] ?? null) && array_values($payload['competitor_price_samples']) === $payload['competitor_price_samples']
         ? $payload['competitor_price_samples']
         : [];
+    $usesTrafficTrendDemand = ctrip_pricing_import_uses_traffic_trend_demand($payload);
 
     if ($roomRows === []) {
         ctrip_pricing_import_lint_issue($issues, 'room_types_missing', '$.room_types', 'room_types must be a non-empty array.');
     }
-    if ($forecastRows === []) {
-        ctrip_pricing_import_lint_issue($issues, 'demand_forecasts_missing', '$.demand_forecasts', 'demand_forecasts must be a non-empty array.');
+    if ($forecastRows === [] && !$usesTrafficTrendDemand) {
+        ctrip_pricing_import_lint_issue($issues, 'demand_forecasts_missing', '$.demand_forecasts', 'demand_forecasts must be non-empty unless operator_input_evidence.demand_forecast_source names Ctrip historical traffic trend.');
     }
     if ($competitorRows === []) {
         ctrip_pricing_import_lint_issue($issues, 'competitor_price_samples_missing', '$.competitor_price_samples', 'competitor_price_samples must be a non-empty array.');
@@ -1170,6 +1239,7 @@ function ctrip_pricing_import_lint_payload(array $payload, string $optionDate): 
         'source_scope' => (string)($payload['source_scope'] ?? ''),
         'room_type_rows' => count($roomRows),
         'demand_forecast_rows' => count($forecastRows),
+        'demand_forecast_source' => $usesTrafficTrendDemand ? 'ctrip_historical_traffic_trend' : 'demand_forecasts',
         'competitor_sample_rows' => count($competitorRows),
         'issue_count' => count($issues),
         'issue_codes' => $codes,
@@ -1245,7 +1315,7 @@ function ctrip_pricing_import_csv_fill_hint(array $issue, string $csvColumn): st
         return 'Fill this CSV cell with a real numeric value from the operator-verified Ctrip input.';
     }
     if ($code === 'room_type_key_missing' || $code === 'room_type_key_unmatched') {
-        return 'Use the same real room_type_key across room_type, demand_forecast, and competitor_price_sample rows.';
+        return 'Use the same real room_type_key across room_type and competitor_price_sample rows; include demand_forecast only for an explicit manual forecast override.';
     }
     if ($code === 'room_type_name_missing') {
         return 'Fill the operator-verified Ctrip room type name.';
@@ -1589,8 +1659,11 @@ try {
         throw new InvalidArgumentException('platform must be ctrip.');
     }
 
+    $usesTrafficTrendDemand = ctrip_pricing_import_uses_traffic_trend_demand($payload);
     $roomRows = ctrip_pricing_import_rows($payload['room_types'] ?? null, 'room_types');
-    $forecastRows = ctrip_pricing_import_rows($payload['demand_forecasts'] ?? null, 'demand_forecasts');
+    $forecastRows = $usesTrafficTrendDemand
+        ? ctrip_pricing_import_optional_rows($payload['demand_forecasts'] ?? [], 'demand_forecasts')
+        : ctrip_pricing_import_rows($payload['demand_forecasts'] ?? null, 'demand_forecasts');
     $competitorRows = ctrip_pricing_import_rows($payload['competitor_price_samples'] ?? null, 'competitor_price_samples');
 
     $app = new App($root);
@@ -1727,12 +1800,13 @@ try {
         ctrip_pricing_import_check(
             $checks,
             'operator_input_file_loaded',
-            $fileHash !== '' && $roomRows !== [] && $forecastRows !== [] && $competitorRows !== [],
+            $fileHash !== '' && $roomRows !== [] && ($forecastRows !== [] || $usesTrafficTrendDemand) && $competitorRows !== [],
             'Operator-provided Ctrip pricing input file is loaded and non-empty.',
             [
                 'file_sha256' => $fileHash,
                 'room_type_rows' => count($roomRows),
                 'demand_forecast_rows' => count($forecastRows),
+                'demand_forecast_source' => $usesTrafficTrendDemand ? 'ctrip_historical_traffic_trend' : 'demand_forecasts',
                 'competitor_sample_rows' => count($competitorRows),
             ]
         );
@@ -1874,6 +1948,7 @@ try {
             'rolled_back' => $rolledBack,
             'auto_write_ota' => false,
             'imported' => $imported,
+            'demand_forecast_source' => $usesTrafficTrendDemand ? 'ctrip_historical_traffic_trend' : 'demand_forecasts',
             'pricing_generation_preflight' => [
                 'status' => $preflight['status'] ?? null,
                 'reason' => $preflight['reason'] ?? null,

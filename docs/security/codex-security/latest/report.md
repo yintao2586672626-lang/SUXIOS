@@ -107,4 +107,4 @@ The scan reviewed high-impact surfaces for authentication, authorization, SSRF, 
 - Keep the external production `LlmClient` attestation available and rerun `npm.cmd run review:release-llm` on the final head.
 - Provide real Figma, Canva, Brand Kit, design-token, and covered-flow handoff evidence, then rerun `npm.cmd run review:release-design`.
 - Rotate or invalidate OTA credential material and provide a redacted attestation, then rerun `npm.cmd run review:release-ota-credentials`.
-- Rerun `npm.cmd run review:release-readiness` and `$env:RELEASE_PR_NUMBER='2'; npm.cmd run review:release-external-state` after every release evidence update.
+- After every release evidence update, set `$env:RELEASE_PR_NUMBER='<actual-open-release-pr-number>'`, rerun `npm.cmd run review:release-staged-scope` and `npm.cmd run review:release-external-state` from a checkout whose local HEAD matches that final PR head, with `RELEASE_STAGED_SCOPE_RESULT_FILE` and `RELEASE_EXTERNAL_STATE_RESULT_FILE` in the controlled evidence directory, then rerun `npm.cmd run review:release-readiness` so it consumes the passing staged-scope and external-state results.

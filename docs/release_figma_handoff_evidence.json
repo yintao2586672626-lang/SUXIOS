@@ -6,6 +6,18 @@
   "figma_url": "https://www.figma.com/design/ngtbNGUVP77kO1hh9SOLQA",
   "figma_page_id": "0:1",
   "figma_page_name": "Release Handoff",
+  "latest_connector_check": {
+    "checked_at": "2026-07-07T00:32:42+08:00",
+    "tool": "mcp__codex_apps__figma._get_libraries",
+    "result": "blocked",
+    "error_code": "UNAUTHORIZED",
+    "reason": "reauthentication required",
+    "error_data": {
+      "detail": "Reauthentication required",
+      "action": "TRIGGER_REAUTHENTICATION",
+      "reason": "www_authenticate_reauth"
+    }
+  },
   "design_tokens_path": "docs/design-tokens.release.json",
   "covered_flows": [
     "login",

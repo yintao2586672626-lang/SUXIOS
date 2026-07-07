@@ -1,0 +1,25 @@
+{
+  "status": "github_open_final_pr_missing",
+  "checked_at": "2026-07-07T00:32:42+08:00",
+  "reviewer": "Codex release handoff",
+  "repository_full_name": "yintao2586672626-lang/SUXIOS",
+  "release_base_ref": "main",
+  "latest_connector_check": {
+    "checked_at": "2026-07-07T00:32:42+08:00",
+    "tool": "mcp__codex_apps__github._get_users_recent_prs_in_repo",
+    "state": "open",
+    "result": "blocked",
+    "reason": "GitHub connector returned an empty pull_requests array for the repository; no open final release PR candidate is currently selectable.",
+    "pull_requests_count": 0
+  },
+  "does_not_close_release_external_state_gate": true,
+  "does_not_close_release_readiness": true,
+  "remaining_handoff_inputs": [
+    "actual open final release PR",
+    "RELEASE_PR_NUMBER set to that PR",
+    "passing npm run review:release-pr-candidates result",
+    "passing npm run review:release-staged-scope result for the final staged bundle",
+    "clean local worktree or reviewed isolation before npm run review:release-external-state",
+    "passing npm run review:release-external-state result consumed by npm run review:release-readiness"
+  ]
+}

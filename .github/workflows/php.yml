@@ -63,5 +63,7 @@ jobs:
           npm run verify:opening-batch-actions
           npm run review:functional-readiness
           npm run review:release-issues
+          npm run verify:release-evidence-intake
+          npm run verify:release-readiness-contract
           npm run review:non-security
           npm run verify:release-status

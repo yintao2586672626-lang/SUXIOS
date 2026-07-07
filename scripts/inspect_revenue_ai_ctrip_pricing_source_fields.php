@@ -295,7 +295,7 @@ function ctrip_pricing_sources_operator_input_locators(array $rows): array
         ],
         'demand_forecast' => [
             'needles' => ['demand', 'forecast', 'predicted', '预测'],
-            'operator_use' => 'No Ctrip field locator proves a demand forecast by itself; provide an operator/model forecast source.',
+            'operator_use' => 'Use report:revenue-ai-ctrip-traffic-demand-trend as the allowed Ctrip historical traffic trend forecast source; no single Ctrip field locator proves demand by itself.',
         ],
         'competitor_price_samples' => [
             'needles' => ['competitor', 'peer', '竞对', '竞争'],
@@ -405,7 +405,7 @@ function ctrip_pricing_sources_scalar_count(string $sql, array $params = []): in
 /**
  * @return array<string, mixed>
  */
-function ctrip_pricing_sources_candidate_source_audit(string $businessDate, ?int $hotelId): array
+function ctrip_pricing_sources_candidate_source_audit(string $businessDate, ?int $hotelId, array $preflight): array
 {
     $hotelWhere = $hotelId === null ? '' : ' AND hotel_id = ?';
     $hotelParams = $hotelId === null ? [] : [$hotelId];
@@ -516,6 +516,8 @@ function ctrip_pricing_sources_candidate_source_audit(string $businessDate, ?int
         'SELECT COUNT(*) FROM demand_forecasts WHERE forecast_date = ?' . $hotelWhere,
         array_merge([$businessDate], $hotelParams)
     );
+    $trafficTrendDemandCount = max(0, (int)($preflight['ctrip_traffic_demand_forecast_count'] ?? 0));
+    $trafficTrendDemandReady = $trafficTrendDemandCount > 0;
     $ctripCompetitorSamples = ctrip_pricing_sources_scalar_count(
         'SELECT COUNT(*) FROM competitor_analysis WHERE analysis_date >= ? AND ota_platform = 1' . $hotelWhere,
         array_merge([date('Y-m-d', strtotime($businessDate . ' -7 days'))], $hotelParams)
@@ -523,7 +525,7 @@ function ctrip_pricing_sources_candidate_source_audit(string $businessDate, ?int
 
     $requiredTablesReady = $roomTypes > 0
         && $roomTypesWithPriceGuards > 0
-        && $demandForecasts > 0
+        && ($demandForecasts > 0 || $trafficTrendDemandReady)
         && $ctripCompetitorSamples > 0;
 
     return [
@@ -534,7 +536,13 @@ function ctrip_pricing_sources_candidate_source_audit(string $businessDate, ?int
             'room_types_enabled' => $roomTypes,
             'room_types_with_price_guards' => $roomTypesWithPriceGuards,
             'demand_forecasts_target_date' => $demandForecasts,
+            'ctrip_traffic_demand_forecast_count' => $trafficTrendDemandCount,
             'competitor_analysis_ctrip_recent_7d' => $ctripCompetitorSamples,
+        ],
+        'accepted_demand_source_status' => [
+            'demand_forecast_source' => $trafficTrendDemandReady ? 'ctrip_historical_traffic_trend' : ($demandForecasts > 0 ? 'demand_forecasts' : 'missing'),
+            'demand_forecast_row_required' => !$trafficTrendDemandReady,
+            'source_policy' => 'demand_source_can_use_ctrip_historical_traffic_trend_no_raw_rows_no_import',
         ],
         'ctrip_room_pricing_evidence_counts' => [
             'online_daily_data_room_like_target_date' => ctrip_pricing_sources_scalar_count($targetRoomLikeOnlineSql, $targetRoomLikeOnlineParams),
@@ -561,7 +569,7 @@ function ctrip_pricing_sources_candidate_source_audit(string $businessDate, ?int
             'can_generate_operator_file_from_existing_db' => false,
             'reason' => $requiredTablesReady
                 ? 'required_tables_have_counts_but_operator_file_still_requires_explicit_review'
-                : 'required_tables_or_ctrip_room_price_evidence_missing',
+                : 'room_type_price_guard_or_named_ctrip_competitor_sample_missing',
         ],
     ];
 }
@@ -652,6 +660,15 @@ function ctrip_pricing_sources_operator_gap_summary(array $summary, array $prefl
     $hasPriceHint = str_contains($joined, 'price') || str_contains($joined, 'rate');
     $hasCompetitorHint = str_contains($joined, 'competitor');
     $hasDemandHint = str_contains($joined, 'demand') || str_contains($joined, 'forecast');
+    $preflightRequired = ctrip_pricing_sources_list($preflight['required_before_execute'] ?? []);
+    $requiredBeforeExecute = $preflightRequired === []
+        ? [
+            'room_types_enabled',
+            'floor_price_or_min_rate_guard',
+            'competitor_price_samples',
+        ]
+        : array_values(array_map('strval', $preflightRequired));
+    $trafficTrendDemandCount = max(0, (int)($preflight['ctrip_traffic_demand_forecast_count'] ?? 0));
 
     return [
         'can_prefill_import_file' => false,
@@ -663,18 +680,21 @@ function ctrip_pricing_sources_operator_gap_summary(array $summary, array $prefl
             'competitor_key' => $hasCompetitorHint,
             'demand_or_forecast_key' => $hasDemandHint,
         ],
-        'required_before_execute' => [
-            'room_types_enabled',
-            'floor_price_or_min_rate_guard',
-            'demand_forecast',
-            'competitor_price_samples',
+        'demand_source_status' => [
+            'demand_forecast_source' => $trafficTrendDemandCount > 0 ? 'ctrip_historical_traffic_trend' : 'missing_or_manual_required',
+            'demand_forecast_row_required' => $trafficTrendDemandCount <= 0,
+            'ctrip_traffic_demand_forecast_count' => $trafficTrendDemandCount,
         ],
+        'required_before_execute' => $requiredBeforeExecute,
         'current_preflight' => [
             'status' => $preflight['status'] ?? null,
             'reason' => $preflight['reason'] ?? null,
             'target_hotel_ids' => $preflight['target_hotel_ids'] ?? [],
             'target_date_rows' => $preflight['target_date_rows'] ?? null,
             'room_type_count' => $preflight['room_type_count'] ?? null,
+            'demand_forecast_count' => $preflight['demand_forecast_count'] ?? null,
+            'ctrip_traffic_demand_forecast_count' => $preflight['ctrip_traffic_demand_forecast_count'] ?? null,
+            'competitor_analysis_recent_count' => $preflight['competitor_analysis_recent_count'] ?? null,
             'pending_suggestion_count' => $preflight['pending_suggestion_count'] ?? null,
             'create_candidate_count' => $preflight['create_candidate_count'] ?? null,
         ],
@@ -734,7 +754,7 @@ try {
     $rows = ctrip_pricing_sources_query_rows($columns, $options['date'], $hotelId, $options['limit']);
     $summary = ctrip_pricing_sources_rows_summary($rows);
     $operatorGap = ctrip_pricing_sources_operator_gap_summary($summary, $preflight);
-    $candidateSourceAudit = ctrip_pricing_sources_candidate_source_audit($options['date'], $hotelId);
+    $candidateSourceAudit = ctrip_pricing_sources_candidate_source_audit($options['date'], $hotelId, $preflight);
     $operatorInputLocators = ctrip_pricing_sources_operator_input_locators($rows);
     $hotelArg = ctrip_pricing_sources_hotel_arg($hotelId);
     $scopeText = strtolower(json_encode([$summary, $candidateSourceAudit, $operatorInputLocators], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');

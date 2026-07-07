@@ -14,7 +14,7 @@ npm.cmd run review:release-readiness
 
 Do not point `RELEASE_ENV_FILE` at `.example.production.env`, a sample/template file, or any env file inside the repository.
 
-`review:release-env` validates only the production env file. `review:release-readiness` uses the same env rules and then continues into LLM, design, backup, security-scan, and Git-state release blockers.
+`review:release-env` validates only the production env file. `review:release-readiness` uses the same env rules and then continues into LLM, design, backup, security-scan, staged-scope, and external-state release blockers.
 
 ## Required Values
 
@@ -48,7 +48,7 @@ $env:LLM_CONNECTIVITY_ATTESTATION_FILE='D:\controlled\llm_connectivity_attestati
 npm.cmd run review:release-llm
 ```
 
-`review:release-llm` validates only the LLM connectivity attestation. `review:release-readiness` uses the same LLM attestation rules and then continues into design, backup, security-scan, and Git-state release blockers.
+`review:release-llm` validates only the LLM connectivity attestation. `review:release-readiness` uses the same LLM attestation rules and then continues into design, backup, security-scan, staged-scope, and external-state release blockers.
 
 ## Not Allowed
 
