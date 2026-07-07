@@ -624,7 +624,6 @@ requireIncludes('scripts/register_p0_ota_traffic_data_sources.php', 'P0 traffic 
   "'last_login_verified_at'] = $lastLoginVerifiedAt",
   "$status = 'waiting_config';",
   '$currentLastSyncStatus',
-  '$lastSyncStatus = $currentLastSyncStatus',
   "'current_status' => $currentStatus",
   "'previous_status' => $currentStatus",
   "'manual_login_state_verified' => false",
