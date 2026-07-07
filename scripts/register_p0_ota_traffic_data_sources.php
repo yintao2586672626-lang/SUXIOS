@@ -221,6 +221,110 @@ function filter_platform_data_source_columns(array $data): array
     return array_intersect_key($data, platform_data_source_columns());
 }
 
+function truthy_config_value(mixed $value): bool
+{
+    if (is_bool($value)) {
+        return $value;
+    }
+    if (is_int($value)) {
+        return $value === 1;
+    }
+    if (is_string($value)) {
+        return in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'verified'], true);
+    }
+    return false;
+}
+
+/**
+ * @param array<string, mixed> $config
+ */
+function profile_login_state_verified_config(array $config): bool
+{
+    foreach (['manual_login_state_verified', 'login_state_verified', 'profile_login_verified'] as $key) {
+        if (truthy_config_value($config[$key] ?? false)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @return array<string, mixed>|null
+ */
+function find_verified_profile_login_source(string $platform, int $systemHotelId): ?array
+{
+    if ($systemHotelId <= 0) {
+        return null;
+    }
+
+    $rows = Db::name('platform_data_sources')
+        ->field('id,platform,data_type,ingestion_method,system_hotel_id,status,enabled,last_sync_status,config_json,update_time')
+        ->where('platform', $platform)
+        ->where('ingestion_method', 'browser_profile')
+        ->where('system_hotel_id', $systemHotelId)
+        ->where('enabled', 1)
+        ->order('id', 'desc')
+        ->select()
+        ->toArray();
+
+    $best = null;
+    $bestScore = -1;
+    foreach ($rows as $row) {
+        $status = strtolower(trim((string)($row['status'] ?? '')));
+        if ($status === 'disabled') {
+            continue;
+        }
+        $config = json_decode((string)($row['config_json'] ?? ''), true);
+        $config = is_array($config) ? $config : [];
+        if (!profile_login_state_verified_config($config)) {
+            continue;
+        }
+
+        $score = 0;
+        if ((string)($row['data_type'] ?? '') !== 'traffic') {
+            $score += 100;
+        }
+        if ($status === 'success') {
+            $score += 20;
+        }
+        if (strtolower(trim((string)($row['last_sync_status'] ?? ''))) === 'success') {
+            $score += 10;
+        }
+        $score += min(9, (int)($row['id'] ?? 0));
+
+        if ($score > $bestScore) {
+            $best = $row;
+            $best['config'] = $config;
+            $bestScore = $score;
+        }
+    }
+
+    return $best;
+}
+
+/**
+ * @param array<string, mixed> $config
+ * @param array<string, mixed>|null $verifiedSource
+ * @return array<string, mixed>
+ */
+function apply_profile_login_inheritance(array $config, ?array $verifiedSource): array
+{
+    if ($verifiedSource === null) {
+        return $config;
+    }
+
+    $config['manual_login_state_verified'] = true;
+    $config['login_state_verified'] = true;
+    $config['profile_login_verified'] = true;
+    $config['login_verification_status'] = 'verified_from_existing_browser_profile_source';
+    $config['profile_login_inherited_from_data_source_id'] = (int)($verifiedSource['id'] ?? 0);
+    $config['profile_login_inherited_from_data_type'] = (string)($verifiedSource['data_type'] ?? '');
+    $config['profile_login_inheritance_policy'] = 'same_platform_same_system_hotel_browser_profile_verified_metadata_only_no_secret_reuse';
+    $config['profile_auth_evidence_policy'] = 'Profile directory presence is not login-state evidence; verified Profile metadata may be inherited only from same platform/system_hotel_id browser_profile source.';
+
+    return $config;
+}
+
 /**
  * @param array<string, mixed> $selected
  * @return array<string, mixed>
@@ -245,6 +349,10 @@ function build_source_spec(string $platform, array $selected, string $targetDate
         'login_verification_status' => 'not_verified',
         'profile_auth_evidence_policy' => 'Profile directory presence is not login-state evidence.',
     ];
+    $baseConfig = apply_profile_login_inheritance(
+        $baseConfig,
+        find_verified_profile_login_source($platform, $systemHotelId)
+    );
 
     if ($platform === 'ctrip') {
         $profileId = first_string($row, ['profile_id', 'profileId']);
@@ -323,6 +431,30 @@ function find_existing_source(array $spec): ?array
 function persist_source(array $spec, ?array $existing, bool $execute): array
 {
     $now = date('Y-m-d H:i:s');
+    $loginVerified = profile_login_state_verified_config(is_array($spec['config'] ?? null) ? $spec['config'] : []);
+    $lastError = $loginVerified
+        ? 'Waiting for target-date traffic source sync/field-fact verifier; manual_login_state_verified inherited from same-hotel browser Profile metadata.'
+        : 'Waiting for manual_login_state_verified and target-date traffic rows; Profile directory presence is not treated as login evidence.';
+    $actionMetadata = [
+        'manual_login_state_verified' => $loginVerified,
+        'login_verification_status' => (string)($spec['config']['login_verification_status'] ?? ''),
+        'profile_login_inherited_from_data_source_id' => isset($spec['config']['profile_login_inherited_from_data_source_id'])
+            ? (int)$spec['config']['profile_login_inherited_from_data_source_id']
+            : null,
+        'profile_login_inheritance_policy' => (string)($spec['config']['profile_login_inheritance_policy'] ?? ''),
+    ];
+    $status = 'waiting_config';
+    $lastSyncStatus = 'waiting_config';
+    if ($existing !== null && (string)($existing['status'] ?? '') !== 'disabled') {
+        $existingStatus = trim((string)($existing['status'] ?? ''));
+        $existingLastSyncStatus = trim((string)($existing['last_sync_status'] ?? ''));
+        if ($existingStatus !== '') {
+            $status = $existingStatus;
+        }
+        if ($existingLastSyncStatus !== '') {
+            $lastSyncStatus = $existingLastSyncStatus;
+        }
+    }
     $data = [
         'tenant_id' => (int)$spec['system_hotel_id'],
         'system_hotel_id' => (int)$spec['system_hotel_id'],
@@ -331,12 +463,12 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
         'platform' => (string)$spec['platform'],
         'data_type' => 'traffic',
         'ingestion_method' => 'browser_profile',
-        'status' => 'waiting_config',
+        'status' => $status,
         'enabled' => 1,
         'config_json' => json_encode($spec['config'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         'secret_json' => '{}',
-        'last_sync_status' => 'waiting_config',
-        'last_error' => 'Waiting for manual_login_state_verified and target-date traffic rows; Profile directory presence is not treated as login evidence.',
+        'last_sync_status' => $lastSyncStatus,
+        'last_error' => $lastError,
         'updated_by' => 1,
         'update_time' => $now,
     ];
@@ -354,7 +486,7 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
                 'system_hotel_id' => (int)$spec['system_hotel_id'],
                 'status' => (string)($existing['status'] ?? ''),
                 'enabled' => (int)($existing['enabled'] ?? 0),
-            ];
+            ] + $actionMetadata;
         }
 
         if (!$execute) {
@@ -363,9 +495,10 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
                 'data_source_id' => (int)($existing['id'] ?? 0),
                 'platform' => (string)$spec['platform'],
                 'system_hotel_id' => (int)$spec['system_hotel_id'],
-                'status' => 'waiting_config',
+                'status' => $status,
+                'last_sync_status' => $lastSyncStatus,
                 'enabled' => 1,
-            ];
+            ] + $actionMetadata;
         }
 
         Db::name('platform_data_sources')->where('id', (int)$existing['id'])->update($data);
@@ -374,9 +507,10 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
             'data_source_id' => (int)$existing['id'],
             'platform' => (string)$spec['platform'],
             'system_hotel_id' => (int)$spec['system_hotel_id'],
-            'status' => 'waiting_config',
+            'status' => $status,
+            'last_sync_status' => $lastSyncStatus,
             'enabled' => 1,
-        ];
+        ] + $actionMetadata;
     }
 
     if (!$execute) {
@@ -386,8 +520,9 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
             'platform' => (string)$spec['platform'],
             'system_hotel_id' => (int)$spec['system_hotel_id'],
             'status' => 'waiting_config',
+            'last_sync_status' => 'waiting_config',
             'enabled' => 1,
-        ];
+        ] + $actionMetadata;
     }
 
     $data['created_by'] = 1;
@@ -400,8 +535,9 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
         'platform' => (string)$spec['platform'],
         'system_hotel_id' => (int)$spec['system_hotel_id'],
         'status' => 'waiting_config',
+        'last_sync_status' => 'waiting_config',
         'enabled' => 1,
-    ];
+    ] + $actionMetadata;
 }
 
 $options = parse_options($argv);
@@ -413,7 +549,7 @@ $summary = [
     'date' => (string)$options['date'],
     'execute' => $execute,
     'scope' => 'ota_channel_only',
-    'status_policy' => 'registered sources stay waiting_config until manual_login_state_verified and target-date traffic rows exist',
+    'status_policy' => 'registered sources stay waiting_config until target-date traffic rows and verifier readiness exist; manual login may be inherited only from same-hotel verified browser Profile metadata',
     'platforms' => [],
 ];
 

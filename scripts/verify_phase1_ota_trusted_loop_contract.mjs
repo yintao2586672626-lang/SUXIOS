@@ -609,10 +609,17 @@ requireIncludes('scripts/register_p0_ota_traffic_data_sources.php', 'P0 traffic 
   "'secret_json' => '{}'",
   "'source_scope' => 'ota_channel_only'",
   'filter_platform_data_source_columns',
+  'find_verified_profile_login_source',
+  'profile_login_state_verified_config',
+  'profile_login_inherited_from_data_source_id',
+  'same_platform_same_system_hotel_browser_profile_verified_metadata_only_no_secret_reuse',
+  '$existingLastSyncStatus',
   "'manual_login_state_verified' => false",
+  "'manual_login_state_verified'] = true",
   "'login_verification_status' => 'not_verified'",
+  "verified_from_existing_browser_profile_source",
   'Profile directory presence is not login-state evidence.',
-  'registered sources stay waiting_config until manual_login_state_verified and target-date traffic rows exist',
+  'registered sources stay waiting_config until target-date traffic rows and verifier readiness exist',
 ]);
 
 requireIncludes('docs/release_functional_acceptance_matrix.md', 'functional acceptance includes phase-one gate', [
