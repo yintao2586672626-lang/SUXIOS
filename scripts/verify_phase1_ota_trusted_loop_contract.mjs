@@ -23,6 +23,12 @@ function requireIncludes(file, label, needles) {
   add(file, label, missing.length === 0, missing.join(', '));
 }
 
+function requireExcludes(file, label, needles) {
+  const source = read(file);
+  const present = needles.filter((needle) => source.includes(needle));
+  add(file, label, present.length === 0, present.join(', '));
+}
+
 function requirePackageScript(name, command) {
   let ok = false;
   try {
@@ -611,15 +617,23 @@ requireIncludes('scripts/register_p0_ota_traffic_data_sources.php', 'P0 traffic 
   'filter_platform_data_source_columns',
   'find_verified_profile_login_source',
   'profile_login_state_verified_config',
+  'profile_login_metadata_verified_config',
   'profile_login_inherited_from_data_source_id',
   'same_platform_same_system_hotel_browser_profile_verified_metadata_only_no_secret_reuse',
-  '$existingLastSyncStatus',
+  "'profile_status'] = $profileStatus",
+  "'last_login_verified_at'] = $lastLoginVerifiedAt",
+  '$currentLastSyncStatus',
+  "'current_status' => $currentStatus",
   "'manual_login_state_verified' => false",
   "'manual_login_state_verified'] = true",
   "'login_verification_status' => 'not_verified'",
   "verified_from_existing_browser_profile_source",
   'Profile directory presence is not login-state evidence.',
   'registered sources stay waiting_config until target-date traffic rows and verifier readiness exist',
+]);
+requireExcludes('scripts/register_p0_ota_traffic_data_sources.php', 'P0 traffic source registration must not preserve success as target status', [
+  '$status = $existingStatus',
+  '$status = $currentStatus',
 ]);
 
 requireIncludes('docs/release_functional_acceptance_matrix.md', 'functional acceptance includes phase-one gate', [

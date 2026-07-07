@@ -249,6 +249,27 @@ function profile_login_state_verified_config(array $config): bool
 }
 
 /**
+ * @param array<string, mixed> $config
+ */
+function profile_login_metadata_verified_config(array $config): bool
+{
+    if (!profile_login_state_verified_config($config)) {
+        return false;
+    }
+
+    $status = strtolower(first_string($config, ['profile_status', 'login_status', 'profile_login_status']));
+    if (!in_array($status, ['logged_in', 'authorized'], true)) {
+        return false;
+    }
+
+    return first_string($config, [
+        'last_login_verified_at',
+        'profile_login_verified_at',
+        'last_profile_login_at',
+    ]) !== '';
+}
+
+/**
  * @return array<string, mixed>|null
  */
 function find_verified_profile_login_source(string $platform, int $systemHotelId): ?array
@@ -276,7 +297,7 @@ function find_verified_profile_login_source(string $platform, int $systemHotelId
         }
         $config = json_decode((string)($row['config_json'] ?? ''), true);
         $config = is_array($config) ? $config : [];
-        if (!profile_login_state_verified_config($config)) {
+        if (!profile_login_metadata_verified_config($config)) {
             continue;
         }
 
@@ -313,9 +334,21 @@ function apply_profile_login_inheritance(array $config, ?array $verifiedSource):
         return $config;
     }
 
+    $verifiedConfig = is_array($verifiedSource['config'] ?? null) ? $verifiedSource['config'] : [];
+    $profileStatus = strtolower(first_string($verifiedConfig, ['profile_status', 'login_status', 'profile_login_status']));
+    $lastLoginVerifiedAt = first_string($verifiedConfig, [
+        'last_login_verified_at',
+        'profile_login_verified_at',
+        'last_profile_login_at',
+    ]);
+
     $config['manual_login_state_verified'] = true;
     $config['login_state_verified'] = true;
     $config['profile_login_verified'] = true;
+    $config['profile_status'] = $profileStatus;
+    $config['login_status'] = $profileStatus;
+    $config['last_login_verified_at'] = $lastLoginVerifiedAt;
+    $config['profile_login_verified_at'] = $lastLoginVerifiedAt;
     $config['login_verification_status'] = 'verified_from_existing_browser_profile_source';
     $config['profile_login_inherited_from_data_source_id'] = (int)($verifiedSource['id'] ?? 0);
     $config['profile_login_inherited_from_data_type'] = (string)($verifiedSource['data_type'] ?? '');
@@ -445,14 +478,13 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
     ];
     $status = 'waiting_config';
     $lastSyncStatus = 'waiting_config';
+    $currentStatus = '';
+    $currentLastSyncStatus = '';
     if ($existing !== null && (string)($existing['status'] ?? '') !== 'disabled') {
-        $existingStatus = trim((string)($existing['status'] ?? ''));
-        $existingLastSyncStatus = trim((string)($existing['last_sync_status'] ?? ''));
-        if ($existingStatus !== '') {
-            $status = $existingStatus;
-        }
-        if ($existingLastSyncStatus !== '') {
-            $lastSyncStatus = $existingLastSyncStatus;
+        $currentStatus = trim((string)($existing['status'] ?? ''));
+        $currentLastSyncStatus = trim((string)($existing['last_sync_status'] ?? ''));
+        if ($currentLastSyncStatus !== '') {
+            $lastSyncStatus = $currentLastSyncStatus;
         }
     }
     $data = [
@@ -495,6 +527,8 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
                 'data_source_id' => (int)($existing['id'] ?? 0),
                 'platform' => (string)$spec['platform'],
                 'system_hotel_id' => (int)$spec['system_hotel_id'],
+                'current_status' => $currentStatus,
+                'current_last_sync_status' => $currentLastSyncStatus,
                 'status' => $status,
                 'last_sync_status' => $lastSyncStatus,
                 'enabled' => 1,
@@ -507,6 +541,8 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
             'data_source_id' => (int)$existing['id'],
             'platform' => (string)$spec['platform'],
             'system_hotel_id' => (int)$spec['system_hotel_id'],
+            'previous_status' => $currentStatus,
+            'previous_last_sync_status' => $currentLastSyncStatus,
             'status' => $status,
             'last_sync_status' => $lastSyncStatus,
             'enabled' => 1,
