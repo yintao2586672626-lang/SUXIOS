@@ -380,8 +380,8 @@ final class OnlineDataTest extends TestCase
             ],
         ], 7]);
 
-        self::assertCount(2, $rows);
-        self::assertNotContains('review', array_column($rows, 'data_type'));
+        self::assertCount(3, $rows);
+        self::assertContains('review', array_column($rows, 'data_type'));
         self::assertSame('meituan', $rows[0]['source']);
         self::assertSame('traffic', $rows[0]['data_type']);
         self::assertSame('2026-05-03', $rows[0]['data_date']);
@@ -389,14 +389,25 @@ final class OnlineDataTest extends TestCase
         self::assertSame(40, $rows[0]['detail_exposure']);
         self::assertSame(40.0, $rows[0]['flow_rate']);
 
-        self::assertSame('order', $rows[1]['data_type']);
-        self::assertSame('2026-05-01', $rows[1]['data_date']);
-        self::assertSame(500.0, $rows[1]['amount']);
-        self::assertSame(4, $rows[1]['quantity']);
-        self::assertSame(7, $rows[1]['system_hotel_id']);
-        self::assertStringNotContainsString('ORDER-1', (string)$rows[1]['dimension']);
+        self::assertSame('review', $rows[1]['data_type']);
+        self::assertSame('2026-05-03', $rows[1]['data_date']);
+        self::assertSame(1.0, $rows[1]['comment_score']);
+        self::assertSame(1, $rows[1]['quantity']);
+        self::assertSame(1, $rows[1]['data_value']);
+        $reviewRaw = (string)$rows[1]['raw_data'];
+        self::assertStringNotContainsString('COMMENT-1', $reviewRaw);
+        self::assertStringNotContainsString('This comment section must be ignored.', $reviewRaw);
+        self::assertStringContainsString('"comment_score":1', $reviewRaw);
+        self::assertStringContainsString('"bad_review_count":1', $reviewRaw);
 
-        $orderRaw = (string)$rows[1]['raw_data'];
+        self::assertSame('order', $rows[2]['data_type']);
+        self::assertSame('2026-05-01', $rows[2]['data_date']);
+        self::assertSame(500.0, $rows[2]['amount']);
+        self::assertSame(4, $rows[2]['quantity']);
+        self::assertSame(7, $rows[2]['system_hotel_id']);
+        self::assertStringNotContainsString('ORDER-1', (string)$rows[2]['dimension']);
+
+        $orderRaw = (string)$rows[2]['raw_data'];
         self::assertStringNotContainsString('ORDER-1', $orderRaw);
         self::assertStringNotContainsString('Alice Guest', $orderRaw);
         self::assertStringNotContainsString('90000008000', $orderRaw);
@@ -557,7 +568,7 @@ final class OnlineDataTest extends TestCase
         self::assertArrayNotHasKey('reviews', $summary);
     }
 
-    public function testAutoFetchTaskPlanDoesNotQueueCommentModules(): void
+    public function testAutoFetchTaskPlanQueuesAggregateCommentModules(): void
     {
         $controller = $this->controller();
 
@@ -593,9 +604,17 @@ final class OnlineDataTest extends TestCase
             ],
         ]);
 
-        self::assertNotContains('comments', array_column($tasks, 'module'));
+        $labels = array_column($tasks, 'label');
+        self::assertContains('ctrip-comments', $labels);
+        self::assertContains('meituan-comments', $labels);
+        self::assertContains('comments', array_column($tasks, 'module'));
         self::assertContains('business', array_column($tasks, 'module'));
         self::assertContains('ranking', array_column($tasks, 'module'));
+
+        $ctripCommentsTask = $tasks[array_search('ctrip-comments', $labels, true)];
+        self::assertSame('comment_review', $ctripCommentsTask['body']['capture_sections']);
+        $meituanCommentsTask = $tasks[array_search('meituan-comments', $labels, true)];
+        self::assertSame('reviews', $meituanCommentsTask['body']['capture_sections']);
     }
 
     public function testAutoFetchTaskPlanQueuesCtripCookieApiRequestListWithoutCookie(): void
@@ -2390,14 +2409,14 @@ final class OnlineDataTest extends TestCase
         $labels = array_column($tasks, 'label');
         self::assertContains('ctrip-business', $labels);
         self::assertContains('ctrip-traffic', $labels);
-        self::assertNotContains('ctrip-comments', $labels);
+        self::assertContains('ctrip-comments', $labels);
         self::assertContains('meituan-P_RZ', $labels);
         self::assertContains('meituan-P_XS', $labels);
         self::assertContains('meituan-P_ZH', $labels);
         self::assertContains('meituan-P_LL', $labels);
         self::assertContains('meituan-traffic', $labels);
         self::assertNotContains('meituan-comments', $labels);
-        self::assertNotContains('comments', array_column($tasks, 'module'));
+        self::assertContains('comments', array_column($tasks, 'module'));
 
         foreach ($tasks as $task) {
             self::assertSame(7, $task['body']['system_hotel_id']);
@@ -5171,8 +5190,8 @@ final class OnlineDataTest extends TestCase
             ]],
         ], 99]);
 
-        self::assertCount(3, $rows);
-        self::assertNotContains('review', array_column($rows, 'data_type'));
+        self::assertCount(4, $rows);
+        self::assertContains('review', array_column($rows, 'data_type'));
 
         self::assertSame('traffic', $rows[0]['data_type']);
         self::assertSame(1000, $rows[0]['list_exposure']);
@@ -5181,18 +5200,25 @@ final class OnlineDataTest extends TestCase
         self::assertSame(120, $rows[0]['order_filling_num']);
         self::assertStringContainsString('"unique_visitors":80', $rows[0]['raw_data']);
 
-        self::assertSame('advertising', $rows[1]['data_type']);
-        self::assertSame(500, $rows[1]['list_exposure']);
-        self::assertSame(50, $rows[1]['detail_exposure']);
-        self::assertSame(10.0, $rows[1]['flow_rate']);
+        self::assertSame('review', $rows[1]['data_type']);
+        self::assertSame('2026-05-18', $rows[1]['data_date']);
+        self::assertSame(4.0, $rows[1]['comment_score']);
+        self::assertSame(1, $rows[1]['quantity']);
+        self::assertStringNotContainsString('review-1', (string)$rows[1]['raw_data']);
+        self::assertStringNotContainsString('room issue', (string)$rows[1]['raw_data']);
 
-        self::assertSame('order', $rows[2]['data_type']);
-        self::assertSame(688.0, $rows[2]['amount']);
-        self::assertSame(6, $rows[2]['quantity']);
-        self::assertSame(1, $rows[2]['book_order_num']);
-        self::assertStringNotContainsString('order-1', (string)$rows[2]['dimension']);
-        self::assertMatchesRegularExpression('/^order:confirmed:[a-f0-9]{64}$/', (string)$rows[2]['dimension']);
-        self::assertStringNotContainsString('order-1', (string)$rows[2]['raw_data']);
+        self::assertSame('advertising', $rows[2]['data_type']);
+        self::assertSame(500, $rows[2]['list_exposure']);
+        self::assertSame(50, $rows[2]['detail_exposure']);
+        self::assertSame(10.0, $rows[2]['flow_rate']);
+
+        self::assertSame('order', $rows[3]['data_type']);
+        self::assertSame(688.0, $rows[3]['amount']);
+        self::assertSame(6, $rows[3]['quantity']);
+        self::assertSame(1, $rows[3]['book_order_num']);
+        self::assertStringNotContainsString('order-1', (string)$rows[3]['dimension']);
+        self::assertMatchesRegularExpression('/^order:confirmed:[a-f0-9]{64}$/', (string)$rows[3]['dimension']);
+        self::assertStringNotContainsString('order-1', (string)$rows[3]['raw_data']);
     }
 
     public function testOnlineDailyDataValidationFieldsMarkAbnormalRows(): void

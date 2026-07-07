@@ -6873,6 +6873,10 @@
                                             @blur="ctripForm.cookies = normalizeCtripManualAuxiliaryText(ctripForm.cookies)"
                                             class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                             placeholder="粘贴携程 eBooking 请求头中的 Cookie；系统会自动识别返回酒店ID..."></textarea>
+                                        <div v-if="selectedCtripHotelConfig?.has_cookies && !ctripForm.cookies"
+                                            class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                            当前门店已保存 Cookie，但列表页不直接展示密文；点击“获取数据”时会读取完整配置。若仍返回 302 / authorized fail，说明 Cookie 已失效，需要重新登录或更新。
+                                        </div>
                                     </div>
 
                                     <!-- 操作按钮 -->
@@ -6886,6 +6890,11 @@
                                             class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
                                             <i class="fas fa-external-link-alt mr-2"></i>打开携程ebooking
                                         </button>
+                                    </div>
+
+                                    <div v-if="!ctripRankingDisplayActivated" class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                                        <div class="font-medium text-slate-800">未执行本次获取，暂不展示历史竞争圈数据。</div>
+                                        <div class="mt-1 text-xs text-slate-500">顶部只显示最近入库快照状态；选择门店并点击“获取数据”后，才展示本次返回的竞争圈表格。</div>
                                     </div>
 
                                     <!-- 获取成功提示 -->
@@ -6910,7 +6919,7 @@
                                     </div>
 
                                     <!-- 详细数据表格 -->
-                                    <div v-if="ctripHotelsList && ctripHotelsList.length > 0" class="mt-4" data-download-target="ctrip-business">
+                                    <div v-if="ctripRankingDisplayActivated && ctripHotelsList && ctripHotelsList.length > 0" class="mt-4" data-download-target="ctrip-business">
                                         <!-- backend display summary -->
                                         <div class="mb-4">
                                             <div class="responsive-metric-grid">
@@ -14389,6 +14398,48 @@
                                         <i class="fas fa-exclamation-triangle mt-0.5 text-red-500"></i>
                                         <span>{{ hotelDashboardError || collectionReliabilityError || dailyWorkbenchError }}</span>
                                     </div>
+                                    <div data-testid="ota-direct-view-overview" class="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+                                        <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                            <div>
+                                                <h4 class="text-base font-semibold text-gray-900">OTA数据直接查看</h4>
+                                                <div class="mt-1 text-xs text-gray-500 leading-5">先看目标日是否有入库数据，再看 Cookie/平台标识是否可用；采集失败只做诊断，不阻断已有数据查看。</div>
+                                            </div>
+                                            <button type="button" @click="refreshManualOneClickFetchConfig" :disabled="manualOneClickFetchRunning || ctripConfigListLoading || meituanConfigListLoading"
+                                                class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                                                <i :class="(ctripConfigListLoading || meituanConfigListLoading) ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ ctripConfigListLoading || meituanConfigListLoading ? '刷新中' : '刷新配置' }}
+                                            </button>
+                                        </div>
+                                        <div class="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2">
+                                            <div v-for="card in otaDirectViewCards" :key="card.key" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 min-w-0">
+                                                <div class="text-[11px] text-gray-500 truncate">{{ card.label }}</div>
+                                                <div :class="['mt-1 text-lg font-semibold truncate', card.className]" :title="card.rawValue">{{ card.value }}</div>
+                                                <div class="mt-1 text-[11px] text-gray-400 truncate" :title="card.detail">{{ card.detail }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="mt-4 overflow-x-auto">
+                                            <table v-if="otaDirectIssueRows.length" class="min-w-full divide-y divide-gray-200 text-sm">
+                                                <thead class="bg-gray-50 text-left text-xs text-gray-500">
+                                                    <tr>
+                                                        <th class="px-3 py-2 font-medium">问题</th>
+                                                        <th class="px-3 py-2 font-medium">影响</th>
+                                                        <th class="px-3 py-2 font-medium">处理</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100 bg-white">
+                                                    <tr v-for="row in otaDirectIssueRows" :key="row.key">
+                                                        <td class="px-3 py-3 min-w-[12rem]">
+                                                            <span :class="['rounded-md border px-2 py-0.5 text-[11px]', row.className]">{{ row.title }}</span>
+                                                            <div class="mt-1 text-[11px] text-gray-500 truncate" :title="row.scope">{{ row.scope }}</div>
+                                                        </td>
+                                                        <td class="px-3 py-3 min-w-[18rem] text-xs text-gray-700 leading-5" :title="row.detail">{{ row.detail }}</td>
+                                                        <td class="px-3 py-3 min-w-[18rem] text-xs text-blue-700 leading-5" :title="row.action">{{ row.action }}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                            <div v-else class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前没有需要优先处理的 OTA 查看问题；仍以目标日 OTA 入库事实为准。</div>
+                                        </div>
+                                        <div class="mt-3 text-[11px] text-gray-400 leading-5">边界：这里不改变携程数据页和美团数据页；只把 OTA 数据可信度页整理成更直接的查看入口。</div>
+                                    </div>
                                     <div data-testid="phase2-daily-workbench" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
                                             <div>
@@ -19933,7 +19984,7 @@
             const meituanOrderResult = ref(null);
             const meituanAdsForm = ref(createMeituanAdsForm());
             const meituanAdsResult = ref(null);
-            const defaultCtripLoginUrl = 'https://ebooking.ctrip.com/login/index';
+            const defaultCtripLoginUrl = 'https://ebooking.ctrip.com/home/mainland';
             const meituanBrowserCaptureForm = ref(createMeituanBrowserCaptureForm());
             const meituanBrowserCaptureResult = ref(null);
             const meituanBrowserCaptureRunning = ref(false);
@@ -20020,6 +20071,7 @@
             const ctripOverviewFetchActionLoading = ref('');
             const ctripOverviewCoreFetchRunning = ref(false);
             const ctripFetchSuccess = ref(false); // 携程获取成功标志
+            const ctripRankingDisplayActivated = ref(false);
             const ctripSavedCount = ref(0); // 携程保存的数据条数
             const ctripLatestMeta = ref(null);
             const ctripLatestComparison = ref(null);
@@ -24384,7 +24436,7 @@
                     const loginVerified = hasBindingContract
                         ? (manualLoginVerified && statusCode === 'logged_in')
                         : (statusCode === 'logged_in' || /manual_login_state_verified|logged_in|已登录|授权可用/i.test(currentStatus));
-                    const loginBlocked = ['login_expired', 'capture_failed', 'permission_denied', 'hotel_mismatch'].includes(statusCode);
+                    const loginBlocked = ['login_expired', 'cookies_incomplete', 'capture_failed', 'permission_denied', 'hotel_mismatch'].includes(statusCode);
                     const collectionStatus = String(collectionRow?.collectionStatus || '').trim().toLowerCase();
                     const storedRows = Number(collectionRow?.storedRowCount || 0);
                     const targetDateRows = Number(collectionRow?.targetDateRows || collectionRow?.target_date_rows || 0);
@@ -34585,7 +34637,6 @@
                     hasCtripFetchConfigByHotelId
                 );
             });
-
             const ctripTargetHotelOptionExists = (hotelId) => {
                 const targetId = String(hotelId || '').trim();
                 return !!targetId && ctripTargetHotelOptions.value.some(hotel => String(hotel?.id || '') === targetId);
@@ -34652,7 +34703,7 @@
             const manualOneClickFetchNowText = () => new Date().toLocaleString('zh-CN', { hour12: false });
             const manualOneClickFetchScopeText = computed(() => {
                 const targetDate = formatDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
-                return `${targetDate} · 手动获取 · 携程 ${ctripTargetHotelOptions.value.length} 家 / 美团 ${meituanTargetHotelOptions.value.length} 家`;
+                return `${targetDate} · 手动补采配置 · 携程Cookie ${ctripTargetHotelOptions.value.length} 家 / 美团完整配置 ${meituanTargetHotelOptions.value.length} 家`;
             });
             const manualOneClickFetchSummary = computed(() => {
                 return manualOneClickFetchRows.value.reduce((summary, row) => {
@@ -34675,18 +34726,18 @@
                 return [
                     {
                         key: 'ctrip-ready',
-                        label: '携程可获取',
+                        label: '携程Cookie配置',
                         value: `${ctripTargetHotelOptions.value.length}`,
                         rawValue: String(ctripTargetHotelOptions.value.length),
-                        detail: '已保存携程配置',
+                        detail: '有Cookie不等于授权有效',
                         className: ctripTargetHotelOptions.value.length ? 'text-blue-700' : 'text-gray-900',
                     },
                     {
                         key: 'meituan-ready',
-                        label: '美团可获取',
+                        label: '美团完整配置',
                         value: `${meituanTargetHotelOptions.value.length}`,
                         rawValue: String(meituanTargetHotelOptions.value.length),
-                        detail: '已保存美团配置',
+                        detail: 'Cookie + partner/poi',
                         className: meituanTargetHotelOptions.value.length ? 'text-emerald-700' : 'text-gray-900',
                     },
                     {
@@ -36950,6 +37001,153 @@
                         className: actionCount ? 'text-blue-700' : 'text-gray-900',
                     },
                 ];
+            });
+            const otaDirectConfigPlatformId = (config = {}, platform = 'ctrip') => {
+                const internalId = String(config.hotel_id || config.system_hotel_id || '').trim();
+                const keys = platform === 'meituan'
+                    ? ['partner_id', 'partnerId', 'poi_id', 'poiId', 'store_id', 'storeId']
+                    : ['ctrip_hotel_id', 'ctripHotelId', 'ota_hotel_id', 'otaHotelId', 'platform_hotel_id', 'platformHotelId', 'masterHotelId', 'master_hotel_id'];
+                return keys
+                    .map(key => String(config?.[key] || '').trim())
+                    .find(value => value && value !== internalId) || '';
+            };
+            const otaDirectCtripStats = computed(() => {
+                const configs = Array.isArray(ctripConfigList.value) ? ctripConfigList.value : [];
+                const withCookie = configs.filter(config => String(config?.cookies || '').trim() || config?.has_cookies).length;
+                const withPlatformId = configs.filter(config => otaDirectConfigPlatformId(config, 'ctrip')).length;
+                return {
+                    total: configs.length,
+                    withCookie,
+                    withPlatformId,
+                    missingPlatformId: Math.max(0, withCookie - withPlatformId),
+                };
+            });
+            const otaDirectMeituanStats = computed(() => {
+                const configs = Array.isArray(meituanConfigList.value) ? meituanConfigList.value : [];
+                const withCookie = configs.filter(config => String(config?.cookies || '').trim() || config?.has_cookies).length;
+                const ready = configs.filter(config => meituanConfigMissingFields(config).length === 0).length;
+                return {
+                    total: configs.length,
+                    withCookie,
+                    ready,
+                    missing: Math.max(0, configs.length - ready),
+                };
+            });
+            const otaDirectManualFailureBuckets = computed(() => {
+                const buckets = new Map();
+                const classify = (row = {}) => {
+                    const message = String(row.message || '').trim();
+                    if (/302|authorized fail|Cookie|登录|授权/i.test(message)) {
+                        return ['cookie', 'Cookie失效/需重新登录', '这些门店不能继续采集，但不影响查看已有入库数据。', '重新登录平台并更新 Cookie。'];
+                    }
+                    if (/绑定|冲突|错店|不一致/.test(message)) {
+                        return ['identity', '门店身份冲突', '当前采集结果不适合直接覆盖入库。', '检查平台 hotelId / poiId 与系统门店绑定。'];
+                    }
+                    if (/hotelId|酒店ID|平台酒店/.test(message)) {
+                        return ['platform-id', '平台ID待识别', 'Cookie 可用但平台门店标识不完整。', '优先用本次响应自动回写；识别不到时保留 warning。'];
+                    }
+                    return ['other', '获取失败/未入库', message || '接口未返回可入库数据。', '查看失败消息后处理账号、配置或平台接口。'];
+                };
+                (Array.isArray(manualOneClickFetchRows.value) ? manualOneClickFetchRows.value : [])
+                    .filter(row => ['failed', 'no_saved'].includes(String(row?.status || '')))
+                    .forEach(row => {
+                        const [key, title, detail, action] = classify(row);
+                        if (!buckets.has(key)) {
+                            buckets.set(key, {
+                                key: `manual-${key}`,
+                                title,
+                                detail,
+                                action,
+                                count: 0,
+                                hotels: [],
+                            });
+                        }
+                        const bucket = buckets.get(key);
+                        bucket.count += 1;
+                        if (row.hotelName) bucket.hotels.push(row.hotelName);
+                    });
+                return Array.from(buckets.values()).map(bucket => ({
+                    ...bucket,
+                    scope: `${bucket.count} 家${bucket.hotels.length ? '：' + Array.from(new Set(bucket.hotels)).slice(0, 4).join('、') : ''}`,
+                    className: bucket.key.includes('cookie') ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-red-200 bg-red-50 text-red-700',
+                }));
+            });
+            const otaDirectViewCards = computed(() => {
+                const workbench = dataAcquisitionWorkbenchSummary.value;
+                const ctrip = otaDirectCtripStats.value;
+                const meituan = otaDirectMeituanStats.value;
+                const manual = manualOneClickFetchSummary.value;
+                return [
+                    {
+                        key: 'target-date-ready',
+                        label: '目标日可看',
+                        value: workbench.total ? `${workbench.ready}/${workbench.total}` : '未返回',
+                        rawValue: `ready=${workbench.ready};total=${workbench.total}`,
+                        detail: dataAcquisitionWorkbenchScopeText.value,
+                        className: workbench.ready && workbench.ready === workbench.total ? 'text-emerald-700' : 'text-amber-700',
+                    },
+                    {
+                        key: 'ctrip-config',
+                        label: '携程Cookie',
+                        value: `${ctrip.withCookie}/${ctrip.total}`,
+                        rawValue: `withCookie=${ctrip.withCookie};total=${ctrip.total};platformId=${ctrip.withPlatformId}`,
+                        detail: `${ctrip.withPlatformId} 条已识别平台hotelId`,
+                        className: ctrip.withCookie ? 'text-blue-700' : 'text-gray-900',
+                    },
+                    {
+                        key: 'meituan-config',
+                        label: '美团可采配置',
+                        value: `${meituan.ready}/${meituan.total}`,
+                        rawValue: `ready=${meituan.ready};total=${meituan.total};withCookie=${meituan.withCookie}`,
+                        detail: meituan.missing ? `${meituan.missing} 条缺 partner/poi` : '配置完整',
+                        className: meituan.ready === meituan.total && meituan.total ? 'text-emerald-700' : 'text-amber-700',
+                    },
+                    {
+                        key: 'manual-result',
+                        label: '本次补采问题',
+                        value: `${manual.noSaved + manual.failed}`,
+                        rawValue: `noSaved=${manual.noSaved};failed=${manual.failed};saved=${manual.savedCount}`,
+                        detail: manualOneClickFetchLastRunAt.value || '尚未执行补采',
+                        className: manual.noSaved || manual.failed ? 'text-red-700' : 'text-gray-900',
+                    },
+                ];
+            });
+            const otaDirectIssueRows = computed(() => {
+                const rows = [];
+                const ctrip = otaDirectCtripStats.value;
+                const meituan = otaDirectMeituanStats.value;
+                if (ctrip.missingPlatformId > 0) {
+                    rows.push({
+                        key: 'ctrip-platform-id',
+                        title: '携程平台ID缺失',
+                        scope: `${ctrip.missingPlatformId} 条携程 Cookie 配置`,
+                        detail: '这些配置可以按 Cookie 尝试查看/补采，但错店校验能力较弱。',
+                        action: '成功响应中识别到 hotelId 时自动回写；未识别时仅保留 warning。',
+                        className: 'border-amber-200 bg-amber-50 text-amber-700',
+                    });
+                }
+                if (meituan.missing > 0) {
+                    rows.push({
+                        key: 'meituan-resource-id',
+                        title: '美团平台标识缺失',
+                        scope: `${meituan.missing} 条美团配置`,
+                        detail: '缺 partnerId 或 poiId 时不能稳定获取榜单。',
+                        action: '补齐 partnerId / poiId；已有入库数据仍可查看。',
+                        className: 'border-amber-200 bg-amber-50 text-amber-700',
+                    });
+                }
+                dataAcquisitionIssueGroups.value.slice(0, 4).forEach(group => {
+                    rows.push({
+                        key: `health-${group.key}`,
+                        title: group.issueText,
+                        scope: `${group.count} 家 · ${group.targetDateText}`,
+                        detail: group.hotelNamesText || group.detailText,
+                        action: group.canCookieFetch ? '可在本页使用手动补采；失败原因保留为诊断。' : '先补配置或登录态，再补采。',
+                        className: group.statusClass,
+                    });
+                });
+                otaDirectManualFailureBuckets.value.forEach(bucket => rows.push(bucket));
+                return rows.slice(0, 8);
             });
             const employeeOtaChecklistHeadline = computed(() => {
                 const hasHighPriority = employeeOtaChecklistRows.value.some(row => row.priority === 'high');
@@ -39544,14 +39742,28 @@
                 aiEstimatedTotalRoomNights: ctripAiEstimatedRoomNights(row),
             });
 
-            const useCtripDisplayHotels = (rows, summary = null) => {
+            const useCtripDisplayHotels = (rows, summary = null, options = {}) => {
                 const allHotels = Array.isArray(rows) ? rows.map(normalizeCtripDisplayHotelRow) : [];
                 ctripHotelsList.value = allHotels;
                 ctripBusinessSummary.value = summary && Array.isArray(summary.cards) ? summary : emptyCtripBusinessSummary();
                 topTenHotels.value = allHotels.slice(0, 10);
-                ctripFetchSuccess.value = allHotels.length > 0;
+                const activateDisplay = options.activateDisplay !== false;
+                if (activateDisplay) {
+                    ctripRankingDisplayActivated.value = allHotels.length > 0;
+                    ctripFetchSuccess.value = allHotels.length > 0;
+                }
                 updateAiAnalysisHotelList();
                 return allHotels;
+            };
+
+            const clearCtripRankingDisplayState = () => {
+                ctripHotelsList.value = [];
+                ctripBusinessSummary.value = emptyCtripBusinessSummary();
+                topTenHotels.value = [];
+                ctripTablePage.value = 1;
+                ctripFetchSuccess.value = false;
+                ctripRankingDisplayActivated.value = false;
+                ctripSavedCount.value = 0;
             };
 
             const useMeituanDisplayModel = (displayModel = {}) => {
@@ -39599,6 +39811,7 @@
                 if (preparingConfig) {
                     fetchingData.value = true;
                 }
+                clearCtripRankingDisplayState();
                 try {
                     return await runCtripFetchDataFlow({
                         isLoggedIn: () => isLoggedIn.value,
@@ -39822,14 +40035,17 @@
                 return String(selectedCtripHotelId.value || config?.hotel_id || config?.system_hotel_id || user.value?.hotel_id || '').trim();
             };
 
-            const applyLatestCtripSnapshot = (payload) => {
+            const applyLatestCtripSnapshot = (payload, options = {}) => {
                 const snapshotModel = buildLatestCtripSnapshotModel(payload || {});
+                const hydrateDisplay = options.hydrateDisplay === true;
 
                 ctripLatestMeta.value = snapshotModel.metadata;
                 ctripLatestComparison.value = payload?.rank?.comparison || null;
 
-                if (snapshotModel.hasRank) {
-                    const allHotels = useCtripDisplayHotels(snapshotModel.rankDisplayHotels, snapshotModel.rankDisplaySummary);
+                if (snapshotModel.hasRank && hydrateDisplay) {
+                    const allHotels = useCtripDisplayHotels(snapshotModel.rankDisplayHotels, snapshotModel.rankDisplaySummary, {
+                        activateDisplay: true,
+                    });
                     ctripSavedCount.value = snapshotModel.rankTotal || allHotels.length;
                     if (snapshotModel.rankDataDate) {
                         onlineDataFilter.value.start_date = snapshotModel.rankDataDate;
@@ -39838,7 +40054,7 @@
                     updateAiAnalysisHotelList();
                 }
 
-                if (snapshotModel.hasTraffic) {
+                if (snapshotModel.hasTraffic && hydrateDisplay) {
                     useCtripTrafficDisplayRows(
                         snapshotModel.displayTrafficRows,
                         snapshotModel.trafficDisplaySummary,
@@ -39847,7 +40063,7 @@
                     );
                 }
 
-                if (snapshotModel.hasReview) {
+                if (snapshotModel.hasReview && hydrateDisplay) {
                     ctripCommentResult.value = snapshotModel.reviewResult;
                 }
 
@@ -39863,7 +40079,12 @@
                 return currentPage.value === 'ctrip-ebooking' ? 'yesterday' : '';
             };
 
-            const loadLatestCtripData = async ({ silent = false, hotelId = '' } = {}) => {
+            const shouldHydrateLatestCtripDisplay = (hydrateDisplay) => {
+                if (hydrateDisplay === true || hydrateDisplay === false) return hydrateDisplay;
+                return currentPage.value !== 'ctrip-ebooking';
+            };
+
+            const loadLatestCtripData = async ({ silent = false, hotelId = '', hydrateDisplay = null } = {}) => {
                 if (!isLoggedIn.value && !token.value) return false;
                 ctripLatestLoading.value = true;
                 try {
@@ -39877,7 +40098,9 @@
                     const query = params.toString();
                     const res = await request(`/online-data/ctrip/latest${query ? '?' + query : ''}`);
                     if (res.code === 200) {
-                        applyLatestCtripSnapshot(res.data || {});
+                        applyLatestCtripSnapshot(res.data || {}, {
+                            hydrateDisplay: shouldHydrateLatestCtripDisplay(hydrateDisplay),
+                        });
                         return (res.data?.metadata?.status === 'success');
                     }
                     if (!silent) {
@@ -39901,13 +40124,8 @@
             };
 
             const handleCtripFetchFailure = async (fallbackMessage) => {
-                const hadSnapshot = hasVisibleCtripSnapshot();
-                const loadedLatest = await loadLatestCtripData({ silent: true });
-                if (loadedLatest || hadSnapshot) {
-                    showToast('本次采集失败，已展示上次成功数据', 'warning');
-                } else {
-                    showToast(fallbackMessage || '获取失败', 'error');
-                }
+                await loadLatestCtripData({ silent: true, hydrateDisplay: false });
+                showToast(fallbackMessage || '获取失败', 'error');
             };
 
             // 携程 / 去哪儿流量对比数据获取
@@ -39943,11 +40161,82 @@
                 }
             };
             const fetchCtripComments = async () => {
-                showToast('点评采集已禁用。当前只采集业务、流量、订单、广告和服务质量数据。', 'warning');
+                fetchingData.value = true;
+                try {
+                    const form = ctripCommentForm.value || {};
+                    const profileForm = ctripCommentBrowserCaptureForm.value || {};
+                    const body = {
+                        system_hotel_id: selectedCtripHotelId.value || user.value?.hotel_id || null,
+                        profile_id: firstDataConfigValue(profileForm.profileId, form.profileId, form.hotelId, selectedCtripHotelId.value),
+                        hotel_id: firstDataConfigValue(form.hotelId, selectedCtripHotelId.value),
+                        request_url: form.requestUrl || '',
+                        spidertoken: form.spidertoken || '',
+                        cookies: form.cookies || '',
+                        page_index: form.pageIndex || 1,
+                        page_size: form.pageSize || 50,
+                        payload_json: form.payloadJson || '',
+                        sections: 'comment_review',
+                        capture_sections: 'comment_review',
+                    };
+                    const res = await request('/online-data/fetch-ctrip-comments', {
+                        method: 'POST',
+                        body: JSON.stringify(body),
+                    });
+                    if (res.code === 200) {
+                        ctripCommentResult.value = res.data || {};
+                        onlineDataResult.value = res.data || {};
+                        showRawData.value = true;
+                        scheduleOnlineDataRefresh();
+                        scheduleOnlineHistoryRefresh();
+                        scheduleLatestCtripRefresh({ silent: true, hydrateDisplay: false });
+                        showToast(res.message || '携程点评聚合采集完成');
+                    } else {
+                        showToast(res.message || '携程点评聚合采集失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('携程点评聚合采集失败: ' + e.message, 'error');
+                } finally {
+                    fetchingData.value = false;
+                }
             };
 
             const runCtripCommentBrowserCapture = async () => {
-                showToast('点评浏览器采集已禁用。请使用业务、流量、订单、广告和服务质量采集入口。', 'warning');
+                ctripCommentBrowserCaptureRunning.value = true;
+                try {
+                    const form = ctripCommentBrowserCaptureForm.value || {};
+                    const commentForm = ctripCommentForm.value || {};
+                    const body = {
+                        system_hotel_id: selectedCtripHotelId.value || user.value?.hotel_id || null,
+                        profile_id: firstDataConfigValue(form.profileId, commentForm.profileId, commentForm.hotelId, selectedCtripHotelId.value),
+                        hotel_id: firstDataConfigValue(commentForm.hotelId, selectedCtripHotelId.value),
+                        page_url: form.pageUrl || 'https://ebooking.ctrip.com/comment/commentList?microJump=true',
+                        api_keyword: form.apiKeyword || 'getCommentList',
+                        sections: 'comment_review',
+                        capture_sections: 'comment_review',
+                    };
+                    const res = await request('/online-data/capture-ctrip-comments-browser', {
+                        method: 'POST',
+                        body: JSON.stringify(body),
+                    });
+                    if (res.code === 200) {
+                        ctripCommentBrowserCaptureResult.value = res.data || {};
+                        ctripCommentResult.value = res.data || {};
+                        onlineDataResult.value = res.data || {};
+                        showRawData.value = true;
+                        scheduleOnlineDataRefresh();
+                        scheduleOnlineHistoryRefresh();
+                        scheduleLatestCtripRefresh({ silent: true, hydrateDisplay: false });
+                        showToast(res.message || '携程点评浏览器聚合采集完成');
+                    } else {
+                        ctripCommentBrowserCaptureResult.value = res.data || { error: res.message || '携程点评浏览器聚合采集失败' };
+                        showToast(res.message || '携程点评浏览器聚合采集失败', 'error');
+                    }
+                } catch (e) {
+                    ctripCommentBrowserCaptureResult.value = { error: e.message };
+                    showToast('携程点评浏览器聚合采集失败: ' + e.message, 'error');
+                } finally {
+                    ctripCommentBrowserCaptureRunning.value = false;
+                }
             };
 
             const fetchCtripOverviewData = async () => runCtripOverviewFetchFlow({
@@ -40423,7 +40712,47 @@
             });
 
             const fetchMeituanComments = async () => {
-                showToast('点评采集已禁用。当前只采集业务、流量、订单、广告和服务质量数据。', 'warning');
+                fetchingCommentData.value = true;
+                meituanCommentSuccess.value = false;
+                try {
+                    const form = meituanCommentForm.value || {};
+                    const body = {
+                        system_hotel_id: meituanForm.value.hotelId || user.value?.hotel_id || null,
+                        partner_id: form.partnerId || '',
+                        poi_id: form.poiId || '',
+                        store_id: firstDataConfigValue(form.storeId, form.poiId, meituanBrowserCaptureForm.value.storeId),
+                        request_url: form.requestUrl || '',
+                        cookies: form.cookies || '',
+                        mtgsig: form.mtgsig || '',
+                        _mtsi_eb_u: form.mtsiEbU || '',
+                        reply_type: form.replyType || '2',
+                        tag: form.tag || '',
+                        limit: form.limit || 50,
+                        sections: 'reviews',
+                        capture_sections: 'reviews',
+                    };
+                    const res = await request('/online-data/fetch-meituan-comments', {
+                        method: 'POST',
+                        body: JSON.stringify(body),
+                    });
+                    if (res.code === 200) {
+                        meituanCommentResult.value = res.data || {};
+                        meituanCommentSuccess.value = true;
+                        onlineDataResult.value = res.data || {};
+                        showRawData.value = true;
+                        scheduleOnlineDataRefresh();
+                        scheduleOnlineHistoryRefresh();
+                        showToast(res.message || '美团点评聚合采集完成');
+                    } else {
+                        meituanCommentResult.value = res.data || { error: res.message || '美团点评聚合采集失败' };
+                        showToast(res.message || '美团点评聚合采集失败', 'error');
+                    }
+                } catch (e) {
+                    meituanCommentResult.value = { error: e.message };
+                    showToast('美团点评聚合采集失败: ' + e.message, 'error');
+                } finally {
+                    fetchingCommentData.value = false;
+                }
             };
 
             // 获取评分样式类
@@ -40679,7 +41008,7 @@
             };
 
             const prewarmSelectedCtripConfigSecret = (config = findCtripConfigByHotelId(selectedCtripHotelId.value)) => {
-                if (!config || config.cookies || !config.has_cookies) return;
+                if (!config || config.cookies || !config.id || config.has_cookies === false) return;
                 deferUiTask(() => ensureCtripConfigSecret(config, { silent: true }), 80);
             };
 
@@ -40693,7 +41022,12 @@
                     resetCtripCaptureForms();
                     return;
                 }
-                const configCookies = normalizeCtripManualAuxiliaryText(config.cookies || config.cookie || '');
+                const rawConfigCookies = normalizeCtripManualAuxiliaryText(config.cookies || config.cookie || '');
+                const sameConfig = String(selectedCtripConfigId.value || '') !== ''
+                    && String(selectedCtripConfigId.value || '') === String(config.id || '');
+                const configCookies = rawConfigCookies || (config.has_cookies && sameConfig
+                    ? normalizeCtripManualAuxiliaryText(ctripForm.value.cookies || ctripTrafficForm.value.cookies || ctripCookieApiForm.value.cookies)
+                    : '');
                 selectedCtripConfigId.value = config.id || '';
                 selectedCtripHotelId.value = String(config.hotel_id || config.system_hotel_id || selectedCtripHotelId.value || '');
                 ctripForm.value.url = config.url || ctripForm.value.url;
@@ -40739,6 +41073,7 @@
                 ctripCommentResult.value = null;
                 onlineDataResult.value = null;
                 ctripFetchSuccess.value = false;
+                ctripRankingDisplayActivated.value = false;
                 ctripSavedCount.value = 0;
                 ctripLatestMeta.value = null;
                 ctripLatestComparison.value = null;
@@ -40815,6 +41150,13 @@
                         console.error('[CTrip] 补拉携程配置列表失败:', e);
                     }
                 }
+                if (options.deferSecret === true && configSource) {
+                    applyCtripConfigObject(configSource, false);
+                    if (shouldRefreshLatest) {
+                        loadLatestCtripData({ silent: true, hydrateDisplay: false });
+                    }
+                    return configSource;
+                }
                 const config = options.resolvedConfig || await ensureCtripConfigSecret(configSource);
                 if (requestedHotelId !== String(selectedCtripHotelId.value || '')) return;
                 if (options.skipIfAligned === true && config && isCtripRankingFormAlignedWithConfig(ctripForm.value, config, { selectedHotelId: requestedHotelId })) {
@@ -40858,12 +41200,14 @@
 
                 if (options.skipIfAligned === true
                     && isCtripRankingFormAlignedWithConfig(ctripForm.value, configSource, { selectedHotelId: requestedHotelId })) {
-                    prewarmSelectedCtripConfigSecret(configSource);
                     return configSource;
                 }
 
                 applyCtripConfigObject(configSource, false);
-                prewarmSelectedCtripConfigSecret(configSource);
+                if (options.loadSecret !== true) {
+                    scheduleLatestCtripRefresh({ silent: true, hydrateDisplay: false });
+                    return configSource;
+                }
                 deferUiTask(async () => {
                     const config = await ensureCtripConfigSecret(configSource, { silent: true });
                     if (applyVersion !== ctripHotelConfigApplyVersion
@@ -41417,6 +41761,7 @@
                                 deferUiTask(() => applyCtripHotelConfig(false, {
                                     refreshList: false,
                                     skipIfAligned: true,
+                                    deferSecret: true,
                                 }), 80);
                             }
                             return ctripConfigList.value;
@@ -45348,7 +45693,7 @@
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
                 onlineDataQualitySummary, onlineDataQualityStatusText, onlineDataQualityStatusClass, onlineDataQualityPromptList, onlineDataQualityScopeText, autoFetchRecordStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
-                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, editManualOneClickFetchFailure, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
+                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaDirectViewCards, otaDirectIssueRows, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, editManualOneClickFetchFailure, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,
                 dashboardAccountSummaryCards, dashboardCoreKpis, dashboardRiskAlerts, dashboardTodayActions, dashboardPortraitSections, dashboardDataSourceDiagnostics,
@@ -45391,7 +45736,7 @@
                 ctripConfigForm, ctripConfigList, ctripTargetHotelOptions, ctripConfigListLoading, ctripConfigListLoaded, ctripConfigListLoadFailed, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig, shouldShowCtripRankingManualAuxiliary, normalizeCtripManualAuxiliaryText, canFetchCtripManualData,
                 ctripOverviewFetchActionLoading, ctripOverviewCoreFetchRunning,
                 showCtripCookieEditorModal, ctripCookieEditorLoading, ctripCookieEditorSaving, ctripCookieEditorForm,
-                ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount, ctripLatestSnapshotText, ctripLatestSnapshotClass, ctripLatestDisplayStatusText, ctripLatestDisplayStatusClass,
+                ctripFetchSuccess, ctripRankingDisplayActivated, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount, ctripLatestSnapshotText, ctripLatestSnapshotClass, ctripLatestDisplayStatusText, ctripLatestDisplayStatusClass,
                 loadCtripConfigList, openCtripManualTab, loadLatestCtripData, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, openCtripCookieCreateFromHealth, openCtripCookieEditorFromHealth, editCtripCookieFromHealth, saveCtripCookieFromHealth, closeCtripCookieEditor, deleteCtripCookieFromHealth, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, scheduleCtripHotelConfigApply, openCtripOverviewFetchTab, prepareCtripOverviewFetchAction, runCtripOverviewFetchAction, runCtripOverviewCoreFetchAction, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
                 // 美团配置管理
                 meituanConfigForm, meituanConfigList, meituanTargetHotelOptions, meituanConfigListLoading, meituanConfigListLoaded, meituanConfigListLoadFailed, meituanBookmarklet, selectedMeituanHotelConfig, canFetchMeituanRankingData,

@@ -6,6 +6,7 @@ const allowlistedFiles = [
   '项目说明.txt',
   path.join('outputs', 'feasibility_project_plan.md'),
   path.join('outputs', 'feasibility_project_plan_v2.md'),
+  path.join('outputs', 'feasibility_project_plan_v3_extended.md'),
   path.join('outputs', '重庆解放碑区位与品牌沟通输出稿.md'),
   path.join('outputs', 'reference_final4_2_text.txt'),
   path.join('outputs', 'feasibility_work', 'texts', '最终4.2.txt'),
@@ -13,10 +14,17 @@ const allowlistedFiles = [
 
 function parseArgs(argv) {
   const options = {
-    date: new Date().toISOString().slice(0, 10),
+    date: '',
     hotelId: '',
     format: 'json',
     root: defaultRoot,
+    dir: '',
+    scopeSource: 'cli_or_default',
+    bundleDir: '',
+    bundleManifestPath: '',
+    bundleManifestScope: null,
+    explicitDate: false,
+    explicitHotelId: false,
   };
 
   for (const arg of argv.slice(2)) {
@@ -26,13 +34,43 @@ function parseArgs(argv) {
     const [key, value] = arg.slice(2).split(/=(.*)/s, 2);
     if (key === 'date' || key === 'business-date' || key === 'business_date') {
       options.date = String(value || '').trim();
+      options.explicitDate = true;
     } else if (key === 'hotel-id' || key === 'hotel_id') {
       options.hotelId = String(value || '').trim();
+      options.explicitHotelId = true;
     } else if (key === 'format') {
       options.format = String(value || '').trim().toLowerCase();
     } else if (key === 'root') {
       options.root = String(value || '').trim();
+    } else if (key === 'dir' || key === 'bundle-dir' || key === 'bundle_dir') {
+      options.dir = String(value || '').trim();
     }
+  }
+
+  if (options.dir !== '') {
+    const bundleDir = path.resolve(options.dir);
+    const manifestPath = path.join(bundleDir, 'manifest.json');
+    if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
+      throw new Error('Missing operator bundle manifest.json under --dir.');
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const scope = manifest && typeof manifest === 'object' ? manifest.scope || {} : {};
+    options.bundleDir = bundleDir;
+    options.bundleManifestPath = manifestPath;
+    options.bundleManifestScope = scope;
+    options.scopeSource = options.explicitDate || options.explicitHotelId
+      ? 'bundle_manifest_with_cli_overrides'
+      : 'bundle_manifest';
+    if (!options.explicitDate && typeof scope.business_date === 'string') {
+      options.date = scope.business_date.trim();
+    }
+    if (!options.explicitHotelId && scope.hotel_id !== undefined && scope.hotel_id !== null && String(scope.hotel_id).trim() !== '') {
+      options.hotelId = String(scope.hotel_id).trim();
+    }
+  }
+
+  if (options.date === '') {
+    options.date = new Date().toISOString().slice(0, 10);
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date)) {
@@ -318,6 +356,9 @@ function buildPayload(options) {
       platform: 'ctrip',
       enabled_channels: ['ctrip'],
       hotel_id: options.hotelId === '' ? null : Number(options.hotelId),
+      scope_source: options.scopeSource,
+      bundle_dir: options.bundleDir || null,
+      bundle_manifest_path: options.bundleManifestPath || null,
       source_scope: 'external_project_materials_for_ctrip_operator_review',
       ctrip_ota_channel_scope_preserved: true,
       meituan_scope_included: false,
@@ -368,6 +409,9 @@ function toMarkdown(payload) {
   lines.push('# Ctrip External Input Candidates');
   lines.push('');
   lines.push(`- status: \`${payload.status}\``);
+  lines.push(`- business_date: \`${payload.scope.business_date}\``);
+  lines.push(`- hotel_id: \`${payload.scope.hotel_id ?? 'unknown'}\``);
+  lines.push(`- scope_source: \`${payload.scope.scope_source}\``);
   lines.push(`- source_scope: \`${payload.scope.source_scope}\``);
   lines.push(`- source_policy: \`${payload.source_policy}\``);
   lines.push('- database_written: `false`');

@@ -122,18 +122,18 @@ const checks = [
     pass: source.includes("url: '/online-data/fetch-meituan-traffic'"),
   },
   {
-    name: 'auto-fetch skips Ctrip comments data by default',
-    pass: !/label'\s*=>\s*'ctrip-comments'/.test(autoFetchTaskPlanBody)
-      && !/private function executeCtripCommentsAutoFetchTask/.test(controllerSource)
-      && controllerSource.includes("'ctrip:comments',")
-      && controllerSource.includes('Comment/review data collection is disabled by policy.'),
+    name: 'auto-fetch can queue Ctrip aggregate comments through browser Profile',
+    pass: /label'\s*=>\s*'ctrip-comments'/.test(autoFetchTaskPlanBody)
+      && /module'\s*=>\s*'comments'/.test(autoFetchTaskPlanBody)
+      && autoFetchTaskPlanBody.includes("'capture_sections' => 'comment_review'")
+      && controllerSource.includes("'ctrip:comments' => $this->executeCtripBrowserProfileAutoFetch("),
   },
   {
-    name: 'auto-fetch skips Meituan comments data by default',
-    pass: !/label'\s*=>\s*'meituan-comments'/.test(autoFetchTaskPlanBody)
-      && !/private function executeMeituanCommentsAutoFetchTask/.test(controllerSource)
-      && controllerSource.includes("'meituan:comments' =>")
-      && !runFetchBody.includes("url: '/online-data/fetch-meituan-comments'"),
+    name: 'auto-fetch can queue Meituan aggregate comments through browser Profile',
+    pass: /label'\s*=>\s*'meituan-comments'/.test(autoFetchTaskPlanBody)
+      && /module'\s*=>\s*'comments'/.test(autoFetchTaskPlanBody)
+      && autoFetchTaskPlanBody.includes("'capture_sections' => 'reviews'")
+      && controllerSource.includes("'meituan:comments' => $this->executeMeituanBrowserProfileAutoFetch("),
   },
   {
     name: 'auto-fetch writes fetched rows to selected system hotel',
@@ -163,10 +163,10 @@ const checks = [
   },
   {
     name: 'Ctrip browser Profile login opens China eBooking login entry',
-    pass: ctripBrowserScript.includes("const CTRIP_LOGIN_URL = 'https://ebooking.ctrip.com/login/index'")
+    pass: ctripBrowserScript.includes("const CTRIP_LOGIN_URL = 'https://ebooking.ctrip.com/home/mainland'")
       && ctripBrowserScript.includes('page.goto(ctripLoginEntryUrl()')
-      && controllerSource.includes("'entry_url' => 'https://ebooking.ctrip.com/login/index'")
-      && source.includes("const defaultCtripLoginUrl = 'https://ebooking.ctrip.com/login/index'")
+      && controllerSource.includes("'entry_url' => 'https://ebooking.ctrip.com/home/mainland'")
+      && source.includes("const defaultCtripLoginUrl = 'https://ebooking.ctrip.com/home/mainland'")
       && source.includes('openTargetSite(defaultCtripLoginUrl)'),
   },
   {
@@ -293,7 +293,7 @@ const checks = [
       && source.includes('activeConfig?.profile_id')
       && source.includes('activeConfig?.browserProfileId')
       && source.includes('activeConfig?.ota_hotel_id')
-      && source.includes('activeConfig?.nodeId')
+      && (source.includes('activeConfig?.nodeId') || source.includes('resolveCtripBrowserProfileId({'))
       && (source.includes('profile_id: profileId') || source.includes('profile_id: context.ctripCookieApiProfileId'))
       && !source.includes("showToast('请填写 Cookie，或先保存当前酒店的携程配置'")
       && chromiumCookieExtractor.includes('decrypt_chrome_master_key')

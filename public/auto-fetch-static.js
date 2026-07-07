@@ -116,6 +116,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
     const platformProfileMachineText = (value) => /[a-z]+[_-][a-z]+|\/api\/|https?:|[{}[\]=]/i.test(String(value || ''));
     const platformProfileStatusLabel = (item) => {
         const statusCode = String(item?.status_code || '').trim().toLowerCase();
+        if (statusCode === 'cookies_incomplete') return 'Cookie incomplete';
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '无权限';
         if (statusCode === 'hotel_mismatch') return '门店不匹配';
         const map = {
@@ -144,6 +145,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         `profile_key=${item?.profile_key || 'profile_key_missing'}`,
     ].join(' / ');
     const platformProfileStatusBadgeClass = (statusCode) => ({
+        cookies_incomplete: 'bg-red-50 text-red-700 border-red-200',
         logged_in: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         waiting_login: 'bg-amber-50 text-amber-700 border-amber-200',
         login_expired: 'bg-red-50 text-red-700 border-red-200',
@@ -215,6 +217,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
     const platformProfileNextActionText = (item) => {
         const raw = String(item?.next_action || '').trim();
         const statusCode = String(item?.status_code || '').trim().toLowerCase();
+        if (statusCode === 'cookies_incomplete') return 'Refresh the platform Profile login; the page is reachable but required business cookies are incomplete.';
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '当前账号无该门店采集权限，请切换账号或补授权。';
         if (statusCode === 'hotel_mismatch') return 'Profile 登录态存在，但绑定门店与当前门店不匹配，请重新绑定正确门店。';
         if (['logged_in'].includes(statusCode)) return '登录态已验证，不等于数据已入库；请执行目标日同步并检查入库结果。';

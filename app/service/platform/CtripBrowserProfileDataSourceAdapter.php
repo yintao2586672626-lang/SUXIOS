@@ -76,6 +76,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         if ($lock === null) {
             return [
                 'status' => 'failed',
+                'status_code' => 'resource_busy_login',
+                'error_code' => 'resource_busy_login',
                 'message' => 'Ctrip browser Profile capture is already running for profile_id=' . $profileId,
                 'payload' => ['lock_key' => 'ctrip:' . $safeProfileId],
             ];

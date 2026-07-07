@@ -17,11 +17,11 @@ final class OtaStandardModuleTest extends TestCase
         $dataset = (new OtaStandardEtlService())->buildDatasetFromRows($this->sampleRows());
 
         self::assertSame('ready', $dataset['status']);
-        self::assertCount(1, $dataset['dim_hotel']);
-        self::assertCount(1, $dataset['dim_platform']);
+        self::assertCount(2, $dataset['dim_hotel']);
+        self::assertCount(2, $dataset['dim_platform']);
         self::assertCount(1, $dataset['fact_ota_daily']);
         self::assertCount(1, $dataset['fact_ota_traffic']);
-        self::assertCount(0, $dataset['fact_ota_comment']);
+        self::assertCount(1, $dataset['fact_ota_comment']);
 
         self::assertSame('system:7', $dataset['fact_ota_daily'][0]['hotel_key']);
         self::assertSame('ctrip', $dataset['fact_ota_daily'][0]['platform_key']);
@@ -44,8 +44,14 @@ final class OtaStandardModuleTest extends TestCase
 
         self::assertSame(20.0, $dataset['fact_ota_traffic'][0]['flow_rate']);
         self::assertSame(33.33, $dataset['fact_ota_traffic'][0]['submit_rate']);
-        self::assertSame('comment_collection_disabled', $dataset['data_quality']['rejected_rows'][0]['reason']);
-        self::assertSame('review', $dataset['data_quality']['rejected_rows'][0]['data_type']);
+        self::assertSame('system:8', $dataset['fact_ota_comment'][0]['hotel_key']);
+        self::assertSame('meituan', $dataset['fact_ota_comment'][0]['platform_key']);
+        self::assertSame('review:meituan', $dataset['fact_ota_comment'][0]['dimension']);
+        self::assertSame(3.0, $dataset['fact_ota_comment'][0]['comment_score']);
+        self::assertSame(1.0, $dataset['fact_ota_comment'][0]['comment_count']);
+        self::assertSame(1.0, $dataset['fact_ota_comment'][0]['bad_review_count']);
+        self::assertArrayNotHasKey('content', $dataset['fact_ota_comment'][0]['raw_data']);
+        self::assertSame([], $dataset['data_quality']['rejected_rows']);
     }
 
     public function testRevenueMetricsUseStandardFactsWithoutInventingMissingCancellationData(): void
@@ -975,12 +981,15 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'meituan',
                 'data_type' => 'review',
                 'data_date' => '2026-05-18',
+                'dimension' => 'review:meituan',
                 'comment_score' => 3.0,
-                'data_value' => 3.0,
+                'quantity' => 1,
+                'data_value' => 1.0,
                 'raw_data' => json_encode([
-                    'review_id' => 'r-1',
-                    'content' => 'front desk issue',
-                    'sentiment' => 'negative',
+                    'channel' => 'meituan',
+                    'comment_score' => 3.0,
+                    'comment_count' => 1,
+                    'bad_review_count' => 1,
                 ], JSON_UNESCAPED_UNICODE),
             ],
         ];

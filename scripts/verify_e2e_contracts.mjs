@@ -2409,9 +2409,9 @@ requireNoText('public/index.html', "onlineDataTab === 'ctrip-review'", 'Ctrip hi
 requireNoText('public/index.html', "onlineDataTab === 'meituan-review'", 'Meituan hidden review tab is removed from frontend');
 requireNoText('public/index.html', "currentDataConfigType === 'ctrip-comments'", 'Ctrip comment config modal is removed from frontend');
 requireNoText('public/index.html', "currentDataConfigType === 'meituan-comments'", 'Meituan comment config modal is removed from frontend');
-requireNoText('public/index.html', "/online-data/fetch-ctrip-comments", 'frontend does not call Ctrip comment fetch endpoint');
-requireNoText('public/index.html', "/online-data/capture-ctrip-comments-browser", 'frontend does not call Ctrip browser comment capture endpoint');
-requireNoText('public/index.html', "/online-data/fetch-meituan-comments", 'frontend does not call Meituan comment fetch endpoint');
+requireText('public/index.html', "/online-data/fetch-ctrip-comments", 'frontend can call Ctrip aggregate comment fetch endpoint');
+requireText('public/index.html', "/online-data/capture-ctrip-comments-browser", 'frontend can call Ctrip aggregate browser comment capture endpoint');
+requireText('public/index.html', "/online-data/fetch-meituan-comments", 'frontend can call Meituan aggregate comment fetch endpoint');
 requireText('public/index.html', 'online-data-ota-supplement', 'online data page renders daily OTA supplement summary panel');
 requireText('public/index.html', 'ota_channel_supplement', 'frontend consumes OTA supplement summary from daily data summary');
 requireOnlineDataControllerText("'ota_channel_supplement' =>", 'daily data summary returns OTA supplement summary');

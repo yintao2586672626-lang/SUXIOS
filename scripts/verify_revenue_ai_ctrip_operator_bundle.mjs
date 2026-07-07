@@ -83,6 +83,9 @@ try {
     operatorActionSheetCsv: path.join(bundleDir, 'operator-action-sheet.csv'),
     operatorConfirmationBrief: path.join(bundleDir, 'OPERATOR_CONFIRMATION_BRIEF.md'),
     operatorConfirmationBriefCsv: path.join(bundleDir, 'operator-confirmation-brief.csv'),
+    operatorQuickReply: path.join(bundleDir, 'OPERATOR_QUICK_REPLY.md'),
+    operatorRealInputRequest: path.join(bundleDir, 'OPERATOR_REAL_INPUT_REQUEST.md'),
+    operationRoiEvidenceRequest: path.join(bundleDir, 'OPERATION_ROI_EVIDENCE_REQUEST.md'),
     operatorInputLocatorsCsv: path.join(bundleDir, 'operator-input-locators.csv'),
     operatorReviewDraft: path.join(bundleDir, 'OPERATOR_REVIEW_DRAFT.md'),
     demandTrendDraft: path.join(bundleDir, 'demand-trend-draft.json'),
@@ -95,6 +98,8 @@ try {
     externalInputCandidatesCsv: path.join(bundleDir, 'external-input-candidates.csv'),
     inputReadiness: path.join(bundleDir, 'input-readiness.json'),
     inputReadinessMarkdown: path.join(bundleDir, 'input-readiness.md'),
+    autoInputEligibility: path.join(bundleDir, 'auto-input-eligibility.json'),
+    autoInputEligibilityMarkdown: path.join(bundleDir, 'auto-input-eligibility.md'),
     pendingReview: path.join(bundleDir, 'pending-review-packet.json'),
     currentScope: path.join(bundleDir, 'current-scope.json'),
   };
@@ -113,6 +118,7 @@ try {
   const pricingEvidenceCandidates = readJson(files.pricingEvidenceCandidates);
   const externalInputCandidates = readJson(files.externalInputCandidates);
   const inputReadiness = readJson(files.inputReadiness);
+  const autoInputEligibility = readJson(files.autoInputEligibility);
   const demandTrendDraft = readJson(files.demandTrendDraft);
 
   const expectedDate = options.date || String(manifest?.scope?.business_date || fillable?.business_date || '');
@@ -129,6 +135,9 @@ try {
   const operatorConfirmationBriefText = fs.existsSync(files.operatorConfirmationBrief) ? fs.readFileSync(files.operatorConfirmationBrief, 'utf8') : '';
   const operatorConfirmationBriefCsvText = fs.existsSync(files.operatorConfirmationBriefCsv) ? fs.readFileSync(files.operatorConfirmationBriefCsv, 'utf8') : '';
   const operatorConfirmationBriefCsvHeader = String(operatorConfirmationBriefCsvText.split(/\r?\n/)[0] || '');
+  const operatorQuickReplyText = fs.existsSync(files.operatorQuickReply) ? fs.readFileSync(files.operatorQuickReply, 'utf8') : '';
+  const operatorRealInputRequestText = fs.existsSync(files.operatorRealInputRequest) ? fs.readFileSync(files.operatorRealInputRequest, 'utf8') : '';
+  const operationRoiEvidenceRequestText = fs.existsSync(files.operationRoiEvidenceRequest) ? fs.readFileSync(files.operationRoiEvidenceRequest, 'utf8') : '';
   const operatorInputLocatorsCsvText = fs.existsSync(files.operatorInputLocatorsCsv) ? fs.readFileSync(files.operatorInputLocatorsCsv, 'utf8') : '';
   const operatorInputLocatorsCsvHeader = String(operatorInputLocatorsCsvText.split(/\r?\n/)[0] || '');
   const pricingEvidenceCandidatesText = JSON.stringify(pricingEvidenceCandidates);
@@ -141,6 +150,8 @@ try {
   const externalInputCandidatesCsvHeader = String(externalInputCandidatesCsvText.split(/\r?\n/)[0] || '');
   const inputReadinessText = JSON.stringify(inputReadiness);
   const inputReadinessMarkdownText = fs.existsSync(files.inputReadinessMarkdown) ? fs.readFileSync(files.inputReadinessMarkdown, 'utf8') : '';
+  const autoInputEligibilityText = JSON.stringify(autoInputEligibility);
+  const autoInputEligibilityMarkdownText = fs.existsSync(files.autoInputEligibilityMarkdown) ? fs.readFileSync(files.autoInputEligibilityMarkdown, 'utf8') : '';
   const demandTrendDraftText = JSON.stringify(demandTrendDraft);
   const demandTrendDraftMarkdownText = fs.existsSync(files.demandTrendDraftMarkdown) ? fs.readFileSync(files.demandTrendDraftMarkdown, 'utf8') : '';
   const operatorReviewDraftText = fs.existsSync(files.operatorReviewDraft) ? fs.readFileSync(files.operatorReviewDraft, 'utf8') : '';
@@ -265,6 +276,22 @@ try {
     && manifest?.scope?.meituan_scope_included === false, {
     scope: manifest?.scope || null,
   });
+  const refreshEvidence = manifest?.scope?.refresh_evidence === true;
+  const preservedInputFiles = asArray(manifest?.scope?.preserved_input_files).map((value) => String(value));
+  const manifestFiles = manifest?.files || {};
+  check(checks, 'refresh_evidence_preserves_operator_inputs', !refreshEvidence || (
+    preservedInputFiles.includes('pricing-input-fillable.json')
+      && preservedInputFiles.includes('pricing-input-intake.csv')
+      && manifestFiles?.pricing_input_fillable_json?.preserved === true
+      && manifestFiles?.pricing_input_fillable_json?.overwritten === false
+      && manifestFiles?.pricing_input_intake_csv?.preserved === true
+      && manifestFiles?.pricing_input_intake_csv?.overwritten === false
+  ), {
+    refresh_evidence: refreshEvidence,
+    preserved_input_files: preservedInputFiles,
+    pricing_input_fillable_json: manifestFiles?.pricing_input_fillable_json || null,
+    pricing_input_intake_csv: manifestFiles?.pricing_input_intake_csv || null,
+  });
   check(checks, 'date_matches', !expectedDate || (fillable.business_date === expectedDate && manifest?.scope?.business_date === expectedDate), {
     expectedDate,
     fillableDate: fillable.business_date,
@@ -382,12 +409,23 @@ try {
   });
   check(checks, 'external_input_candidates_command_read_only_and_scoped',
     String(manifestCommands?.external_input_candidates || '').includes('report:revenue-ai-ctrip-external-input-candidates')
+    && String(manifestCommands?.external_input_candidates || '').includes('--dir=')
     && String(manifestCommands?.external_input_candidates || '').includes(`--date=${expectedDate}`)
     && String(manifestCommands?.external_input_candidates || '').includes(`--hotel-id=${expectedHotelId}`)
     && String(manifestCommands?.external_input_candidates || '').includes('--format=markdown')
     && !String(manifestCommands?.external_input_candidates || '').includes('--execute')
     && !String(manifestCommands?.external_input_candidates || '').includes('write-ota'), {
     external_input_candidates: manifestCommands?.external_input_candidates || null,
+  });
+  check(checks, 'auto_input_eligibility_command_read_only_and_scoped',
+    String(manifestCommands?.auto_input_eligibility || '').includes('report:revenue-ai-ctrip-auto-input-eligibility')
+    && String(manifestCommands?.auto_input_eligibility || '').includes('--dir=')
+    && String(manifestCommands?.auto_input_eligibility || '').includes(`--date=${expectedDate}`)
+    && String(manifestCommands?.auto_input_eligibility || '').includes(`--hotel-id=${expectedHotelId}`)
+    && String(manifestCommands?.auto_input_eligibility || '').includes('--format=markdown')
+    && !String(manifestCommands?.auto_input_eligibility || '').includes('--execute')
+    && !String(manifestCommands?.auto_input_eligibility || '').includes('write-ota'), {
+    auto_input_eligibility: manifestCommands?.auto_input_eligibility || null,
   });
   check(checks, 'csv_intake_converter_command_no_db_no_ota_write',
     String(manifestCommands?.build_fillable_from_csv || '').includes('build:revenue-ai-ctrip-pricing-input-from-csv')
@@ -412,6 +450,34 @@ try {
     && !String(manifestCommands?.csv_to_json_preflight || '').includes('--execute')
     && !String(manifestCommands?.csv_to_json_preflight || '').includes('write-ota'), {
     csv_to_json_preflight: manifestCommands?.csv_to_json_preflight || null,
+  });
+  check(checks, 'quick_reply_preflight_command_no_db_no_ota_write',
+    String(manifestCommands?.quick_reply_preflight || '').includes('verify:revenue-ai-ctrip-operator-quick-reply-preflight')
+    && String(manifestCommands?.quick_reply_preflight || '').includes('--dir=')
+    && String(manifestCommands?.quick_reply_preflight || '').includes(`--date=${expectedDate}`)
+    && String(manifestCommands?.quick_reply_preflight || '').includes(`--hotel-id=${expectedHotelId}`)
+    && !String(manifestCommands?.quick_reply_preflight || '').includes('--execute')
+    && !String(manifestCommands?.quick_reply_preflight || '').includes('write-ota'), {
+    quick_reply_preflight: manifestCommands?.quick_reply_preflight || null,
+  });
+  check(checks, 'quick_reply_apply_to_fillable_command_local_file_only',
+    String(manifestCommands?.quick_reply_apply_to_fillable || '').includes('verify:revenue-ai-ctrip-operator-quick-reply-preflight')
+    && String(manifestCommands?.quick_reply_apply_to_fillable || '').includes('--dir=')
+    && String(manifestCommands?.quick_reply_apply_to_fillable || '').includes(`--date=${expectedDate}`)
+    && String(manifestCommands?.quick_reply_apply_to_fillable || '').includes(`--hotel-id=${expectedHotelId}`)
+    && String(manifestCommands?.quick_reply_apply_to_fillable || '').includes('--write-fillable=1')
+    && !String(manifestCommands?.quick_reply_apply_to_fillable || '').includes('--execute')
+    && !String(manifestCommands?.quick_reply_apply_to_fillable || '').includes('write-ota'), {
+    quick_reply_apply_to_fillable: manifestCommands?.quick_reply_apply_to_fillable || null,
+  });
+  check(checks, 'quick_reply_to_pending_review_command_explicit_execute_no_ota_write',
+    String(manifestCommands?.quick_reply_to_pending_review || '').includes('run:revenue-ai-ctrip-quick-reply-to-pending-review')
+    && String(manifestCommands?.quick_reply_to_pending_review || '').includes('--dir=')
+    && String(manifestCommands?.quick_reply_to_pending_review || '').includes(`--date=${expectedDate}`)
+    && String(manifestCommands?.quick_reply_to_pending_review || '').includes(`--hotel-id=${expectedHotelId}`)
+    && String(manifestCommands?.quick_reply_to_pending_review || '').includes('--execute=1')
+    && !String(manifestCommands?.quick_reply_to_pending_review || '').includes('write-ota'), {
+    quick_reply_to_pending_review: manifestCommands?.quick_reply_to_pending_review || null,
   });
   check(checks, 'csv_intake_template_ctrip_only_blank_business_values',
     pricingInputIntakeCsvHeader === expectedCsvHeaders.join(',')
@@ -506,6 +572,151 @@ try {
     csv: files.operatorConfirmationBriefCsv,
     csvHeader: operatorConfirmationBriefCsvHeader,
   });
+  check(checks, 'operator_quick_reply_minimum_inputs_not_importable',
+    operatorQuickReplyText.includes('Ctrip Operator Quick Reply')
+    && operatorQuickReplyText.includes('source_policy: `operator_quick_reply_no_values_no_import`')
+    && operatorQuickReplyText.includes('database_written: `false`')
+    && operatorQuickReplyText.includes('auto_write_ota: `false`')
+    && operatorQuickReplyText.includes('importable_value: `false`')
+    && operatorQuickReplyText.includes('target_file: `pricing-input-intake.csv`')
+    && operatorQuickReplyText.includes('Review Hints (Not Importable)')
+    && operatorQuickReplyText.includes('Candidate hints are copied from `OPERATOR_CONFIRMATION_BRIEF.md` and `operator-confirmation-brief.csv`')
+    && operatorQuickReplyText.includes('Do not paste a candidate hint into the reply unless the operator has verified it as a real current Ctrip value.')
+    && operatorQuickReplyText.includes('| field | status | candidate_hint | required_confirmation |')
+    && operatorQuickReplyText.includes('Quick reply preflight:')
+    && operatorQuickReplyText.includes('builds temporary local intake files')
+    && operatorQuickReplyText.includes('Apply quick reply to fillable JSON only after preflight passes:')
+    && operatorQuickReplyText.includes('writes only local `pricing-input-fillable.json` after all no-execute gates pass')
+    && operatorQuickReplyText.includes('One-step pending-review runner after real values are complete:')
+    && operatorQuickReplyText.includes('creates only local pending AI review items')
+    && operatorQuickReplyText.includes('confirmed_by=')
+    && operatorQuickReplyText.includes('room_type_key=')
+    && operatorQuickReplyText.includes('room_type_name=')
+    && operatorQuickReplyText.includes('room_count=')
+    && operatorQuickReplyText.includes('base_price=')
+    && operatorQuickReplyText.includes('min_price=')
+    && operatorQuickReplyText.includes('max_price=')
+    && operatorQuickReplyText.includes('competitor_room_type_key=')
+    && operatorQuickReplyText.includes('| `competitor_room_type_key` |')
+    && operatorQuickReplyText.includes('Leave `competitor_room_type_key` blank only when it should reuse `room_type_key`.')
+    && operatorQuickReplyText.includes('competitor_name=')
+    && operatorQuickReplyText.includes('our_price=')
+    && operatorQuickReplyText.includes('competitor_price=')
+    && operatorQuickReplyText.includes('Optional multi-row format')
+    && operatorQuickReplyText.includes('room_type_1_key=')
+    && operatorQuickReplyText.includes('room_type_2_key=')
+    && operatorQuickReplyText.includes('competitor_sample_1_room_type_key=')
+    && operatorQuickReplyText.includes('competitor_sample_2_competitor_price=')
+    && operatorQuickReplyText.includes('For multiple room types')
+    && operatorQuickReplyText.includes('For multiple competitor samples')
+    && operatorQuickReplyText.includes('ctrip_historical_traffic_trend')
+    && operatorQuickReplyText.includes('Continue only when the no-execute preflight passes.')
+    && operatorQuickReplyText.includes('Do not write OTA prices from this reply')
+    && manifest?.operator_quick_reply?.file === 'OPERATOR_QUICK_REPLY.md'
+    && manifest?.operator_quick_reply?.status === 'human_quick_reply_not_importable'
+    && manifest?.operator_quick_reply?.source_scope === 'ctrip_ota_channel'
+    && manifest?.operator_quick_reply?.source_policy === 'operator_quick_reply_no_values_no_import'
+    && manifest?.operator_quick_reply?.database_written === false
+    && manifest?.operator_quick_reply?.auto_write_ota === false
+    && manifest?.operator_quick_reply?.importable_value === false
+    && manifest?.operator_quick_reply?.target_file === 'pricing-input-intake.csv'
+    && manifest?.operator_quick_reply?.preflight_command === 'quick_reply_preflight'
+    && manifest?.operator_quick_reply?.apply_to_fillable_command === 'quick_reply_apply_to_fillable'
+    && manifest?.operator_quick_reply?.pending_review_runner_command === 'quick_reply_to_pending_review'
+    && manifest?.operator_quick_reply?.preflight_policy === 'temporary_local_files_no_db_no_ota_write'
+    && manifest?.operator_quick_reply?.fillable_write_policy === 'explicit_write_fillable_flag_only_after_no_execute_preflight_passes_no_db_no_ota_write'
+    && manifest?.operator_quick_reply?.pending_review_policy === 'explicit_execute_only_local_pending_review_no_ota_write_manual_review_required'
+    && manifest?.operator_quick_reply?.candidate_values_exposed === true
+    && manifest?.operator_quick_reply?.candidate_values_importable === false
+    && Array.isArray(manifest?.operator_quick_reply?.required_before_execute)
+    && manifest.operator_quick_reply.required_before_execute.includes('room_types_enabled')
+    && manifest.operator_quick_reply.required_before_execute.includes('floor_price_or_min_rate_guard')
+    && manifest.operator_quick_reply.required_before_execute.includes('competitor_price_samples'), {
+    operator_quick_reply: manifest?.operator_quick_reply || null,
+    markdown: files.operatorQuickReply,
+  });
+  check(checks, 'operator_real_input_request_human_request_not_importable',
+    operatorRealInputRequestText.includes('携程真实经营输入请求单')
+    && operatorRealInputRequestText.includes('source_policy: `operator_request_no_values_no_import`')
+    && operatorRealInputRequestText.includes('database_written: `false`')
+    && operatorRealInputRequestText.includes('auto_write_ota: `false`')
+    && operatorRealInputRequestText.includes('importable_value: `false`')
+    && operatorRealInputRequestText.includes('target_file: `OPERATOR_QUICK_REPLY.md`')
+    && operatorRealInputRequestText.includes('current_required_real_inputs_before_execute')
+    && operatorRealInputRequestText.includes('room_types_enabled')
+    && operatorRealInputRequestText.includes('floor_price_or_min_rate_guard')
+    && operatorRealInputRequestText.includes('competitor_price_samples')
+    && operatorRealInputRequestText.includes('room_type_1_key=')
+    && operatorRealInputRequestText.includes('room_type_2_key=')
+    && operatorRealInputRequestText.includes('competitor_sample_1_room_type_key=')
+    && operatorRealInputRequestText.includes('competitor_sample_2_competitor_price=')
+    && operatorRealInputRequestText.includes('ctrip_historical_traffic_trend')
+    && (trafficTrendDemandReady
+      ? operatorRealInputRequestText.includes('需求预测已由 `ctrip_historical_traffic_trend` 覆盖')
+      : operatorRealInputRequestText.includes('需求预测尚未通过 `ctrip_historical_traffic_trend` 校验'))
+    && operatorRealInputRequestText.includes('复制到 OPERATOR_QUICK_REPLY.md')
+    && operatorRealInputRequestText.includes('quick_reply_preflight')
+    && operatorRealInputRequestText.includes('quick_reply_to_pending_review')
+    && operatorRealInputRequestText.includes('不自动写 OTA 价格')
+    && manifest?.operator_real_input_request?.file === 'OPERATOR_REAL_INPUT_REQUEST.md'
+    && manifest?.operator_real_input_request?.status === 'human_real_input_request_not_importable'
+    && manifest?.operator_real_input_request?.source_scope === 'ctrip_ota_channel'
+    && manifest?.operator_real_input_request?.source_policy === 'operator_request_no_values_no_import'
+    && manifest?.operator_real_input_request?.database_written === false
+    && manifest?.operator_real_input_request?.auto_write_ota === false
+    && manifest?.operator_real_input_request?.importable_value === false
+    && manifest?.operator_real_input_request?.target_file === 'OPERATOR_QUICK_REPLY.md'
+    && manifest?.operator_real_input_request?.demand_forecast_source === (trafficTrendDemandReady ? 'ctrip_historical_traffic_trend' : 'manual_or_missing')
+    && Array.isArray(manifest?.operator_real_input_request?.required_before_execute)
+    && manifest.operator_real_input_request.required_before_execute.includes('room_types_enabled')
+    && manifest.operator_real_input_request.required_before_execute.includes('floor_price_or_min_rate_guard')
+    && manifest.operator_real_input_request.required_before_execute.includes('competitor_price_samples'), {
+    operator_real_input_request: manifest?.operator_real_input_request || null,
+    markdown: files.operatorRealInputRequest,
+  });
+  check(checks, 'operation_roi_evidence_request_not_importable_not_proof',
+    operationRoiEvidenceRequestText.includes('Ctrip Operation ROI Evidence Request')
+    && operationRoiEvidenceRequestText.includes('source_scope: `ctrip_ota_channel_execution_evidence`')
+    && operationRoiEvidenceRequestText.includes('source_policy: `human_operation_roi_evidence_request_no_values_no_import`')
+    && operationRoiEvidenceRequestText.includes('database_written: `false`')
+    && operationRoiEvidenceRequestText.includes('auto_write_ota: `false`')
+    && operationRoiEvidenceRequestText.includes('importable_value: `false`')
+    && operationRoiEvidenceRequestText.includes('proves_execution_or_roi: `false`')
+    && operationRoiEvidenceRequestText.includes('required_gate: `operation_execution.roi_ready`')
+    && operationRoiEvidenceRequestText.includes('do_not_promote_ctrip_ota_scope_to_whole_hotel_truth')
+    && operationRoiEvidenceRequestText.includes('approve_operation_execution_intent')
+    && operationRoiEvidenceRequestText.includes('record_manual_execution_result')
+    && operationRoiEvidenceRequestText.includes('upload_roi_evidence')
+    && operationRoiEvidenceRequestText.includes('review_execution_task_roi')
+    && operationRoiEvidenceRequestText.includes('keep_investment_manual_review_only')
+    && operationRoiEvidenceRequestText.includes('previous_day: `')
+    && operationRoiEvidenceRequestText.includes('next_day: `')
+    && operationRoiEvidenceRequestText.includes('required_metrics: `revenue; room_nights; orders; conversion; traffic`')
+    && operationRoiEvidenceRequestText.includes('manual_price_execution')
+    && operationRoiEvidenceRequestText.includes('manual_roi_evidence')
+    && operationRoiEvidenceRequestText.includes('local_manual_evidence_no_ota_write')
+    && operationRoiEvidenceRequestText.includes('local_manual_roi_evidence_no_ota_write')
+    && operationRoiEvidenceRequestText.includes('execute_review_and_create_intent')
+    && operationRoiEvidenceRequestText.includes('verify_roi_boundary')
+    && operationRoiEvidenceRequestText.includes('Investment decision remains blocked until `operation_execution.roi_ready` is true.')
+    && operationRoiEvidenceRequestText.includes('Do not treat this request sheet as execution proof or ROI proof.')
+    && operationRoiEvidenceRequestText.includes('Do not write OTA prices from this request sheet.')
+    && manifest?.operation_roi_evidence_request?.file === 'OPERATION_ROI_EVIDENCE_REQUEST.md'
+    && manifest?.operation_roi_evidence_request?.status === 'human_operation_roi_evidence_request_not_importable'
+    && manifest?.operation_roi_evidence_request?.source_scope === 'ctrip_ota_channel_execution_evidence'
+    && manifest?.operation_roi_evidence_request?.source_policy === 'human_operation_roi_evidence_request_no_values_no_import'
+    && manifest?.operation_roi_evidence_request?.database_written === false
+    && manifest?.operation_roi_evidence_request?.auto_write_ota === false
+    && manifest?.operation_roi_evidence_request?.importable_value === false
+    && manifest?.operation_roi_evidence_request?.proves_execution_or_roi === false
+    && manifest?.operation_roi_evidence_request?.required_gate === 'operation_execution.roi_ready'
+    && manifest?.operation_roi_evidence_request?.protected_boundary === 'do_not_promote_ctrip_ota_scope_to_whole_hotel_truth'
+    && Array.isArray(manifest?.operation_roi_evidence_request?.required_sequence)
+    && manifest.operation_roi_evidence_request.required_sequence.includes('approve_operation_execution_intent')
+    && manifest.operation_roi_evidence_request.required_sequence.includes('upload_roi_evidence'), {
+    operation_roi_evidence_request: manifest?.operation_roi_evidence_request || null,
+    markdown: files.operationRoiEvidenceRequest,
+  });
   check(checks, 'operator_input_locators_csv_metadata_only',
     operatorInputLocatorsCsvHeader === expectedLocatorCsvHeaders.join(',')
     && operatorInputLocatorsCsvText.includes('metadata_locator_only_no_values_no_import')
@@ -575,6 +786,51 @@ try {
     input_readiness_scan: manifest?.input_readiness_scan || null,
     input_readiness_file: files.inputReadiness,
   });
+  check(checks, 'auto_input_eligibility_manifest_and_payload_read_only',
+    manifest?.auto_input_eligibility?.files?.json === 'auto-input-eligibility.json'
+    && manifest?.auto_input_eligibility?.files?.markdown === 'auto-input-eligibility.md'
+    && ['auto_close_eligible', 'blocked_by_operator_real_inputs'].includes(String(manifest?.auto_input_eligibility?.status || ''))
+    && manifest?.auto_input_eligibility?.source_scope === 'ctrip_ota_channel'
+    && manifest?.auto_input_eligibility?.source_policy === 'read_operator_bundle_evidence_only_no_db_no_ota_write'
+    && manifest?.auto_input_eligibility?.database_written === false
+    && manifest?.auto_input_eligibility?.auto_write_ota === false
+    && manifest?.auto_input_eligibility?.importable_value === false
+    && manifest?.auto_input_eligibility?.auto_import_allowed === false
+    && Array.isArray(manifest?.auto_input_eligibility?.current_required_real_inputs_before_execute)
+    && autoInputEligibility?.scope?.business_date === expectedDate
+    && String(autoInputEligibility?.scope?.hotel_id || '') === expectedHotelId
+    && autoInputEligibility?.scope?.platform === 'ctrip'
+    && autoInputEligibility?.scope?.source_scope === 'ctrip_ota_channel'
+    && autoInputEligibility?.scope?.meituan_scope_included === false
+    && autoInputEligibility?.source_policy === 'read_operator_bundle_evidence_only_no_db_no_ota_write'
+    && autoInputEligibility?.raw_rows_exposed === false
+    && autoInputEligibility?.database_written === false
+    && autoInputEligibility?.auto_write_ota === false
+    && autoInputEligibility?.importable_value === false
+    && autoInputEligibility?.auto_import_allowed === false
+    && autoInputEligibility?.summary?.operator_reply_file === 'OPERATOR_QUICK_REPLY.md'
+    && autoInputEligibility?.summary?.operator_reply_keys_are_not_importable_until_preflight_passes === true
+    && autoInputEligibilityText.includes('"operator_question"')
+    && autoInputEligibilityText.includes('"reply_keys"')
+    && autoInputEligibilityText.includes('"room_type_key"')
+    && autoInputEligibilityText.includes('"competitor_room_type_key"')
+    && autoInputEligibilityText.includes('"room_type_1_key"')
+    && autoInputEligibilityText.includes('"room_type_1_base_price"')
+    && autoInputEligibilityText.includes('"competitor_sample_1_room_type_key"')
+    && autoInputEligibilityText.includes('room_name_or_room_count_candidates_do_not_prove_operator_enabled_room_type_key_and_sellable_room_count')
+    && autoInputEligibilityText.includes('observed_average_prices_and_350_450_assumptions_are_not_operator_approved_base_min_max_guards')
+    && autoInputEligibilityText.includes('competitor_aggregates_and_historical_market_references_are_not_recent_named_ctrip_price_samples')
+    && autoInputEligibilityText.includes('ctrip_historical_traffic_trend_is_accepted_as_demand_forecast_source')
+    && autoInputEligibilityMarkdownText.includes('Ctrip Auto Input Eligibility')
+    && autoInputEligibilityMarkdownText.includes('auto_write_ota: `false`')
+    && autoInputEligibilityMarkdownText.includes('auto_import_allowed: `false`')
+    && autoInputEligibilityMarkdownText.includes('current_required_real_inputs_before_execute')
+    && autoInputEligibilityMarkdownText.includes('operator_reply_file: `OPERATOR_QUICK_REPLY.md`')
+    && autoInputEligibilityMarkdownText.includes('Operator Questions')
+    && autoInputEligibilityMarkdownText.includes('reply_keys'), {
+    auto_input_eligibility: manifest?.auto_input_eligibility || null,
+    auto_input_eligibility_file: files.autoInputEligibility,
+  });
   check(checks, 'pricing_evidence_candidates_manifest_non_importable',
     manifest?.pricing_evidence_candidates?.files?.json === 'pricing-evidence-candidates.json'
     && manifest?.pricing_evidence_candidates?.files?.markdown === 'pricing-evidence-candidates.md'
@@ -597,6 +853,8 @@ try {
     && ['passed', 'blocked_by_no_external_input_candidates'].includes(String(manifest?.external_input_candidates?.status || ''))
     && manifest?.external_input_candidates?.source_scope === 'external_project_materials_for_ctrip_operator_review'
     && manifest?.external_input_candidates?.source_policy === 'read_allowlisted_external_project_materials_candidates_only_no_db_no_ota_write'
+    && ['cli_or_default', 'bundle_manifest', 'bundle_manifest_with_cli_overrides'].includes(String(manifest?.external_input_candidates?.scope_source || ''))
+    && manifest?.external_input_candidates?.bundle_manifest_scope_supported === true
     && manifest?.external_input_candidates?.candidate_values_exposed === true
     && manifest?.external_input_candidates?.raw_rows_exposed === false
     && manifest?.external_input_candidates?.database_written === false
@@ -611,6 +869,7 @@ try {
     externalInputCandidates?.scope?.business_date === expectedDate
     && String(externalInputCandidates?.scope?.hotel_id || '') === expectedHotelId
     && externalInputCandidates?.scope?.platform === 'ctrip'
+    && ['cli_or_default', 'bundle_manifest', 'bundle_manifest_with_cli_overrides'].includes(String(externalInputCandidates?.scope?.scope_source || ''))
     && externalInputCandidates?.scope?.source_scope === 'external_project_materials_for_ctrip_operator_review'
     && externalInputCandidates?.scope?.ctrip_ota_channel_scope_preserved === true
     && externalInputCandidates?.scope?.meituan_scope_included === false

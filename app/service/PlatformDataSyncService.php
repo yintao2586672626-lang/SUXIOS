@@ -498,8 +498,11 @@ final class PlatformDataSyncService
             if ($traceId === '' || ($periodMeta['data_period'] === 'realtime_snapshot' && $periodMeta['snapshot_bucket'] !== '')) {
                 $traceId = $this->buildTraceId($source, $row, $date, $syncTaskId, $periodMeta['snapshot_bucket']);
             }
+            $allowReviewSummary = $dataType === 'review'
+                && $this->payloadRequestsReviewDetailStorage($payload)
+                && $this->isReviewCollectionAllowed($source, $payload);
             $sanitizedRow = $dataType === 'review'
-                ? $this->sanitizeReviewPayloadForStorage($row)
+                ? $this->sanitizeReviewPayloadForStorage($row, $allowReviewSummary)
                 : $this->sanitizePayloadForStorage($row, $dataType);
             $platformIdentifierEvidence = $this->platformHotelIdentifierEvidence($platform, $row, $source);
             $raw = [
@@ -1484,7 +1487,7 @@ final class PlatformDataSyncService
             'secret' => $secret,
         ];
         if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($sourceForPolicy, $payload)) {
-            throw new RuntimeException('Comment/review data collection is disabled by policy.', 422);
+            throw new RuntimeException('Comment/review detail storage requires explicit authorization; aggregate metrics are allowed.', 422);
         }
 
         return [
@@ -1897,7 +1900,14 @@ final class PlatformDataSyncService
 
     private function storeRawRecord(array $source, int $taskId, array $payload, ?int $httpStatus): void
     {
-        $payload = $this->sanitizePayloadForStorage($payload, (string)($source['data_type'] ?? ''));
+        $dataType = $this->normalizeDataType((string)($source['data_type'] ?? ''));
+        if ($dataType === 'review') {
+            $allowReviewSummary = $this->payloadRequestsReviewDetailStorage($payload)
+                && $this->isReviewCollectionAllowed($source, $payload);
+            $payload = $this->sanitizeReviewPayloadForStorage($payload, $allowReviewSummary);
+        } else {
+            $payload = $this->sanitizePayloadForStorage($payload, $dataType);
+        }
         $rawRecord = $this->buildRawRecordPayload($payload);
         $data = [
             'data_source_id' => (int)$source['id'],
@@ -2191,6 +2201,10 @@ final class PlatformDataSyncService
             return true;
         }
 
+        if (!$this->payloadRequestsReviewDetailStorage($payload)) {
+            return true;
+        }
+
         $config = $this->decodeConfig($source['config_json'] ?? $source['config'] ?? []);
         foreach (['allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
             if ($this->truthy($payload[$key] ?? null) || $this->truthy($config[$key] ?? null)) {
@@ -2198,6 +2212,16 @@ final class PlatformDataSyncService
             }
         }
 
+        return false;
+    }
+
+    private function payloadRequestsReviewDetailStorage(array $payload): bool
+    {
+        foreach (['review_detail_collection', 'reviewDetailCollection', 'store_review_text', 'storeReviewText', 'store_comment_text', 'storeCommentText'] as $key) {
+            if ($this->truthy($payload[$key] ?? null)) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -2319,12 +2343,14 @@ final class PlatformDataSyncService
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
-    private function sanitizeReviewPayloadForStorage(array $payload): array
+    private function sanitizeReviewPayloadForStorage(array $payload, bool $allowSummary = false): array
     {
         $sanitized = $this->removeReviewPrivateFields($this->sanitizePayloadForStorage($payload, 'review'));
-        $summary = $this->reviewSummaryText($payload);
-        if ($summary !== '') {
-            $sanitized['review_summary'] = $summary;
+        if ($allowSummary) {
+            $summary = $this->reviewSummaryText($payload);
+            if ($summary !== '') {
+                $sanitized['review_summary'] = $summary;
+            }
         }
         return $sanitized;
     }

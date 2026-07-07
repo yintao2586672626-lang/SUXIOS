@@ -27,6 +27,20 @@ trait CookieEndpointConcern
         return null;
     }
 
+    private function isTokenDataExpiredByAge($tokenData): bool
+    {
+        if (!is_array($tokenData)) {
+            return false;
+        }
+
+        $createdAt = (int)($tokenData['created_at'] ?? 0);
+        if ($createdAt <= 0) {
+            return false;
+        }
+
+        return $createdAt + 86400 < time();
+    }
+
     private function extractTokenFromAuthorizationHeader(string $authHeader): string
     {
         $authHeader = trim($authHeader);
@@ -298,6 +312,18 @@ trait CookieEndpointConcern
         $tokenData = cache('token_' . $token);
         if (!$tokenData) {
             $this->recordPublicEndpointFailure('receive_cookies', 'invalid_token', 401, [
+                'name' => $name,
+                'source' => $source,
+            ]);
+            return $this->corsError('Token无效或已过期', 401);
+        }
+
+        if ($this->isTokenDataExpiredByAge($tokenData)) {
+            cache('token_' . $token, null);
+            if (is_array($tokenData) && !empty($tokenData['user_id'])) {
+                cache('user_token_' . $tokenData['user_id'], null);
+            }
+            $this->recordPublicEndpointFailure('receive_cookies', 'token_expired', 401, [
                 'name' => $name,
                 'source' => $source,
             ]);

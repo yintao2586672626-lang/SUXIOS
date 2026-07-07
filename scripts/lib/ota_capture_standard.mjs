@@ -6,7 +6,7 @@ export const PLATFORM_CONFIGS = {
     label: 'Meituan eBooking',
     profilePrefix: 'meituan_profile',
     defaultSections: ['traffic', 'orders'],
-    allowedSections: ['traffic', 'ads', 'orders'],
+    allowedSections: ['traffic', 'ads', 'orders', 'reviews'],
     cookieDomains: ['me.meituan.com', 'eb.meituan.com', '.meituan.com', '.dianping.com'],
     sectionAliases: {
       business: 'traffic',
@@ -51,21 +51,26 @@ export const PLATFORM_CONFIGS = {
       advertising: 'ads',
       order: 'orders',
       orders: 'orders',
+      review: 'reviews',
+      reviews: 'reviews',
+      comment: 'reviews',
+      comments: 'reviews',
+      reviewdata: 'reviews',
+      review_data: 'reviews',
     },
-    blockedResponseRules: [
-      { section: 'reviews', keywords: ['querygeneralcommentinfo', 'commentsinfo', 'comments/statistics', 'comment-manage'] },
-    ],
+    blockedResponseRules: [],
     responseRules: [
       { section: 'traffic', keywords: ['businessdata', 'weighttraffic', 'traffic', 'peertrends', 'peer/rank', 'flowconversion', 'flowtrend', 'flowtrenddetail', 'flowforecast', 'searchkeyword', 'search-keyword', 'roomtype', 'room-type'] },
       { section: 'ads', keywords: ['cureshops'] },
       { section: 'orders', keywords: ['/orders/list', '/order/unhandled/count', '/order-eb/'] },
+      { section: 'reviews', keywords: ['querygeneralcommentinfo', 'commentsinfo', 'comments/statistics', 'comment-manage'] },
     ],
   },
   ctrip: {
     label: 'Ctrip eBooking',
     profilePrefix: 'ctrip_profile',
     defaultSections: ['business', 'traffic'],
-    allowedSections: ['business', 'traffic', 'ads', 'orders', 'quality', 'search_keyword'],
+    allowedSections: ['business', 'traffic', 'ads', 'orders', 'quality', 'search_keyword', 'reviews'],
     cookieDomains: ['ebooking.ctrip.com', '.ctrip.com'],
     sectionAliases: {
       business: 'business',
@@ -98,10 +103,13 @@ export const PLATFORM_CONFIGS = {
       room_type: 'business',
       keyword: 'search_keyword',
       keywords: 'search_keyword',
+      review: 'reviews',
+      reviews: 'reviews',
+      comment: 'reviews',
+      comments: 'reviews',
+      comment_review: 'reviews',
     },
-    blockedResponseRules: [
-      { section: 'reviews', keywords: ['getcommentlist', 'commentlist', 'comment/', '/comment', 'review'] },
-    ],
+    blockedResponseRules: [],
     responseRules: [
       {
         section: 'business',
@@ -143,11 +151,10 @@ export const PLATFORM_CONFIGS = {
         ],
       },
       { section: 'orders', keywords: ['queryorderlist', 'getorderlist', 'unprocessorderlist', 'orderdetail', '/order/'] },
+      { section: 'reviews', keywords: ['getcommentnumv2', 'getcommentlist', 'gethotelrating', 'commentlist', 'comment/', '/comment'] },
     ],
   },
 };
-
-const DISABLED_COMMENT_SECTION_ALIASES = new Set(['review', 'reviews', 'comment', 'comments']);
 
 export function normalizePlatform(platform) {
   const key = String(platform || '').trim().toLowerCase();
@@ -171,9 +178,6 @@ export function normalizeCaptureSections(platform, value = '') {
     const token = item.trim();
     if (!token) {
       continue;
-    }
-    if (DISABLED_COMMENT_SECTION_ALIASES.has(token)) {
-      throw new Error('Comment/review capture is disabled by policy');
     }
     const section = config.sectionAliases[token] || '';
     if (!section || !config.allowedSections.includes(section)) {
@@ -311,17 +315,20 @@ export function classifyOtaResponse(platform, url, meta = {}) {
   const rules = PLATFORM_CONFIGS[platformKey].responseRules;
   for (const rule of PLATFORM_CONFIGS[platformKey].blockedResponseRules || []) {
     if (rule.keywords.some((keyword) => value.includes(keyword))) {
-      return { capture: false, platform: platformKey, section: rule.section, reason: 'comment_collection_disabled' };
+      return { capture: false, platform: platformKey, section: rule.section, reason: 'response_blocked_by_policy' };
     }
   }
 
   if (platformKey === 'ctrip') {
     const endpoint = findCtripEndpointByUrl(value);
     if (endpoint) {
+      const section = endpoint.section === 'comment_review'
+        ? 'reviews'
+        : standardSectionName(endpoint.dataType);
       return {
         capture: true,
         platform: platformKey,
-        section: standardSectionName(endpoint.dataType),
+        section,
         capture_section: endpoint.section,
         endpoint_id: endpoint.id,
         reason: 'url_keyword',

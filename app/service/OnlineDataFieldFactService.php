@@ -141,13 +141,19 @@ final class OnlineDataFieldFactService
                 'metric_key' => 'comment_score',
                 'normalized_field' => 'comment_score',
                 'storage_field' => 'comment_score',
-                'source_keys' => ['score', 'star', 'rating', 'totalScore'],
+                'source_keys' => ['comment_score', 'commentScore', 'score', 'star', 'rating', 'rate', 'totalScore', 'overallScore'],
             ],
             [
-                'metric_key' => 'review_count',
+                'metric_key' => 'comment_count',
                 'normalized_field' => 'quantity',
                 'storage_field' => 'quantity',
-                'source_keys' => ['review_id', 'reviewId', 'comment_id', 'commentId', 'id'],
+                'source_keys' => ['comment_count', 'commentCount', 'commentsCount', 'review_count', 'reviewCount', 'totalCommentCount', 'totalCount', 'allCount', 'quantity'],
+            ],
+            [
+                'metric_key' => 'bad_review_count',
+                'normalized_field' => 'data_value',
+                'storage_field' => 'data_value',
+                'source_keys' => ['bad_review_count', 'badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount', 'noRecommendCount'],
             ],
         ],
     ];

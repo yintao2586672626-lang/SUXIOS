@@ -50,6 +50,8 @@ class PlatformProfileLogin extends Command
         if ($lock === null) {
             $this->writeTask($taskId, [
                 'status' => 'failed',
+                'status_code' => 'resource_busy_login',
+                'error_code' => 'resource_busy_login',
                 'message' => '同一平台 Profile 登录或采集正在运行',
                 'finished_at' => date('Y-m-d H:i:s'),
             ]);
@@ -132,6 +134,8 @@ class PlatformProfileLogin extends Command
 
         $this->writeTask($taskId, [
             'status' => 'logged_in',
+            'status_code' => 'logged_in',
+            'error_code' => '',
             'message' => ($platform === 'ctrip' ? '携程' : '美团') . '平台登录态已验证，Profile 已保存',
             'finished_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
@@ -334,7 +338,7 @@ class PlatformProfileLogin extends Command
             $args[] = '--profile-id=' . $profileId;
             $args[] = '--system-hotel-id=' . (string)($request['system_hotel_id'] ?? '');
             $args[] = '--sections=' . $this->safeSections($request['sections'] ?? $request['capture_sections'] ?? 'business_overview', 'business_overview');
-            $args[] = '--login-url=https://ebooking.ctrip.com/login/index';
+            $args[] = '--login-url=https://ebooking.ctrip.com/home/mainland';
             if ($hotelId !== '') {
                 $args[] = '--hotel-id=' . $hotelId;
             }
@@ -419,6 +423,8 @@ class PlatformProfileLogin extends Command
 
         $this->writeTask($taskId, [
             'status' => 'failed',
+            'status_code' => 'login_expired',
+            'error_code' => 'login_expired',
             'message' => $message,
             'finished_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),

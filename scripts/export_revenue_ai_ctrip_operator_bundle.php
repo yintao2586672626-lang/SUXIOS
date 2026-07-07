@@ -5,7 +5,7 @@ date_default_timezone_set('Asia/Shanghai');
 
 /**
  * @param array<int, string> $argv
- * @return array{date:string,hotel_id:int|null,output_dir:string,force:bool}
+ * @return array{date:string,hotel_id:int|null,output_dir:string,force:bool,refresh_evidence:bool}
  */
 function ctrip_operator_bundle_parse_args(array $argv): array
 {
@@ -18,11 +18,17 @@ function ctrip_operator_bundle_parse_args(array $argv): array
         'output-dir' => '',
         'output_dir' => '',
         'force' => false,
+        'refresh-evidence' => false,
+        'refresh_evidence' => false,
     ];
 
     foreach (array_slice($argv, 1) as $arg) {
         if ($arg === '--force') {
             $options['force'] = true;
+            continue;
+        }
+        if ($arg === '--refresh-evidence') {
+            $options['refresh-evidence'] = true;
             continue;
         }
         if (!str_starts_with($arg, '--') || !str_contains($arg, '=')) {
@@ -32,7 +38,7 @@ function ctrip_operator_bundle_parse_args(array $argv): array
         if (!array_key_exists($key, $options)) {
             continue;
         }
-        if ($key === 'force') {
+        if ($key === 'force' || $key === 'refresh-evidence' || $key === 'refresh_evidence') {
             $options[$key] = in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'on'], true);
         } else {
             $options[$key] = trim($value);
@@ -73,6 +79,7 @@ function ctrip_operator_bundle_parse_args(array $argv): array
         'hotel_id' => $hotelId,
         'output_dir' => $outputDir,
         'force' => (bool)$options['force'],
+        'refresh_evidence' => (bool)$options['refresh-evidence'] || (bool)$options['refresh_evidence'],
     ];
 }
 
@@ -197,6 +204,9 @@ function ctrip_operator_bundle_target_files(string $dir): array
         'operator_action_sheet_csv' => $dir . DIRECTORY_SEPARATOR . 'operator-action-sheet.csv',
         'operator_confirmation_brief_markdown' => $dir . DIRECTORY_SEPARATOR . 'OPERATOR_CONFIRMATION_BRIEF.md',
         'operator_confirmation_brief_csv' => $dir . DIRECTORY_SEPARATOR . 'operator-confirmation-brief.csv',
+        'operator_quick_reply_markdown' => $dir . DIRECTORY_SEPARATOR . 'OPERATOR_QUICK_REPLY.md',
+        'operator_real_input_request_markdown' => $dir . DIRECTORY_SEPARATOR . 'OPERATOR_REAL_INPUT_REQUEST.md',
+        'operation_roi_evidence_request_markdown' => $dir . DIRECTORY_SEPARATOR . 'OPERATION_ROI_EVIDENCE_REQUEST.md',
         'operator_input_locators_csv' => $dir . DIRECTORY_SEPARATOR . 'operator-input-locators.csv',
         'operator_review_draft_markdown' => $dir . DIRECTORY_SEPARATOR . 'OPERATOR_REVIEW_DRAFT.md',
         'demand_trend_draft_json' => $dir . DIRECTORY_SEPARATOR . 'demand-trend-draft.json',
@@ -209,6 +219,8 @@ function ctrip_operator_bundle_target_files(string $dir): array
         'external_input_candidates_csv' => $dir . DIRECTORY_SEPARATOR . 'external-input-candidates.csv',
         'input_readiness_json' => $dir . DIRECTORY_SEPARATOR . 'input-readiness.json',
         'input_readiness_markdown' => $dir . DIRECTORY_SEPARATOR . 'input-readiness.md',
+        'auto_input_eligibility_json' => $dir . DIRECTORY_SEPARATOR . 'auto-input-eligibility.json',
+        'auto_input_eligibility_markdown' => $dir . DIRECTORY_SEPARATOR . 'auto-input-eligibility.md',
         'pricing_input_template_json' => $dir . DIRECTORY_SEPARATOR . 'pricing-input-template.json',
         'pricing_input_fillable_json' => $dir . DIRECTORY_SEPARATOR . 'pricing-input-fillable.json',
         'pending_review_packet_json' => $dir . DIRECTORY_SEPARATOR . 'pending-review-packet.json',
@@ -218,9 +230,20 @@ function ctrip_operator_bundle_target_files(string $dir): array
 }
 
 /**
+ * @return array<string, bool>
+ */
+function ctrip_operator_bundle_protected_input_file_keys(): array
+{
+    return [
+        'pricing_input_intake_csv' => true,
+        'pricing_input_fillable_json' => true,
+    ];
+}
+
+/**
  * @param array<string, string> $files
  */
-function ctrip_operator_bundle_assert_writeable(string $dir, array $files, bool $force): bool
+function ctrip_operator_bundle_assert_writeable(string $dir, array $files, bool $force, bool $refreshEvidence): bool
 {
     if (is_file($dir)) {
         throw new InvalidArgumentException('Output directory path points to a file: ' . $dir);
@@ -230,14 +253,18 @@ function ctrip_operator_bundle_assert_writeable(string $dir, array $files, bool 
     }
 
     $overwriting = false;
-    foreach ($files as $path) {
+    $protected = ctrip_operator_bundle_protected_input_file_keys();
+    foreach ($files as $key => $path) {
         if (is_dir($path)) {
             throw new InvalidArgumentException('Bundle file path points to a directory: ' . $path);
         }
         if (is_file($path)) {
             $overwriting = true;
-            if (!$force) {
+            if (!$force && !$refreshEvidence) {
                 throw new InvalidArgumentException('Bundle file already exists. Pass --force=1 to overwrite: ' . $path);
+            }
+            if (!$force && $refreshEvidence && isset($protected[$key])) {
+                continue;
             }
         }
     }
@@ -260,6 +287,58 @@ function ctrip_operator_bundle_write_file(string $path, string $content, bool $o
         'sha256' => hash('sha256', $content),
         'overwritten' => $overwritten,
     ];
+}
+
+/**
+ * @return array{path:string,bytes:int,sha256:string,overwritten:bool,preserved:bool}
+ */
+function ctrip_operator_bundle_preserve_file(string $path): array
+{
+    $content = file_get_contents($path);
+    if ($content === false) {
+        throw new RuntimeException('Failed to read preserved bundle file: ' . $path);
+    }
+
+    return [
+        'path' => $path,
+        'bytes' => strlen($content),
+        'sha256' => hash('sha256', $content),
+        'overwritten' => false,
+        'preserved' => true,
+    ];
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function ctrip_operator_bundle_decode_json_file(string $path): array
+{
+    $content = file_get_contents($path);
+    if ($content === false) {
+        throw new RuntimeException('Failed to read JSON file: ' . $path);
+    }
+    $decoded = json_decode($content, true);
+    if (!is_array($decoded)) {
+        throw new InvalidArgumentException('Invalid JSON file: ' . $path);
+    }
+
+    return $decoded;
+}
+
+function ctrip_operator_bundle_assert_preserved_fillable_scope(array $fillable, string $date, ?int $hotelId): void
+{
+    if ((string)($fillable['business_date'] ?? '') !== $date) {
+        throw new InvalidArgumentException('Preserved pricing-input-fillable.json business_date does not match --date. Use a new output directory or intentional --force=1.');
+    }
+    if ((string)($fillable['platform'] ?? '') !== 'ctrip') {
+        throw new InvalidArgumentException('Preserved pricing-input-fillable.json platform must be ctrip.');
+    }
+    if ($hotelId !== null && (int)($fillable['hotel_id'] ?? 0) !== $hotelId) {
+        throw new InvalidArgumentException('Preserved pricing-input-fillable.json hotel_id does not match --hotel-id. Use a new output directory or intentional --force=1.');
+    }
+    if (($fillable['auto_write_ota'] ?? false) !== false) {
+        throw new InvalidArgumentException('Preserved pricing-input-fillable.json must keep auto_write_ota=false.');
+    }
 }
 
 /**
@@ -302,6 +381,10 @@ function ctrip_operator_bundle_command(string $name, string $date, ?int $hotelId
     return match ($name) {
         'preflight_no_execute' => 'npm.cmd run verify:revenue-ai-ctrip-operator-bundle-preflight -- --dir=' . $filePath . ' --date=' . $date . $hotelArg,
         'csv_to_json_preflight' => 'npm.cmd run verify:revenue-ai-ctrip-operator-csv-preflight -- --dir=' . $filePath . ' --date=' . $date . $hotelArg,
+        'quick_reply_preflight' => 'npm.cmd run verify:revenue-ai-ctrip-operator-quick-reply-preflight -- --dir=' . $filePath . ' --date=' . $date . $hotelArg,
+        'quick_reply_apply_to_fillable' => 'npm.cmd run verify:revenue-ai-ctrip-operator-quick-reply-preflight -- --dir=' . $filePath . ' --date=' . $date . $hotelArg . ' --write-fillable=1',
+        'quick_reply_to_pending_review' => 'npm.cmd run run:revenue-ai-ctrip-quick-reply-to-pending-review -- --dir=' . $filePath . ' --date=' . $date . $hotelArg . ' --execute=1',
+        'auto_input_eligibility' => 'npm.cmd run report:revenue-ai-ctrip-auto-input-eligibility -- --dir=' . $filePath . ' --date=' . $date . $hotelArg . ' --format=markdown',
         'build_fillable_from_csv' => 'npm.cmd run build:revenue-ai-ctrip-pricing-input-from-csv -- --csv-file=' . $filePath . ' --output=' . $outputPath . ' --date=' . $date . $hotelArg . ' --force=1',
         'lint_only' => 'npm.cmd run lint:revenue-ai-ctrip-pricing-inputs -- --file=' . $filePath . ' --date=' . $date . $hotelArg,
         'validate_only' => 'npm.cmd run validate:revenue-ai-ctrip-pricing-inputs -- --file=' . $filePath . ' --date=' . $date . $hotelArg,
@@ -1135,6 +1218,490 @@ function ctrip_operator_bundle_operator_confirmation_brief_csv(array $pricingEvi
 }
 
 /**
+ * @param array<int, array<string, string>> $confirmationRows
+ * @return array<int, array<string, string>>
+ */
+function ctrip_operator_bundle_quick_reply_hint_rows(array $confirmationRows): array
+{
+    $wantedColumns = [
+        'room_type_source' => true,
+        'price_guard_source' => true,
+        'demand_forecast_source' => true,
+        'competitor_price_source' => true,
+        'room_type_key' => true,
+        'room_type_name' => true,
+        'room_count' => true,
+        'base_price' => true,
+        'min_price' => true,
+        'max_price' => true,
+        'competitor_name' => true,
+        'our_price' => true,
+        'competitor_price' => true,
+    ];
+    $rows = [];
+
+    foreach ($confirmationRows as $row) {
+        $column = (string)($row['target_csv_column'] ?? '');
+        if (!isset($wantedColumns[$column])) {
+            continue;
+        }
+        $field = $column;
+        if ($column === 'room_type_key' && str_starts_with((string)($row['target_json_path'] ?? ''), '$.competitor_price_samples.')) {
+            $field = 'competitor_room_type_key';
+        }
+        $rows[] = [
+            'field' => $field,
+            'status' => (string)($row['input_status'] ?? ''),
+            'candidate_hint' => (string)($row['candidate_hint'] ?? ''),
+            'required_confirmation' => (string)($row['required_confirmation'] ?? ''),
+        ];
+    }
+
+    return $rows;
+}
+
+/**
+ * @param array<int, array<string, string>> $confirmationRows
+ */
+function ctrip_operator_bundle_operator_quick_reply(array $manifest, bool $trafficTrendDemandReady, array $confirmationRows = []): string
+{
+    $scope = ctrip_operator_bundle_map($manifest['scope'] ?? []);
+    $commands = ctrip_operator_bundle_map($manifest['next_commands_after_filling_template'] ?? []);
+    $date = (string)($scope['business_date'] ?? '');
+    $hotelId = isset($scope['hotel_id']) ? (int)$scope['hotel_id'] : null;
+    $windowStart = $date;
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1) {
+        $windowStart = (new DateTimeImmutable($date))->modify('-6 days')->format('Y-m-d');
+    }
+    $demandSource = 'ctrip_historical_traffic_trend via report:revenue-ai-ctrip-traffic-demand-trend -- --date='
+        . $date
+        . ($hotelId === null ? ' --hotel-id=<hotel-id>' : ' --hotel-id=' . $hotelId);
+
+    $lines = [];
+    $lines[] = '# Ctrip Operator Quick Reply';
+    $lines[] = '';
+    $lines[] = '- business_date: `' . ctrip_operator_bundle_markdown_cell($date) . '`';
+    $lines[] = '- platform: `ctrip`';
+    $lines[] = '- hotel_id: `' . ctrip_operator_bundle_markdown_cell($hotelId === null ? 'unknown' : (string)$hotelId) . '`';
+    $lines[] = '- source_scope: `ctrip_ota_channel`';
+    $lines[] = '- source_policy: `operator_quick_reply_no_values_no_import`';
+    $lines[] = '- database_written: `false`';
+    $lines[] = '- auto_write_ota: `false`';
+    $lines[] = '- importable_value: `false`';
+    $lines[] = '- target_file: `pricing-input-intake.csv`';
+    $lines[] = '';
+    $lines[] = '## Reply Block';
+    $lines[] = '';
+    $lines[] = 'Fill only real operator-verified Ctrip OTA channel values. Keep a field blank if it is not verified.';
+    $lines[] = '';
+    $lines[] = '```text';
+    $lines[] = 'confirmed_by=';
+    $lines[] = 'confirmed_at=YYYY-MM-DD HH:MM:SS';
+    $lines[] = 'room_type_source=';
+    $lines[] = 'price_guard_source=';
+    $lines[] = 'demand_forecast_source=' . ($trafficTrendDemandReady ? $demandSource : '');
+    $lines[] = 'competitor_price_source=';
+    $lines[] = '';
+    $lines[] = 'room_type_key=';
+    $lines[] = 'room_type_name=';
+    $lines[] = 'room_count=';
+    $lines[] = 'base_price=';
+    $lines[] = 'min_price=';
+    $lines[] = 'max_price=';
+    $lines[] = '';
+    $lines[] = 'competitor_analysis_date=' . $date;
+    $lines[] = 'competitor_room_type_key=';
+    $lines[] = 'competitor_name=';
+    $lines[] = 'our_price=';
+    $lines[] = 'competitor_price=';
+    $lines[] = '';
+    $lines[] = '# Optional multi-row format: uncomment and fill these indexed keys when one quick reply must carry multiple Ctrip room types or competitor samples.';
+    $lines[] = '# room_type_1_key=';
+    $lines[] = '# room_type_1_name=';
+    $lines[] = '# room_type_1_count=';
+    $lines[] = '# room_type_1_base_price=';
+    $lines[] = '# room_type_1_min_price=';
+    $lines[] = '# room_type_1_max_price=';
+    $lines[] = '# room_type_2_key=';
+    $lines[] = '# room_type_2_name=';
+    $lines[] = '# room_type_2_count=';
+    $lines[] = '# room_type_2_base_price=';
+    $lines[] = '# room_type_2_min_price=';
+    $lines[] = '# room_type_2_max_price=';
+    $lines[] = '# competitor_sample_1_analysis_date=' . $date;
+    $lines[] = '# competitor_sample_1_room_type_key=';
+    $lines[] = '# competitor_sample_1_name=';
+    $lines[] = '# competitor_sample_1_our_price=';
+    $lines[] = '# competitor_sample_1_competitor_price=';
+    $lines[] = '# competitor_sample_2_analysis_date=' . $date;
+    $lines[] = '# competitor_sample_2_room_type_key=';
+    $lines[] = '# competitor_sample_2_name=';
+    $lines[] = '# competitor_sample_2_our_price=';
+    $lines[] = '# competitor_sample_2_competitor_price=';
+    $lines[] = '```';
+    $lines[] = '';
+    $hintRows = ctrip_operator_bundle_quick_reply_hint_rows($confirmationRows);
+    if ($hintRows !== []) {
+        $lines[] = '## Review Hints (Not Importable)';
+        $lines[] = '';
+        $lines[] = '- Candidate hints are copied from `OPERATOR_CONFIRMATION_BRIEF.md` and `operator-confirmation-brief.csv`; they are review aids only.';
+        $lines[] = '- Do not paste a candidate hint into the reply unless the operator has verified it as a real current Ctrip value.';
+        $lines[] = '';
+        $lines[] = '| field | status | candidate_hint | required_confirmation |';
+        $lines[] = '|---|---|---|---|';
+        foreach ($hintRows as $row) {
+            $lines[] = '| `' . ctrip_operator_bundle_markdown_cell($row['field'])
+                . '` | `' . ctrip_operator_bundle_markdown_cell($row['status'])
+                . '` | ' . ctrip_operator_bundle_markdown_cell($row['candidate_hint'])
+                . ' | ' . ctrip_operator_bundle_markdown_cell($row['required_confirmation']) . ' |';
+        }
+        $lines[] = '';
+    }
+    $lines[] = '## Minimum Requirements';
+    $lines[] = '';
+    $lines[] = '- `room_type_key` must match the key reused by `competitor_room_type_key`.';
+    $lines[] = '- Leave `competitor_room_type_key` blank only when it should reuse `room_type_key`.';
+    $lines[] = '- For multiple room types, use indexed `room_type_1_*`, `room_type_2_*` rows; each indexed row must include key, name, count, base/min/max prices.';
+    $lines[] = '- For multiple competitor samples, use indexed `competitor_sample_1_*`, `competitor_sample_2_*` rows; each sample must carry analysis date, room type key, competitor name, our price, and competitor price.';
+    $lines[] = '- `base_price`, `min_price`, `max_price`, `our_price`, and `competitor_price` must be numeric values greater than 0.';
+    $lines[] = '- `min_price <= base_price <= max_price`.';
+    $lines[] = '- `room_count` must be a positive integer for the confirmed Ctrip room type.';
+    $lines[] = '- `competitor_analysis_date` must be within `' . $windowStart . '` to `' . $date . '`.';
+    $lines[] = '- `competitor_name` must be a named Ctrip competitor from a recent same-window price sample.';
+    if ($trafficTrendDemandReady) {
+        $lines[] = '- Demand forecast is already covered by `ctrip_historical_traffic_trend`; do not add a manual demand row unless replacing that source intentionally.';
+    } else {
+        $lines[] = '- Demand forecast is still missing; add manual forecast evidence before attempting execution.';
+    }
+    $lines[] = '';
+    $lines[] = '## Forbidden';
+    $lines[] = '';
+    $lines[] = '- Do not use Meituan, whole-hotel, guessed, sample, fallback, or verifier-only values.';
+    $lines[] = '- Do not use observed Ctrip average prices as floor/protection prices without operator approval.';
+    $lines[] = '- Do not use competitor aggregates or historical market distributions as current named competitor price samples.';
+    $lines[] = '- Do not write OTA prices from this reply; it only feeds the local pending-review pipeline.';
+    $lines[] = '';
+    $lines[] = '## After Filling';
+    $lines[] = '';
+    if (isset($commands['quick_reply_preflight'])) {
+        $lines[] = '- Quick reply preflight: `' . ctrip_operator_bundle_markdown_cell((string)$commands['quick_reply_preflight']) . '`';
+        $lines[] = '- This preflight reads `OPERATOR_QUICK_REPLY.md`, builds temporary local intake files, and runs no-execute gates without writing the database or OTA prices.';
+    }
+    if (isset($commands['quick_reply_apply_to_fillable'])) {
+        $lines[] = '- Apply quick reply to fillable JSON only after preflight passes: `' . ctrip_operator_bundle_markdown_cell((string)$commands['quick_reply_apply_to_fillable']) . '`';
+        $lines[] = '- The apply command writes only local `pricing-input-fillable.json` after all no-execute gates pass; it does not write the database or OTA prices.';
+    }
+    if (isset($commands['quick_reply_to_pending_review'])) {
+        $lines[] = '- One-step pending-review runner after real values are complete: `' . ctrip_operator_bundle_markdown_cell((string)$commands['quick_reply_to_pending_review']) . '`';
+        $lines[] = '- This runner applies the quick reply, reruns the bundle preflight, and creates only local pending AI review items; it does not write OTA prices.';
+    }
+    if (isset($commands['csv_to_json_preflight'])) {
+        $lines[] = '- CSV preflight: `' . ctrip_operator_bundle_markdown_cell((string)$commands['csv_to_json_preflight']) . '`';
+    }
+    if (isset($commands['preflight_no_execute'])) {
+        $lines[] = '- JSON preflight: `' . ctrip_operator_bundle_markdown_cell((string)$commands['preflight_no_execute']) . '`';
+    }
+    $lines[] = '- Continue only when the no-execute preflight passes.';
+
+    return implode(PHP_EOL, $lines) . PHP_EOL;
+}
+
+function ctrip_operator_bundle_operator_real_input_request(array $manifest, bool $trafficTrendDemandReady): string
+{
+    $scope = ctrip_operator_bundle_map($manifest['scope'] ?? []);
+    $commands = ctrip_operator_bundle_map($manifest['next_commands_after_filling_template'] ?? []);
+    $operatorQuickReply = ctrip_operator_bundle_map($manifest['operator_quick_reply'] ?? []);
+    $date = (string)($scope['business_date'] ?? '');
+    $hotelId = isset($scope['hotel_id']) ? (int)$scope['hotel_id'] : null;
+    $windowStart = $date;
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1) {
+        $windowStart = (new DateTimeImmutable($date))->modify('-6 days')->format('Y-m-d');
+    }
+    $requiredBeforeExecute = ctrip_operator_bundle_list($operatorQuickReply['required_before_execute'] ?? [
+        'room_types_enabled',
+        'floor_price_or_min_rate_guard',
+        'competitor_price_samples',
+    ]);
+    $requiredText = implode('; ', $requiredBeforeExecute);
+    $demandSource = 'ctrip_historical_traffic_trend via report:revenue-ai-ctrip-traffic-demand-trend -- --date='
+        . $date
+        . ($hotelId === null ? ' --hotel-id=<hotel-id>' : ' --hotel-id=' . $hotelId);
+
+    $lines = [];
+    $lines[] = '# 携程真实经营输入请求单';
+    $lines[] = '';
+    $lines[] = '- business_date: `' . ctrip_operator_bundle_markdown_cell($date) . '`';
+    $lines[] = '- hotel_id: `' . ctrip_operator_bundle_markdown_cell($hotelId === null ? 'unknown' : (string)$hotelId) . '`';
+    $lines[] = '- platform: `ctrip`';
+    $lines[] = '- source_scope: `ctrip_ota_channel`';
+    $lines[] = '- source_policy: `operator_request_no_values_no_import`';
+    $lines[] = '- database_written: `false`';
+    $lines[] = '- auto_write_ota: `false`';
+    $lines[] = '- importable_value: `false`';
+    $lines[] = '- target_file: `OPERATOR_QUICK_REPLY.md`';
+    $lines[] = '- current_required_real_inputs_before_execute: `' . ctrip_operator_bundle_markdown_cell($requiredText) . '`';
+    $lines[] = '';
+    $lines[] = '## 当前边界';
+    $lines[] = '';
+    $lines[] = '- 本请求单只面向携程 OTA 渠道，不代表全酒店经营事实。';
+    $lines[] = '- 本文件不作为导入文件，不写数据库，不写 OTA 价格。';
+    if ($trafficTrendDemandReady) {
+        $lines[] = '- 需求预测已由 `ctrip_historical_traffic_trend` 覆盖，当前不再要求人工补一张需求预测表。';
+    } else {
+        $lines[] = '- 需求预测尚未通过 `ctrip_historical_traffic_trend` 校验，需要先补齐可验证的需求预测来源。';
+    }
+    $lines[] = '';
+    $lines[] = '## 需要运营回复的 3 类真实输入';
+    $lines[] = '';
+    $lines[] = '1. 携程启用售卖房型与可售房量 (`room_types_enabled`)：请确认当前携程后台真实启用的售卖房型、房型 key/名称、可售房量。';
+    $lines[] = '2. 当前售卖价/保底价/上限保护价 (`floor_price_or_min_rate_guard`)：请确认该房型可用于 AI 调价的 `base_price`、`min_price`、`max_price`，不能用历史均价替代。';
+    $lines[] = '3. 近 7 日同窗口具名携程竞品价格样本 (`competitor_price_samples`)：请提供 `' . ctrip_operator_bundle_markdown_cell($windowStart) . '` 到 `' . ctrip_operator_bundle_markdown_cell($date) . '` 之间的竞品名称、我方价格、竞品价格。';
+    $lines[] = '';
+    $lines[] = '## 复制到 OPERATOR_QUICK_REPLY.md';
+    $lines[] = '';
+    $lines[] = '```text';
+    $lines[] = 'confirmed_by=';
+    $lines[] = 'confirmed_at=YYYY-MM-DD HH:MM:SS';
+    $lines[] = 'room_type_source=';
+    $lines[] = 'price_guard_source=';
+    $lines[] = 'demand_forecast_source=' . ($trafficTrendDemandReady ? $demandSource : '');
+    $lines[] = 'competitor_price_source=';
+    $lines[] = '';
+    $lines[] = 'room_type_key=';
+    $lines[] = 'room_type_name=';
+    $lines[] = 'room_count=';
+    $lines[] = 'base_price=';
+    $lines[] = 'min_price=';
+    $lines[] = 'max_price=';
+    $lines[] = '';
+    $lines[] = 'competitor_analysis_date=' . $date;
+    $lines[] = 'competitor_room_type_key=';
+    $lines[] = 'competitor_name=';
+    $lines[] = 'our_price=';
+    $lines[] = 'competitor_price=';
+    $lines[] = '';
+    $lines[] = '# 多房型/多竞品样本可选格式：需要一次回复多行时，取消下方注释并填写真实值。';
+    $lines[] = '# room_type_1_key=';
+    $lines[] = '# room_type_1_name=';
+    $lines[] = '# room_type_1_count=';
+    $lines[] = '# room_type_1_base_price=';
+    $lines[] = '# room_type_1_min_price=';
+    $lines[] = '# room_type_1_max_price=';
+    $lines[] = '# room_type_2_key=';
+    $lines[] = '# room_type_2_name=';
+    $lines[] = '# room_type_2_count=';
+    $lines[] = '# room_type_2_base_price=';
+    $lines[] = '# room_type_2_min_price=';
+    $lines[] = '# room_type_2_max_price=';
+    $lines[] = '# competitor_sample_1_analysis_date=' . $date;
+    $lines[] = '# competitor_sample_1_room_type_key=';
+    $lines[] = '# competitor_sample_1_name=';
+    $lines[] = '# competitor_sample_1_our_price=';
+    $lines[] = '# competitor_sample_1_competitor_price=';
+    $lines[] = '# competitor_sample_2_analysis_date=' . $date;
+    $lines[] = '# competitor_sample_2_room_type_key=';
+    $lines[] = '# competitor_sample_2_name=';
+    $lines[] = '# competitor_sample_2_our_price=';
+    $lines[] = '# competitor_sample_2_competitor_price=';
+    $lines[] = '```';
+    $lines[] = '';
+    $lines[] = '## 禁止填写';
+    $lines[] = '';
+    $lines[] = '- 猜测值、样例值、verifier-only 值、fallback 值。';
+    $lines[] = '- 美团数据、全酒店经营口径、跨渠道均值。';
+    $lines[] = '- 携程历史观察均价直接当作保底价或保护价。';
+    $lines[] = '- 竞品聚合均值、历史市场分布、未具名竞品价格。';
+    $lines[] = '';
+    $lines[] = '## 填完后执行';
+    $lines[] = '';
+    if (isset($commands['quick_reply_preflight'])) {
+        $lines[] = '1. `quick_reply_preflight`：`' . ctrip_operator_bundle_markdown_cell((string)$commands['quick_reply_preflight']) . '`';
+    }
+    if (isset($commands['quick_reply_to_pending_review'])) {
+        $lines[] = '2. `quick_reply_to_pending_review`：只有预校验通过后，才允许显式进入本地 AI 待审核：`' . ctrip_operator_bundle_markdown_cell((string)$commands['quick_reply_to_pending_review']) . '`';
+    }
+    $lines[] = '';
+    $lines[] = '## 停止条件';
+    $lines[] = '';
+    $lines[] = '- `OPERATOR_QUICK_REPLY.md` 未通过预校验前，不生成待审核 AI 调价建议。';
+    $lines[] = '- 即使进入待审核，也只创建本地人工审核项，不自动写 OTA 价格。';
+
+    return implode(PHP_EOL, $lines) . PHP_EOL;
+}
+
+function ctrip_operator_bundle_operation_roi_evidence_request(array $manifest): string
+{
+    $scope = ctrip_operator_bundle_map($manifest['scope'] ?? []);
+    $commands = ctrip_operator_bundle_map($manifest['next_commands_after_filling_template'] ?? []);
+    $date = (string)($scope['business_date'] ?? '');
+    $hotelId = isset($scope['hotel_id']) ? (int)$scope['hotel_id'] : null;
+    $businessDate = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+    if (!$businessDate instanceof DateTimeImmutable || $businessDate->format('Y-m-d') !== $date) {
+        throw new InvalidArgumentException('business_date must be YYYY-MM-DD for operation ROI evidence request.');
+    }
+    $previousDay = $businessDate->modify('-1 day')->format('Y-m-d');
+    $nextDay = $businessDate->modify('+1 day')->format('Y-m-d');
+
+    $lines = [];
+    $lines[] = '# Ctrip Operation ROI Evidence Request';
+    $lines[] = '';
+    $lines[] = '- business_date: `' . ctrip_operator_bundle_markdown_cell($date) . '`';
+    $lines[] = '- hotel_id: `' . ctrip_operator_bundle_markdown_cell($hotelId === null ? 'unknown' : (string)$hotelId) . '`';
+    $lines[] = '- platform: `ctrip`';
+    $lines[] = '- source_scope: `ctrip_ota_channel_execution_evidence`';
+    $lines[] = '- source_policy: `human_operation_roi_evidence_request_no_values_no_import`';
+    $lines[] = '- database_written: `false`';
+    $lines[] = '- auto_write_ota: `false`';
+    $lines[] = '- importable_value: `false`';
+    $lines[] = '- proves_execution_or_roi: `false`';
+    $lines[] = '- required_gate: `operation_execution.roi_ready`';
+    $lines[] = '- protected_boundary: `do_not_promote_ctrip_ota_scope_to_whole_hotel_truth`';
+    $lines[] = '';
+    $lines[] = '## When To Use';
+    $lines[] = '';
+    $lines[] = '- Use this only after an AI pricing suggestion has passed manual review and created an operation execution intent.';
+    $lines[] = '- This request is a checklist for collecting evidence; it is not proof that execution or ROI happened.';
+    $lines[] = '- No OTA price write is allowed by this request. Actual Ctrip price changes remain manual external operations.';
+    $lines[] = '';
+    $lines[] = '## Required Sequence';
+    $lines[] = '';
+    $lines[] = '1. `approve_operation_execution_intent`';
+    $lines[] = '2. `record_manual_execution_result`';
+    $lines[] = '3. `upload_roi_evidence`';
+    $lines[] = '4. `review_execution_task_roi`';
+    $lines[] = '5. `keep_investment_manual_review_only` until `operation_execution.roi_ready` is true.';
+    $lines[] = '';
+    $lines[] = '## ROI Window';
+    $lines[] = '';
+    $lines[] = '- business_date: `' . ctrip_operator_bundle_markdown_cell($date) . '`';
+    $lines[] = '- previous_day: `' . ctrip_operator_bundle_markdown_cell($previousDay) . '`';
+    $lines[] = '- next_day: `' . ctrip_operator_bundle_markdown_cell($nextDay) . '`';
+    $lines[] = '- scope: `ctrip_ota_channel_only`';
+    $lines[] = '- required_metrics: `revenue; room_nights; orders; conversion; traffic`';
+    $lines[] = '';
+    $lines[] = '## Manual Execution Evidence Required';
+    $lines[] = '';
+    $lines[] = '| field | expected real evidence |';
+    $lines[] = '|---|---|';
+    $lines[] = '| `executed_by` | Operator name or role who manually executed the approved Ctrip change. |';
+    $lines[] = '| `executed_at` | Actual execution time, `YYYY-MM-DD HH:MM:SS`. |';
+    $lines[] = '| `execution_basis` | Manual approval or execution instruction source. |';
+    $lines[] = '| `room_rate_mapping_source` | Evidence for room type/rate-plan mapping used during execution. |';
+    $lines[] = '| `execution_receipt_or_screenshot_path` | Local path or evidence id for execution receipt/screenshot. |';
+    $lines[] = '';
+    $lines[] = '## Manual ROI Evidence Required';
+    $lines[] = '';
+    $lines[] = '| field | expected real evidence |';
+    $lines[] = '|---|---|';
+    $lines[] = '| `reviewed_by` | Operator/reviewer name or role. |';
+    $lines[] = '| `reviewed_at` | ROI review time, `YYYY-MM-DD HH:MM:SS`. |';
+    $lines[] = '| `before_metric_source` | Source for previous-day Ctrip metrics. |';
+    $lines[] = '| `after_metric_source` | Source for next-day Ctrip metrics. |';
+    $lines[] = '| `roi_calculation_basis` | Formula/source note for incremental revenue or ROI calculation. |';
+    $lines[] = '| `roi_receipt_or_screenshot_path` | Local path or evidence id for ROI metric screenshot/export. |';
+    $lines[] = '';
+    $lines[] = '## Evidence Payload Skeleton';
+    $lines[] = '';
+    $lines[] = '```json';
+    $lines[] = ctrip_operator_bundle_json([
+        'execution_payload_template' => [
+            'status' => 'executed',
+            'evidence_type' => 'manual_price_execution',
+            'evidence' => [
+                'before' => [
+                    'date' => $previousDay,
+                    'revenue' => '<previous_day_ctrip_revenue>',
+                    'room_nights' => '<previous_day_ctrip_room_nights>',
+                    'source_scope' => 'ctrip_ota_channel',
+                ],
+                'after' => [
+                    'date' => $nextDay,
+                    'revenue' => '<next_day_ctrip_revenue>',
+                    'room_nights' => '<next_day_ctrip_room_nights>',
+                    'source_scope' => 'ctrip_ota_channel',
+                ],
+                'platform_response' => [
+                    'mode' => 'manual_price_execution',
+                    'business_date' => $date,
+                    'previous_day' => $previousDay,
+                    'next_day' => $nextDay,
+                    'evidence_boundary' => 'local_manual_evidence_no_ota_write',
+                    'auto_write_ota' => false,
+                ],
+                'operator_execution_evidence' => [
+                    'executed_by' => '<operator_name_or_role>',
+                    'executed_at' => '<YYYY-MM-DD HH:MM:SS>',
+                    'execution_basis' => '<source_for_manual_ctrip_price_execution>',
+                    'room_rate_mapping_source' => '<source_for_room_rate_mapping>',
+                    'execution_receipt_or_screenshot_path' => '<execution_receipt_or_screenshot_path>',
+                ],
+            ],
+        ],
+        'roi_evidence_payload_template' => [
+            'evidence_type' => 'manual_roi_evidence',
+            'evidence' => [
+                'before' => [
+                    'date' => $previousDay,
+                    'revenue' => '<previous_day_ctrip_revenue>',
+                    'room_nights' => '<previous_day_ctrip_room_nights>',
+                    'orders' => '<previous_day_ctrip_orders>',
+                    'conversion' => '<previous_day_ctrip_conversion>',
+                    'traffic' => '<previous_day_ctrip_traffic>',
+                    'source_scope' => 'ctrip_ota_channel',
+                ],
+                'after' => [
+                    'date' => $nextDay,
+                    'revenue' => '<next_day_ctrip_revenue>',
+                    'room_nights' => '<next_day_ctrip_room_nights>',
+                    'orders' => '<next_day_ctrip_orders>',
+                    'conversion' => '<next_day_ctrip_conversion>',
+                    'traffic' => '<next_day_ctrip_traffic>',
+                    'source_scope' => 'ctrip_ota_channel',
+                ],
+                'platform_response' => [
+                    'mode' => 'manual_roi_evidence',
+                    'scope' => 'price_execution_incremental_revenue',
+                    'source' => 'revenue_ai_effect_review_input',
+                    'business_date' => $date,
+                    'previous_day' => $previousDay,
+                    'next_day' => $nextDay,
+                    'evidence_boundary' => 'local_manual_roi_evidence_no_ota_write',
+                    'auto_write_ota' => false,
+                ],
+                'operator_roi_evidence' => [
+                    'reviewed_by' => '<operator_name_or_role>',
+                    'reviewed_at' => '<YYYY-MM-DD HH:MM:SS>',
+                    'before_metric_source' => '<source_for_previous_day_ctrip_metrics>',
+                    'after_metric_source' => '<source_for_next_day_ctrip_metrics>',
+                    'roi_calculation_basis' => '<source_for_roi_calculation_basis>',
+                    'roi_receipt_or_screenshot_path' => '<roi_receipt_or_screenshot_path>',
+                ],
+            ],
+        ],
+    ]);
+    $lines[] = '```';
+    $lines[] = '';
+    $lines[] = '## Commands After Evidence Exists';
+    $lines[] = '';
+    if (isset($commands['execute_review_and_create_intent'])) {
+        $lines[] = '- `execute_review_and_create_intent`: create operation intent after manual review approval: `' . ctrip_operator_bundle_markdown_cell((string)$commands['execute_review_and_create_intent']) . '`';
+    }
+    if (isset($commands['verify_roi_boundary'])) {
+        $lines[] = '- `verify_roi_boundary`: verify Ctrip operation/ROI boundary: `' . ctrip_operator_bundle_markdown_cell((string)$commands['verify_roi_boundary']) . '`';
+    }
+    $lines[] = '- Investment decision remains blocked until `operation_execution.roi_ready` is true.';
+    $lines[] = '';
+    $lines[] = '## Forbidden';
+    $lines[] = '';
+    $lines[] = '- Do not treat this request sheet as execution proof or ROI proof.';
+    $lines[] = '- Do not write OTA prices from this request sheet.';
+    $lines[] = '- Do not mix Meituan, whole-hotel, guessed, sample, fallback, or verifier-only values.';
+    $lines[] = '- Do not approve investment decisions from Ctrip OTA evidence alone without closed operation ROI evidence.';
+
+    return implode(PHP_EOL, $lines) . PHP_EOL;
+}
+
+/**
  * @param array<string, mixed> $operatorPacket
  * @return string
  */
@@ -1565,6 +2132,7 @@ function ctrip_operator_bundle_real_input_todo(array $operatorPacket, array $fil
     $lines[] = '- `pricing-input-fillable.json` currently contains placeholders and is not executable until lint passes.';
     $lines[] = '- Start with `OPERATOR_REVIEW_DRAFT.md` to review Ctrip candidate evidence and the traffic demand trend draft in one place; it is not an import file.';
     $lines[] = '- `external-input-candidates.*` lists external project-material clues only; 120/137 room counts, 350/450 price assumptions, historical room concepts, and historical competitor or market references are not importable until an operator confirms current Ctrip room mapping, price guards, and competitor samples.';
+    $lines[] = '- `auto-input-eligibility.*` proves which inputs can or cannot be closed from current bundle evidence; it is read-only and cannot create inputs.';
     $lines[] = '- Use `operator-action-sheet.csv` to map candidate hints to exact intake CSV fields; leave business values blank until operator confirmation.';
     $lines[] = '- `pricing-input-intake.csv` is a spreadsheet-friendly intake file; convert it into `pricing-input-fillable.json` before linting if operators prefer CSV.';
     if ($demandForecastSourceIsTrafficTrend) {
@@ -1617,7 +2185,7 @@ function ctrip_operator_bundle_real_input_todo(array $operatorPacket, array $fil
         $lines[] = '';
     }
     $lines[] = '## Validation Sequence';
-    foreach (['external_input_candidates', 'pricing_evidence_candidates', 'demand_trend_draft', 'build_fillable_from_csv', 'csv_to_json_preflight', 'preflight_no_execute', 'lint_only', 'validate_only', 'dry_run', 'pre_execute_gate', 'execute_to_pending_review'] as $key) {
+    foreach (['external_input_candidates', 'pricing_evidence_candidates', 'demand_trend_draft', 'auto_input_eligibility', 'quick_reply_preflight', 'quick_reply_apply_to_fillable', 'quick_reply_to_pending_review', 'build_fillable_from_csv', 'csv_to_json_preflight', 'preflight_no_execute', 'lint_only', 'validate_only', 'dry_run', 'pre_execute_gate', 'execute_to_pending_review'] as $key) {
         $command = trim((string)($commands[$key] ?? ''));
         if ($command === '') {
             continue;
@@ -1908,11 +2476,15 @@ function ctrip_operator_bundle_closure_runbook(array $manifest): string
     $lines[] = '- Fill `pricing-input-fillable.json` with real operator-verified Ctrip values only.';
     $lines[] = '- Optional: run `external_input_candidates` to review external project-material room count, 350/450 price assumption, historical room concept, and historical Ctrip market reference clues; these are not importable.';
     $lines[] = '- Optional: run `pricing_evidence_candidates` to review Ctrip room name candidates, observed price metrics, and competitor aggregates before filling real values.';
+    $lines[] = '- Run `auto_input_eligibility` to prove which remaining inputs can or cannot be closed from current bundle evidence before filling values.';
     $lines[] = '- External project-material clues do not replace Ctrip room type mapping, operator price guards, or current recent-7-day named Ctrip competitor price samples.';
     $lines[] = '- Candidate price observations are not floor/protection prices; competitor aggregates are not named competitor price samples.';
     $lines[] = '- If demand forecast is based on AI trend, run `demand_trend_draft`; it reads past Ctrip traffic aggregates and writes no database or OTA data.';
+    $lines[] = '- Optional: fill `OPERATOR_QUICK_REPLY.md`, then run `quick_reply_preflight` to parse it through temporary local inputs and no-execute gates.';
+    $lines[] = '- Optional: after `quick_reply_preflight` passes, run `quick_reply_apply_to_fillable` to write only local `pricing-input-fillable.json`; it still writes no database or OTA prices.';
+    $lines[] = '- Optional: after real values are complete, run `quick_reply_to_pending_review` to apply the reply, rerun the bundle preflight, and create local pending AI review items; it still writes no OTA prices.';
     $lines[] = '- Optional: fill `pricing-input-intake.csv`, then run `csv_to_json_preflight` to generate `pricing-input-fillable.json` and run the no-execute gate in one command.';
-    $lines[] = '- If `csv_to_json_preflight` or `build_fillable_from_csv` fails, use `csv_issue_map.csv_row_number` and `csv_issue_map.csv_column` to correct the intake CSV.';
+    $lines[] = '- If `quick_reply_preflight`, `csv_to_json_preflight`, or `build_fillable_from_csv` fails, use the returned issue map to correct the reply or intake CSV; CSV issues keep `csv_issue_map.csv_row_number` and `csv_issue_map.csv_column`.';
     $lines[] = '- Use `operator-input-locators.csv` only to locate Ctrip metadata rows and source traces; it is not an input file and carries no business values.';
     $lines[] = '- Preserve row-level `source_note` values; dry-run and execute carry them as `operator_row_source_note` in AI pricing source metadata.';
     $lines[] = '- Keep `pricing-input-template.json`, `real-input-checklist.json`, and `pricing-input.schema.json` as guidance only.';
@@ -1925,6 +2497,10 @@ function ctrip_operator_bundle_closure_runbook(array $manifest): string
         ['external_input_candidates', 'Review external project-material clues for operator confirmation only; no database or OTA write and not importable.'],
         ['pricing_evidence_candidates', 'Review Ctrip candidate evidence for operator locating only; no database or OTA write and not importable.'],
         ['demand_trend_draft', 'Generate the Ctrip historical traffic demand trend draft for demand_forecast source_note; no database or OTA write.'],
+        ['auto_input_eligibility', 'Check whether current bundle evidence can auto-close any remaining real input; no database or OTA write.'],
+        ['quick_reply_preflight', 'Parse OPERATOR_QUICK_REPLY.md into temporary local inputs and run no-execute gates; no database or OTA write.'],
+        ['quick_reply_apply_to_fillable', 'After quick reply gates pass, write only local pricing-input-fillable.json; no database or OTA write.'],
+        ['quick_reply_to_pending_review', 'After real values pass all gates, create local pending AI review items; no OTA write and manual review remains required.'],
         ['build_fillable_from_csv', 'Convert the spreadsheet intake into the fillable JSON file; no database or OTA write.'],
         ['csv_to_json_preflight', 'Convert the spreadsheet intake and run no-execute preflight; local JSON only, no database or OTA write.'],
         ['preflight_no_execute', 'Confirm bundle structure and lint the filled input without executing.'],
@@ -1975,7 +2551,8 @@ try {
     $hotelId = $options['hotel_id'];
     $outputDir = ctrip_operator_bundle_resolve_output_dir($options['output_dir']);
     $files = ctrip_operator_bundle_target_files($outputDir);
-    $overwritten = ctrip_operator_bundle_assert_writeable($outputDir, $files, $options['force']);
+    $refreshEvidence = (bool)$options['refresh_evidence'];
+    $overwritten = ctrip_operator_bundle_assert_writeable($outputDir, $files, $options['force'], $refreshEvidence);
 
     $operatorPacketJsonRun = ctrip_operator_bundle_run_process(ctrip_operator_bundle_scoped_args(
         [PHP_BINARY, 'scripts/report_revenue_ai_ctrip_pricing_operator_packet.php', '--format=json'],
@@ -2097,6 +2674,15 @@ try {
     $templateFile = $files['pricing_input_template_json'];
     $fillableFile = $files['pricing_input_fillable_json'];
     $fillableBody = ctrip_operator_bundle_fillable_payload($templateBody);
+    $preservedInputFiles = [];
+    if ($refreshEvidence && !$options['force'] && is_file($fillableFile)) {
+        $fillableBody = ctrip_operator_bundle_decode_json_file($fillableFile);
+        ctrip_operator_bundle_assert_preserved_fillable_scope($fillableBody, $date, $resolvedHotelId);
+        $preservedInputFiles[] = 'pricing-input-fillable.json';
+    }
+    if ($refreshEvidence && !$options['force'] && is_file($files['pricing_input_intake_csv'])) {
+        $preservedInputFiles[] = 'pricing-input-intake.csv';
+    }
     $currentBlocker = ctrip_operator_bundle_map($operatorPacket['current_blocker'] ?? []);
     $demandTrendHotelArg = $resolvedHotelId === null ? ' --hotel-id=<hotel-id>' : ' --hotel-id=' . $resolvedHotelId;
 
@@ -2113,6 +2699,8 @@ try {
             'database_written' => false,
             'auto_write_ota' => false,
             'meituan_scope_included' => false,
+            'refresh_evidence' => $refreshEvidence,
+            'preserved_input_files' => $preservedInputFiles,
         ],
         'current_blocker' => $currentBlocker,
         'p0_authority' => $p0AuthoritySummary,
@@ -2131,10 +2719,14 @@ try {
             'preflight_no_execute' => ctrip_operator_bundle_command('preflight_no_execute', $date, $resolvedHotelId, $outputDir),
             'build_fillable_from_csv' => ctrip_operator_bundle_command('build_fillable_from_csv', $date, $resolvedHotelId, $files['pricing_input_intake_csv'], $fillableFile),
             'csv_to_json_preflight' => ctrip_operator_bundle_command('csv_to_json_preflight', $date, $resolvedHotelId, $outputDir),
+            'quick_reply_preflight' => ctrip_operator_bundle_command('quick_reply_preflight', $date, $resolvedHotelId, $outputDir),
+            'quick_reply_apply_to_fillable' => ctrip_operator_bundle_command('quick_reply_apply_to_fillable', $date, $resolvedHotelId, $outputDir),
+            'quick_reply_to_pending_review' => ctrip_operator_bundle_command('quick_reply_to_pending_review', $date, $resolvedHotelId, $outputDir),
             'input_readiness_scan' => 'npm.cmd run report:revenue-ai-ctrip-input-readiness -- --date=' . $date . $demandTrendHotelArg . ' --format=markdown',
-            'external_input_candidates' => 'npm.cmd run report:revenue-ai-ctrip-external-input-candidates -- --date=' . $date . $demandTrendHotelArg . ' --format=markdown',
+            'external_input_candidates' => 'npm.cmd run report:revenue-ai-ctrip-external-input-candidates -- --dir=' . $outputDir . ' --date=' . $date . $demandTrendHotelArg . ' --format=markdown',
             'pricing_evidence_candidates' => 'npm.cmd run report:revenue-ai-ctrip-pricing-evidence-candidates -- --date=' . $date . $demandTrendHotelArg . ' --format=markdown',
             'demand_trend_draft' => 'npm.cmd run report:revenue-ai-ctrip-traffic-demand-trend -- --date=' . $date . $demandTrendHotelArg . ' --format=markdown',
+            'auto_input_eligibility' => ctrip_operator_bundle_command('auto_input_eligibility', $date, $resolvedHotelId, $outputDir),
             'lint_only' => ctrip_operator_bundle_command('lint_only', $date, $resolvedHotelId, $fillableFile),
             'validate_only' => ctrip_operator_bundle_command('validate_only', $date, $resolvedHotelId, $fillableFile),
             'dry_run' => ctrip_operator_bundle_command('dry_run', $date, $resolvedHotelId, $fillableFile),
@@ -2259,6 +2851,8 @@ try {
         'status' => (string)($externalInputPayload['status'] ?? 'unknown'),
         'source_scope' => 'external_project_materials_for_ctrip_operator_review',
         'source_policy' => 'read_allowlisted_external_project_materials_candidates_only_no_db_no_ota_write',
+        'scope_source' => (string)(ctrip_operator_bundle_map($externalInputPayload['scope'] ?? [])['scope_source'] ?? 'cli_or_default'),
+        'bundle_manifest_scope_supported' => true,
         'candidate_values_exposed' => true,
         'raw_rows_exposed' => false,
         'database_written' => false,
@@ -2324,6 +2918,65 @@ try {
         'demand_forecast_row_required' => !$trafficTrendDemandReady,
         'can_generate_pending_review' => false,
     ];
+    $manifest['operator_quick_reply'] = [
+        'file' => 'OPERATOR_QUICK_REPLY.md',
+        'status' => 'human_quick_reply_not_importable',
+        'source_scope' => 'ctrip_ota_channel',
+        'source_policy' => 'operator_quick_reply_no_values_no_import',
+        'database_written' => false,
+        'auto_write_ota' => false,
+        'importable_value' => false,
+        'target_file' => 'pricing-input-intake.csv',
+        'preflight_command' => 'quick_reply_preflight',
+        'apply_to_fillable_command' => 'quick_reply_apply_to_fillable',
+        'pending_review_runner_command' => 'quick_reply_to_pending_review',
+        'preflight_policy' => 'temporary_local_files_no_db_no_ota_write',
+        'fillable_write_policy' => 'explicit_write_fillable_flag_only_after_no_execute_preflight_passes_no_db_no_ota_write',
+        'pending_review_policy' => 'explicit_execute_only_local_pending_review_no_ota_write_manual_review_required',
+        'demand_forecast_source' => $trafficTrendDemandReady ? 'ctrip_historical_traffic_trend' : 'manual_or_missing',
+        'candidate_values_exposed' => true,
+        'candidate_values_importable' => false,
+        'required_before_execute' => [
+            'room_types_enabled',
+            'floor_price_or_min_rate_guard',
+            'competitor_price_samples',
+        ],
+    ];
+    $manifest['operator_real_input_request'] = [
+        'file' => 'OPERATOR_REAL_INPUT_REQUEST.md',
+        'status' => 'human_real_input_request_not_importable',
+        'source_scope' => 'ctrip_ota_channel',
+        'source_policy' => 'operator_request_no_values_no_import',
+        'database_written' => false,
+        'auto_write_ota' => false,
+        'importable_value' => false,
+        'target_file' => 'OPERATOR_QUICK_REPLY.md',
+        'demand_forecast_source' => $trafficTrendDemandReady ? 'ctrip_historical_traffic_trend' : 'manual_or_missing',
+        'required_before_execute' => [
+            'room_types_enabled',
+            'floor_price_or_min_rate_guard',
+            'competitor_price_samples',
+        ],
+    ];
+    $manifest['operation_roi_evidence_request'] = [
+        'file' => 'OPERATION_ROI_EVIDENCE_REQUEST.md',
+        'status' => 'human_operation_roi_evidence_request_not_importable',
+        'source_scope' => 'ctrip_ota_channel_execution_evidence',
+        'source_policy' => 'human_operation_roi_evidence_request_no_values_no_import',
+        'database_written' => false,
+        'auto_write_ota' => false,
+        'importable_value' => false,
+        'proves_execution_or_roi' => false,
+        'required_gate' => 'operation_execution.roi_ready',
+        'protected_boundary' => 'do_not_promote_ctrip_ota_scope_to_whole_hotel_truth',
+        'required_sequence' => [
+            'approve_operation_execution_intent',
+            'record_manual_execution_result',
+            'upload_roi_evidence',
+            'review_execution_task_roi',
+            'keep_investment_manual_review_only',
+        ],
+    ];
     $manifest['closure_runbook'] = [
         'file' => 'CTRIP_CLOSURE_RUNBOOK.md',
         'status' => 'manual_closure_sequence_no_ota_price_write',
@@ -2381,11 +3034,13 @@ try {
         ctrip_operator_bundle_json($pricingInputSchema),
         $overwritten
     );
-    $written['pricing_input_intake_csv'] = ctrip_operator_bundle_write_file(
-        $files['pricing_input_intake_csv'],
-        ctrip_operator_bundle_pricing_input_intake_csv($date, $resolvedHotelId, $demandForecastSource),
-        $overwritten
-    );
+    $written['pricing_input_intake_csv'] = ($refreshEvidence && !$options['force'] && is_file($files['pricing_input_intake_csv']))
+        ? ctrip_operator_bundle_preserve_file($files['pricing_input_intake_csv'])
+        : ctrip_operator_bundle_write_file(
+            $files['pricing_input_intake_csv'],
+            ctrip_operator_bundle_pricing_input_intake_csv($date, $resolvedHotelId, $demandForecastSource),
+            $overwritten
+        );
     $written['operator_action_sheet_csv'] = ctrip_operator_bundle_write_file(
         $files['operator_action_sheet_csv'],
         ctrip_operator_bundle_operator_action_sheet_csv($pricingEvidencePayload, $demandTrendPayload, $externalInputPayload, $date, $resolvedHotelId),
@@ -2399,6 +3054,22 @@ try {
     $written['operator_confirmation_brief_csv'] = ctrip_operator_bundle_write_file(
         $files['operator_confirmation_brief_csv'],
         ctrip_operator_bundle_operator_confirmation_brief_csv($pricingEvidencePayload, $demandTrendPayload, $externalInputPayload, $date, $resolvedHotelId),
+        $overwritten
+    );
+    $operatorConfirmationRows = ctrip_operator_bundle_operator_confirmation_brief_rows($pricingEvidencePayload, $demandTrendPayload, $externalInputPayload, $date, $resolvedHotelId);
+    $written['operator_quick_reply_markdown'] = ctrip_operator_bundle_write_file(
+        $files['operator_quick_reply_markdown'],
+        ctrip_operator_bundle_operator_quick_reply($manifest, $trafficTrendDemandReady, $operatorConfirmationRows),
+        $overwritten
+    );
+    $written['operator_real_input_request_markdown'] = ctrip_operator_bundle_write_file(
+        $files['operator_real_input_request_markdown'],
+        ctrip_operator_bundle_operator_real_input_request($manifest, $trafficTrendDemandReady),
+        $overwritten
+    );
+    $written['operation_roi_evidence_request_markdown'] = ctrip_operator_bundle_write_file(
+        $files['operation_roi_evidence_request_markdown'],
+        ctrip_operator_bundle_operation_roi_evidence_request($manifest),
         $overwritten
     );
     $written['operator_input_locators_csv'] = ctrip_operator_bundle_write_file(
@@ -2466,11 +3137,13 @@ try {
         ctrip_operator_bundle_json($templateBody),
         $overwritten
     );
-    $written['pricing_input_fillable_json'] = ctrip_operator_bundle_write_file(
-        $files['pricing_input_fillable_json'],
-        ctrip_operator_bundle_json($fillableBody),
-        $overwritten
-    );
+    $written['pricing_input_fillable_json'] = ($refreshEvidence && !$options['force'] && is_file($files['pricing_input_fillable_json']))
+        ? ctrip_operator_bundle_preserve_file($files['pricing_input_fillable_json'])
+        : ctrip_operator_bundle_write_file(
+            $files['pricing_input_fillable_json'],
+            ctrip_operator_bundle_json($fillableBody),
+            $overwritten
+        );
     $written['pending_review_packet_json'] = ctrip_operator_bundle_write_file(
         $files['pending_review_packet_json'],
         ctrip_operator_bundle_json($pendingReviewPayload),
@@ -2479,6 +3152,48 @@ try {
     $written['current_scope_json'] = ctrip_operator_bundle_write_file(
         $files['current_scope_json'],
         ctrip_operator_bundle_json($scopePayload),
+        $overwritten
+    );
+
+    $autoInputEligibilityJsonRun = ctrip_operator_bundle_run_process(
+        ['node', 'scripts/report_revenue_ai_ctrip_auto_input_eligibility.mjs', '--dir=' . $outputDir, '--date=' . $date, '--hotel-id=' . (string)$resolvedHotelId, '--format=json'],
+        $root
+    );
+    $autoInputEligibilityPayload = ctrip_operator_bundle_decode_json($autoInputEligibilityJsonRun['stdout']);
+    $autoInputEligibilityMarkdownRun = ctrip_operator_bundle_run_process(
+        ['node', 'scripts/report_revenue_ai_ctrip_auto_input_eligibility.mjs', '--dir=' . $outputDir, '--date=' . $date, '--hotel-id=' . (string)$resolvedHotelId, '--format=markdown'],
+        $root
+    );
+    $manifest['processes']['auto_input_eligibility_json'] = [
+        'exit_code' => $autoInputEligibilityJsonRun['exit_code'],
+        'status' => $autoInputEligibilityPayload['status'] ?? null,
+    ];
+    $manifest['processes']['auto_input_eligibility_markdown'] = [
+        'exit_code' => $autoInputEligibilityMarkdownRun['exit_code'],
+    ];
+    $manifest['auto_input_eligibility'] = [
+        'files' => [
+            'json' => 'auto-input-eligibility.json',
+            'markdown' => 'auto-input-eligibility.md',
+        ],
+        'status' => (string)($autoInputEligibilityPayload['status'] ?? 'unknown'),
+        'source_scope' => 'ctrip_ota_channel',
+        'source_policy' => 'read_operator_bundle_evidence_only_no_db_no_ota_write',
+        'database_written' => false,
+        'auto_write_ota' => false,
+        'importable_value' => false,
+        'auto_import_allowed' => false,
+        'full_auto_close_eligible' => (bool)(ctrip_operator_bundle_map($autoInputEligibilityPayload['summary'] ?? [])['full_auto_close_eligible'] ?? false),
+        'current_required_real_inputs_before_execute' => ctrip_operator_bundle_list(ctrip_operator_bundle_map($autoInputEligibilityPayload['summary'] ?? [])['current_required_real_inputs_before_execute'] ?? []),
+    ];
+    $written['auto_input_eligibility_json'] = ctrip_operator_bundle_write_file(
+        $files['auto_input_eligibility_json'],
+        ctrip_operator_bundle_json($autoInputEligibilityPayload),
+        $overwritten
+    );
+    $written['auto_input_eligibility_markdown'] = ctrip_operator_bundle_write_file(
+        $files['auto_input_eligibility_markdown'],
+        rtrim($autoInputEligibilityMarkdownRun['stdout']) . PHP_EOL,
         $overwritten
     );
 

@@ -143,10 +143,16 @@ for (const [method, label] of [
 }
 
 for (const [needle, label] of [
-  ['function commentCollectionDisabledResponse', 'controller has a single disabled comment-collection response'],
-  ['return $this->commentCollectionDisabledResponse();', 'controller comment endpoints short-circuit before OTA requests'],
-  ["'Comment/review data collection is disabled by policy.'", 'controller auto-fetch comment tasks are skipped by policy'],
+  ['function commentCollectionDisabledResponse', 'controller keeps a legacy disabled response helper for disallowed review-detail flows'],
+  ['return $this->captureCtripCommentsBrowserData();', 'Ctrip comment endpoint delegates to aggregate browser capture'],
+  ['return $this->captureMeituanBrowserData($requestData);', 'Meituan comment endpoint delegates to aggregate browser capture'],
+  ["'capture_sections' => 'comment_review'", 'Ctrip comment capture forces aggregate comment_review section'],
+  ["'capture_sections' => 'reviews'", 'Meituan comment capture forces aggregate reviews section'],
+  ["saveOtaDataConfigValue('ctrip-comments'", 'Ctrip comment config persists aggregate capture config'],
+  ["saveOtaDataConfigValue('meituan-comments'", 'Meituan comment config persists aggregate capture config'],
+  ['aggregate_metrics_only_no_review_text', 'comment config documents aggregate-only privacy boundary'],
   ['function sanitizeOnlineOrderRawData', 'controller sanitizes browser-captured order raw data before storage'],
+  ['function sanitizeOnlineReviewRawData', 'controller sanitizes browser-captured review raw data before storage'],
   ['function hashOnlineOrderIdentifier', 'controller hashes browser-captured order identifiers'],
   ['order_id_hash', 'controller keeps only hashed order identifiers in captured raw data'],
   ["$item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus", 'controller daily data list exposes field fact status'],
@@ -160,6 +166,10 @@ for (const [needle, label] of [
     'app/controller/concern/OnlineDataSupportConcern.php',
     'app/controller/concern/OnlineDataQualityConcern.php',
     'app/controller/concern/OnlineDataManualFetchConcern.php',
+    'app/controller/concern/OnlineDataRequestConcern.php',
+    'app/controller/concern/CtripCommentsConcern.php',
+    'app/controller/concern/MeituanConfigConcern.php',
+    'app/controller/concern/OtaConfigConcern.php',
     'app/controller/concern/MeituanCapturedDataConcern.php',
   ], label, (source) => source.includes(needle), needle);
 }
@@ -305,8 +315,11 @@ for (const [needle, label] of [
   ["unset($row['secret_json']);", 'data-source list removes raw secret JSON'],
   ["unset($data['secret_json']);", 'data-source update preserves existing secret when blank'],
   ["'cookies_preview'", 'data-source list only exposes cookie preview'],
-  ['Comment/review data collection is disabled by policy.', 'platform sync rejects comment/review sources'],
+  ['function isReviewCollectionAllowed', 'platform sync gates review payloads explicitly'],
+  ['function payloadRequestsReviewDetailStorage', 'platform sync only requires explicit authorization for review-detail storage'],
+  ['review_detail_collection', 'platform sync recognizes explicit review-detail storage requests'],
   ['function sanitizePayloadForStorage', 'platform sync sanitizes raw payload before storage'],
+  ['function sanitizeReviewPayloadForStorage', 'platform sync sanitizes review payloads before storage'],
   ['order_id_hash', 'platform sync hashes order identifiers'],
   ['function maskName', 'platform sync masks guest names'],
   ['function maskPhone', 'platform sync masks phone numbers'],
@@ -618,10 +631,10 @@ for (const [needle, label] of [
 }
 
 for (const [needle, label] of [
-  ['comment_collection_disabled', 'standard ETL rejects comment/review facts'],
+  ['function commentFact', 'standard ETL builds aggregate comment/review facts'],
   ["'fact_ota_advertising' => $advertisingFacts", 'standard ETL separates advertising facts from daily revenue'],
   ["'fact_ota_quality' => $qualityFacts", 'standard ETL separates quality facts from daily revenue'],
-  ["'fact_ota_comment' => $commentFacts", 'standard ETL keeps empty compatibility key for comment facts'],
+  ["'fact_ota_comment' => $commentFacts", 'standard ETL exposes aggregate comment facts'],
 ]) {
   check('app/service/OtaStandardEtlService.php', label, (source) => source.includes(needle), needle);
 }
@@ -636,10 +649,12 @@ for (const [needle, label] of [
 }
 
 for (const [needle, label] of [
-  ['DISABLED_COMMENT_SECTION_ALIASES', 'browser capture rejects comment/review section aliases'],
-  ['comment_collection_disabled', 'browser capture classifies comment endpoints as disabled'],
+  ["allowedSections: ['traffic', 'ads', 'orders', 'reviews']", 'Meituan browser capture allows aggregate review section'],
+  ["comment_review: 'reviews'", 'Ctrip browser capture maps comment_review alias to reviews'],
+  ['comment-manage', 'browser capture classifies Meituan comment-manage responses as aggregate reviews'],
   ['function sanitizeOtaPayloadForStorage', 'browser capture exposes reusable payload sanitizer'],
   ['order_id_hash', 'browser capture hashes order identifiers before writing output'],
+  ['function sanitizeReviewPayloadNode', 'browser capture removes review detail text before writing output'],
   ['querycampaignsummaryreport', 'browser capture classifies Ctrip campaign report responses'],
 ]) {
   check('scripts/lib/ota_capture_standard.mjs', label, (source) => source.includes(needle), needle);
@@ -647,9 +662,11 @@ for (const [needle, label] of [
 
 check(
   'scripts/ctrip_browser_capture.mjs',
-  'Ctrip browser capture sections exclude reviews',
-  (source) => source.includes('normalizeCtripCaptureSections') && !source.includes("'getCommentList'"),
-  'normalizeCtripCaptureSections without getCommentList'
+  'Ctrip browser capture can collect aggregate comment_review endpoints',
+  (source) => source.includes('normalizeCtripCaptureSections')
+    && source.includes("endpoint?.section === 'comment_review'")
+    && source.includes('xhr:getCommentList'),
+  'normalizeCtripCaptureSections with comment_review sanitizer and getCommentList extraction'
 );
 
 for (const [needle, label] of [

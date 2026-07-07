@@ -64,6 +64,29 @@ trait OtaConfigConcern
         return substr($value, 0, 4) . '...' . substr($value, -4);
     }
 
+    /**
+     * @param array<string, mixed> $config
+     * @return array<string, mixed>
+     */
+    private function saveOtaDataConfigValue(string $type, array $config, string $description): array
+    {
+        $key = 'data_config_' . str_replace('-', '_', $type);
+        $config['update_time'] = date('Y-m-d H:i:s');
+        SystemConfig::setValue($key, json_encode($config, JSON_UNESCAPED_UNICODE), $description);
+        return $config;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function readOtaDataConfigValue(string $type): array
+    {
+        $key = 'data_config_' . str_replace('-', '_', $type);
+        $raw = SystemConfig::getValue($key, '');
+        $decoded = json_decode((string)$raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
     private function getConfigList(string $key): array
     {
         $raw = SystemConfig::getValue($key, '[]');

@@ -197,7 +197,8 @@ trait Phase1EmployeeConsoleConcern
 
         $latestQuery = Db::name('online_daily_data')
             ->field('MAX(data_date) AS latest_data_date')
-            ->whereIn('source', $this->collectionSourceAliases($platform));
+            ->whereIn('source', $this->collectionSourceAliases($platform))
+            ->where('data_date', '<=', date('Y-m-d'));
         if (!$this->applyCollectionHotelScope($latestQuery, $hotelId, $columns)) {
             return [
                 'platform' => $platform,

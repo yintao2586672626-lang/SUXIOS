@@ -12,6 +12,7 @@ const userModel = read('app/model/User.php');
 const userController = read('app/controller/User.php');
 const authController = read('app/controller/Auth.php');
 const authMiddleware = read('app/middleware/Auth.php');
+const cookieEndpointConcern = read('app/controller/concern/CookieEndpointConcern.php');
 const initDatabaseCommand = read('app/command/InitDatabase.php');
 const routes = read('route/app.php');
 const hotelScopeService = read('app/service/HotelScopeService.php');
@@ -74,6 +75,10 @@ assert.match(userController, /public function index\(\): Response[\s\S]*canManag
 
 assert.match(authController, /private const TOKEN_TTL_SECONDS = 86400;/, 'website login token must expire after 24 hours');
 assert.match(authMiddleware, /private const TOKEN_MAX_AGE_SECONDS = 86400;/, 'auth middleware must reject tokens older than the 24-hour session limit');
+assert.match(authMiddleware, /if \(!is_array\(\$tokenData\)\) \{\s*return false;\s*\}/, 'auth middleware must preserve legacy scalar token cache entries until cache TTL');
+assert.match(authMiddleware, /\$createdAt = \(int\)\(\$tokenData\['created_at'\] \?\? 0\);[\s\S]*if \(\$createdAt <= 0\) \{\s*return false;\s*\}/, 'auth middleware must preserve legacy token payloads without created_at until cache TTL');
+assert.match(cookieEndpointConcern, /private function isTokenDataExpiredByAge\(\$tokenData\): bool[\s\S]*return \$createdAt \+ 86400 < time\(\);/, 'cookie endpoint must use the same 24-hour age check for new token payloads');
+assert.match(cookieEndpointConcern, /if \(\$this->isTokenDataExpiredByAge\(\$tokenData\)\)[\s\S]*recordPublicEndpointFailure\('receive_cookies', 'token_expired'/, 'cookie endpoint must reject expired new token payloads consistently');
 assert.match(indexHtml, /const writeAuthToken = \(value\) =>[\s\S]*sessionStorage\.setItem\(AUTH_TOKEN_STORAGE_KEY, normalized\)[\s\S]*localStorage\.removeItem\(AUTH_TOKEN_STORAGE_KEY\)/, 'front-end must keep auth tokens in sessionStorage and clear legacy localStorage tokens');
 assert.doesNotMatch(indexHtml, /localStorage\.setItem\('token'/, 'front-end must not persist auth tokens in localStorage');
 assert.match(authController, /private const BETA_HOTEL_BINDING_CUTOFF_DATE = '2026-07-05';/, 'beta users must see a concrete hotel binding deadline');

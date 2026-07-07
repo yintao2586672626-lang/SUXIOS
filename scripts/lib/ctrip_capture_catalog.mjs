@@ -1215,9 +1215,6 @@ export function normalizeCtripCaptureSections(value = '') {
   const selected = [];
   const invalid = [];
   for (const token of raw.split(/[,\s]+/).filter(Boolean)) {
-    if (['review', 'reviews', 'comment', 'comments'].includes(token)) {
-      throw new Error('Comment/review capture is disabled by policy');
-    }
     const section = SECTION_ALIAS_MAP[token] || '';
     if (!section) {
       invalid.push(token);

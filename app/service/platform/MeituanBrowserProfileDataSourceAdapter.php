@@ -71,6 +71,8 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         if ($lock === null) {
             return [
                 'status' => 'failed',
+                'status_code' => 'resource_busy_login',
+                'error_code' => 'resource_busy_login',
                 'message' => 'Meituan browser Profile capture is already running for store_id=' . $storeId,
                 'payload' => ['lock_key' => 'meituan:' . $safeStoreId],
             ];

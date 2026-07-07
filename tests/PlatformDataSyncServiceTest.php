@@ -241,6 +241,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         $service = new PlatformDataSyncService();
 
         $rows = $service->normalizeRowsFromPayload([
+            'review_detail_collection' => true,
             'rows' => [
                 [
                     'hotel_id' => 'ctrip-1001',
@@ -436,7 +437,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertStringContainsString('"data_period":"historical_daily"', $rows[0]['raw_data']);
     }
 
-    public function testReviewAndCommentPayloadsAreSkippedUnlessExplicitlyEnabled(): void
+    public function testReviewAndCommentPayloadsNormalizeAggregateFieldsByDefault(): void
     {
         $service = new PlatformDataSyncService();
 
@@ -447,7 +448,9 @@ final class PlatformDataSyncServiceTest extends TestCase
                         'hotel_id' => 'ctrip-1001',
                         'data_date' => '2026-05-28',
                         'score' => '3.0',
-                        'content' => 'This review must not be collected.',
+                        'review_count' => 2,
+                        'bad_review_count' => 1,
+                        'content' => 'This review text must be redacted.',
                     ],
                 ],
             ], [
@@ -457,8 +460,36 @@ final class PlatformDataSyncServiceTest extends TestCase
                 'system_hotel_id' => 7,
             ], 34);
 
-            self::assertSame([], $rows, $dataType . ' payload should not be normalized');
+            self::assertCount(1, $rows, $dataType . ' payload should normalize aggregate fields');
+            self::assertSame('review', $rows[0]['data_type']);
+            self::assertSame(3.0, $rows[0]['comment_score']);
+            self::assertSame(2, $rows[0]['quantity']);
+            self::assertStringNotContainsString('This review text must be redacted.', $rows[0]['raw_data']);
         }
+    }
+
+    public function testReviewDetailStorageStillRequiresExplicitAuthorization(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'review_detail_collection' => true,
+            'rows' => [
+                [
+                    'hotel_id' => 'ctrip-1001',
+                    'data_date' => '2026-05-28',
+                    'score' => '3.0',
+                    'content' => 'This detail text must not be collected.',
+                ],
+            ],
+        ], [
+            'id' => 12,
+            'platform' => 'ctrip',
+            'data_type' => 'review',
+            'system_hotel_id' => 7,
+        ], 34);
+
+        self::assertSame([], $rows);
     }
 
     public function testExplicitManualReviewPayloadKeepsScoresAndRedactedSummary(): void
@@ -466,6 +497,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         $service = new PlatformDataSyncService();
 
         $rows = $service->normalizeRowsFromPayload([
+            'review_detail_collection' => true,
             'rows' => [
                 [
                     'hotel_id' => 'ctrip-1001',

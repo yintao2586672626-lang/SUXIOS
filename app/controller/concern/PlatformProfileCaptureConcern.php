@@ -113,6 +113,10 @@ trait PlatformProfileCaptureConcern
             $status['cookie_count'] = $cookieCount;
             $status['skipped_count'] = (int)($meta['skipped_count'] ?? 0);
             $status['status'] = $cookieCount > 0 ? 'ready' : 'profile_found_without_cookie';
+            if ($cookieCount <= 0) {
+                $status['status_code'] = 'cookies_incomplete';
+            }
+            $status['current_status'] = $this->ctripProfileStatusText((string)$status['status_code']);
             $status['next_action'] = $cookieCount > 0
                 ? 'Cookie 可读取；仅代表临时 Cookie/API 诊断可尝试，不等于长期授权或采集成功'
                 : 'Profile 存在但未提取到可用 Cookie；请先检测登录态或重新登录携程后台';
@@ -133,6 +137,7 @@ trait PlatformProfileCaptureConcern
             'permission_denied' => 'permission_denied',
             'hotel_mismatch' => 'hotel_mismatch',
             'capture_failed' => 'capture_failed',
+            'cookies_incomplete' => 'cookies_incomplete',
             'waiting_login' => 'waiting_login',
             default => 'unconfigured',
         };
@@ -185,7 +190,7 @@ trait PlatformProfileCaptureConcern
             '--headless=true',
             '--login-timeout-ms=30000',
             '--sections=business_overview',
-            '--login-url=https://ebooking.ctrip.com/login/index',
+            '--login-url=https://ebooking.ctrip.com/home/mainland',
         ];
         $hotelId = trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? $requestData['ctripHotelId'] ?? ''));
         if ($hotelId !== '') {

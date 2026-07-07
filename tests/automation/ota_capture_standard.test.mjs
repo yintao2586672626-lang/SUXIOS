@@ -25,8 +25,8 @@ test('normalizes OTA capture sections per platform', () => {
   );
   assert.deepEqual(normalizeCaptureSections('ctrip', 'business,traffic'), ['business', 'traffic']);
   assert.deepEqual(normalizeCaptureSections('meituan', ''), ['traffic', 'orders']);
-  assert.throws(() => normalizeCaptureSections('meituan', 'comment'), /Comment\/review capture is disabled/);
-  assert.throws(() => normalizeCaptureSections('ctrip', 'review'), /Comment\/review capture is disabled/);
+  assert.deepEqual(normalizeCaptureSections('meituan', 'comment'), ['reviews']);
+  assert.deepEqual(normalizeCaptureSections('ctrip', 'review'), ['reviews']);
 });
 
 test('builds a capture plan with profile and cookie injection metadata', () => {
@@ -61,16 +61,19 @@ test('classifies OTA JSON responses by platform and section', () => {
     resourceType: 'xhr',
     contentType: 'application/json',
   });
-  assert.equal(meituanReview.capture, false);
-  assert.equal(meituanReview.reason, 'comment_collection_disabled');
+  assert.equal(meituanReview.capture, true);
+  assert.equal(meituanReview.section, 'reviews');
+  assert.equal(meituanReview.reason, 'url_keyword');
 
   const ctripReview = classifyOtaResponse('ctrip', 'https://ebooking.ctrip.com/comment/getCommentList', {
     status: 200,
     resourceType: 'xhr',
     contentType: 'application/json',
   });
-  assert.equal(ctripReview.capture, false);
-  assert.equal(ctripReview.reason, 'comment_collection_disabled');
+  assert.equal(ctripReview.capture, true);
+  assert.equal(ctripReview.section, 'reviews');
+  assert.equal(ctripReview.capture_section, 'comment_review');
+  assert.equal(ctripReview.reason, 'url_keyword');
 
   const ctripTraffic = classifyOtaResponse('ctrip', 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1', {
     status: 200,

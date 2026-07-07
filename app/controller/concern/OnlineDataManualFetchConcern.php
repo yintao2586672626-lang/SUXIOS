@@ -236,7 +236,11 @@ trait OnlineDataManualFetchConcern
                     'display_summary' => $displaySummary,
                 ]
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('Ctrip manual fetch failed: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
             return json(['code' => 500, 'message' => '请求异常: ' . $e->getMessage(), 'data' => null]);
         }
     }
@@ -271,9 +275,17 @@ trait OnlineDataManualFetchConcern
                 continue;
             }
             foreach ($this->extractCtripManualBusinessSelfHotelIds($dateResult['data'] ?? [], $systemHotelId, $targetHotelName) as $id) {
-                if ($this->isMeaningfulCtripPlatformHotelId($id, $systemHotelId) && !isset($nodeIds[$id])) {
-                    $capturedIds[$id] = true;
+                $idValue = (string)$id;
+                if ($this->isMeaningfulCtripPlatformHotelId($idValue, $systemHotelId) && !isset($nodeIds[$idValue])) {
+                    $capturedIds[$idValue] = true;
                 }
+            }
+        }
+        $capturedIds = array_fill_keys(array_keys($capturedIds), true);
+        foreach ($this->extractExpectedCtripPlatformHotelIds($requestData, $systemHotelId) as $id) {
+            $idValue = (string)$id;
+            if ($this->isMeaningfulCtripPlatformHotelId($idValue, $systemHotelId) && !isset($nodeIds[$idValue])) {
+                $capturedIds[$idValue] = true;
             }
         }
         $capturedIds = array_keys($capturedIds);
@@ -324,12 +336,68 @@ trait OnlineDataManualFetchConcern
         return [
             'ok' => true,
             'status' => 'matched',
+            'warning' => false,
+            'message' => null,
             'target_system_hotel_id' => $systemHotelId,
             'target_hotel_name' => $targetHotelName,
             'captured_hotel_ids' => $capturedIds,
             'expected_hotel_ids' => $expectedIds,
             'conflicts' => [],
         ];
+    }
+
+    private function persistCtripResolvedPlatformHotelIdForSystemHotel(int $systemHotelId, string $platformHotelId): bool
+    {
+        $platformHotelId = trim($platformHotelId);
+        if ($systemHotelId <= 0 || !$this->isMeaningfulCtripPlatformHotelId($platformHotelId, $systemHotelId)) {
+            return false;
+        }
+
+        try {
+            $key = 'ctrip_config_list';
+            $row = Db::name('system_configs')->where('config_key', $key)->find();
+            if (!$row || !is_array($row)) {
+                return false;
+            }
+            $list = json_decode((string)($row['config_value'] ?? '[]'), true);
+            if (!is_array($list)) {
+                return false;
+            }
+
+            $updated = false;
+            foreach ($list as &$config) {
+                if (!is_array($config)) {
+                    continue;
+                }
+                $configSystemHotelId = trim((string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? $config['store_id'] ?? ''));
+                if ($configSystemHotelId === '' || $configSystemHotelId !== (string)$systemHotelId) {
+                    continue;
+                }
+                if ($this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId) !== []) {
+                    return true;
+                }
+                $config['ctrip_hotel_id'] = $platformHotelId;
+                $config['ota_hotel_id'] = $platformHotelId;
+                $config['platform_hotel_id'] = $platformHotelId;
+                $config['updated_at'] = date('Y-m-d H:i:s');
+                $updated = true;
+                break;
+            }
+            unset($config);
+
+            if (!$updated) {
+                return false;
+            }
+
+            return Db::name('system_configs')
+                ->where('config_key', $key)
+                ->update(['config_value' => json_encode($list, JSON_UNESCAPED_UNICODE)]) !== false;
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('Ctrip platform hotel id auto bind failed: ' . $e->getMessage(), [
+                'system_hotel_id' => $systemHotelId,
+            ]);
+            return false;
+        }
     }
 
     private function resolveCtripManualBusinessIdentityConfig(int $systemHotelId, array $requestData = []): array
@@ -369,8 +437,9 @@ trait OnlineDataManualFetchConcern
                 continue;
             }
             foreach ($this->extractCtripManualBusinessSelfHotelIds($dateResult['data'] ?? [], $systemHotelId, $targetHotelName) as $id) {
-                if ($this->isMeaningfulCtripPlatformHotelId($id, $systemHotelId) && !isset($nodeIds[$id])) {
-                    $capturedIds[$id] = true;
+                $idValue = (string)$id;
+                if ($this->isMeaningfulCtripPlatformHotelId($idValue, $systemHotelId) && !isset($nodeIds[$idValue])) {
+                    $capturedIds[$idValue] = true;
                 }
             }
         }
@@ -527,7 +596,7 @@ trait OnlineDataManualFetchConcern
     {
         $ids = array_fill_keys($this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId), true);
         $nodeIds = array_fill_keys($this->extractCtripNodeResourceIds($config), true);
-        foreach (['hotel_id', 'hotelId', 'external_hotel_id', 'externalHotelId', 'request_hotel_id', 'requestHotelId'] as $key) {
+        foreach (['external_hotel_id', 'externalHotelId', 'request_hotel_id', 'requestHotelId'] as $key) {
             $value = trim((string)($config[$key] ?? ''));
             if ($this->isMeaningfulCtripPlatformHotelId($value, $systemHotelId) && !isset($nodeIds[$value])) {
                 $ids[$value] = true;

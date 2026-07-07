@@ -262,14 +262,44 @@ trait MeituanConfigConcern
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
-        return $this->commentCollectionDisabledResponse();
+        $data = $this->requestData();
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $data['system_hotel_id']
+            ?? $data['systemHotelId']
+            ?? $data['hotel_id']
+            ?? $data['hotelId']
+            ?? null
+        );
+        $config = [
+            'partner_id' => trim((string)($data['partner_id'] ?? $data['partnerId'] ?? '')),
+            'poi_id' => trim((string)($data['poi_id'] ?? $data['poiId'] ?? '')),
+            'store_id' => trim((string)($data['store_id'] ?? $data['storeId'] ?? $data['poi_id'] ?? $data['poiId'] ?? '')),
+            'cookies' => trim((string)($data['cookies'] ?? $data['cookie'] ?? '')),
+            'mtgsig' => trim((string)($data['mtgsig'] ?? '')),
+            '_mtsi_eb_u' => trim((string)($data['_mtsi_eb_u'] ?? $data['mtsiEbU'] ?? '')),
+            'reply_type' => trim((string)($data['reply_type'] ?? $data['replyType'] ?? '')),
+            'tag' => trim((string)($data['tag'] ?? '')),
+            'limit' => (int)($data['limit'] ?? 20),
+            'offset' => (int)($data['offset'] ?? 0),
+            'capture_sections' => 'reviews',
+            'profile_sections' => 'reviews',
+            'system_hotel_id' => $systemHotelId,
+            'scope' => 'ota_channel_review_summary',
+            'privacy_boundary' => 'aggregate_metrics_only_no_review_text',
+        ];
+
+        $saved = $this->saveOtaDataConfigValue('meituan-comments', $config, '美团点评聚合采集配置');
+        OperationLog::record('online_data', 'save_meituan_comment_config', '保存美团点评聚合采集配置', $this->currentUser->id);
+
+        return $this->success($this->sanitizeSecretConfig($saved), '配置保存成功');
     }
 
     public function getMeituanCommentConfigList(): Response
     {
         $this->checkPermission();
 
-        return $this->success([]);
+        $config = $this->readOtaDataConfigValue('meituan-comments');
+        return $this->success($config === [] ? [] : [$this->sanitizeSecretConfig($config)]);
     }
 
     public function generateMeituanBookmarklet(): Response

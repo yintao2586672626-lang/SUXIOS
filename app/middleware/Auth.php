@@ -92,12 +92,12 @@ class Auth
     private function isTokenExpiredByAge($tokenData): bool
     {
         if (!is_array($tokenData)) {
-            return true;
+            return false;
         }
 
         $createdAt = (int)($tokenData['created_at'] ?? 0);
         if ($createdAt <= 0) {
-            return true;
+            return false;
         }
 
         return $createdAt + self::TOKEN_MAX_AGE_SECONDS < time();
@@ -232,7 +232,10 @@ class Auth
     {
         $policy = $this->resolveRateLimitPolicy($request->method(), $request->url(), $capability);
         $window = max(1, (int)$policy['window']);
-        $limit = max(1, (int)$policy['limit']);
+        $limit = (int)$policy['limit'];
+        if ($limit <= 0) {
+            return null;
+        }
         $bucket = (int)floor(time() / $window);
         $params = $this->sanitizeAuditParams($request->param());
         $tenantId = $this->resolveTenantIdForRateLimit($params, $user);
@@ -279,6 +282,17 @@ class Auth
     {
         $path = $this->normalizeRateLimitPath($uri);
         $method = strtoupper($method);
+
+        if ($method === 'GET' && in_array($path, [
+            'api/online-data/get-ctrip-config-list',
+            'api/online-data/get-ctrip-config-detail',
+            'api/online-data/get-meituan-config-list',
+            'api/online-data/get-meituan-config-detail',
+            'api/online-data/cookies-list',
+            'api/online-data/cookies-detail',
+        ], true)) {
+            return ['scope' => 'ota_config_read', 'path' => $path, 'limit' => 0, 'window' => 60];
+        }
 
         if (is_array($capability) && isset($capability['rate_limit']) && is_array($capability['rate_limit'])) {
             $rateLimit = $capability['rate_limit'];

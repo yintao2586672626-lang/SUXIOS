@@ -103,8 +103,8 @@ trait PlatformDataSourceConcern
                 'permissionStatus' => $permissionStatus,
                 'fetchPermissionStatus' => $fetchPermissionStatus,
                 'dataScope' => 'ota_channel',
-                'reviewCollectionStatus' => 'policy_disabled',
-                'requiresExplicitReviewAuthorization' => true,
+                'reviewCollectionStatus' => 'aggregate_enabled',
+                'requiresExplicitReviewAuthorization' => false,
                 'context' => [
                     'tokenStatus' => 'valid',
                     'hotelId' => (int)$systemHotelId,
@@ -279,8 +279,8 @@ trait PlatformDataSourceConcern
             'permissionStatus' => 'unknown',
             'fetchPermissionStatus' => 'unknown',
             'dataScope' => 'ota_channel',
-            'reviewCollectionStatus' => 'policy_disabled',
-            'requiresExplicitReviewAuthorization' => true,
+            'reviewCollectionStatus' => 'aggregate_enabled',
+            'requiresExplicitReviewAuthorization' => false,
             'context' => [
                 'tokenStatus' => 'valid',
                 'hotelId' => null,
@@ -341,6 +341,7 @@ trait PlatformDataSourceConcern
             $query = Db::name('online_daily_data')
                 ->field(implode(',', $fields))
                 ->whereIn($sourceColumn, $platforms);
+            $query->where('data_date', '<=', date('Y-m-d'));
             $query->where('system_hotel_id', $systemHotelId);
             $rows = $query->group($sourceColumn)->select()->toArray();
         } catch (\Throwable $e) {
@@ -532,10 +533,11 @@ trait PlatformDataSourceConcern
             'failureReason' => $failureReason,
             'dataScope' => 'ota_channel',
             'reviewCollection' => [
-                'status' => 'policy_disabled',
-                'requiresExplicitAuthorization' => true,
-                'defaultEnabled' => false,
+                'status' => 'aggregate_enabled',
+                'requiresExplicitAuthorization' => false,
+                'defaultEnabled' => true,
                 'scope' => 'ota_channel_review_summary',
+                'privacyBoundary' => 'aggregate_metrics_only_no_review_text',
             ],
             'profile' => [
                 'statusCode' => (string)($profileRow['status_code'] ?? 'unconfigured'),

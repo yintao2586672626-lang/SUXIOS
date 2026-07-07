@@ -122,7 +122,7 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
             '--data-date=2026-06-11',
             '--output=' . $plan['output_path'],
             '--login-timeout-ms=600000',
-            '--login-url=https://ebooking.ctrip.com/login/index',
+            '--login-url=https://ebooking.ctrip.com/home/mainland',
             '--hotel-name=Ctrip Hotel',
         ], $plan['args']);
     }

@@ -2077,7 +2077,7 @@ trait AutoFetchConcern
                     $ctripBrowserProfileSourceCount > 0 ? ['browser_profile'] : []
                 ))),
                 'next_action' => $this->autoFetchPlatformNextAction($ctripMode, trim((string)($ctripConfig['cookies'] ?? $ctripConfig['cookie'] ?? '')) !== '', $ctripHasProfile, count($ctripTasks) + $ctripBrowserProfileSourceCount),
-                'entry_url' => 'https://ebooking.ctrip.com/login/index',
+                'entry_url' => 'https://ebooking.ctrip.com/home/mainland',
             ],
             'meituan' => [
                 'configured' => $this->hasMeituanFetchConfigForHotel($hotelId),
@@ -2153,7 +2153,7 @@ trait AutoFetchConcern
                 'task_count' => ($ctripConfigured ? 1 : 0) + count($ctripBrowserProfileSources),
                 'task_modules' => array_values(array_unique($ctripTaskModules)),
                 'next_action' => $this->autoFetchPlatformNextAction($ctripMode, $ctripCookieConfigured, $ctripProfileConfigured, ($ctripConfigured ? 1 : 0) + count($ctripBrowserProfileSources)),
-                'entry_url' => 'https://ebooking.ctrip.com/login/index',
+                'entry_url' => 'https://ebooking.ctrip.com/home/mainland',
             ],
             'meituan' => [
                 'configured' => $meituanConfigured,
@@ -2190,7 +2190,7 @@ trait AutoFetchConcern
     private function emptyAutoFetchPlatformStatus(array $status): array
     {
         return [
-            'ctrip' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://ebooking.ctrip.com/login/index'],
+            'ctrip' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://ebooking.ctrip.com/home/mainland'],
             'meituan' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://eb.meituan.com'],
         ];
     }
@@ -2607,7 +2607,7 @@ trait AutoFetchConcern
             $status['missed_count'] = count($status['missed_dates']);
             $status['has_config'] = $hotelId ? $this->hasAnyPlatformFetchConfigForHotel((int)$hotelId) : false;
             $status['platforms'] = $hotelId ? $this->buildAutoFetchPlatformStatus((int)$hotelId) : [
-                'ctrip' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://ebooking.ctrip.com/login/index'],
+                'ctrip' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://ebooking.ctrip.com/home/mainland'],
                 'meituan' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://eb.meituan.com'],
             ];
             $status['detail_loaded'] = true;
@@ -4058,6 +4058,29 @@ trait AutoFetchConcern
             ]);
         }
 
+        $ctripCommentsConfig = is_array($savedConfigs['ctrip-comments'] ?? null) ? $savedConfigs['ctrip-comments'] : [];
+        $ctripCommentsSourceConfig = array_merge($ctripConfig, $ctripCommentsConfig, [
+            'capture_sections' => 'comment_review',
+            'profile_sections' => 'comment_review',
+        ]);
+        if ($this->isAutoFetchDataConfigUsable($ctripCommentsConfig, $hotelId)
+            && $this->ctripProfileStoreIdFromConfig($ctripCommentsSourceConfig, $hotelId) !== ''
+        ) {
+            $this->pushAutoFetchTask($tasks, [
+                'platform' => 'ctrip',
+                'module' => 'comments',
+                'label' => 'ctrip-comments',
+                'strategy' => 'profile_browser',
+                'body' => array_merge($ctripCommentsSourceConfig, [
+                    'data_date' => $dataDate,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'auto_save' => true,
+                    'system_hotel_id' => $hotelId,
+                ]),
+            ]);
+        }
+
         $ctripCookieApiConfig = is_array($savedConfigs['ctrip-cookie-api'] ?? null) ? $savedConfigs['ctrip-cookie-api'] : [];
         $cookieApiSourceConfig = $ctripCookieApiConfig === []
             ? $ctripConfig
@@ -4172,6 +4195,29 @@ trait AutoFetchConcern
                     'auto_save' => true,
                     'system_hotel_id' => $hotelId,
                 ],
+            ]);
+        }
+
+        $meituanCommentsConfig = is_array($savedConfigs['meituan-comments'] ?? null) ? $savedConfigs['meituan-comments'] : [];
+        $meituanCommentsSourceConfig = array_merge($meituanConfig, $meituanCommentsConfig, [
+            'capture_sections' => 'reviews',
+            'profile_sections' => 'reviews',
+        ]);
+        if ($this->isAutoFetchDataConfigUsable($meituanCommentsConfig, $hotelId)
+            && $this->meituanProfileStoreIdFromConfig($meituanCommentsSourceConfig) !== ''
+        ) {
+            $this->pushAutoFetchTask($tasks, [
+                'platform' => 'meituan',
+                'module' => 'comments',
+                'label' => 'meituan-comments',
+                'strategy' => 'profile_browser',
+                'body' => array_merge($meituanCommentsSourceConfig, [
+                    'data_date' => $dataDate,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'auto_save' => true,
+                    'system_hotel_id' => $hotelId,
+                ]),
             ]);
         }
 
@@ -4419,8 +4465,20 @@ trait AutoFetchConcern
             $result = match (($task['platform'] ?? '') . ':' . $module) {
                 'ctrip:cookie_api' => $this->executeCtripCookieApiAutoFetchTask($label, $body, $hotelId, $dataDate),
                 'ctrip:traffic' => $this->executeCtripTrafficAutoFetchTask($label, $body, $hotelId),
-                'ctrip:comments',
-                'meituan:comments' => ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'],
+                'ctrip:comments' => $this->executeCtripBrowserProfileAutoFetch(
+                    array_merge($body, ['capture_sections' => 'comment_review']),
+                    $hotelId,
+                    $dataDate,
+                    false,
+                    ['capture_sections' => 'comment_review']
+                ),
+                'meituan:comments' => $this->executeMeituanBrowserProfileAutoFetch(
+                    array_merge($body, ['capture_sections' => 'reviews']),
+                    $hotelId,
+                    $dataDate,
+                    false,
+                    ['capture_sections' => 'reviews']
+                ),
                 'meituan:ranking' => $this->executeMeituanRankingAutoFetchTask($label, $body, $hotelId),
                 'meituan:traffic' => $this->executeMeituanTrafficAutoFetchTask($label, $body, $hotelId),
                 default => ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'unsupported task'],
@@ -4684,7 +4742,16 @@ trait AutoFetchConcern
 
         $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_auto_' . BrowserProfileCaptureRequestService::safeFilePart($profileId) . '_' . date('YmdHis') . '.json';
         $fieldConfigPayload = $this->buildCtripProfileFieldConfigPayload($this->readCtripProfileCaptureFields(true));
-        $sectionsList = $this->resolveCtripProfileCaptureSectionsForRun(['sections' => 'default'], $fieldConfigPayload, false);
+        $sectionRequest = [
+            'sections' => $periodOptions['capture_sections']
+                ?? $periodOptions['captureSections']
+                ?? $config['capture_sections']
+                ?? $config['captureSections']
+                ?? $config['profile_sections']
+                ?? $config['profileSections']
+                ?? 'default',
+        ];
+        $sectionsList = $this->resolveCtripProfileCaptureSectionsForRun($sectionRequest, $fieldConfigPayload, false);
         if (empty($sectionsList)) {
             return ['success' => false, 'skipped' => true, 'message' => '获取字段配置中没有启用的可抓取字段，请先在“获取字段配置”启用字段或模块', 'saved_count' => 0];
         }
@@ -4812,7 +4879,6 @@ trait AutoFetchConcern
         $saveResult = $this->saveCtripBrowserProfilePayload($payload, $hotelId, $dataDate, $requestHotelId, null, $periodOptions);
         $savedCount = (int)$saveResult['saved_count'];
         $capturedCounts = $this->buildCtripCaptureCounts($payload);
-        $capturedCounts['reviews'] = 0;
         if ($savedCount > 0) {
             $authStatus = is_array($payload['auth_status'] ?? null)
                 ? $payload['auth_status']
@@ -4894,18 +4960,19 @@ trait AutoFetchConcern
         }
         $modules[] = ['module' => 'browser_traffic', 'saved_count' => $trafficSaved, 'success' => $trafficSaved > 0];
 
-        $reviewSaved = 0;
-        $modules[] = ['module' => 'browser_reviews', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'];
-
         $standardRows = $this->applyAutoFetchPeriodOptionsToRows($this->extractCtripStandardRows($payload, $hotelId, $dataDate, $requestHotelId, $dataSourceId), $periodOptions);
+        $reviewRows = array_values(array_filter($standardRows, static fn(array $row): bool => ($row['data_type'] ?? '') === 'review'));
+        $reviewSaved = 0;
         $standardSaved = 0;
         if (!empty($standardRows)) {
             $standardSaved = $this->saveCtripStandardRows($standardRows);
         }
+        $reviewSaved = count($reviewRows);
+        $modules[] = ['module' => 'browser_reviews', 'saved_count' => $reviewSaved, 'success' => $reviewSaved > 0, 'aggregate_only' => true];
         $modules[] = ['module' => 'browser_catalog_standard', 'saved_count' => $standardSaved, 'success' => $standardSaved > 0];
 
         return [
-            'saved_count' => $businessSaved + $trafficSaved + $reviewSaved + $standardSaved,
+            'saved_count' => $businessSaved + $trafficSaved + $standardSaved,
             'business_saved' => $businessSaved,
             'traffic_saved' => $trafficSaved,
             'review_saved' => $reviewSaved,
@@ -5247,8 +5314,11 @@ trait AutoFetchConcern
                 if ($sourceUrl !== '') {
                     $rawData['source_url'] = $sourceUrl;
                 }
+                $rawData = $dataType === 'review'
+                    ? $this->sanitizeOnlineReviewRawData($rawData)
+                    : $this->sanitizeOnlineOrderRawData($rawData, $dataType === 'order');
                 $rawDataForTrace = $rawData;
-                $rawData = json_encode($this->sanitizeOnlineOrderRawData($rawData, $dataType === 'order'), JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+                $rawData = json_encode($rawData, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
             } else {
                 $rawData = (string)$rawData;
             }
@@ -5471,10 +5541,6 @@ trait AutoFetchConcern
             if (!is_array($row) || empty($row['data_date']) || empty($row['data_type'])) {
                 continue;
             }
-            if (($row['data_type'] ?? '') === 'review') {
-                continue;
-            }
-
             if (isset($columns['update_time'])) {
                 $row['update_time'] = $now;
             }

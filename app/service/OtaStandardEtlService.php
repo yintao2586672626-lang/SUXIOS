@@ -67,10 +67,6 @@ class OtaStandardEtlService
 
             $systemHotelId = (int)($row['system_hotel_id'] ?? $raw['system_hotel_id'] ?? 0);
             $hotelKey = $systemHotelId > 0 ? 'system:' . $systemHotelId : $source . ':' . $hotelId;
-            if ($dataType === 'review') {
-                $rejectedRows[] = ['index' => $index, 'reason' => 'comment_collection_disabled', 'data_type' => 'review'];
-                continue;
-            }
             $platforms[$source] = [
                 'platform_key' => $source,
                 'platform_name' => $this->platformName($source),
@@ -109,6 +105,10 @@ class OtaStandardEtlService
             }
             if ($dataType === 'traffic_forecast') {
                 $trafficForecastFacts[] = $this->trafficForecastFact($row, $raw, $hotelKey, $source, $date);
+                continue;
+            }
+            if ($dataType === 'review') {
+                $commentFacts[] = $this->commentFact($row, $raw, $hotelKey, $source, $date);
                 continue;
             }
             $dailyFacts[] = $this->dailyFact($row, $raw, $hotelKey, $source, $date, $dataType);
@@ -566,6 +566,37 @@ class OtaStandardEtlService
             'compare_type' => (string)($row['compare_type'] ?? $detail['compare_type'] ?? 'forecast'),
             'raw_data' => $raw,
             'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'traffic_forecast', $date),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function commentFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
+    {
+        $detail = $this->rawDetail($raw);
+        $metrics = is_array($raw['metrics'] ?? null) ? array_merge($detail, $raw['metrics']) : $detail;
+
+        return [
+            'date_key' => $date,
+            'hotel_key' => $hotelKey,
+            'platform_key' => $source,
+            'dimension' => (string)($row['dimension'] ?? $metrics['dimension'] ?? 'review'),
+            'channel' => $this->firstText($row, $metrics, ['comment_channel', 'channel', 'channelName', 'platform', 'source']),
+            'comment_score' => $this->nullableNumber($row, $metrics, ['comment_score', 'commentScore', 'score', 'rating', 'rate', 'totalScore', 'overallScore', 'star']),
+            'comment_count' => $this->supplementalNumber($row, $metrics, ['comment_count', 'commentCount', 'commentsCount', 'review_count', 'reviewCount', 'totalCommentCount', 'totalCount', 'allCount', 'quantity']),
+            'bad_review_count' => $this->supplementalNumber($row, $metrics, ['bad_review_count', 'badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount', 'noRecommendCount', 'data_value']),
+            'qunar_comment_score' => $this->nullableNumber($row, $metrics, ['qunar_comment_score', 'qunarCommentScore', 'qunarRatingall']),
+            'review_environment_score' => $this->nullableNumber($row, $metrics, ['review_environment_score', 'ratingLocation', 'environmentScore']),
+            'review_facility_score' => $this->nullableNumber($row, $metrics, ['review_facility_score', 'ratingFacility', 'facilityScore']),
+            'review_service_score' => $this->nullableNumber($row, $metrics, ['review_service_score', 'ratingService', 'reviewServiceScore']),
+            'review_cleanliness_score' => $this->nullableNumber($row, $metrics, ['review_cleanliness_score', 'ratingRoom', 'cleanlinessScore']),
+            'review_photo_count' => $this->supplementalNumber($row, $metrics, ['review_photo_count', 'hasPicCount', 'photoCommentCount']),
+            'review_photo_rate' => $this->supplementalPercent($row, $metrics, ['review_photo_rate', 'photoRate', 'hasPicRate']),
+            'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'review', $date),
         ];
     }
 

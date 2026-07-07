@@ -48,6 +48,13 @@ trait MeituanCapturedDataConcern
             }
         }
 
+        foreach ($this->extractMeituanCapturedSection($payload, 'reviews') as $item) {
+            $row = $this->normalizeMeituanCapturedReviewRow($item, $context);
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+
         foreach ($this->extractMeituanCapturedSection($payload, 'ads') as $item) {
             $row = $this->normalizeMeituanCapturedAdsRow($item, $context);
             if ($row !== null) {
@@ -487,6 +494,75 @@ trait MeituanCapturedDataConcern
         ]);
     }
 
+    private function normalizeMeituanCapturedReviewRow(array $item, array $context): ?array
+    {
+        $score = $this->normalizeMeituanScore($this->firstMeituanValue($item, [
+            'comment_score',
+            'commentScore',
+            'score',
+            'rating',
+            'rate',
+            'totalScore',
+            'overallScore',
+            'star',
+        ], 0));
+        $commentCount = (int)$this->meituanNumber($item, [
+            'comment_count',
+            'commentCount',
+            'commentsCount',
+            'review_count',
+            'reviewCount',
+            'totalCommentCount',
+            'totalCount',
+            'allCount',
+            'quantity',
+        ], 0.0);
+        $badReviewCount = (int)$this->meituanNumber($item, [
+            'bad_review_count',
+            'badReviewCount',
+            'negativeCommentCount',
+            'negativeCount',
+            'badCount',
+            'lowScoreCount',
+            'noRecommendCount',
+        ], 0.0);
+        if ($commentCount <= 0 && $score > 0) {
+            $commentCount = 1;
+        }
+        if ($badReviewCount <= 0 && $score > 0 && $score < 4) {
+            $badReviewCount = 1;
+        }
+        if ($score <= 0 && $commentCount <= 0 && $badReviewCount <= 0) {
+            return null;
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date', 'commentTime', 'comment_time', 'reviewTime', 'review_time', 'createTime', 'create_time', 'submitTime', 'submit_time'], ''))
+            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        $channel = trim((string)$this->firstMeituanValue($item, ['channel', 'channelName', 'platform', 'source', 'commentChannel', 'bizType'], 'meituan'));
+        $dimension = $channel !== '' ? 'review:' . $channel : 'review:meituan';
+
+        $factSource = $this->sanitizeOnlineReviewRawData(array_merge($item, [
+            'comment_score' => $score,
+            'comment_count' => $commentCount,
+            'bad_review_count' => $badReviewCount,
+            'data_date' => $dataDate,
+            'dimension' => $dimension,
+        ]));
+
+        return $this->baseMeituanCapturedRow($factSource, $context, [
+            'data_date' => $dataDate,
+            'amount' => 0,
+            'quantity' => $commentCount,
+            'book_order_num' => 0,
+            'comment_score' => $score,
+            'data_value' => $badReviewCount,
+            'data_type' => 'review',
+            'dimension' => $dimension,
+            'platform' => 'Meituan',
+            'compare_type' => 'self',
+        ]);
+    }
+
     private function normalizeMeituanCapturedOrderRow(array $item, array $context): ?array
     {
         $orderId = (string)$this->firstMeituanValue($item, ['order_id', 'orderId', 'orderNo', 'order_no', 'orderNumber', 'order_number', 'bookingNo', 'booking_no', 'bookingNumber', 'id'], '');
@@ -535,7 +611,10 @@ trait MeituanCapturedDataConcern
     {
         $hotelId = (string)$this->firstMeituanValue($item, ['poi_id', 'poiId', 'hotel_id', 'hotelId', 'shopId', 'shop_id'], $context['poi_id'] ?: $context['store_id']);
         $hotelName = (string)$this->firstMeituanValue($item, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'shopName', 'shop_name', 'name'], $context['poi_name']);
-        $raw = $this->sanitizeOnlineOrderRawData($item, ($fields['data_type'] ?? '') === 'order');
+        $dataType = (string)($fields['data_type'] ?? '');
+        $raw = $dataType === 'review'
+            ? $this->sanitizeOnlineReviewRawData($item)
+            : $this->sanitizeOnlineOrderRawData($item, $dataType === 'order');
         $raw['_capture_context'] = array_filter([
             'store_id' => $context['store_id'] ?? '',
             'poi_id' => $context['poi_id'] ?? '',
@@ -584,6 +663,35 @@ trait MeituanCapturedDataConcern
             $sanitized[$key] = $value;
         }
         return $sanitized;
+    }
+
+    /**
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function sanitizeOnlineReviewRawData(array $raw): array
+    {
+        $sanitized = [];
+        foreach ($raw as $key => $value) {
+            $keyText = (string)$key;
+            if ($this->isOnlineSensitiveConfigKey($keyText) || $this->isOnlineReviewPrivateKey($keyText)) {
+                continue;
+            }
+            if (is_array($value)) {
+                $nested = $this->sanitizeOnlineReviewRawData($value);
+                if (!empty($nested)) {
+                    $sanitized[$key] = $nested;
+                }
+                continue;
+            }
+            $sanitized[$key] = $value;
+        }
+        return $sanitized;
+    }
+
+    private function isOnlineReviewPrivateKey(string $key): bool
+    {
+        return preg_match('/content|commentContent|comment_text|review_text|review[_-]?id|comment[_-]?id|reply|guest|customer|userName|username|nick|phone|mobile|tel|certificate|idcard|id_card|identity|openid|avatar|order[_-]?(id|no|number)|room(type|name)|photo|image|pic/i', $key) === 1;
     }
 
     /**

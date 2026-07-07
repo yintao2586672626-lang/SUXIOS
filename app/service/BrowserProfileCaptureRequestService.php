@@ -182,7 +182,7 @@ final class BrowserProfileCaptureRequestService
             '--data-date=' . $dataDate,
             '--output=' . $outputPath,
             '--login-timeout-ms=' . (string)self::loginTimeoutMs($requestData['login_timeout_ms'] ?? 300000),
-            '--login-url=https://ebooking.ctrip.com/login/index',
+            '--login-url=https://ebooking.ctrip.com/home/mainland',
         ];
 
         if ($hotelId !== '') {

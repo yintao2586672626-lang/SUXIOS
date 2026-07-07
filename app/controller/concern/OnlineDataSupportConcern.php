@@ -32,9 +32,11 @@ trait OnlineDataSupportConcern
     {
         $governance = (new OtaReviewRiskPolicyService())->reviewGovernanceRuleChecks($this->requestData(), ['review_collection_disabled'], 'comment_review_collection_disabled');
 
-        return $this->error('Comment/review data collection is disabled by policy.', 422, [
+        return $this->error('Comment/review detail collection is disabled by policy; aggregate metrics are allowed.', 422, [
             'disabled' => true,
-            'scope' => 'ota_comments',
+            'scope' => 'ota_comment_details',
+            'allowed_scope' => 'ota_channel_review_summary',
+            'privacy_boundary' => 'aggregate_metrics_only_no_review_text',
             'governance_policy_doc' => 'docs/ctrip_review_governance_rules_20260705.md',
             'governance_summary_status' => $governance['summary_status'],
             'governance_status_codes' => $governance['status_codes'],

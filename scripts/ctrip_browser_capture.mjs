@@ -37,7 +37,7 @@ import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const PAGE_URLS = buildCtripPageUrls();
 const CATALOG_SUMMARY = ctripCatalogSummary();
-const CTRIP_LOGIN_URL = 'https://ebooking.ctrip.com/login/index';
+const CTRIP_LOGIN_URL = 'https://ebooking.ctrip.com/home/mainland';
 
 const args = parseArgs(process.argv.slice(2));
 const profileId = stringValue(args.profileId || args.hotelId || args.systemHotelId || '').trim();
