@@ -262,7 +262,7 @@ class RoleController extends Base
             return true;
         }
 
-        if ($roleLevel === Role::HOTEL_STAFF) {
+        if ($roleLevel !== null && $roleLevel >= Role::HOTEL_STAFF) {
             return true;
         }
 
@@ -272,6 +272,6 @@ class RoleController extends Base
 
         return (int)$existingRole->getAttr('id') === Role::NORMAL_USER
             || (string)$existingRole->getAttr('name') === 'normal_user'
-            || (int)$existingRole->getAttr('level') === Role::HOTEL_STAFF;
+            || (int)$existingRole->getAttr('level') >= Role::HOTEL_STAFF;
     }
 }

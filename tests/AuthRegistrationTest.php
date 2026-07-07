@@ -112,6 +112,24 @@ final class AuthRegistrationTest extends TestCase
         self::assertStringContainsString('OTA', (string)$response->getContent());
     }
 
+    public function testStaffLevelAboveThreeExternalUserIssueRejectsUnsafePermission(): void
+    {
+        $reflection = new ReflectionClass(UserController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('validateExternalUserIssueBoundary');
+        $method->setAccessible(true);
+
+        $response = $method->invoke($controller, $this->roleWithPermissions([
+            'dashboard.view',
+            'hotel.view',
+            'ota.view',
+            'ota.collect',
+        ], 9, 'external_staff_reader', 4), [7]);
+
+        self::assertSame(422, $response->getCode());
+        self::assertStringContainsString('OTA', (string)$response->getContent());
+    }
+
     public function testRenamedNormalRoleStillRejectsUnsafePermissionOnRoleSave(): void
     {
         $reflection = new ReflectionClass(RoleController::class);
@@ -134,6 +152,19 @@ final class AuthRegistrationTest extends TestCase
         $method->setAccessible(true);
 
         $response = $method->invoke($controller, 'external_reader', ['hotel.view', 'ota.view', 'ota.collect'], null, 3);
+
+        self::assertSame(422, $response->getCode());
+        self::assertStringContainsString('OTA', (string)$response->getContent());
+    }
+
+    public function testStaffLevelAboveThreeRoleSaveRejectsUnsafePermission(): void
+    {
+        $reflection = new ReflectionClass(RoleController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('validateRolePermissionBoundary');
+        $method->setAccessible(true);
+
+        $response = $method->invoke($controller, 'external_staff_reader', ['hotel.view', 'ota.view', 'ota.collect'], null, 4);
 
         self::assertSame(422, $response->getCode());
         self::assertStringContainsString('OTA', (string)$response->getContent());
@@ -229,6 +260,30 @@ final class AuthRegistrationTest extends TestCase
         self::assertFalse($permissions['can_fetch_online_data']);
         self::assertFalse($permissions['can_delete_online_data']);
         self::assertFalse($permissions['can_export_data']);
+    }
+
+    public function testSelfRegistrationDefaultsHideDeniedGrantsForStaffLevelAboveThreeRole(): void
+    {
+        $reflection = new ReflectionClass(Auth::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('buildSelfRegistrationHotelPermissionDefaults');
+        $method->setAccessible(true);
+
+        $role = $this->roleWithPermissions([
+            'hotel.view',
+            'hotel.update',
+            'ota.view',
+            'ota.collect',
+            'ota.delete',
+            'can_export_data',
+        ], 9, 'external_staff_reader', 4);
+        $defaults = $method->invoke($controller, $role);
+
+        self::assertSame(1, $defaults['can_view_online_data']);
+        self::assertSame(0, $defaults['can_edit']);
+        self::assertSame(0, $defaults['can_fetch_ota']);
+        self::assertSame(0, $defaults['can_delete_ota']);
+        self::assertSame(0, $defaults['can_export']);
     }
 
     public function testExternalRolesWithAllPermissionDoNotBecomeSuperAdmin(): void

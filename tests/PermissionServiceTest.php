@@ -82,6 +82,32 @@ final class PermissionServiceTest extends TestCase
         self::assertNotContains('user.role_change', $service->roleCapabilities($user));
     }
 
+    public function testStaffLevelAboveThreeRoleCannotUseUnsafeCapabilitiesEvenIfRoleNameIsCustom(): void
+    {
+        $service = new PermissionService(new AllowingHotelScopeService());
+        $user = $this->userWithRole([
+            'dashboard.view',
+            'hotel.view',
+            'hotel.update',
+            'ota.view',
+            'ota.collect',
+            'ota.export',
+            'user.role_change',
+        ], 9, 'external_staff_reader', 4);
+
+        foreach (['hotel.update', 'ota.collect', 'ota.export', 'can_manage_users'] as $capability) {
+            $authorization = $service->authorize($user, $capability, 7);
+
+            self::assertFalse($authorization['allowed'], $capability);
+            self::assertSame('role_permission_denied', $authorization['reason'], $capability);
+        }
+        self::assertContains('ota.view', $service->roleCapabilities($user));
+        self::assertNotContains('hotel.update', $service->roleCapabilities($user));
+        self::assertNotContains('ota.collect', $service->roleCapabilities($user));
+        self::assertNotContains('ota.export', $service->roleCapabilities($user));
+        self::assertNotContains('user.role_change', $service->roleCapabilities($user));
+    }
+
     public function testVipCapabilityStillRequiresHotelPermissionLayer(): void
     {
         $service = new PermissionService(new DenyingHotelPermissionScopeService());

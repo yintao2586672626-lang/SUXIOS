@@ -228,10 +228,10 @@ class PermissionService
 
         try {
             return (string)$role->getAttr('name') === 'normal_user'
-                || (int)$role->getAttr('level') === Role::HOTEL_STAFF;
+                || (int)$role->getAttr('level') >= Role::HOTEL_STAFF;
         } catch (\Throwable) {
             return (string)($role->name ?? '') === 'normal_user'
-                || (int)($role->level ?? 0) === Role::HOTEL_STAFF;
+                || (int)($role->level ?? 0) >= Role::HOTEL_STAFF;
         }
     }
 }

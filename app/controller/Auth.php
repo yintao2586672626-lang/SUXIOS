@@ -483,7 +483,7 @@ class Auth extends Base
     {
         return (int)$role->getAttr('id') === Role::NORMAL_USER
             || (string)$role->getAttr('name') === 'normal_user'
-            || (int)$role->getAttr('level') === Role::HOTEL_STAFF;
+            || (int)$role->getAttr('level') >= Role::HOTEL_STAFF;
     }
 
     private function isEnabledConfigValue($value): bool
