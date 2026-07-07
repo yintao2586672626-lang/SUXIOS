@@ -601,3 +601,12 @@ test('Ctrip probe script chains capture and summary with safe status output', ()
   assert.match(script, /process\.exitCode\s*=\s*finalStatus === 'ready'/);
   assert.equal(packageJson.scripts['probe:ctrip-capture'], 'node scripts/probe_ctrip_capture.mjs');
 });
+
+test('Ctrip latest audit handoff mirrors the generated audit markdown', () => {
+  const generated = readFileSync('docs/ctrip_capture_audit.md', 'utf8').replace(/\r\n/g, '\n');
+  const latest = readFileSync('docs/ctrip_capture_audit_latest.md', 'utf8').replace(/\r\n/g, '\n');
+
+  assert.equal(latest, generated);
+  assert.match(latest, /Status: needs_evidence/);
+  assert.doesNotMatch(latest, /Status: blocked_auth/);
+});
