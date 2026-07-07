@@ -289,11 +289,12 @@ function buildReport(verifier) {
     const stepSystemHotelIds = uniquePositiveInts(steps.map((step) => step.system_hotel_id));
     const targetHotelsMissingSteps = difference(targetDateTrafficSystemHotelIds, stepSystemHotelIds);
     const stepHotelsMissingTargetTraffic = difference(stepSystemHotelIds, targetDateTrafficSystemHotelIds);
-    const scopeStatus = targetDateTrafficSystemHotelIds.length > 0
-      && stepSystemHotelIds.length > 0
-      && (targetHotelsMissingSteps.length > 0 || stepHotelsMissingTargetTraffic.length > 0)
-      ? 'mismatch'
-      : 'matched_or_not_provided';
+    let scopeStatus = 'matched_or_not_provided';
+    if (targetDateTrafficSystemHotelIds.length > 0 && stepSystemHotelIds.length > 0) {
+      scopeStatus = targetHotelsMissingSteps.length > 0
+        ? 'mismatch'
+        : (stepHotelsMissingTargetTraffic.length > 0 ? 'target_covered_with_extra_reference_steps' : 'matched_or_not_provided');
+    }
     const derivedManualLoginCount = steps.filter((step) => step.manual_login_state_verified).length;
     const derivedLoginTriggerCount = steps.filter((step) => step.login_trigger_entry).length;
     const derivedAfterLoginSyncCount = steps.filter((step) => step.after_login_sync_entry).length;
