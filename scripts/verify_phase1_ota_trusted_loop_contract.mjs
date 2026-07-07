@@ -622,8 +622,11 @@ requireIncludes('scripts/register_p0_ota_traffic_data_sources.php', 'P0 traffic 
   'same_platform_same_system_hotel_browser_profile_verified_metadata_only_no_secret_reuse',
   "'profile_status'] = $profileStatus",
   "'last_login_verified_at'] = $lastLoginVerifiedAt",
+  "$status = 'waiting_config';",
   '$currentLastSyncStatus',
+  '$lastSyncStatus = $currentLastSyncStatus',
   "'current_status' => $currentStatus",
+  "'previous_status' => $currentStatus",
   "'manual_login_state_verified' => false",
   "'manual_login_state_verified'] = true",
   "'login_verification_status' => 'not_verified'",
@@ -634,6 +637,7 @@ requireIncludes('scripts/register_p0_ota_traffic_data_sources.php', 'P0 traffic 
 requireExcludes('scripts/register_p0_ota_traffic_data_sources.php', 'P0 traffic source registration must not preserve success as target status', [
   '$status = $existingStatus',
   '$status = $currentStatus',
+  '$lastSyncStatus = $existingLastSyncStatus',
 ]);
 
 requireIncludes('docs/release_functional_acceptance_matrix.md', 'functional acceptance includes phase-one gate', [
