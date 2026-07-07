@@ -73,7 +73,7 @@
     <script src="ctrip-static.js?v=20260707-cookie-only-identity-auto-resolve"></script>
     <script src="meituan-static.js?v=20260708-ranking-summary-helpers"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
-    <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel"></script>
+    <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue"></script>
     <script src="revenue-ai-static.js?v=20260708-ai-daily-blocking-summary"></script>
     <script src="system-static.js?v=20260630-data-center-label"></script>
     <script src="compass-static.js?v=20260704-boss-ia"></script>
@@ -15023,6 +15023,46 @@
                                                 </table>
                                             </div>
                                         </div>
+                                        <div v-if="otaFieldGapQueueRows.length" data-testid="ota-field-gap-queue" class="mb-4 rounded-lg border border-orange-100 bg-white p-3">
+                                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                                                <div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ otaFieldGapQueueSummary.title }}</div>
+                                                    <div class="mt-1 text-[11px] text-slate-500">{{ otaFieldGapQueueSummary.boundaryText }}</div>
+                                                    <div class="mt-1 text-[11px] text-orange-700">source_path 缺口 {{ otaFieldGapQueueSummary.sourcePathMissing }} / storage field 缺口 {{ otaFieldGapQueueSummary.storageMissing }} / UI 未闭合 {{ otaFieldGapQueueSummary.uiOpen }}</div>
+                                                </div>
+                                                <span :class="['rounded-md border px-2.5 py-1 text-xs whitespace-nowrap', dataHealthPriorityClass(otaFieldGapQueueSummary.status)]">{{ otaFieldGapQueueSummary.text }}</span>
+                                            </div>
+                                            <div class="overflow-x-auto">
+                                                <table class="min-w-full divide-y divide-gray-100 text-xs">
+                                                    <thead class="bg-gray-50 text-gray-500">
+                                                        <tr>
+                                                            <th class="px-3 py-2 text-left font-medium">平台</th>
+                                                            <th class="px-3 py-2 text-left font-medium">日期</th>
+                                                            <th class="px-3 py-2 text-left font-medium">source_path</th>
+                                                            <th class="px-3 py-2 text-left font-medium">metric_key</th>
+                                                            <th class="px-3 py-2 text-left font-medium">storage field</th>
+                                                            <th class="px-3 py-2 text-left font-medium">UI 状态</th>
+                                                            <th class="px-3 py-2 text-left font-medium">verifier</th>
+                                                            <th class="px-3 py-2 text-left font-medium">下一步</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-gray-100 bg-white">
+                                                        <tr v-for="row in otaFieldGapQueueRows" :key="row.key" class="align-top">
+                                                            <td class="px-3 py-2 whitespace-nowrap text-slate-700">{{ row.platformLabel }}</td>
+                                                            <td class="px-3 py-2 whitespace-nowrap text-slate-700">{{ row.targetDate }}</td>
+                                                            <td class="px-3 py-2 text-slate-500" :title="row.sourcePath">{{ row.sourcePath }}</td>
+                                                            <td class="px-3 py-2 font-medium text-slate-900" :title="row.metricKey">{{ row.metricKey }}</td>
+                                                            <td class="px-3 py-2 text-slate-600" :title="row.storageField">{{ row.storageField }}</td>
+                                                            <td class="px-3 py-2 whitespace-nowrap text-slate-600">{{ row.uiStatus }}</td>
+                                                            <td class="px-3 py-2">
+                                                                <span :class="['rounded-md border px-2 py-0.5 whitespace-nowrap', dataHealthPriorityClass(row.priority)]">{{ row.verifierStatus }}</span>
+                                                            </td>
+                                                            <td class="px-3 py-2 text-orange-700" :title="row.nextAction">{{ row.nextAction }}</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
                                         <div v-if="phase1EmployeeMetricDomainRows.length" data-testid="phase1-employee-metric-domain-summary" class="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
                                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                                                 <div class="text-sm font-semibold text-gray-900">收入/流量/转化证据摘要</div>
@@ -20743,6 +20783,8 @@
             const scheduleDataHealthLightDiagnosticsRefresh = requireDataHealthStatic('scheduleDataHealthLightDiagnosticsRefresh');
             const buildDataHealthFieldGapActionRows = requireDataHealthStatic('buildDataHealthFieldGapActionRows');
             const summarizeDataHealthFieldGapActions = requireDataHealthStatic('summarizeDataHealthFieldGapActions');
+            const buildOtaFieldGapQueueRows = requireDataHealthStatic('buildOtaFieldGapQueueRows');
+            const summarizeOtaFieldGapQueue = requireDataHealthStatic('summarizeOtaFieldGapQueue');
             const buildDataHealthCookieAlertRows = requireDataHealthStatic('buildDataHealthCookieAlertRows');
             const summarizeDataHealthCookieAlerts = requireDataHealthStatic('summarizeDataHealthCookieAlerts');
             const buildDataHealthQualityTaskRows = requireDataHealthStatic('buildDataHealthQualityTaskRows');
@@ -37646,6 +37688,12 @@
                 platformText: dataHealthPlatformText,
             }));
             const dataHealthFieldGapActionSummary = computed(() => summarizeDataHealthFieldGapActions(dataHealthFieldGapActionRows.value));
+            const otaFieldGapQueueRows = computed(() => buildOtaFieldGapQueueRows({
+                sourceDateEvidence: collectionReliability.value?.source_date_evidence || dashboardDataSources.value?.source_date_evidence || {},
+                missingFieldRows: phase1EmployeeMissingFieldRows.value,
+                platformText: dataHealthPlatformText,
+            }));
+            const otaFieldGapQueueSummary = computed(() => summarizeOtaFieldGapQueue(otaFieldGapQueueRows.value));
             const phase1EmployeeMetricDomainRows = computed(() => {
                 const backendQuestionSource = collectionReliability.value?.phase1_employee_questions || dashboardDataSources.value?.phase1_employee_questions || {};
                 return buildPhase1EmployeeMetricDomainRows({
@@ -46560,6 +46608,7 @@
                 dataHealthDiagnosticBoundary, dataHealthRefreshModeText, dataHealthLastRefreshSource, dataHealthLastRefreshAt, dataHealthPendingDiagnosticText, dataHealthDiagnosticStatusRows, collectionHealthFailureReasonRanking,
                 dataHealthDrilldownRows, openDataHealthDrilldown,
                 dataHealthCookieAlertRows, dataHealthCookieAlertSummary, dataHealthQualityTaskRows, dataHealthHighRiskActionRows, dataHealthHighRiskSummary, otaTodayCollectionReminderRows, otaTodayCollectionReminderSummary, dataHealthTodayWorkOrders,
+                otaFieldGapQueueRows, otaFieldGapQueueSummary,
                 dataHealthOperationLogLoading, dataHealthOperationLogError, dataHealthOperationLogScope, dataHealthPriorityClass, dataHealthPriorityText,
                 publicEndpointSecurity, publicEndpointSecurityLoading, publicEndpointSecurityError, publicEndpointSecurityRows, publicEndpointSecuritySummary, publicEndpointTokenText, publicEndpointDisplayName, publicEndpointSecurityBoundaryText, publicEndpointSecurityEvidenceText, publicEndpointPathText,
                 releaseEvidenceStatus, releaseEvidenceLoading, releaseEvidenceError, releaseEvidenceRows, releaseEvidenceSummary, loadReleaseEvidenceStatus,

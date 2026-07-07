@@ -33,6 +33,99 @@ test('data health field-gap summary stays read-only and source-aware', () => {
   assert.equal(summary.hasForbidden, true);
 });
 
+test('OTA field gap queue exposes only unclosed source-to-UI evidence gaps', () => {
+  assert.equal(typeof helpers.buildOtaFieldGapQueueRows, 'function');
+  assert.equal(typeof helpers.summarizeOtaFieldGapQueue, 'function');
+
+  const rows = helpers.buildOtaFieldGapQueueRows({
+    sourceDateEvidence: {
+      target_date: '2026-07-08',
+      platforms: [{
+        platform: 'ctrip',
+        target_date: '2026-07-08',
+        p0_traffic_gate_status: 'requires_p0_verifier',
+        p0_traffic_field_fact_status: 'not_loaded',
+        p0_field_loop_matrix: [{
+          metric_key: 'list_exposure',
+          expected_storage_field: 'list_exposure',
+          source_path: 'data.flow.0.listExposure',
+          status: 'ready',
+          ui_status_ready: true,
+        }, {
+          metric_key: 'detail_exposure',
+          expected_storage_field: 'detail_exposure',
+          status: 'missing',
+          ui_status_ready: false,
+        }],
+      }],
+    },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].platform, 'ctrip');
+  assert.equal(rows[0].targetDate, '2026-07-08');
+  assert.equal(rows[0].metricKey, 'detail_exposure');
+  assert.equal(rows[0].storageField, 'detail_exposure');
+  assert.equal(rows[0].sourcePath, 'source_path_missing');
+  assert.equal(rows[0].uiStatus, 'not_loaded');
+  assert.equal(rows[0].priority, 'high');
+  assert.match(rows[0].nextAction, /source_path/);
+
+  const summary = helpers.summarizeOtaFieldGapQueue(rows);
+  assert.equal(summary.status, 'high');
+  assert.equal(summary.openCount, 1);
+  assert.equal(summary.sourcePathMissing, 1);
+  assert.equal(summary.storageMissing, 0);
+  assert.equal(summary.uiOpen, 1);
+  assert.match(summary.boundaryText, /OTA/);
+  assert.match(summary.boundaryText, /verifier/);
+});
+
+test('OTA field gap queue falls back to missing field rows without fabricating closure', () => {
+  assert.equal(helpers.otaFieldGapQueueStatusText('missing_target_date_traffic_rows'), '目标日 traffic 未入库');
+
+  const rows = helpers.buildOtaFieldGapQueueRows({
+    sourceDateEvidence: {
+      target_date: '2026-07-08',
+      platforms: [],
+    },
+    missingFieldRows: [{
+      platform: 'meituan',
+      code: 'order_submit_num',
+      storageField: 'order_submit_num',
+      sourceRef: 'missing_field_summary',
+      nextActionText: 'collect target-date Meituan traffic field facts',
+    }],
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].platform, 'meituan');
+  assert.equal(rows[0].metricKey, 'order_submit_num');
+  assert.equal(rows[0].verifierStatus, 'requires_p0_verifier');
+  assert.equal(rows[0].sourcePath, 'source_path_missing');
+  assert.equal(rows[0].priority, 'high');
+});
+
+test('OTA field gap queue treats missing target-date traffic gate as high risk', () => {
+  const rows = helpers.buildOtaFieldGapQueueRows({
+    sourceDateEvidence: {
+      target_date: '2026-07-08',
+      platforms: [{
+        platform: 'ctrip',
+        target_date: '2026-07-08',
+        p0_traffic_gate_status: 'missing_target_date_traffic_rows',
+        p0_missing_metric_keys: ['traffic_index'],
+        p0_required_storage_fields: ['online_daily_data.traffic_index'],
+      }],
+    },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, 'missing_target_date_traffic_rows');
+  assert.equal(rows[0].statusText, '目标日 traffic 未入库');
+  assert.equal(rows[0].priority, 'high');
+});
+
 test('release evidence panel rows keep release readiness blockers non-closing', () => {
   assert.equal(typeof helpers.buildReleaseEvidencePanelRows, 'function');
   assert.equal(typeof helpers.summarizeReleaseEvidencePanel, 'function');
@@ -194,4 +287,44 @@ test('full data health panel refresh includes release evidence status without li
     normalizedMode: 'full',
   }));
   assert.equal(calls.some(([name]) => name === 'loadReleaseEvidenceStatus'), true);
+});
+
+test('OTA field gap queue exposes source path metric storage UI and verifier state', () => {
+  assert.equal(typeof helpers.buildOtaFieldGapQueueRows, 'function');
+  assert.equal(typeof helpers.summarizeOtaFieldGapQueue, 'function');
+
+  const rows = helpers.buildOtaFieldGapQueueRows({
+    sourceDateEvidence: {
+      target_date: '2026-07-08',
+      platforms: [{
+        platform: 'meituan',
+        p0_traffic_gate_status: 'missing_target_date_traffic_rows',
+        p0_traffic_field_fact_status: 'no_target_date_traffic_rows',
+        p0_field_loop_matrix: [{
+          metric_key: 'list_exposure',
+          expected_storage_field: 'online_daily_data.list_exposure',
+          status: 'no_target_date_traffic_rows',
+          source_path_structured: false,
+          ui_status_ready: false,
+        }],
+      }],
+    },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].platform, 'meituan');
+  assert.equal(rows[0].targetDate, '2026-07-08');
+  assert.equal(rows[0].metricKey, 'list_exposure');
+  assert.equal(rows[0].storageField, 'online_daily_data.list_exposure');
+  assert.equal(rows[0].sourcePath, 'source_path_missing');
+  assert.equal(rows[0].uiStatus, 'no_target_date_traffic_rows');
+  assert.equal(rows[0].verifierStatus, 'missing_target_date_traffic_rows');
+  assert.match(rows[0].nextAction, /traffic/);
+
+  const summary = helpers.summarizeOtaFieldGapQueue(rows);
+  assert.equal(summary.status, 'high');
+  assert.equal(summary.openCount, 1);
+  assert.equal(summary.sourcePathMissing, 1);
+  assert.match(summary.boundaryText, /source_path/);
+  assert.match(summary.boundaryText, /verifier/);
 });

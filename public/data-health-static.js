@@ -812,6 +812,139 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         };
     };
 
+    const otaFieldGapQueueStatusText = (status = '') => ({
+        complete: '已闭合',
+        ready: '已闭合',
+        missing: '缺失',
+        incomplete: '待补',
+        no_target_date_traffic_rows: '目标日 traffic 未入库',
+        missing_target_date_traffic_rows: '目标日 traffic 未入库',
+        requires_p0_verifier: '待 P0 复核',
+        not_loaded: '未加载',
+        unknown: '未知',
+    }[String(status || '').trim()] || String(status || '').trim() || '未知');
+
+    const buildOtaFieldGapQueueRows = ({
+        sourceDateEvidence = {},
+        missingFieldRows = [],
+        platformText = dataHealthPlatformText,
+    } = {}) => {
+        const rows = [];
+        const targetDate = String(sourceDateEvidence?.target_date || sourceDateEvidence?.date || '').trim();
+        const platformRows = Array.isArray(sourceDateEvidence?.platforms) ? sourceDateEvidence.platforms : [];
+        const statusPriority = (status) => {
+            const value = String(status || '').trim();
+            if (['complete', 'ready'].includes(value)) return 'ok';
+            if (['missing', 'no_target_date_traffic_rows', 'missing_target_date_traffic_rows'].includes(value) || value.endsWith('_missing')) return 'high';
+            return 'medium';
+        };
+        const push = (row) => {
+            const status = String(row.status || 'unknown').trim();
+            const metricKey = String(row.metricKey || '').trim();
+            const platform = String(row.platform || 'ota').trim().toLowerCase();
+            rows.push({
+                key: row.key || `${platform}-${row.targetDate || targetDate || 'target-date'}-${metricKey || rows.length}-${status}`,
+                platform,
+                platformLabel: platformText(platform),
+                targetDate: String(row.targetDate || targetDate || '目标日待确认').trim(),
+                metricKey: metricKey || 'metric_key_missing',
+                storageField: String(row.storageField || '').trim() || 'storage_field_missing',
+                sourcePath: String(row.sourcePath || '').trim() || 'source_path_missing',
+                uiStatus: String(row.uiStatus || '').trim() || 'not_loaded',
+                verifierStatus: String(row.verifierStatus || status).trim() || status,
+                status,
+                statusText: otaFieldGapQueueStatusText(status),
+                priority: row.priority || statusPriority(status),
+                nextAction: String(row.nextAction || '').trim() || '按 P0 verifier 补齐 source_path / metric_key / storage_field / UI 状态证据。',
+                sourceRef: String(row.sourceRef || '').trim() || 'source_date_evidence.p0_field_loop_matrix',
+            });
+        };
+
+        platformRows.forEach((platformRow) => {
+            const platform = String(platformRow?.platform || '').trim().toLowerCase() || 'ota';
+            const matrix = Array.isArray(platformRow?.p0_field_loop_matrix) ? platformRow.p0_field_loop_matrix : [];
+            const gateStatus = String(platformRow?.p0_traffic_gate_status || platformRow?.p0_standard_fact_status || '').trim();
+            const uiStatus = String(platformRow?.p0_traffic_field_fact_status || platformRow?.field_fact_status || '').trim();
+            matrix.forEach((item, index) => {
+                const status = String(item?.status || gateStatus || 'unknown').trim();
+                if (['complete', 'ready'].includes(status)) return;
+                const metricKey = String(item?.metric_key || '').trim();
+                const expectedStorage = String(item?.expected_storage_field || item?.storage_field || '').trim();
+                const sourcePath = String(item?.source_path || item?.sample_source_path || '').trim()
+                    || (item?.source_path_structured ? 'structured_source_path_present' : 'source_path_missing');
+                push({
+                    key: `${platform}-${platformRow?.target_date || targetDate || 'target-date'}-${metricKey || index}`,
+                    platform,
+                    targetDate: platformRow?.target_date || targetDate,
+                    metricKey,
+                    storageField: expectedStorage,
+                    sourcePath,
+                    uiStatus: item?.ui_status_ready ? 'ready' : (uiStatus || 'not_loaded'),
+                    verifierStatus: gateStatus || status,
+                    status,
+                    nextAction: ['missing_target_date_traffic_rows', 'no_target_date_traffic_rows'].includes(status)
+                        ? '先补齐目标日 traffic 行，再复核 field_facts 证据链。'
+                        : '补齐 source_path、metric_key、storage_field、stored_value 与 UI ready 证据后重跑 P0 verifier。',
+                });
+            });
+
+            if (!matrix.length && gateStatus && gateStatus !== 'ready') {
+                const missingKeys = Array.isArray(platformRow?.p0_missing_metric_keys) ? platformRow.p0_missing_metric_keys : [];
+                const storageFields = Array.isArray(platformRow?.p0_required_storage_fields) ? platformRow.p0_required_storage_fields : [];
+                (missingKeys.length ? missingKeys : ['traffic_field_facts']).forEach((metricKey, index) => {
+                    push({
+                        key: `${platform}-${platformRow?.target_date || targetDate || 'target-date'}-${metricKey}`,
+                        platform,
+                        targetDate: platformRow?.target_date || targetDate,
+                        metricKey,
+                        storageField: storageFields[index] || '',
+                        status: gateStatus,
+                        uiStatus: uiStatus || 'not_loaded',
+                        verifierStatus: gateStatus,
+                    });
+                });
+            }
+        });
+
+        if (!rows.length) {
+            (Array.isArray(missingFieldRows) ? missingFieldRows : []).slice(0, 12).forEach((item, index) => {
+                push({
+                    key: `missing-field-${index}-${item?.code || item?.field || ''}`,
+                    platform: item?.platform || 'ota',
+                    targetDate,
+                    metricKey: item?.code || item?.field || item?.label || 'missing_field',
+                    storageField: item?.storageField || '',
+                    status: 'missing',
+                    uiStatus: 'not_loaded',
+                    verifierStatus: 'requires_p0_verifier',
+                    sourceRef: item?.sourceRef || item?.sourceText || 'missing_field_summary',
+                    nextAction: item?.nextActionText || '先补齐字段资产与目标日 source_date_evidence，再生成 P0 field-loop 证据链。',
+                });
+            });
+        }
+
+        return rows.slice(0, 24);
+    };
+
+    const summarizeOtaFieldGapQueue = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const openRows = safeRows.filter(row => row.priority !== 'ok');
+        const sourcePathMissing = safeRows.filter(row => String(row?.sourcePath || '').includes('missing')).length;
+        const storageMissing = safeRows.filter(row => String(row?.storageField || '').includes('missing')).length;
+        const uiOpen = safeRows.filter(row => !['ready', 'complete'].includes(String(row?.uiStatus || '').trim())).length;
+        return {
+            title: 'OTA 字段缺口队列',
+            status: openRows.length ? 'high' : 'ok',
+            text: openRows.length ? `${openRows.length} 项待闭合` : '字段链路已闭合',
+            total: safeRows.length,
+            openCount: openRows.length,
+            sourcePathMissing,
+            storageMissing,
+            uiOpen,
+            boundaryText: '只展示 OTA 渠道字段证据链；source_path、metric_key、storage_field、UI 状态和 verifier 任一缺失都不能按成功处理。',
+        };
+    };
+
     const buildDataHealthCookieAlertRows = (
         authorizationRows = [],
         normalizeStatus = dataHealthNormalizeStatus,
@@ -5351,6 +5484,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         scheduleDataHealthLightDiagnosticsRefresh,
         buildDataHealthFieldGapActionRows,
         summarizeDataHealthFieldGapActions,
+        otaFieldGapQueueStatusText,
+        buildOtaFieldGapQueueRows,
+        summarizeOtaFieldGapQueue,
         buildDataHealthCookieAlertRows,
         summarizeDataHealthCookieAlerts,
         buildDataHealthQualityTaskRows,
