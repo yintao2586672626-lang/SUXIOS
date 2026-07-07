@@ -35,9 +35,10 @@ final class PermissionServiceTest extends TestCase
             'can_delete_online_data',
             'can_export_data',
             'can_use_ai_decision',
+            'user.role_change',
         ], Role::NORMAL_USER, 'normal_user');
 
-        foreach (['hotel.update', 'ota.collect', 'ota.delete', 'ota.export', 'report.export', 'ai.execute'] as $capability) {
+        foreach (['hotel.update', 'ota.collect', 'ota.delete', 'ota.export', 'report.export', 'ai.execute', 'can_manage_users'] as $capability) {
             $authorization = $service->authorize($user, $capability, 7);
 
             self::assertFalse($authorization['allowed'], $capability);
@@ -51,7 +52,34 @@ final class PermissionServiceTest extends TestCase
         self::assertNotContains('ota.export', $service->roleCapabilities($user));
         self::assertNotContains('hotel.update', $service->roleCapabilities($user));
         self::assertNotContains('can_use_ai_decision', $service->roleCapabilities($user));
+        self::assertNotContains('user.role_change', $service->roleCapabilities($user));
         self::assertContains('ota.view', $service->roleCapabilities($user));
+    }
+
+    public function testLevelThreeRoleCannotUseUnsafeCapabilitiesEvenIfRoleNameIsCustom(): void
+    {
+        $service = new PermissionService(new AllowingHotelScopeService());
+        $user = $this->userWithRole([
+            'dashboard.view',
+            'hotel.view',
+            'hotel.update',
+            'ota.view',
+            'ota.collect',
+            'ota.export',
+            'user.role_change',
+        ], 9, 'external_reader', 3);
+
+        foreach (['hotel.update', 'ota.collect', 'ota.export', 'can_manage_users'] as $capability) {
+            $authorization = $service->authorize($user, $capability, 7);
+
+            self::assertFalse($authorization['allowed'], $capability);
+            self::assertSame('role_permission_denied', $authorization['reason'], $capability);
+        }
+        self::assertContains('ota.view', $service->roleCapabilities($user));
+        self::assertNotContains('hotel.update', $service->roleCapabilities($user));
+        self::assertNotContains('ota.collect', $service->roleCapabilities($user));
+        self::assertNotContains('ota.export', $service->roleCapabilities($user));
+        self::assertNotContains('user.role_change', $service->roleCapabilities($user));
     }
 
     public function testVipCapabilityStillRequiresHotelPermissionLayer(): void
@@ -68,7 +96,7 @@ final class PermissionServiceTest extends TestCase
     /**
      * @param array<int, string> $permissions
      */
-    private function userWithRole(array $permissions, int $roleId = Role::BETA_USER, string $roleName = 'operator'): User
+    private function userWithRole(array $permissions, int $roleId = Role::BETA_USER, string $roleName = 'operator', int $roleLevel = 2): User
     {
         $role = $this->getMockBuilder(Role::class)
             ->disableOriginalConstructor()
@@ -80,6 +108,7 @@ final class PermissionServiceTest extends TestCase
                 'id' => $roleId,
                 'name' => $roleName,
                 'status' => Role::STATUS_ENABLED,
+                'level' => $roleLevel,
                 default => null,
             }
         );
@@ -88,6 +117,7 @@ final class PermissionServiceTest extends TestCase
                 'id' => $roleId,
                 'name' => $roleName,
                 'status' => Role::STATUS_ENABLED,
+                'level' => $roleLevel,
                 default => null,
             }
         );

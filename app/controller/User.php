@@ -485,7 +485,9 @@ class User extends Base
 
     private function isNormalExternalRole(Role $role): bool
     {
-        return (int)$role->getAttr('id') === Role::NORMAL_USER || (string)$role->getAttr('name') === 'normal_user';
+        return (int)$role->getAttr('id') === Role::NORMAL_USER
+            || (string)$role->getAttr('name') === 'normal_user'
+            || (int)$role->getAttr('level') === Role::HOTEL_STAFF;
     }
 
     /**

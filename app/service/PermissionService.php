@@ -154,6 +154,7 @@ class PermissionService
     {
         return match ($capability) {
             'can_manage_own_hotels' => 'hotel.create',
+            'can_manage_users' => 'user.role_change',
             'can_view_online_data' => 'ota.view',
             'can_fetch_online_data' => 'ota.collect',
             'can_delete_online_data' => 'ota.delete',
@@ -226,9 +227,11 @@ class PermissionService
         }
 
         try {
-            return (string)$role->getAttr('name') === 'normal_user';
+            return (string)$role->getAttr('name') === 'normal_user'
+                || (int)$role->getAttr('level') === Role::HOTEL_STAFF;
         } catch (\Throwable) {
-            return (string)($role->name ?? '') === 'normal_user';
+            return (string)($role->name ?? '') === 'normal_user'
+                || (int)($role->level ?? 0) === Role::HOTEL_STAFF;
         }
     }
 }

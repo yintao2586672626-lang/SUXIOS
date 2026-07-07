@@ -445,7 +445,7 @@ class Auth extends Base
             'can_fetch_online_data' => $allows('can_fetch_online_data'),
             'can_delete_online_data' => $allows('can_delete_online_data'),
             'can_manage_own_hotels' => $user->canManageOwnHotels() && $this->roleAllows($user, 'can_manage_own_hotels'),
-            'can_manage_users' => $user->canManageUser(),
+            'can_manage_users' => $user->canManageUser() && $this->roleAllows($user, 'can_manage_users'),
             'can_use_ai_decision' => $this->roleAllows($user, 'can_use_ai_decision'),
             'can_use_investment' => $this->roleAllows($user, 'can_use_investment'),
             'can_export_data' => $this->roleAllows($user, 'can_export_data'),
@@ -481,7 +481,9 @@ class Auth extends Base
 
     private function isNormalExternalRole(Role $role): bool
     {
-        return (int)$role->getAttr('id') === Role::NORMAL_USER || (string)$role->getAttr('name') === 'normal_user';
+        return (int)$role->getAttr('id') === Role::NORMAL_USER
+            || (string)$role->getAttr('name') === 'normal_user'
+            || (int)$role->getAttr('level') === Role::HOTEL_STAFF;
     }
 
     private function isEnabledConfigValue($value): bool

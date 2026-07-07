@@ -94,6 +94,24 @@ final class AuthRegistrationTest extends TestCase
         self::assertStringContainsString('普通用户角色不能包含 OTA 采集权限或其他高风险权限', (string)$response->getContent());
     }
 
+    public function testLevelThreeExternalUserIssueRejectsUnsafePermission(): void
+    {
+        $reflection = new ReflectionClass(UserController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('validateExternalUserIssueBoundary');
+        $method->setAccessible(true);
+
+        $response = $method->invoke($controller, $this->roleWithPermissions([
+            'dashboard.view',
+            'hotel.view',
+            'ota.view',
+            'ota.collect',
+        ], 9, 'external_reader', 3), [7]);
+
+        self::assertSame(422, $response->getCode());
+        self::assertStringContainsString('OTA', (string)$response->getContent());
+    }
+
     public function testRenamedNormalRoleStillRejectsUnsafePermissionOnRoleSave(): void
     {
         $reflection = new ReflectionClass(RoleController::class);
@@ -106,6 +124,32 @@ final class AuthRegistrationTest extends TestCase
 
         self::assertSame(422, $response->getCode());
         self::assertStringContainsString('普通用户角色不能包含 OTA 采集权限或其他高风险权限', (string)$response->getContent());
+    }
+
+    public function testLevelThreeRoleSaveRejectsUnsafePermission(): void
+    {
+        $reflection = new ReflectionClass(RoleController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('validateRolePermissionBoundary');
+        $method->setAccessible(true);
+
+        $response = $method->invoke($controller, 'external_reader', ['hotel.view', 'ota.view', 'ota.collect'], null, 3);
+
+        self::assertSame(422, $response->getCode());
+        self::assertStringContainsString('OTA', (string)$response->getContent());
+    }
+
+    public function testNormalRoleSaveRejectsLegacyUserManagementPermission(): void
+    {
+        $reflection = new ReflectionClass(RoleController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('validateRolePermissionBoundary');
+        $method->setAccessible(true);
+
+        $response = $method->invoke($controller, 'normal_user', ['hotel.view', 'ota.view', 'can_manage_users'], null, 3);
+
+        self::assertSame(422, $response->getCode());
+        self::assertStringContainsString('user.role_change', (string)$response->getContent());
     }
 
     public function testBuiltInExternalRoleIdentityCannotBeChanged(): void
@@ -146,12 +190,42 @@ final class AuthRegistrationTest extends TestCase
             'can_fetch_online_data',
             'can_delete_online_data',
             'can_export_data',
-        ], true);
+        ], true, true);
 
         $permissions = $method->invoke($controller, $user);
 
         self::assertFalse($permissions['can_manage_own_hotels']);
+        self::assertFalse($permissions['can_manage_users']);
         self::assertFalse($permissions['can_edit_report']);
+        self::assertFalse($permissions['can_fetch_online_data']);
+        self::assertFalse($permissions['can_delete_online_data']);
+        self::assertFalse($permissions['can_export_data']);
+    }
+
+    public function testLoginPermissionsHideDeniedGrantsForLevelThreeRole(): void
+    {
+        $reflection = new ReflectionClass(Auth::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('buildUserPermissions');
+        $method->setAccessible(true);
+
+        $role = $this->roleWithPermissions(
+            ['dashboard.view', 'hotel.view', 'hotel.update', 'ota.view', 'can_fetch_online_data', 'can_delete_online_data', 'can_export_data'],
+            9,
+            'external_reader',
+            3
+        );
+        $user = $this->userWithRoleAndLegacyPermissions($role, 9, [
+            'can_manage_own_hotels',
+            'can_fetch_online_data',
+            'can_delete_online_data',
+            'can_export_data',
+        ], true, true);
+
+        $permissions = $method->invoke($controller, $user);
+
+        self::assertFalse($permissions['can_manage_own_hotels']);
+        self::assertFalse($permissions['can_manage_users']);
         self::assertFalse($permissions['can_fetch_online_data']);
         self::assertFalse($permissions['can_delete_online_data']);
         self::assertFalse($permissions['can_export_data']);
@@ -253,7 +327,13 @@ final class AuthRegistrationTest extends TestCase
     /**
      * @param array<int, string> $legacyPermissions
      */
-    private function userWithRoleAndLegacyPermissions(Role $role, int $roleId, array $legacyPermissions, bool $canManageOwnHotels = false): UserModel
+    private function userWithRoleAndLegacyPermissions(
+        Role $role,
+        int $roleId,
+        array $legacyPermissions,
+        bool $canManageOwnHotels = false,
+        bool $canManageUsers = false
+    ): UserModel
     {
         $user = $this->getMockBuilder(UserModel::class)
             ->disableOriginalConstructor()
@@ -264,7 +344,7 @@ final class AuthRegistrationTest extends TestCase
             static fn(string $permission): bool => in_array($permission, $legacyPermissions, true)
         );
         $user->method('canManageOwnHotels')->willReturn($canManageOwnHotels);
-        $user->method('canManageUser')->willReturn(false);
+        $user->method('canManageUser')->willReturn($canManageUsers);
         $user->method('isSuperAdmin')->willReturn(false);
         $user->method('__isset')->willReturnCallback(
             static fn(string $key): bool => in_array($key, ['role_id', 'role'], true)

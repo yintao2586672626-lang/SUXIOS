@@ -112,6 +112,7 @@ class Role extends Model
             'operation.execute' => ['can_use_ai_decision', 'operation_execute'],
             'investment.view' => ['can_use_investment', 'investment_view'],
             'investment.simulate' => ['can_use_investment', 'investment_simulate'],
+            'user.role_change' => ['can_manage_users'],
             'system.config' => ['system_config'],
             'audit.view' => ['audit_view'],
             'can_manage_own_hotels' => ['hotel.create'],
@@ -129,6 +130,7 @@ class Role extends Model
             'can_view_field_assets' => ['field_assets.view'],
             'can_view_diagnostics' => ['collection_health.view'],
             'can_manage_ai_governance' => ['ai.governance'],
+            'can_manage_users' => ['user.role_change'],
         ];
 
         foreach ($aliases[$permission] ?? [] as $alias) {

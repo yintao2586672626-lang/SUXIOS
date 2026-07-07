@@ -62,7 +62,8 @@ class RoleController extends Base
         }
 
         $permissions = $this->normalizePermissionPayload($data['permissions'] ?? []);
-        $boundaryResponse = $this->validateRolePermissionBoundary((string)$data['name'], $permissions);
+        $nextLevel = (int)$data['level'];
+        $boundaryResponse = $this->validateRolePermissionBoundary((string)$data['name'], $permissions, null, $nextLevel);
         if ($boundaryResponse) {
             return $boundaryResponse;
         }
@@ -109,10 +110,11 @@ class RoleController extends Base
         }
 
         $nextName = !empty($data['name']) ? (string)$data['name'] : (string)$role->name;
+        $nextLevel = isset($data['level']) ? (int)$data['level'] : (int)$role->getAttr('level');
         $permissions = isset($data['permissions'])
             ? $this->normalizePermissionPayload($data['permissions'])
             : Role::normalizePermissions($role->permissions);
-        $boundaryResponse = $this->validateRolePermissionBoundary($nextName, $permissions, $role);
+        $boundaryResponse = $this->validateRolePermissionBoundary($nextName, $permissions, $role, $nextLevel);
         if ($boundaryResponse) {
             return $boundaryResponse;
         }
@@ -240,9 +242,9 @@ class RoleController extends Base
         return null;
     }
 
-    private function validateRolePermissionBoundary(string $roleName, array $permissions, ?Role $existingRole = null): ?Response
+    private function validateRolePermissionBoundary(string $roleName, array $permissions, ?Role $existingRole = null, ?int $roleLevel = null): ?Response
     {
-        if (!$this->isNormalExternalRoleIdentity($roleName, $existingRole)) {
+        if (!$this->isNormalExternalRoleIdentity($roleName, $existingRole, $roleLevel)) {
             return null;
         }
 
@@ -254,9 +256,13 @@ class RoleController extends Base
         return null;
     }
 
-    private function isNormalExternalRoleIdentity(string $roleName, ?Role $existingRole = null): bool
+    private function isNormalExternalRoleIdentity(string $roleName, ?Role $existingRole = null, ?int $roleLevel = null): bool
     {
         if ($roleName === 'normal_user') {
+            return true;
+        }
+
+        if ($roleLevel === Role::HOTEL_STAFF) {
             return true;
         }
 
@@ -265,6 +271,7 @@ class RoleController extends Base
         }
 
         return (int)$existingRole->getAttr('id') === Role::NORMAL_USER
-            || (string)$existingRole->getAttr('name') === 'normal_user';
+            || (string)$existingRole->getAttr('name') === 'normal_user'
+            || (int)$existingRole->getAttr('level') === Role::HOTEL_STAFF;
     }
 }
