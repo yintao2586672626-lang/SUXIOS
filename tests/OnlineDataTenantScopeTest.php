@@ -61,6 +61,15 @@ final class OnlineDataTenantScopeTest extends TestCase
         self::assertSame(99, $this->invokeNonPublic($controller, 'resolveOnlineDataSystemHotelId', [99]));
     }
 
+    public function testReleaseEvidenceStatusRejectsNonSuperUserEvenWithOnlineDataPermission(): void
+    {
+        $controller = $this->controllerWithUser($this->tenantUser([7], false, 7, ['can_view_online_data']));
+
+        $this->expectException(HttpException::class);
+
+        $controller->releaseEvidenceStatus();
+    }
+
     private function controllerWithUser(object $user): OnlineData
     {
         $reflection = new ReflectionClass(OnlineData::class);
@@ -76,15 +85,16 @@ final class OnlineDataTenantScopeTest extends TestCase
     /**
      * @param array<int, int> $hotelIds
      */
-    private function tenantUser(array $hotelIds, bool $superAdmin = false, ?int $hotelId = null): object
+    private function tenantUser(array $hotelIds, bool $superAdmin = false, ?int $hotelId = null, array $permissions = []): object
     {
-        return new class($hotelIds, $superAdmin, $hotelId) {
+        return new class($hotelIds, $superAdmin, $hotelId, $permissions) {
             public ?int $hotel_id = null;
 
             /**
              * @param array<int, int> $hotelIds
+             * @param array<int, string> $permissions
              */
-            public function __construct(private array $hotelIds, private bool $superAdmin, ?int $hotelId)
+            public function __construct(private array $hotelIds, private bool $superAdmin, ?int $hotelId, private array $permissions)
             {
                 $this->hotel_id = $hotelId;
             }
@@ -100,6 +110,11 @@ final class OnlineDataTenantScopeTest extends TestCase
             public function getPermittedHotelIds(): array
             {
                 return $this->hotelIds;
+            }
+
+            public function hasPermission(string $permission): bool
+            {
+                return in_array($permission, $this->permissions, true);
             }
         };
     }

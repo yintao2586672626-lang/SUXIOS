@@ -1785,6 +1785,7 @@ if (!fs.existsSync(indexPath)) {
       loadCollectionReliability: loader('collection'),
       loadDataHealthOperationLogs: loader('logs'),
       loadPublicEndpointSecurity: loader('security'),
+      loadReleaseEvidenceStatus: loader('release-evidence'),
       loadHotelDataDashboard: loader('dashboard'),
       loadPlatformCollectionResources: loader('resources'),
     });
@@ -1809,9 +1810,10 @@ if (!fs.existsSync(indexPath)) {
       || forced?.status !== 'miss'
       || reset?.status !== 'miss'
       || !Array.isArray(fullJobs)
-      || fullJobs.length !== 10
+      || fullJobs.length !== 11
       || calls.find((call) => call.name === 'auto')?.args?.[0]?.detail !== true
       || calls.find((call) => call.name === 'collection')?.args?.[0] !== 'full'
+      || !calls.some((call) => call.name === 'release-evidence')
       || scheduledResult !== 'scheduled'
       || scheduled?.key !== 'data-health-light-diagnostics'
       || scheduled?.delay !== 360

@@ -634,6 +634,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         loadCollectionReliability,
         loadDataHealthOperationLogs,
         loadPublicEndpointSecurity,
+        loadReleaseEvidenceStatus,
         loadHotelDataDashboard,
         loadPlatformCollectionResources,
     } = {}) => {
@@ -650,6 +651,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                 requireDataHealthPanelLoader(loadCollectionReliability, 'loadCollectionReliability')('full'),
                 requireDataHealthPanelLoader(loadDataHealthOperationLogs, 'loadDataHealthOperationLogs')(),
                 requireDataHealthPanelLoader(loadPublicEndpointSecurity, 'loadPublicEndpointSecurity')(),
+                requireDataHealthPanelLoader(loadReleaseEvidenceStatus, 'loadReleaseEvidenceStatus')(),
                 requireDataHealthPanelLoader(loadHotelDataDashboard, 'loadHotelDataDashboard')(),
                 requireDataHealthPanelLoader(loadPlatformCollectionResources, 'loadPlatformCollectionResources')()
             );

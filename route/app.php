@@ -302,6 +302,7 @@ Route::group('api/online-data', function () {
     Route::delete('/delete-data', 'OnlineData/deleteData');
     Route::get('/cookie-status', 'OnlineData/cookieStatus');
     Route::get('/public-endpoint-security', 'OnlineData/publicEndpointSecurity');
+    Route::get('/release-evidence-status', 'OnlineData/releaseEvidenceStatus');
     Route::get('/collection-reliability', 'OnlineData/collectionReliability');
     Route::get('/daily-workbench', 'OnlineData/dailyWorkbench');
     Route::get('/daily-workbench-patrols', 'OnlineData/dailyWorkbenchPatrols');

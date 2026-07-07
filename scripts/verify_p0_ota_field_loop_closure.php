@@ -4101,6 +4101,8 @@ function p0_platform_traffic_gate(array $traffic): array
         'platform_hotel_identifier_status' => $platformHotelIdentifierStatus,
         'platform_hotel_identifier_rows' => $platformHotelIdentifierRows,
         'missing_platform_hotel_identifier_rows' => $missingPlatformHotelIdentifierRows,
+        'system_hotel_ids' => array_values(array_map('intval', (array)($trafficFieldFacts['system_hotel_ids'] ?? []))),
+        'system_hotel_row_counts' => array_map('intval', (array)($trafficFieldFacts['system_hotel_row_counts'] ?? [])),
         'nonzero_required_metric_rows' => $nonzeroRequiredMetricRows,
         'zero_required_metric_rows' => $zeroRequiredMetricRows,
         'required_metric_value_status' => $requiredMetricValueStatus,

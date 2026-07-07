@@ -36,6 +36,7 @@ use app\controller\concern\OnlineDataSupportConcern;
 use app\controller\concern\PlatformDataSourceConcern;
 use app\controller\concern\Phase1EmployeeConsoleConcern;
 use app\controller\concern\PlatformProfileCaptureConcern;
+use app\controller\concern\ReleaseEvidenceConcern;
 
 class OnlineData extends Base
 {
@@ -72,6 +73,7 @@ class OnlineData extends Base
     use PlatformDataSourceConcern;
     use Phase1EmployeeConsoleConcern;
     use PlatformProfileCaptureConcern;
+    use ReleaseEvidenceConcern;
 
     private const CTRIP_PROFILE_FIELDS_CONFIG_KEY = 'ctrip_profile_capture_fields';
     private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 30;

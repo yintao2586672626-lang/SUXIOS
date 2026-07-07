@@ -193,6 +193,38 @@ final class ControllerRouteContractTest extends TestCase
         );
     }
 
+    public function testReleaseEvidenceStatusRouteStaysAuthenticatedAndNonClosing(): void
+    {
+        $routes = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $onlineData = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/OnlineData.php');
+        $concern = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/concern/ReleaseEvidenceConcern.php');
+
+        self::assertStringContainsString(
+            "Route::get('/release-evidence-status', 'OnlineData/releaseEvidenceStatus')",
+            $routes,
+            'Release evidence status must be exposed only through the authenticated online-data route group'
+        );
+        self::assertStringContainsString(
+            "Route::group('api/online-data'",
+            $routes,
+            'Release evidence status must remain inside the authenticated online-data route group'
+        );
+        self::assertStringContainsString(
+            '})->middleware(\app\middleware\Auth::class);',
+            $routes,
+            'Online-data route group must stay behind Auth middleware'
+        );
+        self::assertStringContainsString('use ReleaseEvidenceConcern;', $onlineData);
+        self::assertStringContainsString('$this->checkPermission();', $concern);
+        self::assertStringContainsString('if (!$this->currentUser->isSuperAdmin()) {', $concern);
+        self::assertStringContainsString('abort(403, \'release evidence status requires super admin\');', $concern);
+        self::assertStringContainsString('$this->checkActionPermission(\'can_view_online_data\');', $concern);
+        self::assertStringContainsString("'does_not_close_release_readiness' => true", $concern);
+        self::assertStringContainsString("docs/release_readiness_status.json", $concern);
+        self::assertStringContainsString("'required_file' => '../release-evidence-temp/design_handoff_manifest.json'", $concern);
+        self::assertStringNotContainsString("releaseEvidenceRepoPath('../release-evidence-temp", $concern, 'Runtime evidence directory paths must not be read directly by the API');
+    }
+
     /**
      * @return array<int, array{0:string, 1:string}>
      */

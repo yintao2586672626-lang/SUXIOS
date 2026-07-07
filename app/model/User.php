@@ -100,12 +100,13 @@ class User extends Model
      */
     public function isHotelManager(): bool
     {
-        if ((int)$this->role_id === Role::HOTEL_MANAGER) {
-            return true;
+        $role = $this->enabledRole();
+        if (!$role) {
+            return false;
         }
 
-        $role = $this->role;
-        return $role && (int)$role->status === Role::STATUS_ENABLED && (int)$role->level === 2;
+        $roleId = (int)($role->getAttr('id') ?? $this->role_id ?? 0);
+        return $roleId === Role::HOTEL_MANAGER || (int)$role->getAttr('level') === Role::HOTEL_MANAGER;
     }
 
     /**
@@ -113,15 +114,18 @@ class User extends Model
      */
     public function isBetaUser(): bool
     {
-        if ((int)$this->role_id === Role::BETA_USER) {
-            return true;
+        $role = $this->enabledRole();
+        if (!$role) {
+            return false;
         }
 
-        $role = $this->role;
-        return $role
-            && (int)$role->status === Role::STATUS_ENABLED
-            && (in_array((string)$role->name, ['beta_user', 'hotel_manager'], true)
-                || (int)$role->level === Role::HOTEL_MANAGER);
+        $roleId = (int)($role->getAttr('id') ?? $this->role_id ?? 0);
+        $roleName = (string)($role->getAttr('name') ?? '');
+        $roleLevel = (int)$role->getAttr('level');
+
+        return $roleId === Role::BETA_USER
+            || in_array($roleName, ['beta_user', 'hotel_manager'], true)
+            || $roleLevel === Role::HOTEL_MANAGER;
     }
 
     /**
@@ -129,12 +133,23 @@ class User extends Model
      */
     public function isStaff(): bool
     {
-        if ((int)$this->role_id === Role::HOTEL_STAFF) {
-            return true;
+        $role = $this->enabledRole();
+        if (!$role) {
+            return false;
         }
 
+        $roleId = (int)($role->getAttr('id') ?? $this->role_id ?? 0);
+        return $roleId === Role::HOTEL_STAFF || (int)$role->getAttr('level') >= Role::HOTEL_STAFF;
+    }
+
+    private function enabledRole(): ?Role
+    {
         $role = $this->role;
-        return $role && (int)$role->status === Role::STATUS_ENABLED && (int)$role->level >= 3;
+        if (!$role instanceof Role || (int)$role->status !== Role::STATUS_ENABLED) {
+            return null;
+        }
+
+        return $role;
     }
 
     /**

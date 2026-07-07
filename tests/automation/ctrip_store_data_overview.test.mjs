@@ -568,6 +568,8 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(dataHealthStatic, /const summarizePublicEndpointSecurity = /);
   assert.match(dataHealthStatic, /const publicEndpointDisplayName = /);
   assert.match(dataHealthStatic, /const publicEndpointSecurityBoundaryText = /);
+  assert.match(dataHealthStatic, /const buildReleaseEvidencePanelRows = /);
+  assert.match(dataHealthStatic, /const summarizeReleaseEvidencePanel = /);
   assert.match(dataHealthStatic, /daily_workbench_patrol_cron/);
   assert.match(dataHealthStatic, /const buildCollectionHealthAuthorizationRowsReadable = /);
   assert.match(dataHealthStatic, /const buildCollectionHealthPendingActionRows = /);
@@ -584,6 +586,13 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(html, /requireDataHealthStatic\('summarizePublicEndpointSecurity'\)/);
   assert.match(html, /requireDataHealthStatic\('publicEndpointDisplayName'\)/);
   assert.match(html, /requireDataHealthStatic\('publicEndpointSecurityBoundaryText'\)/);
+  assert.match(html, /requireDataHealthStatic\('buildReleaseEvidencePanelRows'\)/);
+  assert.match(html, /requireDataHealthStatic\('summarizeReleaseEvidencePanel'\)/);
+  assert.match(html, /const releaseEvidenceRows = computed\(\(\) => buildReleaseEvidencePanelRows\(releaseEvidenceStatus\.value \|\| \{\}\)\)/);
+  assert.match(html, /request\('\/online-data\/release-evidence-status'\)/);
+  assert.match(html, /releaseEvidenceStatus, releaseEvidenceLoading, releaseEvidenceError, releaseEvidenceRows, releaseEvidenceSummary/);
+  assert.match(html, /data-testid="release-evidence-panel"/);
+  assert.match(html, /不替代最终设计交付|涓嶆浛浠ｆ渶缁堣璁′氦浠?/);
   assert.match(html, /requireDataHealthStatic\('buildCollectionHealthCtripCatalogCards'\)/);
   assert.match(html, /requireDataHealthStatic\('buildCtripOverviewFetchModuleCards'\)/);
   assert.match(html, /buildDataHealthTodayWorkOrders\(\{/);

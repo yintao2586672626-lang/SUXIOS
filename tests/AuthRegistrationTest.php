@@ -349,6 +349,32 @@ final class AuthRegistrationTest extends TestCase
         self::assertTrue($levelTwoUser->isHotelManager());
     }
 
+    public function testDisabledExternalRolesDoNotExposeIssueIdentities(): void
+    {
+        $disabledBetaRole = $this->roleWithPermissions(
+            ['dashboard.view', 'hotel.view'],
+            Role::BETA_USER,
+            'beta_user',
+            2,
+            Role::STATUS_DISABLED
+        );
+        $disabledBetaUser = $this->userWithRole($disabledBetaRole, Role::BETA_USER);
+
+        self::assertFalse($disabledBetaUser->isBetaUser());
+        self::assertFalse($disabledBetaUser->isHotelManager());
+
+        $disabledNormalRole = $this->roleWithPermissions(
+            ['dashboard.view', 'hotel.view'],
+            Role::NORMAL_USER,
+            'normal_user',
+            3,
+            Role::STATUS_DISABLED
+        );
+        $disabledNormalUser = $this->userWithRole($disabledNormalRole, Role::NORMAL_USER);
+
+        self::assertFalse($disabledNormalUser->isStaff());
+    }
+
     public function testLevelTwoCustomRoleReceivesBetaBindingNotice(): void
     {
         $reflection = new ReflectionClass(Auth::class);
@@ -368,7 +394,13 @@ final class AuthRegistrationTest extends TestCase
     /**
      * @param array<int, string> $permissions
      */
-    private function roleWithPermissions(array $permissions, int $id = Role::BETA_USER, string $name = 'operator', int $level = 2): Role
+    private function roleWithPermissions(
+        array $permissions,
+        int $id = Role::BETA_USER,
+        string $name = 'operator',
+        int $level = 2,
+        int $status = Role::STATUS_ENABLED
+    ): Role
     {
         $role = $this->getMockBuilder(Role::class)
             ->disableOriginalConstructor()
@@ -380,7 +412,7 @@ final class AuthRegistrationTest extends TestCase
             static fn(string $key) => match ($key) {
                 'id' => $id,
                 'name' => $name,
-                'status' => Role::STATUS_ENABLED,
+                'status' => $status,
                 'level' => $level,
                 default => null,
             }
@@ -389,7 +421,7 @@ final class AuthRegistrationTest extends TestCase
             static fn(string $key) => match ($key) {
                 'id' => $id,
                 'name' => $name,
-                'status' => Role::STATUS_ENABLED,
+                'status' => $status,
                 'level' => $level,
                 default => null,
             }

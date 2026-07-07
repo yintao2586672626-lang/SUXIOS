@@ -104,3 +104,94 @@ test('release evidence panel rows keep release readiness blockers non-closing', 
   assert.match(summary.boundaryText, /不替代最终设计交付/);
   assert.match(summary.boundaryText, /review:release-readiness/);
 });
+
+test('release evidence panel accepts backend release status projection', () => {
+  const payload = {
+    overall_status: 'not_release_ready',
+    release_ready: false,
+    does_not_close_release_readiness: true,
+    blocking_requirements: [
+      {
+        id: 'design-handoff-missing',
+        status: 'open',
+        evidence: 'missing controlled design manifest',
+        next_action: 'provide controlled manifest',
+        acceptance_command: 'npm run review:release-design',
+      },
+      {
+        id: 'ota-credential-rotation-attestation-missing',
+        status: 'open',
+        evidence: 'missing OTA rotation attestation',
+        next_action: 'provide credential-free attestation',
+        acceptance_command: 'npm run review:release-ota-credentials',
+      },
+      {
+        id: 'local-git-state-open',
+        status: 'open',
+        evidence: 'local worktree is dirty and RELEASE_PR_NUMBER is missing',
+        next_action: 'select final release PR and pass external-state',
+        acceptance_command: 'npm run review:release-external-state',
+      },
+    ],
+    operator_intake_packet: {
+      does_not_close_release_readiness: true,
+      required_external_inputs: [
+        { id: 'design_handoff_manifest', required_file: '../release-evidence-temp/design_handoff_manifest.json' },
+        { id: 'ota_credential_rotation_attestation', required_file: '../release-evidence-temp/ota_credential_rotation_attestation.json' },
+        { id: 'final_release_pr_and_local_state', required_result_file: '../release-evidence-temp/release-external-state-result.json' },
+      ],
+    },
+    source_status: {
+      local_worktree_close_plan: {
+        status: 'blocked_until_clean_or_isolated',
+      },
+    },
+  };
+
+  const rows = helpers.buildReleaseEvidencePanelRows(payload);
+  assert.equal(rows.length, 3);
+  assert.equal(rows.every(row => row.doesNotCloseReleaseReadiness), true);
+  assert.match(rows.find(row => row.id === 'ota_credential_rotation_attestation').nextAction, /credential-free/);
+
+  const summary = helpers.summarizeReleaseEvidencePanel(payload);
+  assert.equal(summary.status, 'high');
+  assert.equal(summary.blockerCount, 3);
+  assert.equal(summary.releaseReady, false);
+  assert.equal(summary.doesNotCloseReleaseReadiness, true);
+});
+
+test('full data health panel refresh includes release evidence status without light refresh', async () => {
+  assert.equal(typeof helpers.buildDataHealthPanelRefreshJobs, 'function');
+
+  const calls = [];
+  const loader = (name) => (...args) => {
+    calls.push([name, ...args]);
+    return Promise.resolve(name);
+  };
+  const options = {
+    loadAutoFetchStatus: loader('loadAutoFetchStatus'),
+    loadDailyWorkbench: loader('loadDailyWorkbench'),
+    loadDailyWorkbenchPatrols: loader('loadDailyWorkbenchPatrols'),
+    loadPhase3OperationEffectLoop: loader('loadPhase3OperationEffectLoop'),
+    loadPhase3OperationEffectLoopLedger: loader('loadPhase3OperationEffectLoopLedger'),
+    loadCollectionReliability: loader('loadCollectionReliability'),
+    loadDataHealthOperationLogs: loader('loadDataHealthOperationLogs'),
+    loadPublicEndpointSecurity: loader('loadPublicEndpointSecurity'),
+    loadReleaseEvidenceStatus: loader('loadReleaseEvidenceStatus'),
+    loadHotelDataDashboard: loader('loadHotelDataDashboard'),
+    loadPlatformCollectionResources: loader('loadPlatformCollectionResources'),
+  };
+
+  await Promise.all(helpers.buildDataHealthPanelRefreshJobs({
+    ...options,
+    normalizedMode: 'light',
+  }));
+  assert.equal(calls.some(([name]) => name === 'loadReleaseEvidenceStatus'), false);
+
+  calls.length = 0;
+  await Promise.all(helpers.buildDataHealthPanelRefreshJobs({
+    ...options,
+    normalizedMode: 'full',
+  }));
+  assert.equal(calls.some(([name]) => name === 'loadReleaseEvidenceStatus'), true);
+});

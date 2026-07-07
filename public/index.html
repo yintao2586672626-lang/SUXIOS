@@ -73,7 +73,7 @@
     <script src="ctrip-static.js?v=20260707-cookie-only-identity-auto-resolve"></script>
     <script src="meituan-static.js?v=20260708-ranking-summary-helpers"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
-    <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence"></script>
+    <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel"></script>
     <script src="revenue-ai-static.js?v=20260708-ai-daily-blocking-summary"></script>
     <script src="system-static.js?v=20260630-data-center-label"></script>
     <script src="compass-static.js?v=20260704-boss-ia"></script>
@@ -15285,6 +15285,54 @@
                                                 </div>
                                                 <div v-else class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">公开入口安全摘要尚未加载；请刷新数据健康页后再判断。</div>
                                             </div>
+
+                                            <div v-if="dataHealthFullDiagnosticsLoaded" data-testid="release-evidence-panel" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
+                                                <div class="flex items-start justify-between gap-3 mb-3">
+                                                    <div>
+                                                        <h4 class="text-base font-semibold text-gray-900">Release 证据缺口</h4>
+                                                        <div class="text-xs text-gray-500 mt-1">{{ releaseEvidenceSummary.boundaryText || '该面板只展示 release gap pack / operator intake 的证据缺口和下一步；不替代最终设计交付、OTA 凭据轮换证明、PR 外部状态或 review:release-readiness。' }}</div>
+                                                    </div>
+                                                    <span :class="['rounded-md border px-2.5 py-1 text-xs font-medium whitespace-nowrap', dataHealthPriorityClass(releaseEvidenceSummary.status)]">
+                                                        {{ releaseEvidenceSummary.text }}
+                                                    </span>
+                                                </div>
+                                                <div v-if="releaseEvidenceLoading" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">Release 证据状态加载中...</div>
+                                                <div v-else-if="releaseEvidenceError" class="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">{{ releaseEvidenceError }}</div>
+                                                <div v-else-if="!user?.is_super_admin" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前账号无权查看 Release 证据缺口；未展示不代表 release-ready。</div>
+                                                <div v-else-if="releaseEvidenceRows.length" class="space-y-3">
+                                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                        <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                            <div class="text-xs text-gray-500">阻断项</div>
+                                                            <div class="mt-1 text-xl font-semibold text-gray-900">{{ releaseEvidenceSummary.blockerCount }}</div>
+                                                        </div>
+                                                        <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                            <div class="text-xs text-gray-500">所需输入</div>
+                                                            <div class="mt-1 text-xl font-semibold text-gray-900">{{ releaseEvidenceSummary.requiredInputCount }}</div>
+                                                        </div>
+                                                        <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                            <div class="text-xs text-gray-500">本地状态</div>
+                                                            <div class="mt-1 text-sm font-semibold text-gray-900 truncate" :title="releaseEvidenceSummary.worktreeStatus || '未知'">{{ releaseEvidenceSummary.worktreeStatus || '未知' }}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="space-y-2">
+                                                        <div v-for="row in releaseEvidenceRows" :key="row.id" class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                            <div class="flex items-start justify-between gap-3">
+                                                                <div class="min-w-0">
+                                                                    <div class="text-sm font-medium text-gray-900">{{ row.label }}</div>
+                                                                    <div class="mt-1 text-xs text-gray-500 truncate" :title="row.requiredFile || row.acceptanceCommand || row.nextAction">{{ row.requiredFile || row.acceptanceCommand || row.nextAction || '待补证据' }}</div>
+                                                                    <div v-if="row.evidenceText" class="mt-1 text-xs text-slate-600 line-clamp-2" :title="row.evidenceText">{{ row.evidenceText }}</div>
+                                                                </div>
+                                                                <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', dataHealthPriorityClass(row.priority)]">{{ row.statusText }}</span>
+                                                            </div>
+                                                            <div v-if="row.nextAction" class="mt-2 text-xs text-gray-600 line-clamp-2" :title="row.nextAction">下一步：{{ row.nextAction }}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                                                        Source: docs/release_readiness_status.json + docs/release_issue_register.md；最终结论仍以 npm run review:release-readiness 为准。
+                                                    </div>
+                                                </div>
+                                                <div v-else class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">Release 证据状态尚未加载；请刷新完整诊断后再判断。</div>
+                                            </div>
                                         </div>
 
                                         <div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm space-y-4">
@@ -20706,6 +20754,8 @@
             const publicEndpointSecurityBoundaryText = requireDataHealthStatic('publicEndpointSecurityBoundaryText');
             const publicEndpointSecurityEvidenceText = requireDataHealthStatic('publicEndpointSecurityEvidenceText');
             const publicEndpointPathText = requireDataHealthStatic('publicEndpointPathText');
+            const buildReleaseEvidencePanelRows = requireDataHealthStatic('buildReleaseEvidencePanelRows');
+            const summarizeReleaseEvidencePanel = requireDataHealthStatic('summarizeReleaseEvidencePanel');
             const dashboardStateText = requireDataHealthStatic('dashboardStateText');
             const dashboardStateClass = requireDataHealthStatic('dashboardStateClass');
             const dashboardMetricText = requireDataHealthStatic('dashboardMetricText');
@@ -20890,6 +20940,9 @@
             const publicEndpointSecurity = ref(null);
             const publicEndpointSecurityLoading = ref(false);
             const publicEndpointSecurityError = ref('');
+            const releaseEvidenceStatus = ref(null);
+            const releaseEvidenceLoading = ref(false);
+            const releaseEvidenceError = ref('');
             const dashboardAccountOverview = ref(null);
             const dashboardHotelPortrait = ref(null);
             const dashboardDataSources = ref(null);
@@ -21028,6 +21081,8 @@
                 payload: publicEndpointSecurity.value,
                 rows: publicEndpointSecurityRows.value,
             }));
+            const releaseEvidenceRows = computed(() => buildReleaseEvidencePanelRows(releaseEvidenceStatus.value || {}));
+            const releaseEvidenceSummary = computed(() => summarizeReleaseEvidencePanel(releaseEvidenceStatus.value || {}));
             const dataHealthTodayWorkOrders = computed(() => buildDataHealthTodayWorkOrders({
                 todayCollectionReminderRows: otaTodayCollectionReminderRows.value,
                 cookieAlertRows: dataHealthCookieAlertRows.value,
@@ -26987,6 +27042,29 @@
                 }
             };
 
+            const loadReleaseEvidenceStatus = async () => {
+                releaseEvidenceError.value = '';
+                if (!user.value?.is_super_admin) {
+                    releaseEvidenceStatus.value = null;
+                    return;
+                }
+                releaseEvidenceLoading.value = true;
+                try {
+                    const res = await request('/online-data/release-evidence-status');
+                    if (res.code === 200) {
+                        releaseEvidenceStatus.value = res.data || {};
+                    } else {
+                        releaseEvidenceStatus.value = null;
+                        releaseEvidenceError.value = res.message || 'Release 证据状态加载失败';
+                    }
+                } catch (error) {
+                    releaseEvidenceStatus.value = null;
+                    releaseEvidenceError.value = error.message || 'Release 证据状态加载失败';
+                } finally {
+                    releaseEvidenceLoading.value = false;
+                }
+            };
+
             const loadHotelDataDashboard = async () => {
                 hotelDashboardLoading.value = true;
                 hotelDashboardError.value = '';
@@ -27092,6 +27170,7 @@
                     loadCollectionReliability,
                     loadDataHealthOperationLogs,
                     loadPublicEndpointSecurity,
+                    loadReleaseEvidenceStatus,
                     loadHotelDataDashboard,
                     loadPlatformCollectionResources,
                 });
@@ -46483,6 +46562,7 @@
                 dataHealthCookieAlertRows, dataHealthCookieAlertSummary, dataHealthQualityTaskRows, dataHealthHighRiskActionRows, dataHealthHighRiskSummary, otaTodayCollectionReminderRows, otaTodayCollectionReminderSummary, dataHealthTodayWorkOrders,
                 dataHealthOperationLogLoading, dataHealthOperationLogError, dataHealthOperationLogScope, dataHealthPriorityClass, dataHealthPriorityText,
                 publicEndpointSecurity, publicEndpointSecurityLoading, publicEndpointSecurityError, publicEndpointSecurityRows, publicEndpointSecuritySummary, publicEndpointTokenText, publicEndpointDisplayName, publicEndpointSecurityBoundaryText, publicEndpointSecurityEvidenceText, publicEndpointPathText,
+                releaseEvidenceStatus, releaseEvidenceLoading, releaseEvidenceError, releaseEvidenceRows, releaseEvidenceSummary, loadReleaseEvidenceStatus,
                 collectionHealthCtripCatalogGateText, collectionHealthCtripCatalogCards, collectionHealthCtripCatalogDiagnosticScope,
                 collectionHealthCtripCatalogAuthText, collectionHealthCtripCatalogPendingFetchText, collectionHealthCtripCatalogPendingFieldText,
                 collectionHealthCtripCatalogVisibleNotes,

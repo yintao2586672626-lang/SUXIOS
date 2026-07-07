@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -334,6 +334,164 @@ test('P0 Profile next-step report keeps hotel steps actionable when platform gat
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('P0 Profile next-step report separates P0 data readiness from missing Profile flow registration', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'p0-profile-next-steps-flow-gap-'));
+  const input = path.join(dir, 'verifier.json');
+  try {
+    writeFileSync(input, JSON.stringify({
+      status: 'passed',
+      scope: { date: '2026-07-08', platforms: ['ctrip'], system_hotel_id: 107 },
+      platforms: [
+        {
+          platform: 'ctrip',
+          target_date_rows: 4,
+          p0_traffic_gate: {
+            status: 'ready',
+            traffic_rows: 3,
+            system_hotel_ids: [107],
+            system_hotel_row_counts: { 107: 3 },
+            action_status: 'ready',
+            action_missing_inputs: [],
+            hotel_scoped_next_steps: [
+              {
+                system_hotel_id: 107,
+                data_source_id: null,
+                data_source_status: 'not_registered',
+                last_sync_status: '',
+                manual_login_state_verified: false,
+                profile_login_trigger: {
+                  status: 'not_available',
+                  reason: 'missing_platform_data_source_or_hotel_scope',
+                },
+                latest_sync_task: {
+                  status: 'not_available',
+                  reason: 'missing_data_source_id',
+                },
+                p0_verifier_command: 'npm.cmd run verify:p0-ota-field-loop -- --date=2026-07-08 --platform=ctrip --system-hotel-id=107',
+              },
+            ],
+          },
+        },
+      ],
+    }));
+
+    const result = spawnSync(process.execPath, ['scripts/report_p0_profile_next_steps.mjs', `--input=${input}`, '--json'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.completion_gate.command, 'npm.cmd run verify:p0-ota-field-loop -- --date=2026-07-08 --platform=ctrip --system-hotel-id=107');
+    assert.equal(payload.completion_gate.current_status, 'passed');
+    assert.equal(payload.downstream_gate.status, 'open');
+    assert.deepEqual(payload.platform_summaries[0].target_date_traffic_system_hotel_ids, [107]);
+    assert.deepEqual(payload.platform_summaries[0].target_date_traffic_system_hotel_row_counts, { 107: 3 });
+    assert.deepEqual(payload.platform_summaries[0].hotel_step_system_hotel_ids, [107]);
+    assert.equal(payload.platform_summaries[0].target_date_traffic_step_scope_status, 'matched_or_not_provided');
+    assert.equal(payload.platform_summaries[0].profile_flow_ready, false);
+    assert.equal(payload.platform_summaries[0].profile_flow_incomplete_count, 1);
+    assert(payload.platform_summaries[0].profile_flow_blocking_reason_codes.includes('missing_data_source_id'));
+    assert(payload.platform_summaries[0].profile_flow_blocking_reason_codes.includes('data_source_not_registered'));
+    assert(payload.platform_summaries[0].profile_flow_blocking_reason_codes.includes('manual_login_state_verified'));
+    assert(payload.platform_summaries[0].profile_flow_blocking_reason_codes.includes('profile_login_trigger_not_available'));
+    assert(payload.platform_summaries[0].profile_flow_blocking_reason_codes.includes('missing_platform_data_source_or_hotel_scope'));
+    assert.equal(payload.next_steps[0].platform_ready, true);
+    assert.equal(payload.next_steps[0].profile_flow_ready, false);
+    assert.equal(payload.collection_flow_gate.status, 'blocked_by_profile_flow_gap');
+    assert(payload.collection_flow_gate.blocking_missing_inputs.includes('ctrip_profile_flow_unproved'));
+    assert(payload.collection_flow_gate.blocking_missing_inputs.includes('data_source_not_registered'));
+
+    const markdownResult = spawnSync(process.execPath, ['scripts/report_p0_profile_next_steps.mjs', `--input=${input}`], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    assert.equal(markdownResult.status, 0, markdownResult.stderr);
+    assert.match(markdownResult.stdout, /Profile Flow Gate/);
+    assert.match(markdownResult.stdout, /blocked_by_profile_flow_gap/);
+    assert.match(markdownResult.stdout, /target_traffic_hotels=107/);
+    assert.match(markdownResult.stdout, /profile_flow_ready=false/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('P0 Profile next-step report exposes target-date traffic and Profile step hotel mismatch', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'p0-profile-next-steps-scope-mismatch-'));
+  const input = path.join(dir, 'verifier.json');
+  try {
+    writeFileSync(input, JSON.stringify({
+      status: 'passed',
+      scope: { date: '2026-07-08', platforms: ['ctrip'] },
+      platforms: [
+        {
+          platform: 'ctrip',
+          target_date_rows: 4,
+          p0_traffic_gate: {
+            status: 'ready',
+            traffic_rows: 3,
+            system_hotel_ids: [107],
+            system_hotel_row_counts: { 107: 3 },
+            action_status: 'ready',
+            action_missing_inputs: [],
+            hotel_scoped_next_steps: [
+              {
+                system_hotel_id: 60,
+                data_source_id: 14,
+                data_source_status: 'success',
+                last_sync_status: 'success',
+                manual_login_state_verified: true,
+                profile_login_trigger: {
+                  status: 'available',
+                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  after_login_sync: { entry: '/api/online-data/data-sources/14/sync' },
+                },
+              },
+              {
+                system_hotel_id: 64,
+                data_source_id: 15,
+                data_source_status: 'success',
+                last_sync_status: 'success',
+                manual_login_state_verified: true,
+                profile_login_trigger: {
+                  status: 'available',
+                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  after_login_sync: { entry: '/api/online-data/data-sources/15/sync' },
+                },
+              },
+            ],
+          },
+        },
+      ],
+    }));
+
+    const result = spawnSync(process.execPath, ['scripts/report_p0_profile_next_steps.mjs', `--input=${input}`, '--json'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.platform_summaries[0].target_date_traffic_step_scope_status, 'mismatch');
+    assert.deepEqual(payload.platform_summaries[0].target_date_traffic_hotels_missing_steps, [107]);
+    assert.deepEqual(payload.platform_summaries[0].step_hotels_missing_target_date_traffic, [60, 64]);
+    assert.equal(payload.platform_summaries[0].profile_flow_ready, false);
+    assert.equal(payload.collection_flow_gate.status, 'blocked_by_profile_flow_gap');
+    assert(payload.collection_flow_gate.blocking_missing_inputs.includes('ctrip_target_date_traffic_step_scope_mismatch'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('P0 Profile next-step report passes system_hotel_id through to the verifier command', () => {
+  const source = readFileSync('scripts/report_p0_profile_next_steps.mjs', 'utf8');
+  assert.match(source, /argValue\('system-hotel-id', argValue\('system_hotel_id'\)\)/);
+  assert.match(source, /verifierArgs\.push\(`--system-hotel-id=\$\{systemHotelId\}`\)/);
 });
 
 test('P0 Profile next-step report does not inherit platform ready for unproved hotel steps', () => {
