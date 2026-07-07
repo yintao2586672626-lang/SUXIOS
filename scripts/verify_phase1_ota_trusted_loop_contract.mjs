@@ -637,6 +637,7 @@ requireExcludes('scripts/register_p0_ota_traffic_data_sources.php', 'P0 traffic 
   '$status = $existingStatus',
   '$status = $currentStatus',
   '$lastSyncStatus = $existingLastSyncStatus',
+  '$lastSyncStatus = $currentLastSyncStatus',
 ]);
 
 requireIncludes('docs/release_functional_acceptance_matrix.md', 'functional acceptance includes phase-one gate', [
