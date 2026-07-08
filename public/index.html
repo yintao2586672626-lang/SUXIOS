@@ -9244,9 +9244,14 @@
 
                                     <!-- 新增配置表单 -->
                                     <div class="bg-white border rounded-lg p-4 mb-4" data-testid="ctrip-config-form">
-                                        <h4 class="font-medium text-gray-800 mb-3">
-                                            <i :class="[ctripConfigForm.id ? 'fas fa-edit text-yellow-500' : 'fas fa-plus-circle text-blue-500', 'mr-2']"></i>{{ ctripConfigForm.id ? '编辑携程配置' : '新增携程配置' }}
-                                        </h4>
+                                        <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
+                                            <h4 class="font-medium text-gray-800">
+                                                <i :class="[ctripConfigForm.id ? 'fas fa-edit text-yellow-500' : 'fas fa-plus-circle text-blue-500', 'mr-2']"></i>{{ ctripConfigForm.id ? '编辑携程配置' : '新增携程配置' }}
+                                            </h4>
+                                            <div class="rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                                                当前配置门店：<span class="font-semibold">{{ hotelConfigTargetText(ctripConfigForm) }}</span>
+                                            </div>
+                                        </div>
                                         <div class="space-y-4">
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">关联酒店</label>
@@ -10746,9 +10751,14 @@
 
                                     <!-- 新增配置表单 -->
                                     <div class="bg-white border rounded-lg p-4 mb-4">
-                                        <h4 class="font-medium text-gray-700 mb-3">
-                                            <i class="fas fa-plus-circle mr-2"></i>新增配置
-                                        </h4>
+                                        <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
+                                            <h4 class="font-medium text-gray-700">
+                                                <i :class="[meituanConfigForm.id ? 'fas fa-edit text-yellow-500' : 'fas fa-plus-circle text-blue-500', 'mr-2']"></i>{{ meituanConfigForm.id ? '编辑配置' : '新增配置' }}
+                                            </h4>
+                                            <div class="rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                                                当前配置门店：<span class="font-semibold">{{ hotelConfigTargetText(meituanConfigForm) }}</span>
+                                            </div>
+                                        </div>
                                         <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-sm mb-4">
                                             保存门槛：只需临时 Cookie/API 辅助内容。平台接口标识和门店标识可后补；名称由系统按关联酒店自动生成，酒店房量和竞争圈房量不是获取凭证。
                                         </div>
@@ -34444,6 +34454,13 @@
                 return hotel?.name || '';
             };
 
+            const hotelConfigTargetText = (form = {}) => {
+                const hotelId = String(form?.hotel_id || form?.hotelId || '').trim();
+                if (!hotelId) return '未关联门店';
+                const hotelName = String(getHotelNameById(hotelId) || '').trim();
+                return hotelName ? `${hotelName}（ID ${hotelId}）` : `门店ID ${hotelId}`;
+            };
+
             const normalizeUserHotelIds = (value) => {
                 const source = Array.isArray(value) ? value : (value ? [value] : []);
                 return [...new Set(source
@@ -46606,7 +46623,7 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelPlatformReadyPillClass, hotelPlatformManualCookieReady, hotelPlatformManualCookieText, hotelPlatformFetchConfigReady, hotelPlatformFetchConfigText, hotelPlatformAutomationReady, hotelPlatformAutomationText, hotelPlatformCollectionReadyText, hotelPlatformCollectionReadyClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, openHotelSyncLogs, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, getHotelNameById, hotelConfigTargetText, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelPlatformReadyPillClass, hotelPlatformManualCookieReady, hotelPlatformManualCookieText, hotelPlatformFetchConfigReady, hotelPlatformFetchConfigText, hotelPlatformAutomationReady, hotelPlatformAutomationText, hotelPlatformCollectionReadyText, hotelPlatformCollectionReadyClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, openHotelSyncLogs, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
