@@ -28,7 +28,7 @@ class CompetitorApi extends Base
     {
         $deviceId = (string)$this->request->post('device_id', '');
         $platform = (string)$this->request->post('platform', '');
-        $token = (string)$this->request->post('token', '');
+        $token = $this->extractTaskToken();
 
         $rateLimitResponse = $this->enforceExternalRateLimit('task', $this->externalRateLimitIdentity($deviceId, $platform), 30, 60);
         if ($rateLimitResponse !== null) {
@@ -220,15 +220,19 @@ class CompetitorApi extends Base
 
     private function isValidReportToken(string $expectedToken): bool
     {
-        $token = trim((string)$this->request->post('report_token', ''));
-        if ($token === '') {
-            $token = trim((string)$this->request->header('X-Report-Token', ''));
-        }
-        if ($token === '') {
-            $token = trim((string)$this->request->post('token', ''));
-        }
+        $token = $this->extractReportToken();
 
         return $token !== '' && hash_equals($expectedToken, $token);
+    }
+
+    private function extractTaskToken(): string
+    {
+        return trim((string)$this->request->header('X-Task-Token', ''));
+    }
+
+    private function extractReportToken(): string
+    {
+        return trim((string)$this->request->header('X-Report-Token', ''));
     }
 
     private function getReportToken(): string

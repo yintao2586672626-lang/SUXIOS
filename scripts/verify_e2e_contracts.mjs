@@ -6090,6 +6090,39 @@ try {
       logError: (message) => fetchFlowEvents.push(`log-error:${message}`),
     });
     const fetchFlowReturnedBeforePostRefresh = !fetchFlowHistorySettled && !fetchFlowLatestSettled;
+    let autoResolvedFetchFlowRequestedBody = null;
+    const autoResolvedFetchFlowResult = await runCtripFetchDataFlow({
+      isLoggedIn: () => true,
+      getSelectedCtripHotelId: () => '',
+      notify: () => {},
+      getActiveCtripConfig: () => ({
+        id: 'cfg-auto',
+        hotel_id: '58',
+        ota_hotel_id: 'ctrip-58',
+        cookies: 'sid=config',
+        url: 'https://ebooking.ctrip.test/api',
+        node_id: '24588',
+      }),
+      ensureCtripConfigSecret: async config => config,
+      getForm: () => ({
+        startDate: '2026-06-10',
+        endDate: '2026-06-10',
+      }),
+      requestFetch: async requestBody => {
+        autoResolvedFetchFlowRequestedBody = requestBody;
+        return {
+          code: 200,
+          data: {
+            data: [],
+            display_hotels: [],
+            display_summary: { status: 'ok' },
+            saved_count: 0,
+            fetched_at: '2026-06-10 14:00:00',
+          },
+        };
+      },
+      getOnlineDataTab: () => 'ctrip-ranking',
+    });
     let acceptedFetchFlowRequestedBody = null;
     let acceptedFetchFlowResultPayload = null;
     const acceptedFetchFlowEvents = [];
@@ -6735,6 +6768,14 @@ try {
         && fetchFlowEvents.includes('refresh-data')
         && alignedCtripRankingForm === true
         && staleCtripRankingForm === false
+        && autoResolvedFetchFlowResult.status === 'success'
+        && autoResolvedFetchFlowRequestedBody.cookies === 'sid=config'
+        && autoResolvedFetchFlowRequestedBody.url === 'https://ebooking.ctrip.test/api'
+        && autoResolvedFetchFlowRequestedBody.node_id === '24588'
+        && autoResolvedFetchFlowRequestedBody.system_hotel_id === null
+        && autoResolvedFetchFlowRequestedBody.ctrip_hotel_id === undefined
+        && autoResolvedFetchFlowRequestedBody.ota_hotel_id === undefined
+        && autoResolvedFetchFlowRequestedBody.platform_hotel_id === undefined
         && acceptedFetchFlowResult.status === 'accepted'
         && acceptedFetchFlowRequestedBody.async === false
         && acceptedFetchFlowRequestedBody.background === false

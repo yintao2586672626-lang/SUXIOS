@@ -114,12 +114,14 @@ trait MeituanConfigConcern
         if (!is_array($list)) {
             $list = [];
         }
+        $originalConfig = is_array($list[$id] ?? null) ? $list[$id] : [];
 
         // 生成唯一ID
         if (empty($id)) {
             $id = 'meituan_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
+            $originalConfig = [];
         }
-        $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', $list[$id]['hotel_id'] ?? ($list[$id]['system_hotel_id'] ?? null)));
+        $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', $originalConfig['hotel_id'] ?? ($originalConfig['system_hotel_id'] ?? null)));
         $hotelIdValue = $hotelId !== null ? (string)$hotelId : '';
         if (!$this->currentUserCanMaintainOtaConfig($hotelId)) {
             return $this->error('无权维护此门店 OTA 配置', 403);
@@ -133,7 +135,7 @@ trait MeituanConfigConcern
         }
 
         // 非超级管理员删除时也只能删自己的
-        $userId = $this->currentUser->isSuperAdmin() ? null : $this->currentUser->id;
+        $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
 
         $config = [
             'id' => $id,
@@ -148,12 +150,19 @@ trait MeituanConfigConcern
             'competitor_room_count' => $competitorRoomCount,
             'user_id' => $userId,
             'update_time' => date('Y-m-d H:i:s'),
-            'created_at' => $list[$id]['created_at'] ?? date('Y-m-d H:i:s'),
+            'created_at' => $originalConfig['created_at'] ?? date('Y-m-d H:i:s'),
         ];
         $config = $this->normalizeOtaConfigHotelBinding($config, 'meituan');
         $list[$id] = $config;
 
         $encoded = json_encode($list, JSON_UNESCAPED_UNICODE);
+        if ($encoded === false) {
+            \think\facade\Log::error('Meituan config list JSON encode failed: ' . json_last_error_msg(), [
+                'config_id' => $id,
+                'system_hotel_id' => $hotelId,
+            ]);
+            return $this->error('配置保存失败：Cookie/API 辅助内容无法安全写入，请重新获取后保存', 500);
+        }
         SystemConfig::setValue($key, $encoded, '美团配置列表');
         $this->clearAutoFetchLightConfigListCache('meituan');
 
@@ -254,6 +263,12 @@ trait MeituanConfigConcern
         $name = $list[$id]['name'] ?? '';
         unset($list[$id]);
         $encoded = json_encode($list, JSON_UNESCAPED_UNICODE);
+        if ($encoded === false) {
+            \think\facade\Log::error('Meituan config list JSON encode failed on delete: ' . json_last_error_msg(), [
+                'config_id' => $id,
+            ]);
+            return $this->error('配置删除失败：配置列表无法安全写入', 500);
+        }
         SystemConfig::setValue($key, $encoded, '美团配置列表');
         $this->clearAutoFetchLightConfigListCache('meituan');
 

@@ -173,6 +173,7 @@ $commandSource = file_get_contents(__DIR__ . '/../app/command/AutoFetchOnlineDat
 $legacyCronSource = file_get_contents(__DIR__ . '/auto_fetch_online_data.php');
 $competitorTaskSource = extract_method_source($competitorSource, 'task');
 $competitorReportSource = extract_method_source($competitorSource, 'report');
+$competitorReportTokenSource = extract_method_source($competitorSource, 'isValidReportToken');
 
 assert_true((bool)preg_match('/function\s+fetchCtrip\s*\([^)]*\)\s*:\s*Response\s*\{\s*\$this->checkPermission\(\);/s', $onlineSource), 'fetchCtrip must check login and hotel binding before reading cookies');
 assert_true((bool)preg_match('/function\s+saveCtripConfig\s*\([^)]*\)\s*:\s*Response\s*\{\s*\$this->checkPermission\(\);/s', $onlineSource), 'saveCtripConfig must check login and hotel binding');
@@ -186,6 +187,10 @@ assert_true(str_contains($authSource, 'isTokenExpiredByAge'), 'auth middleware m
 assert_true(str_contains($competitorSource, 'enforceExternalRateLimit'), 'public competitor token APIs must enforce route-local rate limits');
 assert_true(str_contains($competitorTaskSource, "enforceExternalRateLimit('task'"), 'competitor task endpoint must rate limit external devices');
 assert_true(str_contains($competitorReportSource, "enforceExternalRateLimit('report'"), 'competitor report endpoint must rate limit external devices');
+assert_true(str_contains($competitorTaskSource, '$this->extractTaskToken()') && str_contains($competitorSource, "header('X-Task-Token', '')"), 'competitor task endpoint must read auth token from X-Task-Token header');
+assert_true(!str_contains($competitorTaskSource, "post('token'") && !str_contains($competitorTaskSource, 'post("token"'), 'competitor task endpoint must not read auth token from request body');
+assert_true(str_contains($competitorReportSource, '$this->isValidReportToken($expectedToken)') && str_contains($competitorReportTokenSource, '$this->extractReportToken()') && str_contains($competitorSource, "header('X-Report-Token', '')"), 'competitor report endpoint must read auth token from X-Report-Token header');
+assert_true(!str_contains($competitorReportTokenSource, "post('report_token'") && !str_contains($competitorReportTokenSource, 'post("report_token"') && !str_contains($competitorReportTokenSource, "post('token'") && !str_contains($competitorReportTokenSource, 'post("token"'), 'competitor report endpoint must not read report token from request body');
 assert_true(str_contains($competitorSource, 'external_rate_limited'), 'rate-limited competitor token requests must be audited');
 assert_true(str_contains($competitorSource, 'SCREENSHOT_MAX_BYTES'), 'competitor report screenshot uploads must have a binary size limit');
 assert_true(str_contains($competitorSource, 'getimagesizefromstring'), 'competitor report screenshots must be validated as real images');

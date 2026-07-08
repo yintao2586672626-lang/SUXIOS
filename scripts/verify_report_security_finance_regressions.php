@@ -131,7 +131,9 @@ $bookmarkletSource = extract_method_source_regression($cookieEndpointSource, 'bo
 $ctripBookmarkletSource = extract_method_source_regression($onlineDataRequestSource, 'generateCtripBookmarklet');
 $cookieBookmarkletHelperSource = extract_method_source_regression($cookieEndpointSource, 'buildCookieBookmarkletScript');
 $dailyPatrolCronSource = extract_method_source_regression($operationWorkbenchSource, 'dailyWorkbenchPatrolCron');
+$competitorTaskSource = extract_method_source_regression($competitorSource, 'task');
 $competitorReportSource = extract_method_source_regression($competitorSource, 'report');
+$competitorReportTokenSource = extract_method_source_regression($competitorSource, 'isValidReportToken');
 $robotIndexSource = extract_method_source_regression($robotControllerSource, 'index');
 $robotApiIndexSource = extract_method_source_regression($robotControllerSource, 'apiIndex');
 $robotApiDetailSource = extract_method_source_regression($robotControllerSource, 'apiDetail');
@@ -146,6 +148,10 @@ assert_regression((bool)preg_match('/Bearer\s*\\\\s\+/', $logoutSource) || str_c
 
 assert_regression(!str_contains($competitorSource, 'DEV_FALLBACK_TOKEN'), 'competitor API must not keep a fixed fallback token');
 assert_regression(!str_contains($competitorSource, 'isLocalOrDevEnvironment'), 'competitor API token validation must not depend on debug/local fallback');
+assert_regression(str_contains($competitorTaskSource, '$this->extractTaskToken()') && str_contains($competitorSource, "header('X-Task-Token', '')"), 'competitor task token must be read from X-Task-Token header only');
+assert_regression(!str_contains($competitorTaskSource, "post('token'") && !str_contains($competitorTaskSource, 'post("token"'), 'competitor task token must not be accepted from request body');
+assert_regression(str_contains($competitorReportSource, '$this->isValidReportToken($expectedToken)') && str_contains($competitorReportTokenSource, '$this->extractReportToken()') && str_contains($competitorSource, "header('X-Report-Token', '')"), 'competitor report token must be read from X-Report-Token header only');
+assert_regression(!str_contains($competitorReportTokenSource, "post('report_token'") && !str_contains($competitorReportTokenSource, 'post("report_token"') && !str_contains($competitorReportTokenSource, "post('token'") && !str_contains($competitorReportTokenSource, 'post("token"'), 'competitor report_token must not be accepted from request body');
 assert_regression(str_contains($competitorReportSource, 'CompetitorHotel::where'), 'competitor report must validate the target competitor hotel');
 assert_regression(str_contains($competitorReportSource, "where('store_id', \$storeId)"), 'competitor report must bind store_id to the configured competitor hotel');
 
@@ -161,6 +167,8 @@ assert_regression(str_contains($compassViewSource, '$escapeCompassValue') && str
 assert_regression(str_contains($compassViewSource, '$encodeCompassJson') && str_contains($compassViewSource, 'JSON_HEX_TAG'), 'compass admin view must encode script JSON with hex escaping');
 assert_regression(!str_contains($compassViewSource, 'json_encode($layout, JSON_UNESCAPED_UNICODE);'), 'compass layout JSON must not be embedded without script-context escaping');
 assert_regression(!str_contains($compassViewSource, 'json_encode($metrics, JSON_UNESCAPED_UNICODE);'), 'compass metrics JSON must not be embedded without script-context escaping');
+assert_regression(!str_contains($compassViewSource, 'item.innerHTML ='), 'compass layout list must not rebuild controls with innerHTML from layout keys');
+assert_regression(str_contains($compassViewSource, 'label.textContent = labels[key] || key'), 'compass layout list labels must be rendered with textContent');
 foreach ([
     "<?php echo \$item['date']; ?>",
     "<?php echo \$item['week']; ?>",

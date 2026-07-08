@@ -527,7 +527,7 @@ trait CookieEndpointConcern
                 $this->buildPublicEndpointSecurityRow('competitor_task', $logs, [
                     'method' => 'POST',
                     'path' => '/api/competitor/task',
-                    'auth' => 'COMPETITOR_TASK_TOKEN request token',
+                    'auth' => 'X-Task-Token header only',
                     'rate_limit' => ['limit' => 30, 'window_seconds' => 60],
                     'token_configured' => trim((string)\think\facade\Env::get('COMPETITOR_TASK_TOKEN', '')) !== '',
                     'failure_actions' => ['task_denied', 'external_rate_limited'],
@@ -536,7 +536,7 @@ trait CookieEndpointConcern
                 $this->buildPublicEndpointSecurityRow('competitor_report', $logs, [
                     'method' => 'POST',
                     'path' => '/api/competitor/report',
-                    'auth' => 'COMPETITOR_REPORT_TOKEN request token',
+                    'auth' => 'X-Report-Token header only',
                     'rate_limit' => ['limit' => 60, 'window_seconds' => 60],
                     'token_configured' => trim((string)\think\facade\Env::get('COMPETITOR_REPORT_TOKEN', '')) !== '',
                     'failure_actions' => ['report_denied', 'external_rate_limited'],

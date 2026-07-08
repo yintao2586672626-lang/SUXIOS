@@ -211,9 +211,11 @@ trait OtaConfigConcern
         }
 
         $permittedHotelIdSet = $permittedHotelIdSet ?? $this->getPermittedHotelIdSetForUser($user);
-        $systemHotelId = trim((string)($item['system_hotel_id'] ?? ''));
-        if ($systemHotelId !== '' && isset($permittedHotelIdSet[$systemHotelId])) {
-            return true;
+        foreach (['system_hotel_id', 'hotel_id'] as $hotelIdField) {
+            $systemHotelId = trim((string)($item[$hotelIdField] ?? ''));
+            if ($systemHotelId !== '' && isset($permittedHotelIdSet[$systemHotelId])) {
+                return true;
+            }
         }
 
         return false;

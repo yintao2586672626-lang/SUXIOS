@@ -308,16 +308,40 @@ $encodeCompassJson = static function ($value): string {
         layout.order.forEach(key => {
             const item = document.createElement('div');
             item.className = 'flex items-center justify-between bg-slate-900/40 border border-slate-800 rounded-lg px-3 py-2 text-sm';
-            item.innerHTML = `
-                <div class="flex items-center gap-2">
-                    <input type="checkbox" ${layout.hidden.includes(key) ? '' : 'checked'} data-key="${key}" class="layout-toggle">
-                    <span>${labels[key] || key}</span>
-                </div>
-                <div class="space-x-1">
-                    <button class="layout-btn layout-up" data-key="${key}">上移</button>
-                    <button class="layout-btn layout-down" data-key="${key}">下移</button>
-                </div>
-            `;
+
+            const left = document.createElement('div');
+            left.className = 'flex items-center gap-2';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = !layout.hidden.includes(key);
+            checkbox.dataset.key = key;
+            checkbox.className = 'layout-toggle';
+
+            const label = document.createElement('span');
+            label.textContent = labels[key] || key;
+
+            const actions = document.createElement('div');
+            actions.className = 'space-x-1';
+
+            const upButton = document.createElement('button');
+            upButton.type = 'button';
+            upButton.className = 'layout-btn layout-up';
+            upButton.dataset.key = key;
+            upButton.textContent = '上移';
+
+            const downButton = document.createElement('button');
+            downButton.type = 'button';
+            downButton.className = 'layout-btn layout-down';
+            downButton.dataset.key = key;
+            downButton.textContent = '下移';
+
+            left.appendChild(checkbox);
+            left.appendChild(label);
+            actions.appendChild(upButton);
+            actions.appendChild(downButton);
+            item.appendChild(left);
+            item.appendChild(actions);
             container.appendChild(item);
         });
         container.querySelectorAll('.layout-toggle').forEach(el => {

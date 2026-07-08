@@ -226,7 +226,7 @@ final class OnlineDataTest extends TestCase
             [
                 'method' => 'POST',
                 'path' => '/api/competitor/task',
-                'auth' => 'COMPETITOR_TASK_TOKEN request token',
+                'auth' => 'X-Task-Token header only',
                 'rate_limit' => ['limit' => 30, 'window_seconds' => 60],
                 'token_configured' => true,
                 'failure_actions' => ['task_denied', 'external_rate_limited'],
@@ -239,7 +239,7 @@ final class OnlineDataTest extends TestCase
             [
                 'method' => 'POST',
                 'path' => '/api/competitor/report',
-                'auth' => 'COMPETITOR_REPORT_TOKEN request token',
+                'auth' => 'X-Report-Token header only',
                 'rate_limit' => ['limit' => 60, 'window_seconds' => 60],
                 'token_configured' => true,
                 'failure_actions' => ['report_denied', 'external_rate_limited'],
@@ -4682,11 +4682,12 @@ final class OnlineDataTest extends TestCase
 
         $filtered = $this->invokeNonPublic($controller, 'filterOtaConfigListForUser', [[
             ['system_hotel_id' => 7, 'poi_id' => 'VISIBLE'],
+            ['hotel_id' => 7, 'poi_id' => 'VISIBLE_LEGACY'],
             ['system_hotel_id' => 8, 'poi_id' => 'HIDDEN'],
             ['user_id' => 12, 'poi_id' => 'OWNED'],
         ], $user]);
 
-        self::assertSame(['VISIBLE', 'OWNED'], array_column($filtered, 'poi_id'));
+        self::assertSame(['VISIBLE', 'VISIBLE_LEGACY', 'OWNED'], array_column($filtered, 'poi_id'));
     }
 
     public function testOnlineDataQualityFlagsMissingAndAbnormalMetrics(): void
