@@ -114,6 +114,7 @@ $cookieEndpointSource = file_get_contents(__DIR__ . '/../app/controller/concern/
 $onlineDataRequestSource = file_get_contents(__DIR__ . '/../app/controller/concern/OnlineDataRequestConcern.php');
 $operationWorkbenchSource = file_get_contents(__DIR__ . '/../app/controller/concern/OperationWorkbenchConcern.php');
 $robotControllerSource = file_get_contents(__DIR__ . '/../app/controller/admin/CompetitorWechatRobotController.php');
+$systemConfigControllerSource = file_get_contents(__DIR__ . '/../app/controller/SystemConfigController.php');
 $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
 $hotelSource = file_get_contents(__DIR__ . '/../app/controller/Hotel.php');
 $authMiddlewareSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
@@ -170,6 +171,9 @@ assert_regression(str_contains($dailyPatrolCronSource, "header('X-Cron-Token', '
 assert_regression(!str_contains($dailyPatrolCronSource, "get('token'") && !str_contains($dailyPatrolCronSource, 'get("token"'), 'daily workbench patrol cron must not accept cron token from URL query parameters');
 assert_regression(str_contains($dailyPatrolCronSource, 'hash_equals($configToken, $token)'), 'daily workbench patrol cron must compare cron token with hash_equals');
 assert_regression(str_contains($cookieEndpointSource, "'auth' => 'X-Cron-Token header only'") && !str_contains($cookieEndpointSource, 'X-Cron-Token or token query parameter'), 'public endpoint security panel must document cron auth as header-only');
+assert_regression(str_contains($systemConfigControllerSource, 'containsRedactedExportSecretPlaceholder'), 'system config import must detect redacted export placeholders before writing configs');
+assert_regression(str_contains($systemConfigControllerSource, 'skipped_redacted_values'), 'system config import must report redacted export placeholders skipped during import');
+assert_regression(str_contains($publicIndexSource, 'skipped_redacted_values'), 'system config import UI must show skipped redacted placeholder count');
 assert_regression(!str_contains($compassViewSource, 'save-layout?token='), 'compass layout save must not put token in URL query');
 assert_regression(!str_contains($compassViewSource, "URLSearchParams(location.search).get('token')"), 'compass layout save must not read token from location.search');
 assert_regression(str_contains($compassViewSource, '$escapeCompassValue') && str_contains($compassViewSource, 'htmlspecialchars'), 'compass admin view must HTML-escape runtime panel text');

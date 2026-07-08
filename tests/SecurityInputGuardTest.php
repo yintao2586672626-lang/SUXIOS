@@ -65,4 +65,15 @@ final class SecurityInputGuardTest extends TestCase
             @unlink($path);
         }
     }
+
+    public function testSystemConfigImportDetectsRedactedExportPlaceholders(): void
+    {
+        $controller = $this->controller(SystemConfigController::class);
+
+        self::assertTrue($this->invokeNonPublic($controller, 'containsRedactedExportSecretPlaceholder', ['[REDACTED]']));
+        self::assertTrue($this->invokeNonPublic($controller, 'containsRedactedExportSecretPlaceholder', ['{"headers":{"Authorization":"[REDACTED]"}}']));
+        self::assertTrue($this->invokeNonPublic($controller, 'containsRedactedExportSecretPlaceholder', [['cookie' => '[REDACTED]']]));
+        self::assertFalse($this->invokeNonPublic($controller, 'containsRedactedExportSecretPlaceholder', ['normal config value']));
+        self::assertFalse($this->invokeNonPublic($controller, 'containsRedactedExportSecretPlaceholder', ['{"label":"normal"}']));
+    }
 }

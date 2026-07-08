@@ -45139,7 +45139,9 @@
                     const data = await res.json();
 
                     if (data.code === 200) {
-                        showToast(`配置导入成功！共导入 ${data.data.imported} 项`);
+                        const skippedRedactedValues = Number(data.data?.skipped_redacted_values || 0);
+                        const skippedText = skippedRedactedValues > 0 ? `，跳过脱敏占位 ${skippedRedactedValues} 项` : '';
+                        showToast(`配置导入成功！共导入 ${data.data.imported} 项${skippedText}`);
                         showImportConfigModal.value = false;
                         importConfigFile.value = null;
                         importConfigPreview.value = null;

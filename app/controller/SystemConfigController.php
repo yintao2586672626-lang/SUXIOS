@@ -346,17 +346,70 @@ class SystemConfigController extends Base
 
         $descriptions = SystemConfig::getConfigDescriptions();
         $imported = 0;
+        $skippedRedactedValues = 0;
 
         foreach ($data['configs'] as $key => $value) {
             if (isset($descriptions[$key])) {
+                if ($this->containsRedactedExportSecretPlaceholder($value)) {
+                    $skippedRedactedValues++;
+                    continue;
+                }
+
                 SystemConfig::setValue($key, $value, $descriptions[$key]);
                 $imported++;
             }
         }
 
-        OperationLog::record('system_config', 'import', '导入系统配置，共' . $imported . '项', $this->currentUser->id);
+        OperationLog::record(
+            'system_config',
+            'import',
+            '导入系统配置，共' . $imported . '项，跳过脱敏占位' . $skippedRedactedValues . '项',
+            $this->currentUser->id,
+            null,
+            null,
+            [
+                'imported' => $imported,
+                'skipped_redacted_values' => $skippedRedactedValues,
+                'redacted_placeholder_policy' => 'preserve_existing_sensitive_values',
+            ]
+        );
 
-        return $this->success(['imported' => $imported], '配置导入成功');
+        return $this->success([
+            'imported' => $imported,
+            'skipped_redacted_values' => $skippedRedactedValues,
+        ], '配置导入成功');
+    }
+
+    /**
+     * @param mixed $value
+     */
+    private function containsRedactedExportSecretPlaceholder($value): bool
+    {
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed === '[REDACTED]') {
+                return true;
+            }
+
+            if ($this->looksLikeJsonObject($trimmed)) {
+                $decoded = json_decode($trimmed, true);
+                if (is_array($decoded)) {
+                    return $this->containsRedactedExportSecretPlaceholder($decoded);
+                }
+            }
+
+            return false;
+        }
+
+        if (is_array($value)) {
+            foreach ($value as $child) {
+                if ($this->containsRedactedExportSecretPlaceholder($child)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function validateSystemConfigImportFile(string $path, string $originalName, int $size): ?string

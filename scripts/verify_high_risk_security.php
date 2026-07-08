@@ -231,6 +231,9 @@ assert_true(!preg_match('/\beval\s*\(/', $dailyReportSource), 'daily report form
 assert_true(!preg_match('/\bshell_exec\s*\(/', $dailyReportSource), 'daily report Excel parsing must not use shell_exec');
 assert_true(str_contains($systemConfigControllerSource, 'IMPORT_MAX_BYTES'), 'system config import must have a file size limit');
 assert_true(str_contains($systemConfigControllerSource, 'validateSystemConfigImportData'), 'system config import must validate JSON shape before applying configs');
+assert_true(str_contains($systemConfigControllerSource, 'containsRedactedExportSecretPlaceholder'), 'system config import must detect redacted export placeholders before applying configs');
+assert_true(str_contains($systemConfigControllerSource, 'skipped_redacted_values'), 'system config import must report skipped redacted export placeholders');
+assert_true(str_contains($publicEntrySource, 'skipped_redacted_values'), 'system config import UI must show skipped redacted placeholder count');
 assert_true(str_contains($onlineDailyPersistenceSource, 'tenantIdForSystemHotel'), 'online daily data writes must populate tenant_id when available');
 assert_true(str_contains($platformSyncSource, "'tenant_id'"), 'platform sync writes must populate tenant_id when available');
 assert_true(str_contains($loginLogSource, 'tenantIdForUser'), 'login logs must populate tenant_id for authenticated users when available');
