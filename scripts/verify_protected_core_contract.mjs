@@ -123,6 +123,10 @@ for (const permission of permissionKeys) {
 
 assertContract(systemConfig.includes('KEY_PROTECTED_CAPABILITY_POLICY'), 'SystemConfig must define protected capability policy key');
 assertContract(systemConfig.includes('default_module_entitlement'), 'protected capability policy must default module entitlement explicitly');
+for (const moduleName of ['collection_health', 'online_data', 'field_assets']) {
+  assertContract(service.includes(`'${moduleName}'`), `ProtectedCapabilityService default policy must include ${moduleName}`);
+  assertContract(systemConfig.includes(`'${moduleName}'`), `SystemConfig default protected policy must include ${moduleName}`);
+}
 assertContract(auth.includes('ProtectedCapabilityService'), 'Auth middleware must use ProtectedCapabilityService');
 assertContract(auth.includes('authorizeContext'), 'Auth middleware must enforce protected capability authorization');
 assertContract(auth.includes('redactProtectedResponse'), 'Auth middleware must redact protected responses');

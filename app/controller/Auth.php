@@ -471,6 +471,15 @@ class Auth extends Base
             'investment' => $allows('investment.view') || $allows('investment.simulate'),
             'operation' => $allows('operation.view') || $allows('operation.execute'),
             'export' => $allows('report.export') || $allows('ota.export'),
+            'online_data' => $allows('ota.view') || $allows('ota.collect')
+                || $this->roleAllows($user, 'can_view_online_data')
+                || $this->roleAllows($user, 'can_fetch_online_data'),
+            'collection_health' => $allows('collection_health.view')
+                || $this->roleAllows($user, 'can_view_diagnostics'),
+            'field_assets' => $allows('field_assets.view')
+                || $this->roleAllows($user, 'can_view_field_assets'),
+            'ai_governance' => $allows('ai.governance')
+                || $this->roleAllows($user, 'can_manage_ai_governance'),
         ];
     }
 

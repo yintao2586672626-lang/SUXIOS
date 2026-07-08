@@ -23,6 +23,11 @@ class SystemConfig extends Model
         'ctrip_config_list' => true,
         'meituan_config_list' => true,
     ];
+    private const DEFAULT_PROTECTED_CAPABILITY_MODULES = [
+        'collection_health',
+        'online_data',
+        'field_assets',
+    ];
 
     // 自动时间戳
     protected $autoWriteTimestamp = true;
@@ -286,7 +291,7 @@ class SystemConfig extends Model
             self::KEY_PROTECTED_CAPABILITY_POLICY => json_encode([
                 'version' => 'p0',
                 'default_module_entitlement' => 'deny',
-                'default_enabled_modules' => [],
+                'default_enabled_modules' => self::DEFAULT_PROTECTED_CAPABILITY_MODULES,
                 'tenant_modules' => [],
             ], JSON_UNESCAPED_UNICODE),
             

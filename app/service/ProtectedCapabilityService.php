@@ -9,6 +9,11 @@ use app\model\User;
 class ProtectedCapabilityService
 {
     private const DEFAULT_REDACTION_REASON = 'protected_capability_summary_only';
+    private const DEFAULT_ENABLED_MODULES = [
+        'collection_health',
+        'online_data',
+        'field_assets',
+    ];
 
     /** @var array<string, mixed> */
     private array $policy;
@@ -29,7 +34,7 @@ class ProtectedCapabilityService
         return [
             'version' => 'p0',
             'default_module_entitlement' => 'deny',
-            'default_enabled_modules' => [],
+            'default_enabled_modules' => self::DEFAULT_ENABLED_MODULES,
             'enabled_modules' => [],
             'tenant_modules' => [],
             'redaction_reason' => self::DEFAULT_REDACTION_REASON,

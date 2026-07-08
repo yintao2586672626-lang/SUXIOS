@@ -175,6 +175,38 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertSame('role_permission_denied', $authorization['reason']);
     }
 
+    public function testDefaultOtaModulesAllowRolePermittedBetaUserPaths(): void
+    {
+        $service = new ProtectedCapabilityService();
+
+        $profileStatus = $service->classifyPath('GET', '/api/online-data/platform-profile-status?platform=meituan');
+        self::assertIsArray($profileStatus);
+        $profileAuthorization = $service->authorizeContext(
+            $this->userWithPermissions(['can_view_diagnostics']),
+            $profileStatus,
+            ['hotel_id' => 7]
+        );
+        self::assertTrue($profileAuthorization['allowed']);
+
+        $fetchCtrip = $service->classifyPath('POST', '/api/online-data/fetch-ctrip');
+        self::assertIsArray($fetchCtrip);
+        $fetchAuthorization = $service->authorizeContext(
+            $this->userWithPermissions(['can_fetch_online_data']),
+            $fetchCtrip,
+            ['hotel_id' => 7]
+        );
+        self::assertTrue($fetchAuthorization['allowed']);
+
+        $profileFields = $service->classifyPath('GET', '/api/online-data/ctrip-profile-fields');
+        self::assertIsArray($profileFields);
+        $fieldAuthorization = $service->authorizeContext(
+            $this->userWithPermissions(['can_view_field_assets']),
+            $profileFields,
+            ['hotel_id' => 7]
+        );
+        self::assertTrue($fieldAuthorization['allowed']);
+    }
+
     /**
      * @param array<int, string> $permissions
      */

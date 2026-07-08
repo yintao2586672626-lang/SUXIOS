@@ -1074,6 +1074,7 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.doesNotMatch(scheduleMeituanEbookingDeferredStartupRefresh, /}, 2400\);/);
   assert.doesNotMatch(scheduleMeituanEbookingDeferredStartupRefresh, /}, 3000\);/);
   assert.doesNotMatch(applyMeituanHotelConfig, /await loadCompetitorSummary\(\)/);
+  assert.match(html, /const poiId = firstNonEmptyText\([\s\S]*config\?\.poi_id,[\s\S]*config\?\.poiId,[\s\S]*config\?\.store_id,[\s\S]*config\?\.storeId,[\s\S]*meituanForm\.value\.poiId/);
   assert.match(applyMeituanHotelConfig, /const requestedHotelId = String\(meituanForm\.value\.hotelId \|\| ''\);/);
   assert.match(applyMeituanHotelConfig, /if \(requestedHotelId !== String\(meituanForm\.value\.hotelId \|\| ''\)\) return;/);
   assert.doesNotMatch(applyMeituanHotelConfig, /options\.refreshList !== false/);

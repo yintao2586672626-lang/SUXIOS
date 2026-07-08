@@ -245,6 +245,10 @@ assert.ok(indexHtml.includes("`数据范围：${profile?.dataBoundary || '-'}`")
 assert.match(indexHtml, /const copyUserIssueGuide = \(\) =>/, 'user modal must expose a safe copy action for issuance guidance');
 assert.match(indexHtml, /applyUserRoleQuickFilter\(card\)/, 'user management must support one-click beta and normal account filtering');
 assert.match(indexHtml, /const resetUserFilters = \(\) =>/, 'user management filters must be reset through a shared helper');
+assert.match(indexHtml, /@click="openUserAuthorization\(\)"/, 'hotel management header must expose a super-admin user authorization entry');
+assert.match(indexHtml, /@click="openUserAuthorization\(hotel\)"/, 'hotel rows must expose per-store user authorization entry');
+assert.match(indexHtml, /const openUserAuthorization = \(hotel = null\) => \{[\s\S]*user\.value\?\.is_super_admin[\s\S]*filterUserHotelId\.value = hotel\?\.id \? String\(hotel\.id\) : '';[\s\S]*currentPage\.value = 'users'[\s\S]*loadUsers\(\)[\s\S]*loadRoles\(\)[\s\S]*loadHotels\(\)/, 'hotel authorization entry must navigate to filtered user management and refresh required metadata');
+assert.match(indexHtml, /openUserModal, openUserAuthorization, openUserModalWithRole/, 'hotel authorization entry must be returned to the Vue template');
 assert.match(indexHtml, /const existingUserIssueGuideBlocker = \(u = \{\}\) =>/, 'row-level issuance copy must have explicit blocker checks');
 assert.match(indexHtml, /copyUserIssueGuideForUser\(u\)/, 'existing beta and normal users must expose a copyable issuance guide action');
 assert.match(indexHtml, /String\(u\?\.status\) !== '1'/, 'row-level issuance copy must block pending or paused accounts');

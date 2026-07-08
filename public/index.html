@@ -3962,6 +3962,11 @@
                                         <i class="fas fa-sync-alt"></i>
                                         <span>刷新状态</span>
                                     </button>
+                                    <button v-if="user?.is_super_admin" type="button" @click="openUserAuthorization()"
+                                        class="inline-flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100">
+                                        <i class="fas fa-user-shield"></i>
+                                        <span>用户授权</span>
+                                    </button>
                                     <button v-if="canManageOwnHotels()" @click="openHotelModal()"
                                         class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
                                         <i class="fas fa-plus"></i>
@@ -4179,6 +4184,7 @@
                                                         </button>
                                                     </div>
                                                     <div class="flex flex-wrap justify-end gap-1.5">
+                                                        <button v-if="user?.is_super_admin" type="button" @click="openUserAuthorization(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100">授权用户</button>
                                                         <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">编辑</button>
                                                         <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
                                                         <button type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-red-100 bg-white text-xs text-red-600 hover:bg-red-50">删除</button>
@@ -4240,6 +4246,10 @@
                                             <button v-else type="button" @click="openHotelModal(hotel, { expandOta: true })"
                                                 class="w-full whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs font-medium text-blue-700">
                                                 维护账号
+                                            </button>
+                                            <button v-if="user?.is_super_admin" type="button" @click="openUserAuthorization(hotel)"
+                                                class="w-full whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-white text-xs font-medium text-blue-700">
+                                                授权用户
                                             </button>
                                             <div class="flex flex-wrap justify-end gap-1">
                                                 <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">编辑</button>
@@ -29778,6 +29788,23 @@
                 filterUserHotelId.value = '';
             };
 
+            const openUserAuthorization = (hotel = null) => {
+                if (!user.value?.is_super_admin) {
+                    showToast('只有超级管理员可以分配门店授权', 'error');
+                    return;
+                }
+                searchUser.value = '';
+                filterUserRoleId.value = '';
+                filterUserStatus.value = '';
+                filterUserHotelId.value = hotel?.id ? String(hotel.id) : '';
+                currentPage.value = 'users';
+                Promise.allSettled([
+                    loadUsers(),
+                    roles.value.length ? Promise.resolve() : loadRoles(),
+                    hotels.value.length ? Promise.resolve() : loadHotels(),
+                ]);
+            };
+
             const filteredUsers = computed(() => {
                 return users.value.filter(u => {
                     if (!u || typeof u !== 'object') return false;
@@ -46787,7 +46814,7 @@
                 permissionUser, userPermissions,
                 handleLogin, handleRegister, openRegisterForm, closeRegisterForm, handleLogout, forgotPassword, openDirectorEntry, closeDirectorEntry, verifyDirectorEntry, showToast,
                 openHotelModal, openHotelManagementForOta, saveHotel, openHotelDeleteModal, closeHotelDeleteModal, confirmDeleteHotel, deactivateHotelDeleteTarget, deleteHotel, hotelDeleteIdentityText, toggleHotelStatus,
-                openUserModal, openUserModalWithRole, applyUserIssueRole, applyUserRoleQuickFilter, resetUserFilters, saveUser, approveUser, deactivateUser, copyLastUserIssueGuide, clearLastUserIssueGuide, closeUserStatusConfirm, confirmUserStatusChange, deleteUser, closeUserDeleteModal, confirmDeleteUser,
+                openUserModal, openUserAuthorization, openUserModalWithRole, applyUserIssueRole, applyUserRoleQuickFilter, resetUserFilters, saveUser, approveUser, deactivateUser, copyLastUserIssueGuide, clearLastUserIssueGuide, closeUserStatusConfirm, confirmUserStatusChange, deleteUser, closeUserDeleteModal, confirmDeleteUser,
                 rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, saveRole, deleteRole, togglePermission,
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
