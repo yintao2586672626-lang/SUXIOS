@@ -159,8 +159,10 @@ assert_regression(str_contains($competitorReportSource, "where('store_id', \$sto
 assert_regression(!str_contains($authMiddlewareSource, "param('token'") && !str_contains($authMiddlewareSource, 'param("token"'), 'Auth middleware must not accept protected-route tokens from URL query parameters');
 assert_regression(str_contains($cronTriggerSource, "header('X-Cron-Token', '')"), 'cronTrigger must read cron token from X-Cron-Token header');
 assert_regression(!str_contains($cronTriggerSource, "get('token'") && !str_contains($cronTriggerSource, 'get("token"'), 'cronTrigger must not accept cron token from URL query parameters');
+assert_regression(str_contains($cronTriggerSource, 'hash_equals($configToken, $token)'), 'cronTrigger must compare cron token with hash_equals');
 assert_regression(str_contains($dailyPatrolCronSource, "header('X-Cron-Token', '')"), 'daily workbench patrol cron must read cron token from X-Cron-Token header');
 assert_regression(!str_contains($dailyPatrolCronSource, "get('token'") && !str_contains($dailyPatrolCronSource, 'get("token"'), 'daily workbench patrol cron must not accept cron token from URL query parameters');
+assert_regression(str_contains($dailyPatrolCronSource, 'hash_equals($configToken, $token)'), 'daily workbench patrol cron must compare cron token with hash_equals');
 assert_regression(str_contains($cookieEndpointSource, "'auth' => 'X-Cron-Token header only'") && !str_contains($cookieEndpointSource, 'X-Cron-Token or token query parameter'), 'public endpoint security panel must document cron auth as header-only');
 assert_regression(!str_contains($compassViewSource, 'save-layout?token='), 'compass layout save must not put token in URL query');
 assert_regression(!str_contains($compassViewSource, "URLSearchParams(location.search).get('token')"), 'compass layout save must not read token from location.search');

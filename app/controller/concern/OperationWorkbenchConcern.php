@@ -506,7 +506,7 @@ trait OperationWorkbenchConcern
             return json(['code' => 403, 'message' => 'CRON_TOKEN not configured'], 403);
         }
 
-        if ($token !== $configToken) {
+        if ($token === '' || !hash_equals($configToken, $token)) {
             $this->recordPublicEndpointFailure('daily_workbench_patrol_cron', 'invalid_cron_token', 401);
             return json(['code' => 401, 'message' => 'Unauthorized'], 401);
         }

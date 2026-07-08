@@ -3423,7 +3423,7 @@ trait AutoFetchConcern
             return json(['code' => 403, 'message' => 'CRON_TOKEN未配置'], 403);
         }
 
-        if ($token !== $configToken) {
+        if ($token === '' || !hash_equals($configToken, $token)) {
             $this->recordPublicEndpointFailure('cron_trigger', 'invalid_cron_token', 401);
             return json(['code' => 401, 'message' => 'Unauthorized'], 401);
         }
