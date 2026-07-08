@@ -146,6 +146,29 @@ assert_regression(str_contains($competitorReportSource, "where('store_id', \$sto
 assert_regression(!str_contains($authMiddlewareSource, "param('token'") && !str_contains($authMiddlewareSource, 'param("token"'), 'Auth middleware must not accept protected-route tokens from URL query parameters');
 assert_regression(!str_contains($compassViewSource, 'save-layout?token='), 'compass layout save must not put token in URL query');
 assert_regression(!str_contains($compassViewSource, "URLSearchParams(location.search).get('token')"), 'compass layout save must not read token from location.search');
+assert_regression(str_contains($compassViewSource, '$escapeCompassValue') && str_contains($compassViewSource, 'htmlspecialchars'), 'compass admin view must HTML-escape runtime panel text');
+assert_regression(str_contains($compassViewSource, '$encodeCompassJson') && str_contains($compassViewSource, 'JSON_HEX_TAG'), 'compass admin view must encode script JSON with hex escaping');
+assert_regression(!str_contains($compassViewSource, 'json_encode($layout, JSON_UNESCAPED_UNICODE);'), 'compass layout JSON must not be embedded without script-context escaping');
+assert_regression(!str_contains($compassViewSource, 'json_encode($metrics, JSON_UNESCAPED_UNICODE);'), 'compass metrics JSON must not be embedded without script-context escaping');
+foreach ([
+    "<?php echo \$item['date']; ?>",
+    "<?php echo \$item['week']; ?>",
+    "<?php echo \$item['condition']; ?>",
+    "<?php echo \$item['wind']; ?>",
+    "<?php echo \$todo['title']; ?>",
+    "<?php echo \$todo['owner']; ?>",
+    "<?php echo \$todo['deadline']; ?>",
+    "<?php echo \$todo['status']; ?>",
+    "<?php echo \$alert['type']; ?>",
+    "<?php echo \$alert['message']; ?>",
+    "<?php echo \$holiday['name']; ?>",
+    "<?php echo \$day['date']; ?>",
+    "<?php echo \$day['king']; ?>",
+    "<?php echo \$day['twin']; ?>",
+    "<?php echo \$day['total']; ?>",
+] as $rawCompassEcho) {
+    assert_regression(!str_contains($compassViewSource, $rawCompassEcho), 'compass admin view must not echo runtime panel text without escaping: ' . $rawCompassEcho);
+}
 assert_regression(!str_contains($publicIndexSource, 'competitor-wechat-robot?token='), 'competitor robot admin entry must not put token in URL query');
 assert_regression(str_contains($robotListViewSource . $robotAddViewSource . $robotEditViewSource, 'htmlspecialchars'), 'competitor robot admin views must HTML-escape stored text fields');
 assert_regression(!str_contains($robotListViewSource, "<?php echo \$item['name']; ?>"), 'competitor robot list must not echo stored robot names without escaping');

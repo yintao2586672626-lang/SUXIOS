@@ -1,3 +1,10 @@
+<?php
+$escapeCompassValue = static fn($value): string => htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+$encodeCompassJson = static function ($value): string {
+    $json = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+    return is_string($json) ? $json : 'null';
+};
+?>
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -124,13 +131,13 @@
                 <?php foreach ($weather as $item): ?>
                     <div class="flex items-center justify-between text-sm text-slate-300">
                         <div class="flex items-center gap-2">
-                            <span class="text-slate-400"><?php echo $item['date']; ?></span>
-                            <span>周<?php echo $item['week']; ?></span>
-                            <span><?php echo $item['condition']; ?></span>
+                            <span class="text-slate-400"><?php echo $escapeCompassValue($item['date'] ?? ''); ?></span>
+                            <span>周<?php echo $escapeCompassValue($item['week'] ?? ''); ?></span>
+                            <span><?php echo $escapeCompassValue($item['condition'] ?? ''); ?></span>
                         </div>
                         <div class="text-slate-200">
-                            <?php echo $item['temp_low']; ?>° ~ <?php echo $item['temp_high']; ?>°
-                            <span class="text-slate-400 ml-2"><?php echo $item['wind']; ?></span>
+                            <?php echo $escapeCompassValue($item['temp_low'] ?? ''); ?>° ~ <?php echo $escapeCompassValue($item['temp_high'] ?? ''); ?>°
+                            <span class="text-slate-400 ml-2"><?php echo $escapeCompassValue($item['wind'] ?? ''); ?></span>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -150,10 +157,10 @@
                 <?php foreach ($todos as $todo): ?>
                     <div class="flex items-center justify-between border-b border-slate-800 pb-2 text-sm">
                         <div>
-                            <div class="text-slate-100"><?php echo $todo['title']; ?></div>
-                            <div class="text-slate-400 text-xs"><?php echo $todo['owner']; ?> · 截止 <?php echo $todo['deadline']; ?></div>
+                            <div class="text-slate-100"><?php echo $escapeCompassValue($todo['title'] ?? ''); ?></div>
+                            <div class="text-slate-400 text-xs"><?php echo $escapeCompassValue($todo['owner'] ?? ''); ?> · 截止 <?php echo $escapeCompassValue($todo['deadline'] ?? ''); ?></div>
                         </div>
-                        <span class="text-slate-300"><?php echo $todo['status']; ?></span>
+                        <span class="text-slate-300"><?php echo $escapeCompassValue($todo['status'] ?? ''); ?></span>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -204,8 +211,8 @@
                 <?php foreach ($alerts as $alert): ?>
                     <div class="flex items-center justify-between text-sm">
                         <div>
-                            <div class="text-slate-100"><?php echo $alert['type']; ?></div>
-                            <div class="text-slate-400 text-xs"><?php echo $alert['message']; ?></div>
+                            <div class="text-slate-100"><?php echo $escapeCompassValue($alert['type'] ?? ''); ?></div>
+                            <div class="text-slate-400 text-xs"><?php echo $escapeCompassValue($alert['message'] ?? ''); ?></div>
                         </div>
                         <span class="px-2 py-1 rounded text-xs <?php echo $alert['level'] === 'red' ? 'badge-red' : 'badge-yellow'; ?>">
                             <?php echo $alert['level'] === 'red' ? '高' : '中'; ?>
@@ -226,14 +233,14 @@
             </div>
             <?php foreach ($holidays as $holiday): ?>
                 <div class="mb-4">
-                    <div class="text-slate-200 text-sm mb-2"><?php echo $holiday['name']; ?></div>
+                    <div class="text-slate-200 text-sm mb-2"><?php echo $escapeCompassValue($holiday['name'] ?? ''); ?></div>
                     <div class="space-y-2 text-sm text-slate-300">
                         <?php foreach ($holiday['days'] as $day): ?>
                             <div class="flex items-center justify-between border-b border-slate-800 pb-2">
-                                <span><?php echo $day['date']; ?></span>
-                                <span>大床 <?php echo $day['king']; ?></span>
-                                <span>双床 <?php echo $day['twin']; ?></span>
-                                <span class="text-slate-100">总计 <?php echo $day['total']; ?></span>
+                                <span><?php echo $escapeCompassValue($day['date'] ?? ''); ?></span>
+                                <span>大床 <?php echo $escapeCompassValue($day['king'] ?? ''); ?></span>
+                                <span>双床 <?php echo $escapeCompassValue($day['twin'] ?? ''); ?></span>
+                                <span class="text-slate-100">总计 <?php echo $escapeCompassValue($day['total'] ?? ''); ?></span>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -244,8 +251,8 @@
 </div>
 
 <script>
-    const layout = <?php echo json_encode($layout, JSON_UNESCAPED_UNICODE); ?>;
-    const metrics = <?php echo json_encode($metrics, JSON_UNESCAPED_UNICODE); ?>;
+    const layout = <?php echo $encodeCompassJson($layout); ?>;
+    const metrics = <?php echo $encodeCompassJson($metrics); ?>;
     const grid = document.getElementById('compass-grid');
 
     function applyLayout() {
