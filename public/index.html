@@ -4747,6 +4747,21 @@
                             </div>
                         </div>
 
+                        <div v-if="pendingUserAuthorizationHotel" class="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-4 shadow-sm">
+                            <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                <div class="min-w-0">
+                                    <div class="text-sm font-semibold text-blue-900">正在分配门店：{{ pendingUserAuthorizationHotel.name }}</div>
+                                    <div class="mt-1 text-xs leading-5 text-blue-700">
+                                        请选择已有内测用户点“编辑”，门店范围会预填该门店；确认后保存。新增账户只用于没有可用内测账号的情况。
+                                    </div>
+                                </div>
+                                <button type="button" @click="resetUserFilters"
+                                    class="shrink-0 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">
+                                    退出分配
+                                </button>
+                            </div>
+                        </div>
+
                         <div v-if="roleIssueGuideCards.length" class="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                             <div class="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
                                 <div>
@@ -28802,6 +28817,7 @@
             const filterUserRoleId = ref('');
             const filterUserStatus = ref('');
             const filterUserHotelId = ref('');
+            const pendingUserAuthorizationHotel = ref(null);
             const filterReportHotel = ref('');
             const compassHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
             const dualOtaHotelSearchCountStorageKey = () => `suxios_dual_ota_hotel_search_counts_${user.value?.id || 'guest'}_v1`;
@@ -29779,6 +29795,7 @@
 
             const applyUserRoleQuickFilter = (card = {}) => {
                 filterUserRoleId.value = card?.roleId ? String(card.roleId) : '';
+                pendingUserAuthorizationHotel.value = null;
             };
 
             const resetUserFilters = () => {
@@ -29786,9 +29803,17 @@
                 filterUserRoleId.value = '';
                 filterUserStatus.value = '';
                 filterUserHotelId.value = '';
+                pendingUserAuthorizationHotel.value = null;
             };
 
-            const openUserAuthorization = (hotel = null) => {
+            const betaUserRoleIdForFilter = () => {
+                const betaCard = roleIssueGuideCards.value.find(card => card?.key === 'beta_user');
+                if (betaCard?.roleId) return String(betaCard.roleId);
+                const betaRole = roles.value.find(role => roleIssueProfile(role).key === 'beta_user');
+                return betaRole?.id ? String(betaRole.id) : '';
+            };
+
+            const openUserAuthorization = async (hotel = null) => {
                 if (!user.value?.is_super_admin) {
                     showToast('只有超级管理员可以分配门店授权', 'error');
                     return;
@@ -29796,13 +29821,23 @@
                 searchUser.value = '';
                 filterUserRoleId.value = '';
                 filterUserStatus.value = '';
-                filterUserHotelId.value = hotel?.id ? String(hotel.id) : '';
+                filterUserHotelId.value = '';
+                pendingUserAuthorizationHotel.value = hotel?.id
+                    ? { id: String(hotel.id), name: hotel.name || getHotelNameById(hotel.id) || `门店 ${hotel.id}` }
+                    : null;
                 currentPage.value = 'users';
-                Promise.allSettled([
+                await Promise.allSettled([
                     loadUsers(),
                     roles.value.length ? Promise.resolve() : loadRoles(),
                     hotels.value.length ? Promise.resolve() : loadHotels(),
                 ]);
+                const betaRoleId = betaUserRoleIdForFilter();
+                filterUserRoleId.value = betaRoleId;
+                if (betaRoleId && pendingUserAuthorizationHotel.value) {
+                    showToast(`请选择已有内测用户编辑门店范围：${pendingUserAuthorizationHotel.value.name}`, 'info');
+                } else if (!betaRoleId) {
+                    showToast('未找到内测用户角色，请先检查角色配置', 'warning');
+                }
             };
 
             const filteredUsers = computed(() => {
@@ -44623,7 +44658,12 @@
             // 用户操作
             const openUserModal = (u = null) => {
                 if (u) {
-                    const hotelIds = userHotelIdsForForm(u);
+                    let hotelIds = userHotelIdsForForm(u);
+                    const pendingHotelId = pendingUserAuthorizationHotel.value?.id ? String(pendingUserAuthorizationHotel.value.id) : '';
+                    const isBetaIssueUser = userRoleIssueProfile(u)?.key === 'beta_user';
+                    if (pendingHotelId && isBetaIssueUser && !hotelIds.includes(pendingHotelId)) {
+                        hotelIds = normalizeUserHotelIds([...hotelIds, pendingHotelId]);
+                    }
                     userForm.value = { ...u, password: '', hotel_ids: hotelIds, hotel_id: hotelIds[0] ? Number(hotelIds[0]) : (u.hotel_id || null) };
                 } else {
                     // 店长创建用户时，默认为店员角色，酒店为自己的酒店
@@ -46778,7 +46818,7 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
