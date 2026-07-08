@@ -158,6 +158,9 @@ foreach (glob(__DIR__ . '/../app/controller/concern/*.php') ?: [] as $concernFil
 $authSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
 $authControllerSource = file_get_contents(__DIR__ . '/../app/controller/Auth.php');
 $dailyReportSource = file_get_contents(__DIR__ . '/../app/controller/DailyReport.php');
+$publicEntrySource = file_get_contents(__DIR__ . '/../public/index.html');
+$hotelControllerSource = file_get_contents(__DIR__ . '/../app/controller/Hotel.php');
+$hotelDataMergeSource = file_get_contents(__DIR__ . '/../app/service/HotelDataMergeService.php');
 $platformSyncSource = file_get_contents(__DIR__ . '/../app/service/PlatformDataSyncService.php');
 $onlineDailyPersistenceSource = file_get_contents(__DIR__ . '/../app/service/OnlineDailyDataPersistenceService.php');
 $competitorSource = file_get_contents(__DIR__ . '/../app/controller/CompetitorApi.php');
@@ -176,6 +179,8 @@ $competitorTaskSource = extract_method_source($competitorSource, 'task');
 $competitorReportSource = extract_method_source($competitorSource, 'report');
 $competitorReportTokenSource = extract_method_source($competitorSource, 'isValidReportToken');
 $competitorAlertSource = extract_method_source($competitorAnalysisModelSource, 'getAlertCompetitors');
+$hotelMergePreviewSource = extract_method_source($hotelControllerSource, 'mergePreview');
+$hotelMergeExecuteSource = extract_method_source($hotelControllerSource, 'mergeExecute');
 
 assert_true((bool)preg_match('/function\s+fetchCtrip\s*\([^)]*\)\s*:\s*Response\s*\{\s*\$this->checkPermission\(\);/s', $onlineSource), 'fetchCtrip must check login and hotel binding before reading cookies');
 assert_true((bool)preg_match('/function\s+saveCtripConfig\s*\([^)]*\)\s*:\s*Response\s*\{\s*\$this->checkPermission\(\);/s', $onlineSource), 'saveCtripConfig must check login and hotel binding');
@@ -217,6 +222,26 @@ assert_true(str_contains($loginLogSource, 'tenantIdForUser'), 'login logs must p
 assert_true(str_contains($operationSource, 'withTenantId'), 'operation management writes must populate tenant_id when available');
 assert_true(str_contains($transferSource, "'tenant_id' => \$hotelId"), 'transfer records must populate tenant_id on write');
 assert_true(str_contains($initFullSource, '20260529_add_tenant_security_fields.sql'), 'full database initialization must apply tenant security migration');
+assert_true(str_contains($hotelMergePreviewSource, '$this->checkPermission(true);'), 'hotel data merge preview must require super admin');
+assert_true(str_contains($hotelMergeExecuteSource, '$this->checkPermission(true);'), 'hotel data merge execution must require super admin');
+assert_true(str_contains($hotelMergeExecuteSource, '$service->execute($sourceHotelId, $targetHotelId, $actualConfirmation, $deactivateSource)'), 'hotel data merge execution must pass confirmation text into the service');
+assert_true(str_contains($hotelMergeExecuteSource, "OperationLog::record(\n                'hotel',\n                'merge_data'"), 'hotel data merge execution must write operation audit logs');
+assert_true((bool)preg_match('/function\s+execute\s*\(\s*int\s+\$sourceHotelId\s*,\s*int\s+\$targetHotelId\s*,\s*string\s+\$confirmationText\s*,\s*bool\s+\$deactivateSource\s*=\s*false\s*\)/', $hotelDataMergeSource), 'hotel data merge service execute must require explicit confirmation text');
+assert_true(str_contains($hotelDataMergeSource, "['table' => 'online_daily_data', 'column' => 'system_hotel_id'"), 'hotel data merge must migrate online_daily_data by system_hotel_id only');
+assert_true(!str_contains($hotelDataMergeSource, "['table' => 'online_daily_data', 'column' => 'hotel_id'"), 'hotel data merge must not migrate OTA platform hotel_id');
+assert_true(str_contains($hotelDataMergeSource, "'tenant_id_retargeted' => true"), 'hotel data merge preview must disclose tenant_id retargeting');
+assert_true(str_contains($hotelDataMergeSource, "'merges_duplicate_user_permissions' => true"), 'hotel data merge preview must disclose duplicate user permission merge policy');
+assert_true(str_contains($hotelDataMergeSource, "'expected_update_rows'"), 'hotel data merge preview must separate expected updates from skippable duplicate grants');
+assert_true(str_contains($hotelDataMergeSource, "'merged_conflict_total'"), 'hotel data merge execution must report merged duplicate grants');
+assert_true(str_contains($hotelDataMergeSource, "\$payload['tenant_id'] = \$targetTenantId"), 'hotel data merge updates must retarget tenant_id when available');
+assert_true(str_contains($hotelDataMergeSource, "in_array(\$indexColumn, \$migratingColumns, true)"), 'hotel data merge unique conflict detection must treat tenant_id as a migrating column');
+assert_true(str_contains($hotelDataMergeSource, 'Db::query($sql, [$sourceHotelId, $targetHotelId])'), 'hotel data merge unique conflict SQL must bind hotel ids');
+assert_true(str_contains($hotelDataMergeSource, 'merge_then_remove_source_duplicate_permission'), 'hotel data merge duplicate user grants must be merged before source duplicates are removed');
+assert_true(str_contains($hotelDataMergeSource, 'duplicatePermissionMergeAssignments') && str_contains($hotelDataMergeSource, 'GREATEST(COALESCE(t.'), 'hotel data merge duplicate user grants must merge permission flags');
+assert_true(!str_contains($hotelDataMergeSource, 'skip_source_duplicate_permission'), 'hotel data merge must not describe duplicate grants as simple skips');
+assert_true(substr_count($publicEntrySource, 'deactivate_source: false') >= 2, 'hotel data merge UI must not deactivate the source hotel by default');
+assert_true(str_contains($publicEntrySource, '系统门店归属和 tenant_id 会改写') && str_contains($publicEntrySource, 'OTA平台酒店ID不会改写'), 'hotel data merge UI must disclose tenant_id retargeting and OTA platform hotel id boundary');
+assert_true(str_contains($publicEntrySource, '先合并源/目标权限位') && str_contains($publicEntrySource, '合并重复授权'), 'hotel data merge UI must disclose duplicate permission merge semantics');
 $tenantScopedTables = [
     'hotels', 'users', 'user_hotel_permissions', 'daily_reports', 'monthly_tasks', 'online_daily_data',
     'operation_logs', 'platform_data_sources', 'platform_data_sync_tasks', 'platform_data_raw_records',

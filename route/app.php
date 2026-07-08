@@ -115,6 +115,8 @@ Route::post('api/hotels/', 'Hotel/create')->middleware(\app\middleware\Auth::cla
 Route::group('api/hotels', function () {
     Route::get('/', 'Hotel/index');
     Route::get('/all', 'Hotel/all');
+    Route::get('/merge-preview', 'Hotel/mergePreview');
+    Route::post('/merge-execute', 'Hotel/mergeExecute');
     Route::get('/:id', 'Hotel/read');
     Route::post('/', 'Hotel/create');
     Route::put('/:id', 'Hotel/update');

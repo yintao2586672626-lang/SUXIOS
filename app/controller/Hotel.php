@@ -6,7 +6,10 @@ namespace app\controller;
 use app\model\Hotel as HotelModel;
 use app\model\OperationLog;
 use app\model\UserHotelPermission;
+use app\service\HotelDataMergeService;
 use app\service\PermissionService;
+use InvalidArgumentException;
+use RuntimeException;
 use think\Response;
 use think\facade\Db;
 
@@ -290,6 +293,68 @@ class Hotel extends Base
         return $ownerUserId > 0 ? $ownerUserId : (int)$this->currentUser->id;
     }
 
+    public function mergePreview(): Response
+    {
+        $this->checkPermission(true);
+
+        try {
+            $sourceHotelId = (int)$this->request->param('source_hotel_id', 0);
+            $targetHotelId = (int)$this->request->param('target_hotel_id', 0);
+            $preview = (new HotelDataMergeService())->preview($sourceHotelId, $targetHotelId);
+
+            return $this->success($preview, '门店数据迁移预览已生成');
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            return $this->error('门店数据迁移预览失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function mergeExecute(): Response
+    {
+        $this->checkPermission(true);
+
+        $data = $this->requestData();
+        $sourceHotelId = (int)($data['source_hotel_id'] ?? 0);
+        $targetHotelId = (int)($data['target_hotel_id'] ?? 0);
+        $deactivateSource = $this->isTruthy($data['deactivate_source'] ?? false);
+        $service = new HotelDataMergeService();
+        $expectedConfirmation = $service->confirmationText($sourceHotelId, $targetHotelId);
+        $actualConfirmation = trim((string)($data['confirmation_text'] ?? ''));
+
+        if ($actualConfirmation !== $expectedConfirmation) {
+            return $this->error('确认文本不匹配，已取消迁移', 422, [
+                'expected_confirmation_text' => $expectedConfirmation,
+            ]);
+        }
+
+        try {
+            $result = $service->execute($sourceHotelId, $targetHotelId, $actualConfirmation, $deactivateSource);
+            OperationLog::record(
+                'hotel',
+                'merge_data',
+                sprintf('门店数据迁移: %d -> %d', $sourceHotelId, $targetHotelId),
+                $this->currentUser->id ?? null,
+                $targetHotelId,
+                null,
+                [
+                    'source_hotel_id' => $sourceHotelId,
+                    'target_hotel_id' => $targetHotelId,
+                    'updated_total' => $result['updated_total'] ?? 0,
+                    'source_deactivated' => $deactivateSource,
+                ]
+            );
+
+            return $this->success($result, '门店数据迁移完成');
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), 409);
+        } catch (\Throwable $e) {
+            return $this->error('门店数据迁移失败: ' . $e->getMessage(), 500);
+        }
+    }
+
     /**
      * 删除酒店
      */
@@ -558,6 +623,11 @@ class Hotel extends Base
     {
         $force = $data['force'] ?? $this->request->param('force', false);
         return $force === true || $force === 1 || $force === '1' || $force === 'true';
+    }
+
+    private function isTruthy($value): bool
+    {
+        return $value === true || $value === 1 || $value === '1' || $value === 'true';
     }
 
     private function countReferenceRows(string $table, string $column, int $value): int

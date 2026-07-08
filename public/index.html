@@ -3963,6 +3963,11 @@
                                         <i class="fas fa-sync-alt"></i>
                                         <span>刷新状态</span>
                                     </button>
+                                    <button v-if="user?.is_super_admin" type="button" @click="openHotelMergeModal()"
+                                        class="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100">
+                                        <i class="fas fa-exchange-alt"></i>
+                                        <span>数据迁移</span>
+                                    </button>
                                     <button v-if="user?.is_super_admin" type="button" @click="openUserAuthorization()"
                                         class="inline-flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100">
                                         <i class="fas fa-user-shield"></i>
@@ -4380,6 +4385,158 @@
                                         :disabled="hotelDeleteLoading || (hotelDeleteReferences.length > 0 && !hotelDeleteCanForce)"
                                         class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60">
                                         {{ hotelDeleteLoading ? '处理中...' : (hotelDeleteReferences.length ? (hotelDeleteCanForce ? '确认强制删除' : '有关联数据，不能删除') : '确认删除') }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="showHotelMergeModal" class="fixed inset-0 z-50 flex items-start sm:items-center justify-center modal-overlay overflow-y-auto px-3 py-4 sm:p-4" @click.self="closeHotelMergeModal()">
+                            <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl mx-4 my-6 overflow-hidden">
+                                <div class="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
+                                    <div class="flex items-start gap-3">
+                                        <div class="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                                            <i class="fas fa-exchange-alt"></i>
+                                        </div>
+                                        <div>
+                                            <h3 class="text-lg font-semibold text-gray-900">门店数据迁移</h3>
+                                            <p class="text-sm text-gray-500 mt-1">把源门店的系统归属数据迁移到目标门店；执行前必须先生成预览。</p>
+                                        </div>
+                                    </div>
+                                    <button type="button" @click="closeHotelMergeModal()" class="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                <div class="p-6 space-y-5">
+                                    <div class="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800 leading-relaxed">
+                                        迁移只调整系统门店归属字段，例如 <span class="font-semibold">online_daily_data.system_hotel_id</span>；
+                                        <span class="font-semibold">tenant_id</span> 会同步到目标门店；
+                                        <span class="font-semibold">online_daily_data.hotel_id</span> 是 OTA 平台酒店ID，不会被改写。
+                                    </div>
+                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                        <label class="block">
+                                            <span class="block text-sm font-medium text-gray-700 mb-2">源门店</span>
+                                            <select v-model="hotelMergeForm.source_hotel_id"
+                                                :disabled="hotelMergeLoading || hotelMergeExecuting"
+                                                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                                <option value="">选择要迁出的门店</option>
+                                                <option v-for="hotel in hotels" :key="`merge-source-${hotel.id}`" :value="String(hotel.id)">
+                                                    {{ hotel.name || '未命名门店' }} · ID {{ hotel.id }} · {{ hotel.code || '-' }}
+                                                </option>
+                                            </select>
+                                        </label>
+                                        <label class="block">
+                                            <span class="block text-sm font-medium text-gray-700 mb-2">目标门店</span>
+                                            <select v-model="hotelMergeForm.target_hotel_id"
+                                                :disabled="hotelMergeLoading || hotelMergeExecuting"
+                                                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                                <option value="">选择要合并到的门店</option>
+                                                <option v-for="hotel in hotels" :key="`merge-target-${hotel.id}`" :value="String(hotel.id)">
+                                                    {{ hotel.name || '未命名门店' }} · ID {{ hotel.id }} · {{ hotel.code || '-' }}
+                                                </option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                            <input v-model="hotelMergeForm.deactivate_source" type="checkbox"
+                                                :disabled="hotelMergeExecuting"
+                                                class="rounded border-gray-300 text-amber-600 focus:ring-amber-500">
+                                            <span>迁移完成后停用源门店入口</span>
+                                        </label>
+                                        <button type="button" @click="previewHotelMerge"
+                                            :disabled="hotelMergeLoading || hotelMergeExecuting"
+                                            class="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60">
+                                            <i :class="hotelMergeLoading ? 'fas fa-spinner fa-spin' : 'fas fa-clipboard-list'"></i>
+                                            <span>{{ hotelMergeLoading ? '生成预览中...' : '生成迁移预览' }}</span>
+                                        </button>
+                                    </div>
+                                    <div v-if="hotelMergeError" class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+                                        {{ hotelMergeError }}
+                                    </div>
+                                    <div v-if="hotelMergePreview" class="space-y-4">
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                            <div class="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                                                <div class="text-xs text-gray-500">源门店</div>
+                                                <div class="mt-1 font-semibold text-gray-900">{{ hotelMergePreview.source_hotel?.name || '-' }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                                                <div class="text-xs text-gray-500">目标门店</div>
+                                                <div class="mt-1 font-semibold text-gray-900">{{ hotelMergePreview.target_hotel?.name || '-' }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                                                <div class="text-xs text-gray-500">预计迁移记录</div>
+                                                <div class="mt-1 font-semibold text-gray-900">{{ hotelMergePreview.expected_update_rows ?? hotelMergePreview.total_source_rows ?? 0 }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                                                <div class="text-xs text-gray-500">执行状态</div>
+                                                <div :class="hotelMergePreview.can_execute ? 'text-green-700' : 'text-red-700'" class="mt-1 font-semibold">
+                                                    {{ hotelMergePreview.can_execute ? '可执行' : '存在阻断' }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="rounded-lg border border-gray-200 overflow-hidden">
+                                            <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-3">
+                                                <div class="font-medium text-gray-900">迁移明细</div>
+                                                <div class="text-xs text-gray-500">仅显示源/目标/冲突有记录的表</div>
+                                            </div>
+                                            <div class="max-h-72 overflow-auto">
+                                                <table class="w-full text-sm">
+                                                    <thead class="bg-white text-xs text-gray-500 sticky top-0">
+                                                        <tr>
+                                                            <th class="px-4 py-2 text-left font-medium">数据范围</th>
+                                                            <th class="px-4 py-2 text-left font-medium">表 / 字段</th>
+                                                            <th class="px-4 py-2 text-right font-medium">源记录</th>
+                                                            <th class="px-4 py-2 text-right font-medium">目标已有</th>
+                                                            <th class="px-4 py-2 text-right font-medium">冲突</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-gray-100">
+                                                        <tr v-for="item in hotelMergeVisibleItems" :key="`${item.table}-${item.column}`" :class="item.conflict_count > 0 ? 'bg-red-50/60' : 'bg-white'">
+                                                            <td class="px-4 py-2 text-gray-700">{{ item.label || item.table }}</td>
+                                                            <td class="px-4 py-2 text-xs text-gray-500">{{ item.table }}.{{ item.column }}</td>
+                                                            <td class="px-4 py-2 text-right text-gray-900">{{ item.source_count || 0 }}</td>
+                                                            <td class="px-4 py-2 text-right text-gray-600">{{ item.target_count || 0 }}</td>
+                                                            <td class="px-4 py-2 text-right">
+                                                                <span :class="item.blocking_conflict_count > 0 ? 'bg-red-100 text-red-700' : (item.skippable_conflict_count > 0 ? 'bg-amber-100 text-amber-700' : 'bg-green-50 text-green-700')"
+                                                                    class="inline-flex min-w-[2.5rem] justify-center rounded px-2 py-1 text-xs font-medium">
+                                                                    {{ item.conflict_count || 0 }}
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                        <tr v-if="hotelMergeVisibleItems.length === 0">
+                                                            <td colspan="5" class="px-4 py-8 text-center text-gray-400">源门店暂无可迁移记录</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                        <div v-if="hotelMergePreview.blocking_conflicts?.length" class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+                                            发现唯一索引冲突，已阻止执行。请先处理冲突记录，再重新预览。
+                                        </div>
+                                        <div v-if="hotelMergeSkippableConflictCount > 0" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                            发现 {{ hotelMergeSkippableConflictCount }} 条重复用户授权。执行时会先合并源/目标权限位，再移除源门店重复授权；其他唯一冲突仍会阻止迁移。
+                                        </div>
+                                        <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
+                                            <div class="text-sm text-amber-900">
+                                                执行前请输入确认文本：
+                                                <span class="font-semibold">{{ hotelMergePreview.confirmation_text }}</span>
+                                            </div>
+                                            <input v-model="hotelMergeForm.confirmation_text" type="text"
+                                                :disabled="hotelMergeExecuting"
+                                                class="w-full px-3 py-2 border border-amber-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                                :placeholder="hotelMergePreview.confirmation_text">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-col sm:flex-row justify-end gap-3">
+                                    <button type="button" @click="closeHotelMergeModal()" class="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50">
+                                        取消
+                                    </button>
+                                    <button type="button" @click="executeHotelMerge"
+                                        :disabled="!hotelMergeCanExecute || hotelMergeExecuting"
+                                        class="inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60">
+                                        <i :class="hotelMergeExecuting ? 'fas fa-spinner fa-spin' : 'fas fa-check'"></i>
+                                        <span>{{ hotelMergeExecuting ? '迁移中...' : '确认执行迁移' }}</span>
                                     </button>
                                 </div>
                             </div>
@@ -28995,6 +29152,33 @@
             const hotelDeleteError = ref('');
             const hotelDeleteReferences = ref([]);
             const hotelDeleteCanForce = ref(false);
+            const showHotelMergeModal = ref(false);
+            const hotelMergeForm = ref({
+                source_hotel_id: '',
+                target_hotel_id: '',
+                deactivate_source: false,
+                confirmation_text: '',
+            });
+            const hotelMergePreview = ref(null);
+            const hotelMergeLoading = ref(false);
+            const hotelMergeExecuting = ref(false);
+            const hotelMergeError = ref('');
+            const hotelMergeVisibleItems = computed(() => {
+                const items = Array.isArray(hotelMergePreview.value?.items) ? hotelMergePreview.value.items : [];
+                return items.filter(item => Number(item?.source_count || 0) > 0 || Number(item?.target_count || 0) > 0 || Number(item?.conflict_count || 0) > 0);
+            });
+            const hotelMergeSkippableConflictCount = computed(() => {
+                const items = Array.isArray(hotelMergePreview.value?.items) ? hotelMergePreview.value.items : [];
+                return items.reduce((total, item) => total + Number(item?.skippable_conflict_count || 0), 0);
+            });
+            const hotelMergeCanExecute = computed(() => {
+                const preview = hotelMergePreview.value || {};
+                const expected = String(preview.confirmation_text || '').trim();
+                const actual = String(hotelMergeForm.value.confirmation_text || '').trim();
+                const sameSource = String(preview.source_hotel?.id || '') === String(hotelMergeForm.value.source_hotel_id || '');
+                const sameTarget = String(preview.target_hotel?.id || '') === String(hotelMergeForm.value.target_hotel_id || '');
+                return preview.can_execute === true && sameSource && sameTarget && expected !== '' && actual === expected;
+            });
             const showUserModal = ref(false);
             const showUserStatusConfirmModal = ref(false);
             const userStatusConfirmTarget = ref(null);
@@ -44360,6 +44544,121 @@
                 }
             };
 
+            const resetHotelMergeState = () => {
+                hotelMergeForm.value = {
+                    source_hotel_id: '',
+                    target_hotel_id: '',
+                    deactivate_source: false,
+                    confirmation_text: '',
+                };
+                hotelMergePreview.value = null;
+                hotelMergeError.value = '';
+                hotelMergeLoading.value = false;
+                hotelMergeExecuting.value = false;
+            };
+
+            const openHotelMergeModal = async (sourceHotel = null) => {
+                if (!user.value?.is_super_admin) {
+                    showToast('仅超级管理员可执行门店数据迁移', 'error');
+                    return;
+                }
+                resetHotelMergeState();
+                if (sourceHotel?.id) {
+                    hotelMergeForm.value.source_hotel_id = String(sourceHotel.id);
+                }
+                showHotelMergeModal.value = true;
+                await loadHotels({ force: true, includeInactive: true });
+            };
+
+            const closeHotelMergeModal = (force = false) => {
+                if ((hotelMergeLoading.value || hotelMergeExecuting.value) && force !== true) return;
+                showHotelMergeModal.value = false;
+                resetHotelMergeState();
+            };
+
+            const previewHotelMerge = async () => {
+                const sourceHotelId = String(hotelMergeForm.value.source_hotel_id || '').trim();
+                const targetHotelId = String(hotelMergeForm.value.target_hotel_id || '').trim();
+                hotelMergeError.value = '';
+                hotelMergePreview.value = null;
+                hotelMergeForm.value.confirmation_text = '';
+
+                if (!sourceHotelId || !targetHotelId) {
+                    hotelMergeError.value = '请选择源门店和目标门店';
+                    showToast(hotelMergeError.value, 'error');
+                    return;
+                }
+                if (sourceHotelId === targetHotelId) {
+                    hotelMergeError.value = '源门店和目标门店不能相同';
+                    showToast(hotelMergeError.value, 'error');
+                    return;
+                }
+
+                hotelMergeLoading.value = true;
+                try {
+                    const res = await request(`/hotels/merge-preview?source_hotel_id=${encodeURIComponent(sourceHotelId)}&target_hotel_id=${encodeURIComponent(targetHotelId)}`);
+                    if (res.code === 200) {
+                        hotelMergePreview.value = res.data || null;
+                        const total = Number(res.data?.total_source_rows || 0);
+                        showToast(total > 0 ? `迁移预览已生成：${total} 条源记录` : '迁移预览已生成：源门店暂无可迁移记录', total > 0 ? 'success' : 'warning');
+                    } else {
+                        hotelMergeError.value = res.message || '生成迁移预览失败';
+                        showToast(hotelMergeError.value, 'error');
+                    }
+                } catch (error) {
+                    const data = error?.data || {};
+                    hotelMergeError.value = data.message || data.msg || error.message || '生成迁移预览失败';
+                    showToast(hotelMergeError.value, 'error');
+                    console.error('生成门店数据迁移预览失败:', error);
+                } finally {
+                    hotelMergeLoading.value = false;
+                }
+            };
+
+            const executeHotelMerge = async () => {
+                if (!hotelMergeCanExecute.value) {
+                    hotelMergeError.value = '请先生成可执行预览，并输入完全一致的确认文本';
+                    showToast(hotelMergeError.value, 'error');
+                    return;
+                }
+                const sourceName = hotelMergePreview.value?.source_hotel?.name || hotelMergeForm.value.source_hotel_id;
+                const targetName = hotelMergePreview.value?.target_hotel?.name || hotelMergeForm.value.target_hotel_id;
+                if (!confirm(`确定将“${sourceName}”的数据迁移到“${targetName}”吗？\n\n执行后系统门店归属和 tenant_id 会改写，OTA平台酒店ID不会改写。`)) {
+                    return;
+                }
+
+                hotelMergeExecuting.value = true;
+                hotelMergeError.value = '';
+                try {
+                    const res = await request('/hotels/merge-execute', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            source_hotel_id: Number(hotelMergeForm.value.source_hotel_id),
+                            target_hotel_id: Number(hotelMergeForm.value.target_hotel_id),
+                            deactivate_source: hotelMergeForm.value.deactivate_source === true,
+                            confirmation_text: String(hotelMergeForm.value.confirmation_text || '').trim(),
+                        }),
+                    });
+                    if (res.code === 200) {
+                        const updatedTotal = Number(res.data?.updated_total || 0);
+                        const mergedTotal = Number(res.data?.merged_conflict_total || 0);
+                        showToast(`门店数据迁移完成：迁移 ${updatedTotal} 条，合并重复授权 ${mergedTotal} 条`, 'success');
+                        closeHotelMergeModal(true);
+                        await loadHotels({ force: true, includeInactive: true });
+                    } else {
+                        hotelMergeError.value = res.message || '门店数据迁移失败';
+                        showToast(hotelMergeError.value, 'error');
+                    }
+                } catch (error) {
+                    const data = error?.data || {};
+                    hotelMergeError.value = data.message || data.msg || error.message || '门店数据迁移失败';
+                    showToast(hotelMergeError.value, 'error');
+                    console.error('执行门店数据迁移失败:', error);
+                } finally {
+                    hotelMergeExecuting.value = false;
+                }
+            };
+
             const deleteHotel = openHotelDeleteModal;
 
             // 用户操作
@@ -46554,13 +46853,13 @@
                 showDataConfigModal, currentDataConfigType, dataConfigTitle, dataConfigMeta, testingConfig, savingConfig, dataConfigForm,
                 showDataConfigSpidertoken, showDataConfigCookie, showDataConfigPayload,
                 openDataConfigModal, saveDataConfig, testDataConfig,
-                showHotelModal, showHotelDeleteModal, hotelDeleteTarget, hotelDeleteLoading, hotelDeleteError, hotelDeleteReferences, hotelDeleteCanForce, showUserModal, showUserStatusConfirmModal, userStatusConfirmTarget, userStatusConfirmAction, userStatusConfirmLoading, userStatusConfirmError, userStatusConfirmName, userStatusConfirmTitle, userStatusConfirmDescription, userStatusConfirmPrimaryText, showUserDeleteModal, userDeleteTarget, userDeleteLoading, userDeleteError, userDeleteReferences, userDeleteCanForce, lastUserIssueGuideText, userDeleteName, userDeletePrimaryText, showPermissionModal, showHotelOtaConfig,
+                showHotelModal, showHotelDeleteModal, hotelDeleteTarget, hotelDeleteLoading, hotelDeleteError, hotelDeleteReferences, hotelDeleteCanForce, showHotelMergeModal, hotelMergeForm, hotelMergePreview, hotelMergeLoading, hotelMergeExecuting, hotelMergeError, hotelMergeVisibleItems, hotelMergeSkippableConflictCount, hotelMergeCanExecute, showUserModal, showUserStatusConfirmModal, userStatusConfirmTarget, userStatusConfirmAction, userStatusConfirmLoading, userStatusConfirmError, userStatusConfirmName, userStatusConfirmTitle, userStatusConfirmDescription, userStatusConfirmPrimaryText, showUserDeleteModal, userDeleteTarget, userDeleteLoading, userDeleteError, userDeleteReferences, userDeleteCanForce, lastUserIssueGuideText, userDeleteName, userDeletePrimaryText, showPermissionModal, showHotelOtaConfig,
                 hotelForm, hotelBackgroundProfileForm, hotelCodeErrorText, hotelOtaConfig, hotelOtaConfigLoading, hotelOtaConfigStatusText, userForm,
                 getEmptyHotelBackgroundProfile, parseHotelDescriptionPayload, buildHotelDescriptionPayload, getHotelDescriptionProfileRows, hotelFormAccountHotel,
                 filteredHotels, filteredUsers,
                 permissionUser, userPermissions,
                 handleLogin, handleRegister, openRegisterForm, closeRegisterForm, handleLogout, forgotPassword, openDirectorEntry, closeDirectorEntry, verifyDirectorEntry, showToast,
-                openHotelModal, openHotelManagementForOta, saveHotel, openHotelDeleteModal, closeHotelDeleteModal, confirmDeleteHotel, deactivateHotelDeleteTarget, deleteHotel, hotelDeleteIdentityText, toggleHotelStatus,
+                openHotelModal, openHotelManagementForOta, saveHotel, openHotelDeleteModal, closeHotelDeleteModal, confirmDeleteHotel, deactivateHotelDeleteTarget, deleteHotel, hotelDeleteIdentityText, openHotelMergeModal, closeHotelMergeModal, previewHotelMerge, executeHotelMerge, toggleHotelStatus,
                 openUserModal, openUserAuthorization, openUserModalWithRole, applyUserIssueRole, applyUserRoleQuickFilter, resetUserFilters, saveUser, approveUser, deactivateUser, copyLastUserIssueGuide, clearLastUserIssueGuide, closeUserStatusConfirm, confirmUserStatusChange, deleteUser, closeUserDeleteModal, confirmDeleteUser,
                 rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, saveRole, deleteRole, togglePermission,
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
