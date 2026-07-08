@@ -316,6 +316,44 @@ final class AuthRegistrationTest extends TestCase
         self::assertFalse($normalUser->canManageUser());
     }
 
+    public function testUserHotelScopeDoesNotTreatExternalLevelRolesAsSuperAdmin(): void
+    {
+        $reflection = new ReflectionClass(UserController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('userDataIsSuperAdmin');
+        $method->setAccessible(true);
+
+        self::assertFalse($method->invoke($controller, [
+            'role_id' => 8,
+            'role' => [
+                'id' => 8,
+                'name' => 'VIPUser',
+                'level' => 2,
+                'permissions' => json_encode(['all'], JSON_THROW_ON_ERROR),
+            ],
+        ]));
+
+        self::assertFalse($method->invoke($controller, [
+            'role_id' => Role::NORMAL_USER,
+            'role' => [
+                'id' => Role::NORMAL_USER,
+                'name' => 'normal_user',
+                'level' => 3,
+                'permissions' => json_encode(['all'], JSON_THROW_ON_ERROR),
+            ],
+        ]));
+
+        self::assertTrue($method->invoke($controller, [
+            'role_id' => 99,
+            'role' => [
+                'id' => 99,
+                'name' => 'custom_admin',
+                'level' => 1,
+                'permissions' => json_encode(['all'], JSON_THROW_ON_ERROR),
+            ],
+        ]));
+    }
+
     public function testAdminLevelAllPermissionStillCountsAsSuperAdmin(): void
     {
         $adminRole = $this->roleWithPermissions(['all'], 99, 'custom_admin', 1);

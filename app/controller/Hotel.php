@@ -420,10 +420,6 @@ class Hotel extends Base
             return false;
         }
 
-        if (!$this->currentUserOwnsHotel($hotel)) {
-            return false;
-        }
-
         $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
         return in_array((int)$hotel->id, $permittedHotelIds, true);
     }

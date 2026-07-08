@@ -628,14 +628,31 @@ class User extends Base
 
     private function userDataIsSuperAdmin(array $data): bool
     {
-        if ((int)($data['role_id'] ?? 0) === Role::SUPER_ADMIN) {
+        $roleId = (int)($data['role_id'] ?? 0);
+        if ($roleId === Role::SUPER_ADMIN) {
             return true;
+        }
+
+        if (in_array($roleId, [Role::BETA_USER, Role::NORMAL_USER], true)) {
+            return false;
         }
 
         $role = $data['role'] ?? null;
         if (is_array($role)) {
+            $roleId = (int)($role['id'] ?? $roleId);
+            $roleName = (string)($role['name'] ?? '');
+            $roleLevel = (int)($role['level'] ?? 0);
+            if (
+                in_array($roleId, [Role::BETA_USER, Role::NORMAL_USER], true)
+                || in_array($roleName, ['beta_user', 'normal_user'], true)
+                || $roleLevel >= Role::BETA_USER
+            ) {
+                return false;
+            }
+
             $permissions = Role::normalizePermissions($role['permissions'] ?? []);
-            return in_array('all', $permissions, true) || (int)($role['level'] ?? 0) === 1;
+            return in_array('all', $permissions, true)
+                && ($roleId === Role::SUPER_ADMIN || $roleName === 'admin' || $roleLevel === 1);
         }
 
         return false;
@@ -672,6 +689,7 @@ class User extends Base
         $canViewReport = $allows('report.view');
         $canFillReport = $allows('report.fill');
         $canEditReport = $allows('report.update');
+        $canManageHotelRecord = $allows('hotel.update') || $allows('hotel.delete');
         $canViewOta = $allows('ota.view');
         $canFetchOta = $allows('ota.collect');
         $canDeleteOta = $allows('ota.delete');
@@ -684,7 +702,7 @@ class User extends Base
             'can_view' => 1,
             'can_report' => $canViewReport,
             'can_fill' => $canFillReport,
-            'can_edit' => $allows('hotel.update') || $canEditReport ? 1 : 0,
+            'can_edit' => $canManageHotelRecord || $canEditReport ? 1 : 0,
             'can_fetch_ota' => $canFetchOta,
             'can_delete_ota' => $canDeleteOta,
             'can_export' => $canExport,

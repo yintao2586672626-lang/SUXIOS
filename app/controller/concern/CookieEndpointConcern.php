@@ -4,57 +4,10 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
-use app\model\User as UserModel;
 use think\Response;
 
 trait CookieEndpointConcern
 {
-    private function resolveUserIdFromTokenData($tokenData): ?int
-    {
-        $userId = is_array($tokenData)
-            ? ($tokenData['user_id'] ?? $tokenData['id'] ?? null)
-            : $tokenData;
-
-        if (is_int($userId)) {
-            return $userId > 0 ? $userId : null;
-        }
-
-        if (is_string($userId)) {
-            $userId = trim($userId);
-            return ctype_digit($userId) && (int)$userId > 0 ? (int)$userId : null;
-        }
-
-        return null;
-    }
-
-    private function isTokenDataExpiredByAge($tokenData): bool
-    {
-        if (!is_array($tokenData)) {
-            return false;
-        }
-
-        $createdAt = (int)($tokenData['created_at'] ?? 0);
-        if ($createdAt <= 0) {
-            return false;
-        }
-
-        return $createdAt + 86400 < time();
-    }
-
-    private function extractTokenFromAuthorizationHeader(string $authHeader): string
-    {
-        $authHeader = trim($authHeader);
-        if ($authHeader === '') {
-            return '';
-        }
-
-        if (preg_match('/^Bearer\s+(.+)$/i', $authHeader, $matches)) {
-            return trim($matches[1]);
-        }
-
-        return $authHeader;
-    }
-
     private function resolveCookieCorsOrigin(): string
     {
         $origin = trim((string)$this->request->header('Origin', ''));
@@ -111,15 +64,6 @@ trait CookieEndpointConcern
             'message' => $message,
             'data' => null,
         ], $status)->header($this->cookieCorsHeaders());
-    }
-
-    private function corsSuccess(array $data): Response
-    {
-        return json([
-            'code' => 200,
-            'message' => '鎿嶄綔鎴愬姛',
-            'data' => $data,
-        ])->header($this->cookieCorsHeaders());
     }
 
     /**
@@ -324,107 +268,14 @@ trait CookieEndpointConcern
         $rateLimited = $this->checkPublicEndpointRateLimit('receive_cookies', 30, 60);
         if ($rateLimited !== null) {
             $this->recordPublicEndpointFailure('receive_cookies', 'rate_limited', 429, $rateLimited);
-            return $this->corsError('请求过于频繁，请稍后再试', 429);
+            return $this->corsError('Too many receive-cookies requests, please retry later.', 429);
         }
 
-        $token = $this->extractTokenFromAuthorizationHeader((string)$this->request->header('Authorization', ''));
-        $name = $this->request->post('name', 'ctrip_auto');
-        $cookies = $this->request->post('cookies', '');
-        $source = $this->request->post('source', '');
-
-        if (empty($token)) {
-            $this->recordPublicEndpointFailure('receive_cookies', 'missing_token', 401, [
-                'name' => $name,
-                'source' => $source,
-            ]);
-            return $this->corsError('缺少认证Token', 401);
-        }
-
-        if (empty($cookies)) {
-            $this->recordPublicEndpointFailure('receive_cookies', 'empty_cookies', 422, [
-                'name' => $name,
-                'source' => $source,
-            ]);
-            return $this->corsError('Cookies内容为空', 422);
-        }
-
-        // 验证token
-        $tokenData = cache('token_' . $token);
-        if (!$tokenData) {
-            $this->recordPublicEndpointFailure('receive_cookies', 'invalid_token', 401, [
-                'name' => $name,
-                'source' => $source,
-            ]);
-            return $this->corsError('Token无效或已过期', 401);
-        }
-
-        if ($this->isTokenDataExpiredByAge($tokenData)) {
-            cache('token_' . $token, null);
-            if (is_array($tokenData) && !empty($tokenData['user_id'])) {
-                cache('user_token_' . $tokenData['user_id'], null);
-            }
-            $this->recordPublicEndpointFailure('receive_cookies', 'token_expired', 401, [
-                'name' => $name,
-                'source' => $source,
-            ]);
-            return $this->corsError('Token无效或已过期', 401);
-        }
-
-        $userId = $this->resolveUserIdFromTokenData($tokenData);
-        if ($userId === null) {
-            $this->recordPublicEndpointFailure('receive_cookies', 'invalid_token_payload', 401, [
-                'name' => $name,
-                'source' => $source,
-            ]);
-            return $this->corsError('Token认证信息无效', 401);
-        }
-
-        // 保存Cookies配置
-        $user = UserModel::find($userId);
-        if (!$user) {
-            $this->recordPublicEndpointFailure('receive_cookies', 'token_user_not_found', 401, [
-                'user_id' => $userId,
-                'name' => $name,
-                'source' => $source,
-            ]);
-            return $this->corsError('Token user not found', 401);
-        }
-
-        $hotelId = null;
-        if ($user->isSuperAdmin()) {
-            $requestHotelId = $this->request->post('hotel_id', $this->request->post('system_hotel_id', null));
-            $hotelId = is_numeric($requestHotelId) && (int)$requestHotelId > 0 ? (int)$requestHotelId : null;
-        } else {
-            if (empty($user->hotel_id)) {
-                $this->recordPublicEndpointFailure('receive_cookies', 'user_without_hotel', 403, [
-                    'user_id' => $userId,
-                    'name' => $name,
-                    'source' => $source,
-                ]);
-                return $this->corsError('User is not bound to a hotel', 403);
-            }
-            $hotelId = (int)$user->hotel_id;
-        }
-
-        $key = $hotelId ? "online_data_cookies_hotel_{$hotelId}" : 'online_data_cookies_global';
-        $list = $this->getConfigList($key);
-        $list[$name] = [
-            'name' => $name,
-            'cookies' => $cookies,
-            'source' => $source,
-            'update_time' => date('Y-m-d H:i:s'),
-            'user_id' => $userId,
-            'hotel_id' => $hotelId,
-            'system_hotel_id' => $hotelId,
-        ];
-        $this->setConfigList($key, $list);
-
-        OperationLog::record('online_data', 'receive_cookies', '通过书签脚本获取Cookies: ' . $name, (int)$userId, $hotelId);
-
-        return $this->corsSuccess([
-            'name' => $name,
-            'message' => '临时 Cookie/API 辅助内容已保存，仅用于排障或补数',
+        $this->recordPublicEndpointFailure('receive_cookies', 'legacy_bookmarklet_disabled', 410, [
+            'source' => (string)$this->request->post('source', ''),
+            'name' => (string)$this->request->post('name', ''),
         ]);
+        return $this->corsError('旧版 Cookie 书签入口已禁用：禁止把宿析登录 token 暴露到 OTA 页面；请使用浏览器 Profile 或同源手动保存入口。', 410);
     }
 
     private function recordPublicEndpointFailure(string $endpoint, string $reason, int $status, array $extra = []): void
@@ -506,9 +357,9 @@ trait CookieEndpointConcern
                 $this->buildPublicEndpointSecurityRow('receive_cookies', $logs, [
                     'method' => 'POST|OPTIONS',
                     'path' => '/api/online-data/receive-cookies',
-                    'auth' => 'Authorization Bearer token from current login session',
+                    'auth' => 'legacy bookmarklet disabled; no current-session token accepted',
                     'rate_limit' => ['limit' => 30, 'window_seconds' => 60],
-                    'token_configured' => null,
+                    'token_configured' => false,
                 ]),
                 $this->buildPublicEndpointSecurityRow('cron_trigger', $logs, [
                     'method' => 'GET',
@@ -558,58 +409,28 @@ trait CookieEndpointConcern
     {
         $this->checkPermission();
 
-        $token = $this->extractTokenFromAuthorizationHeader((string)$this->request->header('Authorization', ''));
-        if (empty($token)) {
-            return $this->error('缺少Token', 401);
-        }
-        $script = $this->buildCookieBookmarkletScript($token, 'ctrip_auto');
-
-        // 压缩脚本
-        $script = preg_replace('/\s+/', ' ', $script);
+        $script = $this->buildDisabledCookieBookmarkletScript('携程');
 
         return $this->success([
             'script' => $script,
             'bookmarklet' => 'javascript:' . $script,
+            'status' => 'disabled_by_policy',
             'instructions' => [
-                '1. 将下面的按钮拖拽到浏览器书签栏',
-                '2. 在携程ebooking页面登录后，点击该书签',
-                '3. 输入临时记录名称，Cookies将自动保存到系统',
+                '旧版 Cookie 书签已禁用，避免把宿析登录 token 暴露到 OTA 页面。',
+                '临时补数请使用同源手动保存入口；日常采集请使用门店浏览器 Profile。',
             ],
         ]);
     }
 
-    private function buildCookieBookmarkletScript(string $token, string $defaultName): string
+    private function buildDisabledCookieBookmarkletScript(string $platform): string
     {
-        $apiUrl = $this->request->domain() . '/api/online-data/receive-cookies';
-        $apiUrlJson = json_encode($apiUrl, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $authHeaderJson = json_encode('Bearer ' . $token, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $defaultNameJson = json_encode($defaultName, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $message = sprintf(
+            '%s Cookie 书签已禁用：禁止把宿析登录 token 暴露到 OTA 页面；请回到宿析OS使用浏览器 Profile 或同源手动保存入口。',
+            $platform
+        );
+        $messageJson = json_encode($message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        return <<<JAVASCRIPT
-(function(){
-  try{
-    var cookies=document.cookie||'';
-    if(!cookies){alert('未读取到 Cookie，请确认已登录当前 OTA 后台');return;}
-    var name=prompt('请输入临时记录名称',{$defaultNameJson}+'_'+new Date().toLocaleDateString());
-    if(!name){return;}
-    var form=new FormData();
-    form.append('name',name);
-    form.append('cookies',cookies);
-    form.append('source',location.hostname);
-    fetch({$apiUrlJson},{
-      method:'POST',
-      mode:'cors',
-      body:form,
-      headers:{'Authorization':{$authHeaderJson}}
-    }).then(function(response){return response.json();}).then(function(result){
-      if(result.code===200){alert('Cookies 已保存：'+name);return;}
-      alert('保存失败：'+(result.message||'未知错误'));
-    }).catch(function(error){alert('请求失败：'+error.message);});
-  }catch(error){
-    alert('脚本执行失败：'+error.message);
-  }
-})();
-JAVASCRIPT;
+        return '(function(){alert(' . $messageJson . ');})();';
     }
 
     public function saveCookies(): Response

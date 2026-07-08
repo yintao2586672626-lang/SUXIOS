@@ -131,6 +131,103 @@ final class OnlineDataTest extends TestCase
         self::assertFalse($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfig', [64]));
     }
 
+    public function testOtaConfigMaintenanceAllowsOwnedConfigWithoutHotelDeletePermission(): void
+    {
+        $controller = $this->controller();
+        $this->setControllerCurrentUser($controller, new class {
+            public int $id = 7;
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+
+            public function hasPermission(string $permission): bool
+            {
+                return false;
+            }
+
+            public function canManageOwnHotels(): bool
+            {
+                return true;
+            }
+
+            public function getPermittedHotelIds(): array
+            {
+                return [];
+            }
+        });
+
+        $config = ['user_id' => 7, 'system_hotel_id' => 118];
+
+        self::assertTrue($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfigItem', [$config]));
+        self::assertTrue($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfigItem', [$config, 118]));
+    }
+
+    public function testOtaConfigMaintenanceBlocksOwnedConfigRebindingWithoutHotelPermission(): void
+    {
+        $controller = $this->controller();
+        $this->setControllerCurrentUser($controller, new class {
+            public int $id = 7;
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+
+            public function hasPermission(string $permission): bool
+            {
+                return false;
+            }
+
+            public function canManageOwnHotels(): bool
+            {
+                return true;
+            }
+
+            public function getPermittedHotelIds(): array
+            {
+                return [];
+            }
+        });
+
+        $config = ['user_id' => 7, 'system_hotel_id' => 118];
+
+        self::assertFalse($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfigItem', [$config, 119]));
+    }
+
+    public function testOtaConfigMaintenanceAllowsHotelScopedConfigWithoutOwner(): void
+    {
+        $controller = $this->controller();
+        $this->setControllerCurrentUser($controller, new class {
+            public int $id = 8;
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+
+            public function hasPermission(string $permission): bool
+            {
+                return $permission === 'can_fetch_online_data';
+            }
+
+            public function canManageOwnHotels(): bool
+            {
+                return false;
+            }
+
+            public function getPermittedHotelIds(): array
+            {
+                return [118];
+            }
+        });
+
+        $config = ['system_hotel_id' => 118];
+
+        self::assertTrue($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfigItem', [$config]));
+    }
+
     public function testPublicEndpointSecuritySummaryUsesSanitizedAuditRows(): void
     {
         $controller = $this->controller();
@@ -172,9 +269,9 @@ final class OnlineDataTest extends TestCase
             [
                 'method' => 'POST|OPTIONS',
                 'path' => '/api/online-data/receive-cookies',
-                'auth' => 'Authorization Bearer token from current login session',
+                'auth' => 'legacy bookmarklet disabled; no current-session token accepted',
                 'rate_limit' => ['limit' => 30, 'window_seconds' => 60],
-                'token_configured' => null,
+                'token_configured' => false,
             ],
         ]);
 

@@ -1149,7 +1149,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         competitor_report: 'competitor-report',
     }[endpoint] || endpoint || '-');
 
-    const publicEndpointSecurityBoundaryText = () => 'receive-cookies、cron-trigger、daily-workbench-patrol-cron 与 competitor task/report 不走常规登录中间件，仅展示脱敏审计、限流和令牌配置状态。';
+    const publicEndpointSecurityBoundaryText = () => 'receive-cookies 旧版书签入口已禁用；cron-trigger、daily-workbench-patrol-cron 与 competitor task/report 不走常规登录中间件，仅展示脱敏审计、限流和令牌配置状态。';
 
     const publicEndpointSecurityEvidenceText = () => '证据来自 operation_logs 中的公开入口失败审计；Cookie、token、Authorization、spidertoken、mtgsig 等敏感值只保留遮罩状态，不展示原文。';
 

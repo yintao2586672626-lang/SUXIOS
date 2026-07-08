@@ -4737,6 +4737,52 @@
                             </div>
                         </div>
 
+                        <div v-if="roleIssueGuideCards.length" class="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                            <div class="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <h3 class="text-sm font-semibold text-slate-900">外发角色矩阵</h3>
+                                    <p class="mt-1 text-xs text-slate-500">只用于内测用户和普通用户发放前复核；管理员账号不对外发放。</p>
+                                </div>
+                                <div class="text-xs text-slate-400">先看结论，再发账号；密码仍走单独安全渠道。</div>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full text-sm">
+                                    <thead class="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                        <tr>
+                                            <th class="px-4 py-3 text-left">账号类型</th>
+                                            <th class="px-4 py-3 text-left">发放对象</th>
+                                            <th class="px-4 py-3 text-left">门店/数据范围</th>
+                                            <th class="px-4 py-3 text-left">可用</th>
+                                            <th class="px-4 py-3 text-left">不可用</th>
+                                            <th class="px-4 py-3 text-left">发放结论</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        <tr v-for="card in roleIssueGuideCards" :key="`matrix-${card.key}`" class="align-top">
+                                            <td class="px-4 py-3">
+                                                <div class="font-semibold text-slate-900">{{ card.title }}</div>
+                                                <div class="mt-1 text-xs text-slate-500">{{ card.handoffType }}</div>
+                                                <span :class="['mt-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium', card.badgeClass]">{{ card.badge }}</span>
+                                            </td>
+                                            <td class="px-4 py-3 text-xs leading-5 text-slate-600">{{ card.audience }}</td>
+                                            <td class="px-4 py-3 min-w-[15rem] text-xs leading-5 text-slate-600">
+                                                <div><span class="font-medium text-slate-700">门店：</span>{{ card.scope }}</div>
+                                                <div class="mt-1"><span class="font-medium text-slate-700">数据：</span>{{ card.dataBoundary }}</div>
+                                            </td>
+                                            <td class="px-4 py-3 min-w-[12rem] text-xs leading-5 text-slate-600">{{ card.allowed }}</td>
+                                            <td class="px-4 py-3 min-w-[12rem] text-xs leading-5 text-slate-600">{{ card.denied }}</td>
+                                            <td class="px-4 py-3 min-w-[13rem]">
+                                                <span :class="['inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium', card.issueBlocked ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700']">
+                                                    {{ card.issueStatusText }}
+                                                </span>
+                                                <div class="mt-1 text-xs leading-5 text-slate-500">{{ card.issueStatusDetail }}</div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                         <div v-if="roleIssueGuideCards.length" class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
                             <div v-for="card in roleIssueGuideCards" :key="card.key" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                                 <div class="flex items-start justify-between gap-3">
@@ -5019,6 +5065,7 @@
                                             <th class="px-6 py-4 text-left">ID</th>
                                             <th class="px-6 py-4 text-left">角色名称</th>
                                             <th class="px-6 py-4 text-left">发放边界</th>
+                                            <th class="px-6 py-4 text-left">权限摘要</th>
                                             <th class="px-6 py-4 text-left">标识</th>
                                             <th class="px-6 py-4 text-left">等级</th>
                                             <th class="px-6 py-4 text-left">用户数</th>
@@ -5033,6 +5080,17 @@
                                             <td class="px-6 py-4 min-w-[16rem]">
                                                 <div class="text-sm font-medium text-slate-700">{{ roleIssueProfile(r).audience }}</div>
                                                 <div class="mt-1 text-xs text-slate-500 leading-5">{{ roleIssueProfile(r).boundary }}</div>
+                                            </td>
+                                            <td class="px-6 py-4 min-w-[15rem]">
+                                                <div class="flex flex-wrap gap-1.5">
+                                                    <span v-for="tag in rolePermissionTags(roleIssueProfile(r))" :key="`${r.id}-${tag.text}`" :class="['rounded-full border px-2 py-0.5 text-[11px] font-medium', tag.class]">
+                                                        {{ tag.text }}
+                                                    </span>
+                                                </div>
+                                                <div class="mt-2 text-xs text-slate-500">已选 {{ rolePermissionList(r).length }} 项权限</div>
+                                                <div v-if="roleIssueProfile(r).issueBlockers?.length" class="mt-1 text-xs leading-5 text-amber-700">
+                                                    {{ roleIssueProfile(r).issueBlockers[0] }}
+                                                </div>
                                             </td>
                                             <td class="px-6 py-4"><code class="bg-gray-100 px-2 py-1 rounded text-sm text-gray-600">{{ r.name }}</code></td>
                                             <td class="px-6 py-4">
@@ -16719,36 +16777,35 @@
                                         </div>
                                     </div>
 
-                                    <!-- 方法四：书签一键获取（最简单） -->
-                                    <div class="bg-gradient-to-r from-indigo-50 to-purple-50 border-2 border-indigo-300 rounded-lg p-6 mb-6">
-                                        <h4 class="text-lg font-medium text-indigo-800 mb-4">
-                                            <i class="fas fa-bookmark mr-2"></i>方法四：Cookie 书签临时补数
+                                    <!-- 方法四：旧书签入口 -->
+                                    <div class="bg-slate-50 border-2 border-slate-200 rounded-lg p-6 mb-6">
+                                        <h4 class="text-lg font-medium text-slate-800 mb-4">
+                                            <i class="fas fa-ban mr-2"></i>方法四：旧 Cookie 书签已禁用
                                         </h4>
-                                        <p class="text-indigo-700 mb-4">
-                                            拖拽下方按钮到浏览器书签栏，登录携程后点击书签可临时保存 Cookie，用于补数或排障；日常采集默认走门店浏览器 Profile。
+                                        <p class="text-slate-600 mb-4">
+                                            旧书签会把宿析登录 token 带到 OTA 页面，当前已按安全策略禁用；临时补数请使用同源手动保存入口，日常采集默认走门店浏览器 Profile。
                                         </p>
 
                                         <div class="bg-white rounded-lg p-4">
-                                            <div class="mb-4 p-3 bg-indigo-100 rounded-lg text-center">
+                                            <div class="mb-4 p-3 bg-slate-100 rounded-lg text-center">
                                                 <a :href="bookmarkletCode"
-                                                   class="inline-block px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-move text-lg font-medium"
-                                                   onclick="alert('请拖拽此按钮到浏览器书签栏'); return false;">
-                                                    <i class="fas fa-bookmark mr-2"></i>保存临时 Cookie
+                                                   class="inline-block px-6 py-3 bg-slate-500 text-white rounded-lg cursor-not-allowed text-lg font-medium"
+                                                   onclick="alert('旧版 Cookie 书签已禁用，请回到宿析OS使用同源手动保存入口。'); return false;">
+                                                    <i class="fas fa-ban mr-2"></i>旧书签已禁用
                                                 </a>
                                             </div>
 
                                             <div class="text-sm text-gray-600">
-                                                <strong>使用步骤：</strong>
+                                                <strong>替代步骤：</strong>
                                                 <ol class="list-decimal list-inside mt-2 space-y-1">
-                                                    <li><strong>拖拽</strong>上方按钮到浏览器书签栏（按Ctrl+Shift+B显示书签栏）</li>
-                                                    <li>打开携程ebooking并<strong>登录账号</strong></li>
-                                                    <li><strong>点击书签栏</strong>中的"保存临时 Cookie"</li>
-                                                    <li>输入临时记录名称，Cookie 仅作为临时补数或排障上下文保存。</li>
+                                                    <li>优先使用门店浏览器 Profile 完成授权与采集。</li>
+                                                    <li>临时补数时，在 OTA 页面复制 Cookie/API 辅助内容。</li>
+                                                    <li>回到宿析OS同源页面，在下方表单手动保存；不要把宿析登录 token 复制到 OTA 页面。</li>
                                                 </ol>
                                             </div>
 
-                                            <div class="mt-3 p-3 bg-green-100 rounded text-sm">
-                                                <strong>适用场景：</strong>不依赖人工复制粘贴，适合首次接入、临时补数或 Profile 失效排障；不作为日常采集主线。
+                                            <div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
+                                                <strong>边界：</strong>该禁用状态不代表 OTA 登录失败，也不代表采集已成功；只表示旧跨域书签入口不再可用。
                                             </div>
                                         </div>
                                     </div>
@@ -20465,7 +20522,7 @@
             const selectedCookieKeys = ref([]);
             const cookieStatusList = ref([]);
             const cookieAlerts = ref([]);
-            const bookmarkletCode = ref('javascript:(function(){alert("请先登录系统");})();');
+            const bookmarkletCode = ref('javascript:(function(){alert("旧版 Cookie 书签已禁用，请回到宿析OS使用同源手动保存入口。");})();');
             const quickCookiesName = ref('');
             const quickCookiesValue = ref('');
 
@@ -27496,6 +27553,9 @@
                     const res = await request('/online-data/bookmarklet');
                     if (res.code === 200) {
                         bookmarkletCode.value = res.data.bookmarklet;
+                        if (res.data?.status === 'disabled_by_policy') {
+                            return;
+                        }
                     }
                 } catch (e) {
                     console.error('加载书签脚本失败:', e);
@@ -27505,7 +27565,7 @@
             // 复制书签代码
             const copyBookmarklet = () => {
                 navigator.clipboard.writeText(bookmarkletCode.value);
-                showToast('书签代码已复制到剪贴板');
+                showToast('旧版 Cookie 书签已禁用，仅复制禁用提示脚本', 'warning');
             };
 
             // 复制Cookie获取脚本
@@ -29466,11 +29526,19 @@
 
             const roleIssueGuideCards = computed(() => {
                 const sourceRoles = (Array.isArray(roles.value) ? roles.value : [])
-                    .filter(role => ['beta_user', 'normal_user'].includes(String(role?.name || '').trim()) || [2, 3].includes(Number(role?.id || 0)));
+                    .map(role => ({
+                        role,
+                        profile: withRolePermissionTags(roleIssueProfile(role)),
+                    }))
+                    .filter(item => ['beta_user', 'normal_user'].includes(item.profile?.key));
                 return sourceRoles
-                    .sort((a, b) => Number(a?.id || 0) - Number(b?.id || 0))
-                    .map(role => {
-                        const profile = withRolePermissionTags(roleIssueProfile(role));
+                    .sort((a, b) => {
+                        const weight = { beta_user: 1, normal_user: 2 };
+                        const weightDiff = (weight[a.profile?.key] || 9) - (weight[b.profile?.key] || 9);
+                        if (weightDiff !== 0) return weightDiff;
+                        return Number(a.role?.id || 0) - Number(b.role?.id || 0);
+                    })
+                    .map(({ role, profile }) => {
                         return {
                             ...profile,
                             userCount: users.value.filter(item => Number(item?.role_id || 0) === Number(role?.id || 0)).length,
@@ -42477,7 +42545,14 @@
                 }
 
                 const config = await ensureMeituanConfigSecret(selectedMeituanHotelConfig.value);
-                const poiId = String(config?.poi_id || meituanForm.value.poiId || '').trim();
+                const poiId = firstNonEmptyText(
+                    config?.poi_id,
+                    config?.poiId,
+                    config?.store_id,
+                    config?.storeId,
+                    meituanForm.value.poiId,
+                    meituanBrowserCaptureForm.value.storeId
+                );
                 if (poiId) {
                     meituanBrowserCaptureForm.value.storeId = poiId;
                     meituanBrowserCaptureForm.value.poiId = poiId;
@@ -43136,13 +43211,12 @@
 
             const generateCtripBookmarklet = async () => {
                 debugLog('generateCtripBookmarklet called');
-                alert('正在生成书签脚本...');
                 try {
                     const res = await request('/online-data/generate-ctrip-bookmarklet');
                     debugLog('response:', res);
                     if (res.code === 200) {
                         ctripBookmarklet.value = res.data.bookmarklet;
-                        showToast('书签脚本生成成功');
+                        showToast(res.data?.message || '旧版携程 Cookie 书签已禁用', 'warning');
                     } else {
                         alert('生成失败: ' + (res.message || '未知错误'));
                     }
@@ -43406,7 +43480,7 @@
                     const res = await request('/online-data/generate-meituan-bookmarklet');
                     if (res.code === 200) {
                         meituanBookmarklet.value = res.data.bookmarklet;
-                        showToast('书签脚本生成成功');
+                        showToast(res.data?.message || '旧版美团 Cookie 书签已禁用', 'warning');
                     }
                 } catch (e) {
                     showToast('生成失败: ' + e.message, 'error');
@@ -43822,7 +43896,7 @@
                         aiAnalysisCapturedReport.value = execution.capturedReport;
                         aiAnalysisProcess.value = execution.process;
                         aiAnalysisCapturedError.value = execution.capturedError;
-                        aiAnalysisResult.value = execution.reportHtml;
+                        aiAnalysisResult.value = sanitizeAiReportHtml(execution.reportHtml);
                         aiAnalysisHistory.value = execution.history;
                     },
                     setCapturedError: message => { aiAnalysisCapturedError.value = message; },
@@ -46677,7 +46751,7 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, roleIssueGuideCards, roleIssueProfile, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,

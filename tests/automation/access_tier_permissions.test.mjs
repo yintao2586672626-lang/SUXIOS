@@ -75,6 +75,7 @@ assert.match(indexHtml, /v-if="canManageOwnHotels\(\)"/, '门店管理按钮必�
 assert.match(indexHtml, /v-if="canManageOwnHotels\(\)" class="grid grid-cols-2 gap-1\.5"[\s\S]*openHotelManualFetchConfig\(hotel, 'ctrip'\)[\s\S]*openHotelManualFetchConfig\(hotel, 'meituan'\)/, '门店管理账号必须能打开携程和美团手动配置入口');
 assert.match(indexHtml, /onlineDataTab === 'ctrip-config' && canManageOwnHotels\(\)/, '携程配置面板不能只限制超级管理员，门店管理账号也要能补 Cookie');
 assert.match(indexHtml, /v-if="canManageOwnHotels\(\)" type="button" @click="showHotelModal = false; openHotelManualFetchConfig\(hotelFormAccountHotel\(\), account\.platform\)"/, '门店弹窗内的手动配置入口必须对门店管理账号可见');
+assert.doesNotMatch(hotelController, /private function currentUserCanManageHotelRecord\(HotelModel \$hotel\): bool[\s\S]*!\$this->currentUserOwnsHotel\(\$hotel\)/, 'assigned beta users must be able to manage granted hotels, not only hotels they created');
 assert.match(indexHtml, /type:\s*'source',\s*sourcePath:\s*'hotels'[\s\S]*testid:\s*'nav-lean-hotel-management'/, '门店管理必须作为一级菜单直接进入 hotels 页面');
 assert.doesNotMatch(indexHtml, /testid:\s*'nav-lean-hotel-knowledge'[\s\S]{0,160}children:\s*\[/, '门店管理不能再作为单子项下拉分组');
 assert.match(indexHtml, />门店总数<\/span>/, 'hotel account filter should use clear total-store copy');
@@ -124,8 +125,9 @@ assert.match(authController, /private const TOKEN_TTL_SECONDS = 86400;/, 'websit
 assert.match(authMiddleware, /private const TOKEN_MAX_AGE_SECONDS = 86400;/, 'auth middleware must reject tokens older than the 24-hour session limit');
 assert.match(authMiddleware, /if \(!is_array\(\$tokenData\)\) \{\s*return false;\s*\}/, 'auth middleware must preserve legacy scalar token cache entries until cache TTL');
 assert.match(authMiddleware, /\$createdAt = \(int\)\(\$tokenData\['created_at'\] \?\? 0\);[\s\S]*if \(\$createdAt <= 0\) \{\s*return false;\s*\}/, 'auth middleware must preserve legacy token payloads without created_at until cache TTL');
-assert.match(cookieEndpointConcern, /private function isTokenDataExpiredByAge\(\$tokenData\): bool[\s\S]*return \$createdAt \+ 86400 < time\(\);/, 'cookie endpoint must use the same 24-hour age check for new token payloads');
-assert.match(cookieEndpointConcern, /if \(\$this->isTokenDataExpiredByAge\(\$tokenData\)\)[\s\S]*recordPublicEndpointFailure\('receive_cookies', 'token_expired'/, 'cookie endpoint must reject expired new token payloads consistently');
+assert.match(cookieEndpointConcern, /recordPublicEndpointFailure\('receive_cookies', 'legacy_bookmarklet_disabled', 410/, 'legacy receive-cookies endpoint must be disabled instead of accepting current-session tokens');
+assert.match(cookieEndpointConcern, /return \$this->corsError\('旧版 Cookie 书签入口已禁用[\s\S]*410\)/, 'legacy receive-cookies endpoint must return a traceable 410 disabled response');
+assert.doesNotMatch(cookieEndpointConcern, /UserModel::find\(\$userId\)|cache\('token_' \. \$token\)|Authorization Bearer token from current login session/, 'disabled receive-cookies endpoint must not save cookies from the current login token');
 assert.match(indexHtml, /const writeAuthToken = \(value\) =>[\s\S]*sessionStorage\.setItem\(AUTH_TOKEN_STORAGE_KEY, normalized\)[\s\S]*localStorage\.removeItem\(AUTH_TOKEN_STORAGE_KEY\)/, 'front-end must keep auth tokens in sessionStorage and clear legacy localStorage tokens');
 assert.doesNotMatch(indexHtml, /localStorage\.setItem\('token'/, 'front-end must not persist auth tokens in localStorage');
 assert.match(authController, /private const BETA_HOTEL_BINDING_CUTOFF_DATE = '2026-07-05';/, 'beta users must see a concrete hotel binding deadline');
@@ -139,6 +141,7 @@ assert.match(authController, /'expires_in'\s*=>\s*self::TOKEN_TTL_SECONDS/, 'log
 assert.match(hotelScopeService, /private function ownedOrGrantedHotelIds\(User \$user, \?string \$capability = null\): array/, 'non-super hotel scope must be centralized');
 assert.match(hotelScopeService, /\$this->primaryHotelIds\(\$user\)[\s\S]*\$this->ownedHotelIds\(\$user\)[\s\S]*\$this->grantedHotelIds\(\$user, \$capability\)/, 'non-super users must only see primary, owned, or explicitly granted hotels');
 assert.doesNotMatch(hotelScopeService, /if \(\$this->isVipUser\(\$user\)\)[\s\S]{0,160}return \$this->ownedHotelIds\(\$user\);/, 'VIP role alone must not bypass explicit hotel scope');
+assert.match(hotelScopeService, /'hotel\.delete' => \['can_edit'\]/, 'assigned hotel deletion must still pass through the per-hotel can_edit permission layer');
 assert.match(userController, /private function syncUserHotelPermissions\(UserModel \$targetUser, array \$hotelIds, Role \$targetRole\): void/, 'super admin user saves must sync user_hotel_permissions');
 assert.match(userController, /private function normalizeAssignedHotelIds\(array \$data\): array/, 'user API must accept multi-hotel assignments');
 assert.match(userController, /\$data\['hotel_ids'\]\s*=/, 'user API responses must expose assigned hotel ids for editing');
@@ -200,12 +203,16 @@ assert.match(indexHtml, /dataBoundary:\s*'仅授权门店的 OTA 渠道数据和
 assert.match(indexHtml, /dataBoundary:\s*'仅授权门店的 OTA 渠道只读数据；不代表全酒店经营数据，也不开放采集执行。'/, 'normal issue profile must show the read-only OTA boundary');
 assert.match(indexHtml, />发放类型：<\/span>\{\{ card\.handoffType \}\}/, 'role issue cards must render the handoff type');
 assert.match(indexHtml, />数据范围：<\/span>\{\{ card\.dataBoundary \}\}/, 'role issue cards must render the data boundary');
+assert.match(indexHtml, />外发角色矩阵<\/h3>[\s\S]*roleIssueGuideCards/, 'user management must provide a beta/normal external issuance matrix before admins send accounts');
+assert.match(indexHtml, /密码仍走单独安全渠道/, 'external issuance matrix must keep passwords outside the copied account message');
 assert.match(indexHtml, /const rolePermissionTags = \(profile = \{\}\) =>/, 'role issue cards must expose permission tags for beta and normal account issuance');
 assert.match(indexHtml, /const normalExternalDeniedPermissionGroups = \[/, 'role issue cards must use an explicit denied-capability checklist for normal external accounts');
 assert.match(indexHtml, /const roleUnsafeExternalCapabilityLabels = \(role = \{\}\) =>/, 'role issue cards must translate unsafe normal-user permissions into reviewable labels');
 assert.match(indexHtml, /const issueStatusForRoleProfile = \(profile = \{\}\) =>/, 'role issue cards must expose a clear issuance conclusion');
 assert.match(indexHtml, /普通用户角色含高风险权限：\$\{unsafeExternalCapabilityLabels\.join\('、'\)\}/, 'normal-user issuance blockers must name the risky permission groups');
 assert.match(indexHtml, /withRolePermissionTags\(roleIssueProfile\(role\)\)/, 'role issue cards must attach permission tags to role profiles');
+assert.match(indexHtml, /filter\(item => \['beta_user', 'normal_user'\]\.includes\(item\.profile\?\.key\)\)/, 'role issue cards must include level-based beta and normal profiles instead of fixed role IDs only');
+assert.doesNotMatch(indexHtml, /filter\(role => \['beta_user', 'normal_user'\]\.includes\(String\(role\?\.name \|\| ''\)\.trim\(\)\) \|\| \[2, 3\]\.includes\(Number\(role\?\.id \|\| 0\)\)\)/, 'role issue cards must not depend only on legacy role id/name pairs');
 assert.match(indexHtml, /roleId === 3 \|\| roleName === 'normal_user' \|\| level >= 3/, 'front-end role profiles must treat staff-level roles as normal external accounts');
 assert.match(indexHtml, /openUserModalWithRole\(card\.roleId\)/, 'user management must support issuing beta/normal roles from guide cards');
 assert.match(indexHtml, /roleIssueActionText\(card\)/, 'role issue cards must use explicit beta or normal issue actions');
@@ -217,6 +224,8 @@ assert.match(indexHtml, /高风险待修/, 'normal external role tags must flag 
 assert.match(indexHtml, /:title="card\.issueBlocked \? card\.issueStatusDetail : roleIssueActionText\(card\)"/, 'blocked role issue cards must expose the blocker detail on the disabled action');
 assert.match(indexHtml, /:disabled="card\.issueBlocked"/, 'unsafe normal-user role cards must not present an enabled external issuance action');
 assert.match(indexHtml, /if \(profile\.issueBlocked\) return '先修角色权限'/, 'blocked normal-user role cards must direct admins to repair the role first');
+assert.match(indexHtml, />权限摘要<\/th>[\s\S]*rolePermissionTags\(roleIssueProfile\(r\)\)/, 'role management table must show reviewable permission summary tags');
+assert.match(indexHtml, /已选 \{\{ rolePermissionList\(r\)\.length \}\} 项权限/, 'role management table must show the selected permission count');
 assert.match(indexHtml, /selectedUserRoleGuide/, 'user modal must show the selected role issue boundary');
 assert.match(indexHtml, /selectedUserRoleGuide\.permissionTags/, 'user modal must show selected role permission tags');
 assert.match(indexHtml, /const userIssueChecklistRows = computed\(\(\) =>/, 'user modal must show an issuance checklist before external accounts are saved');
@@ -242,6 +251,7 @@ assert.match(indexHtml, /String\(u\?\.status\) !== '1'/, 'row-level issuance cop
 assert.match(indexHtml, /const lastUserIssueGuideText = ref\(''\);/, 'user management must preserve the latest beta or normal issuance guide after the modal closes');
 assert.match(indexHtml, /const copyLastUserIssueGuide = \(\) =>/, 'user management must allow copying the latest issuance guide from the user list screen');
 assert.match(indexHtml, /copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide,/, 'latest issuance guide state and row copy actions must be returned to the Vue template');
+assert.match(indexHtml, /roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText/, 'role issue permission helpers must be returned to the Vue template');
 assert.match(indexHtml, /lastUserIssueGuideText\.value = nextIssueGuideText/, 'successful beta or normal user saves must expose the latest issuance guide');
 assert.match(indexHtml, /\['beta_user', 'normal_user'\]\.includes\(issueGuideProfile\.key\)/, 'latest issuance guide must only be generated for beta or normal external roles');
 assert.match(indexHtml, /初始密码请通过单独安全渠道发送/, 'copied issuance guidance must not mix the initial password into the normal message');

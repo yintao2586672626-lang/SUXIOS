@@ -95,7 +95,7 @@ class Role extends Model
             'hotel.create' => ['can_manage_own_hotels', 'hotel_create'],
             'hotel.view' => ['can_view_online_data', 'hotel_view'],
             'hotel.update' => ['can_manage_own_hotels', 'hotel_update'],
-            'hotel.delete' => ['hotel_delete'],
+            'hotel.delete' => ['hotel_delete', 'can_manage_own_hotels', 'hotel.create'],
             'ota.view' => ['can_view_online_data', 'hotel_view', 'ota_read'],
             'ota.collect' => ['can_fetch_online_data', 'ota_collect'],
             'ota.delete' => ['can_delete_online_data', 'ota_delete'],

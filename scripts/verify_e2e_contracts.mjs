@@ -620,6 +620,15 @@ requireText('public/index.html', '授权页脚本已禁用，避免把宿析登�
 requireNoText('public/index.html', 'buildCtripReviewOrdererAssistScript', 'Ctrip review order UI must not build a token-bearing page assist script');
 requireNoText('public/index.html', 'token: authToken', 'Ctrip review order UI must not copy the main login token into OTA page config');
 requireNoText('public/index.html', "Authorization: String(config.token || '')", 'Ctrip review order UI must not generate an Authorization header from copied page config');
+requireText('app/controller/concern/CookieEndpointConcern.php', 'legacy_bookmarklet_disabled', 'legacy receive-cookies bookmarklet endpoint is disabled explicitly');
+requireText('app/controller/concern/CookieEndpointConcern.php', 'buildDisabledCookieBookmarkletScript', 'legacy Cookie bookmarklet generation returns a disabled no-token script');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', "'status' => 'disabled_by_policy'", 'Ctrip Cookie bookmarklet endpoint reports disabled_by_policy');
+requireText('app/controller/concern/MeituanConfigConcern.php', "'status' => 'disabled_by_policy'", 'Meituan Cookie bookmarklet endpoint reports disabled_by_policy');
+requireNoText('app/controller/concern/CookieEndpointConcern.php', 'buildCookieBookmarkletScript', 'legacy Cookie bookmarklets must not build token-bearing submitter scripts');
+requireNoText('app/controller/concern/CookieEndpointConcern.php', "$authHeaderJson = json_encode('Bearer ' . $token", 'legacy Cookie bookmarklets must not embed current login token');
+requireNoText('app/controller/concern/CookieEndpointConcern.php', "headers:{'Authorization':{$authHeaderJson}}", 'legacy Cookie bookmarklets must not send current login Authorization header');
+requireNoText('app/controller/concern/MeituanConfigConcern.php', 'for(var i=0;i<localStorage.length;i++)', 'Meituan legacy bookmarklet must not read OTA localStorage');
+requireNoText('app/controller/concern/MeituanConfigConcern.php', "headers:{'Authorization':'{$token}'}", 'Meituan legacy bookmarklet must not embed current login Authorization header');
 requireText('public/index.html', '疑似下单人', 'Ctrip review order UI keeps probabilistic identity label');
 requireText('public/index.html', '展开高级补录/复核', 'Ctrip review order keeps manual operations behind an advanced panel');
 requireNoText('public/index.html', "ctripReviewMatchResult.data.next_commands", 'Ctrip review order main UI does not render closure commands');
@@ -2107,6 +2116,7 @@ requireText('public/index.html', "requireAiAnalysisStatic('buildCtripAiAnalysisH
 requireText('public/index.html', "requireAiAnalysisStatic('sanitizeAiReportHtml')", 'entry uses extracted AI report sanitizer');
 requireText('public/index.html', "requireAiAnalysisStatic('aiReportHtmlToText')", 'entry uses extracted AI report text converter');
 requireText('public/index.html', 'copyToClipboard(aiReportHtmlToText(aiAnalysisResult.value))', 'captured OTA AI copy uses the sanitized report text converter');
+requireText('public/index.html', 'aiAnalysisResult.value = sanitizeAiReportHtml(execution.reportHtml)', 'captured OTA AI live completion is sanitized before v-html rendering');
 requireText('public/index.html', 'aiAnalysisResult.value = sanitizeAiReportHtml(record.report)', 'captured OTA AI history records are sanitized before reuse');
 requireNoText('public/index.html', 'tempDiv.innerHTML = aiAnalysisResult.value', 'captured OTA AI copy must not parse unsanitized report HTML inline');
 requireText('public/index.html', "requireAiAnalysisStatic('buildMeituanAiAnalysisHotelList')", 'entry uses extracted Meituan AI hotel list builder');

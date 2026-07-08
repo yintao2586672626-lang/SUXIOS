@@ -121,12 +121,20 @@ trait MeituanConfigConcern
             $id = 'meituan_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
             $originalConfig = [];
         }
-        $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', $originalConfig['hotel_id'] ?? ($originalConfig['system_hotel_id'] ?? null)));
-        $hotelIdValue = $hotelId !== null ? (string)$hotelId : '';
-        if (!$this->currentUserCanMaintainOtaConfig($hotelId)) {
-            return $this->error('无权维护此门店 OTA 配置', 403);
+        $hotelIdInput = $this->request->post('hotel_id', $originalConfig['hotel_id'] ?? ($originalConfig['system_hotel_id'] ?? null));
+        $targetHotelId = $this->positiveOtaConfigHotelId($hotelIdInput);
+        if (!empty($originalConfig)) {
+            if (!$this->currentUserCanMaintainOtaConfigItem($originalConfig, $targetHotelId)) {
+                return $this->error('No permission to maintain this OTA config.', 403);
+            }
+            $hotelId = $targetHotelId ?? $this->otaConfigBoundSystemHotelId($originalConfig);
+        } else {
+            $hotelId = $this->resolveOnlineDataSystemHotelId($hotelIdInput);
+            if (!$this->currentUserCanMaintainOtaConfig($hotelId)) {
+                return $this->error('No permission to maintain this OTA config.', 403);
+            }
         }
-
+        $hotelIdValue = $hotelId !== null ? (string)$hotelId : '';
         // 非超级管理员可维护本人创建或本人酒店绑定的配置
         if (!empty($id) && isset($list[$id])) {
             if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
@@ -228,8 +236,9 @@ trait MeituanConfigConcern
         if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
             return $this->error('Forbidden', 403);
         }
-        $configHotelId = $this->resolveOnlineDataSystemHotelId($list[$id]['system_hotel_id'] ?? null);
-        $this->checkOtaConfigMaintenancePermission($configHotelId);
+        if (!$this->currentUserCanMaintainOtaConfigItem($list[$id])) {
+            return $this->error('Forbidden', 403);
+        }
 
         return $this->success($list[$id]);
     }
@@ -237,7 +246,6 @@ trait MeituanConfigConcern
     public function deleteMeituanConfig(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_delete_online_data');
 
         $id = $this->request->param('id', '');
         if (empty($id)) {
@@ -258,6 +266,10 @@ trait MeituanConfigConcern
 
         if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
             return $this->error('无权删除此配置');
+        }
+
+        if (!$this->currentUserCanMaintainOtaConfigItem($list[$id])) {
+            $this->checkActionPermission('can_delete_online_data');
         }
 
         $name = $list[$id]['name'] ?? '';
@@ -325,69 +337,16 @@ trait MeituanConfigConcern
     public function generateMeituanBookmarklet(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
 
-        // 获取当前用户的token
-        $token = $this->request->header('Authorization', '');
-        if (empty($token)) {
-            $userId = $this->currentUser->id;
-            $cacheKey = 'user_token_' . $userId;
-            $token = cache($cacheKey) ?? '';
-        }
-
-        $apiBase = $this->request->domain() . '/api/online-data';
-
-        $script = <<<JAVASCRIPT
-(function(){
-  try{
-    var h=location.hostname;
-    if(h.indexOf('eb.meituan.com')===-1){
-      alert('请先打开美团ebooking页面！当前页面: '+h);
-      return;
-    }
-    var c=document.cookie;
-    if(!c){alert('未检测到Cookies，请先登录美团ebooking');return;}
-    var authData={};
-    try{
-      for(var i=0;i<localStorage.length;i++){
-        var k=localStorage.key(i);
-        if(k.indexOf('token')!==-1||k.indexOf('auth')!==-1||k.indexOf('user')!==-1){
-          authData[k]=localStorage.getItem(k);
-        }
-      }
-    }catch(e){}
-    var n='美团Cookie '+new Date().toLocaleDateString();
-    var d=new FormData();
-    d.append('name',n);
-    d.append('cookies',c);
-    d.append('auth_data',JSON.stringify(authData));
-    fetch('{$apiBase}/save-meituan-config-item',{
-      method:'POST',
-      body:d,
-      mode:'cors',
-      headers:{'Authorization':'{$token}'}
-    }).then(function(r){return r.json()}).then(function(j){
-      if(j.code===200){
-        alert('临时 Cookie/API 辅助内容保存成功：'+n);
-      }else{
-        alert('保存失败: '+j.message);
-      }
-    }).catch(function(e){
-      alert('请求失败: '+e.message);
-    });
-  }catch(err){
-    alert('脚本执行错误: '+err.message);
-  }
-})();
-JAVASCRIPT;
-
-        // 压缩脚本（移除换行符）
-        $script = preg_replace('/\s+/', ' ', $script);
-        $script = str_replace([' (function', ' {', '} ', ' ;'], ['(function', '{', '}', ';'], $script);
+        $script = $this->buildDisabledCookieBookmarkletScript('美团');
 
         return $this->success([
             'script' => $script,
             'bookmarklet' => 'javascript:' . $script,
-        ]);
+            'status' => 'disabled_by_policy',
+            'message' => '旧版美团 Cookie 书签已禁用，避免把宿析登录 token 暴露到 OTA 页面。',
+        ], '旧版美团 Cookie 书签已禁用');
     }
 
 }

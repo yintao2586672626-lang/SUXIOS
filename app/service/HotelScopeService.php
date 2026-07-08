@@ -240,6 +240,7 @@ class HotelScopeService
         return match ($capability) {
             'hotel.view', 'can_view_online_data' => ['can_view', 'can_view_online_data'],
             'hotel.update' => ['can_edit'],
+            'hotel.delete' => ['can_edit'],
             'ota.view' => ['can_view', 'can_view_online_data'],
             'ota.collect' => ['can_fetch_ota', 'can_fetch_online_data'],
             'ota.delete' => ['can_delete_ota', 'can_delete_online_data'],

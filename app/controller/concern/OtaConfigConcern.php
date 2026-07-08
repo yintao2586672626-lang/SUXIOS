@@ -159,6 +159,23 @@ trait OtaConfigConcern
         return $this->isOtaConfigVisibleToUser($item, $this->currentUser, $permittedHotelIdSet);
     }
 
+    private function currentUserHasOtaConfigMaintenanceCapability(): bool
+    {
+        $user = $this->currentUser ?? null;
+        if (!$user || !isset($user->id) || !$user->id) {
+            return false;
+        }
+
+        if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
+            return true;
+        }
+
+        $canManageOwnHotels = method_exists($user, 'canManageOwnHotels') && $user->canManageOwnHotels();
+        $canFetchOnlineData = method_exists($user, 'hasPermission') && $user->hasPermission('can_fetch_online_data');
+
+        return $canManageOwnHotels || $canFetchOnlineData;
+    }
+
     private function currentUserCanMaintainOtaConfig(?int $hotelId = null): bool
     {
         $user = $this->currentUser ?? null;
@@ -182,6 +199,74 @@ trait OtaConfigConcern
 
         $permittedHotelIdSet = $this->getPermittedHotelIdSetForUser($user);
         return isset($permittedHotelIdSet[(string)$hotelId]);
+    }
+
+    private function isOtaConfigOwnedByCurrentUser(array $item): bool
+    {
+        $user = $this->currentUser ?? null;
+        if (!$user || !isset($user->id) || !$user->id) {
+            return false;
+        }
+
+        $itemUserId = $item['user_id'] ?? null;
+        return $itemUserId !== null && $itemUserId !== '' && (string)$itemUserId === (string)$user->id;
+    }
+
+    private function positiveOtaConfigHotelId($value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (!is_numeric($value)) {
+            return null;
+        }
+
+        $hotelId = (int)$value;
+        return $hotelId > 0 ? $hotelId : null;
+    }
+
+    private function otaConfigBoundSystemHotelId(array $item): ?int
+    {
+        foreach (['system_hotel_id', 'hotel_id'] as $field) {
+            $hotelId = $this->positiveOtaConfigHotelId($item[$field] ?? null);
+            if ($hotelId !== null) {
+                return $hotelId;
+            }
+        }
+
+        return null;
+    }
+
+    private function currentUserCanMaintainOtaConfigItem(array $item, ?int $targetHotelId = null): bool
+    {
+        if (!$this->currentUserHasOtaConfigMaintenanceCapability()) {
+            return false;
+        }
+
+        if ($this->currentUser && method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin()) {
+            return true;
+        }
+
+        $existingHotelId = $this->otaConfigBoundSystemHotelId($item);
+        $effectiveTargetHotelId = $targetHotelId ?? $existingHotelId;
+        if ($effectiveTargetHotelId !== null && $this->currentUserCanMaintainOtaConfig($effectiveTargetHotelId)) {
+            return true;
+        }
+
+        if (!$this->isOtaConfigOwnedByCurrentUser($item)) {
+            return false;
+        }
+
+        if ($targetHotelId !== null && $existingHotelId !== null && $targetHotelId !== $existingHotelId) {
+            return false;
+        }
+
+        if ($targetHotelId !== null && $existingHotelId === null) {
+            return false;
+        }
+
+        return true;
     }
 
     private function checkOtaConfigMaintenancePermission(?int $hotelId = null): void

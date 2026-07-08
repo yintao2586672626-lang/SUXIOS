@@ -905,6 +905,13 @@ if (!fs.existsSync(indexPath)) {
     || !ctripEbookingDefaultLoader.includes('scheduleCtripEbookingDeferredStartupRefresh();')) {
     failures.push('public/index.html must defer Ctrip eBooking config/latest/cookie/bookmarklet startup refreshes until after the first paint loader.');
   }
+  if (!content.includes('方法四：旧 Cookie 书签已禁用')
+    || !content.includes('旧书签会把宿析登录 token 带到 OTA 页面')
+    || !content.includes("showToast(res.data?.message || '旧版携程 Cookie 书签已禁用', 'warning')")
+    || !content.includes("showToast(res.data?.message || '旧版美团 Cookie 书签已禁用', 'warning')")
+    || content.includes('书签脚本生成成功')) {
+    failures.push('public/index.html legacy Cookie bookmarklet UI must show disabled-by-policy state and must not imply successful script generation.');
+  }
   if (!content.includes('const CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS = 2600;')
     || !content.includes('const CTRIP_EBOOKING_LATEST_DATA_DELAY_MS = 5200;')
     || !content.includes('const CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS = 6400;')

@@ -126,10 +126,9 @@ $logoutSource = extract_method_source_regression($authSource, 'logout');
 $cronTriggerSource = extract_method_source_regression($autoFetchSource, 'cronTrigger');
 $receiveCookiesSource = extract_method_source_regression($cookieEndpointSource, 'receiveCookies');
 $corsErrorSource = extract_method_source_regression($cookieEndpointSource, 'corsError');
-$corsSuccessSource = extract_method_source_regression($cookieEndpointSource, 'corsSuccess');
 $bookmarkletSource = extract_method_source_regression($cookieEndpointSource, 'bookmarklet');
 $ctripBookmarkletSource = extract_method_source_regression($onlineDataRequestSource, 'generateCtripBookmarklet');
-$cookieBookmarkletHelperSource = extract_method_source_regression($cookieEndpointSource, 'buildCookieBookmarkletScript');
+$disabledCookieBookmarkletHelperSource = extract_method_source_regression($cookieEndpointSource, 'buildDisabledCookieBookmarkletScript');
 $dailyPatrolCronSource = extract_method_source_regression($operationWorkbenchSource, 'dailyWorkbenchPatrolCron');
 $competitorTaskSource = extract_method_source_regression($competitorSource, 'task');
 $competitorReportSource = extract_method_source_regression($competitorSource, 'report');
@@ -219,13 +218,14 @@ assert_regression(!str_contains($robotPostJsonSource, 'error_get_last'), 'compet
 assert_regression(!str_contains($receiveCookiesSource, "param('token'"), 'receiveCookies must not read auth token from URL parameters');
 assert_regression(str_contains($receiveCookiesSource, "header('Access-Control-Allow-Headers: Content-Type, Authorization')"), 'receiveCookies CORS must allow Authorization header');
 assert_regression(!str_contains($receiveCookiesSource, "Access-Control-Allow-Origin: *"), 'receiveCookies must not allow every origin');
-assert_regression(!str_contains($corsErrorSource . $corsSuccessSource, "'Access-Control-Allow-Origin' => '*'"), 'receiveCookies response helpers must not return wildcard CORS');
+assert_regression(!str_contains($corsErrorSource, "'Access-Control-Allow-Origin' => '*'"), 'receiveCookies error helper must not return wildcard CORS');
 
-assert_regression(!str_contains($bookmarkletSource, 'alert("bookmarklet")'), 'bookmarklet endpoint must not return placeholder alert script');
-assert_regression(str_contains($bookmarkletSource . $cookieBookmarkletHelperSource, 'receive-cookies'), 'bookmarklet endpoint must post cookies to receive-cookies');
-assert_regression(str_contains($bookmarkletSource . $cookieBookmarkletHelperSource, 'Authorization'), 'bookmarklet endpoint must send token in Authorization header');
-assert_regression(!str_contains($ctripBookmarkletSource, 'javascript:test'), 'Ctrip bookmarklet endpoint must not return a test placeholder');
-assert_regression(str_contains($ctripBookmarkletSource . $cookieBookmarkletHelperSource, 'receive-cookies'), 'Ctrip bookmarklet endpoint must return a working cookie submitter');
+assert_regression(str_contains($receiveCookiesSource, 'legacy_bookmarklet_disabled'), 'receiveCookies must reject legacy cross-origin bookmarklet submissions');
+assert_regression(!str_contains($receiveCookiesSource, "cache('token_'"), 'receiveCookies must not accept current login tokens from legacy bookmarklets');
+assert_regression(str_contains($bookmarkletSource . $ctripBookmarkletSource . $disabledCookieBookmarkletHelperSource, 'disabled_by_policy'), 'bookmarklet endpoints must report disabled_by_policy');
+assert_regression(!str_contains($bookmarkletSource . $ctripBookmarkletSource . $disabledCookieBookmarkletHelperSource, 'receive-cookies'), 'bookmarklet endpoints must not generate receive-cookies submitters');
+assert_regression(!str_contains($bookmarkletSource . $ctripBookmarkletSource . $disabledCookieBookmarkletHelperSource, 'document.cookie'), 'bookmarklet endpoints must not read OTA document.cookie');
+assert_regression(!str_contains($bookmarkletSource . $ctripBookmarkletSource . $disabledCookieBookmarkletHelperSource, 'Authorization'), 'bookmarklet endpoints must not embed the main login Authorization header');
 
 assert_regression(str_contains($userDeleteSource, 'ensureUserCanBeDeleted'), 'user deletion must run association protection before hard delete');
 assert_regression(str_contains($hotelDeleteSource, 'ensureHotelCanBeDeleted'), 'hotel deletion must run association protection before hard delete');

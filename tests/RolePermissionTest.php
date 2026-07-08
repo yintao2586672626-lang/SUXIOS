@@ -43,9 +43,17 @@ final class RolePermissionTest extends TestCase
         $permissions = Role::normalizePermissions('["can_manage_own_hotels","can_fetch_online_data","can_use_ai_decision"]');
 
         self::assertTrue(Role::permissionListAllows($permissions, 'hotel.create'));
+        self::assertTrue(Role::permissionListAllows($permissions, 'hotel.delete'));
         self::assertTrue(Role::permissionListAllows($permissions, 'ota.collect'));
         self::assertTrue(Role::permissionListAllows($permissions, 'ai.execute'));
         self::assertFalse(Role::permissionListAllows($permissions, 'system.config'));
+    }
+
+    public function testHotelCreateCapabilityAllowsAssignedStoreDeletionGate(): void
+    {
+        $permissions = Role::normalizePermissions('["dashboard.view","hotel.create","hotel.view","hotel.update"]');
+
+        self::assertTrue(Role::permissionListAllows($permissions, 'hotel.delete'));
     }
 
     public function testAccessTierRoleIdsAreStable(): void

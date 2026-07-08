@@ -1570,8 +1570,17 @@ trait OnlineDataRequestConcern
             // 非超级管理员保存时记录 user_id；超级管理员编辑旧配置时保留原归属
             $originalConfig = $list[$id] ?? [];
             $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
-            $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($requestData['hotel_id'] ?? ($originalConfig['hotel_id'] ?? ($originalConfig['system_hotel_id'] ?? null)));
-            $this->checkOtaConfigMaintenancePermission($resolvedHotelId);
+            $hotelIdInput = $requestData['hotel_id'] ?? ($originalConfig['hotel_id'] ?? ($originalConfig['system_hotel_id'] ?? null));
+            $targetHotelId = $this->positiveOtaConfigHotelId($hotelIdInput);
+            if (!empty($originalConfig)) {
+                if (!$this->currentUserCanMaintainOtaConfigItem($originalConfig, $targetHotelId)) {
+                    return $this->error('No permission to maintain this OTA config.', 403);
+                }
+                $resolvedHotelId = $targetHotelId ?? $this->otaConfigBoundSystemHotelId($originalConfig);
+            } else {
+                $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($hotelIdInput);
+                $this->checkOtaConfigMaintenancePermission($resolvedHotelId);
+            }
             $hotelIdValue = $resolvedHotelId !== null ? (string)$resolvedHotelId : '';
             $ctripHotelId = trim((string)(
                 $requestData['ctrip_hotel_id']
@@ -1691,8 +1700,9 @@ trait OnlineDataRequestConcern
         if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
             return $this->error('Forbidden', 403);
         }
-        $configHotelId = $this->resolveOnlineDataSystemHotelId($list[$id]['system_hotel_id'] ?? null);
-        $this->checkOtaConfigMaintenancePermission($configHotelId);
+        if (!$this->currentUserCanMaintainOtaConfigItem($list[$id])) {
+            return $this->error('Forbidden', 403);
+        }
 
         return $this->success($list[$id]);
     }
@@ -1703,8 +1713,6 @@ trait OnlineDataRequestConcern
     public function deleteCtripConfig(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_delete_online_data');
-
         $id = $this->request->param('id', '');
         if (empty($id)) {
             return $this->error('配置ID不能为空');
@@ -1725,6 +1733,10 @@ trait OnlineDataRequestConcern
 
         if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
             return $this->error('无权删除此配置');
+        }
+
+        if (!$this->currentUserCanMaintainOtaConfigItem($list[$id])) {
+            $this->checkActionPermission('can_delete_online_data');
         }
 
         $name = $list[$id]['name'] ?? '';
@@ -1748,18 +1760,14 @@ trait OnlineDataRequestConcern
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
-        $token = $this->extractTokenFromAuthorizationHeader((string)$this->request->header('Authorization', ''));
-        if ($token === '') {
-            return $this->error('缺少Token', 401);
-        }
-
-        $script = $this->buildCookieBookmarkletScript($token, 'ctrip_config');
-        $script = preg_replace('/\s+/', ' ', $script);
+        $script = $this->buildDisabledCookieBookmarkletScript('携程');
 
         return $this->success([
             'script' => $script,
             'bookmarklet' => 'javascript:' . $script,
-        ]);
+            'status' => 'disabled_by_policy',
+            'message' => '旧版携程 Cookie 书签已禁用，避免把宿析登录 token 暴露到 OTA 页面。',
+        ], '旧版携程 Cookie 书签已禁用');
     }
 
     /**
