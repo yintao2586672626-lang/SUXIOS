@@ -234,6 +234,107 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
             : '自定义：按门店授权查看';
     };
 
+    const buildUserIssueChecklistRows = (profile = {}, assignedHotelIds = [], status = 1) => {
+        if (!profile || typeof profile !== 'object') return [];
+        const normalizedHotelIds = Array.isArray(assignedHotelIds) ? assignedHotelIds : [];
+        const rows = [];
+        if (profile.key === 'admin') {
+            rows.push({
+                key: 'role',
+                label: '角色用途',
+                level: 'warning',
+                text: '管理员仅用于内部系统管理，不建议发给内测或外部普通用户。',
+            });
+        } else if (profile.key === 'normal_user' && profile.canCollectOta) {
+            rows.push({
+                key: 'role',
+                label: '角色用途',
+                level: 'error',
+                text: '普通用户角色当前包含 OTA 采集权限，先在角色管理移除采集权限后再对外发放。',
+            });
+        } else {
+            rows.push({
+                key: 'role',
+                label: '角色用途',
+                level: 'success',
+                text: profile.audience,
+            });
+        }
+        rows.push({
+            key: 'hotel_scope',
+            label: '门店范围',
+            level: profile.requiresHotelAssignment && normalizedHotelIds.length === 0 ? 'error' : 'success',
+            text: profile.requiresHotelAssignment && normalizedHotelIds.length === 0
+                ? '该角色必须先分配门店，否则外部用户登录后没有可追责的数据范围。'
+                : (normalizedHotelIds.length ? `已分配 ${normalizedHotelIds.length} 个门店` : profile.scope),
+        });
+        rows.push({
+            key: 'ota_scope',
+            label: 'OTA边界',
+            level: profile.canCollectOta && profile.key !== 'beta_user' && profile.key !== 'admin' ? 'warning' : 'success',
+            text: profile.ota,
+        });
+        rows.push({
+            key: 'status',
+            label: '账号状态',
+            level: String(status) === '1' ? 'success' : 'warning',
+            text: String(status) === '1' ? '保存后账号可登录' : '保存后仍为待审核/暂停，用户暂不能登录',
+        });
+        return rows;
+    };
+
+    const validateUserIssueProfile = (profile = {}, assignedHotelIds = []) => {
+        const normalizedHotelIds = Array.isArray(assignedHotelIds) ? assignedHotelIds : [];
+        if (!profile || typeof profile !== 'object') return '';
+        if (profile.key === 'normal_user' && profile.canCollectOta) {
+            return '普通用户角色当前包含 OTA 采集权限，请先在角色管理移除采集权限后再发放。';
+        }
+        if (profile.issueBlockers?.length) {
+            return profile.issueBlockers[0];
+        }
+        if (profile.requiresHotelAssignment && normalizedHotelIds.length === 0) {
+            return '该角色必须先分配门店，避免生成无业务范围的外部账号。';
+        }
+        return '';
+    };
+
+    const userIssueLoginStatusText = (status) => (
+        String(status) === '1' ? '正常，可登录' : '待审核/暂停，暂不能登录'
+    );
+
+    const userIssueStatusFromProfile = (profile = {}, blocker = '') => {
+        if (['beta_user', 'normal_user'].includes(profile?.key)) {
+            if (blocker) {
+                return {
+                    label: '暂不可发',
+                    detail: blocker,
+                    class: 'border-amber-100 bg-amber-50 text-amber-700',
+                    icon: 'fas fa-exclamation-circle',
+                };
+            }
+            return {
+                label: '可发送说明',
+                detail: `${profile.handoffType}；${profile.dataBoundary}`,
+                class: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+                icon: 'fas fa-check-circle',
+            };
+        }
+        if (profile?.key === 'admin') {
+            return {
+                label: '内部账号',
+                detail: '管理员不发给内测或外部普通用户',
+                class: 'border-red-100 bg-red-50 text-red-700',
+                icon: 'fas fa-user-shield',
+            };
+        }
+        return {
+            label: '人工复核',
+            detail: profile?.boundary || '自定义角色发放前需人工复核权限和门店范围',
+            class: 'border-slate-200 bg-slate-50 text-slate-600',
+            icon: 'fas fa-clipboard-check',
+        };
+    };
+
     return {
         rolePermissionList,
         roleHasAnyPermission,
@@ -245,5 +346,9 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
         withRolePermissionTags,
         roleIssueActionText,
         userRoleBoundaryTextFromProfile,
+        buildUserIssueChecklistRows,
+        validateUserIssueProfile,
+        userIssueLoginStatusText,
+        userIssueStatusFromProfile,
     };
 })();

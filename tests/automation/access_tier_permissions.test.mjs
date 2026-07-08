@@ -213,8 +213,11 @@ assert.match(userAdminStatic, /const rolePermissionTags = \(profile = \{\}\) =>/
 assert.match(userAdminStatic, /const normalExternalDeniedPermissionGroups = \[/, 'role issue cards must use an explicit denied-capability checklist for normal external accounts');
 assert.match(userAdminStatic, /const roleUnsafeExternalCapabilityLabels = \(role = \{\}\) =>/, 'role issue cards must translate unsafe normal-user permissions into reviewable labels');
 assert.match(userAdminStatic, /const issueStatusForRoleProfile = \(profile = \{\}\) =>/, 'role issue cards must expose a clear issuance conclusion');
+assert.match(userAdminStatic, /const buildUserIssueChecklistRows = \(profile = \{\}, assignedHotelIds = \[\], status = 1\) =>/, 'user admin static bundle must own the issuance checklist row contract');
+assert.match(userAdminStatic, /const validateUserIssueProfile = \(profile = \{\}, assignedHotelIds = \[\]\) =>/, 'user admin static bundle must own external account issuance validation');
+assert.match(userAdminStatic, /const userIssueStatusFromProfile = \(profile = \{\}, blocker = ''\) =>/, 'user admin static bundle must own row-level issuance status copy');
 assert.match(userAdminStatic, /普通用户角色含高风险权限：\$\{unsafeExternalCapabilityLabels\.join\('、'\)\}/, 'normal-user issuance blockers must name the risky permission groups');
-assert.match(userAdminStatic, /roleIssueProfile,[\s\S]*rolePermissionTags,[\s\S]*withRolePermissionTags/, 'user admin static bundle must export role issue helpers used by the Vue setup');
+assert.match(userAdminStatic, /roleIssueProfile,[\s\S]*rolePermissionTags,[\s\S]*withRolePermissionTags[\s\S]*buildUserIssueChecklistRows,[\s\S]*validateUserIssueProfile,[\s\S]*userIssueStatusFromProfile/, 'user admin static bundle must export role issue helpers used by the Vue setup');
 assert.match(indexHtml, /withRolePermissionTags\(roleIssueProfile\(role\)\)/, 'role issue cards must attach permission tags to role profiles');
 assert.match(indexHtml, /filter\(item => \['beta_user', 'normal_user'\]\.includes\(item\.profile\?\.key\)\)/, 'role issue cards must include level-based beta and normal profiles instead of fixed role IDs only');
 assert.doesNotMatch(indexHtml, /filter\(role => \['beta_user', 'normal_user'\]\.includes\(String\(role\?\.name \|\| ''\)\.trim\(\)\) \|\| \[2, 3\]\.includes\(Number\(role\?\.id \|\| 0\)\)\)/, 'role issue cards must not depend only on legacy role id/name pairs');
@@ -238,11 +241,11 @@ assert.match(indexHtml, /const userRoleBoundaryText = \(u = \{\}\) =>/, 'user ta
 assert.match(indexHtml, /userRoleBoundaryText\(u\)/, 'user table role column must render per-account issue boundary text');
 assert.match(indexHtml, />发放状态<\/th>[\s\S]*userIssueStatus\(u\)/, 'user management table must expose a row-level issuance status');
 assert.match(indexHtml, /const userIssueStatus = \(u = \{\}\) =>/, 'user table issuance status must be derived from the same blocker rules as copy guidance');
-assert.match(indexHtml, /existingUserIssueGuideBlocker\(u\)[\s\S]*label: '暂不可发'/, 'row-level issuance status must surface blocker details instead of allowing blind external sends');
+assert.match(indexHtml, /existingUserIssueGuideBlocker\(u\)[\s\S]*userIssueStatusFromProfile\(profile, blocker\)/, 'row-level issuance status must surface blocker details instead of allowing blind external sends');
 assert.match(indexHtml, /userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide/, 'row-level issuance status helper must be returned to the Vue template');
 assert.match(indexHtml, /const validateUserIssueBeforeSave = \(data = \{\}, assignedHotelIds = \[\]\) =>/, 'user saves must validate issuance boundaries before calling the API');
-assert.match(indexHtml, /profile\.key === 'normal_user' && profile\.canCollectOta/, 'normal-user issuance must flag OTA collection as unsafe for external accounts');
-assert.match(indexHtml, /profile\.requiresHotelAssignment && assignedHotelIds\.length === 0/, 'external account issuance must block missing hotel scope');
+assert.match(userAdminStatic, /profile\.key === 'normal_user' && profile\.canCollectOta/, 'normal-user issuance must flag OTA collection as unsafe for external accounts');
+assert.match(userAdminStatic, /profile\.requiresHotelAssignment && normalizedHotelIds\.length === 0/, 'external account issuance must block missing hotel scope');
 assert.match(indexHtml, /const issueError = validateUserIssueBeforeSave\(data, assignedHotelIds\)/, 'user save must run the issuance validator before request submission');
 assert.match(indexHtml, /const buildUserIssueGuideText = \(\) =>/, 'user modal must build a copyable issuance handoff message');
 assert.ok(indexHtml.includes("`发放类型：${profile?.handoffType || profile?.title || '-'}`"), 'copied issuance guidance must include the handoff type');
