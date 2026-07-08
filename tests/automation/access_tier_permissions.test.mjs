@@ -74,7 +74,10 @@ assert.equal(
 
 assert.match(indexHtml, /const canManageOwnHotels = \(\) =>/, '前端必须提供统一门店管理权限判断');
 assert.match(indexHtml, /v-if="canManageOwnHotels\(\)"/, '门店管理按钮必须使用 canManageOwnHotels()');
-assert.match(indexHtml, /v-if="canManageOwnHotels\(\)" class="grid grid-cols-2 gap-1\.5"[\s\S]*openHotelManualFetchConfig\(hotel, 'ctrip'\)[\s\S]*openHotelManualFetchConfig\(hotel, 'meituan'\)/, '门店管理账号必须能打开携程和美团手动配置入口');
+assert.match(indexHtml, /openHotelManualFetchConfig\(hotel, 'ctrip'\)"[\s\S]{0,180}>手动配置<\/button>/, '门店管理账号必须能在携程卡片打开手动配置入口');
+assert.match(indexHtml, /openHotelManualFetchConfig\(hotel, 'meituan'\)"[\s\S]{0,180}>手动配置<\/button>/, '门店管理账号必须能在美团卡片打开手动配置入口');
+assert.doesNotMatch(indexHtml, /openHotelManualFetchConfig\(hotel, 'ctrip'\)"[\s\S]{0,220}>[\s\S]{0,20}携程配置[\s\S]{0,20}<\/button>/, '右侧操作列不应重复展示携程配置');
+assert.doesNotMatch(indexHtml, /openHotelManualFetchConfig\(hotel, 'meituan'\)"[\s\S]{0,220}>[\s\S]{0,20}美团配置[\s\S]{0,20}<\/button>/, '右侧操作列不应重复展示美团配置');
 assert.match(indexHtml, /onlineDataTab === 'ctrip-config' && canManageOwnHotels\(\)/, '携程配置面板不能只限制超级管理员，门店管理账号也要能补 Cookie');
 assert.match(indexHtml, /v-if="canManageOwnHotels\(\)" type="button" @click="showHotelModal = false; openHotelManualFetchConfig\(hotelFormAccountHotel\(\), account\.platform\)"/, '门店弹窗内的手动配置入口必须对门店管理账号可见');
 assert.doesNotMatch(hotelController, /private function currentUserCanManageHotelRecord\(HotelModel \$hotel\): bool[\s\S]*!\$this->currentUserOwnsHotel\(\$hotel\)/, 'assigned beta users must be able to manage granted hotels, not only hotels they created');
@@ -111,6 +114,9 @@ assert.match(indexHtml, />采集配置<\/div>[\s\S]*hotelPlatformFetchConfigText
 assert.match(indexHtml, />自动化采集<\/div>[\s\S]*hotelPlatformAutomationText\(hotel, account\)/, 'hotel channel cards should show automation collection readiness');
 assert.match(indexHtml, /@click="openHotelSyncLogs\(hotel, account\.platform\)"[\s\S]*查看日志/, 'hotel channel cards should expose sync logs');
 assert.match(indexHtml, /平台门店：\{\{ account\.accountStoreText \|\| '-' \}\}/, 'hotel channel cards should show the mapped platform store');
+assert.doesNotMatch(indexHtml, /处理：\{\{ hotelNextAction\(hotel\)\.text \}\}/, 'operation column should not duplicate platform-card next actions');
+assert.doesNotMatch(indexHtml, />维护账号<\/button>/, 'operation column should not duplicate platform-card account maintenance');
+assert.doesNotMatch(indexHtml, /@click(?:\.stop)?="openHotelNextAction\(hotel\)"/, 'hotel management should not keep a duplicated next-action button outside platform cards');
 assert.doesNotMatch(indexHtml, /hotelIssueRows\(hotel\)/, 'hotel table should rely on channel cards and the action column instead of a duplicated issues column');
 assert.doesNotMatch(indexHtml, />总<\/span>/, 'hotel account filter should not use ambiguous single-character total copy');
 assert.doesNotMatch(indexHtml, />待办<\/span>/, 'hotel account filter should not use unclear todo copy');
