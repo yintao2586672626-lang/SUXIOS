@@ -73,8 +73,12 @@ function assertPrCandidateReview(review, label) {
     addFailure(`${label} is required.`);
     return;
   }
-  if (review.status !== 'failed') {
-    addFailure(`${label}.status must remain failed until an open final release PR is selected.`);
+  const status = String(review.status || '');
+  if (!['failed', 'passed'].includes(status)) {
+    addFailure(`${label}.status must be failed or passed.`);
+  }
+  if (status === 'passed' && Array.isArray(review.failures) && review.failures.length > 0) {
+    addFailure(`${label}.failures must be empty when status is passed.`);
   }
   if (!String(review.gh_pr_list_checked_at || '').trim()) {
     addFailure(`${label}.gh_pr_list_checked_at is required.`);

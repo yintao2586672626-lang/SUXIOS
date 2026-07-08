@@ -89,8 +89,20 @@ function assertCurrentPrCandidateReview(review, label, connectorDiagnosticKey = 
   if (review.command !== 'npm run review:release-pr-candidates') {
     addFailure(`${label}.command must be npm run review:release-pr-candidates.`);
   }
-  if (review.status !== 'failed') {
-    addFailure(`${label}.status must remain failed until an open final release PR is selected.`);
+  const status = String(review.status || '');
+  if (!['failed', 'passed'].includes(status)) {
+    addFailure(`${label}.status must be failed or passed.`);
+  }
+  if (status === 'passed') {
+    if (Array.isArray(review.failures) && review.failures.length > 0) {
+      addFailure(`${label}.failures must be empty when status is passed.`);
+    }
+    if ('selected_release_pr_number' in review && !Number.isFinite(Number(review.selected_release_pr_number))) {
+      addFailure(`${label}.selected_release_pr_number must be numeric when present.`);
+    }
+    if ('selected_release_pr_head_sha' in review && !String(review.selected_release_pr_head_sha || '').trim()) {
+      addFailure(`${label}.selected_release_pr_head_sha must be non-empty when present.`);
+    }
   }
   if (!String(review.gh_pr_list_checked_at || '').trim()) {
     addFailure(`${label}.gh_pr_list_checked_at is required.`);
@@ -192,12 +204,17 @@ if (gapPack) {
       addFailure('latest_release_readiness_result must remain failed with final_release_ready=false while blockers are open.');
     }
     const readinessFailures = Array.isArray(readinessResult.failures) ? readinessResult.failures.join('\n') : '';
-    for (const phrase of [
+    const requiredReadinessFailurePhrases = [
       'Design handoff manifest was not found',
       'OTA credential rotation attestation was not found',
-      'Release PR candidate gate has not passed',
-      'Release external-state gate has not passed',
-    ]) {
+    ];
+    if (sourceStatus.latest_release_pr_candidates_result?.status !== 'passed') {
+      requiredReadinessFailurePhrases.push('Release PR candidate gate has not passed');
+    }
+    if (sourceStatus.latest_external_state_result?.status !== 'passed') {
+      requiredReadinessFailurePhrases.push('Release external-state gate has not passed');
+    }
+    for (const phrase of requiredReadinessFailurePhrases) {
       if (!readinessFailures.includes(phrase)) {
         addFailure(`latest_release_readiness_result.failures must mention ${phrase}.`);
       }
@@ -263,17 +280,17 @@ if (gapPack) {
 
   const requirements = requireArray(gapPack.blocking_requirements, 'blocking_requirements');
   for (const [id, status, command] of [
-    ['design-handoff-missing', 'missing', 'npm run review:release-design'],
-    ['ota-credential-rotation-attestation-missing', 'missing', 'npm run review:release-ota-credentials'],
-    ['local-git-state-open', 'open', 'npm run review:release-external-state'],
+    ['design-handoff-missing', ['missing'], 'npm run review:release-design'],
+    ['ota-credential-rotation-attestation-missing', ['missing'], 'npm run review:release-ota-credentials'],
+    ['local-git-state-open', ['open', 'candidate_passed'], 'npm run review:release-external-state'],
   ]) {
     const requirement = requirementById(requirements, id);
     if (!requirement) {
       addFailure(`blocking_requirements is missing ${id}.`);
       continue;
     }
-    if (requirement.status !== status) {
-      addFailure(`blocking_requirements.${id}.status must be ${status}.`);
+    if (!status.includes(requirement.status)) {
+      addFailure(`blocking_requirements.${id}.status must be one of ${status.join(', ')}.`);
     }
     if (requirement.acceptance_command !== command) {
       addFailure(`blocking_requirements.${id}.acceptance_command must be ${command}.`);
