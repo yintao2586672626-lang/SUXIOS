@@ -156,7 +156,7 @@ class Compass extends Base
     private function getDefaultLayout(): array
     {
         return [
-            'order' => ['weather'],
+            'order' => ['weather', 'todo', 'metrics', 'alerts', 'holiday'],
             'hidden' => [],
             'quick_entries' => $this->getDefaultQuickEntries(),
         ];
@@ -175,6 +175,23 @@ class Compass extends Base
         return [
             'layout' => $this->getLayoutConfig(),
             'weather' => $this->getWeatherForecast($hotelId),
+            'todos' => [],
+            'metrics' => [
+                'day' => (object)[],
+                'week' => (object)[],
+                'month' => (object)[],
+                'data_status' => 'not_loaded',
+                'source_policy' => 'compass_contract_only_no_metric_facts',
+            ],
+            'alerts' => [],
+            'holidays' => [],
+            'contract_status' => [
+                'todos' => 'not_loaded',
+                'metrics' => 'not_loaded',
+                'alerts' => 'not_loaded',
+                'holidays' => 'not_loaded',
+                'source_policy' => 'compass_contract_only_no_operating_facts',
+            ],
         ];
     }
 

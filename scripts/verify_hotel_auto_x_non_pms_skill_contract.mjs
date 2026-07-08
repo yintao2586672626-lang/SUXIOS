@@ -104,6 +104,10 @@ requireText('app/service/PlatformDataSyncService.php', "$missing[] = 'profile_st
 requireText('app/service/PlatformDataSyncService.php', "$missing[] = 'last_login_verified_at';", 'background Profile sync requires last login verification time');
 requireText('app/service/PlatformDataSyncService.php', "return self::isStaleRunningSyncTask($task) ? 'stale_running' : $status;", 'stale running sync tasks stay explicit');
 requireText('app/controller/concern/PlatformDataSourceConcern.php', "'stale_running_task'", 'collection-status reports stale running task reason');
+requireText('app/controller/concern/Phase1EmployeeConsoleConcern.php', "return $this->phase1SyncTaskIsStaleRunning($task) ? 'stale_running' : $status;", 'Phase1 P0 sync tasks classify stale running explicitly');
+requireText('scripts/verify_p0_ota_field_loop_closure.php', "return p0_sync_task_is_stale_running($task) ? 'stale_running' : $status;", 'P0 verifier classifies stale running sync tasks explicitly');
+requireText('scripts/build_phase1_ota_live_closure_evidence.php', "return traffic_source_sync_task_is_stale_running($task) ? 'stale_running' : $status;", 'Phase1 evidence builder classifies stale running sync tasks explicitly');
+requireText('scripts/inspect_phase1_ota_live_closure.php', "return inspection_traffic_source_sync_task_is_stale_running($task) ? 'stale_running' : $status;", 'Phase1 inspector classifies stale running sync tasks explicitly');
 requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'storage/ctrip_profile_'", 'Ctrip Profile directory boundary is storage/ctrip_profile_*');
 requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'storage/meituan_profile_'", 'Meituan Profile directory boundary is storage/meituan_profile_*');
 requireText('app/controller/concern/PlatformProfileCaptureConcern.php', "'status_code'] = 'cookies_incomplete';", 'Ctrip Cookie probe exposes cookies_incomplete');

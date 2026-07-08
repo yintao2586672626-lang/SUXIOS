@@ -4762,9 +4762,14 @@
                                         {{ tag.text }}
                                     </span>
                                 </div>
+                                <div :class="['mt-3 rounded-lg border px-3 py-2 text-xs leading-5', card.issueBlocked ? 'border-amber-100 bg-amber-50 text-amber-800' : 'border-emerald-100 bg-emerald-50 text-emerald-800']">
+                                    <div class="font-medium">发放结论：{{ card.issueStatusText }}</div>
+                                    <div class="mt-0.5">{{ card.issueStatusDetail }}</div>
+                                </div>
                                 <div class="mt-3 flex items-center justify-between gap-2 text-xs">
                                     <span class="text-slate-400">当前账号 {{ card.userCount }} 个</span>
-                                    <button v-if="user?.is_super_admin" type="button" @click="openUserModalWithRole(card.roleId)" class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 font-medium text-blue-700 hover:bg-blue-100">
+                                    <button v-if="user?.is_super_admin" type="button" @click="openUserModalWithRole(card.roleId)" :disabled="card.issueBlocked" :title="card.issueBlocked ? card.issueStatusDetail : roleIssueActionText(card)"
+                                        :class="card.issueBlocked ? 'rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 font-medium text-amber-700 cursor-not-allowed opacity-80' : 'rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 font-medium text-blue-700 hover:bg-blue-100'">
                                         {{ roleIssueActionText(card) }}
                                     </button>
                                 </div>
@@ -29181,12 +29186,62 @@
                 return keys.some(key => permissions.includes(key));
             };
 
+            const normalExternalDeniedPermissionGroups = [
+                { label: '门店新增/编辑', keys: ['hotel.create', 'hotel.update', 'can_manage_own_hotels'] },
+                { label: 'OTA采集', keys: ['ota.collect', 'ota.collect_batch', 'can_fetch_online_data'] },
+                { label: 'OTA删除', keys: ['ota.delete', 'can_delete_online_data'] },
+                { label: '数据导出', keys: ['ota.export', 'report.export', 'can_export_data'] },
+                { label: 'AI执行', keys: ['ai.execute', 'can_use_ai_decision'] },
+                { label: '用户/角色管理', keys: ['user.role_change', 'can_manage_users'] },
+            ];
+
+            const roleUnsafeExternalCapabilityLabels = (role = {}) => {
+                const permissions = rolePermissionList(role);
+                if (!permissions.length) return [];
+                return normalExternalDeniedPermissionGroups
+                    .filter(group => permissions.includes('all') || group.keys.some(key => permissions.includes(key)))
+                    .map(group => group.label);
+            };
+
+            const issueStatusForRoleProfile = (profile = {}) => {
+                if (profile.key === 'normal_user' && profile.issueBlockers?.length) {
+                    return {
+                        issueBlocked: true,
+                        issueStatusText: '先修角色权限',
+                        issueStatusDetail: profile.issueBlockers[0],
+                    };
+                }
+                if (profile.key === 'normal_user') {
+                    return {
+                        issueBlocked: false,
+                        issueStatusText: '可发普通账号',
+                        issueStatusDetail: '只读授权门店 OTA 数据；创建时仍必须分配门店。',
+                    };
+                }
+                if (profile.key === 'beta_user') {
+                    return {
+                        issueBlocked: false,
+                        issueStatusText: '可发内测账号',
+                        issueStatusDetail: profile.canManageHotels ? '适合可信内测方；可按角色能力绑定/管理自己门店。' : '适合已分配门店的内测账号；创建时需确认门店范围。',
+                    };
+                }
+                return {
+                    issueBlocked: false,
+                    issueStatusText: '需人工复核',
+                    issueStatusDetail: profile.boundary || '自定义角色发放前需人工复核权限和门店范围。',
+                };
+            };
+
             const roleIssueProfile = (role = {}) => {
                 const roleId = Number(role?.id || 0);
                 const roleName = String(role?.name || '').trim();
                 const level = Number(role?.level || 0);
                 const canCollectOta = roleHasAnyPermission(role, ['ota.collect', 'can_fetch_online_data']);
                 const canManageHotels = roleHasAnyPermission(role, ['hotel.create', 'can_manage_own_hotels']);
+                const unsafeExternalCapabilityLabels = roleUnsafeExternalCapabilityLabels(role);
+                const normalExternalIssueBlockers = unsafeExternalCapabilityLabels.length
+                    ? [`普通用户角色含高风险权限：${unsafeExternalCapabilityLabels.join('、')}。先在角色管理移除后再对外发放。`]
+                    : [];
                 if (roleId === 1 || roleName === 'admin' || level === 1) {
                     return {
                         key: 'admin',
@@ -29202,6 +29257,7 @@
                         requiresHotelAssignment: false,
                         roleId,
                         userCount: 0,
+                        issueBlockers: [],
                     };
                 }
                 if (roleId === 2 || roleName === 'beta_user' || level === 2) {
@@ -29219,23 +29275,25 @@
                         requiresHotelAssignment: !canManageHotels,
                         roleId,
                         userCount: 0,
+                        issueBlockers: [],
                     };
                 }
                 if (roleId === 3 || roleName === 'normal_user' || level >= 3) {
                     return {
                         key: 'normal_user',
                         title: '普通用户',
-                        badge: canCollectOta ? '需复核' : '安全查看',
-                        badgeClass: canCollectOta ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700',
+                        badge: normalExternalIssueBlockers.length ? '需修权限' : '安全查看',
+                        badgeClass: normalExternalIssueBlockers.length ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700',
                         audience: '发给外部普通试用者、门店员工或只读体验账号',
                         scope: '必须分配门店；未分配则不应看到业务数据',
                         ota: canCollectOta ? '当前角色含 OTA 采集权限，发外部账号前需复核' : '默认只查看授权门店 OTA 数据，不发起采集',
-                        boundary: '不允许新增门店、管理用户、修改系统配置；适合对外发放。',
+                        boundary: normalExternalIssueBlockers.length ? normalExternalIssueBlockers[0] : '不允许新增门店、管理用户、修改系统配置；适合对外发放。',
                         canCollectOta,
                         canManageHotels,
                         requiresHotelAssignment: true,
                         roleId,
                         userCount: 0,
+                        issueBlockers: normalExternalIssueBlockers,
                     };
                 }
                 return {
@@ -29252,6 +29310,7 @@
                     requiresHotelAssignment: !canManageHotels,
                     roleId,
                     userCount: 0,
+                    issueBlockers: [],
                 };
             };
 
@@ -29286,6 +29345,7 @@
             const withRolePermissionTags = (profile = {}) => ({
                 ...profile,
                 permissionTags: rolePermissionTags(profile),
+                ...issueStatusForRoleProfile(profile),
             });
 
             const userRoleIssueProfile = (u = {}) => withRolePermissionTags(roleIssueProfile(roleForUser(u)));
@@ -29314,6 +29374,7 @@
             };
 
             const roleIssueActionText = (profile = {}) => {
+                if (profile.issueBlocked) return '先修角色权限';
                 if (profile.key === 'beta_user') return '发内测账号';
                 if (profile.key === 'normal_user') return '发普通账号';
                 return '发放此角色';
@@ -29403,6 +29464,9 @@
                 const profile = roleIssueProfile(role);
                 if (profile.key === 'normal_user' && profile.canCollectOta) {
                     return '普通用户角色当前包含 OTA 采集权限，请先在角色管理移除采集权限后再发放。';
+                }
+                if (profile.issueBlockers?.length) {
+                    return profile.issueBlockers[0];
                 }
                 if (profile.requiresHotelAssignment && assignedHotelIds.length === 0) {
                     return '该角色必须先分配门店，避免生成无业务范围的外部账号。';

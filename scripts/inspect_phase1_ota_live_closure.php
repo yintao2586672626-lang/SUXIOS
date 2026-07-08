@@ -3776,7 +3776,7 @@ function inspection_traffic_source_latest_sync_task_summary(int $dataSourceId): 
         return ['status' => 'task_read_failed', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
     }
 
-    $fields = existing_columns('platform_data_sync_tasks', ['id', 'data_source_id', 'status', 'message', 'stats_json']);
+    $fields = existing_columns('platform_data_sync_tasks', ['id', 'data_source_id', 'status', 'started_at', 'message', 'stats_json', 'create_time', 'update_time']);
     if (!in_array('id', $fields, true) || !in_array('data_source_id', $fields, true)) {
         return ['status' => 'task_schema_missing', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
     }
@@ -3797,7 +3797,7 @@ function inspection_traffic_source_latest_sync_task_summary(int $dataSourceId): 
     $stats = json_decode((string)($task['stats_json'] ?? ''), true);
     $stats = is_array($stats) ? $stats : [];
     return [
-        'status' => strtolower(trim((string)($task['status'] ?? 'unknown'))),
+        'status' => inspection_traffic_source_effective_sync_task_status($task),
         'message_code' => inspection_traffic_source_sync_task_message_code($task, $stats),
         'saved_count' => max(0, (int)($stats['saved_count'] ?? 0)),
         'normalized_count' => max(0, (int)($stats['normalized_count'] ?? 0)),
@@ -3814,7 +3814,10 @@ function inspection_traffic_source_sync_task_message_code(array $task, array $st
     if ($status === '') {
         return 'task_status_missing';
     }
-    if (in_array($status, ['pending', 'running', 'syncing', 'syncing_after_login'], true)) {
+    if (inspection_traffic_source_sync_task_is_stale_running($task)) {
+        return 'stale_running';
+    }
+    if (in_array($status, ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'], true)) {
         return 'sync_running';
     }
     if ($status === 'success' && $savedCount > 0) {
@@ -3839,6 +3842,39 @@ function inspection_traffic_source_sync_task_message_code(array $task, array $st
         return 'capture_failed';
     }
     return 'unknown';
+}
+
+function inspection_traffic_source_effective_sync_task_status(array $task): string
+{
+    $status = strtolower(trim((string)($task['status'] ?? 'unknown')));
+    return inspection_traffic_source_sync_task_is_stale_running($task) ? 'stale_running' : $status;
+}
+
+function inspection_traffic_source_sync_task_is_stale_running(array $task): bool
+{
+    $status = strtolower(trim((string)($task['status'] ?? '')));
+    if (!in_array($status, ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'], true)) {
+        return false;
+    }
+
+    $ageSeconds = inspection_traffic_source_sync_task_age_seconds($task);
+    return $ageSeconds !== null && $ageSeconds > 3600;
+}
+
+function inspection_traffic_source_sync_task_age_seconds(array $task): ?int
+{
+    foreach (['update_time', 'started_at', 'create_time'] as $key) {
+        $timeText = trim((string)($task[$key] ?? ''));
+        if ($timeText === '') {
+            continue;
+        }
+        $timestamp = strtotime($timeText);
+        if ($timestamp !== false) {
+            return max(0, time() - $timestamp);
+        }
+    }
+
+    return null;
 }
 
 function inspection_traffic_source_sync_task_message_looks_like_login_blocker(string $message): bool

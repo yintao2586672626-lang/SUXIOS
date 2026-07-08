@@ -3490,10 +3490,11 @@ trait Phase1EmployeeConsoleConcern
         $stats = is_array($stats) ? $stats : [];
         $payloadKeys = $stats['payload_keys'] ?? [];
         $payloadKeyCount = is_array($payloadKeys) ? count($payloadKeys) : 0;
+        $effectiveStatus = $this->phase1EffectiveSyncTaskStatus($task);
         $messageCode = $this->phase1P0SyncTaskMessageCode($task, $stats);
 
         return [
-            'status' => strtolower(trim((string)($task['status'] ?? 'unknown'))),
+            'status' => $effectiveStatus,
             'data_source_id' => $dataSourceId,
             'task_id' => (int)($task['id'] ?? 0),
             'trigger_type' => (string)($task['trigger_type'] ?? ''),
@@ -3523,7 +3524,10 @@ trait Phase1EmployeeConsoleConcern
         if ($status === '') {
             return 'task_status_missing';
         }
-        if (in_array($status, ['pending', 'running', 'syncing', 'syncing_after_login'], true)) {
+        if ($this->phase1SyncTaskIsStaleRunning($task)) {
+            return 'stale_running';
+        }
+        if (in_array($status, ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'], true)) {
             return 'sync_running';
         }
         if ($status === 'success' && $savedCount > 0) {
@@ -3559,6 +3563,39 @@ trait Phase1EmployeeConsoleConcern
         return 'unknown';
     }
 
+    private function phase1EffectiveSyncTaskStatus(array $task): string
+    {
+        $status = strtolower(trim((string)($task['status'] ?? 'unknown')));
+        return $this->phase1SyncTaskIsStaleRunning($task) ? 'stale_running' : $status;
+    }
+
+    private function phase1SyncTaskIsStaleRunning(array $task): bool
+    {
+        $status = strtolower(trim((string)($task['status'] ?? '')));
+        if (!in_array($status, ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'], true)) {
+            return false;
+        }
+
+        $ageSeconds = $this->phase1SyncTaskAgeSeconds($task);
+        return $ageSeconds !== null && $ageSeconds > 3600;
+    }
+
+    private function phase1SyncTaskAgeSeconds(array $task): ?int
+    {
+        foreach (['update_time', 'started_at', 'create_time'] as $key) {
+            $timeText = trim((string)($task[$key] ?? ''));
+            if ($timeText === '') {
+                continue;
+            }
+            $timestamp = strtotime($timeText);
+            if ($timestamp !== false) {
+                return max(0, time() - $timestamp);
+            }
+        }
+
+        return null;
+    }
+
     private function phase1P0SyncTaskMessageLooksLikeLoginBlocker(string $message): bool
     {
         return str_contains($message, 'profile is not prepared')
@@ -3582,6 +3619,7 @@ trait Phase1EmployeeConsoleConcern
             'browser_dependency_missing' => 'browser_capture_dependency_missing',
             'no_rows_parsed' => 'capture_returned_no_business_rows',
             'sync_running' => 'sync_task_not_finished',
+            'stale_running' => 'stale_running_task',
             'waiting_config' => 'data_source_waiting_config',
             'task_status_missing' => 'sync_task_status_missing',
             default => 'diagnosis_unknown',

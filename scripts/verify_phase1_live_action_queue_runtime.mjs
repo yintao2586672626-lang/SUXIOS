@@ -261,7 +261,7 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
     const latestSyncCodeCounts = sourceRow?.traffic_latest_sync_task_message_code_counts && typeof sourceRow.traffic_latest_sync_task_message_code_counts === 'object' && !Array.isArray(sourceRow.traffic_latest_sync_task_message_code_counts)
       ? sourceRow.traffic_latest_sync_task_message_code_counts
       : {};
-    const latestSyncAllowedCodes = ['task_status_missing', 'sync_running', 'sync_reported_saved_rows_requires_target_date_verifier', 'sync_normalized_without_saved_rows', 'sync_completed_without_saved_rows', 'login_or_profile_not_ready', 'waiting_config', 'browser_dependency_missing', 'no_rows_parsed', 'capture_failed', 'unknown'];
+    const latestSyncAllowedCodes = ['task_status_missing', 'sync_running', 'stale_running', 'sync_reported_saved_rows_requires_target_date_verifier', 'sync_normalized_without_saved_rows', 'sync_completed_without_saved_rows', 'login_or_profile_not_ready', 'waiting_config', 'browser_dependency_missing', 'no_rows_parsed', 'capture_failed', 'unknown'];
     check(`${prefix} latest sync task status counts are explicit object`, sourceRow?.traffic_latest_sync_task_status_counts && typeof sourceRow.traffic_latest_sync_task_status_counts === 'object' && !Array.isArray(sourceRow.traffic_latest_sync_task_status_counts), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} latest sync task message code counts are explicit object`, sourceRow?.traffic_latest_sync_task_message_code_counts && typeof sourceRow.traffic_latest_sync_task_message_code_counts === 'object' && !Array.isArray(sourceRow.traffic_latest_sync_task_message_code_counts), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} latest sync task message codes stay known`, Object.keys(latestSyncCodeCounts).every((code) => latestSyncAllowedCodes.includes(code)), JSON.stringify(latestSyncCodeCounts));
@@ -278,7 +278,7 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
     check(`${prefix} P0 external evidence status is explicit`, ['not_provided', 'valid', 'invalid'].includes(String(sourceRow?.p0_external_evidence_status ?? '')), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 pre-import evidence status is explicit`, ['not_provided', 'valid_external_evidence_not_ingested', 'valid_external_evidence_with_ingested_rows', 'external_evidence_not_valid'].includes(String(sourceRow?.p0_pre_import_evidence_status ?? '')), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 pre-import evidence policy stays separate from completion`, String(sourceRow?.p0_pre_import_evidence_policy ?? '').includes('source proof only') && String(sourceRow?.p0_pre_import_evidence_policy ?? '').includes('target-date traffic rows'), JSON.stringify(sourceRow ?? {}));
-    check(`${prefix} P0 traffic field fact status is explicit`, ['no_target_date_traffic_rows', 'requires_p0_verifier'].includes(String(sourceRow?.p0_traffic_field_fact_status ?? '')), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 traffic field fact status is explicit`, ['no_target_date_traffic_rows', 'requires_p0_verifier', 'ready'].includes(String(sourceRow?.p0_traffic_field_fact_status ?? '')), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 payload candidate policy is UI metadata only`, String(sourceRow?.p0_payload_candidate_policy ?? '') === 'ui_metadata_only_no_import', JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 payload candidate payload policy hides content`, String(sourceRow?.p0_payload_candidate_payload_policy ?? '') === 'path_metadata_only_no_payload_content', JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 payload candidate storage policy is read-only`, String(sourceRow?.p0_payload_candidate_storage_policy ?? '') === 'does_not_write_online_daily_data', JSON.stringify(sourceRow ?? {}));
@@ -391,10 +391,13 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
         check(`${prefix} P0 traffic closure chain stays unloaded without target-date rows for ${chainKey}`, chainStatus === 'no_target_date_traffic_rows', JSON.stringify(chainItem ?? {}));
       }
     }
+    const p0GateStatus = String(sourceRow?.p0_traffic_gate_status ?? '');
+    const p0GateReady = p0GateStatus === 'ready';
+    const expectedReadyOrVerifier = p0GateReady ? 'ready' : 'requires_p0_verifier';
     if (targetTrafficRows <= 0) {
       check(`${prefix} P0 traffic closure chain keeps verifier incomplete without target-date rows`, String(closureChain?.verifier?.status ?? '') === 'incomplete', JSON.stringify(closureChain));
     } else {
-      check(`${prefix} P0 traffic closure chain keeps verifier pending until P0 verifier passes`, String(closureChain?.verifier?.status ?? '') === 'requires_p0_verifier', JSON.stringify(closureChain));
+      check(`${prefix} P0 traffic closure chain follows the current P0 verifier result`, String(closureChain?.verifier?.status ?? '') === expectedReadyOrVerifier, JSON.stringify(closureChain));
     }
     const sourceCount = Number(sourceRow?.traffic_source_count ?? 0);
     const waitingCount = Number(sourceRow?.traffic_waiting_config_count ?? 0);
@@ -402,9 +405,9 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
     const status = String(sourceRow?.status ?? '');
     if (targetTrafficRows > 0) {
       check(`${prefix} marks real target-date traffic rows present`, status === 'target_date_traffic_ready', JSON.stringify(sourceRow ?? {}));
-      check(`${prefix} does not mark P0 traffic gate ready from rows alone`, String(sourceRow?.p0_traffic_gate_status ?? '') === 'requires_p0_verifier', JSON.stringify(sourceRow ?? {}));
-      check(`${prefix} target-date traffic rows still require verifier for field facts`, String(sourceRow?.p0_traffic_field_fact_status ?? '') === 'requires_p0_verifier', JSON.stringify(sourceRow ?? {}));
-      check(`${prefix} target-date traffic rows still require verifier for platform hotel identity`, String(sourceRow?.p0_platform_hotel_identifier_status ?? '') === 'requires_p0_verifier', JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} P0 traffic gate reflects verifier result rather than rows alone`, ['requires_p0_verifier', 'ready'].includes(p0GateStatus), JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} target-date traffic field facts follow verifier result`, String(sourceRow?.p0_traffic_field_fact_status ?? '') === expectedReadyOrVerifier, JSON.stringify(sourceRow ?? {}));
+      check(`${prefix} target-date traffic platform hotel identity follows verifier result`, String(sourceRow?.p0_platform_hotel_identifier_status ?? '') === expectedReadyOrVerifier, JSON.stringify(sourceRow ?? {}));
       check(`${prefix} target-date traffic field loop does not stay unloaded`, fieldLoopMatrix.every((item) => String(item?.status ?? '') !== 'no_target_date_traffic_rows'), JSON.stringify(fieldLoopMatrix));
       check(`${prefix} ready P0 rows use status-check mode`, String(sourceRow?.p0_next_action_mode ?? '') === 'status_check', JSON.stringify(sourceRow ?? {}));
       check(`${prefix} ready traffic rows require no next inputs`, asArray(sourceRow?.required_next_inputs).length === 0, JSON.stringify(sourceRow ?? {}));

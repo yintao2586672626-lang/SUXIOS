@@ -184,10 +184,18 @@ assert.match(indexHtml, /beta:\s*rows\.filter\(u => userRoleIdentityKey\(u\) ===
 assert.match(indexHtml, /normal:\s*rows\.filter\(u => userRoleIdentityKey\(u\) === 'normal_user'\)\.length/, 'user management summary must count normal external accounts by role identity');
 assert.match(indexHtml, /const roleIssueGuideCards = computed\(\(\) =>/, 'user management must expose beta/normal role issue guide cards');
 assert.match(indexHtml, /const rolePermissionTags = \(profile = \{\}\) =>/, 'role issue cards must expose permission tags for beta and normal account issuance');
+assert.match(indexHtml, /const normalExternalDeniedPermissionGroups = \[/, 'role issue cards must use an explicit denied-capability checklist for normal external accounts');
+assert.match(indexHtml, /const roleUnsafeExternalCapabilityLabels = \(role = \{\}\) =>/, 'role issue cards must translate unsafe normal-user permissions into reviewable labels');
+assert.match(indexHtml, /const issueStatusForRoleProfile = \(profile = \{\}\) =>/, 'role issue cards must expose a clear issuance conclusion');
+assert.match(indexHtml, /普通用户角色含高风险权限：\$\{unsafeExternalCapabilityLabels\.join\('、'\)\}/, 'normal-user issuance blockers must name the risky permission groups');
 assert.match(indexHtml, /withRolePermissionTags\(roleIssueProfile\(role\)\)/, 'role issue cards must attach permission tags to role profiles');
 assert.match(indexHtml, /roleId === 3 \|\| roleName === 'normal_user' \|\| level >= 3/, 'front-end role profiles must treat staff-level roles as normal external accounts');
 assert.match(indexHtml, /openUserModalWithRole\(card\.roleId\)/, 'user management must support issuing beta/normal roles from guide cards');
 assert.match(indexHtml, /roleIssueActionText\(card\)/, 'role issue cards must use explicit beta or normal issue actions');
+assert.match(indexHtml, /发放结论：\{\{ card\.issueStatusText \}\}/, 'role issue cards must show the issuance conclusion before admins create external users');
+assert.match(indexHtml, /:title="card\.issueBlocked \? card\.issueStatusDetail : roleIssueActionText\(card\)"/, 'blocked role issue cards must expose the blocker detail on the disabled action');
+assert.match(indexHtml, /:disabled="card\.issueBlocked"/, 'unsafe normal-user role cards must not present an enabled external issuance action');
+assert.match(indexHtml, /if \(profile\.issueBlocked\) return '先修角色权限'/, 'blocked normal-user role cards must direct admins to repair the role first');
 assert.match(indexHtml, /selectedUserRoleGuide/, 'user modal must show the selected role issue boundary');
 assert.match(indexHtml, /selectedUserRoleGuide\.permissionTags/, 'user modal must show selected role permission tags');
 assert.match(indexHtml, /const userIssueChecklistRows = computed\(\(\) =>/, 'user modal must show an issuance checklist before external accounts are saved');

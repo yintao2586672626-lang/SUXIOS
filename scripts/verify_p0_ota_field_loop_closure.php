@@ -1811,10 +1811,11 @@ function p0_latest_sync_task(int $dataSourceId, string $targetDate): array
     $stats = is_array($stats) ? $stats : [];
     $payloadKeys = $stats['payload_keys'] ?? [];
     $payloadKeyCount = is_array($payloadKeys) ? count($payloadKeys) : 0;
+    $effectiveStatus = p0_effective_sync_task_status($task);
     $messageCode = p0_sync_task_message_code($task, $stats);
 
     return [
-        'status' => strtolower(trim((string)($task['status'] ?? 'unknown'))),
+        'status' => $effectiveStatus,
         'data_source_id' => $dataSourceId,
         'task_id' => (int)($task['id'] ?? 0),
         'trigger_type' => (string)($task['trigger_type'] ?? ''),
@@ -1848,7 +1849,10 @@ function p0_sync_task_message_code(array $task, array $stats): string
     if ($status === '') {
         return 'task_status_missing';
     }
-    if (in_array($status, ['pending', 'running', 'syncing', 'syncing_after_login'], true)) {
+    if (p0_sync_task_is_stale_running($task)) {
+        return 'stale_running';
+    }
+    if (in_array($status, ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'], true)) {
         return 'sync_running';
     }
     if ($status === 'success' && $savedCount > 0) {
@@ -1884,6 +1888,39 @@ function p0_sync_task_message_code(array $task, array $stats): string
     return 'unknown';
 }
 
+function p0_effective_sync_task_status(array $task): string
+{
+    $status = strtolower(trim((string)($task['status'] ?? 'unknown')));
+    return p0_sync_task_is_stale_running($task) ? 'stale_running' : $status;
+}
+
+function p0_sync_task_is_stale_running(array $task): bool
+{
+    $status = strtolower(trim((string)($task['status'] ?? '')));
+    if (!in_array($status, ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'], true)) {
+        return false;
+    }
+
+    $ageSeconds = p0_sync_task_age_seconds($task);
+    return $ageSeconds !== null && $ageSeconds > 3600;
+}
+
+function p0_sync_task_age_seconds(array $task): ?int
+{
+    foreach (['update_time', 'started_at', 'create_time'] as $key) {
+        $timeText = trim((string)($task[$key] ?? ''));
+        if ($timeText === '') {
+            continue;
+        }
+        $timestamp = strtotime($timeText);
+        if ($timestamp !== false) {
+            return max(0, time() - $timestamp);
+        }
+    }
+
+    return null;
+}
+
 function p0_sync_task_message_looks_like_login_blocker(string $message): bool
 {
     return str_contains($message, 'profile is not prepared')
@@ -1907,6 +1944,7 @@ function p0_sync_task_diagnosis(string $messageCode): string
         'browser_dependency_missing' => 'browser_capture_dependency_missing',
         'no_rows_parsed' => 'capture_returned_no_business_rows',
         'sync_running' => 'sync_task_not_finished',
+        'stale_running' => 'stale_running_task',
         'waiting_config' => 'data_source_waiting_config',
         'task_status_missing' => 'sync_task_status_missing',
         default => 'diagnosis_unknown',
