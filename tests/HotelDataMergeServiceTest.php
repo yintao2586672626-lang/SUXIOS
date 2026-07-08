@@ -11,19 +11,31 @@ final class HotelDataMergeServiceTest extends TestCase
         $plans = (new HotelDataMergeService())->migrationPlans();
 
         $hasOnlineSystemHotelPlan = false;
+        $hasCompetitorPriceStorePlan = false;
         foreach ($plans as $plan) {
             if ($plan['table'] === 'online_daily_data' && $plan['column'] === 'system_hotel_id') {
                 $hasOnlineSystemHotelPlan = true;
                 break;
             }
         }
+        foreach ($plans as $plan) {
+            if ($plan['table'] === 'competitor_price_log' && $plan['column'] === 'store_id') {
+                $hasCompetitorPriceStorePlan = true;
+                break;
+            }
+        }
 
         $this->assertTrue($hasOnlineSystemHotelPlan, 'online_daily_data must be migrated by system_hotel_id.');
+        $this->assertTrue($hasCompetitorPriceStorePlan, 'competitor_price_log must be migrated by store_id because hotel_id is the competitor hotel id.');
 
         foreach ($plans as $plan) {
             $this->assertFalse(
                 $plan['table'] === 'online_daily_data' && $plan['column'] === 'hotel_id',
                 'online_daily_data.hotel_id is an OTA platform hotel id and must not be migrated.'
+            );
+            $this->assertFalse(
+                $plan['table'] === 'competitor_price_log' && $plan['column'] === 'hotel_id',
+                'competitor_price_log.hotel_id is a competitor hotel id and must not be migrated as system hotel scope.'
             );
         }
     }

@@ -57,7 +57,7 @@ class HotelDataMergeService
             ['table' => 'price_suggestions', 'column' => 'hotel_id', 'label' => '价格建议', 'scope' => 'revenue'],
             ['table' => 'demand_forecasts', 'column' => 'hotel_id', 'label' => '需求预测', 'scope' => 'revenue'],
             ['table' => 'competitor_analysis', 'column' => 'hotel_id', 'label' => '竞对分析', 'scope' => 'revenue'],
-            ['table' => 'competitor_price_log', 'column' => 'hotel_id', 'label' => '竞对价格日志', 'scope' => 'revenue'],
+            ['table' => 'competitor_price_log', 'column' => 'store_id', 'label' => '竞对价格日志', 'scope' => 'revenue'],
             ['table' => 'knowledge_categories', 'column' => 'hotel_id', 'label' => '知识分类', 'scope' => 'knowledge'],
             ['table' => 'knowledge_base', 'column' => 'hotel_id', 'label' => '知识库', 'scope' => 'knowledge'],
             ['table' => 'knowledge_units', 'column' => 'hotel_id', 'label' => '知识单元', 'scope' => 'knowledge'],
