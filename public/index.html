@@ -4168,7 +4168,7 @@
                                                         class="w-full rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100">
                                                         维护账号
                                                     </button>
-                                                    <div v-if="user?.is_super_admin" class="grid grid-cols-2 gap-1.5">
+                                                    <div v-if="canManageOwnHotels()" class="grid grid-cols-2 gap-1.5">
                                                         <button type="button" @click="openHotelManualFetchConfig(hotel, 'ctrip')"
                                                             class="whitespace-nowrap rounded-lg border border-blue-100 bg-white px-2 py-1.5 text-xs text-blue-700 hover:bg-blue-50">
                                                             携程配置
@@ -9078,7 +9078,7 @@
                                 </div>
 
                                 <!-- 携程配置旧面板：入口已统一到酒店管理 -->
-                                <div v-if="onlineDataTab === 'ctrip-config' && user?.is_super_admin">
+                                <div v-if="onlineDataTab === 'ctrip-config' && canManageOwnHotels()">
                                     <!-- Cookie/API 辅助内容获取说明 - 默认显示 -->
                                     <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-yellow-800 mb-2 flex items-center justify-between">
@@ -18002,7 +18002,7 @@
                                                 class="px-2.5 py-1.5 rounded-lg border border-white bg-white text-xs text-gray-700 hover:border-blue-200 hover:text-blue-700">
                                                 {{ account.primaryActionText }}
                                             </button>
-                                            <button v-if="user?.is_super_admin" type="button" @click="showHotelModal = false; openHotelManualFetchConfig(hotelFormAccountHotel(), account.platform)"
+                                            <button v-if="canManageOwnHotels()" type="button" @click="showHotelModal = false; openHotelManualFetchConfig(hotelFormAccountHotel(), account.platform)"
                                                 class="px-2.5 py-1.5 rounded-lg border border-white bg-white text-xs text-gray-700 hover:border-blue-200 hover:text-blue-700">
                                                 手动配置
                                             </button>

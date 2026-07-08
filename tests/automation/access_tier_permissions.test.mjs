@@ -72,6 +72,9 @@ assert.equal(
 
 assert.match(indexHtml, /const canManageOwnHotels = \(\) =>/, '前端必须提供统一门店管理权限判断');
 assert.match(indexHtml, /v-if="canManageOwnHotels\(\)"/, '门店管理按钮必须使用 canManageOwnHotels()');
+assert.match(indexHtml, /v-if="canManageOwnHotels\(\)" class="grid grid-cols-2 gap-1\.5"[\s\S]*openHotelManualFetchConfig\(hotel, 'ctrip'\)[\s\S]*openHotelManualFetchConfig\(hotel, 'meituan'\)/, '门店管理账号必须能打开携程和美团手动配置入口');
+assert.match(indexHtml, /onlineDataTab === 'ctrip-config' && canManageOwnHotels\(\)/, '携程配置面板不能只限制超级管理员，门店管理账号也要能补 Cookie');
+assert.match(indexHtml, /v-if="canManageOwnHotels\(\)" type="button" @click="showHotelModal = false; openHotelManualFetchConfig\(hotelFormAccountHotel\(\), account\.platform\)"/, '门店弹窗内的手动配置入口必须对门店管理账号可见');
 assert.match(indexHtml, /type:\s*'source',\s*sourcePath:\s*'hotels'[\s\S]*testid:\s*'nav-lean-hotel-management'/, '门店管理必须作为一级菜单直接进入 hotels 页面');
 assert.doesNotMatch(indexHtml, /testid:\s*'nav-lean-hotel-knowledge'[\s\S]{0,160}children:\s*\[/, '门店管理不能再作为单子项下拉分组');
 assert.match(indexHtml, />门店总数<\/span>/, 'hotel account filter should use clear total-store copy');
