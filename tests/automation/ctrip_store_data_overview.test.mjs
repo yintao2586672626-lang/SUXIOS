@@ -333,6 +333,10 @@ test('Ctrip Cookie API save is guarded against cross-store hotel identity confli
   assert.match(cookieApiHandler, /validateCtripPayloadHotelIdentity\(\$payload, \(int\)\$systemHotelId, \$prepared\['config'\] \?\? \[\]\)/);
   assert.match(cookieApiHandler, /reason'\s*=>\s*'hotel_identity_mismatch'/);
   assert.match(cookieApiHandler, /saved_count'\s*=>\s*0/);
+  assert.match(cookieApiHandler, /expected_platform_hotel_id_missing/);
+  assert.match(cookieApiHandler, /\$saveBlockedIdentity\s*=\s*\$identityCheck/);
+  assert.doesNotMatch(cookieApiHandler, /cookie_only_without_platform_hotel_id/);
+  assert.doesNotMatch(cookieApiHandler, /expected_platform_hotel_id_missing[\s\S]{0,500}\$identityCheck\['ok'\]\s*=\s*true/);
   assert.match(backend, /private function validateCtripPayloadHotelIdentity\(array \$payload, int \$systemHotelId, array \$config = \[\]\): array/);
   assert.match(backend, /private function findCtripPlatformHotelIdConflicts\(array \$platformHotelIds, int \$systemHotelId\): array/);
   assert.match(backend, /private function filterAmbiguousCtripHotelRows\(array \$rows, \?int \$hotelId\): array/);

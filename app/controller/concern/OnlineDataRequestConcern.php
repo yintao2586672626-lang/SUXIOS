@@ -1089,9 +1089,9 @@ trait OnlineDataRequestConcern
                     if (empty($identityCheck['ok'])) {
                         $identityStatus = (string)($identityCheck['status'] ?? '');
                         if (in_array($identityStatus, ['expected_platform_hotel_id_missing', 'no_platform_hotel_id', 'returned_current_hotel_id_missing'], true)) {
-                            $identityCheck['ok'] = true;
                             $identityCheck['warning'] = true;
-                            $identityCheck['message'] = (string)($identityCheck['message'] ?? '携程未返回可校验酒店身份，已按当前选择门店继续入库；请确认 Cookie 对应该门店。');
+                            $identityCheck['message'] = (string)($identityCheck['message'] ?? '携程未返回可校验酒店身份，已阻止 Cookie API 自动入库；请先确认并补充真实携程 hotelId。');
+                            $saveBlockedIdentity = $identityCheck;
                         } else {
                             return $this->error((string)$identityCheck['message'], 409, [
                                 'reason' => 'hotel_identity_mismatch',
@@ -1102,23 +1102,27 @@ trait OnlineDataRequestConcern
                             ]);
                         }
                     }
-                    if (empty($identityCheck['expected_hotel_ids'])) {
-                        $identityCheck['ok'] = true;
-                        $identityCheck['status'] = 'cookie_only_without_platform_hotel_id';
+                    if ($saveBlockedIdentity === null && empty($identityCheck['expected_hotel_ids'])) {
+                        $identityCheck['ok'] = false;
+                        $identityCheck['status'] = 'expected_platform_hotel_id_missing';
                         $identityCheck['warning'] = true;
-                        $identityCheck['message'] = '当前门店未配置携程 hotelId，已按 Cookie API 授权结果继续入库；建议后续补充 hotelId 以提升错店校验。';
+                        $identityCheck['message'] = '当前门店未配置可校验的携程 hotelId，已阻止 Cookie API 自动入库；请先补充真实携程 hotelId 后重试。';
+                        $saveBlockedIdentity = $identityCheck;
                     }
-                    if (($identityCheck['status'] ?? '') === 'no_platform_hotel_id') {
-                        $identityCheck['ok'] = true;
+                    if ($saveBlockedIdentity === null && ($identityCheck['status'] ?? '') === 'no_platform_hotel_id') {
+                        $identityCheck['ok'] = false;
                         $identityCheck['warning'] = true;
-                        $identityCheck['message'] = '携程返回数据未识别到当前酒店身份，已按当前选择门店继续入库；请确认 Cookie 对应该门店。';
+                        $identityCheck['message'] = '携程返回数据未识别到可校验酒店身份，已阻止 Cookie API 自动入库；请确认 Cookie 对应门店并补充真实携程 hotelId。';
+                        $saveBlockedIdentity = $identityCheck;
                     }
-                    $requestHotelId = trim((string)($payload['hotel_id'] ?? $prepared['config']['hotel_id'] ?? $systemHotelId ?? ''));
-                    $dataDate = $this->normalizeOnlineDataDate($payload['default_data_date'] ?? $prepared['config']['data_date'] ?? '');
-                    if ($dataDate === '') {
-                        $dataDate = date('Y-m-d');
+                    if ($saveBlockedIdentity === null) {
+                        $requestHotelId = trim((string)($payload['hotel_id'] ?? $prepared['config']['hotel_id'] ?? $systemHotelId ?? ''));
+                        $dataDate = $this->normalizeOnlineDataDate($payload['default_data_date'] ?? $prepared['config']['data_date'] ?? '');
+                        if ($dataDate === '') {
+                            $dataDate = date('Y-m-d');
+                        }
+                        $saveResult = $this->saveCtripBrowserProfilePayload($payload, (int)$systemHotelId, $dataDate, $requestHotelId);
                     }
-                    $saveResult = $this->saveCtripBrowserProfilePayload($payload, (int)$systemHotelId, $dataDate, $requestHotelId);
                 }
             }
 
