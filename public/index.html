@@ -35732,8 +35732,8 @@
                     const qunarVisitorIncomplete = platform === 'ctrip'
                         && ctripQunarVisitorNeedsRetry(ctripQunarQuality);
                     const status = manualOneClickFetchResultStatus(result, savedCount, {
-                        requireQunarReady: platform === 'ctrip' && ctripRowsReturned,
-                        qunarReady: platform === 'ctrip' ? !qunarVisitorIncomplete : undefined,
+                        requireQunarReady: platform === 'ctrip',
+                        qunarReady: platform === 'ctrip' ? (ctripRowsReturned && !qunarVisitorIncomplete) : undefined,
                         ctripRowsReturned,
                     });
                     const statusText = status === 'queued'
@@ -35749,6 +35749,8 @@
                         message = `手动获取完成：携程和去哪儿均已返回${retryText}；${ctripSavedText}；去哪儿访客 ${ctripQunarQuality ? ctripQunarQuality.total : '未校验'}。`;
                     } else if (status === 'no_saved') {
                         message = `${responseMessage || '接口调用完成'}；本次入库 0 条，不等于入库成功`;
+                    } else if (platform === 'ctrip' && !ctripRowsReturned && (!responseMessage || responseMessage === '获取成功')) {
+                        message = '携程竞争圈未返回可展示行，携程和去哪儿都成功才算成功。';
                     } else if (responseMessage) {
                         message = responseMessage;
                     } else if (status === 'queued') {
