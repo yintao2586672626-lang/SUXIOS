@@ -339,9 +339,10 @@ includesAll('public/index.html', 'manual one-click Ctrip fetch retries partial Q
 
 includesAll('public/ctrip-static.js', 'single Ctrip fetch warns on partial Qunar visitor gaps without marking success', ctripStatic, [
   "data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap'",
-  'setFetchSuccess(!qunarVisitorGap)',
+  'const ctripFetchReady = ctripRowsReturned && data.qunar_visitor_quality?.ready === true',
+  'setFetchSuccess(ctripFetchReady)',
   '需要重抓；携程和去哪儿都返回有效值才算成功。',
-  "status: qunarVisitorGap ? 'partial_qunar_visitor_gap' : 'success'",
+  "status: ctripFetchReady ? 'success' : (qunarVisitorGap ? 'partial_qunar_visitor_gap' : 'no_saved')",
 ]);
 
 excludesAll('public/index.html', 'manual one-click fetch no longer soft-succeeds zero Qunar visitor gaps', frontend, [
@@ -357,7 +358,7 @@ excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip ma
 
 includesAll('public/index.html', 'manual one-click Ctrip fetch does not mark zero-Qunar retry exhaustion as success', frontend, [
   'manualOneClickFetchResultStatus(result, savedCount, {',
-  'requireQunarReady',
+  "requireQunarReady: platform === 'ctrip'",
   'qunarReady',
   '携程和去哪儿都成功才算成功',
 ]);

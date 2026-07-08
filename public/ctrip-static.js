@@ -1382,9 +1382,13 @@ window.SUXI_CTRIP_STATIC = (() => {
                 const savedCount = data.saved_count || 0;
                 setSavedCount(savedCount);
                 const qunarVisitorGap = data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap';
-                setFetchSuccess(!qunarVisitorGap);
+                const ctripRowsReturned = Number(data.display_hotel_count || allHotels.length || 0) > 0;
+                const ctripFetchReady = ctripRowsReturned && data.qunar_visitor_quality?.ready === true;
+                setFetchSuccess(ctripFetchReady);
                 if (qunarVisitorGap) {
                     notify(data.qunar_visitor_quality?.message || '去哪儿访客为 0 表示本次返回不完整，需要重抓；携程和去哪儿都返回有效值才算成功。', 'warning');
+                } else if (!ctripFetchReady) {
+                    notify(data.qunar_visitor_quality?.message || '携程竞争圈未返回可展示行，不能按成功处理。', 'warning');
                 }
                 const currentFetchMeta = buildCtripFetchMeta({
                     hotelId: selectedCtripHotelId || '',
@@ -1405,7 +1409,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 if (getOnlineDataTab() === 'data') {
                     refreshOnlineData();
                 }
-                return { status: qunarVisitorGap ? 'partial_qunar_visitor_gap' : 'success', response: res, meta: currentFetchMeta };
+                return { status: ctripFetchReady ? 'success' : (qunarVisitorGap ? 'partial_qunar_visitor_gap' : 'no_saved'), response: res, meta: currentFetchMeta };
             }
 
             if (res.code === 401) {
