@@ -194,6 +194,12 @@ assert.match(rolePermissionCardsSlice, /内测用户[\s\S]*可信内测方/, 'ro
 assert.match(rolePermissionCardsSlice, /普通用户[\s\S]*必须分配门店/, 'role permission cards must name normal external users and their hotel-scope requirement');
 assert.doesNotMatch(rolePermissionCardsSlice, />门店管理员<\/div>|>店员<\/div>/, 'role permission cards must not keep ambiguous legacy role labels for external issuance');
 assert.match(indexHtml, /const roleIssueGuideCards = computed\(\(\) =>/, 'user management must expose beta/normal role issue guide cards');
+assert.match(indexHtml, /handoffType:\s*'内测发放'/, 'beta issue profile must expose an explicit handoff type');
+assert.match(indexHtml, /handoffType:\s*'普通外发'/, 'normal issue profile must expose an explicit handoff type');
+assert.match(indexHtml, /dataBoundary:\s*'仅授权门店的 OTA 渠道数据和内测功能，不代表全酒店经营数据。'/, 'beta issue profile must show the OTA-only data boundary');
+assert.match(indexHtml, /dataBoundary:\s*'仅授权门店的 OTA 渠道只读数据；不代表全酒店经营数据，也不开放采集执行。'/, 'normal issue profile must show the read-only OTA boundary');
+assert.match(indexHtml, />发放类型：<\/span>\{\{ card\.handoffType \}\}/, 'role issue cards must render the handoff type');
+assert.match(indexHtml, />数据范围：<\/span>\{\{ card\.dataBoundary \}\}/, 'role issue cards must render the data boundary');
 assert.match(indexHtml, /const rolePermissionTags = \(profile = \{\}\) =>/, 'role issue cards must expose permission tags for beta and normal account issuance');
 assert.match(indexHtml, /const normalExternalDeniedPermissionGroups = \[/, 'role issue cards must use an explicit denied-capability checklist for normal external accounts');
 assert.match(indexHtml, /const roleUnsafeExternalCapabilityLabels = \(role = \{\}\) =>/, 'role issue cards must translate unsafe normal-user permissions into reviewable labels');
@@ -225,6 +231,8 @@ assert.match(indexHtml, /profile\.key === 'normal_user' && profile\.canCollectOt
 assert.match(indexHtml, /profile\.requiresHotelAssignment && assignedHotelIds\.length === 0/, 'external account issuance must block missing hotel scope');
 assert.match(indexHtml, /const issueError = validateUserIssueBeforeSave\(data, assignedHotelIds\)/, 'user save must run the issuance validator before request submission');
 assert.match(indexHtml, /const buildUserIssueGuideText = \(\) =>/, 'user modal must build a copyable issuance handoff message');
+assert.ok(indexHtml.includes("`发放类型：${profile?.handoffType || profile?.title || '-'}`"), 'copied issuance guidance must include the handoff type');
+assert.ok(indexHtml.includes("`数据范围：${profile?.dataBoundary || '-'}`"), 'copied issuance guidance must include the data boundary');
 assert.match(indexHtml, /const copyUserIssueGuide = \(\) =>/, 'user modal must expose a safe copy action for issuance guidance');
 assert.match(indexHtml, /applyUserRoleQuickFilter\(card\)/, 'user management must support one-click beta and normal account filtering');
 assert.match(indexHtml, /const resetUserFilters = \(\) =>/, 'user management filters must be reset through a shared helper');

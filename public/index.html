@@ -29270,14 +29270,14 @@
                     return {
                         issueBlocked: false,
                         issueStatusText: '可发普通账号',
-                        issueStatusDetail: '只读授权门店 OTA 数据；创建时仍必须分配门店。',
+                        issueStatusDetail: '普通外发：只读授权门店 OTA 数据；创建时仍必须分配门店。',
                     };
                 }
                 if (profile.key === 'beta_user') {
                     return {
                         issueBlocked: false,
                         issueStatusText: '可发内测账号',
-                        issueStatusDetail: profile.canManageHotels ? '适合可信内测方；可按角色能力绑定/管理自己门店。' : '适合已分配门店的内测账号；创建时需确认门店范围。',
+                        issueStatusDetail: profile.canManageHotels ? '内测发放：适合可信内测方；可按角色能力绑定/管理自己门店。' : '内测发放：适合已分配门店的内测账号；创建时需确认门店范围。',
                     };
                 }
                 return {
@@ -29444,13 +29444,13 @@
                 if (profile.key === 'admin') return '内部管理：不发给内测或外部用户';
                 if (profile.key === 'beta_user') {
                     return profile.canCollectOta
-                        ? '内测：授权门店内可查看/采集 OTA'
-                        : '内测：授权门店内只读 OTA';
+                        ? '内测发放：授权门店 OTA 查看/采集；不含用户/角色管理'
+                        : '内测发放：授权门店 OTA 只读；不含用户/角色管理';
                 }
                 if (profile.key === 'normal_user') {
                     return profile.canCollectOta
                         ? '普通：含采集权限，发放前需复核'
-                        : '普通：授权门店只读，不采集 OTA';
+                        : '普通外发：授权门店 OTA 只读；不可采集/导出/AI执行';
                 }
                 return profile.canCollectOta
                     ? '自定义：含 OTA 采集，发放前复核'
@@ -29570,9 +29570,12 @@
                     '宿析OS账号已开通',
                     `登录地址：${window.location.origin || '当前系统地址'}`,
                     `用户名：${String(username || '').trim() || '-'}`,
+                    `发放类型：${profile?.handoffType || profile?.title || '-'}`,
                     `角色：${profile?.title || '-'}`,
+                    `发放对象：${profile?.audience || '-'}`,
                     `授权门店：${hotelNames.length ? hotelNames.join('、') : profile?.scope || '-'}`,
                     `账号状态：${userIssueLoginStatusText(status)}`,
+                    `数据范围：${profile?.dataBoundary || '-'}`,
                     `可用功能：${profile?.allowed || '-'}`,
                     `不可用功能：${profile?.denied || '-'}`,
                     `权限边界：${profile?.boundary || '-'}`,
@@ -29644,7 +29647,7 @@
                     }
                     return {
                         label: '可发送说明',
-                        detail: `${profile.title}；${profile.scope}`,
+                        detail: `${profile.handoffType}；${profile.dataBoundary}`,
                         class: 'border-emerald-100 bg-emerald-50 text-emerald-700',
                         icon: 'fas fa-check-circle',
                     };
