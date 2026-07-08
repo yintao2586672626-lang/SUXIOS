@@ -151,6 +151,66 @@ test('OTA field gap queue treats missing target-date traffic gate as high risk',
   assert.equal(rows[0].priority, 'high');
 });
 
+test('manual one-click fetch task builders stay static and skip only proven stored rows', () => {
+  assert.equal(typeof helpers.findManualOneClickFetchExistingStoredRow, 'function');
+  assert.equal(typeof helpers.buildManualOneClickFetchTasks, 'function');
+  assert.equal(typeof helpers.buildManualOneClickFetchBaseRow, 'function');
+
+  const storedRows = [
+    { hotelId: '58', sourceRows: 4 },
+    { hotelId: '64', sourceRows: 0 },
+  ];
+
+  assert.equal(helpers.findManualOneClickFetchExistingStoredRow({ rows: storedRows, hotelId: 58 }), storedRows[0]);
+  assert.equal(helpers.findManualOneClickFetchExistingStoredRow({ rows: storedRows, hotelId: 64 }), null);
+
+  const ctripTasks = helpers.buildManualOneClickFetchTasks({
+    platform: 'ctrip',
+    ctripHotels: [{ id: 58, name: 'Ctrip A' }],
+    meituanHotels: [{ id: 7, name: 'Meituan A' }],
+    storedRows,
+    hasCtripQunarVisitorZeroFailure: () => false,
+  });
+  assert.equal(ctripTasks.length, 1);
+  assert.equal(ctripTasks[0].platform, 'ctrip');
+  assert.equal(ctripTasks[0].existingStoredRow, storedRows[0]);
+
+  const allTasks = helpers.buildManualOneClickFetchTasks({
+    platform: 'all',
+    ctripHotels: [{ id: 58, name: 'Ctrip A' }],
+    meituanHotels: [{ id: 7, hotel_name: 'Meituan A' }],
+    storedRows,
+    hasCtripQunarVisitorZeroFailure: id => String(id) === '58',
+  });
+  assert.equal(allTasks.length, 2);
+  assert.equal(allTasks[0].existingStoredRow, null);
+  assert.equal(allTasks[1].platform, 'meituan');
+
+  const baseRow = helpers.buildManualOneClickFetchBaseRow({
+    platform: 'meituan',
+    hotel: { id: 7, hotel_name: 'Meituan A' },
+    runId: 'run-1',
+    savedCount: '2',
+    existingCount: '3',
+    nowText: '2026-07-08 17:00:00',
+  });
+  assert.equal(baseRow.key, 'run-1:meituan:7');
+  assert.equal(baseRow.hotelName, 'Meituan A');
+  assert.equal(baseRow.savedCount, 2);
+  assert.equal(baseRow.existingCount, 3);
+  assert.equal(baseRow.timeText, '2026-07-08 17:00:00');
+
+  const fallbackRow = helpers.buildManualOneClickFetchBaseRow({
+    platform: 'ctrip',
+    hotel: { id: 88 },
+    runId: 'run-2',
+    getHotelNameById: id => id === '88' ? 'Fallback Hotel' : '',
+    nowText: 'fixed',
+  });
+  assert.equal(fallbackRow.key, 'run-2:ctrip:88');
+  assert.equal(fallbackRow.hotelName, 'Fallback Hotel');
+});
+
 test('release evidence panel rows keep release readiness blockers non-closing', () => {
   assert.equal(typeof helpers.buildReleaseEvidencePanelRows, 'function');
   assert.equal(typeof helpers.summarizeReleaseEvidencePanel, 'function');

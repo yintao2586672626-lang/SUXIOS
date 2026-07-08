@@ -201,6 +201,74 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         });
     };
 
+    const findManualOneClickFetchExistingStoredRow = ({
+        rows = [],
+        hotelId = '',
+    } = {}) => {
+        const id = String(hotelId || '').trim();
+        if (!id) return null;
+        return (Array.isArray(rows) ? rows : []).find(row => String(row?.hotelId || '').trim() === id && Number(row?.sourceRows || 0) > 0) || null;
+    };
+
+    const buildManualOneClickFetchTasks = ({
+        platform = 'all',
+        ctripHotels = [],
+        meituanHotels = [],
+        storedRows = [],
+        hasCtripQunarVisitorZeroFailure = () => false,
+    } = {}) => {
+        const normalizedPlatform = ['ctrip', 'meituan'].includes(platform) ? platform : 'all';
+        const tasks = [];
+        if (normalizedPlatform === 'all' || normalizedPlatform === 'ctrip') {
+            (Array.isArray(ctripHotels) ? ctripHotels : []).forEach(hotel => tasks.push({
+                platform: 'ctrip',
+                hotel,
+                existingStoredRow: hasCtripQunarVisitorZeroFailure(hotel?.id)
+                    ? null
+                    : findManualOneClickFetchExistingStoredRow({ rows: storedRows, hotelId: hotel?.id }),
+            }));
+        }
+        if (normalizedPlatform === 'all' || normalizedPlatform === 'meituan') {
+            (Array.isArray(meituanHotels) ? meituanHotels : []).forEach(hotel => tasks.push({
+                platform: 'meituan',
+                hotel,
+                existingStoredRow: findManualOneClickFetchExistingStoredRow({ rows: storedRows, hotelId: hotel?.id }),
+            }));
+        }
+        return tasks;
+    };
+
+    const buildManualOneClickFetchBaseRow = ({
+        platform = '',
+        hotel = {},
+        runId = '',
+        rowKey = '',
+        status = 'queued',
+        statusText = '待获取',
+        message = '等待执行手动获取',
+        savedCount = 0,
+        existingCount = 0,
+        getHotelNameById = () => '',
+        nowText = manualOneClickFetchNowText(),
+    } = {}) => {
+        const normalizedPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
+        const hotelId = String(hotel?.id || '').trim();
+        const hotelName = String(hotel?.name || hotel?.hotel_name || getHotelNameById(hotelId) || hotelId || '未命名门店');
+        return {
+            key: rowKey || `${runId}:${normalizedPlatform}:${hotelId}`,
+            platform: normalizedPlatform,
+            platformText: manualOneClickFetchPlatformText(normalizedPlatform),
+            hotelId,
+            hotelName,
+            status,
+            statusText,
+            message,
+            savedCount: Number(savedCount || 0),
+            existingCount: Number(existingCount || 0),
+            timeText: nowText,
+        };
+    };
+
     const manualOneClickFetchQunarVisitorNumber = (row = {}) => {
         const candidates = [
             row?.qunarDetailVisitors,
@@ -5788,6 +5856,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         sortManualOneClickFetchRows,
         manualOneClickFetchMessageIsQunarVisitorZero,
         manualOneClickFetchHasQunarVisitorZeroFailureInRows,
+        findManualOneClickFetchExistingStoredRow,
+        buildManualOneClickFetchTasks,
+        buildManualOneClickFetchBaseRow,
         manualOneClickFetchQunarVisitorNumber,
         summarizeManualOneClickFetchQunarVisitorQuality,
         manualOneClickFetchQunarVisitorNeedsRetry,

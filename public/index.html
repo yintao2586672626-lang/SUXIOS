@@ -21144,6 +21144,9 @@
             const sortManualOneClickFetchRows = requireDataHealthStatic('sortManualOneClickFetchRows');
             const manualOneClickFetchMessageIsQunarVisitorZero = requireDataHealthStatic('manualOneClickFetchMessageIsQunarVisitorZero');
             const manualOneClickFetchHasQunarVisitorZeroFailureInRows = requireDataHealthStatic('manualOneClickFetchHasQunarVisitorZeroFailureInRows');
+            const findManualOneClickFetchExistingStoredRow = requireDataHealthStatic('findManualOneClickFetchExistingStoredRow');
+            const buildManualOneClickFetchTasksFromStatic = requireDataHealthStatic('buildManualOneClickFetchTasks');
+            const buildManualOneClickFetchBaseRowFromStatic = requireDataHealthStatic('buildManualOneClickFetchBaseRow');
             const summarizeManualOneClickFetchQunarVisitorQuality = requireDataHealthStatic('summarizeManualOneClickFetchQunarVisitorQuality');
             const manualOneClickFetchQunarVisitorNeedsRetry = requireDataHealthStatic('manualOneClickFetchQunarVisitorNeedsRetry');
             const manualOneClickFetchSavedCount = requireDataHealthStatic('manualOneClickFetchSavedCount');
@@ -35512,44 +35515,34 @@
                 persistManualOneClickFetchSnapshot();
             };
             const manualOneClickFetchExistingStoredRow = (hotelId) => {
-                const id = String(hotelId || '').trim();
-                if (!id) return null;
-                return dataAcquisitionWorkbenchRows.value.find(row => String(row?.hotelId || '').trim() === id && Number(row?.sourceRows || 0) > 0) || null;
+                return findManualOneClickFetchExistingStoredRow({
+                    rows: dataAcquisitionWorkbenchRows.value,
+                    hotelId,
+                });
             };
             const buildManualOneClickFetchTasks = (platform) => {
-                const tasks = [];
-                if (platform === 'all' || platform === 'ctrip') {
-                    ctripTargetHotelOptions.value.forEach(hotel => tasks.push({
-                        platform: 'ctrip',
-                        hotel,
-                        existingStoredRow: manualOneClickFetchHasQunarVisitorZeroFailure('ctrip', hotel?.id) ? null : manualOneClickFetchExistingStoredRow(hotel?.id),
-                    }));
-                }
-                if (platform === 'all' || platform === 'meituan') {
-                    meituanTargetHotelOptions.value.forEach(hotel => tasks.push({
-                        platform: 'meituan',
-                        hotel,
-                        existingStoredRow: manualOneClickFetchExistingStoredRow(hotel?.id),
-                    }));
-                }
-                return tasks;
+                return buildManualOneClickFetchTasksFromStatic({
+                    platform,
+                    ctripHotels: ctripTargetHotelOptions.value,
+                    meituanHotels: meituanTargetHotelOptions.value,
+                    storedRows: dataAcquisitionWorkbenchRows.value,
+                    hasCtripQunarVisitorZeroFailure: hotelId => manualOneClickFetchHasQunarVisitorZeroFailure('ctrip', hotelId),
+                });
             };
             const buildManualOneClickFetchBaseRow = ({ platform, hotel, runId, rowKey, status = 'queued', statusText = '待获取', message = '等待执行手动获取', savedCount = 0, existingCount = 0 }) => {
-                const hotelId = String(hotel?.id || '').trim();
-                const hotelName = String(hotel?.name || hotel?.hotel_name || getHotelNameById(hotelId) || hotelId || '未命名门店');
-                return {
-                    key: rowKey || `${runId}:${platform}:${hotelId}`,
+                return buildManualOneClickFetchBaseRowFromStatic({
                     platform,
-                    platformText: manualOneClickFetchPlatformText(platform),
-                    hotelId,
-                    hotelName,
+                    hotel,
+                    runId,
+                    rowKey,
                     status,
                     statusText,
                     message,
-                    savedCount: Number(savedCount || 0),
-                    existingCount: Number(existingCount || 0),
-                    timeText: manualOneClickFetchNowText(),
-                };
+                    savedCount,
+                    existingCount,
+                    getHotelNameById,
+                    nowText: manualOneClickFetchNowText(),
+                });
             };
             const runManualOneClickFetchForHotel = async ({ platform, hotel, runId, rowKey }) => {
                 const baseRow = buildManualOneClickFetchBaseRow({
