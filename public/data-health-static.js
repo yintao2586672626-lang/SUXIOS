@@ -38,6 +38,138 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         return 'bg-red-100 text-red-700';
     };
 
+    const manualOneClickFetchPlatformText = platform => (platform === 'ctrip' ? '携程' : '美团');
+
+    const manualOneClickFetchNowText = (date = new Date()) => date.toLocaleString('zh-CN', { hour12: false });
+
+    const normalizeManualOneClickFetchStoredRows = (rows = []) => {
+        return (Array.isArray(rows) ? rows : [])
+            .filter(row => row && typeof row === 'object')
+            .map(row => {
+                const normalized = { ...row };
+                const status = String(normalized.status || '').trim();
+                if (['running', 'queued'].includes(status)) {
+                    normalized.status = 'failed';
+                    normalized.statusText = '未完成';
+                    normalized.message = normalized.message || '页面刷新前该项未完成，可重新获取。';
+                }
+                normalized.savedCount = Number(normalized.savedCount || 0);
+                normalized.existingCount = Number(normalized.existingCount || 0);
+                normalized.retryCount = Number(normalized.retryCount || 0);
+                normalized.qunarVisitorTotal = Number(normalized.qunarVisitorTotal || 0);
+                return normalized;
+            });
+    };
+
+    const summarizeManualOneClickFetchRows = (rows = []) => {
+        return (Array.isArray(rows) ? rows : []).reduce((summary, row) => {
+            if (row.status === 'success') summary.savedHotels += 1;
+            if (row.status === 'no_saved') summary.noSaved += 1;
+            if (row.status === 'failed') summary.failed += 1;
+            if (row.status === 'skipped') summary.skipped += 1;
+            if (row.status === 'running' || row.status === 'queued') summary.pending += 1;
+            if (row.status === 'success') summary.savedCount += Number(row.savedCount || 0);
+            return summary;
+        }, {
+            savedHotels: 0,
+            noSaved: 0,
+            failed: 0,
+            skipped: 0,
+            pending: 0,
+            savedCount: 0,
+        });
+    };
+
+    const buildManualOneClickFetchCards = ({
+        ctripReadyCount = 0,
+        meituanReadyCount = 0,
+        summary = {},
+        lastRunAt = '',
+    } = {}) => {
+        const safeSummary = {
+            noSaved: Number(summary.noSaved || 0),
+            failed: Number(summary.failed || 0),
+            pending: Number(summary.pending || 0),
+            skipped: Number(summary.skipped || 0),
+            savedCount: Number(summary.savedCount || 0),
+        };
+        const ctripCount = Number(ctripReadyCount || 0);
+        const meituanCount = Number(meituanReadyCount || 0);
+        return [
+            {
+                key: 'ctrip-ready',
+                label: '携程Cookie配置',
+                value: `${ctripCount}`,
+                rawValue: String(ctripCount),
+                detail: '有Cookie不等于授权有效',
+                className: ctripCount ? 'text-blue-700' : 'text-gray-900',
+            },
+            {
+                key: 'meituan-ready',
+                label: '美团完整配置',
+                value: `${meituanCount}`,
+                rawValue: String(meituanCount),
+                detail: 'Cookie + partner/poi',
+                className: meituanCount ? 'text-emerald-700' : 'text-gray-900',
+            },
+            {
+                key: 'not-saved',
+                label: '未入库/失败',
+                value: `${safeSummary.noSaved + safeSummary.failed}`,
+                rawValue: String(safeSummary.noSaved + safeSummary.failed),
+                detail: safeSummary.pending ? `${safeSummary.pending} 个执行中` : (safeSummary.skipped ? `${safeSummary.skipped} 个已入库跳过` : `${safeSummary.noSaved} 个未入库 / ${safeSummary.failed} 个失败`),
+                className: safeSummary.noSaved || safeSummary.failed ? 'text-amber-700' : 'text-gray-900',
+            },
+            {
+                key: 'saved',
+                label: '本次入库',
+                value: `${safeSummary.savedCount}`,
+                rawValue: String(safeSummary.savedCount),
+                detail: lastRunAt || '尚未执行',
+                className: safeSummary.savedCount ? 'text-emerald-700' : 'text-gray-900',
+            },
+        ];
+    };
+
+    const buildManualOneClickFetchEmptyText = ({
+        running = '',
+        ctripReadyCount = 0,
+        meituanReadyCount = 0,
+    } = {}) => {
+        if (running) return '正在执行手动一键获取...';
+        if (!Number(ctripReadyCount || 0) && !Number(meituanReadyCount || 0)) {
+            return '暂无可手动获取的门店。请先在平台账号里为门店配置携程或美团 Cookie/API。';
+        }
+        return '还没有执行记录。选择上方按钮后，会按已配置门店逐个获取并写入数据库。';
+    };
+
+    const manualOneClickFetchStatusClass = (status) => ({
+        running: 'border-blue-100 bg-blue-50 text-blue-700',
+        queued: 'border-amber-100 bg-amber-50 text-amber-700',
+        success: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+        no_saved: 'border-amber-100 bg-amber-50 text-amber-700',
+        failed: 'border-red-100 bg-red-50 text-red-700',
+        skipped: 'border-gray-200 bg-gray-50 text-gray-600',
+    }[String(status || '')] || 'border-gray-200 bg-gray-50 text-gray-600');
+
+    const sortManualOneClickFetchRows = (rows = []) => {
+        const statusRank = {
+            failed: 0,
+            no_saved: 1,
+            running: 2,
+            queued: 3,
+            skipped: 4,
+            success: 5,
+        };
+        return [...(Array.isArray(rows) ? rows : [])].sort((left, right) => {
+            const rankDiff = (statusRank[String(left?.status || '')] ?? 9) - (statusRank[String(right?.status || '')] ?? 9);
+            if (rankDiff !== 0) return rankDiff;
+            return String(right?.timeText || '').localeCompare(String(left?.timeText || ''));
+        });
+    };
+
+    const manualOneClickFetchMessageIsQunarVisitorZero = (message = '') => /去哪儿?访客.*(?:为|=)?\s*0|qunar.*visitor.*0/i.test(String(message || ''));
+
     const manualOneClickFetchSavedCount = (result = {}) => {
         const candidates = [
             result?.saved_count,
@@ -5576,6 +5708,15 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         onlineDataQualityPromptList,
         onlineDataQualityScopeText,
         autoFetchRecordStatusClass,
+        manualOneClickFetchPlatformText,
+        manualOneClickFetchNowText,
+        normalizeManualOneClickFetchStoredRows,
+        summarizeManualOneClickFetchRows,
+        buildManualOneClickFetchCards,
+        buildManualOneClickFetchEmptyText,
+        manualOneClickFetchStatusClass,
+        sortManualOneClickFetchRows,
+        manualOneClickFetchMessageIsQunarVisitorZero,
         manualOneClickFetchSavedCount,
         manualOneClickFetchResultMessage,
         summarizeManualOneClickFetchResult,

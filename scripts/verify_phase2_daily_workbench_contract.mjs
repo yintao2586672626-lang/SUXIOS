@@ -333,8 +333,16 @@ includesAll('public/index.html', 'manual one-click Ctrip fetch retries partial Q
   'ctripQunarVisitorNeedsRetry',
   '去哪儿访客仍为 0',
   '自动重抓',
-  "if (row.status === 'success') summary.savedCount += Number(row.savedCount || 0);",
+  "const summarizeManualOneClickFetchRows = requireDataHealthStatic('summarizeManualOneClickFetchRows')",
+  'summarizeManualOneClickFetchRows(manualOneClickFetchRows.value)',
   'qunarVisitorIncomplete',
+]);
+
+includesAll('public/data-health-static.js', 'manual one-click fetch display summary helper owns saved-count aggregation', dataHealthStatic, [
+  'const summarizeManualOneClickFetchRows = (rows = []) =>',
+  "if (row.status === 'success') summary.savedCount += Number(row.savedCount || 0);",
+  'const buildManualOneClickFetchCards = ({',
+  'const sortManualOneClickFetchRows = (rows = []) =>',
 ]);
 
 includesAll('public/ctrip-static.js', 'single Ctrip fetch warns on partial Qunar visitor gaps without marking success', ctripStatic, [

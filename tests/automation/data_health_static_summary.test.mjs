@@ -333,6 +333,55 @@ test('manual one-click fetch result helpers keep Ctrip Qunar gaps blocking', () 
   assert.match(ctripQunarGap.message, /携程和去哪儿都成功才算成功/);
 });
 
+test('manual one-click fetch display helpers stay pure and status aware', () => {
+  const normalized = helpers.normalizeManualOneClickFetchStoredRows([
+    { status: 'running', savedCount: '2', retryCount: '1', qunarVisitorTotal: '0' },
+    { status: 'success', savedCount: '5', timeText: '2026/7/8 09:02:00' },
+  ]);
+  assert.equal(normalized[0].status, 'failed');
+  assert.equal(normalized[0].statusText, '未完成');
+  assert.equal(normalized[0].savedCount, 2);
+  assert.equal(normalized[1].savedCount, 5);
+
+  const summary = helpers.summarizeManualOneClickFetchRows([
+    { status: 'success', savedCount: 5 },
+    { status: 'no_saved' },
+    { status: 'failed' },
+    { status: 'queued' },
+  ]);
+  assert.equal(summary.savedHotels, 1);
+  assert.equal(summary.noSaved, 1);
+  assert.equal(summary.failed, 1);
+  assert.equal(summary.skipped, 0);
+  assert.equal(summary.pending, 1);
+  assert.equal(summary.savedCount, 5);
+
+  const cards = helpers.buildManualOneClickFetchCards({
+    ctripReadyCount: 2,
+    meituanReadyCount: 1,
+    summary,
+    lastRunAt: '2026/7/8 09:00:00',
+  });
+  assert.equal(cards[0].value, '2');
+  assert.equal(cards[1].label, '美团完整配置');
+  assert.equal(cards[2].value, '2');
+  assert.equal(cards[3].detail, '2026/7/8 09:00:00');
+
+  assert.match(helpers.buildManualOneClickFetchEmptyText({ running: 'all' }), /正在执行/);
+  assert.match(helpers.buildManualOneClickFetchEmptyText({}), /暂无可手动获取/);
+  assert.match(helpers.buildManualOneClickFetchEmptyText({ ctripReadyCount: 1 }), /还没有执行记录/);
+  assert.match(helpers.manualOneClickFetchStatusClass('failed'), /red/);
+  assert.equal(helpers.manualOneClickFetchPlatformText('ctrip'), '携程');
+  assert.equal(helpers.manualOneClickFetchMessageIsQunarVisitorZero('去哪儿访客为 0'), true);
+
+  const sorted = helpers.sortManualOneClickFetchRows([
+    { status: 'success', key: 'ok', timeText: '2026/7/8 09:02:00' },
+    { status: 'failed', key: 'bad', timeText: '2026/7/8 09:01:00' },
+    { status: 'no_saved', key: 'empty', timeText: '2026/7/8 09:03:00' },
+  ]);
+  assert.equal(sorted.map(row => row.key).join(','), 'bad,empty,ok');
+});
+
 test('full data health panel refresh includes release evidence status without light refresh', async () => {
   assert.equal(typeof helpers.buildDataHealthPanelRefreshJobs, 'function');
 

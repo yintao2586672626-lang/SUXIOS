@@ -21130,6 +21130,15 @@
             const onlineDataQualityPromptList = requireDataHealthStatic('onlineDataQualityPromptList');
             const onlineDataQualityScopeText = requireDataHealthStatic('onlineDataQualityScopeText');
             const autoFetchRecordStatusClass = requireDataHealthStatic('autoFetchRecordStatusClass');
+            const manualOneClickFetchPlatformText = requireDataHealthStatic('manualOneClickFetchPlatformText');
+            const manualOneClickFetchNowText = requireDataHealthStatic('manualOneClickFetchNowText');
+            const normalizeManualOneClickFetchStoredRows = requireDataHealthStatic('normalizeManualOneClickFetchStoredRows');
+            const summarizeManualOneClickFetchRows = requireDataHealthStatic('summarizeManualOneClickFetchRows');
+            const buildManualOneClickFetchCards = requireDataHealthStatic('buildManualOneClickFetchCards');
+            const buildManualOneClickFetchEmptyText = requireDataHealthStatic('buildManualOneClickFetchEmptyText');
+            const manualOneClickFetchStatusClass = requireDataHealthStatic('manualOneClickFetchStatusClass');
+            const sortManualOneClickFetchRows = requireDataHealthStatic('sortManualOneClickFetchRows');
+            const manualOneClickFetchMessageIsQunarVisitorZero = requireDataHealthStatic('manualOneClickFetchMessageIsQunarVisitorZero');
             const manualOneClickFetchSavedCount = requireDataHealthStatic('manualOneClickFetchSavedCount');
             const summarizeManualOneClickFetchResult = requireDataHealthStatic('summarizeManualOneClickFetchResult');
             const buildOnlineHistoryQueryParams = requireDataHealthStatic('buildOnlineHistoryQueryParams');
@@ -35301,8 +35310,6 @@
             const manualOneClickFetchRunning = ref('');
             const manualOneClickFetchRows = ref([]);
             const manualOneClickFetchLastRunAt = ref('');
-            const manualOneClickFetchPlatformText = platform => (platform === 'ctrip' ? '携程' : '美团');
-            const manualOneClickFetchNowText = () => new Date().toLocaleString('zh-CN', { hour12: false });
             const manualOneClickFetchStorageKey = 'suxios.manualOneClickFetch.lastRun.v1';
             const manualOneClickFetchStorage = () => {
                 try {
@@ -35310,24 +35317,6 @@
                 } catch (error) {
                     return null;
                 }
-            };
-            const normalizeManualOneClickFetchStoredRows = (rows = []) => {
-                return (Array.isArray(rows) ? rows : [])
-                    .filter(row => row && typeof row === 'object')
-                    .map(row => {
-                        const normalized = { ...row };
-                        const status = String(normalized.status || '').trim();
-                        if (['running', 'queued'].includes(status)) {
-                            normalized.status = 'failed';
-                            normalized.statusText = '未完成';
-                            normalized.message = normalized.message || '页面刷新前该项未完成，可重新获取。';
-                        }
-                        normalized.savedCount = Number(normalized.savedCount || 0);
-                        normalized.existingCount = Number(normalized.existingCount || 0);
-                        normalized.retryCount = Number(normalized.retryCount || 0);
-                        normalized.qunarVisitorTotal = Number(normalized.qunarVisitorTotal || 0);
-                        return normalized;
-                    });
             };
             const persistManualOneClickFetchSnapshot = () => {
                 const storage = manualOneClickFetchStorage();
@@ -35363,89 +35352,25 @@
                 return `${targetDate} · 手动补采配置 · 携程Cookie ${ctripTargetHotelOptions.value.length} 家 / 美团完整配置 ${meituanTargetHotelOptions.value.length} 家`;
             });
             const manualOneClickFetchSummary = computed(() => {
-                return manualOneClickFetchRows.value.reduce((summary, row) => {
-                    if (row.status === 'success') summary.savedHotels += 1;
-                    if (row.status === 'no_saved') summary.noSaved += 1;
-                    if (row.status === 'failed') summary.failed += 1;
-                    if (row.status === 'skipped') summary.skipped += 1;
-                    if (row.status === 'running' || row.status === 'queued') summary.pending += 1;
-                    if (row.status === 'success') summary.savedCount += Number(row.savedCount || 0);
-                    return summary;
-                }, {
-                    savedHotels: 0,
-                    noSaved: 0,
-                    failed: 0,
-                    skipped: 0,
-                    pending: 0,
-                    savedCount: 0,
-                });
+                return summarizeManualOneClickFetchRows(manualOneClickFetchRows.value);
             });
             const manualOneClickFetchCards = computed(() => {
-                const summary = manualOneClickFetchSummary.value;
-                return [
-                    {
-                        key: 'ctrip-ready',
-                        label: '携程Cookie配置',
-                        value: `${ctripTargetHotelOptions.value.length}`,
-                        rawValue: String(ctripTargetHotelOptions.value.length),
-                        detail: '有Cookie不等于授权有效',
-                        className: ctripTargetHotelOptions.value.length ? 'text-blue-700' : 'text-gray-900',
-                    },
-                    {
-                        key: 'meituan-ready',
-                        label: '美团完整配置',
-                        value: `${meituanTargetHotelOptions.value.length}`,
-                        rawValue: String(meituanTargetHotelOptions.value.length),
-                        detail: 'Cookie + partner/poi',
-                        className: meituanTargetHotelOptions.value.length ? 'text-emerald-700' : 'text-gray-900',
-                    },
-                    {
-                        key: 'not-saved',
-                        label: '未入库/失败',
-                        value: `${summary.noSaved + summary.failed}`,
-                        rawValue: String(summary.noSaved + summary.failed),
-                        detail: summary.pending ? `${summary.pending} 个执行中` : (summary.skipped ? `${summary.skipped} 个已入库跳过` : `${summary.noSaved} 个未入库 / ${summary.failed} 个失败`),
-                        className: summary.noSaved || summary.failed ? 'text-amber-700' : 'text-gray-900',
-                    },
-                    {
-                        key: 'saved',
-                        label: '本次入库',
-                        value: `${summary.savedCount}`,
-                        rawValue: String(summary.savedCount),
-                        detail: manualOneClickFetchLastRunAt.value || '尚未执行',
-                        className: summary.savedCount ? 'text-emerald-700' : 'text-gray-900',
-                    },
-                ];
+                return buildManualOneClickFetchCards({
+                    ctripReadyCount: ctripTargetHotelOptions.value.length,
+                    meituanReadyCount: meituanTargetHotelOptions.value.length,
+                    summary: manualOneClickFetchSummary.value,
+                    lastRunAt: manualOneClickFetchLastRunAt.value,
+                });
             });
             const manualOneClickFetchEmptyText = computed(() => {
-                if (manualOneClickFetchRunning.value) return '正在执行手动一键获取...';
-                if (!ctripTargetHotelOptions.value.length && !meituanTargetHotelOptions.value.length) {
-                    return '暂无可手动获取的门店。请先在平台账号里为门店配置携程或美团 Cookie/API。';
-                }
-                return '还没有执行记录。选择上方按钮后，会按已配置门店逐个获取并写入数据库。';
-            });
-            const manualOneClickFetchStatusClass = (status) => ({
-                running: 'border-blue-100 bg-blue-50 text-blue-700',
-                queued: 'border-amber-100 bg-amber-50 text-amber-700',
-                success: 'border-emerald-100 bg-emerald-50 text-emerald-700',
-                no_saved: 'border-amber-100 bg-amber-50 text-amber-700',
-                failed: 'border-red-100 bg-red-50 text-red-700',
-                skipped: 'border-gray-200 bg-gray-50 text-gray-600',
-            }[String(status || '')] || 'border-gray-200 bg-gray-50 text-gray-600');
-            const manualOneClickFetchDisplayRows = computed(() => {
-                const statusRank = {
-                    failed: 0,
-                    no_saved: 1,
-                    running: 2,
-                    queued: 3,
-                    skipped: 4,
-                    success: 5,
-                };
-                return [...manualOneClickFetchRows.value].sort((left, right) => {
-                    const rankDiff = (statusRank[String(left?.status || '')] ?? 9) - (statusRank[String(right?.status || '')] ?? 9);
-                    if (rankDiff !== 0) return rankDiff;
-                    return String(right?.timeText || '').localeCompare(String(left?.timeText || ''));
+                return buildManualOneClickFetchEmptyText({
+                    running: manualOneClickFetchRunning.value,
+                    ctripReadyCount: ctripTargetHotelOptions.value.length,
+                    meituanReadyCount: meituanTargetHotelOptions.value.length,
                 });
+            });
+            const manualOneClickFetchDisplayRows = computed(() => {
+                return sortManualOneClickFetchRows(manualOneClickFetchRows.value);
             });
             const canEditManualOneClickFetchRow = (row = {}) => {
                 return canManageOwnHotels()
@@ -35494,7 +35419,6 @@
                 persistManualOneClickFetchSnapshot();
             };
             const CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT = 3;
-            const manualOneClickFetchMessageIsQunarVisitorZero = (message = '') => /去哪儿?访客.*(?:为|=)?\s*0|qunar.*visitor.*0/i.test(String(message || ''));
             const manualOneClickFetchHasQunarVisitorZeroFailure = (platform, hotelId) => {
                 const wantedPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
                 const wantedHotelId = String(hotelId || '').trim();
