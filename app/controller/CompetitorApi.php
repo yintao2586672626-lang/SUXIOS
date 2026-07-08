@@ -170,6 +170,16 @@ class CompetitorApi extends Base
 
         $city = (string)($target->city ?? $city);
         $price = $this->extractPrice($priceText);
+        if (!$this->isValidReportPrice($price)) {
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 未识别到有效价格', null, $hotelId, 'invalid_report_price', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+                'store_id' => $storeId,
+                'price_text' => $this->sanitizeExternalAuditText($priceText),
+            ]);
+            return $this->apiError('未识别到有效竞对价格', 400);
+        }
 
         $screenshotPath = '';
         if ($base64 !== '') {
@@ -332,10 +342,18 @@ class CompetitorApi extends Base
         if (preg_match('/' . $amountPattern . '\s*元/u', $normalizedText, $matches)) {
             return $this->normalizeExtractedPrice($matches[1]);
         }
-        if (preg_match('/' . $amountPattern . '/u', $normalizedText, $matches)) {
+        if (preg_match('/' . $amountPattern . '\s*(?:\/\s*)?(?:晚|夜|间夜|起)/u', $normalizedText, $matches)) {
+            return $this->normalizeExtractedPrice($matches[1]);
+        }
+        if (preg_match('/^\s*' . $amountPattern . '\s*$/u', $normalizedText, $matches)) {
             return $this->normalizeExtractedPrice($matches[1]);
         }
         return 0.0;
+    }
+
+    private function isValidReportPrice(float $price): bool
+    {
+        return $price > 0.0;
     }
 
     private function normalizePriceText(string $text): string
