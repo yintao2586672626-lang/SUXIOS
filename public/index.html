@@ -70,7 +70,7 @@
     </script>
     <script src="vue.global.prod.js?v=20260628-static-router-fix"></script>
     <script src="shared-components.js?v=20260628-static-router-fix"></script>
-    <script src="ctrip-static.js?v=20260708-qunar-retry"></script>
+    <script src="ctrip-static.js?v=20260708-qunar-retry-business-canvas"></script>
     <script src="meituan-static.js?v=20260708-ranking-summary-helpers"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
     <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card"></script>
@@ -20555,6 +20555,7 @@
             const buildCtripFlowOverviewInterfaceRows = requireCtripStatic('buildCtripFlowOverviewInterfaceRows');
             const runCtripAdsFetchFlow = requireCtripStatic('runCtripAdsFetchFlow');
             const runCtripCookieApiCaptureFlow = requireCtripStatic('runCtripCookieApiCaptureFlow');
+            const buildCtripBusinessCanvasStatic = requireCtripStatic('buildCtripBusinessCanvas');
             const ctripOverviewForm = ref(createCtripOverviewForm());
             const ctripFlowOverviewForm = ref(createCtripFlowOverviewForm());
             const ctripOverviewResult = ref(null);
@@ -44010,73 +44011,6 @@
                 window.setTimeout(() => URL.revokeObjectURL(url), 1000);
             };
 
-            const ctripDownloadPanelColors = (panelClass = '') => {
-                const text = String(panelClass || '');
-                if (text.includes('green')) return { fill: '#ecfdf5', stroke: '#a7f3d0', value: '#047857', accent: '#10b981' };
-                if (text.includes('yellow') || text.includes('amber') || text.includes('orange')) return { fill: '#fffbeb', stroke: '#fde68a', value: '#b45309', accent: '#f59e0b' };
-                if (text.includes('red') || text.includes('rose')) return { fill: '#fff1f2', stroke: '#fecdd3', value: '#be123c', accent: '#f43f5e' };
-                if (text.includes('purple')) return { fill: '#f5f3ff', stroke: '#ddd6fe', value: '#6d28d9', accent: '#8b5cf6' };
-                if (text.includes('cyan')) return { fill: '#ecfeff', stroke: '#a5f3fc', value: '#0e7490', accent: '#06b6d4' };
-                return { fill: '#eff6ff', stroke: '#bfdbfe', value: '#1d4ed8', accent: '#3b82f6' };
-            };
-
-            const drawRoundedRect = (ctx, x, y, width, height, radius, fill, stroke) => {
-                const r = Math.min(radius, width / 2, height / 2);
-                ctx.beginPath();
-                ctx.moveTo(x + r, y);
-                ctx.lineTo(x + width - r, y);
-                ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-                ctx.lineTo(x + width, y + height - r);
-                ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-                ctx.lineTo(x + r, y + height);
-                ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-                ctx.lineTo(x, y + r);
-                ctx.quadraticCurveTo(x, y, x + r, y);
-                ctx.closePath();
-                if (fill) {
-                    ctx.fillStyle = fill;
-                    ctx.fill();
-                }
-                if (stroke) {
-                    ctx.strokeStyle = stroke;
-                    ctx.lineWidth = 1;
-                    ctx.stroke();
-                }
-            };
-
-            const drawCanvasText = (ctx, text, x, y, maxWidth, lineHeight, options = {}) => {
-                const content = String(text ?? '-');
-                ctx.font = options.font || '14px "Microsoft YaHei", Arial, sans-serif';
-                ctx.fillStyle = options.color || '#111827';
-                ctx.textAlign = options.align || 'left';
-                ctx.textBaseline = 'top';
-                const chars = Array.from(content);
-                const lines = [];
-                let line = '';
-                chars.forEach(char => {
-                    const next = line + char;
-                    if (ctx.measureText(next).width > maxWidth && line) {
-                        lines.push(line);
-                        line = char;
-                    } else {
-                        line = next;
-                    }
-                });
-                lines.push(line);
-                const limited = options.maxLines ? lines.slice(0, options.maxLines) : lines;
-                limited.forEach((lineText, index) => {
-                    let displayText = lineText;
-                    if (options.maxLines && index === options.maxLines - 1 && lines.length > options.maxLines) {
-                        while (ctx.measureText(displayText + '...').width > maxWidth && displayText.length > 0) {
-                            displayText = displayText.slice(0, -1);
-                        }
-                        displayText += '...';
-                    }
-                    ctx.fillText(displayText, x, y + index * lineHeight, maxWidth);
-                });
-                return limited.length * lineHeight;
-            };
-
             const ctripDownloadRows = () => {
                 const rankText = (rank) => rank ? `第${rank}名` : '-';
                 const percentText = (value) => value ? `${value}%` : '-';
@@ -44133,133 +44067,14 @@
             };
 
             const buildCtripBusinessCanvas = () => {
-                const cards = Array.isArray(ctripBusinessSummaryCards.value) ? ctripBusinessSummaryCards.value : [];
-                const table = ctripDownloadRows();
-                const margin = 28;
-                const gap = 14;
-                const tableWidth = table.columns.reduce((sum, column) => sum + column.width, 0);
-                const cardColumns = Math.min(6, Math.max(1, cards.length || 1));
-                const cardWidth = Math.max(158, Math.floor((Math.max(tableWidth, 1120) - gap * (cardColumns - 1)) / cardColumns));
-                const cardHeight = 92;
-                const cardRows = Math.ceil(cards.length / cardColumns);
-                const headerHeight = 78;
-                const cardsHeight = Math.max(0, cardRows * cardHeight + Math.max(0, cardRows - 1) * gap);
-                const noticeHeight = ctripBusinessSourceNotice.value ? 34 : 0;
-                const tableHeaderHeight = 44;
-                const rowHeight = 38;
-                const width = Math.ceil(Math.max(tableWidth, cardColumns * cardWidth + gap * (cardColumns - 1)) + margin * 2);
-                const height = Math.ceil(margin + headerHeight + cardsHeight + noticeHeight + 62 + tableHeaderHeight + table.rows.length * rowHeight + margin);
-                const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
-                const canvas = document.createElement('canvas');
-                canvas.width = Math.ceil(width * scale);
-                canvas.height = Math.ceil(height * scale);
-                canvas.style.width = `${width}px`;
-                canvas.style.height = `${height}px`;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) throw new Error('canvas_context_unavailable');
-                ctx.scale(scale, scale);
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, 0, width, height);
-
-                let y = margin;
-                ctx.fillStyle = '#0f172a';
-                ctx.font = '700 24px "Microsoft YaHei", Arial, sans-serif';
-                ctx.textBaseline = 'top';
-                ctx.fillText('携程 eBooking 数据下载', margin, y);
-                ctx.font = '13px "Microsoft YaHei", Arial, sans-serif';
-                ctx.fillStyle = '#64748b';
-                const meta = [
-                    `范围：携程 OTA渠道口径`,
-                    `数据日期：${ctripLatestMeta.value?.data_date || '-'}`,
-                    `当前页：${table.title}`,
-                    `记录数：${table.rows.length}`,
-                ].join(' · ');
-                ctx.fillText(meta, margin, y + 34);
-                y += headerHeight;
-
-                cards.forEach((card, index) => {
-                    const col = index % cardColumns;
-                    const row = Math.floor(index / cardColumns);
-                    const x = margin + col * (cardWidth + gap);
-                    const cardY = y + row * (cardHeight + gap);
-                    const colors = ctripDownloadPanelColors(card.panelClass);
-                    drawRoundedRect(ctx, x, cardY, cardWidth, cardHeight, 8, colors.fill, colors.stroke);
-                    ctx.fillStyle = colors.accent;
-                    ctx.fillRect(x, cardY, cardWidth, 4);
-                    drawCanvasText(ctx, card.value || '-', x + cardWidth / 2, cardY + 18, cardWidth - 20, 25, {
-                        font: '700 22px "Microsoft YaHei", Arial, sans-serif',
-                        color: colors.value,
-                        align: 'center',
-                        maxLines: 1,
-                    });
-                    drawCanvasText(ctx, card.label || '-', x + cardWidth / 2, cardY + 48, cardWidth - 20, 16, {
-                        font: '12px "Microsoft YaHei", Arial, sans-serif',
-                        color: '#475569',
-                        align: 'center',
-                        maxLines: 2,
-                    });
-                    if (card.level) {
-                        drawCanvasText(ctx, card.level, x + cardWidth / 2, cardY + 70, cardWidth - 20, 16, {
-                            font: '700 12px "Microsoft YaHei", Arial, sans-serif',
-                            color: colors.value,
-                            align: 'center',
-                            maxLines: 1,
-                        });
-                    }
+                return buildCtripBusinessCanvasStatic({
+                    cards: ctripBusinessSummaryCards.value,
+                    table: ctripDownloadRows(),
+                    sourceNotice: ctripBusinessSourceNotice.value,
+                    latestMeta: ctripLatestMeta.value,
+                    createCanvas: () => document.createElement('canvas'),
+                    devicePixelRatio: window.devicePixelRatio || 1,
                 });
-                y += cardsHeight + 14;
-
-                if (ctripBusinessSourceNotice.value) {
-                    drawRoundedRect(ctx, margin, y, width - margin * 2, 28, 6, '#eff6ff', '#bfdbfe');
-                    drawCanvasText(ctx, ctripBusinessSourceNotice.value, margin + 12, y + 7, width - margin * 2 - 24, 15, {
-                        font: '12px "Microsoft YaHei", Arial, sans-serif',
-                        color: '#1d4ed8',
-                        maxLines: 1,
-                    });
-                    y += 40;
-                }
-
-                ctx.fillStyle = '#1d4ed8';
-                ctx.font = '700 15px "Microsoft YaHei", Arial, sans-serif';
-                ctx.fillText(table.title, margin, y);
-                y += 30;
-
-                let x = margin;
-                table.columns.forEach(column => {
-                    drawRoundedRect(ctx, x, y, column.width, tableHeaderHeight, 0, '#f8fafc', '#cbd5e1');
-                    drawCanvasText(ctx, column.label, x + column.width / 2, y + 10, column.width - 16, 16, {
-                        font: '700 12px "Microsoft YaHei", Arial, sans-serif',
-                        color: '#334155',
-                        align: 'center',
-                        maxLines: 2,
-                    });
-                    x += column.width;
-                });
-                y += tableHeaderHeight;
-
-                table.rows.forEach((row, rowIndex) => {
-                    x = margin;
-                    const fill = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
-                    table.columns.forEach(column => {
-                        ctx.fillStyle = fill;
-                        ctx.fillRect(x, y, column.width, rowHeight);
-                        ctx.strokeStyle = '#e2e8f0';
-                        ctx.strokeRect(x, y, column.width, rowHeight);
-                        const value = column.value(row, rowIndex);
-                        const align = column.align || 'left';
-                        const textX = align === 'right' ? x + column.width - 8 : align === 'center' ? x + column.width / 2 : x + 8;
-                        drawCanvasText(ctx, value, textX, y + 11, column.width - 16, 16, {
-                            font: column.label === '酒店名称' ? '700 12px "Microsoft YaHei", Arial, sans-serif' : '12px "Microsoft YaHei", Arial, sans-serif',
-                            color: column.label === '离店销售额' ? '#047857' : '#0f172a',
-                            align,
-                            maxLines: 1,
-                        });
-                        x += column.width;
-                    });
-                    y += rowHeight;
-                });
-
-                return canvas;
             };
 
             const canvasToPngBlob = (canvas) => new Promise((resolve, reject) => {

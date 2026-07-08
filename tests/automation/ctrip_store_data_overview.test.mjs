@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
+import vm from 'node:vm';
 
 const readBackendSource = () => {
   const paths = ['app/controller/OnlineData.php'];
@@ -26,6 +27,12 @@ const ctripPageStart = html.indexOf("currentPage === 'ctrip-ebooking'");
 const ctripPageEnd = html.indexOf('<!-- 携程数据抓取设置 -->', ctripPageStart);
 const ctripPage = html.slice(ctripPageStart, ctripPageEnd);
 const learningDoc = readFileSync('docs/ctrip_capture_field_inventory.md', 'utf8');
+
+const loadCtripStaticApi = () => {
+  const context = { window: {}, console };
+  vm.runInNewContext(ctripStatic, context, { filename: 'public/ctrip-static.js' });
+  return context.window.SUXI_CTRIP_STATIC || {};
+};
 
 const sliceBetween = (source, startText, endText) => {
   const start = source.indexOf(startText);
@@ -617,6 +624,60 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(html, /requireDataHealthStatic\('buildCollectionHealthCtripCatalogCards'\)/);
   assert.match(html, /requireDataHealthStatic\('buildCtripOverviewFetchModuleCards'\)/);
   assert.match(html, /buildDataHealthTodayWorkOrders\(\{/);
+});
+
+test('Ctrip business download canvas is owned by ctrip static helper', () => {
+  assert.match(ctripStatic, /const buildCtripBusinessCanvas = /);
+  assert.match(html, /const buildCtripBusinessCanvasStatic = requireCtripStatic\('buildCtripBusinessCanvas'\)/);
+  assert.match(html, /return buildCtripBusinessCanvasStatic\(\{/);
+  assert.doesNotMatch(html, /const drawCtripCanvasText = /);
+
+  const api = loadCtripStaticApi();
+  const calls = [];
+  const ctx = {
+    scale: (...args) => calls.push(['scale', ...args]),
+    fillRect: (...args) => calls.push(['fillRect', ...args]),
+    strokeRect: (...args) => calls.push(['strokeRect', ...args]),
+    fillText: (text, ...args) => calls.push(['fillText', String(text), ...args]),
+    beginPath: () => calls.push(['beginPath']),
+    moveTo: (...args) => calls.push(['moveTo', ...args]),
+    lineTo: (...args) => calls.push(['lineTo', ...args]),
+    quadraticCurveTo: (...args) => calls.push(['quadraticCurveTo', ...args]),
+    closePath: () => calls.push(['closePath']),
+    fill: () => calls.push(['fill']),
+    stroke: () => calls.push(['stroke']),
+    measureText: (value) => ({ width: String(value || '').length * 6 }),
+  };
+  const canvas = {
+    width: 0,
+    height: 0,
+    style: {},
+    getContext: (type) => (type === '2d' ? ctx : null),
+  };
+
+  const result = api.buildCtripBusinessCanvas({
+    cards: [{ label: '离店销售额', value: '¥123', panelClass: 'green', level: 'OTA' }],
+    table: {
+      title: '销售与订单',
+      columns: [
+        { label: '酒店名称', width: 180, value: row => row.hotelName, align: 'left' },
+        { label: '离店销售额', width: 120, value: row => `¥${row.amount}`, align: 'right' },
+      ],
+      rows: [{ hotelName: '测试酒店', amount: 123 }],
+    },
+    sourceNotice: 'OTA渠道口径，不代表全酒店经营口径',
+    latestMeta: { data_date: '2026-07-08' },
+    createCanvas: () => canvas,
+    devicePixelRatio: 2,
+  });
+
+  assert.equal(result, canvas);
+  assert.ok(canvas.width > 0);
+  assert.ok(canvas.height > 0);
+  assert.match(canvas.style.width, /px$/);
+  assert.ok(calls.some(call => call[0] === 'fillText' && String(call[1]).includes('携程 eBooking 数据下载')));
+  assert.ok(calls.some(call => call[0] === 'fillText' && String(call[1]).includes('OTA渠道口径')));
+  assert.ok(calls.some(call => call[0] === 'scale' && call[1] === 2));
 });
 
 test('Ctrip platform authorization status supports inline view and edit', () => {

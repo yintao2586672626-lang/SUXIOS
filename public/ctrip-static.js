@@ -2637,6 +2637,219 @@ window.SUXI_CTRIP_STATIC = (() => {
         },
     ]);
 
+    const ctripDownloadPanelColors = (panelClass = '') => {
+        const text = String(panelClass || '');
+        if (text.includes('green')) return { fill: '#ecfdf5', stroke: '#a7f3d0', value: '#047857', accent: '#10b981' };
+        if (text.includes('yellow') || text.includes('amber') || text.includes('orange')) return { fill: '#fffbeb', stroke: '#fde68a', value: '#b45309', accent: '#f59e0b' };
+        if (text.includes('red') || text.includes('rose')) return { fill: '#fff1f2', stroke: '#fecdd3', value: '#be123c', accent: '#f43f5e' };
+        if (text.includes('purple')) return { fill: '#f5f3ff', stroke: '#ddd6fe', value: '#6d28d9', accent: '#8b5cf6' };
+        if (text.includes('cyan')) return { fill: '#ecfeff', stroke: '#a5f3fc', value: '#0e7490', accent: '#06b6d4' };
+        return { fill: '#eff6ff', stroke: '#bfdbfe', value: '#1d4ed8', accent: '#3b82f6' };
+    };
+
+    const drawCtripRoundedRect = (ctx, x, y, width, height, radius, fill, stroke) => {
+        const r = Math.min(radius, width / 2, height / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + width - r, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+        ctx.lineTo(x + width, y + height - r);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+        ctx.lineTo(x + r, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+        if (fill) {
+            ctx.fillStyle = fill;
+            ctx.fill();
+        }
+        if (stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+    };
+
+    const drawCtripCanvasText = (ctx, text, x, y, maxWidth, lineHeight, options = {}) => {
+        const content = String(text ?? '-');
+        ctx.font = options.font || '14px "Microsoft YaHei", Arial, sans-serif';
+        ctx.fillStyle = options.color || '#111827';
+        ctx.textAlign = options.align || 'left';
+        ctx.textBaseline = 'top';
+        const chars = Array.from(content);
+        const lines = [];
+        let line = '';
+        chars.forEach(char => {
+            const next = line + char;
+            if (ctx.measureText(next).width > maxWidth && line) {
+                lines.push(line);
+                line = char;
+            } else {
+                line = next;
+            }
+        });
+        lines.push(line);
+        const limited = options.maxLines ? lines.slice(0, options.maxLines) : lines;
+        limited.forEach((lineText, index) => {
+            let displayText = lineText;
+            if (options.maxLines && index === options.maxLines - 1 && lines.length > options.maxLines) {
+                while (ctx.measureText(displayText + '...').width > maxWidth && displayText.length > 0) {
+                    displayText = displayText.slice(0, -1);
+                }
+                displayText += '...';
+            }
+            ctx.fillText(displayText, x, y + index * lineHeight, maxWidth);
+        });
+        return limited.length * lineHeight;
+    };
+
+    const buildCtripBusinessCanvas = ({
+        cards = [],
+        table = {},
+        sourceNotice = '',
+        latestMeta = {},
+        createCanvas = null,
+        devicePixelRatio = typeof window !== 'undefined' ? window.devicePixelRatio : 1,
+    } = {}) => {
+        const safeCards = Array.isArray(cards) ? cards : [];
+        const safeColumns = Array.isArray(table?.columns) ? table.columns : [];
+        const safeRows = Array.isArray(table?.rows) ? table.rows : [];
+        const tableTitle = String(table?.title || '销售与订单');
+        const margin = 28;
+        const gap = 14;
+        const tableWidth = safeColumns.reduce((sum, column) => sum + Number(column?.width || 0), 0);
+        const cardColumns = Math.min(6, Math.max(1, safeCards.length || 1));
+        const cardWidth = Math.max(158, Math.floor((Math.max(tableWidth, 1120) - gap * (cardColumns - 1)) / cardColumns));
+        const cardHeight = 92;
+        const cardRows = Math.ceil(safeCards.length / cardColumns);
+        const headerHeight = 78;
+        const cardsHeight = Math.max(0, cardRows * cardHeight + Math.max(0, cardRows - 1) * gap);
+        const noticeHeight = sourceNotice ? 34 : 0;
+        const tableHeaderHeight = 44;
+        const rowHeight = 38;
+        const width = Math.ceil(Math.max(tableWidth, cardColumns * cardWidth + gap * (cardColumns - 1)) + margin * 2);
+        const height = Math.ceil(margin + headerHeight + cardsHeight + noticeHeight + 62 + tableHeaderHeight + safeRows.length * rowHeight + margin);
+        const scale = Math.min(2, Math.max(1, Number(devicePixelRatio || 1)));
+        const canvasFactory = typeof createCanvas === 'function'
+            ? createCanvas
+            : () => document.createElement('canvas');
+        const canvas = canvasFactory();
+        canvas.width = Math.ceil(width * scale);
+        canvas.height = Math.ceil(height * scale);
+        if (canvas.style) {
+            canvas.style.width = `${width}px`;
+            canvas.style.height = `${height}px`;
+        }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('canvas_context_unavailable');
+        ctx.scale(scale, scale);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+
+        let y = margin;
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '700 24px "Microsoft YaHei", Arial, sans-serif';
+        ctx.textBaseline = 'top';
+        ctx.fillText('携程 eBooking 数据下载', margin, y);
+        ctx.font = '13px "Microsoft YaHei", Arial, sans-serif';
+        ctx.fillStyle = '#64748b';
+        const meta = [
+            '范围：携程 OTA渠道口径',
+            `数据日期：${latestMeta?.data_date || '-'}`,
+            `当前页：${tableTitle}`,
+            `记录数：${safeRows.length}`,
+        ].join(' · ');
+        ctx.fillText(meta, margin, y + 34);
+        y += headerHeight;
+
+        safeCards.forEach((card, index) => {
+            const col = index % cardColumns;
+            const row = Math.floor(index / cardColumns);
+            const x = margin + col * (cardWidth + gap);
+            const cardY = y + row * (cardHeight + gap);
+            const colors = ctripDownloadPanelColors(card?.panelClass);
+            drawCtripRoundedRect(ctx, x, cardY, cardWidth, cardHeight, 8, colors.fill, colors.stroke);
+            ctx.fillStyle = colors.accent;
+            ctx.fillRect(x, cardY, cardWidth, 4);
+            drawCtripCanvasText(ctx, card?.value || '-', x + cardWidth / 2, cardY + 18, cardWidth - 20, 25, {
+                font: '700 22px "Microsoft YaHei", Arial, sans-serif',
+                color: colors.value,
+                align: 'center',
+                maxLines: 1,
+            });
+            drawCtripCanvasText(ctx, card?.label || '-', x + cardWidth / 2, cardY + 48, cardWidth - 20, 16, {
+                font: '12px "Microsoft YaHei", Arial, sans-serif',
+                color: '#475569',
+                align: 'center',
+                maxLines: 2,
+            });
+            if (card?.level) {
+                drawCtripCanvasText(ctx, card.level, x + cardWidth / 2, cardY + 70, cardWidth - 20, 16, {
+                    font: '700 12px "Microsoft YaHei", Arial, sans-serif',
+                    color: colors.value,
+                    align: 'center',
+                    maxLines: 1,
+                });
+            }
+        });
+        y += cardsHeight + 14;
+
+        if (sourceNotice) {
+            drawCtripRoundedRect(ctx, margin, y, width - margin * 2, 28, 6, '#eff6ff', '#bfdbfe');
+            drawCtripCanvasText(ctx, sourceNotice, margin + 12, y + 7, width - margin * 2 - 24, 15, {
+                font: '12px "Microsoft YaHei", Arial, sans-serif',
+                color: '#1d4ed8',
+                maxLines: 1,
+            });
+            y += 40;
+        }
+
+        ctx.fillStyle = '#1d4ed8';
+        ctx.font = '700 15px "Microsoft YaHei", Arial, sans-serif';
+        ctx.fillText(tableTitle, margin, y);
+        y += 30;
+
+        let x = margin;
+        safeColumns.forEach(column => {
+            const columnWidth = Number(column?.width || 0);
+            drawCtripRoundedRect(ctx, x, y, columnWidth, tableHeaderHeight, 0, '#f8fafc', '#cbd5e1');
+            drawCtripCanvasText(ctx, column?.label || '-', x + columnWidth / 2, y + 10, columnWidth - 16, 16, {
+                font: '700 12px "Microsoft YaHei", Arial, sans-serif',
+                color: '#334155',
+                align: 'center',
+                maxLines: 2,
+            });
+            x += columnWidth;
+        });
+        y += tableHeaderHeight;
+
+        safeRows.forEach((row, rowIndex) => {
+            x = margin;
+            const fill = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+            safeColumns.forEach(column => {
+                const columnWidth = Number(column?.width || 0);
+                ctx.fillStyle = fill;
+                ctx.fillRect(x, y, columnWidth, rowHeight);
+                ctx.strokeStyle = '#e2e8f0';
+                ctx.strokeRect(x, y, columnWidth, rowHeight);
+                const value = typeof column?.value === 'function' ? column.value(row, rowIndex) : '-';
+                const align = column?.align || 'left';
+                const textX = align === 'right' ? x + columnWidth - 8 : align === 'center' ? x + columnWidth / 2 : x + 8;
+                drawCtripCanvasText(ctx, value, textX, y + 11, columnWidth - 16, 16, {
+                    font: column?.label === '酒店名称' ? '700 12px "Microsoft YaHei", Arial, sans-serif' : '12px "Microsoft YaHei", Arial, sans-serif',
+                    color: column?.label === '离店销售额' ? '#047857' : '#0f172a',
+                    align,
+                    maxLines: 1,
+                });
+                x += columnWidth;
+            });
+            y += rowHeight;
+        });
+
+        return canvas;
+    };
+
     return {
         ctripProfilePrimaryCategoryOptions,
         ctripProfileDefaultModuleOptions,
@@ -2716,5 +2929,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripProfileRecheckInterruptedState,
         runCtripProfileRecheckFlow,
         getCtripCookieApiCorePresetEndpoints,
+        buildCtripBusinessCanvas,
     };
 })();
