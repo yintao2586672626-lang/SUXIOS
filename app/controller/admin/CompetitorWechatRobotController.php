@@ -340,12 +340,18 @@ class CompetitorWechatRobotController extends Base
         $path = (string)($parts['path'] ?? '');
         $query = (string)($parts['query'] ?? '');
         parse_str($query, $queryParams);
+        $key = $queryParams['key'] ?? '';
 
         if (
-            $scheme !== 'https'
+            isset($parts['user'])
+            || isset($parts['pass'])
+            || isset($parts['fragment'])
+            || (isset($parts['port']) && (int)$parts['port'] !== 443)
+            || $scheme !== 'https'
             || $host !== 'qyapi.weixin.qq.com'
             || $path !== '/cgi-bin/webhook/send'
-            || trim((string)($queryParams['key'] ?? '')) === ''
+            || !is_string($key)
+            || trim($key) === ''
         ) {
             return null;
         }

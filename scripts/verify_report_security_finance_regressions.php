@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use app\service\QuantSimulationService;
+use app\controller\admin\CompetitorWechatRobotController;
 
 function fail_regression(string $message): void
 {
@@ -91,6 +92,18 @@ $result = call_private_regression($service, 'calculateSimulation', [[
 ]]);
 assert_regression_float(0.3704, $result['breakEvenOccupancy'], 'break-even occupancy must solve fixed cost against net room revenue after OTA commission');
 
+$robotControllerRef = new ReflectionClass(CompetitorWechatRobotController::class);
+$robotController = $robotControllerRef->newInstanceWithoutConstructor();
+$validRobotWebhook = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123';
+assert_regression_same($validRobotWebhook, call_private_regression($robotController, 'normalizeRobotWebhook', [$validRobotWebhook]), 'competitor robot webhook validator must accept Enterprise WeChat robot URLs');
+assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['http://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123']), 'competitor robot webhook validator must reject non-HTTPS URLs');
+assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['https://qyapi.weixin.qq.com.evil.test/cgi-bin/webhook/send?key=abc123']), 'competitor robot webhook validator must reject lookalike hosts');
+assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['https://qyapi.weixin.qq.com:8443/cgi-bin/webhook/send?key=abc123']), 'competitor robot webhook validator must reject non-standard ports');
+assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['https://user:pass@qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123']), 'competitor robot webhook validator must reject userinfo credentials');
+assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123#fragment']), 'competitor robot webhook validator must reject URL fragments');
+assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key[]=abc123']), 'competitor robot webhook validator must reject non-scalar robot keys');
+assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['https://qyapi.weixin.qq.com/cgi-bin/webhook/send']), 'competitor robot webhook validator must require a robot key');
+
 $authSource = file_get_contents(__DIR__ . '/../app/controller/Auth.php');
 $baseSource = file_get_contents(__DIR__ . '/../app/controller/Base.php');
 $competitorSource = file_get_contents(__DIR__ . '/../app/controller/CompetitorApi.php');
@@ -118,6 +131,7 @@ $competitorReportSource = extract_method_source_regression($competitorSource, 'r
 $robotIndexSource = extract_method_source_regression($robotControllerSource, 'index');
 $robotApiIndexSource = extract_method_source_regression($robotControllerSource, 'apiIndex');
 $robotApiDetailSource = extract_method_source_regression($robotControllerSource, 'apiDetail');
+$robotWebhookNormalizeSource = extract_method_source_regression($robotControllerSource, 'normalizeRobotWebhook');
 $userDeleteSource = extract_method_source_regression($userSource, 'delete');
 $hotelDeleteSource = extract_method_source_regression($hotelSource, 'delete');
 
@@ -148,6 +162,10 @@ assert_regression(str_contains($routeSource, "Route::get('/detail/:id', 'admin.C
 assert_regression(str_contains($robotListViewSource, 'webhook_masked'), 'competitor robot legacy list must display masked webhook text');
 assert_regression(!str_contains($publicIndexSource, 'competitorRobotForm.value = { ...item };'), 'competitor robot SPA edit form must not reuse masked list rows as editable secrets');
 assert_regression(str_contains($publicIndexSource, '/admin/competitor-wechat-robot/detail/'), 'competitor robot SPA edit form must fetch full webhook only from the detail API');
+assert_regression(str_contains($robotWebhookNormalizeSource, "isset(\$parts['user'])") && str_contains($robotWebhookNormalizeSource, "isset(\$parts['pass'])"), 'competitor robot webhook validation must reject URL userinfo credentials');
+assert_regression(str_contains($robotWebhookNormalizeSource, "isset(\$parts['fragment'])"), 'competitor robot webhook validation must reject URL fragments');
+assert_regression(str_contains($robotWebhookNormalizeSource, "(isset(\$parts['port']) && (int)\$parts['port'] !== 443)"), 'competitor robot webhook validation must reject non-standard ports');
+assert_regression(str_contains($robotWebhookNormalizeSource, '!is_string($key)') && str_contains($robotWebhookNormalizeSource, 'trim($key) ==='), 'competitor robot webhook validation must require a non-empty string key');
 
 assert_regression(!str_contains($receiveCookiesSource, "param('token'"), 'receiveCookies must not read auth token from URL parameters');
 assert_regression(str_contains($receiveCookiesSource, "header('Access-Control-Allow-Headers: Content-Type, Authorization')"), 'receiveCookies CORS must allow Authorization header');
