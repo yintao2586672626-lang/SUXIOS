@@ -36,6 +36,7 @@ const acceptanceDoc = read('docs/phase2_daily_workbench_acceptance.md');
 const packageJson = read('package.json');
 const frontend = read('public/index.html');
 const ctripStatic = read('public/ctrip-static.js');
+const dataHealthStatic = read('public/data-health-static.js');
 const manualFetchConcern = read('app/controller/concern/OnlineDataManualFetchConcern.php');
 const compassStatic = read('public/compass-static.js');
 
@@ -332,7 +333,6 @@ includesAll('public/index.html', 'manual one-click Ctrip fetch retries partial Q
   'ctripQunarVisitorNeedsRetry',
   '去哪儿访客仍为 0',
   '自动重抓',
-  '携程和去哪儿都成功才算成功',
   "if (row.status === 'success') summary.savedCount += Number(row.savedCount || 0);",
   'qunarVisitorIncomplete',
 ]);
@@ -357,9 +357,15 @@ excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip ma
 ]);
 
 includesAll('public/index.html', 'manual one-click Ctrip fetch does not mark zero-Qunar retry exhaustion as success', frontend, [
-  'manualOneClickFetchResultStatus(result, savedCount, {',
-  "requireQunarReady: platform === 'ctrip'",
-  'qunarReady',
+  "const summarizeManualOneClickFetchResult = requireDataHealthStatic('summarizeManualOneClickFetchResult')",
+  'summarizeManualOneClickFetchResult({',
+  "qunarVisitorNeedsRetry: platform === 'ctrip' && ctripQunarVisitorNeedsRetry(ctripQunarQuality)",
+  'qunarVisitorIncomplete: resultSummary.qunarVisitorIncomplete',
+]);
+
+includesAll('public/data-health-static.js', 'manual one-click Ctrip fetch result helper keeps zero-Qunar retry exhaustion blocking', dataHealthStatic, [
+  'const summarizeManualOneClickFetchResult = ({',
+  "normalizedPlatform === 'ctrip' && (!ctripRowsReturned || qunarVisitorIncomplete)",
   '携程和去哪儿都成功才算成功',
 ]);
 

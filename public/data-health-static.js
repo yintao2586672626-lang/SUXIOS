@@ -38,6 +38,95 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         return 'bg-red-100 text-red-700';
     };
 
+    const manualOneClickFetchSavedCount = (result = {}) => {
+        const candidates = [
+            result?.saved_count,
+            result?.savedCount,
+            result?.totalSavedCount,
+            result?.data?.saved_count,
+            result?.data?.savedCount,
+            result?.data?.totalSavedCount,
+            result?.data?.summary?.saved_count,
+            result?.data?.summary?.savedCount,
+            result?.response?.data?.saved_count,
+            result?.response?.data?.savedCount,
+            result?.total_saved,
+            result?.data?.total_saved,
+            result?.response?.data?.total_saved,
+        ];
+        const value = candidates.map(item => Number(item)).find(item => Number.isFinite(item) && item >= 0);
+        return Number.isFinite(value) ? value : 0;
+    };
+
+    const manualOneClickFetchResultMessage = (result = {}) => {
+        return String(result?.message || result?.data?.message || result?.response?.message || result?.msg || result?.data?.msg || result?.response?.msg || '').trim();
+    };
+
+    const summarizeManualOneClickFetchResult = ({
+        platform = '',
+        result = {},
+        savedCount = 0,
+        ctripQunarQuality = null,
+        qunarRetryCount = 0,
+        qunarVisitorNeedsRetry = false,
+    } = {}) => {
+        const normalizedPlatform = platform === 'ctrip' ? 'ctrip' : 'meituan';
+        const count = Number(savedCount || 0);
+        const retryCount = Number(qunarRetryCount || 0);
+        const responseStatus = String(result?.status || result?.data?.status || '').toLowerCase();
+        const responseCode = Number(result?.code ?? result?.data?.code ?? 0);
+        const ctripRowsReturned = normalizedPlatform === 'ctrip' && Number(ctripQunarQuality?.rowCount || 0) > 0;
+        const qunarVisitorIncomplete = normalizedPlatform === 'ctrip' && Boolean(qunarVisitorNeedsRetry);
+        let status = 'failed';
+        if (normalizedPlatform === 'ctrip' && (!ctripRowsReturned || qunarVisitorIncomplete)) {
+            status = 'failed';
+        } else if (normalizedPlatform === 'ctrip' && ctripRowsReturned && (['success', 'ok'].includes(responseStatus) || responseCode === 200)) {
+            status = 'success';
+        } else if (count > 0) {
+            status = 'success';
+        } else if (['failed', 'error', 'invalid_request', 'login_required', 'not_logged_in'].includes(responseStatus)) {
+            status = 'failed';
+        } else if (['accepted', 'queued', 'running'].includes(responseStatus)) {
+            status = 'queued';
+        } else if (['success', 'ok'].includes(responseStatus) || responseCode === 200) {
+            status = 'no_saved';
+        }
+
+        const statusText = status === 'queued'
+            ? '已提交'
+            : (status === 'success' ? '已入库' : (status === 'no_saved' ? '未入库' : '失败'));
+        const responseMessage = manualOneClickFetchResultMessage(result);
+        const retryText = normalizedPlatform === 'ctrip' && retryCount > 0 ? `，已自动重抓 ${retryCount} 次` : '';
+        const ctripSavedText = count > 0 ? `本次入库 ${count} 条` : '本次未新增入库';
+        let message = '';
+
+        if (normalizedPlatform === 'ctrip' && qunarVisitorIncomplete) {
+            message = `携程数据已获取${count > 0 ? `并保留 ${count} 条` : ''}，但去哪儿访客仍为 0；已自动重抓 ${retryCount} 次，携程和去哪儿都成功才算成功。`;
+        } else if (normalizedPlatform === 'ctrip' && status === 'success') {
+            message = `手动获取完成：携程和去哪儿均已返回${retryText}；${ctripSavedText}；去哪儿访客 ${ctripQunarQuality ? ctripQunarQuality.total : '未校验'}。`;
+        } else if (status === 'no_saved') {
+            message = `${responseMessage || '接口调用完成'}；本次入库 0 条，不等于入库成功`;
+        } else if (normalizedPlatform === 'ctrip' && !ctripRowsReturned && (!responseMessage || responseMessage === '获取成功')) {
+            message = '携程竞争圈未返回可展示行，携程和去哪儿都成功才算成功。';
+        } else if (responseMessage) {
+            message = responseMessage;
+        } else if (status === 'queued') {
+            message = '接口已提交后台，暂未确认入库';
+        } else if (status === 'success') {
+            message = `手动获取并入库完成；竞争圈来源可能少于 26 条，已按实际返回 ${count} 条入库`;
+        } else {
+            message = '手动获取失败';
+        }
+
+        return {
+            status,
+            statusText,
+            message,
+            ctripRowsReturned,
+            qunarVisitorIncomplete,
+        };
+    };
+
     const buildOnlineHistoryQueryParams = ({ page = 1, pageSize = 20, filter = {} } = {}) => {
         const params = new URLSearchParams({
             page: String(page || 1),
@@ -5487,6 +5576,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         onlineDataQualityPromptList,
         onlineDataQualityScopeText,
         autoFetchRecordStatusClass,
+        manualOneClickFetchSavedCount,
+        manualOneClickFetchResultMessage,
+        summarizeManualOneClickFetchResult,
         buildOnlineHistoryQueryParams,
         isDirtyQuestionMarkText,
         formatOnlineHistoryHotelOption,

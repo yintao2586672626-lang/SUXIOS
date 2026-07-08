@@ -73,7 +73,7 @@
     <script src="ctrip-static.js?v=20260708-qunar-retry-business-canvas"></script>
     <script src="meituan-static.js?v=20260708-ranking-summary-helpers"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
-    <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card"></script>
+    <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result"></script>
     <script src="revenue-ai-static.js?v=20260708-ai-daily-blocking-summary"></script>
     <script src="system-static.js?v=20260708-hotel-merge"></script>
     <script src="user-admin-static.js?v=20260708-role-issue-helpers"></script>
@@ -21130,6 +21130,8 @@
             const onlineDataQualityPromptList = requireDataHealthStatic('onlineDataQualityPromptList');
             const onlineDataQualityScopeText = requireDataHealthStatic('onlineDataQualityScopeText');
             const autoFetchRecordStatusClass = requireDataHealthStatic('autoFetchRecordStatusClass');
+            const manualOneClickFetchSavedCount = requireDataHealthStatic('manualOneClickFetchSavedCount');
+            const summarizeManualOneClickFetchResult = requireDataHealthStatic('summarizeManualOneClickFetchResult');
             const buildOnlineHistoryQueryParams = requireDataHealthStatic('buildOnlineHistoryQueryParams');
             const formatOnlineHistoryHotelOption = requireDataHealthStatic('formatOnlineHistoryHotelOption');
             const formatOnlineHistoryRaw = requireDataHealthStatic('formatOnlineHistoryRaw');
@@ -35594,39 +35596,6 @@
                 await openHotelManualFetchConfig(hotel, platform);
                 showToast(`已打开${manualOneClickFetchPlatformText(platform)}补录配置`, 'info');
             };
-            const manualOneClickFetchSavedCount = (result = {}) => {
-                const candidates = [
-                    result?.saved_count,
-                    result?.savedCount,
-                    result?.totalSavedCount,
-                    result?.data?.saved_count,
-                    result?.data?.savedCount,
-                    result?.data?.totalSavedCount,
-                    result?.data?.summary?.saved_count,
-                    result?.data?.summary?.savedCount,
-                    result?.response?.data?.saved_count,
-                    result?.response?.data?.savedCount,
-                    result?.total_saved,
-                    result?.data?.total_saved,
-                    result?.response?.data?.total_saved,
-                ];
-                const value = candidates.map(item => Number(item)).find(item => Number.isFinite(item) && item >= 0);
-                return Number.isFinite(value) ? value : 0;
-            };
-            const manualOneClickFetchResultStatus = (result = {}, savedCount = 0, options = {}) => {
-                const status = String(result?.status || result?.data?.status || '').toLowerCase();
-                const code = Number(result?.code ?? result?.data?.code ?? 0);
-                if (options.requireQunarReady && options.qunarReady === false) return 'failed';
-                if (options.ctripRowsReturned && options.qunarReady === true && (['success', 'ok'].includes(status) || code === 200)) return 'success';
-                if (Number(savedCount || 0) > 0) return 'success';
-                if (['failed', 'error', 'invalid_request', 'login_required', 'not_logged_in'].includes(status)) return 'failed';
-                if (['accepted', 'queued', 'running'].includes(status)) return 'queued';
-                if (['success', 'ok'].includes(status) || code === 200) return 'no_saved';
-                return 'failed';
-            };
-            const manualOneClickFetchResultMessage = (result = {}) => {
-                return String(result?.message || result?.data?.message || result?.response?.message || result?.msg || result?.data?.msg || result?.response?.msg || '').trim();
-            };
             const upsertManualOneClickFetchRow = (row) => {
                 const rows = [...manualOneClickFetchRows.value];
                 const index = rows.findIndex(item => item.key === row.key);
@@ -35737,51 +35706,27 @@
                         result = await fetchMeituanData();
                         savedCount = manualOneClickFetchSavedCount(result);
                     }
-                    const ctripRowsReturned = platform === 'ctrip' && Number(ctripQunarQuality?.rowCount || 0) > 0;
-                    const qunarVisitorIncomplete = platform === 'ctrip'
-                        && ctripQunarVisitorNeedsRetry(ctripQunarQuality);
-                    const status = manualOneClickFetchResultStatus(result, savedCount, {
-                        requireQunarReady: platform === 'ctrip',
-                        qunarReady: platform === 'ctrip' ? (ctripRowsReturned && !qunarVisitorIncomplete) : undefined,
-                        ctripRowsReturned,
+                    const resultSummary = summarizeManualOneClickFetchResult({
+                        platform,
+                        result,
+                        savedCount,
+                        ctripQunarQuality,
+                        qunarRetryCount,
+                        qunarVisitorNeedsRetry: platform === 'ctrip' && ctripQunarVisitorNeedsRetry(ctripQunarQuality),
                     });
-                    const statusText = status === 'queued'
-                        ? '已提交'
-                        : (status === 'success' ? '已入库' : (status === 'no_saved' ? '未入库' : '失败'));
-                    const responseMessage = manualOneClickFetchResultMessage(result);
-                    const retryText = platform === 'ctrip' && qunarRetryCount > 0 ? `，已自动重抓 ${qunarRetryCount} 次` : '';
-                    const ctripSavedText = savedCount > 0 ? `本次入库 ${savedCount} 条` : '本次未新增入库';
-                    let message = '';
-                    if (platform === 'ctrip' && qunarVisitorIncomplete) {
-                        message = `携程数据已获取${savedCount > 0 ? `并保留 ${savedCount} 条` : ''}，但去哪儿访客仍为 0；已自动重抓 ${qunarRetryCount} 次，携程和去哪儿都成功才算成功。`;
-                    } else if (platform === 'ctrip' && status === 'success') {
-                        message = `手动获取完成：携程和去哪儿均已返回${retryText}；${ctripSavedText}；去哪儿访客 ${ctripQunarQuality ? ctripQunarQuality.total : '未校验'}。`;
-                    } else if (status === 'no_saved') {
-                        message = `${responseMessage || '接口调用完成'}；本次入库 0 条，不等于入库成功`;
-                    } else if (platform === 'ctrip' && !ctripRowsReturned && (!responseMessage || responseMessage === '获取成功')) {
-                        message = '携程竞争圈未返回可展示行，携程和去哪儿都成功才算成功。';
-                    } else if (responseMessage) {
-                        message = responseMessage;
-                    } else if (status === 'queued') {
-                        message = '接口已提交后台，暂未确认入库';
-                    } else if (status === 'success') {
-                        message = `手动获取并入库完成；竞争圈来源可能少于 26 条，已按实际返回 ${savedCount} 条入库`;
-                    } else {
-                        message = '手动获取失败';
-                    }
                     upsertManualOneClickFetchRow({
                         ...baseRow,
-                        status,
-                        statusText,
-                        message,
+                        status: resultSummary.status,
+                        statusText: resultSummary.statusText,
+                        message: resultSummary.message,
                         savedCount,
                         retryCount: qunarRetryCount,
                         attemptCount: attempts,
                         qunarVisitorTotal: ctripQunarQuality ? ctripQunarQuality.total : undefined,
-                        qunarVisitorIncomplete,
+                        qunarVisitorIncomplete: resultSummary.qunarVisitorIncomplete,
                         timeText: manualOneClickFetchNowText(),
                     });
-                    return { status, savedCount, retryCount: qunarRetryCount };
+                    return { status: resultSummary.status, savedCount, retryCount: qunarRetryCount };
                 } catch (error) {
                     upsertManualOneClickFetchRow({
                         ...baseRow,

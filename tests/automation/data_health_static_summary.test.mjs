@@ -299,6 +299,40 @@ test('public endpoint security summary escalates any unconfigured public token',
   assert.equal(summary.unconfiguredTokenCount, 1);
 });
 
+test('manual one-click fetch result helpers keep Ctrip Qunar gaps blocking', () => {
+  assert.equal(helpers.manualOneClickFetchSavedCount({ data: { summary: { saved_count: 3 } } }), 3);
+  assert.equal(helpers.manualOneClickFetchResultMessage({ response: { msg: '需要登录' } }), '需要登录');
+
+  const meituanSuccess = helpers.summarizeManualOneClickFetchResult({
+    platform: 'meituan',
+    result: { code: 200 },
+    savedCount: 2,
+  });
+  assert.equal(meituanSuccess.status, 'success');
+  assert.equal(meituanSuccess.statusText, '已入库');
+  assert.match(meituanSuccess.message, /实际返回 2 条入库/);
+
+  const noSaved = helpers.summarizeManualOneClickFetchResult({
+    platform: 'meituan',
+    result: { code: 200, message: '获取成功' },
+    savedCount: 0,
+  });
+  assert.equal(noSaved.status, 'no_saved');
+  assert.match(noSaved.message, /本次入库 0 条/);
+
+  const ctripQunarGap = helpers.summarizeManualOneClickFetchResult({
+    platform: 'ctrip',
+    result: { code: 200, message: '获取成功' },
+    savedCount: 5,
+    ctripQunarQuality: { rowCount: 3, total: 0 },
+    qunarRetryCount: 3,
+    qunarVisitorNeedsRetry: true,
+  });
+  assert.equal(ctripQunarGap.status, 'failed');
+  assert.equal(ctripQunarGap.qunarVisitorIncomplete, true);
+  assert.match(ctripQunarGap.message, /携程和去哪儿都成功才算成功/);
+});
+
 test('full data health panel refresh includes release evidence status without light refresh', async () => {
   assert.equal(typeof helpers.buildDataHealthPanelRefreshJobs, 'function');
 
