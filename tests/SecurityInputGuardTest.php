@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\CompetitorApi;
+use app\controller\OperationLogController;
 use app\controller\SystemConfigController;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
@@ -75,5 +76,48 @@ final class SecurityInputGuardTest extends TestCase
         self::assertTrue($this->invokeNonPublic($controller, 'containsRedactedExportSecretPlaceholder', [['cookie' => '[REDACTED]']]));
         self::assertFalse($this->invokeNonPublic($controller, 'containsRedactedExportSecretPlaceholder', ['normal config value']));
         self::assertFalse($this->invokeNonPublic($controller, 'containsRedactedExportSecretPlaceholder', ['{"label":"normal"}']));
+    }
+
+    public function testHighRiskOperationLogSummaryRowsAreWhitelistedAndRedacted(): void
+    {
+        $controller = $this->controller(OperationLogController::class);
+        $row = [
+            'id' => 12,
+            'module' => 'online_data',
+            'action' => 'save_cookies',
+            'description' => 'Cookie: sessionid=raw-cookie; Authorization: Bearer sk-test-secret token=raw-token',
+            'error_info' => 'Failed with spidertoken=raw-spider&key=raw-webhook and phone 13812345678',
+            'extra_data' => json_encode(['headers' => ['Cookie' => 'raw-cookie']], JSON_UNESCAPED_UNICODE),
+            'ip' => '203.0.113.9',
+            'user_agent' => 'Mozilla raw-cookie',
+            'create_time' => '2026-07-08 10:00:00',
+            'audit_type' => 'acquisition',
+            'risk_priority' => 'high',
+            'risk_title' => '配置变更动作',
+            'user' => [
+                'id' => 5,
+                'username' => '13812345678',
+                'realname' => 'Alice token=raw-user-token',
+                'password' => 'raw-password',
+            ],
+            'hotel' => [
+                'id' => 7,
+                'name' => '测试门店',
+            ],
+        ];
+
+        $summary = $this->invokeNonPublic($controller, 'sanitizeHighRiskSummaryRow', [$row]);
+        $encoded = json_encode($summary, JSON_UNESCAPED_UNICODE);
+
+        self::assertIsArray($summary);
+        self::assertArrayNotHasKey('extra_data', $summary);
+        self::assertArrayNotHasKey('ip', $summary);
+        self::assertArrayNotHasKey('user_agent', $summary);
+        self::assertArrayNotHasKey('password', $summary['user']);
+        foreach (['raw-cookie', 'sk-test-secret', 'raw-token', 'raw-spider', 'raw-webhook', '13812345678', 'raw-user-token', 'raw-password'] as $secret) {
+            self::assertStringNotContainsString($secret, (string)$encoded);
+        }
+        self::assertStringContainsString('****', (string)$encoded);
+        self::assertSame('high', $summary['risk_priority']);
     }
 }

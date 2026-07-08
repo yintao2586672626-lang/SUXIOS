@@ -14,6 +14,7 @@ class OperationLogController extends Base
     private const MAX_PAGE_SIZE = 100;
     private const HIGH_RISK_SUMMARY_LIMIT = 20;
     private const HIGH_RISK_SUMMARY_SCAN_LIMIT = 100;
+    private const HIGH_RISK_SUMMARY_TEXT_LIMIT = 180;
 
     private const DATA_ACQUISITION_ACTIONS = [
         'view_data',
@@ -38,6 +39,67 @@ class OperationLogController extends Base
         'feasibility_generate',
         'feasibility_regenerate',
     ];
+
+    private function sanitizeHighRiskSummaryRow(array $row): array
+    {
+        $user = is_array($row['user'] ?? null) ? $row['user'] : [];
+        $hotel = is_array($row['hotel'] ?? null) ? $row['hotel'] : [];
+
+        return [
+            'id' => (int)($row['id'] ?? 0),
+            'module' => $this->redactOperationLogSummaryText((string)($row['module'] ?? ''), 80),
+            'action' => $this->redactOperationLogSummaryText((string)($row['action'] ?? ''), 80),
+            'description' => $this->redactOperationLogSummaryText((string)($row['description'] ?? '')),
+            'error_info' => $this->redactOperationLogSummaryText((string)($row['error_info'] ?? '')),
+            'create_time' => (string)($row['create_time'] ?? ''),
+            'audit_type' => $this->redactOperationLogSummaryText((string)($row['audit_type'] ?? 'operation'), 40),
+            'risk_priority' => $this->redactOperationLogSummaryText((string)($row['risk_priority'] ?? 'medium'), 20),
+            'risk_title' => $this->redactOperationLogSummaryText((string)($row['risk_title'] ?? ''), 80),
+            'user' => [
+                'id' => isset($user['id']) ? (int)$user['id'] : null,
+                'username' => $this->redactOperationLogSummaryText((string)($user['username'] ?? ''), 80),
+                'realname' => $this->redactOperationLogSummaryText((string)($user['realname'] ?? ''), 80),
+            ],
+            'hotel' => [
+                'id' => isset($hotel['id']) ? (int)$hotel['id'] : null,
+                'name' => $this->redactOperationLogSummaryText((string)($hotel['name'] ?? ''), 120),
+            ],
+            'user_name' => $this->redactOperationLogSummaryText(
+                (string)($row['user_name'] ?? $user['realname'] ?? $user['username'] ?? ''),
+                80
+            ),
+            'hotel_name' => $this->redactOperationLogSummaryText(
+                (string)($row['hotel_name'] ?? $hotel['name'] ?? ''),
+                120
+            ),
+            'summary_redacted' => true,
+        ];
+    }
+
+    private function redactOperationLogSummaryText(string $value, int $limit = self::HIGH_RISK_SUMMARY_TEXT_LIMIT): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $patterns = [
+            '/\bAuthorization\s*:\s*Bearer\s+[^\s,;]+/iu' => 'Authorization=****',
+            '/\bBearer\s+[A-Za-z0-9._\-]{8,}/u' => 'Bearer ****',
+            '/\b(cookie|token|authorization|password|secret|spidertoken|mtgsig|usersign|usertoken|api[_-]?key|access[_-]?key|key)\s*[:=]\s*["\']?[^"\'\s,;]+/iu' => '$1=****',
+            '/([?&](?:token|key|api[_-]?key|authorization|spidertoken|mtgsig|usersign|usertoken)=)[^&#\s]+/iu' => '$1****',
+            '/sk-[A-Za-z0-9_-]{8,}/u' => 'sk-****',
+            '/(1[3-9]\d)\d{4}(\d{4})/u' => '$1****$2',
+            '/\b\d{12,}\b/u' => '[编号已隐藏]',
+            '/\s+/u' => ' ',
+        ];
+
+        foreach ($patterns as $pattern => $replacement) {
+            $value = preg_replace($pattern, $replacement, $value) ?? $value;
+        }
+
+        return mb_substr($value, 0, max(0, $limit));
+    }
 
     /**
      * 只有超级管理员可以访问
@@ -147,7 +209,7 @@ class OperationLogController extends Base
             $row['audit_type'] = $this->resolveAuditType($row);
             $row['risk_priority'] = $risk['priority'];
             $row['risk_title'] = $risk['title'];
-            $list[] = $row;
+            $list[] = $this->sanitizeHighRiskSummaryRow($row);
             if (count($list) >= $limit) {
                 break;
             }
@@ -401,4 +463,5 @@ class OperationLogController extends Base
     {
         return in_array($action, self::DATA_ACQUISITION_ACTIONS, true) || str_starts_with($action, 'fetch_');
     }
+
 }
