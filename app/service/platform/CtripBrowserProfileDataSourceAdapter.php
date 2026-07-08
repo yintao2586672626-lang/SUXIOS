@@ -936,7 +936,14 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             return '';
         }
         $path = $dir . DIRECTORY_SEPARATOR . 'ctrip_browser_profile_cookie_' . bin2hex(random_bytes(6)) . '.txt';
-        return file_put_contents($path, $cookies) === false ? '' : $path;
+        if (file_put_contents($path, $cookies, LOCK_EX) === false) {
+            return '';
+        }
+        if (!chmod($path, 0600)) {
+            @unlink($path);
+            return '';
+        }
+        return $path;
     }
 
     private function shouldInjectStoredCookies(array $options, bool $profilePrepared): bool

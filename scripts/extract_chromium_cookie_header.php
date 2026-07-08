@@ -189,11 +189,18 @@ $outputDir = dirname($outputPath);
 if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
     fail('failed to create output dir');
 }
-file_put_contents($outputPath, implode('; ', $pairs), LOCK_EX);
+$path = $outputPath;
+if (file_put_contents($path, implode('; ', $pairs), LOCK_EX) === false) {
+    fail('failed to write output Cookie file');
+}
+if (!chmod($path, 0600)) {
+    @unlink($path);
+    fail('failed to restrict output Cookie file permissions');
+}
 
 echo json_encode([
     'status' => 'ok',
-    'output' => $outputPath,
+    'output' => $path,
     'cookie_count' => count($pairs),
     'skipped_count' => count($skipped),
     'cookie_names_sample' => array_slice($names, 0, 12),

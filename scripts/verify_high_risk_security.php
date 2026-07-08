@@ -171,6 +171,10 @@ $aiConfigSource = file_get_contents(__DIR__ . '/../app/controller/AiConfig.php')
 $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
 $operationSource = file_get_contents(__DIR__ . '/../app/service/OperationManagementService.php');
 $transferSource = file_get_contents(__DIR__ . '/../app/service/TransferDecisionService.php');
+$ctripBrowserAdapterSource = file_get_contents(__DIR__ . '/../app/service/platform/CtripBrowserProfileDataSourceAdapter.php');
+$meituanBrowserAdapterSource = file_get_contents(__DIR__ . '/../app/service/platform/MeituanBrowserProfileDataSourceAdapter.php');
+$platformProfileCaptureSource = file_get_contents(__DIR__ . '/../app/controller/concern/PlatformProfileCaptureConcern.php');
+$chromiumCookieExtractorSource = file_get_contents(__DIR__ . '/extract_chromium_cookie_header.php');
 $loginLogSource = file_get_contents(__DIR__ . '/../app/model/LoginLog.php');
 $tenantMigrationSource = file_get_contents(__DIR__ . '/../database/migrations/20260529_add_tenant_security_fields.sql');
 $initFullSource = file_get_contents(__DIR__ . '/../database/init_full.sql');
@@ -220,6 +224,15 @@ assert_true(str_contains($competitorSource, 'external_rate_limited'), 'rate-limi
 assert_true(str_contains($competitorSource, 'SCREENSHOT_MAX_BYTES'), 'competitor report screenshot uploads must have a binary size limit');
 assert_true(str_contains($competitorSource, 'getimagesizefromstring'), 'competitor report screenshots must be validated as real images');
 assert_true(str_contains($competitorSource, 'SCREENSHOT_ALLOWED_MIME_EXTENSIONS'), 'competitor report screenshots must enforce image MIME allowlist');
+foreach ([
+    'Ctrip browser Profile adapter' => $ctripBrowserAdapterSource,
+    'Meituan browser Profile adapter' => $meituanBrowserAdapterSource,
+    'Profile capture concern' => $platformProfileCaptureSource,
+    'Chromium Cookie extractor' => $chromiumCookieExtractorSource,
+] as $label => $source) {
+    assert_true(str_contains($source, 'chmod($path, 0600)'), $label . ' must restrict temporary Cookie file permissions after writing');
+    assert_true(str_contains($source, '@unlink($path)'), $label . ' must delete temporary Cookie files when permission hardening fails');
+}
 assert_true(str_contains($competitorTaskSource, "OperationLog::record('competitor', 'task'"), 'competitor task endpoint must write operation audit logs');
 assert_true(str_contains($competitorReportSource, "OperationLog::record('competitor', 'report'"), 'competitor report endpoint must write operation audit logs');
 assert_true(str_contains($competitorAlertSource, "whereRaw('ABS(price_difference) >= :threshold'"), 'competitor alert threshold must use a bound SQL parameter');

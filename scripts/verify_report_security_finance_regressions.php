@@ -124,6 +124,10 @@ $robotAddViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor
 $robotEditViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/edit.html');
 $publicIndexSource = file_get_contents(__DIR__ . '/../public/index.html');
 $routeSource = file_get_contents(__DIR__ . '/../route/app.php');
+$ctripBrowserAdapterSource = file_get_contents(__DIR__ . '/../app/service/platform/CtripBrowserProfileDataSourceAdapter.php');
+$meituanBrowserAdapterSource = file_get_contents(__DIR__ . '/../app/service/platform/MeituanBrowserProfileDataSourceAdapter.php');
+$platformProfileCaptureSource = file_get_contents(__DIR__ . '/../app/controller/concern/PlatformProfileCaptureConcern.php');
+$chromiumCookieExtractorSource = file_get_contents(__DIR__ . '/extract_chromium_cookie_header.php');
 
 $logoutSource = extract_method_source_regression($authSource, 'logout');
 $cronTriggerSource = extract_method_source_regression($autoFetchSource, 'cronTrigger');
@@ -165,6 +169,15 @@ assert_regression(str_contains($competitorSource, "\$ipHash = substr(sha1((strin
 assert_regression(!str_contains($competitorSource, "\$identity . '|' . (string)\$this->request->ip()"), 'competitor public token APIs must not let request identity bypass pre-auth rate limits');
 assert_regression(str_contains($competitorReportSource, 'CompetitorHotel::where'), 'competitor report must validate the target competitor hotel');
 assert_regression(str_contains($competitorReportSource, "where('store_id', \$storeId)"), 'competitor report must bind store_id to the configured competitor hotel');
+foreach ([
+    'Ctrip browser Profile adapter' => $ctripBrowserAdapterSource,
+    'Meituan browser Profile adapter' => $meituanBrowserAdapterSource,
+    'Profile capture concern' => $platformProfileCaptureSource,
+    'Chromium Cookie extractor' => $chromiumCookieExtractorSource,
+] as $label => $source) {
+    assert_regression(str_contains($source, 'chmod($path, 0600)'), $label . ' must restrict temporary Cookie file permissions after writing');
+    assert_regression(str_contains($source, '@unlink($path)'), $label . ' must delete temporary Cookie files when permission hardening fails');
+}
 
 assert_regression(!str_contains($authMiddlewareSource, "param('token'") && !str_contains($authMiddlewareSource, 'param("token"'), 'Auth middleware must not accept protected-route tokens from URL query parameters');
 assert_regression(str_contains($cronTriggerSource, "header('X-Cron-Token', '')"), 'cronTrigger must read cron token from X-Cron-Token header');

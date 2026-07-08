@@ -63,6 +63,23 @@ final class SecurityInputGuardTest extends TestCase
         self::assertLessThanOrEqual(83, mb_strlen((string)$masked, 'UTF-8'));
     }
 
+    public function testTemporaryOtaCookieFilesArePermissionRestricted(): void
+    {
+        $projectRoot = dirname(__DIR__);
+        $sources = [
+            'Ctrip browser Profile adapter' => $projectRoot . '/app/service/platform/CtripBrowserProfileDataSourceAdapter.php',
+            'Meituan browser Profile adapter' => $projectRoot . '/app/service/platform/MeituanBrowserProfileDataSourceAdapter.php',
+            'Profile capture concern' => $projectRoot . '/app/controller/concern/PlatformProfileCaptureConcern.php',
+            'Chromium Cookie extractor' => $projectRoot . '/scripts/extract_chromium_cookie_header.php',
+        ];
+
+        foreach ($sources as $label => $path) {
+            $source = (string)file_get_contents($path);
+            self::assertStringContainsString('file_put_contents', $source, $label . ' must write the temporary Cookie file explicitly');
+            self::assertStringContainsString('chmod($path, 0600)', $source, $label . ' must restrict temporary Cookie file permissions after writing');
+        }
+    }
+
     public function testSystemConfigImportGuardsValidateFileAndSchema(): void
     {
         $controller = $this->controller(SystemConfigController::class);

@@ -1265,7 +1265,14 @@ trait PlatformProfileCaptureConcern
         }
 
         $path = $dir . DIRECTORY_SEPARATOR . BrowserProfileCaptureRequestService::safeFilePart($platform . '_' . $hotelId . '_' . $suffix) . '.txt';
-        return file_put_contents($path, $cookies, LOCK_EX) === false ? '' : $path;
+        if (file_put_contents($path, $cookies, LOCK_EX) === false) {
+            return '';
+        }
+        if (!chmod($path, 0600)) {
+            @unlink($path);
+            return '';
+        }
+        return $path;
     }
 
     private function removeAutoFetchCookieFile(string $path): void

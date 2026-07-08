@@ -463,7 +463,14 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             return '';
         }
         $path = $dir . DIRECTORY_SEPARATOR . 'meituan_browser_profile_cookie_' . bin2hex(random_bytes(6)) . '.txt';
-        return file_put_contents($path, $cookies) === false ? '' : $path;
+        if (file_put_contents($path, $cookies, LOCK_EX) === false) {
+            return '';
+        }
+        if (!chmod($path, 0600)) {
+            @unlink($path);
+            return '';
+        }
+        return $path;
     }
 
     private function acquireLock(string $platform, string $profileId)
