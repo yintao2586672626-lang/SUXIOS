@@ -1734,6 +1734,7 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
 });
 
 test('Hotel management saves force-refresh the current management context', () => {
+  const refreshHotelBindingPanelLight = functionSlice('refreshHotelBindingPanelLight');
   const refreshHotelBindingPanel = functionSlice('refreshHotelBindingPanel');
   const ensureHotelOtaConfigLists = constSlice(
     'const ensureHotelOtaConfigLists = async (options = {}) => {',
@@ -1745,6 +1746,11 @@ test('Hotel management saves force-refresh the current management context', () =
   );
   const saveHotel = functionSlice('saveHotel');
 
+  assert.match(refreshHotelBindingPanelLight, /loadHotels\(\{ force: true, includeInactive: true \}\)/);
+  assert.match(refreshHotelBindingPanelLight, /ensureHotelOtaConfigLists\(\{ force: true \}\)/);
+  assert.match(refreshHotelBindingPanelLight, /loadCompetitorSummary\(\{[\s\S]*includeByHotel: true,[\s\S]*force: true/);
+  assert.doesNotMatch(refreshHotelBindingPanelLight, /loadPlatformDataSources\(\{ force: true \}\)/);
+  assert.doesNotMatch(refreshHotelBindingPanelLight, /loadPlatformSyncLogs\(\{ force: true \}\)/);
   assert.match(refreshHotelBindingPanel, /loadHotels\(\{ force: true, includeInactive: true \}\)/);
   assert.match(refreshHotelBindingPanel, /ensureHotelOtaConfigLists\(\{ force: true \}\)/);
   assert.match(refreshHotelBindingPanel, /loadPlatformDataSources\(\{ force: true \}\)/);

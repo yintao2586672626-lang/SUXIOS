@@ -1,10 +1,10 @@
 # 上线问题报告
 
-更新日期：2026-06-05
+更新日期：2026-07-09
 
 范围：`@github`、`@openai-developers`、`@codex-security`、`@figma`、`@canva`
 
-结论：当前项目功能结构已具备本地验收基础，但仍不能上线使用。接入仓库外生产 env、LLM attestation、PR candidate、staged-scope 和当前 external-state 结果后，`npm run review:release-readiness` 当前结果为 `19 passed, 4 warnings, 2 failures`；剩余失败项为真实设计交付、OTA 凭据轮换证明。当前 PR #6 已由 `review:release-pr-candidates` 选中，且 `review:release-external-state` 已在干净验证 checkout 中通过；主工作区仍有本地 dirty 改动，不能作为 release-closing external-state 证据。
+结论：当前项目功能结构已具备本地验收基础，但仍不能上线使用。接入仓库外生产 env、LLM attestation、PR candidate、staged-scope 和当前 external-state 结果后，`npm run review:release-readiness` 当前结果为 `19 passed, 4 warnings, 2 failures`；剩余失败项为真实设计交付、OTA 凭据轮换证明。当前 PR #6 已由 `review:release-pr-candidates` 选中，且 `review:release-external-state` 已在干净 checkout 中通过；release-closing checkout 当前匹配 PR #6 head `9c424fbffa0020f824087830e44b5712620ffd9d`。
 
 证据采集清单：`docs/release_evidence_collection.zh-CN.md`。
 
@@ -12,7 +12,7 @@
 
 | 范围 | 已受控证据 | 仍不能上线的原因 |
 |---|---|---|
-| `@github` | `.git/index.lock` absent，`database/backups` 无 Git 跟踪文件；PR #6 已选中且干净验证 checkout 的 external-state 已通过。 | 主工作区仍 dirty，不能作为 release-closing external-state 证据；PR #6 在设计与 OTA 证据关闭前必须保持 open、非 draft、可合并、green 且 head 不变。 |
+| `@github` | `.git/index.lock` absent，`database/backups` 无 Git 跟踪文件；PR #6 已选中且干净 checkout 的 external-state 已通过。 | PR #6 在设计与 OTA 证据关闭前必须保持 open、非 draft、可合并、green 且 head 不变；每次 PR 更新后必须复跑 external-state。 |
 | `@openai-developers` | AI 入口已收敛到 `LlmClient`，模型配置走加密数据库配置；仓库外 `RELEASE_ENV_FILE` 与 `LLM_CONNECTIVITY_ATTESTATION_FILE` 已通过单项门禁。 | 需在最终 PR head 上保留并复验外部证据。 |
 | `@codex-security` | 依赖审计和轻量安全检查通过；`database/backups` 未被 Git 跟踪，当前 `review:release-ota-credentials` 未发现 backup 文本凭据形态命中；`docs/security/codex-security/latest` 已包含正式 Codex Security 扫描产物，且 `npm run review:release-security-scan` 通过。 | 携程与美团 OTA 凭据轮换证明仍缺失；正式安全扫描需在最终 PR head 上保持通过。 |
 | `@figma` | 代码侧 UI handoff 和功能门禁覆盖登录、OTA 数据、收益分析、AI 决策、运营管理、投资决策。 | 缺真实 Figma 源文件、设计 token、评审日期和零未解决问题的交付清单。 |

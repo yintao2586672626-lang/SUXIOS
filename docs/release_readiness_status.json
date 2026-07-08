@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-08",
+  "updated_at": "2026-07-09",
   "scope": [
     "@github",
     "@openai-developers",
@@ -13,21 +13,21 @@
     "number": 6,
     "status": "selected_open_pr",
     "checks": "green_on_current_head",
-    "source_of_truth": "Current npm run review:release-pr-candidates on 2026-07-08T18:29:48+08:00 ran gh pr list for base main, found one viable open non-draft mergeable PR, and selected configured release PR #6 at 166c7ef17e169f852bfca542ed917ea76e3edb80; docs/release_github_handoff_evidence.json remains diagnostic-only and stale for the current gh result.",
+    "source_of_truth": "Current npm run review:release-pr-candidates on 2026-07-09T02:01:24+08:00 ran gh pr list for base main, found one viable open non-draft mergeable PR, and selected configured release PR #6 at 9c424fbffa0020f824087830e44b5712620ffd9d; docs/release_github_handoff_evidence.json remains diagnostic-only and stale for the current gh result.",
     "pr_candidate_review": {
       "command": "npm run review:release-pr-candidates",
       "result_file": "../release-evidence-temp/release-pr-candidates-current-result.json",
       "status": "passed",
-      "gh_pr_list_checked_at": "2026-07-08T18:29:48+08:00",
+      "gh_pr_list_checked_at": "2026-07-09T02:01:24+08:00",
       "gh_pr_list_open_pr_count": 1,
       "configured_release_pr_number": "6",
       "selected_release_pr_number": 6,
-      "selected_release_pr_head_sha": "166c7ef17e169f852bfca542ed917ea76e3edb80",
+      "selected_release_pr_head_sha": "9c424fbffa0020f824087830e44b5712620ffd9d",
       "source_of_truth_for_current_pr_candidates": true,
       "connector_diagnostic": {
         "path": "docs/release_github_handoff_evidence.json",
         "checked_at": "2026-07-07T00:32:42+08:00",
-        "current_gh_pr_list_checked_at": "2026-07-08T18:29:48+08:00",
+        "current_gh_pr_list_checked_at": "2026-07-09T02:01:24+08:00",
         "is_stale_for_current_review": true,
         "does_not_close_release_readiness": true
       }
@@ -52,7 +52,7 @@
       "controlled design handoff manifest not provided with real Figma, Canva, Brand Kit, design token, and flow coverage",
       "OTA credential rotation attestation not provided through controlled evidence or OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE",
       "controlled release readiness still depends on the PR #6 head staying unchanged while design and OTA evidence are closed",
-      "main worktree has local dirty changes that are not part of the clean PR #6 external-state evidence"
+      "release-closing checkout is clean at PR #6 head 9c424fbffa0020f824087830e44b5712620ffd9d and must be rechecked after any PR update"
     ],
     "warnings": [
       "verify git ls-files database/backups outside the script",
@@ -120,7 +120,7 @@
       ],
       "status": "closed",
       "title": "PR handoff state is closed for the clean PR #6 verification worktree",
-      "evidence": "Current review:release-pr-candidates selected configured release PR #6 at 166c7ef17e169f852bfca542ed917ea76e3edb80, review:release-staged-scope found no forbidden staged files, and review:release-external-state passed from HOTEL-release-readiness-verify where local HEAD matches PR #6 and the worktree is clean. The main worktree still has local dirty changes and is not the release-closing evidence checkout.",
+      "evidence": "Current review:release-pr-candidates selected configured release PR #6 at 9c424fbffa0020f824087830e44b5712620ffd9d, review:release-staged-scope found no forbidden staged files, and review:release-external-state passed where local HEAD matches PR #6 and the worktree is clean.",
       "close_condition": "keep PR #6 open, non-draft, mergeable, green, and unchanged while design and OTA evidence are closed; rerun review:release-pr-candidates, review:release-staged-scope, review:release-external-state from a clean checkout whose local HEAD matches the final PR head, then rerun review:release-readiness"
     }
   ],
@@ -147,7 +147,7 @@
     "status": "passing_not_release_closure",
     "result_file": "../release-evidence-temp/release-pr-candidates-current-result.json",
     "open_failures": [
-      "configured release PR #6 selected from gh pr list checked_at=2026-07-08T18:29:48+08:00",
+      "configured release PR #6 selected from gh pr list checked_at=2026-07-09T02:01:24+08:00",
       "docs/release_github_handoff_evidence.json is stale non-closing diagnostic connector evidence and does not replace current gh pr list"
     ],
     "close_condition": "keep PR #6 selected with RELEASE_PR_NUMBER=6, rerun review:release-pr-candidates after every PR update, then run review:release-staged-scope and review:release-external-state from a checkout whose local HEAD matches that final PR head"
@@ -175,14 +175,14 @@
         ".git/index.lock is absent",
         "database/backups has no git-tracked files",
         "current review:release-pr-candidates runs gh pr list and records gh_pr_list_checked_at as the PR candidate source of truth",
-        "clean verification worktree external-state evidence proves local HEAD matches PR #6 head 166c7ef17e169f852bfca542ed917ea76e3edb80",
+        "clean verification worktree external-state evidence proves local HEAD matches PR #6 head 9c424fbffa0020f824087830e44b5712620ffd9d",
         "docs/release_github_handoff_evidence.json records non-closing diagnostic connector evidence from 2026-07-07T00:32:42+08:00 and is stale for current PR #6 selection",
         "CI runs PHPUnit, guards, functional-readiness review, release issue register review, release evidence intake behavior guard, release readiness behavior guard, non-security review, report/security/finance regression review, release-status contracts, composer audit and npm audit",
         "npm run collect:release-external-state can capture local HEAD, PR head, PR checks, merge state, and database/backups tracking evidence"
       ],
       "open": [
         "GitHub connector open_pr_count=0 from 2026-07-07T00:32:42+08:00 is stale diagnostic evidence only",
-        "main worktree is dirty and must not be used as release-closing external-state evidence",
+        "release-closing checkout is clean at PR #6 head 9c424fbffa0020f824087830e44b5712620ffd9d",
         "PR #6 external-state must be rerun after every PR update and after design or OTA evidence changes"
       ]
     },

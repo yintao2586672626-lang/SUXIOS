@@ -27,8 +27,8 @@
     "Release staged-scope result has no forbidden staged files (0 staged entries reviewed).",
     "Release PR candidate result selected final PR #6.",
     "Release PR candidate result matches external-state final PR #6.",
-    "Release PR candidate head matches external-state head 166c7ef17e169f852bfca542ed917ea76e3edb80.",
-    "Release external-state local HEAD matches PR head 166c7ef17e169f852bfca542ed917ea76e3edb80.",
+    "Release PR candidate head matches external-state head 9c424fbffa0020f824087830e44b5712620ffd9d.",
+    "Release external-state local HEAD matches PR head 9c424fbffa0020f824087830e44b5712620ffd9d.",
     "Release external-state result is current and proves clean local state plus open, non-draft, mergeable, green final PR #6."
   ],
   "warnings": [

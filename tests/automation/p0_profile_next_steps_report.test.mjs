@@ -481,9 +481,13 @@ test('P0 Profile next-step report exposes target-date traffic and Profile step h
     assert.equal(payload.platform_summaries[0].target_date_traffic_step_scope_status, 'mismatch');
     assert.deepEqual(payload.platform_summaries[0].target_date_traffic_hotels_missing_steps, [107]);
     assert.deepEqual(payload.platform_summaries[0].step_hotels_missing_target_date_traffic, [60, 64]);
+    assert.deepEqual(payload.platform_summaries[0].target_date_traffic_scope_blocking_reason_codes, ['target_date_traffic_without_profile_step']);
+    assert.deepEqual(payload.platform_summaries[0].target_date_traffic_scope_reference_reason_codes, ['profile_step_without_target_date_traffic']);
     assert.equal(payload.platform_summaries[0].profile_flow_ready, false);
+    assert(payload.platform_summaries[0].profile_flow_blocking_reason_codes.includes('target_date_traffic_without_profile_step'));
     assert.equal(payload.collection_flow_gate.status, 'blocked_by_profile_flow_gap');
     assert(payload.collection_flow_gate.blocking_missing_inputs.includes('ctrip_target_date_traffic_step_scope_mismatch'));
+    assert(payload.collection_flow_gate.blocking_missing_inputs.includes('ctrip_target_date_traffic_without_profile_step'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -549,6 +553,8 @@ test('P0 Profile next-step report allows extra reference steps when target traff
     assert.equal(payload.platform_summaries[0].target_date_traffic_step_scope_status, 'target_covered_with_extra_reference_steps');
     assert.deepEqual(payload.platform_summaries[0].target_date_traffic_hotels_missing_steps, []);
     assert.deepEqual(payload.platform_summaries[0].step_hotels_missing_target_date_traffic, [60]);
+    assert.deepEqual(payload.platform_summaries[0].target_date_traffic_scope_blocking_reason_codes, []);
+    assert.deepEqual(payload.platform_summaries[0].target_date_traffic_scope_reference_reason_codes, ['profile_step_without_target_date_traffic']);
     assert.equal(payload.platform_summaries[0].profile_flow_ready, true);
     assert.equal(payload.collection_flow_gate.status, 'open');
   } finally {

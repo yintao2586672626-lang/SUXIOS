@@ -1998,6 +1998,7 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
             'traffic_latest_sync_task_normalized_count' => 0,
             'traffic_latest_sync_task_sensitive_values_exposed' => false,
             'traffic_source_samples' => [],
+            'traffic_source_rows' => [],
             'method_counts' => [],
             'status_counts' => [],
         ];
@@ -2046,6 +2047,7 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
         'traffic_latest_sync_task_sensitive_values_exposed' => false,
     ];
     $trafficSourceSamples = [];
+    $trafficSourceRows = [];
     foreach ($rows as $row) {
         $dataType = strtolower((string)($row['data_type'] ?? ''));
         $method = strtolower((string)($row['ingestion_method'] ?? 'unknown'));
@@ -2095,25 +2097,27 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
             $captureSectionsText = is_array($captureSections)
                 ? strtolower(implode(',', array_map('strval', $captureSections)))
                 : strtolower((string)$captureSections);
+            $trafficSourceRow = [
+                'id' => (int)($row['id'] ?? 0),
+                'system_hotel_id' => (int)($row['system_hotel_id'] ?? 0),
+                'ingestion_method' => $method,
+                'status' => $status,
+                'enabled' => $enabled,
+                'last_sync_status' => $lastSyncStatus,
+                'last_sync_time_present' => trim((string)($row['last_sync_time'] ?? '')) !== '',
+                'last_error_present' => trim((string)($row['last_error'] ?? '')) !== '',
+                'issue_code' => $issueCode,
+                'managed_by_p0' => $managedByP0,
+                'capture_sections_has_traffic' => str_contains($captureSectionsText, 'traffic'),
+                'manual_login_state_verified' => $loginStateVerified,
+                'platform_hotel_identifier_present' => p0_traffic_platform_hotel_identifier_present($platform, $config),
+                'secret_configured' => $secretConfigured,
+                'latest_sync_task' => $latestSyncTask,
+                'last_error_exposed' => false,
+            ];
+            $trafficSourceRows[] = $trafficSourceRow;
             if (count($trafficSourceSamples) < 5) {
-                $trafficSourceSamples[] = [
-                    'id' => (int)($row['id'] ?? 0),
-                    'system_hotel_id' => (int)($row['system_hotel_id'] ?? 0),
-                    'ingestion_method' => $method,
-                    'status' => $status,
-                    'enabled' => $enabled,
-                    'last_sync_status' => $lastSyncStatus,
-                    'last_sync_time_present' => trim((string)($row['last_sync_time'] ?? '')) !== '',
-                    'last_error_present' => trim((string)($row['last_error'] ?? '')) !== '',
-                    'issue_code' => $issueCode,
-                    'managed_by_p0' => $managedByP0,
-                    'capture_sections_has_traffic' => str_contains($captureSectionsText, 'traffic'),
-                    'manual_login_state_verified' => $loginStateVerified,
-                    'platform_hotel_identifier_present' => p0_traffic_platform_hotel_identifier_present($platform, $config),
-                    'secret_configured' => $secretConfigured,
-                    'latest_sync_task' => $latestSyncTask,
-                    'last_error_exposed' => false,
-                ];
+                $trafficSourceSamples[] = $trafficSourceRow;
             }
         }
         if ($enabled) {
@@ -2157,6 +2161,7 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
         'traffic_latest_sync_task_normalized_count' => $trafficLatestSyncTaskSummary['traffic_latest_sync_task_normalized_count'],
         'traffic_latest_sync_task_sensitive_values_exposed' => $trafficLatestSyncTaskSummary['traffic_latest_sync_task_sensitive_values_exposed'],
         'traffic_source_samples' => $trafficSourceSamples,
+        'traffic_source_rows' => $trafficSourceRows,
         'method_counts' => $methodCounts,
         'status_counts' => $statusCounts,
     ];
@@ -2899,11 +2904,13 @@ function p0_hotel_scoped_traffic_payload_contract(string $platform, string $targ
  * @param array<string, mixed> $sources
  * @return array<int, array<string, mixed>>
  */
-function p0_hotel_scoped_traffic_sources(string $platform, string $targetDate, int $scopeSystemHotelId, array $sources): array
+function p0_hotel_scoped_traffic_sources(string $platform, string $targetDate, int $scopeSystemHotelId, array $sources, array $targetTrafficSystemHotelIds = []): array
 {
     $rows = [];
     $seen = [];
-    foreach ((array)($sources['traffic_source_samples'] ?? []) as $sample) {
+    $seenHotelIds = [];
+    $sourceRows = (array)($sources['traffic_source_rows'] ?? $sources['traffic_source_samples'] ?? []);
+    foreach ($sourceRows as $sample) {
         if (!is_array($sample)) {
             continue;
         }
@@ -2920,6 +2927,7 @@ function p0_hotel_scoped_traffic_sources(string $platform, string $targetDate, i
             continue;
         }
         $seen[$key] = true;
+        $seenHotelIds[$systemHotelId] = true;
 
         $rows[] = array_merge([
             'platform' => $platform,
@@ -2939,6 +2947,34 @@ function p0_hotel_scoped_traffic_sources(string $platform, string $targetDate, i
             'capture_bridge' => p0_hotel_scoped_capture_bridge_contract($platform, $targetDate, $systemHotelId),
             'payload_contract' => p0_hotel_scoped_traffic_payload_contract($platform, $targetDate, $systemHotelId),
         ], p0_hotel_scoped_traffic_commands($platform, $targetDate, $systemHotelId));
+    }
+
+    foreach (array_values(array_unique(array_map('intval', $targetTrafficSystemHotelIds))) as $targetHotelId) {
+        if ($targetHotelId <= 0 || isset($seenHotelIds[$targetHotelId])) {
+            continue;
+        }
+        if ($scopeSystemHotelId > 0 && $targetHotelId !== $scopeSystemHotelId) {
+            continue;
+        }
+        $rows[] = array_merge([
+            'platform' => $platform,
+            'system_hotel_id' => $targetHotelId,
+            'data_source_id' => null,
+            'ingestion_method' => '',
+            'status' => 'not_registered',
+            'enabled' => false,
+            'last_sync_status' => '',
+            'managed_by_p0' => false,
+            'capture_sections_has_traffic' => false,
+            'manual_login_state_verified' => false,
+            'secret_configured' => false,
+            'latest_sync_task' => p0_latest_sync_task(0, $targetDate),
+            'profile_login_trigger' => p0_hotel_scoped_profile_login_trigger_action($platform, $targetDate, $targetHotelId, null),
+            'payload_candidate_scan' => p0_hotel_scoped_payload_candidate_scan($platform, $targetDate, $targetHotelId),
+            'capture_bridge' => p0_hotel_scoped_capture_bridge_contract($platform, $targetDate, $targetHotelId),
+            'payload_contract' => p0_hotel_scoped_traffic_payload_contract($platform, $targetDate, $targetHotelId),
+            'target_date_traffic_without_profile_step' => true,
+        ], p0_hotel_scoped_traffic_commands($platform, $targetDate, $targetHotelId));
     }
 
     if ($rows === [] && $scopeSystemHotelId > 0) {
@@ -3605,7 +3641,13 @@ function p0_traffic_evidence_availability(array $sourceSummaryMap, array $platfo
         $requiredInputs = p0_traffic_required_inputs($platform, $config, $profile, $sources, $template, $summary);
         $pathOptions = p0_traffic_closure_path_options($platform, $config, $profile, $sources, $template, $summary);
         $recommendedAction = p0_recommended_traffic_action($platform, $pathOptions);
-        $hotelScopedSources = p0_hotel_scoped_traffic_sources($platform, $targetDate, $systemHotelId, $sources);
+        $hotelScopedSources = p0_hotel_scoped_traffic_sources(
+            $platform,
+            $targetDate,
+            $systemHotelId,
+            $sources,
+            array_values(array_map('intval', (array)($trafficFieldFactClosure['system_hotel_ids'] ?? [])))
+        );
         $hotelScopedCommands = [];
         $hotelScopedPayloadContracts = [];
         $hotelScopedCaptureBridges = [];
