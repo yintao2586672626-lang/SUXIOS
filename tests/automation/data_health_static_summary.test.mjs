@@ -210,6 +210,33 @@ test('manual one-click fetch task builders stay static and skip only proven stor
   assert.equal(fallbackRow.key, 'run-2:ctrip:88');
   assert.equal(fallbackRow.hotelName, 'Fallback Hotel');
 
+  assert.equal(typeof helpers.buildManualOneClickFetchRunningRow, 'function');
+  const runningRow = helpers.buildManualOneClickFetchRunningRow({
+    baseRow,
+    isRetryAttempt: false,
+    savedCount: '1',
+    retryCount: '0',
+    retryLimit: 2,
+    nowText: 'running-time',
+  });
+  assert.equal(runningRow.status, 'running');
+  assert.equal(runningRow.statusText, '获取中');
+  assert.equal(runningRow.message, '正在调用手动获取接口');
+  assert.equal(runningRow.savedCount, 1);
+  assert.equal(runningRow.retryCount, 0);
+  assert.equal(runningRow.timeText, 'running-time');
+
+  const retryRow = helpers.buildManualOneClickFetchRunningRow({
+    baseRow,
+    isRetryAttempt: true,
+    retryCount: 1,
+    retryLimit: 2,
+    nowText: 'retry-time',
+  });
+  assert.equal(retryRow.statusText, '重抓中');
+  assert.match(retryRow.message, /1\/2/);
+  assert.equal(retryRow.timeText, 'retry-time');
+
   assert.equal(typeof helpers.buildManualOneClickFetchResultRow, 'function');
   assert.equal(typeof helpers.buildManualOneClickFetchFailureRow, 'function');
   const resultRow = helpers.buildManualOneClickFetchResultRow({

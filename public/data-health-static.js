@@ -269,6 +269,25 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         };
     };
 
+    const buildManualOneClickFetchRunningRow = ({
+        baseRow = {},
+        isRetryAttempt = false,
+        savedCount = 0,
+        retryCount = 0,
+        retryLimit = 0,
+        nowText = manualOneClickFetchNowText(),
+    } = {}) => ({
+        ...baseRow,
+        status: 'running',
+        statusText: isRetryAttempt ? '重抓中' : '获取中',
+        message: isRetryAttempt
+            ? `去哪儿访客仍为 0，自动重抓 ${Number(retryCount || 0)}/${Number(retryLimit || 0)}`
+            : '正在调用手动获取接口',
+        savedCount: Number(savedCount || 0),
+        retryCount: Number(retryCount || 0),
+        timeText: nowText,
+    });
+
     const buildManualOneClickFetchResultRow = ({
         baseRow = {},
         resultSummary = {},
@@ -5893,6 +5912,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         findManualOneClickFetchExistingStoredRow,
         buildManualOneClickFetchTasks,
         buildManualOneClickFetchBaseRow,
+        buildManualOneClickFetchRunningRow,
         buildManualOneClickFetchResultRow,
         buildManualOneClickFetchFailureRow,
         manualOneClickFetchQunarVisitorNumber,

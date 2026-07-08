@@ -21147,6 +21147,7 @@
             const findManualOneClickFetchExistingStoredRow = requireDataHealthStatic('findManualOneClickFetchExistingStoredRow');
             const buildManualOneClickFetchTasksFromStatic = requireDataHealthStatic('buildManualOneClickFetchTasks');
             const buildManualOneClickFetchBaseRowFromStatic = requireDataHealthStatic('buildManualOneClickFetchBaseRow');
+            const buildManualOneClickFetchRunningRow = requireDataHealthStatic('buildManualOneClickFetchRunningRow');
             const buildManualOneClickFetchResultRow = requireDataHealthStatic('buildManualOneClickFetchResultRow');
             const buildManualOneClickFetchFailureRow = requireDataHealthStatic('buildManualOneClickFetchFailureRow');
             const summarizeManualOneClickFetchQunarVisitorQuality = requireDataHealthStatic('summarizeManualOneClickFetchQunarVisitorQuality');
@@ -35575,17 +35576,14 @@
                         while (true) {
                             attempts += 1;
                             const isRetryAttempt = attempts > 1;
-                            upsertManualOneClickFetchRow({
-                                ...baseRow,
-                                status: 'running',
-                                statusText: isRetryAttempt ? '重抓中' : '获取中',
-                                message: isRetryAttempt
-                                    ? `去哪儿访客仍为 0，自动重抓 ${qunarRetryCount}/${CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT}`
-                                    : '正在调用手动获取接口',
+                            upsertManualOneClickFetchRow(buildManualOneClickFetchRunningRow({
+                                baseRow,
+                                isRetryAttempt,
                                 savedCount,
                                 retryCount: qunarRetryCount,
-                                timeText: manualOneClickFetchNowText(),
-                            });
+                                retryLimit: CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT,
+                                nowText: manualOneClickFetchNowText(),
+                            }));
                             result = await fetchCtripData();
                             savedCount = Math.max(savedCount, manualOneClickFetchSavedCount(result));
                             ctripQunarQuality = summarizeManualOneClickFetchQunarVisitorQuality(ctripHotelsList.value);
