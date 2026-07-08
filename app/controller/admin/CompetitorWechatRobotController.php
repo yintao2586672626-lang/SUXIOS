@@ -77,11 +77,15 @@ class CompetitorWechatRobotController extends Base
             'name.require' => '请输入机器人名称',
             'webhook.require' => '请输入Webhook地址',
         ]);
+        $webhook = $this->normalizeRobotWebhook((string)$data['webhook']);
+        if ($webhook === null) {
+            abort(400, $this->robotWebhookValidationMessage());
+        }
 
         $insert = [
             'store_id' => (int)$data['store_id'],
             'name' => $data['name'],
-            'webhook' => $data['webhook'],
+            'webhook' => $webhook,
             'status' => isset($data['status']) ? (int)$data['status'] : 1,
             'create_time' => date('Y-m-d H:i:s'),
         ];
@@ -100,10 +104,14 @@ class CompetitorWechatRobotController extends Base
         }
 
         $data = $this->request->post();
+        $webhook = $this->normalizeRobotWebhook((string)($data['webhook'] ?? $robot['webhook']));
+        if ($webhook === null) {
+            abort(400, $this->robotWebhookValidationMessage());
+        }
         $update = [
             'store_id' => (int)($data['store_id'] ?? $robot['store_id']),
             'name' => $data['name'] ?? $robot['name'],
-            'webhook' => $data['webhook'] ?? $robot['webhook'],
+            'webhook' => $webhook,
             'status' => isset($data['status']) ? (int)$data['status'] : (int)$robot['status'],
         ];
         Db::name('competitor_wechat_robot')->where('id', $id)->update($update);
@@ -226,10 +234,14 @@ class CompetitorWechatRobotController extends Base
             'name' => 'require',
             'webhook' => 'require',
         ]);
+        $webhook = $this->normalizeRobotWebhook((string)$data['webhook']);
+        if ($webhook === null) {
+            return $this->error($this->robotWebhookValidationMessage(), 400);
+        }
         $insert = [
             'store_id' => (int)$data['store_id'],
             'name' => $data['name'],
-            'webhook' => $data['webhook'],
+            'webhook' => $webhook,
             'status' => isset($data['status']) ? (int)$data['status'] : 1,
             'create_time' => date('Y-m-d H:i:s'),
         ];
@@ -248,10 +260,14 @@ class CompetitorWechatRobotController extends Base
             return $this->error('记录不存在');
         }
         $data = $this->request->post();
+        $webhook = $this->normalizeRobotWebhook((string)($data['webhook'] ?? $robot['webhook']));
+        if ($webhook === null) {
+            return $this->error($this->robotWebhookValidationMessage(), 400);
+        }
         $update = [
             'store_id' => (int)($data['store_id'] ?? $robot['store_id']),
             'name' => $data['name'] ?? $robot['name'],
-            'webhook' => $data['webhook'] ?? $robot['webhook'],
+            'webhook' => $webhook,
             'status' => isset($data['status']) ? (int)$data['status'] : (int)$robot['status'],
         ];
         Db::name('competitor_wechat_robot')->where('id', $id)->update($update);
@@ -309,8 +325,44 @@ class CompetitorWechatRobotController extends Base
         return substr($webhook, 0, 8) . '...' . substr($webhook, -6);
     }
 
+    private function normalizeRobotWebhook(string $webhook): ?string
+    {
+        $webhook = trim($webhook);
+        if ($webhook === '') {
+            return null;
+        }
+        $parts = parse_url($webhook);
+        if (!is_array($parts)) {
+            return null;
+        }
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $path = (string)($parts['path'] ?? '');
+        $query = (string)($parts['query'] ?? '');
+        parse_str($query, $queryParams);
+
+        if (
+            $scheme !== 'https'
+            || $host !== 'qyapi.weixin.qq.com'
+            || $path !== '/cgi-bin/webhook/send'
+            || trim((string)($queryParams['key'] ?? '')) === ''
+        ) {
+            return null;
+        }
+        return $webhook;
+    }
+
+    private function robotWebhookValidationMessage(): string
+    {
+        return '企业微信 Webhook 必须使用 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...';
+    }
+
     private function postJson(string $url, array $data): array
     {
+        $url = $this->normalizeRobotWebhook($url);
+        if ($url === null) {
+            return ['success' => false, 'error' => $this->robotWebhookValidationMessage()];
+        }
         $options = [
             'http' => [
                 'method' => 'POST',
