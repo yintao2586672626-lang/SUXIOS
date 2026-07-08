@@ -16,7 +16,7 @@ final class PlatformDataSyncService
     private const RAW_RECORD_PAYLOAD_LIMIT_BYTES = 262144;
     private const COLLECTION_RESOURCE_FRESH_HOURS = 24;
     private const STALE_RUNNING_TASK_SECONDS = 3600;
-    private const ACTIVE_SYNC_TASK_STATUSES = ['pending', 'queued', 'running', 'browser_opened', 'syncing_after_login'];
+    private const ACTIVE_SYNC_TASK_STATUSES = ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'];
     private const COLLECTION_RESOURCE_DEFINITIONS = [
         [
             'resource' => 'businessData',

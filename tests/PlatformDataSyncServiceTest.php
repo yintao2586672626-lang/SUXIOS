@@ -334,11 +334,17 @@ final class PlatformDataSyncServiceTest extends TestCase
             'status' => 'running',
             'update_time' => date('Y-m-d H:i:s', time() - 7200),
         ];
+        $oldSyncingTask = [
+            'status' => 'syncing',
+            'update_time' => date('Y-m-d H:i:s', time() - 7200),
+        ];
 
         self::assertFalse(PlatformDataSyncService::isStaleRunningSyncTask($freshTask));
         self::assertSame('running', PlatformDataSyncService::effectiveSyncTaskStatus($freshTask));
         self::assertTrue(PlatformDataSyncService::isStaleRunningSyncTask($oldTask));
         self::assertSame('stale_running', PlatformDataSyncService::effectiveSyncTaskStatus($oldTask));
+        self::assertTrue(PlatformDataSyncService::isStaleRunningSyncTask($oldSyncingTask));
+        self::assertSame('stale_running', PlatformDataSyncService::effectiveSyncTaskStatus($oldSyncingTask));
         self::assertGreaterThanOrEqual(7200, PlatformDataSyncService::syncTaskAgeSeconds($oldTask));
     }
 
