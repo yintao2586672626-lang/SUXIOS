@@ -1196,6 +1196,16 @@ window.SUXI_CTRIP_STATIC = (() => {
         }
         return body;
     };
+    const buildCtripFetchFormFromConfig = (form = {}, config = {}) => {
+        const configCookies = normalizeCtripCookieText(config.cookies || config.cookie);
+        return {
+            ...form,
+            url: firstCtripConfigText(config.url, config.request_url, config.requestUrl, form.url),
+            nodeId: firstCtripConfigText(config.node_id, config.nodeId, form.nodeId, '24588'),
+            cookies: configCookies || normalizeCtripCookieText(form.cookies),
+            auth_data: hasCtripObjectValue(config.auth_data) ? config.auth_data : (form.auth_data || {}),
+        };
+    };
     const buildCtripFetchRequestContext = ({
         form = {},
         selectedCtripHotelId = '',
@@ -1307,18 +1317,22 @@ window.SUXI_CTRIP_STATIC = (() => {
         }
 
         const selectedCtripHotelId = getSelectedCtripHotelId();
-        const selectedConfig = selectedCtripHotelId
-            ? await ensureCtripConfigSecret(getActiveCtripConfig())
-            : null;
+        const activeConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
+        const selectedConfig = selectedCtripHotelId ? activeConfig : null;
         let form = getForm() || {};
         if (selectedConfig && !isCtripRankingFormAlignedWithConfig(form, selectedConfig, { selectedHotelId: selectedCtripHotelId })) {
             applyCtripConfigObject(selectedConfig);
             form = getForm() || form;
         }
-        const platformHotelId = resolveCtripPlatformHotelIdFromConfig(selectedConfig || {}, selectedCtripHotelId);
+        const requestForm = !selectedCtripHotelId && activeConfig
+            ? buildCtripFetchFormFromConfig(form, activeConfig)
+            : form;
+        const platformHotelId = selectedCtripHotelId
+            ? resolveCtripPlatformHotelIdFromConfig(selectedConfig || {}, selectedCtripHotelId)
+            : '';
 
         const requestContext = buildCtripFetchRequestContext({
-            form,
+            form: requestForm,
             selectedCtripHotelId,
             platformHotelId,
         });

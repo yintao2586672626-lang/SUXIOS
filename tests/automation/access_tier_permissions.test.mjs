@@ -182,9 +182,17 @@ const userManagementToolbarSlice = indexHtml.slice(
   indexHtml.indexOf('<!-- 用户统计卡片 -->'),
   indexHtml.indexOf('<!-- 员工数据表格 -->')
 );
+const rolePermissionCardsSliceStart = indexHtml.indexOf('<!-- 角色权限说明卡片 -->');
+const rolePermissionCardsSlice = indexHtml.slice(
+  rolePermissionCardsSliceStart,
+  indexHtml.indexOf('<div class="card">', rolePermissionCardsSliceStart)
+);
 assert.match(indexHtml, /const userSummary = computed\(\(\) =>/, 'user management summary must be derived from current users instead of fixed role IDs');
 assert.match(indexHtml, /beta:\s*rows\.filter\(u => userRoleIdentityKey\(u\) === 'beta_user'\)\.length/, 'user management summary must count beta issue accounts by role identity');
 assert.match(indexHtml, /normal:\s*rows\.filter\(u => userRoleIdentityKey\(u\) === 'normal_user'\)\.length/, 'user management summary must count normal external accounts by role identity');
+assert.match(rolePermissionCardsSlice, /内测用户[\s\S]*可信内测方/, 'role permission cards must name the beta account audience clearly');
+assert.match(rolePermissionCardsSlice, /普通用户[\s\S]*必须分配门店/, 'role permission cards must name normal external users and their hotel-scope requirement');
+assert.doesNotMatch(rolePermissionCardsSlice, />门店管理员<\/div>|>店员<\/div>/, 'role permission cards must not keep ambiguous legacy role labels for external issuance');
 assert.match(indexHtml, /const roleIssueGuideCards = computed\(\(\) =>/, 'user management must expose beta/normal role issue guide cards');
 assert.match(indexHtml, /const rolePermissionTags = \(profile = \{\}\) =>/, 'role issue cards must expose permission tags for beta and normal account issuance');
 assert.match(indexHtml, /const normalExternalDeniedPermissionGroups = \[/, 'role issue cards must use an explicit denied-capability checklist for normal external accounts');
@@ -208,6 +216,10 @@ assert.match(indexHtml, /selectedUserRoleGuide\.permissionTags/, 'user modal mus
 assert.match(indexHtml, /const userIssueChecklistRows = computed\(\(\) =>/, 'user modal must show an issuance checklist before external accounts are saved');
 assert.match(indexHtml, /const userRoleBoundaryText = \(u = \{\}\) =>/, 'user table must show per-account issue boundary text');
 assert.match(indexHtml, /userRoleBoundaryText\(u\)/, 'user table role column must render per-account issue boundary text');
+assert.match(indexHtml, />发放状态<\/th>[\s\S]*userIssueStatus\(u\)/, 'user management table must expose a row-level issuance status');
+assert.match(indexHtml, /const userIssueStatus = \(u = \{\}\) =>/, 'user table issuance status must be derived from the same blocker rules as copy guidance');
+assert.match(indexHtml, /existingUserIssueGuideBlocker\(u\)[\s\S]*label: '暂不可发'/, 'row-level issuance status must surface blocker details instead of allowing blind external sends');
+assert.match(indexHtml, /userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide/, 'row-level issuance status helper must be returned to the Vue template');
 assert.match(indexHtml, /const validateUserIssueBeforeSave = \(data = \{\}, assignedHotelIds = \[\]\) =>/, 'user saves must validate issuance boundaries before calling the API');
 assert.match(indexHtml, /profile\.key === 'normal_user' && profile\.canCollectOta/, 'normal-user issuance must flag OTA collection as unsafe for external accounts');
 assert.match(indexHtml, /profile\.requiresHotelAssignment && assignedHotelIds\.length === 0/, 'external account issuance must block missing hotel scope');

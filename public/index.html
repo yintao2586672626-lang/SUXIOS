@@ -4860,6 +4860,7 @@
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">角色</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">门店范围</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">状态</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">发放状态</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">上次登录</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
                                         </tr>
@@ -4887,6 +4888,17 @@
                                                     class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
                                                     {{ String(u?.status) === '1' ? '正常' : '待审核/暂停' }}
                                                 </span>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <div class="max-w-[220px] space-y-1">
+                                                    <span :class="['inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium', userIssueStatus(u).class]">
+                                                        <i :class="userIssueStatus(u).icon"></i>
+                                                        {{ userIssueStatus(u).label }}
+                                                    </span>
+                                                    <div class="text-[11px] leading-4 text-slate-500" :title="userIssueStatus(u).detail">
+                                                        {{ userIssueStatus(u).detail }}
+                                                    </div>
+                                                </div>
                                             </td>
                                             <td class="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{{ userLastLoginText(u) }}</td>
                                             <td class="px-6 py-4">
@@ -4965,18 +4977,18 @@
                                     <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
                                         <i class="fas fa-user-tie text-xl"></i>
                                     </div>
-                                    <div class="font-semibold">门店管理员</div>
+                                    <div class="font-semibold">内测用户</div>
                                 </div>
-                                <div class="text-orange-100 text-sm">管理本酒店员工，维护门店信息，获取线上数据</div>
+                                <div class="text-orange-100 text-sm">发给可信内测方；按角色能力开放授权门店查看/采集，不开放用户和系统配置</div>
                             </div>
                             <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-5 text-white">
                                 <div class="flex items-center gap-3 mb-3">
                                     <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
                                         <i class="fas fa-user text-xl"></i>
                                     </div>
-                                    <div class="font-semibold">店员</div>
+                                    <div class="font-semibold">普通用户</div>
                                 </div>
-                                <div class="text-green-100 text-sm">查看授权数据，无管理权限</div>
+                                <div class="text-green-100 text-sm">发给外部试用或门店员工；必须分配门店，只读授权 OTA 数据，不开放采集和高风险操作</div>
                             </div>
                         </div>
 
@@ -29593,6 +29605,41 @@
                 return '';
             };
 
+            const userIssueStatus = (u = {}) => {
+                const profile = userRoleIssueProfile(u);
+                if (['beta_user', 'normal_user'].includes(profile?.key)) {
+                    const blocker = existingUserIssueGuideBlocker(u);
+                    if (blocker) {
+                        return {
+                            label: '暂不可发',
+                            detail: blocker,
+                            class: 'border-amber-100 bg-amber-50 text-amber-700',
+                            icon: 'fas fa-exclamation-circle',
+                        };
+                    }
+                    return {
+                        label: '可发送说明',
+                        detail: `${profile.title}；${profile.scope}`,
+                        class: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+                        icon: 'fas fa-check-circle',
+                    };
+                }
+                if (profile?.key === 'admin') {
+                    return {
+                        label: '内部账号',
+                        detail: '管理员不发给内测或外部普通用户',
+                        class: 'border-red-100 bg-red-50 text-red-700',
+                        icon: 'fas fa-user-shield',
+                    };
+                }
+                return {
+                    label: '人工复核',
+                    detail: profile?.boundary || '自定义角色发放前需人工复核权限和门店范围',
+                    class: 'border-slate-200 bg-slate-50 text-slate-600',
+                    icon: 'fas fa-clipboard-check',
+                };
+            };
+
             const buildUserIssueGuideTextForUser = (u = {}) => {
                 const profile = userRoleIssueProfile(u);
                 const assignedHotelIds = userHotelIdsForFilter(u).map(id => Number(id));
@@ -41003,7 +41050,7 @@
                         isLoggedIn: () => isLoggedIn.value,
                         getSelectedCtripHotelId: () => selectedCtripHotelId.value,
                         notify: showToast,
-                        getActiveCtripConfig,
+                        getActiveCtripConfig: () => ctripManualFetchConfigCandidate(),
                         ensureCtripConfigSecret: async config => ensureCtripConfigSecret(await resolveCtripManualFetchConfig(config)),
                         applyCtripConfigObject: config => applyCtripConfigObject(config, false),
                         getForm: () => ctripForm.value,
@@ -43014,24 +43061,56 @@
                     || (!ctripConfigListLoaded.value && !ctripConfigListLoadFailed.value);
             };
 
+            const ctripConfigHasManualAuxiliary = (config = null) => {
+                if (!config) return false;
+                if (normalizeCtripManualAuxiliaryText(config.cookies || config.cookie)) return true;
+                return config.has_cookies === true || config.has_cookie === true;
+            };
+
+            const ctripManualFetchConfigCandidate = () => {
+                if (selectedCtripHotelId.value) return selectedCtripHotelConfig.value || null;
+                const selectedById = selectedCtripConfigId.value
+                    ? ctripConfigList.value.find(item => String(item?.id || '') === String(selectedCtripConfigId.value))
+                    : null;
+                if (ctripConfigHasManualAuxiliary(selectedById)) return selectedById;
+                const userHotelId = String(user.value?.hotel_id || '').trim();
+                if (userHotelId) {
+                    const userHotelConfig = findCtripConfigByHotelId(userHotelId);
+                    if (ctripConfigHasManualAuxiliary(userHotelConfig)) return userHotelConfig;
+                }
+                return ctripConfigList.value.find(item => ctripConfigHasManualAuxiliary(item)) || null;
+            };
+
             const canFetchCtripManualData = () => {
+                const isRankingTab = onlineDataTab.value === 'ctrip-ranking';
                 const activeCookies = onlineDataTab.value === 'ctrip-traffic'
                     ? ctripTrafficForm.value.cookies
                     : ctripForm.value.cookies;
                 if (String(activeCookies || '').trim()) return true;
-                return !!selectedCtripHotelId.value && (selectedCtripHotelConfig.value || ctripManualFetchConfigProofPending());
+                if (selectedCtripHotelId.value) return !!(selectedCtripHotelConfig.value || ctripManualFetchConfigProofPending());
+                if (!isRankingTab) return false;
+                if (ctripManualFetchConfigCandidate()) return true;
+                return !!ctripConfigListLoadingPromise
+                    || (!ctripConfigListLoaded.value && !ctripConfigListLoadFailed.value);
             };
 
             const resolveCtripManualFetchConfig = async (config) => {
                 if (config) return config;
                 const requestedHotelId = String(selectedCtripHotelId.value || '');
-                if (!requestedHotelId || !ctripManualFetchConfigProofPending()) return null;
+                const canUseAutoResolvedCandidate = onlineDataTab.value === 'ctrip-ranking';
+                const currentCandidate = (requestedHotelId || canUseAutoResolvedCandidate)
+                    ? ctripManualFetchConfigCandidate()
+                    : null;
+                if (currentCandidate) return currentCandidate;
+                if (!requestedHotelId && !canUseAutoResolvedCandidate) return null;
+                if (requestedHotelId && !ctripManualFetchConfigProofPending()) return null;
+                if (!requestedHotelId && ctripConfigListLoaded.value && !ctripConfigListLoadingPromise) return null;
                 await loadCtripConfigList({
                     cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,
                     applySelectedConfig: false,
                 });
                 if (requestedHotelId !== String(selectedCtripHotelId.value || '')) return null;
-                return getActiveCtripConfig();
+                return ctripManualFetchConfigCandidate();
             };
 
             const ctripConfigAutoName = (form = {}) => {
@@ -46878,7 +46957,7 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, roleIssueGuideCards, roleIssueProfile, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, selectedUserRoleGuide, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, roleIssueGuideCards, roleIssueProfile, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,

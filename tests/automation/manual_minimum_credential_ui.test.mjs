@@ -97,6 +97,8 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(fetchCtripData, /body: JSON\.stringify\(requestBody\)/);
   assert.match(ctripStatic, /const isCtripRankingFormAlignedWithConfig = \(form = \{\}, config = \{\}, options = \{\}\) =>/);
   assert.match(ctripStatic, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig\(form, selectedConfig, \{ selectedHotelId: selectedCtripHotelId \}\)\) \{/);
+  assert.match(ctripStatic, /const activeConfig = await ensureCtripConfigSecret\(getActiveCtripConfig\(\)\);/);
+  assert.match(ctripStatic, /const requestForm = !selectedCtripHotelId && activeConfig\s*\?\s*buildCtripFetchFormFromConfig\(form, activeConfig\)\s*:\s*form;/);
   assert.match(ctripStatic, /const requestBody = \{ \.\.\.requestContext\.requestBody, async: false, background: false \};/);
   assert.match(ctripStatic, /const requestContext = buildCtripFetchRequestContext\(\{/);
   assert.match(ctripStatic, /const nodeId = String\(form\.nodeId \|\| ''\)\.trim\(\)/);
@@ -107,11 +109,12 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(ctripStatic, /const requestBody = buildCtripTrafficFetchRequestBody\(\{/);
   assert.match(html, /:disabled="fetchingData \|\| !canFetchCtripManualData\(\)"/);
   assert.match(ctripManualFetchConfigGuard, /return !!ctripConfigListLoadingPromise\s*\|\| \(!ctripConfigListLoaded\.value && !ctripConfigListLoadFailed\.value\);/);
+  assert.match(ctripManualFetchConfigGuard, /const ctripManualFetchConfigCandidate = \(\) => \{/);
   assert.match(ctripManualFetchConfigGuard, /const canFetchCtripManualData = \(\) => \{/);
   assert.match(ctripManualFetchConfigGuard, /if \(String\(activeCookies \|\| ''\)\.trim\(\)\) return true;/);
-  assert.match(ctripManualFetchConfigGuard, /return !!selectedCtripHotelId\.value && \(selectedCtripHotelConfig\.value \|\| ctripManualFetchConfigProofPending\(\)\);/);
+  assert.match(ctripManualFetchConfigGuard, /if \(ctripManualFetchConfigCandidate\(\)\) return true;/);
   assert.match(ctripManualFetchConfigGuard, /await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
-  assert.match(ctripManualFetchConfigGuard, /return getActiveCtripConfig\(\);/);
+  assert.match(ctripManualFetchConfigGuard, /return ctripManualFetchConfigCandidate\(\);/);
   assert.match(loadCtripConfigList, /const force = options\.force === true;/);
   assert.match(loadCtripConfigList, /!force\s*&& ctripConfigListLoaded\.value/);
   assert.match(loadCtripConfigList, /if \(!force\) \{\s*return ctripConfigListLoadingPromise;\s*\}/);
@@ -127,7 +130,7 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(returnToCtripRankingAfterConfigSave, /loadCtripConfigList\(\{ force: true, applySelectedConfig: false \}\)/);
   assert.match(returnToCtripRankingAfterConfigSave, /scheduleCtripHotelConfigApply\(null, \{[\s\S]*showMessage: false,[\s\S]*skipIfAligned: false/);
   assert.doesNotMatch(ctripFetchFlow, /notify\('请选择目标酒店', 'error'\)/);
-  assert.match(ctripFetchFlow, /const selectedConfig = selectedCtripHotelId\s*\?\s*await ensureCtripConfigSecret\(getActiveCtripConfig\(\)\)\s*:\s*null;/);
+  assert.match(ctripFetchFlow, /const selectedConfig = selectedCtripHotelId \? activeConfig : null;/);
   assert.match(ctripFetchFlow, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig/);
   assert.doesNotMatch(fetchCtripData, /scheduleOnlineHistoryRefresh\(1400\)/);
   assert.match(html, /已保存 Cookie\/API 辅助；入库归属由返回酒店ID自动匹配/);
