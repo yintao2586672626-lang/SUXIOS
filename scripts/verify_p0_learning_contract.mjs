@@ -168,9 +168,9 @@ const checks = [
       && packageSource.includes('"backfill:meituan-vip-tags:execute"'),
   },
   {
-    name: 'hotel management closes the binding-to-competitor next-action loop',
-    pass: publicSource.includes("applyHotelQuickFilter('competitor', '1')")
-      && publicSource.includes('hotelBindingOverview.competitorReady')
+    name: 'hotel management keeps competitor readiness as row-level next-action context',
+    pass: !publicSource.includes("applyHotelQuickFilter('competitor', '1')")
+      && publicSource.includes('美团竞对 {{ hotelCompetitorReadiness(hotel).label }}')
       && publicSource.includes('const hotelCompetitorActionMeta = (hotel = {})')
       && publicSource.includes('const openHotelNextAction = async (hotel = {})')
       && publicSource.includes("openHomeQuickEntry({ page: 'meituan-ebooking', tab: 'meituan-ranking' })"),

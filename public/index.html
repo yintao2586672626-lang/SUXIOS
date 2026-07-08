@@ -3991,7 +3991,7 @@
                         </div>
 
                         <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 space-y-3">
-                            <div class="grid grid-cols-2 md:grid-cols-6 gap-2">
+                            <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
                                 <button type="button" @click="applyHotelQuickFilter('', '')"
                                     :class="filterHotelAccountHealth === '' && filterHotelStatus === '' ? 'border-blue-200 bg-blue-50/70 ring-1 ring-blue-100' : 'border-gray-100 bg-gray-50 hover:bg-gray-100'"
                                     class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
@@ -4010,7 +4010,7 @@
                                 <button type="button" @click="applyHotelQuickFilter('todo', '1')"
                                     :class="filterHotelAccountHealth === 'todo' ? 'border-amber-200 bg-amber-50/80 ring-1 ring-amber-100' : 'border-amber-100 bg-amber-50/50 hover:bg-amber-50'"
                                     class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
-                                    <span class="text-xs text-amber-700">待办门店</span>
+                                    <span class="text-xs text-amber-700">账号待补</span>
                                     <span class="text-lg font-semibold text-amber-700">{{ hotelBindingOverview.todo }}</span>
                                 </button>
                                 <button type="button" @click="applyHotelQuickFilter('ctrip', '1')"
@@ -4025,18 +4025,9 @@
                                     <span class="text-xs text-orange-700">美团可采</span>
                                     <span class="text-lg font-semibold text-orange-700">{{ hotelBindingOverview.meituanBound }}</span>
                                 </button>
-                                <button type="button" @click="applyHotelQuickFilter('competitor', '1')"
-                                    :class="filterHotelAccountHealth === 'competitor' ? 'border-indigo-200 bg-indigo-50/80 ring-1 ring-indigo-100' : 'border-indigo-100 bg-indigo-50/50 hover:bg-indigo-50'"
-                                    class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
-                                    <span>
-                                        <span class="block text-xs text-indigo-700">美团竞对榜单</span>
-                                        <span class="block text-[11px] text-indigo-400">{{ hotelBindingOverview.competitorFreshnessText }}</span>
-                                    </span>
-                                    <span class="text-lg font-semibold text-indigo-700">{{ hotelBindingOverview.competitorReady }}</span>
-                                </button>
                             </div>
                             <div class="text-xs text-gray-500 leading-relaxed">
-                                说明：待办门店=营业中门店还有账号绑定、登录、采集配置或美团竞对榜单问题；美团竞对榜单=已有美团竞对榜单入库并命中本店，可用于同商圈对比。这里只代表 OTA 渠道状态，不代表全酒店经营口径。
+                                说明：账号待补=营业中门店还有携程/美团账号绑定、登录或采集配置问题；美团竞对榜单保留在门店行内作为同圈对比辅助状态。这里只代表 OTA 渠道状态，不代表全酒店经营口径。
                             </div>
                             <div class="flex flex-wrap gap-3 items-center">
                                 <div class="flex-1 min-w-[220px]">
@@ -4100,16 +4091,9 @@
                                                         </div>
                                                     </div>
                                                     <div class="mt-1.5 flex flex-wrap gap-1.5 text-xs">
-                                                        <span class="rounded-md bg-gray-50 border border-gray-100 px-2 py-0.5 text-gray-500">编码 {{ formatHotelCode(hotelIndex + 1) }}</span>
                                                         <span :class="hotelAccountHealthClass(hotel)" class="rounded-md border px-2 py-0.5 whitespace-nowrap">
                                                             {{ hotelAccountHealthText(hotel) }}
                                                         </span>
-                                                        <span :class="competitorSummaryReadinessClass(hotelCompetitorReadiness(hotel))" class="rounded-md border px-2 py-0.5 whitespace-nowrap">
-                                                            美团竞对 {{ hotelCompetitorReadiness(hotel).label }}
-                                                        </span>
-                                                    </div>
-                                                    <div class="mt-1 text-[11px] text-gray-500 truncate" :title="hotelCompetitorSummaryMeta(hotel)">
-                                                        竞对数据：{{ hotelCompetitorSummaryMeta(hotel) }}
                                                     </div>
                                                 </div>
                                             </td>
@@ -34859,11 +34843,6 @@
                 inactive: 'bg-gray-50 text-gray-500 border-gray-200',
             }[hotelAccountHealthKey(hotel)] || 'bg-gray-50 text-gray-500 border-gray-200');
 
-            const hotelHasPendingCollectionIssue = (hotel = {}) => {
-                if (String(hotel?.status) !== '1') return false;
-                return ['error', 'todo'].includes(hotelAccountHealthKey(hotel)) || !hotelCompetitorIsReady(hotel);
-            };
-
             const hotelNextAction = (hotel = {}) => {
                 if (String(hotel?.status) !== '1') {
                     return { text: '-', weight: 100, className: 'bg-gray-50 text-gray-500 border-gray-200' };
@@ -34897,7 +34876,7 @@
                     return hotelCompetitorIsReady(hotel);
                 }
                 if (key === 'todo') {
-                    return hotelHasPendingCollectionIssue(hotel);
+                    return hotelAccountHealthKey(hotel) === 'todo';
                 }
                 return hotelAccountHealthKey(hotel) === key;
             };
@@ -34941,52 +34920,16 @@
             };
 
             const hotelCompetitorSummary = (hotel) => hotelCompetitorSummaries.value?.[String(hotel?.id || '')] || null;
-            const hotelCompetitorDataDate = (summary = {}) => {
-                const value = String(summary?.latest_data_date || '').slice(0, 10);
-                return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
-            };
-            const hotelCompetitorDataAgeDays = (summary = {}) => {
-                const dateText = hotelCompetitorDataDate(summary);
-                if (!dateText) return null;
-                const [year, month, day] = dateText.split('-').map(Number);
-                const targetUtc = Date.UTC(year, month - 1, day);
-                const now = new Date();
-                const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-                return Math.floor((todayUtc - targetUtc) / 86400000);
-            };
-            const hotelCompetitorSummaryFreshnessText = (summary = {}) => {
-                const dateText = hotelCompetitorDataDate(summary);
-                if (!summary || summary.data_status === 'missing') return '未同步';
-                if (!dateText) return '日期待补';
-                const ageDays = hotelCompetitorDataAgeDays(summary);
-                if (Number.isFinite(ageDays) && ageDays > 3) return `最近 ${dateText}，超3天`;
-                return `最近 ${dateText}`;
-            };
-
             const hotelBindingOverview = computed(() => {
                 const total = hotels.value.length;
                 const active = hotels.value.filter(h => String(h.status) === '1').length;
                 const activeHotels = hotels.value.filter(h => String(h.status) === '1');
                 const error = activeHotels.filter(h => hotelAccountHealthKey(h) === 'error').length;
-                const todo = activeHotels.filter(hotelHasPendingCollectionIssue).length;
+                const todo = activeHotels.filter(h => hotelAccountHealthKey(h) === 'todo').length;
                 const ctripBound = activeHotels.filter(h => hotelPlatformBindingRows(h).some(row => row.platform === 'ctrip' && row.level === 'ready')).length;
                 const meituanBound = activeHotels.filter(h => hotelPlatformBindingRows(h).some(row => row.platform === 'meituan' && row.level === 'ready')).length;
                 const fullBound = activeHotels.filter(h => hotelPlatformBindingRows(h).every(row => row.level === 'ready')).length;
-                const competitorReadyHotels = activeHotels.filter(hotelCompetitorIsReady);
-                const competitorReady = competitorReadyHotels.length;
-                const competitorDates = competitorReadyHotels
-                    .map(hotel => hotelCompetitorDataDate(hotelCompetitorSummary(hotel)))
-                    .filter(Boolean)
-                    .sort();
-                const latestCompetitorDate = competitorDates[competitorDates.length - 1] || '';
-                const staleCompetitorCount = competitorReadyHotels.filter(hotel => {
-                    const ageDays = hotelCompetitorDataAgeDays(hotelCompetitorSummary(hotel));
-                    return ageDays === null || ageDays > 3;
-                }).length;
-                const competitorFreshnessText = competitorReady <= 0
-                    ? '暂无可用'
-                    : (latestCompetitorDate ? `最近 ${latestCompetitorDate}${staleCompetitorCount ? `，${staleCompetitorCount}家超3天` : ''}` : '日期待补');
-                return { total, active, error, todo, ctripBound, meituanBound, fullBound, competitorReady, competitorFreshnessText };
+                return { total, active, error, todo, ctripBound, meituanBound, fullBound };
             });
             const hotelCompetitorSummaryMeta = (hotel) => {
                 const summary = hotelCompetitorSummary(hotel);

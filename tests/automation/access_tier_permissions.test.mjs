@@ -82,11 +82,11 @@ assert.match(indexHtml, /type:\s*'source',\s*sourcePath:\s*'hotels'[\s\S]*testid
 assert.doesNotMatch(indexHtml, /testid:\s*'nav-lean-hotel-knowledge'[\s\S]{0,160}children:\s*\[/, '门店管理不能再作为单子项下拉分组');
 assert.match(indexHtml, />全部门店<\/span>/, 'hotel account filter should distinguish total stores from active-store metrics');
 assert.match(indexHtml, /营业中 \{\{ hotelBindingOverview\.active \}\}/, 'hotel account filter should expose active-store count beside total stores');
-assert.match(indexHtml, />待办门店<\/span>/, 'hotel account filter should explain actionable stores without vague todo copy');
-assert.match(indexHtml, />美团竞对榜单<\/span>/, 'hotel account filter should name the actual Meituan competitor ranking source');
-assert.match(indexHtml, /说明：待办门店=营业中门店还有账号绑定、登录、采集配置或美团竞对榜单问题；美团竞对榜单=已有美团竞对榜单入库并命中本店/, 'hotel account filter should include visible business definitions');
-assert.match(indexHtml, /const todo = activeHotels\.filter\(hotelHasPendingCollectionIssue\)\.length;/, 'todo count must include account, collection, and competitor ranking issues');
-assert.match(indexHtml, /const competitorFreshnessText = competitorReady <= 0[\s\S]*staleCompetitorCount/, 'competitor overview must expose freshness instead of a stale usable count only');
+assert.match(indexHtml, />账号待补<\/span>/, 'hotel account filter should keep pending work scoped to account collection readiness');
+assert.match(indexHtml, /说明：账号待补=营业中门店还有携程\/美团账号绑定、登录或采集配置问题；美团竞对榜单保留在门店行内作为同圈对比辅助状态。/, 'hotel account filter should keep competitor ranking out of the main KPI cards');
+assert.match(indexHtml, /const todo = activeHotels\.filter\(h => hotelAccountHealthKey\(h\) === 'todo'\)\.length;/, 'todo count should only reflect account collection readiness');
+assert.doesNotMatch(indexHtml, /applyHotelQuickFilter\('competitor', '1'\)/, 'competitor ranking should not be a top-level hotel-management filter card');
+assert.match(indexHtml, /美团竞对 \{\{ hotelCompetitorReadiness\(hotel\)\.label \}\}/, 'competitor readiness should remain visible at row level');
 assert.match(indexHtml, /@click="refreshHotelBindingPanelLight"/, 'top-level status refresh should use the light refresh path');
 assert.match(indexHtml, />受控操作<\/span>[\s\S]*>深度刷新<\/span>[\s\S]*>数据迁移<\/span>[\s\S]*>用户授权<\/span>/, 'migration and authorization actions should be grouped as controlled admin operations');
 assert.doesNotMatch(indexHtml, /待办：\$\{action\}/, 'hotel account health tag should not repeat the concrete next action in the store info cell');
