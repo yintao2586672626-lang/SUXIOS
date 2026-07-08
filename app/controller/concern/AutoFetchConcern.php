@@ -3416,7 +3416,7 @@ trait AutoFetchConcern
         }
 
         // 简单的token验证
-        $token = $this->request->header('X-Cron-Token') ?: $this->request->get('token');
+        $token = trim((string)$this->request->header('X-Cron-Token', ''));
         $configToken = trim((string)\think\facade\Env::get('CRON_TOKEN', ''));
         if ($configToken === '') {
             $this->recordPublicEndpointFailure('cron_trigger', 'cron_token_not_configured', 403);

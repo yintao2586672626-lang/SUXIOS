@@ -58,7 +58,7 @@ class CompetitorWechatRobotController extends Base
             abort(404, '记录不存在');
         }
         return view('competitor_wechat_robot/edit', [
-            'robot' => $robot,
+            'robot' => $this->formatRobotDetailRow($robot),
             'stores' => $this->getStores(),
         ]);
     }
@@ -104,7 +104,7 @@ class CompetitorWechatRobotController extends Base
         }
 
         $data = $this->request->post();
-        $webhook = $this->normalizeRobotWebhook((string)($data['webhook'] ?? $robot['webhook']));
+        $webhook = $this->resolveRobotWebhookForUpdate($data, $robot);
         if ($webhook === null) {
             abort(400, $this->robotWebhookValidationMessage());
         }
@@ -260,7 +260,7 @@ class CompetitorWechatRobotController extends Base
             return $this->error('记录不存在');
         }
         $data = $this->request->post();
-        $webhook = $this->normalizeRobotWebhook((string)($data['webhook'] ?? $robot['webhook']));
+        $webhook = $this->resolveRobotWebhookForUpdate($data, $robot);
         if ($webhook === null) {
             return $this->error($this->robotWebhookValidationMessage(), 400);
         }
@@ -308,8 +308,21 @@ class CompetitorWechatRobotController extends Base
     private function formatRobotDetailRow(array $robot): array
     {
         $row = $this->formatRobotListRow($robot);
-        $row['webhook'] = (string)($robot['webhook'] ?? '');
+        $row['webhook'] = '';
+        $row['webhook_placeholder'] = $row['webhook_configured']
+            ? '留空则保留当前 Webhook：' . $row['webhook_masked']
+            : '请输入企业微信 Webhook';
         return $row;
+    }
+
+    private function resolveRobotWebhookForUpdate(array $data, array $robot): ?string
+    {
+        if (!array_key_exists('webhook', $data) || trim((string)$data['webhook']) === '') {
+            $existingWebhook = trim((string)($robot['webhook'] ?? ''));
+            return $existingWebhook !== '' ? $existingWebhook : null;
+        }
+
+        return $this->normalizeRobotWebhook((string)$data['webhook']);
     }
 
     private function maskRobotWebhook(string $webhook): string
@@ -384,10 +397,14 @@ class CompetitorWechatRobotController extends Base
         $context = stream_context_create($options);
         $response = @file_get_contents($url, false, $context);
         if ($response === false) {
-            $error = error_get_last();
-            return ['success' => false, 'error' => $error['message'] ?? '请求失败'];
+            return ['success' => false, 'error' => $this->robotWebhookRequestFailureMessage()];
         }
         return ['success' => true, 'data' => $response];
+    }
+
+    private function robotWebhookRequestFailureMessage(): string
+    {
+        return '企业微信 Webhook 请求失败，请检查网络或机器人配置';
     }
 
     private function getStores(): array

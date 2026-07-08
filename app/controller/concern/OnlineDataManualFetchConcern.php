@@ -327,16 +327,7 @@ trait OnlineDataManualFetchConcern
         $capturedIds = array_keys($capturedIds);
 
         if ($expectedIds === []) {
-            return [
-                'ok' => false,
-                'status' => 'expected_platform_hotel_id_missing',
-                'message' => '当前门店未维护携程平台酒店ID，已取消自动入库；请先补齐平台酒店ID后重试。',
-                'target_system_hotel_id' => $systemHotelId,
-                'target_hotel_name' => $targetHotelName,
-                'captured_hotel_ids' => $capturedIds,
-                'expected_hotel_ids' => [],
-                'conflicts' => [],
-            ];
+            return $this->resolveMissingCtripPlatformHotelIdFromCapturedData($capturedIds, $systemHotelId, $targetHotelName);
         }
 
         if ($capturedIds === []) {
@@ -396,6 +387,89 @@ trait OnlineDataManualFetchConcern
         ];
     }
 
+    private function resolveMissingCtripPlatformHotelIdFromCapturedData(array $capturedIds, int $systemHotelId, string $targetHotelName): array
+    {
+        $normalizedIds = [];
+        foreach ($capturedIds as $capturedId) {
+            $id = trim((string)$capturedId);
+            if ($this->isMeaningfulCtripPlatformHotelId($id, $systemHotelId)) {
+                $normalizedIds[$id] = true;
+            }
+        }
+        $capturedIds = array_keys($normalizedIds);
+
+        if ($capturedIds === []) {
+            return [
+                'ok' => false,
+                'status' => 'expected_platform_hotel_id_missing',
+                'message' => '当前门店未维护携程平台酒店ID，且本次返回未识别到可信本店hotelId，已取消自动入库；请先补齐平台酒店ID后重试。',
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'captured_hotel_ids' => [],
+                'expected_hotel_ids' => [],
+                'conflicts' => [],
+            ];
+        }
+
+        if (count($capturedIds) > 1) {
+            return [
+                'ok' => false,
+                'status' => 'captured_platform_hotel_id_ambiguous',
+                'message' => '携程返回数据识别到多个本店候选hotelId，系统无法确认归属，已取消入库；请在酒店管理中补充准确携程 hotelId 后重试。',
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'captured_hotel_ids' => $capturedIds,
+                'expected_hotel_ids' => [],
+                'conflicts' => [],
+            ];
+        }
+
+        $bindingMatches = $this->findCtripSystemHotelMatchesByPlatformIds($capturedIds);
+        $blockingMatches = array_values(array_filter($bindingMatches, static function (array $match) use ($systemHotelId): bool {
+            return (int)($match['system_hotel_id'] ?? 0) !== $systemHotelId;
+        }));
+        $historyConflicts = $this->findCtripPlatformHotelIdConflicts($capturedIds, $systemHotelId);
+        if ($blockingMatches !== [] || $historyConflicts !== []) {
+            return [
+                'ok' => false,
+                'status' => 'platform_hotel_conflict',
+                'message' => '携程返回酒店ID已绑定到其他系统门店，已取消入库，避免错店数据覆盖。',
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'captured_hotel_ids' => $capturedIds,
+                'expected_hotel_ids' => [],
+                'conflicts' => array_values(array_merge($blockingMatches, $historyConflicts)),
+            ];
+        }
+
+        $platformHotelId = (string)$capturedIds[0];
+        if (!$this->persistCtripResolvedPlatformHotelIdForSystemHotel($systemHotelId, $platformHotelId)) {
+            return [
+                'ok' => false,
+                'status' => 'platform_hotel_id_auto_bind_failed',
+                'message' => '已从携程返回数据识别到本店hotelId，但无法写入当前门店的携程配置，已取消入库；请先保存携程 Cookie/API 配置后重试。',
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'captured_hotel_ids' => $capturedIds,
+                'expected_hotel_ids' => [],
+                'conflicts' => [],
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'status' => 'auto_bound_platform_hotel_id',
+            'warning' => true,
+            'message' => '已从携程返回数据识别并保存平台酒店ID，本次继续入库。',
+            'target_system_hotel_id' => $systemHotelId,
+            'target_hotel_name' => $targetHotelName,
+            'captured_hotel_ids' => $capturedIds,
+            'expected_hotel_ids' => [$platformHotelId],
+            'conflicts' => [],
+            'auto_bound' => true,
+        ];
+    }
+
     private function persistCtripResolvedPlatformHotelIdForSystemHotel(int $systemHotelId, string $platformHotelId): bool
     {
         $platformHotelId = trim($platformHotelId);
@@ -439,9 +513,16 @@ trait OnlineDataManualFetchConcern
                 return false;
             }
 
-            return Db::name('system_configs')
+            $updatedRows = Db::name('system_configs')
                 ->where('config_key', $key)
-                ->update(['config_value' => json_encode($list, JSON_UNESCAPED_UNICODE)]) !== false;
+                ->update([
+                    'config_value' => json_encode($list, JSON_UNESCAPED_UNICODE),
+                    'update_time' => date('Y-m-d H:i:s'),
+                ]);
+            if ($updatedRows !== false) {
+                $this->clearAutoFetchLightConfigListCache('ctrip');
+            }
+            return $updatedRows !== false;
         } catch (\Throwable $e) {
             \think\facade\Log::warning('Ctrip platform hotel id auto bind failed: ' . $e->getMessage(), [
                 'system_hotel_id' => $systemHotelId,

@@ -1534,7 +1534,6 @@ trait OnlineDataRequestConcern
     public function saveCtripConfig(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_fetch_online_data');
 
         try {
             $requestData = $this->requestData();
@@ -1572,6 +1571,7 @@ trait OnlineDataRequestConcern
             $originalConfig = $list[$id] ?? [];
             $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
             $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($requestData['hotel_id'] ?? ($originalConfig['hotel_id'] ?? ($originalConfig['system_hotel_id'] ?? null)));
+            $this->checkOtaConfigMaintenancePermission($resolvedHotelId);
             $hotelIdValue = $resolvedHotelId !== null ? (string)$resolvedHotelId : '';
             $ctripHotelId = trim((string)(
                 $requestData['ctrip_hotel_id']
@@ -1671,7 +1671,6 @@ trait OnlineDataRequestConcern
     public function getCtripConfigDetail(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_fetch_online_data');
 
         $id = trim((string)$this->request->get('id', ''));
         if ($id === '') {
@@ -1692,6 +1691,8 @@ trait OnlineDataRequestConcern
         if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
             return $this->error('Forbidden', 403);
         }
+        $configHotelId = $this->resolveOnlineDataSystemHotelId($list[$id]['system_hotel_id'] ?? null);
+        $this->checkOtaConfigMaintenancePermission($configHotelId);
 
         return $this->success($list[$id]);
     }

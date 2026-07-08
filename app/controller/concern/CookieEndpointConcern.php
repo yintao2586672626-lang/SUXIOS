@@ -513,14 +513,14 @@ trait CookieEndpointConcern
                 $this->buildPublicEndpointSecurityRow('cron_trigger', $logs, [
                     'method' => 'GET',
                     'path' => '/api/online-data/cron-trigger',
-                    'auth' => 'X-Cron-Token or token query parameter',
+                    'auth' => 'X-Cron-Token header only',
                     'rate_limit' => ['limit' => 20, 'window_seconds' => 60],
                     'token_configured' => trim((string)\think\facade\Env::get('CRON_TOKEN', '')) !== '',
                 ]),
                 $this->buildPublicEndpointSecurityRow('daily_workbench_patrol_cron', $logs, [
                     'method' => 'GET',
                     'path' => '/api/online-data/daily-workbench-patrol-cron',
-                    'auth' => 'X-Cron-Token or token query parameter',
+                    'auth' => 'X-Cron-Token header only',
                     'rate_limit' => ['limit' => 10, 'window_seconds' => 60],
                     'token_configured' => trim((string)\think\facade\Env::get('CRON_TOKEN', '')) !== '',
                 ]),

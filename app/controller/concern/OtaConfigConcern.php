@@ -159,6 +159,42 @@ trait OtaConfigConcern
         return $this->isOtaConfigVisibleToUser($item, $this->currentUser, $permittedHotelIdSet);
     }
 
+    private function currentUserCanMaintainOtaConfig(?int $hotelId = null): bool
+    {
+        $user = $this->currentUser ?? null;
+        if (!$user || !isset($user->id) || !$user->id) {
+            return false;
+        }
+
+        if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
+            return true;
+        }
+
+        $canManageOwnHotels = method_exists($user, 'canManageOwnHotels') && $user->canManageOwnHotels();
+        $canFetchOnlineData = method_exists($user, 'hasPermission') && $user->hasPermission('can_fetch_online_data');
+        if (!$canManageOwnHotels && !$canFetchOnlineData) {
+            return false;
+        }
+
+        if ($hotelId === null || $hotelId <= 0) {
+            return false;
+        }
+
+        $permittedHotelIdSet = $this->getPermittedHotelIdSetForUser($user);
+        return isset($permittedHotelIdSet[(string)$hotelId]);
+    }
+
+    private function checkOtaConfigMaintenancePermission(?int $hotelId = null): void
+    {
+        if (!$this->currentUser) {
+            abort(401, '未登录');
+        }
+
+        if (!$this->currentUserCanMaintainOtaConfig($hotelId)) {
+            abort(403, '无权限维护该门店 OTA 配置');
+        }
+    }
+
     private function isOtaConfigVisibleToUser(array $item, $user, ?array $permittedHotelIdSet = null): bool
     {
         if (!$user || !isset($user->id) || !$user->id) {

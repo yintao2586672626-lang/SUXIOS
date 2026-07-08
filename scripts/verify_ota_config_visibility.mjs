@@ -2,8 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const sourcePath = path.join(root, 'app', 'controller', 'OnlineData.php');
-const source = fs.readFileSync(sourcePath, 'utf8');
+const sourceFiles = [
+  path.join(root, 'app', 'controller', 'OnlineData.php'),
+  path.join(root, 'app', 'controller', 'concern', 'OtaConfigConcern.php'),
+  path.join(root, 'app', 'controller', 'concern', 'OnlineDataRequestConcern.php'),
+  path.join(root, 'app', 'controller', 'concern', 'MeituanConfigConcern.php'),
+];
+const source = sourceFiles.map((sourcePath) => fs.readFileSync(sourcePath, 'utf8')).join('\n');
 
 const checks = [
   {

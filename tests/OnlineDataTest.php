@@ -21,10 +21,114 @@ final class OnlineDataTest extends TestCase
         return $reflection->newInstanceWithoutConstructor();
     }
 
+    private function setControllerCurrentUser(OnlineData $controller, object $user): void
+    {
+        $reflection = new ReflectionClass($controller);
+        while (!$reflection->hasProperty('currentUser') && $reflection->getParentClass()) {
+            $reflection = $reflection->getParentClass();
+        }
+
+        $property = $reflection->getProperty('currentUser');
+        $property->setAccessible(true);
+        $property->setValue($controller, $user);
+    }
+
     private function profileLoginCommand(): PlatformProfileLogin
     {
         $reflection = new ReflectionClass(PlatformProfileLogin::class);
         return $reflection->newInstanceWithoutConstructor();
+    }
+
+    public function testOtaConfigMaintenanceAllowsBetaManagerForOwnHotelOnly(): void
+    {
+        $controller = $this->controller();
+        $this->setControllerCurrentUser($controller, new class {
+            public int $id = 7;
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+
+            public function hasPermission(string $permission): bool
+            {
+                return false;
+            }
+
+            public function canManageOwnHotels(): bool
+            {
+                return true;
+            }
+
+            public function getPermittedHotelIds(): array
+            {
+                return [58];
+            }
+        });
+
+        self::assertTrue($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfig', [58]));
+        self::assertFalse($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfig', [64]));
+    }
+
+    public function testOtaConfigMaintenanceKeepsNormalExternalUserBlocked(): void
+    {
+        $controller = $this->controller();
+        $this->setControllerCurrentUser($controller, new class {
+            public int $id = 8;
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+
+            public function hasPermission(string $permission): bool
+            {
+                return false;
+            }
+
+            public function canManageOwnHotels(): bool
+            {
+                return false;
+            }
+
+            public function getPermittedHotelIds(): array
+            {
+                return [58];
+            }
+        });
+
+        self::assertFalse($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfig', [58]));
+    }
+
+    public function testOtaConfigMaintenanceKeepsExistingFetchRoleScopedToOwnHotel(): void
+    {
+        $controller = $this->controller();
+        $this->setControllerCurrentUser($controller, new class {
+            public int $id = 9;
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+
+            public function hasPermission(string $permission): bool
+            {
+                return $permission === 'can_fetch_online_data';
+            }
+
+            public function canManageOwnHotels(): bool
+            {
+                return false;
+            }
+
+            public function getPermittedHotelIds(): array
+            {
+                return [58];
+            }
+        });
+
+        self::assertTrue($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfig', [58]));
+        self::assertFalse($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfig', [64]));
     }
 
     public function testPublicEndpointSecuritySummaryUsesSanitizedAuditRows(): void

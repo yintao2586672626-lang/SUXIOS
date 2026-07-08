@@ -65,6 +65,8 @@ requireFile('.agents/skills/hotel-auto-x-meituan-collector/SKILL.md', 'local Mei
 requireFile('plugins/suxi-os-toolkit/skills/hotel-auto-x-login/SKILL.md', 'toolkit login Skill is packaged');
 requireFile('plugins/suxi-os-toolkit/skills/hotel-auto-x-ctrip-collector/SKILL.md', 'toolkit Ctrip collector Skill is packaged');
 requireFile('plugins/suxi-os-toolkit/skills/hotel-auto-x-meituan-collector/SKILL.md', 'toolkit Meituan collector Skill is packaged');
+requireFile('scripts/verify_hotel_auto_x_ctrip_collector_contract.php', 'Ctrip collector contract verifier is tracked');
+requireFile('scripts/verify_hotel_auto_x_meituan_collector_contract.php', 'Meituan collector contract verifier is tracked');
 
 for (const [route, label] of [
   ["Route::post('/profile-login-trigger/:platform', 'OnlineData/triggerPlatformProfileLogin');", 'Profile login trigger route exists'],
@@ -203,6 +205,8 @@ requireText('public/auto-fetch-static.js', "cookies_incomplete: 'bg-red-50 text-
 requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'auto-fetch can queue Ctrip aggregate comments through browser Profile', 'existing diagnosis verifier covers Ctrip aggregate comments');
 requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'auto-fetch can queue Meituan aggregate comments through browser Profile', 'existing diagnosis verifier covers Meituan aggregate comments');
 requireText('package.json', '"verify:hotel-auto-x-non-pms-skills": "node scripts/verify_hotel_auto_x_non_pms_skill_contract.mjs"', 'package script exposes this contract verifier');
+requireText('package.json', '"verify:hotel-auto-x-ctrip-collector": "C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_hotel_auto_x_ctrip_collector_contract.php"', 'package script exposes Ctrip collector contract verifier');
+requireText('package.json', '"verify:hotel-auto-x-meituan-collector": "C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_hotel_auto_x_meituan_collector_contract.php"', 'package script exposes Meituan collector contract verifier');
 
 const failures = checks.filter((check) => !check.ok);
 if (failures.length > 0) {

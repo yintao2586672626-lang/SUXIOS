@@ -499,7 +499,7 @@ trait OperationWorkbenchConcern
             return json(['code' => 429, 'message' => 'Too Many Requests'], 429);
         }
 
-        $token = $this->request->header('X-Cron-Token') ?: $this->request->get('token');
+        $token = trim((string)$this->request->header('X-Cron-Token', ''));
         $configToken = trim((string)\think\facade\Env::get('CRON_TOKEN', ''));
         if ($configToken === '') {
             $this->recordPublicEndpointFailure('daily_workbench_patrol_cron', 'cron_token_not_configured', 403);

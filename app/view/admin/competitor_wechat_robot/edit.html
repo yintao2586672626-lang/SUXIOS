@@ -34,7 +34,8 @@ $escapeRobotValue = static fn($value): string => htmlspecialchars((string)$value
                 </div>
                 <div>
                     <label class="block text-sm text-gray-600 mb-1">Webhook</label>
-                    <input name="webhook" required value="<?php echo $escapeRobotValue($robot['webhook']); ?>" class="w-full px-3 py-2 border rounded-lg">
+                    <input name="webhook" value="" placeholder="<?php echo $escapeRobotValue($robot['webhook_placeholder'] ?? '留空则保留当前 Webhook'); ?>" autocomplete="off" class="w-full px-3 py-2 border rounded-lg">
+                    <p class="mt-1 text-xs text-gray-500">当前配置：<?php echo $escapeRobotValue($robot['webhook_masked'] ?? '未配置'); ?>；留空保存时保留原值。</p>
                 </div>
                 <div>
                     <label class="block text-sm text-gray-600 mb-1">状态</label>

@@ -12,7 +12,6 @@ trait MeituanConfigConcern
     public function saveMeituanConfig(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_fetch_online_data');
 
         $config = [
             'url' => $this->request->post('url', 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail'),
@@ -29,7 +28,10 @@ trait MeituanConfigConcern
 
         // 非超级管理员只能保存自己酒店的配置
         if (!$this->currentUser->isSuperAdmin()) {
-            $hotelId = $this->resolveOnlineDataSystemHotelId(null);
+            $hotelId = $this->resolveOnlineDataSystemHotelId($hotelId);
+            if (!$this->currentUserCanMaintainOtaConfig($hotelId)) {
+                return $this->error('无权维护此门店 OTA 配置', 403);
+            }
         }
 
         // 构建存储key
@@ -83,7 +85,6 @@ trait MeituanConfigConcern
     public function saveMeituanConfigItem(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_fetch_online_data');
 
         $id = trim((string)$this->request->post('id', ''));
         $name = trim((string)$this->request->post('name', ''));
@@ -120,6 +121,9 @@ trait MeituanConfigConcern
         }
         $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', $list[$id]['hotel_id'] ?? ($list[$id]['system_hotel_id'] ?? null)));
         $hotelIdValue = $hotelId !== null ? (string)$hotelId : '';
+        if (!$this->currentUserCanMaintainOtaConfig($hotelId)) {
+            return $this->error('无权维护此门店 OTA 配置', 403);
+        }
 
         // 非超级管理员可维护本人创建或本人酒店绑定的配置
         if (!empty($id) && isset($list[$id])) {
@@ -195,7 +199,6 @@ trait MeituanConfigConcern
     public function getMeituanConfigDetail(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_fetch_online_data');
 
         $id = trim((string)$this->request->get('id', ''));
         if ($id === '') {
@@ -216,6 +219,8 @@ trait MeituanConfigConcern
         if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
             return $this->error('Forbidden', 403);
         }
+        $configHotelId = $this->resolveOnlineDataSystemHotelId($list[$id]['system_hotel_id'] ?? null);
+        $this->checkOtaConfigMaintenancePermission($configHotelId);
 
         return $this->success($list[$id]);
     }
