@@ -117,7 +117,7 @@ requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user f
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
-requireText('public/index.html', 'ctrip-static.js?v=20260707-cookie-only-identity-auto-resolve', 'entry bumps Ctrip static helper version after Cookie-only identity auto-resolve change');
+requireText('public/index.html', 'ctrip-static.js?v=20260708-qunar-retry', 'entry bumps Ctrip static helper version after Qunar visitor retry contract change');
 requireText('public/index.html', 'meituan-static.js?v=20260708-ranking-summary-helpers', 'entry bumps Meituan static helper cache version after ranking summary helper extraction');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');

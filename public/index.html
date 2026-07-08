@@ -70,7 +70,7 @@
     </script>
     <script src="vue.global.prod.js?v=20260628-static-router-fix"></script>
     <script src="shared-components.js?v=20260628-static-router-fix"></script>
-    <script src="ctrip-static.js?v=20260707-cookie-only-identity-auto-resolve"></script>
+    <script src="ctrip-static.js?v=20260708-qunar-retry"></script>
     <script src="meituan-static.js?v=20260708-ranking-summary-helpers"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
     <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue"></script>
@@ -35358,7 +35358,7 @@
                     if (row.status === 'failed') summary.failed += 1;
                     if (row.status === 'skipped') summary.skipped += 1;
                     if (row.status === 'running' || row.status === 'queued') summary.pending += 1;
-                    summary.savedCount += Number(row.savedCount || 0);
+                    if (row.status === 'success') summary.savedCount += Number(row.savedCount || 0);
                     return summary;
                 }, {
                     savedHotels: 0,

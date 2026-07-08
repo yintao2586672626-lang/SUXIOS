@@ -333,6 +333,7 @@ includesAll('public/index.html', 'manual one-click Ctrip fetch retries partial Q
   '去哪儿访客仍为 0',
   '自动重抓',
   '携程和去哪儿都成功才算成功',
+  "if (row.status === 'success') summary.savedCount += Number(row.savedCount || 0);",
   'qunarVisitorIncomplete',
 ]);
 
@@ -341,6 +342,12 @@ includesAll('public/ctrip-static.js', 'single Ctrip fetch warns on partial Qunar
   'setFetchSuccess(!qunarVisitorGap)',
   '需要重抓；携程和去哪儿都返回有效值才算成功。',
   "status: qunarVisitorGap ? 'partial_qunar_visitor_gap' : 'success'",
+]);
+
+excludesAll('public/index.html', 'manual one-click fetch no longer soft-succeeds zero Qunar visitor gaps', frontend, [
+  '仅标记为字段缺口',
+  '不代表整次抓取失败',
+  '不按整次失败处理',
 ]);
 
 excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch no longer cancels the whole save on zero Qunar visitors', manualFetchConcern, [

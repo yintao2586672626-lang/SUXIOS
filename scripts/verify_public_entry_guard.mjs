@@ -134,7 +134,7 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
-  if (!content.includes('ctrip-static.js?v=20260707-cookie-only-identity-auto-resolve')
+  if (!content.includes('ctrip-static.js?v=20260708-qunar-retry')
     || !content.includes('meituan-static.js?v=20260708-ranking-summary-helpers')) {
     failures.push('public/index.html must keep static helper cache versions aligned with changed helper files.');
   }

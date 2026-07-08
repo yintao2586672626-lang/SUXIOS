@@ -1192,7 +1192,8 @@ final class OnlineDataTest extends TestCase
         self::assertSame(0.0, $quality['visitor_total']);
         self::assertFalse($quality['ready']);
         self::assertSame('partial_qunar_visitor_gap', $quality['status']);
-        self::assertStringContainsString('不代表整次抓取失败', $quality['message']);
+        self::assertStringContainsString('需要自动重抓', $quality['message']);
+        self::assertStringContainsString('不能按整次成功处理', $quality['message']);
     }
 
     public function testBackendBuildsCtripBusinessDisplayDerivedMetricsForFrontend(): void
