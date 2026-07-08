@@ -1139,20 +1139,20 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         rows = null,
     } = {}) => {
         if (!isSuperAdmin) {
-            return { status: 'unknown', text: '无权限', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+            return { status: 'unknown', text: '无权限', failureCount: 0, rateLimitedCount: 0, unconfiguredTokenCount: 0, period: {}, scanScope: {} };
         }
         if (loading) {
-            return { status: 'unknown', text: '加载中', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+            return { status: 'unknown', text: '加载中', failureCount: 0, rateLimitedCount: 0, unconfiguredTokenCount: 0, period: {}, scanScope: {} };
         }
         if (error) {
-            return { status: 'high', text: '加载失败', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+            return { status: 'high', text: '加载失败', failureCount: 0, rateLimitedCount: 0, unconfiguredTokenCount: 0, period: {}, scanScope: {} };
         }
         if (!payload) {
-            return { status: 'unknown', text: '未加载', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+            return { status: 'unknown', text: '未加载', failureCount: 0, rateLimitedCount: 0, unconfiguredTokenCount: 0, period: {}, scanScope: {} };
         }
         const safeRows = Array.isArray(rows) ? rows : (Array.isArray(payload?.endpoints) ? payload.endpoints : []);
         if (!safeRows.length) {
-            return { status: 'unknown', text: '未加载', failureCount: 0, rateLimitedCount: 0, period: payload?.period || {}, scanScope: payload?.scan_scope || {} };
+            return { status: 'unknown', text: '未加载', failureCount: 0, rateLimitedCount: 0, unconfiguredTokenCount: 0, period: payload?.period || {}, scanScope: payload?.scan_scope || {} };
         }
         const failureCount = safeRows.reduce((sum, row) => sum + Number(row?.recent_failure_count || 0), 0);
         const rateLimitedCount = safeRows.reduce((sum, row) => sum + Number(row?.rate_limited_count || 0), 0);

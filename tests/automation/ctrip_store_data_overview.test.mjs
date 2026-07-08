@@ -594,6 +594,8 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(html, /requireDataHealthStatic\('summarizePublicEndpointSecurity'\)/);
   assert.match(html, /requireDataHealthStatic\('publicEndpointDisplayName'\)/);
   assert.match(html, /requireDataHealthStatic\('publicEndpointSecurityBoundaryText'\)/);
+  assert.match(html, /未配置令牌/);
+  assert.match(html, /publicEndpointSecuritySummary\.unconfiguredTokenCount/);
   assert.match(html, /requireDataHealthStatic\('employeeOtaChecklistPriorityRank'\)/);
   assert.match(html, /requireDataHealthStatic\('employeeOtaChecklistCategoryClass'\)/);
   assert.match(html, /requireDataHealthStatic\('employeeOtaChecklistCategoryText'\)/);
