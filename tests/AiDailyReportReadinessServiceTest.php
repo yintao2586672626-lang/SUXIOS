@@ -47,6 +47,33 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         self::assertContains('data_gaps', array_column($readiness['missing_evidence'], 'code'));
     }
 
+    public function testFallbackManualReviewActionsAreInvestigationOnly(): void
+    {
+        $service = new AiDailyReportService();
+        $method = new \ReflectionMethod($service, 'buildRecommendedActions');
+        $method->setAccessible(true);
+
+        $actions = $method->invoke($service, [], ['root_causes' => []], ['summary' => []], []);
+
+        self::assertCount(3, $actions);
+        foreach ($actions as $action) {
+            self::assertSame('manual_review', $action['action_type']);
+            self::assertFalse($action['can_create_execution_intent']);
+            self::assertSame('Fallback manual review is investigation-only until stronger evidence is selected.', $action['blocked_reason']);
+        }
+
+        $readiness = $service->buildReportReadiness([
+            'source_refs' => [['key' => 'operation.full_data']],
+            'data_gaps' => [],
+            'recommended_actions' => $actions,
+        ]);
+
+        self::assertSame(0, $readiness['transferable_count']);
+        self::assertSame('blocked', $readiness['stage']);
+        self::assertSame(3, $readiness['blocked_count']);
+        self::assertContains('blocked_action', array_column($readiness['missing_evidence'], 'code'));
+    }
+
     public function testReviewedReportStillRequiresRoiEvidence(): void
     {
         $service = new AiDailyReportService();

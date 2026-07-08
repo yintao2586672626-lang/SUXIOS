@@ -2121,6 +2121,12 @@
     };
 
     const aiDailyReportActionButtonText = (action) => {
+        if (action?.can_create_execution_intent === false && String(action?.action_type || '') === 'manual_review') {
+            const blockedText = aiDailyReportActionBlockedText(action);
+            if (/Fallback manual review|investigation-only/i.test(blockedText)) {
+                return '查看证据';
+            }
+        }
         if (action?.execution_intent_id) return '已转单';
         if (action?.can_create_execution_intent === false) return '处理缺口';
         if (aiDailyReportActionBlockedText(action)) return '待处理';

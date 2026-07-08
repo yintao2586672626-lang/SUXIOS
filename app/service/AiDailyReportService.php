@@ -344,6 +344,10 @@ class AiDailyReportService
             $missing[] = $this->readinessMissing('roi_evidence', 'ROI证据', '补充收入/成本证据以计算ROI');
         }
 
+        if ($blocked > 0 && empty($missing)) {
+            $missing[] = $this->readinessMissing('blocked_action', 'Blocked action', 'Review blocked action reasons before creating an execution intent.');
+        }
+
         if ($actionCount > 0 && $roiReady >= $actionCount && empty($dataGaps)) {
             $stage = 'daily_loop_closed';
             $score = 100;
@@ -1119,7 +1123,8 @@ class AiDailyReportService
                 'expected_delta' => 0.0,
                 'risk_level' => 'low',
                 'target_value' => ['campaign_type' => 'manual_review', 'target_metric' => 'orders'],
-                'can_create_execution_intent' => true,
+                'can_create_execution_intent' => false,
+                'blocked_reason' => 'Fallback manual review is investigation-only until stronger evidence is selected.',
             ];
             $fallbackIndex++;
         }

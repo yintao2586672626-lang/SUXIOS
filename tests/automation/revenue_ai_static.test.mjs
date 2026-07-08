@@ -134,6 +134,11 @@ test('AI daily report blocking helpers keep data gaps out of execution orders', 
   assert.equal(rows[0].target.page, 'ops-track');
   assert.equal(rows[1].type, 'action');
   assert.match(rows[1].nextAction, /checklist work/);
+  assert.equal(helpers.aiDailyReportActionButtonText({
+    action_type: 'manual_review',
+    can_create_execution_intent: false,
+    blocked_reason: 'Fallback manual review is investigation-only until stronger evidence is selected.',
+  }), '查看证据');
   assert.equal(helpers.aiDailyReportActionButtonText({ can_create_execution_intent: false }), '处理缺口');
 
   const summary = helpers.summarizeAiDailyReportBlockingRows(rows);
