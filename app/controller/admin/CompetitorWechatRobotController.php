@@ -331,11 +331,18 @@ class CompetitorWechatRobotController extends Base
         if ($webhook === '') {
             return '';
         }
-        $length = strlen($webhook);
-        if ($length <= 16) {
-            return str_repeat('*', min(8, $length));
+
+        $parts = parse_url($webhook);
+        if (is_array($parts)) {
+            $scheme = strtolower((string)($parts['scheme'] ?? ''));
+            $host = strtolower((string)($parts['host'] ?? ''));
+            $path = (string)($parts['path'] ?? '');
+            if ($scheme === 'https' && $host === 'qyapi.weixin.qq.com' && $path === '/cgi-bin/webhook/send') {
+                return 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=******';
+            }
         }
-        return substr($webhook, 0, 8) . '...' . substr($webhook, -6);
+
+        return 'Webhook 已保存（已脱敏）';
     }
 
     private function normalizeRobotWebhook(string $webhook): ?string

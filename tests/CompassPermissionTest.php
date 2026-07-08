@@ -51,7 +51,7 @@ final class CompassPermissionTest extends TestCase
             $this->seedSystemConfigValueCache($originalCache);
         }
 
-        self::assertIsArray($payload['weather']);
+        self::assertSame([], $payload['weather']);
         self::assertSame([], $payload['todos']);
         self::assertSame([], $payload['alerts']);
         self::assertSame([], $payload['holidays']);
@@ -59,9 +59,11 @@ final class CompassPermissionTest extends TestCase
         self::assertSame('compass_contract_only_no_metric_facts', $payload['metrics']['source_policy']);
         self::assertSame([
             'todos' => 'not_loaded',
+            'weather' => 'not_loaded',
             'metrics' => 'not_loaded',
             'alerts' => 'not_loaded',
             'holidays' => 'not_loaded',
+            'weather_source_policy' => 'compass_contract_only_no_weather_facts',
             'source_policy' => 'compass_contract_only_no_operating_facts',
         ], $payload['contract_status']);
     }

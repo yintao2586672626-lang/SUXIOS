@@ -853,6 +853,10 @@ requireNoText('public/index.html', 'if (force || !competitorSummary.value) {\n  
 requireText('public/index.html', "if (currentPage.value !== 'compass') return;", 'weather request does not run after leaving the compass page');
 requireText('public/index.html', 'const COMPASS_WEATHER_REFRESH_DELAY_MS = 3200;', 'compass weather refresh stays outside the fast OTA navigation window');
 requireText('public/index.html', "scheduleDelayedPageTask(() => {\n                            if (!isCompassDataPage()) return null;\n                            loadWeatherForCity();\n                            return null;\n                        }, COMPASS_WEATHER_REFRESH_DELAY_MS);", 'compass response delays weather and skips after leaving compass-data pages');
+requireText('app/controller/admin/Compass.php', "'weather' => []", 'compass backend does not synthesize weather facts without a verified weather source');
+requireText('app/controller/admin/Compass.php', "'weather_source_policy' => 'compass_contract_only_no_weather_facts'", 'compass backend exposes weather as not-loaded contract data');
+requireNoText('app/controller/admin/Compass.php', 'crc32($location)', 'compass backend must not generate deterministic fake weather from location hashes');
+requireNoText('app/controller/admin/Compass.php', 'private function getWeatherForecast', 'compass backend weather must come from verified sources, not local synthesis');
 requireText('public/index.html', "if (!isCompassDataPage()) return null;", 'deferred compass background jobs are skipped after page switch');
 requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true })', 'deferred compass competitor summary uses page visibility guard');
 requireText('public/index.html', 'const compassBackgroundJobs = [', 'deferred compass background jobs are queued explicitly');
@@ -6070,6 +6074,7 @@ try {
             data: [{ order_id: 'o1' }],
             display_hotels: [{ hotel_id: 'h1' }],
             display_summary: { status: 'ok' },
+            qunar_visitor_quality: { ready: true, status: 'ready', row_count: 1, visitor_total: 12 },
             saved_count: 4,
             fetched_at: '2026-06-10 14:00:00',
           },
@@ -6130,8 +6135,9 @@ try {
           code: 200,
           data: {
             data: [],
-            display_hotels: [],
+            display_hotels: [{ hotel_id: 'h1' }],
             display_summary: { status: 'ok' },
+            qunar_visitor_quality: { ready: true, status: 'ready', row_count: 1, visitor_total: 8 },
             saved_count: 0,
             fetched_at: '2026-06-10 14:00:00',
           },

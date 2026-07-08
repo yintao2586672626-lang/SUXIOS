@@ -96,6 +96,8 @@ $robotControllerRef = new ReflectionClass(CompetitorWechatRobotController::class
 $robotController = $robotControllerRef->newInstanceWithoutConstructor();
 $validRobotWebhook = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123';
 assert_regression_same($validRobotWebhook, call_private_regression($robotController, 'normalizeRobotWebhook', [$validRobotWebhook]), 'competitor robot webhook validator must accept Enterprise WeChat robot URLs');
+$maskedRobotWebhook = call_private_regression($robotController, 'maskRobotWebhook', [$validRobotWebhook]);
+assert_regression(!str_contains((string)$maskedRobotWebhook, 'abc123') && !str_contains((string)$maskedRobotWebhook, 'c123'), 'competitor robot webhook mask must not expose robot key characters');
 assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['http://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123']), 'competitor robot webhook validator must reject non-HTTPS URLs');
 assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['https://qyapi.weixin.qq.com.evil.test/cgi-bin/webhook/send?key=abc123']), 'competitor robot webhook validator must reject lookalike hosts');
 assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['https://qyapi.weixin.qq.com:8443/cgi-bin/webhook/send?key=abc123']), 'competitor robot webhook validator must reject non-standard ports');

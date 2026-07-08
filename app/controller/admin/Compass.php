@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace app\controller\admin;
 
 use app\controller\Base;
-use app\model\Hotel;
 use app\model\OperationLog;
 use app\model\SystemConfig;
 use think\Response;
@@ -174,7 +173,7 @@ class Compass extends Base
     {
         return [
             'layout' => $this->getLayoutConfig(),
-            'weather' => $this->getWeatherForecast($hotelId),
+            'weather' => [],
             'todos' => [],
             'metrics' => [
                 'day' => (object)[],
@@ -187,9 +186,11 @@ class Compass extends Base
             'holidays' => [],
             'contract_status' => [
                 'todos' => 'not_loaded',
+                'weather' => 'not_loaded',
                 'metrics' => 'not_loaded',
                 'alerts' => 'not_loaded',
                 'holidays' => 'not_loaded',
+                'weather_source_policy' => 'compass_contract_only_no_weather_facts',
                 'source_policy' => 'compass_contract_only_no_operating_facts',
             ],
         ];
@@ -207,53 +208,4 @@ class Compass extends Base
         return $hotelId;
     }
 
-    private function getWeatherForecast(int $hotelId): array
-    {
-        $location = $this->resolveWeatherLocation($hotelId);
-        $seed = abs((int)sprintf('%u', crc32($location)));
-        $conditions = ['晴', '多云', '阴', '小雨', '阵雨', '中雨'];
-        $winds = ['东风', '南风', '西风', '北风'];
-        $result = [];
-        for ($i = 0; $i < 7; $i++) {
-            $date = strtotime('+' . $i . ' day');
-            $result[] = [
-                'location' => $location,
-                'date' => date('m-d', $date),
-                'week' => ['日', '一', '二', '三', '四', '五', '六'][(int)date('w', $date)],
-                'temp_high' => 24 + (($seed + $i) % 6),
-                'temp_low' => 16 + (($seed + $i) % 5),
-                'condition' => $conditions[($seed + $i) % count($conditions)],
-                'wind' => $winds[($seed + $i) % count($winds)] . ' 2-3级',
-            ];
-        }
-        return $result;
-    }
-
-    private function resolveWeatherLocation(int $hotelId): string
-    {
-        $targetHotelId = $hotelId ?: (int)($this->currentUser->hotel_id ?? 0);
-        if ($targetHotelId > 0) {
-            $hotel = Hotel::find($targetHotelId);
-            if ($hotel) {
-                $location = $this->extractCityFromAddress((string)($hotel->address ?? ''));
-                if ($location !== '') {
-                    return $location;
-                }
-            }
-        }
-
-        return '本地';
-    }
-
-    private function extractCityFromAddress(string $address): string
-    {
-        $address = trim($address);
-        if ($address === '') {
-            return '';
-        }
-        if (preg_match('/(北京市|上海市|天津市|重庆市|[^省自治区市]+市|[^省自治区市]+地区|[^省自治区市]+盟|[^省自治区市]+州)/u', $address, $matches)) {
-            return $matches[1];
-        }
-        return mb_substr($address, 0, 6);
-    }
 }
