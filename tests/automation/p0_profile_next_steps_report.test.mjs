@@ -428,6 +428,70 @@ test('P0 Profile next-step report separates P0 data readiness from missing Profi
   }
 });
 
+test('P0 Profile next-step report marks waiting-config data sources as Profile flow gaps', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'p0-profile-next-steps-waiting-config-'));
+  const input = path.join(dir, 'verifier.json');
+  try {
+    writeFileSync(input, JSON.stringify({
+      status: 'passed',
+      scope: { date: '2026-07-08', platforms: ['ctrip'], system_hotel_id: 107 },
+      platforms: [
+        {
+          platform: 'ctrip',
+          target_date_rows: 4,
+          p0_traffic_gate: {
+            status: 'ready',
+            traffic_rows: 2,
+            system_hotel_ids: [107],
+            system_hotel_row_counts: { 107: 2 },
+            action_status: 'ready',
+            action_missing_inputs: [],
+            hotel_scoped_next_steps: [
+              {
+                system_hotel_id: 107,
+                data_source_id: 24,
+                data_source_status: 'waiting_config',
+                last_sync_status: 'waiting_config',
+                manual_login_state_verified: true,
+                profile_login_trigger: {
+                  status: 'client_local_authorization_required',
+                  entry: 'https://ebooking.ctrip.com/home/mainland',
+                  after_login_sync: { entry: '/api/online-data/data-sources/24/sync' },
+                },
+                latest_sync_task: { status: 'no_sync_task' },
+                p0_verifier_command: 'npm.cmd run verify:p0-ota-field-loop -- --date=2026-07-08 --platform=ctrip --system-hotel-id=107',
+              },
+            ],
+          },
+        },
+      ],
+    }));
+
+    const result = spawnSync(process.execPath, ['scripts/report_p0_profile_next_steps.mjs', `--input=${input}`, '--json'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.completion_gate.current_status, 'passed');
+    assert.equal(payload.downstream_gate.status, 'open');
+    assert.equal(payload.platform_summaries[0].profile_flow_ready, false);
+    assert.equal(payload.platform_summaries[0].profile_flow_incomplete_count, 1);
+    assert(payload.platform_summaries[0].profile_flow_blocking_reason_codes.includes('data_source_waiting_config'));
+    assert(payload.platform_summaries[0].profile_flow_blocking_reason_codes.includes('last_sync_waiting_config'));
+    assert.equal(payload.collection_flow_gate.status, 'blocked_by_profile_flow_gap');
+    assert(payload.collection_flow_gate.blocking_missing_inputs.includes('data_source_waiting_config'));
+    assert(payload.collection_flow_gate.blocking_missing_inputs.includes('last_sync_waiting_config'));
+    assert.deepEqual(payload.operator_sequence.map(item => item.type), ['already_ready', 'profile_flow_gap', 'single_scope_verifier']);
+    assert.equal(payload.operator_sequence[1].data_source_id, 24);
+    assert(payload.operator_sequence[1].blocking_reason_codes.includes('data_source_waiting_config'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('P0 Profile next-step report exposes target-date traffic and Profile step hotel mismatch', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'p0-profile-next-steps-scope-mismatch-'));
   const input = path.join(dir, 'verifier.json');

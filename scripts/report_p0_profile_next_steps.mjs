@@ -156,6 +156,7 @@ function profileFlowBlockingReasonCodes(step) {
   const codes = [];
   const dataSourceId = positiveInt(step?.data_source_id);
   const dataSourceStatus = String(step?.data_source_status || '').trim().toLowerCase();
+  const lastSyncStatus = String(step?.last_sync_status || '').trim().toLowerCase();
   const trigger = step?.profile_login_trigger && typeof step.profile_login_trigger === 'object'
     ? step.profile_login_trigger
     : {};
@@ -166,6 +167,12 @@ function profileFlowBlockingReasonCodes(step) {
 
   if (!dataSourceId) codes.push('missing_data_source_id');
   if (dataSourceStatus === 'not_registered') codes.push('data_source_not_registered');
+  if (dataSourceId && dataSourceStatus && !['success', 'ready'].includes(dataSourceStatus)) {
+    codes.push(`data_source_${dataSourceStatus}`);
+  }
+  if (dataSourceId && lastSyncStatus && !['success', 'ready'].includes(lastSyncStatus)) {
+    codes.push(`last_sync_${lastSyncStatus}`);
+  }
   if (step?.manual_login_state_verified !== true) codes.push('manual_login_state_verified');
   if (triggerStatus && !['available', 'ready', 'client_local_authorization_required'].includes(triggerStatus)) {
     codes.push(`profile_login_trigger_${triggerStatus}`);

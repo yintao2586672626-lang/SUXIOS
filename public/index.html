@@ -3951,10 +3951,10 @@
                         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                             <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                                 <div class="max-w-3xl">
-                                    <div class="text-xs font-semibold tracking-wide text-blue-600 uppercase">ACCOUNT HEALTH</div>
+                                    <div class="text-xs font-semibold tracking-wide text-blue-600 uppercase">OTA ACCOUNT</div>
                                     <h2 class="mt-1 text-2xl font-bold text-gray-900">门店管理</h2>
                                     <p class="text-sm text-gray-500 mt-2 leading-relaxed">
-                                        维护携程、美团账号，判断 OTA 采集入口和同圈对比是否可用；不展示账号密码或客人隐私。
+                                        维护携程、美团账号与采集配置，判断 OTA 采集入口是否可用；不展示账号密码或客人隐私。
                                     </p>
                                 </div>
                                 <div class="flex flex-wrap gap-2">
@@ -4027,7 +4027,7 @@
                                 </button>
                             </div>
                             <div class="text-xs text-gray-500 leading-relaxed">
-                                说明：账号待补=营业中门店还有携程/美团账号绑定、登录或采集配置问题；美团竞对榜单保留在门店行内作为同圈对比辅助状态。这里只代表 OTA 渠道状态，不代表全酒店经营口径。
+                                说明：账号待补=营业中门店还有携程/美团账号绑定、登录或采集配置问题；美团竞对榜单不作为本页主筛选，在同圈对比入口和处理动作中处理。这里只代表 OTA 渠道状态，不代表全酒店经营口径。
                             </div>
                             <div class="flex flex-wrap gap-3 items-center">
                                 <div class="flex-1 min-w-[220px]">
@@ -4098,12 +4098,8 @@
                                                 </div>
                                             </td>
                                             <td class="px-4 py-4 w-[20%]">
-                                                <button type="button" v-for="account in [hotelPlatformRow(hotel, 'ctrip')]" :key="`${hotel.id}-ctrip-status`"
-                                                    @click="openHotelPlatformCardLogin(hotel, account)"
-                                                    :disabled="!canManageOwnHotels()"
-                                                    :aria-label="`登录${account.label || '携程'}`"
-                                                    :title="canManageOwnHotels() ? `点击登录/刷新${account.label || '携程'}会话` : '无账号维护权限'"
-                                                    class="w-full rounded-lg border border-blue-100 bg-blue-50/30 p-3 text-left text-xs transition hover:border-blue-200 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-default disabled:hover:border-blue-100 disabled:hover:bg-blue-50/30">
+                                                <div v-for="account in [hotelPlatformRow(hotel, 'ctrip')]" :key="`${hotel.id}-ctrip-status`"
+                                                    class="w-full rounded-lg border border-blue-100 bg-blue-50/30 p-3 text-left text-xs">
                                                     <div class="flex items-center justify-between gap-2">
                                                         <div class="flex items-center gap-2 min-w-0">
                                                             <span :class="account.iconClass" class="w-7 h-7 rounded-md flex items-center justify-center shrink-0 text-xs">
@@ -4111,36 +4107,42 @@
                                                             </span>
                                                             <span class="font-semibold text-gray-900">{{ account.label }}</span>
                                                         </div>
-                                                        <span :class="account.statusClass" class="shrink-0 px-2 py-0.5 rounded-md border text-[11px] whitespace-nowrap">{{ hotelPlatformLoginText(account) }}</span>
+                                                        <span :class="hotelPlatformCollectionReadyClass(account)" class="shrink-0 px-2 py-0.5 rounded-md border text-[11px] whitespace-nowrap">{{ hotelPlatformCollectionReadyText(account) }}</span>
                                                     </div>
-                                                    <div class="mt-2 flex flex-wrap gap-1.5">
-                                                        <span class="rounded-md bg-white/80 border border-blue-50 px-2 py-1 whitespace-nowrap">
-                                                            <span class="text-gray-400">绑定</span>
-                                                            <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformBindingText(account) }}</span>
-                                                        </span>
-                                                        <span class="rounded-md bg-white/80 border border-blue-50 px-2 py-1 whitespace-nowrap">
-                                                            <span class="text-gray-400">登录</span>
-                                                            <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformLoginText(account) }}</span>
-                                                        </span>
+                                                    <div class="mt-2 grid grid-cols-2 gap-1.5">
+                                                        <div class="rounded-md bg-white/80 border border-blue-50 px-2 py-1">
+                                                            <div class="text-gray-400">手动Cookie</div>
+                                                            <div :class="hotelPlatformReadyPillClass(hotelPlatformManualCookieReady(hotel, account))" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5 font-semibold">{{ hotelPlatformManualCookieText(hotel, account) }}</div>
+                                                        </div>
+                                                        <div class="rounded-md bg-white/80 border border-blue-50 px-2 py-1">
+                                                            <div class="text-gray-400">采集配置</div>
+                                                            <div :class="hotelPlatformReadyPillClass(hotelPlatformFetchConfigReady(hotel, account))" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5 font-semibold">{{ hotelPlatformFetchConfigText(hotel, account) }}</div>
+                                                        </div>
+                                                        <div class="rounded-md bg-white/80 border border-blue-50 px-2 py-1">
+                                                            <div class="text-gray-400">自动化采集</div>
+                                                            <div :class="hotelPlatformReadyPillClass(hotelPlatformAutomationReady(hotel, account))" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5 font-semibold">{{ hotelPlatformAutomationText(hotel, account) }}</div>
+                                                        </div>
+                                                        <div class="rounded-md bg-white/80 border border-blue-50 px-2 py-1">
+                                                            <div class="text-gray-400">最近采集</div>
+                                                            <div class="mt-1 flex items-center gap-1">
+                                                                <span class="font-semibold text-gray-800 truncate">{{ account.lastCaptureText }}</span>
+                                                                <span :class="account.captureStatusClass" class="rounded-md border px-1.5 py-0.5 whitespace-nowrap">{{ account.captureStatusText }}</span>
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                    <div class="mt-2 truncate text-[11px] text-gray-500" :title="account.accountStoreText">平台门店：{{ account.accountStoreText || '-' }}</div>
-                                                    <div class="mt-1 flex items-center justify-between gap-2 text-[11px]">
-                                                        <span class="text-gray-500 truncate">最近采集 {{ account.lastCaptureText }}</span>
-                                                        <span :class="account.captureStatusClass" class="rounded-md border px-1.5 py-0.5 whitespace-nowrap">{{ account.captureStatusText }}</span>
-                                                    </div>
-                                                    <div class="mt-1 flex items-center justify-between gap-2 text-[11px]">
+                                                    <div class="mt-2 flex items-center justify-between gap-2 text-[11px]">
                                                         <span class="text-gray-500">模块 {{ hotelPlatformModuleText(account) }}</span>
-                                                        <span v-if="canManageOwnHotels()" class="font-medium text-blue-700">点击登录/刷新会话</span>
+                                                        <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-blue-700 hover:text-blue-900">查看日志</button>
                                                     </div>
-                                                </button>
+                                                    <div v-if="canManageOwnHotels()" class="mt-2 grid grid-cols-2 gap-1.5">
+                                                        <button type="button" @click="openHotelPlatformCardLogin(hotel, account)" class="rounded-md border border-blue-100 bg-white px-2 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">授权登录</button>
+                                                        <button type="button" @click="openHotelManualFetchConfig(hotel, 'ctrip')" class="rounded-md border border-blue-100 bg-white px-2 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">配置</button>
+                                                    </div>
+                                                </div>
                                             </td>
                                             <td class="px-4 py-4 w-[20%]">
-                                                <button type="button" v-for="account in [hotelPlatformRow(hotel, 'meituan')]" :key="`${hotel.id}-meituan-status`"
-                                                    @click="openHotelPlatformCardLogin(hotel, account)"
-                                                    :disabled="!canManageOwnHotels()"
-                                                    :aria-label="`登录${account.label || '美团'}`"
-                                                    :title="canManageOwnHotels() ? `点击登录/刷新${account.label || '美团'}会话` : '无账号维护权限'"
-                                                    class="w-full rounded-lg border border-orange-100 bg-orange-50/30 p-3 text-left text-xs transition hover:border-orange-200 hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-200 disabled:cursor-default disabled:hover:border-orange-100 disabled:hover:bg-orange-50/30">
+                                                <div v-for="account in [hotelPlatformRow(hotel, 'meituan')]" :key="`${hotel.id}-meituan-status`"
+                                                    class="w-full rounded-lg border border-orange-100 bg-orange-50/30 p-3 text-left text-xs">
                                                     <div class="flex items-center justify-between gap-2">
                                                         <div class="flex items-center gap-2 min-w-0">
                                                             <span :class="account.iconClass" class="w-7 h-7 rounded-md flex items-center justify-center shrink-0 text-xs">
@@ -4148,28 +4150,38 @@
                                                             </span>
                                                             <span class="font-semibold text-gray-900">{{ account.label }}</span>
                                                         </div>
-                                                        <span :class="account.statusClass" class="shrink-0 px-2 py-0.5 rounded-md border text-[11px] whitespace-nowrap">{{ hotelPlatformLoginText(account) }}</span>
+                                                        <span :class="hotelPlatformCollectionReadyClass(account)" class="shrink-0 px-2 py-0.5 rounded-md border text-[11px] whitespace-nowrap">{{ hotelPlatformCollectionReadyText(account) }}</span>
                                                     </div>
-                                                    <div class="mt-2 flex flex-wrap gap-1.5">
-                                                        <span class="rounded-md bg-white/80 border border-orange-50 px-2 py-1 whitespace-nowrap">
-                                                            <span class="text-gray-400">绑定</span>
-                                                            <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformBindingText(account) }}</span>
-                                                        </span>
-                                                        <span class="rounded-md bg-white/80 border border-orange-50 px-2 py-1 whitespace-nowrap">
-                                                            <span class="text-gray-400">登录</span>
-                                                            <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformLoginText(account) }}</span>
-                                                        </span>
+                                                    <div class="mt-2 grid grid-cols-2 gap-1.5">
+                                                        <div class="rounded-md bg-white/80 border border-orange-50 px-2 py-1">
+                                                            <div class="text-gray-400">手动Cookie</div>
+                                                            <div :class="hotelPlatformReadyPillClass(hotelPlatformManualCookieReady(hotel, account))" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5 font-semibold">{{ hotelPlatformManualCookieText(hotel, account) }}</div>
+                                                        </div>
+                                                        <div class="rounded-md bg-white/80 border border-orange-50 px-2 py-1">
+                                                            <div class="text-gray-400">采集配置</div>
+                                                            <div :class="hotelPlatformReadyPillClass(hotelPlatformFetchConfigReady(hotel, account))" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5 font-semibold">{{ hotelPlatformFetchConfigText(hotel, account) }}</div>
+                                                        </div>
+                                                        <div class="rounded-md bg-white/80 border border-orange-50 px-2 py-1">
+                                                            <div class="text-gray-400">自动化采集</div>
+                                                            <div :class="hotelPlatformReadyPillClass(hotelPlatformAutomationReady(hotel, account))" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5 font-semibold">{{ hotelPlatformAutomationText(hotel, account) }}</div>
+                                                        </div>
+                                                        <div class="rounded-md bg-white/80 border border-orange-50 px-2 py-1">
+                                                            <div class="text-gray-400">最近采集</div>
+                                                            <div class="mt-1 flex items-center gap-1">
+                                                                <span class="font-semibold text-gray-800 truncate">{{ account.lastCaptureText }}</span>
+                                                                <span :class="account.captureStatusClass" class="rounded-md border px-1.5 py-0.5 whitespace-nowrap">{{ account.captureStatusText }}</span>
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                    <div class="mt-2 truncate text-[11px] text-gray-500" :title="account.accountStoreText">平台门店：{{ account.accountStoreText || '-' }}</div>
-                                                    <div class="mt-1 flex items-center justify-between gap-2 text-[11px]">
-                                                        <span class="text-gray-500 truncate">最近采集 {{ account.lastCaptureText }}</span>
-                                                        <span :class="account.captureStatusClass" class="rounded-md border px-1.5 py-0.5 whitespace-nowrap">{{ account.captureStatusText }}</span>
-                                                    </div>
-                                                    <div class="mt-1 flex items-center justify-between gap-2 text-[11px]">
+                                                    <div class="mt-2 flex items-center justify-between gap-2 text-[11px]">
                                                         <span class="text-gray-500">模块 {{ hotelPlatformModuleText(account) }}</span>
-                                                        <span v-if="canManageOwnHotels()" class="font-medium text-orange-700">点击登录/刷新会话</span>
+                                                        <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-orange-700 hover:text-orange-900">查看日志</button>
                                                     </div>
-                                                </button>
+                                                    <div v-if="canManageOwnHotels()" class="mt-2 grid grid-cols-2 gap-1.5">
+                                                        <button type="button" @click="openHotelPlatformCardLogin(hotel, account)" class="rounded-md border border-orange-100 bg-white px-2 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-50">授权登录</button>
+                                                        <button type="button" @click="openHotelManualFetchConfig(hotel, 'meituan')" class="rounded-md border border-orange-100 bg-white px-2 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-50">配置</button>
+                                                    </div>
+                                                </div>
                                             </td>
                                             <td class="px-4 py-4 w-[22%] text-right">
                                                 <div v-if="canManageOwnHotels()" class="space-y-2">
@@ -4219,9 +4231,6 @@
                                                 <span :class="hotelAccountHealthClass(hotel)" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                     {{ hotelAccountHealthText(hotel) }}
                                                 </span>
-                                                <span :class="competitorSummaryReadinessClass(hotelCompetitorReadiness(hotel))" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                    {{ hotelCompetitorReadiness(hotel).label }}
-                                                </span>
                                                 <button v-if="user?.is_super_admin && !['正常', '-'].includes(hotelNextAction(hotel).text)" type="button"
                                                     @click.stop="openHotelNextAction(hotel)"
                                                     :class="hotelNextAction(hotel).className"
@@ -4240,9 +4249,6 @@
                                                 <div class="rounded-md border border-gray-100 bg-gray-50 px-2 py-1 min-w-0">
                                                     <span class="text-gray-400">负责人</span>
                                                     <span class="ml-1 font-semibold text-gray-800 truncate" :title="hotelOwnerText(hotel)">{{ hotelOwnerText(hotel) }}</span>
-                                                </div>
-                                                <div class="rounded-md border border-gray-100 bg-gray-50 px-2 py-1 text-gray-500">
-                                                    编码 {{ formatHotelCode(hotelIndex + 1) }}
                                                 </div>
                                             </div>
                                         </div>
@@ -4269,12 +4275,8 @@
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        <button type="button" v-for="account in hotelPlatformBindingRows(hotel)" :key="`mobile-${hotel.id}-${account.platform}`"
-                                            @click="openHotelPlatformCardLogin(hotel, account)"
-                                            :disabled="!canManageOwnHotels()"
-                                            :aria-label="`登录${account.label || 'OTA平台'}`"
-                                            :title="canManageOwnHotels() ? `点击登录/刷新${account.label || 'OTA平台'}会话` : '无账号维护权限'"
-                                            class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-left transition hover:border-blue-100 hover:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-default disabled:hover:border-gray-100 disabled:hover:bg-gray-50">
+                                        <div v-for="account in hotelPlatformBindingRows(hotel)" :key="`mobile-${hotel.id}-${account.platform}`"
+                                            class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-left">
                                             <div class="flex items-center justify-between gap-2">
                                                 <div class="flex items-center gap-2 min-w-0">
                                                     <span :class="account.iconClass" class="w-7 h-7 rounded-md flex items-center justify-center shrink-0 text-xs">
@@ -4285,31 +4287,44 @@
                                                         <div class="text-xs text-gray-500 truncate">平台门店：{{ account.accountStoreText || '-' }}</div>
                                                     </div>
                                                 </div>
-                                                <span :class="account.statusClass" class="px-2 py-0.5 rounded-md border text-xs whitespace-nowrap">{{ hotelPlatformLoginText(account) }}</span>
+                                                <span :class="hotelPlatformCollectionReadyClass(account)" class="px-2 py-0.5 rounded-md border text-xs whitespace-nowrap">{{ hotelPlatformCollectionReadyText(account) }}</span>
                                             </div>
-                                            <div class="mt-2 flex flex-wrap gap-1.5 text-xs">
-                                                <span class="rounded-md bg-white border border-gray-100 px-2 py-1 whitespace-nowrap">
-                                                    <span class="text-gray-400">绑定</span>
-                                                    <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformBindingText(account) }}</span>
-                                                </span>
-                                                <span class="rounded-md bg-white border border-gray-100 px-2 py-1 whitespace-nowrap">
-                                                    <span class="text-gray-400">登录</span>
-                                                    <span class="ml-1 font-semibold text-gray-800">{{ hotelPlatformLoginText(account) }}</span>
-                                                </span>
+                                            <div class="mt-2 grid grid-cols-2 gap-1.5 text-xs">
+                                                <div class="rounded-md bg-white border border-gray-100 px-2 py-1">
+                                                    <div class="text-gray-400">手动Cookie</div>
+                                                    <div :class="hotelPlatformReadyPillClass(hotelPlatformManualCookieReady(hotel, account))" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5 font-semibold">{{ hotelPlatformManualCookieText(hotel, account) }}</div>
+                                                </div>
+                                                <div class="rounded-md bg-white border border-gray-100 px-2 py-1">
+                                                    <div class="text-gray-400">采集配置</div>
+                                                    <div :class="hotelPlatformReadyPillClass(hotelPlatformFetchConfigReady(hotel, account))" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5 font-semibold">{{ hotelPlatformFetchConfigText(hotel, account) }}</div>
+                                                </div>
+                                                <div class="rounded-md bg-white border border-gray-100 px-2 py-1">
+                                                    <div class="text-gray-400">自动化采集</div>
+                                                    <div :class="hotelPlatformReadyPillClass(hotelPlatformAutomationReady(hotel, account))" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5 font-semibold">{{ hotelPlatformAutomationText(hotel, account) }}</div>
+                                                </div>
+                                                <div class="rounded-md bg-white border border-gray-100 px-2 py-1">
+                                                    <div class="text-gray-400">最近采集</div>
+                                                    <div class="mt-1 flex items-center gap-1">
+                                                        <span class="font-semibold text-gray-800 truncate">{{ account.lastCaptureText }}</span>
+                                                        <span :class="account.captureStatusClass" class="rounded-md border px-1.5 py-0.5 whitespace-nowrap">{{ account.captureStatusText }}</span>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div class="mt-2 flex items-center justify-between gap-2 text-xs">
-                                                <span class="text-gray-500">采集 {{ account.lastCaptureText }}</span>
-                                                <span :class="account.captureStatusClass" class="rounded-md border px-2 py-0.5 whitespace-nowrap">{{ account.captureStatusText }}</span>
+                                            <div class="mt-2 flex items-center justify-between gap-2 text-[11px]">
+                                                <span class="text-gray-500">模块 {{ hotelPlatformModuleText(account) }}</span>
+                                                <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-blue-700 hover:text-blue-900">查看日志</button>
                                             </div>
-                                            <div class="mt-1 text-[11px] text-gray-500">模块 {{ hotelPlatformModuleText(account) }}</div>
-                                            <div v-if="canManageOwnHotels()" class="mt-1 text-[11px] font-medium text-blue-700">点击卡片登录/刷新会话</div>
+                                            <div v-if="canManageOwnHotels()" class="mt-2 grid grid-cols-2 gap-1.5">
+                                                <button type="button" @click="openHotelPlatformCardLogin(hotel, account)" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">授权登录</button>
+                                                <button type="button" @click="openHotelManualFetchConfig(hotel, account.platform)" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">配置</button>
+                                            </div>
                                             <div v-if="account.captureStatusText === '最近采集失败'" class="mt-1 text-[11px] text-gray-400 truncate">成功 {{ account.lastSuccessText }}</div>
                                             <div v-if="account.reasonText" class="mt-1 truncate text-xs"
                                                 :class="account.statusCode === 'login_expired' || account.statusCode === 'mismatch' || account.captureStatusText === '最近采集失败' ? 'text-red-600' : 'text-amber-700'"
                                                 :title="account.reasonText">
                                                 {{ account.reasonText }}
                                             </div>
-                                        </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -34903,6 +34918,53 @@
                 return modules.length ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200';
             };
 
+            const hotelPlatformReadyPillClass = (ready) => ready
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                : 'bg-amber-50 text-amber-700 border-amber-100';
+
+            const hotelPlatformManualCookieReady = (hotel = {}, account = {}) => {
+                const hotelId = hotel?.id || '';
+                const platform = String(account?.platform || '').toLowerCase();
+                const config = platform === 'meituan' ? findMeituanConfigByHotelId(hotelId) : findCtripConfigByHotelId(hotelId);
+                return !!(config && (
+                    String(config.cookies || config.cookie || '').trim()
+                    || config.has_cookies === true
+                    || config.hasCookies === true
+                ));
+            };
+
+            const hotelPlatformManualCookieText = (hotel = {}, account = {}) => {
+                return hotelPlatformManualCookieReady(hotel, account) ? '可用' : '未配置';
+            };
+
+            const hotelPlatformFetchConfigReady = (hotel = {}, account = {}) => {
+                const hotelId = hotel?.id || '';
+                const platform = String(account?.platform || '').toLowerCase();
+                if (platform === 'ctrip') return hasCtripFetchConfigByHotelId(hotelId);
+                if (platform === 'meituan') return hasMeituanFetchConfigByHotelId(hotelId);
+                return false;
+            };
+
+            const hotelPlatformFetchConfigText = (hotel = {}, account = {}) => {
+                return hotelPlatformFetchConfigReady(hotel, account) ? '已配置' : '待配置';
+            };
+
+            const hotelPlatformAutomationReady = (hotel = {}, account = {}) => {
+                const hotelId = hotel?.id || '';
+                const platform = String(account?.platform || '').toLowerCase();
+                return !!getBrowserProfileDataSourceByHotelAndPlatform(hotelId, platform);
+            };
+
+            const hotelPlatformAutomationText = (hotel = {}, account = {}) => {
+                return hotelPlatformAutomationReady(hotel, account) ? 'Profile已绑定' : '待绑定Profile';
+            };
+
+            const hotelPlatformCollectionReadyText = (account = {}) => account.level === 'ready' ? '可采集' : '待配置';
+
+            const hotelPlatformCollectionReadyClass = (account = {}) => account.level === 'ready'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                : 'bg-amber-50 text-amber-700 border-amber-100';
+
             const hotelAccountSummary = (hotel = {}) => {
                 const rows = hotelPlatformBindingRows(hotel);
                 const readyCount = rows.filter(row => row.level === 'ready').length;
@@ -34964,6 +35026,15 @@
                     target: text === '同步竞对' || text === '竞对复核' ? 'competitor-ranking' : 'hotel-ota',
                 };
             };
+            const openHotelSyncLogs = async (hotel = {}, platform = '') => {
+                const hotelId = await prepareHotelPlatformAccountContext(hotel, platform || '');
+                if (!hotelId) return;
+                currentPage.value = 'online-data';
+                await nextTick();
+                openPlatformSourcesTab({ force: true, delayMs: 0 });
+                schedulePlatformSyncLogPanelRefresh({ force: true });
+                showToast('已打开同步日志，请先确认失败原因再重试采集', 'warning');
+            };
             const openHotelNextAction = async (hotel = {}) => {
                 const action = hotelNextAction(hotel);
                 if (action?.target === 'competitor-ranking') {
@@ -34976,12 +35047,7 @@
                     return;
                 }
                 if (action?.target === 'sync-logs') {
-                    await prepareHotelPlatformAccountContext(hotel, action.platform || '');
-                    currentPage.value = 'online-data';
-                    await nextTick();
-                    openPlatformSourcesTab({ force: true, delayMs: 0 });
-                    schedulePlatformSyncLogPanelRefresh({ force: true });
-                    showToast('已打开同步日志，请先确认失败原因再重试采集', 'warning');
+                    await openHotelSyncLogs(hotel, action.platform || '');
                     return;
                 }
                 if (action?.target === 'platform-auto') {
@@ -46587,7 +46653,7 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelPlatformReadyPillClass, hotelPlatformManualCookieReady, hotelPlatformManualCookieText, hotelPlatformFetchConfigReady, hotelPlatformFetchConfigText, hotelPlatformAutomationReady, hotelPlatformAutomationText, hotelPlatformCollectionReadyText, hotelPlatformCollectionReadyClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, openHotelSyncLogs, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
