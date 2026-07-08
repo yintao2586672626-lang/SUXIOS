@@ -35482,6 +35482,7 @@
                     });
                 persistManualOneClickFetchSnapshot();
             };
+            const CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT = 3;
             const manualOneClickFetchMessageIsQunarVisitorZero = (message = '') => /去哪儿?访客.*(?:为|=)?\s*0|qunar.*visitor.*0/i.test(String(message || ''));
             const manualOneClickFetchHasQunarVisitorZeroFailure = (platform, hotelId) => {
                 const wantedPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
@@ -35506,6 +35507,11 @@
                     ready: rows.length > 0 && total > 0,
                 };
             };
+            const ctripQunarVisitorNeedsRetry = (quality = null) => Boolean(
+                quality
+                && Number(quality.rowCount || 0) > 0
+                && quality.ready !== true
+            );
             const editManualOneClickFetchFailure = async (row = {}) => {
                 if (!canEditManualOneClickFetchRow(row)) return;
                 const platform = row?.platform === 'meituan' ? 'meituan' : 'ctrip';
@@ -35598,9 +35604,11 @@
                 const value = candidates.map(item => Number(item)).find(item => Number.isFinite(item) && item >= 0);
                 return Number.isFinite(value) ? value : 0;
             };
-            const manualOneClickFetchResultStatus = (result = {}, savedCount = 0) => {
+            const manualOneClickFetchResultStatus = (result = {}, savedCount = 0, options = {}) => {
                 const status = String(result?.status || result?.data?.status || '').toLowerCase();
                 const code = Number(result?.code ?? result?.data?.code ?? 0);
+                if (options.requireQunarReady && options.qunarReady === false) return 'failed';
+                if (options.ctripRowsReturned && options.qunarReady === true && (['success', 'ok'].includes(status) || code === 200)) return 'success';
                 if (Number(savedCount || 0) > 0) return 'success';
                 if (['failed', 'error', 'invalid_request', 'login_required', 'not_logged_in'].includes(status)) return 'failed';
                 if (['accepted', 'queued', 'running'].includes(status)) return 'queued';
@@ -35676,7 +35684,9 @@
                 try {
                     let result = null;
                     let ctripQunarQuality = null;
-                    let attempts = 1;
+                    let attempts = 0;
+                    let qunarRetryCount = 0;
+                    let savedCount = 0;
                     if (platform === 'ctrip') {
                         selectedCtripHotelId.value = hotelId;
                         ctripTargetHotelManuallySelected.value = true;
@@ -35685,16 +35695,28 @@
                             refreshLatest: false,
                             skipIfAligned: false,
                         });
-                        upsertManualOneClickFetchRow({
-                            ...baseRow,
-                            status: 'running',
-                            statusText: '获取中',
-                            message: '正在调用手动获取接口',
-                            savedCount: 0,
-                            timeText: manualOneClickFetchNowText(),
-                        });
-                        result = await fetchCtripData();
-                        ctripQunarQuality = ctripQunarVisitorFetchQuality();
+                        while (true) {
+                            attempts += 1;
+                            const isRetryAttempt = attempts > 1;
+                            upsertManualOneClickFetchRow({
+                                ...baseRow,
+                                status: 'running',
+                                statusText: isRetryAttempt ? '重抓中' : '获取中',
+                                message: isRetryAttempt
+                                    ? `去哪儿访客仍为 0，自动重抓 ${qunarRetryCount}/${CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT}`
+                                    : '正在调用手动获取接口',
+                                savedCount,
+                                retryCount: qunarRetryCount,
+                                timeText: manualOneClickFetchNowText(),
+                            });
+                            result = await fetchCtripData();
+                            savedCount = Math.max(savedCount, manualOneClickFetchSavedCount(result));
+                            ctripQunarQuality = ctripQunarVisitorFetchQuality();
+                            if (!ctripQunarVisitorNeedsRetry(ctripQunarQuality) || qunarRetryCount >= CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT) {
+                                break;
+                            }
+                            qunarRetryCount += 1;
+                        }
                     } else {
                         meituanForm.value.hotelId = hotelId;
                         await nextTick();
@@ -35702,41 +35724,53 @@
                             refreshList: false,
                             skipIfAligned: false,
                         });
+                        attempts = 1;
                         result = await fetchMeituanData();
+                        savedCount = manualOneClickFetchSavedCount(result);
                     }
-                    const savedCount = manualOneClickFetchSavedCount(result);
+                    const ctripRowsReturned = platform === 'ctrip' && Number(ctripQunarQuality?.rowCount || 0) > 0;
                     const qunarVisitorIncomplete = platform === 'ctrip'
-                        && ctripQunarQuality
-                        && ctripQunarQuality.rowCount > 0
-                        && !ctripQunarQuality.ready;
-                    const status = manualOneClickFetchResultStatus(result, savedCount);
+                        && ctripQunarVisitorNeedsRetry(ctripQunarQuality);
+                    const status = manualOneClickFetchResultStatus(result, savedCount, {
+                        requireQunarReady: platform === 'ctrip' && ctripRowsReturned,
+                        qunarReady: platform === 'ctrip' ? !qunarVisitorIncomplete : undefined,
+                        ctripRowsReturned,
+                    });
                     const statusText = status === 'queued'
                         ? '已提交'
                         : (status === 'success' ? '已入库' : (status === 'no_saved' ? '未入库' : '失败'));
                     const responseMessage = manualOneClickFetchResultMessage(result);
-                    const message = status === 'no_saved'
-                        ? (qunarVisitorIncomplete
-                            ? '去哪儿访客为 0 表示本次携程返回不完整；本次未新增入库，但已展示接口返回的其他字段。'
-                            : `${responseMessage || '接口调用完成'}；本次入库 0 条，不等于入库成功`)
-                        : (responseMessage || (status === 'queued'
-                            ? '接口已提交后台，暂未确认入库'
-                            : (status === 'success'
-                                ? (qunarVisitorIncomplete
-                                    ? `手动获取完成，已按实际返回 ${savedCount} 条入库；去哪儿访客为 0 仅标记为字段缺口，其他返回字段已保留。`
-                                    : `手动获取并入库完成；竞争圈来源可能少于 26 条，已按实际返回 ${savedCount} 条入库；去哪儿访客 ${ctripQunarQuality ? ctripQunarQuality.total : '未校验'}`)
-                                : '手动获取失败')));
+                    const retryText = platform === 'ctrip' && qunarRetryCount > 0 ? `，已自动重抓 ${qunarRetryCount} 次` : '';
+                    const ctripSavedText = savedCount > 0 ? `本次入库 ${savedCount} 条` : '本次未新增入库';
+                    let message = '';
+                    if (platform === 'ctrip' && qunarVisitorIncomplete) {
+                        message = `携程数据已获取${savedCount > 0 ? `并保留 ${savedCount} 条` : ''}，但去哪儿访客仍为 0；已自动重抓 ${qunarRetryCount} 次，携程和去哪儿都成功才算成功。`;
+                    } else if (platform === 'ctrip' && status === 'success') {
+                        message = `手动获取完成：携程和去哪儿均已返回${retryText}；${ctripSavedText}；去哪儿访客 ${ctripQunarQuality ? ctripQunarQuality.total : '未校验'}。`;
+                    } else if (status === 'no_saved') {
+                        message = `${responseMessage || '接口调用完成'}；本次入库 0 条，不等于入库成功`;
+                    } else if (responseMessage) {
+                        message = responseMessage;
+                    } else if (status === 'queued') {
+                        message = '接口已提交后台，暂未确认入库';
+                    } else if (status === 'success') {
+                        message = `手动获取并入库完成；竞争圈来源可能少于 26 条，已按实际返回 ${savedCount} 条入库`;
+                    } else {
+                        message = '手动获取失败';
+                    }
                     upsertManualOneClickFetchRow({
                         ...baseRow,
                         status,
                         statusText,
                         message,
                         savedCount,
-                        retryCount: attempts,
+                        retryCount: qunarRetryCount,
+                        attemptCount: attempts,
                         qunarVisitorTotal: ctripQunarQuality ? ctripQunarQuality.total : undefined,
                         qunarVisitorIncomplete,
                         timeText: manualOneClickFetchNowText(),
                     });
-                    return { status, savedCount };
+                    return { status, savedCount, retryCount: qunarRetryCount };
                 } catch (error) {
                     upsertManualOneClickFetchRow({
                         ...baseRow,
@@ -37962,7 +37996,7 @@
                 const classify = (row = {}) => {
                     const message = String(row.message || '').trim();
                     if (manualOneClickFetchMessageIsQunarVisitorZero(message)) {
-                        return ['qunar-gap', '去哪儿访客字段缺口', '本次携程返回不完整，但不代表整次抓取失败。', '先查看本次返回的其他竞争圈字段；如需去哪儿访客字段，可稍后单独补抓。', [
+                        return ['qunar-gap', '去哪儿访客字段缺口', '携程有返回但去哪儿访客仍为 0；系统已自动重抓 3 次后才标记失败。', '重新获取或检查携程账号/去哪儿字段返回。', [
                             { key: 'manual-fetch-panel', label: '查看补采区', icon: 'fas fa-cloud-download-alt mr-1' },
                         ]];
                     }

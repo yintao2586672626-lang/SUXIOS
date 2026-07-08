@@ -226,7 +226,7 @@ trait OnlineDataManualFetchConcern
             return json([
                 'code' => 200,
                 'message' => $qunarVisitorGap
-                    ? '携程数据已获取；去哪儿访客为 0 表示本次返回不完整，已保留其他返回字段，不按整次失败处理。'
+                    ? '携程数据已获取；去哪儿访客为 0 表示本次返回不完整，需要自动重抓最多 3 次；携程和去哪儿都返回有效值才算成功。'
                     : '获取成功',
                 'data' => [
                     'data' => $responseData,
@@ -289,7 +289,7 @@ trait OnlineDataManualFetchConcern
             'message' => $ready
                 ? '去哪儿访客字段已返回有效值。'
                 : ($hasRows
-                    ? '去哪儿访客为 0 表示本次携程返回不完整，不代表整次抓取失败。'
+                    ? '去哪儿访客为 0 表示本次携程返回不完整，需要自动重抓，不能按整次成功处理。'
                     : '本次未返回可展示的竞争圈行。'),
         ];
     }

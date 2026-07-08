@@ -322,19 +322,25 @@ includesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip ma
   'saved_with_qunar_visitor_gap',
   'no_saved_with_qunar_visitor_gap',
   'partial_qunar_visitor_gap',
-  '不代表整次抓取失败',
+  '需要自动重抓最多 3 次',
+  '不能按整次成功处理',
+  '携程和去哪儿都返回有效值才算成功',
 ]);
 
-includesAll('public/index.html', 'manual one-click Ctrip fetch keeps partial Qunar visitor gaps visible', frontend, [
-  '去哪儿访客为 0 表示本次携程返回不完整',
-  '去哪儿访客字段缺口',
-  '其他返回字段已保留',
+includesAll('public/index.html', 'manual one-click Ctrip fetch retries partial Qunar visitor gaps before success', frontend, [
+  'CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT = 3',
+  'ctripQunarVisitorNeedsRetry',
+  '去哪儿访客仍为 0',
+  '自动重抓',
+  '携程和去哪儿都成功才算成功',
   'qunarVisitorIncomplete',
 ]);
 
-includesAll('public/ctrip-static.js', 'single Ctrip fetch warns on partial Qunar visitor gaps without failing the fetch', ctripStatic, [
+includesAll('public/ctrip-static.js', 'single Ctrip fetch warns on partial Qunar visitor gaps without marking success', ctripStatic, [
   "data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap'",
-  '去哪儿访客为 0 表示本次返回不完整，其他返回字段已保留。',
+  'setFetchSuccess(!qunarVisitorGap)',
+  '需要重抓；携程和去哪儿都返回有效值才算成功。',
+  "status: qunarVisitorGap ? 'partial_qunar_visitor_gap' : 'success'",
 ]);
 
 excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch no longer cancels the whole save on zero Qunar visitors', manualFetchConcern, [
@@ -342,9 +348,11 @@ excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip ma
   "'reason' => 'ctrip_qunar_visitors_zero'",
 ]);
 
-excludesAll('public/index.html', 'manual one-click fetch no longer auto-retries zero Qunar visitor gaps as total failure', frontend, [
-  '自动重抓第',
-  '本次不认定为有效入库',
+includesAll('public/index.html', 'manual one-click Ctrip fetch does not mark zero-Qunar retry exhaustion as success', frontend, [
+  'manualOneClickFetchResultStatus(result, savedCount, {',
+  'requireQunarReady',
+  'qunarReady',
+  '携程和去哪儿都成功才算成功',
 ]);
 
 includesAll('public/index.html', 'home entry points to daily workbench data-health view', frontend, [
