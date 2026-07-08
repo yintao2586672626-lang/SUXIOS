@@ -66,4 +66,5 @@ jobs:
           npm run verify:release-evidence-intake
           npm run verify:release-readiness-contract
           npm run review:non-security
+          npm run review:report-security-finance
           npm run verify:release-status

@@ -109,6 +109,7 @@ const requiredPackageScripts = [
   'collect:release-external-state',
   'review:release-external-state:local',
   'verify:release-status',
+  'review:report-security-finance',
 ];
 
 const requiredVerificationMatrixCommands = [
@@ -141,6 +142,7 @@ const requiredVerificationMatrixCommands = [
   'npm run review:release-issues',
   'npm run verify:release-status',
   'npm run review:non-security',
+  'npm run review:report-security-finance',
 ];
 
 const requiredWorkflowCommands = [
@@ -153,6 +155,7 @@ const requiredWorkflowCommands = [
   'npm run verify:release-readiness-contract',
   'npm run review:release-issues',
   'npm run review:non-security',
+  'npm run review:report-security-finance',
   'npm run verify:release-status',
 ];
 
@@ -2265,7 +2268,7 @@ if (readinessResultExample) {
     resultComplete = false;
   }
   const readinessPasses = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.join('\n') : '';
-  if (!/GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, release evidence intake behavior guard, release readiness behavior guard, non-security review, and release-status contracts\./.test(readinessPasses)) {
+  if (!/GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, release evidence intake behavior guard, release readiness behavior guard, non-security review, report\/security\/finance regression review, and release-status contracts\./.test(readinessPasses)) {
     fail('docs/release_readiness_result.example.json passes must include the current GitHub Actions workflow coverage pass');
     resultComplete = false;
   }

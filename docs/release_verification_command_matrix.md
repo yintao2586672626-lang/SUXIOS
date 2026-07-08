@@ -1,6 +1,6 @@
 # Release Verification Command Matrix
 
-Updated: 2026-07-06
+Updated: 2026-07-08
 
 Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
@@ -46,6 +46,7 @@ Run these only after the isolated command for each closed blocker passes.
 | Functional readiness | `npm run review:functional-readiness` | Passes. | Confirms local structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |
 | Issue register | `npm run review:release-issues` | Passes. | Confirms the current release issue register still lists all open blockers and acceptance commands. |
 | Non-security review | `npm run review:non-security` | Passes. | Confirms the non-security release review contract still passes. |
+| Report/security/finance regression review | `npm run review:report-security-finance` | Passes. | Confirms protected-route tokens are not accepted from URL query parameters, report/admin token leakage regressions stay blocked, and finance simulation math remains stable. |
 
 ## Execution Rules
 

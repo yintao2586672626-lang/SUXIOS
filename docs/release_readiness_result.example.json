@@ -22,7 +22,7 @@
     "No OTA credential-shaped fields were found in database/backups text files.",
     "Release package sensitive-path ignore rules are present.",
     "Formal Codex Security scan reports and core coverage artifacts are present.",
-    "GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, release evidence intake behavior guard, release readiness behavior guard, non-security review, and release-status contracts.",
+    "GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, release evidence intake behavior guard, release readiness behavior guard, non-security review, report/security/finance regression review, and release-status contracts.",
     ".git/index.lock is absent.",
     "Release staged-scope result has no forbidden staged files (0 staged entries reviewed)."
   ],

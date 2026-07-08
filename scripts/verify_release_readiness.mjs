@@ -260,13 +260,14 @@ function checkTooling() {
       'npm run verify:release-evidence-intake',
       'npm run verify:release-readiness-contract',
       'npm run review:non-security',
+      'npm run review:report-security-finance',
       'npm run verify:release-status',
     ];
     const missingCommands = requiredWorkflowCommands.filter((command) => !workflow.includes(command));
     if (missingCommands.length > 0) {
       addFailure(`GitHub Actions workflow is missing release verification commands: ${missingCommands.join(', ')}.`);
     } else {
-      addPass('GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, release evidence intake behavior guard, release readiness behavior guard, non-security review, and release-status contracts.');
+      addPass('GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, release evidence intake behavior guard, release readiness behavior guard, non-security review, report/security/finance regression review, and release-status contracts.');
     }
   }
 

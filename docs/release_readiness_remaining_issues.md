@@ -36,7 +36,7 @@ Optional GitHub/local-state result evidence: run `npm run review:release-pr-cand
 
 | Scope | Status | Evidence |
 |---|---|---|
-| GitHub CI | Historical checks only | PR `#2` had successful `PHP Composer / verify` checks, but it is now merged and stale for release handoff. Rerun/confirm checks on the actual final release PR after evidence changes. The workflow includes dependency audits, PHPUnit, P0 guards, functional-readiness review, release issue register review, release evidence intake behavior guard, release readiness behavior guard, non-security review, and release-status contracts. |
+| GitHub CI | Historical checks only | PR `#2` had successful `PHP Composer / verify` checks, but it is now merged and stale for release handoff. Rerun/confirm checks on the actual final release PR after evidence changes. The workflow includes dependency audits, PHPUnit, P0 guards, functional-readiness review, release issue register review, release evidence intake behavior guard, release readiness behavior guard, non-security review, report/security/finance regression review, and release-status contracts. |
 | Database rebuild | Fixed | `database/init_full.sql` no longer depends on local `hotelx_dump.sql`; SQL schema contracts pass in CI. |
 | Daily report formula execution risk | Fixed | `DailyReport.php` removed `eval` and uses an arithmetic parser path. |
 | Excel parsing command execution risk | Fixed | `DailyReport.php` removed `shell_exec` and uses array-form `proc_open`. |

@@ -176,7 +176,7 @@
         "database/backups has no git-tracked files",
         "current review:release-pr-candidates runs gh pr list and records gh_pr_list_checked_at as the PR candidate source of truth",
         "docs/release_github_handoff_evidence.json records non-closing diagnostic connector evidence from 2026-07-07T00:32:42+08:00 and does not close PR state",
-        "CI runs PHPUnit, guards, functional-readiness review, release issue register review, release evidence intake behavior guard, release readiness behavior guard, non-security review, release-status contracts, composer audit and npm audit",
+        "CI runs PHPUnit, guards, functional-readiness review, release issue register review, release evidence intake behavior guard, release readiness behavior guard, non-security review, report/security/finance regression review, release-status contracts, composer audit and npm audit",
         "npm run collect:release-external-state can capture local HEAD, PR head, PR checks, merge state, and database/backups tracking evidence"
       ],
       "open": [
