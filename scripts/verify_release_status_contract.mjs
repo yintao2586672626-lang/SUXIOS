@@ -1160,6 +1160,10 @@ try {
     [
       /checkProductionEnvFile/,
       /RELEASE_ENV_FILE/,
+      /RELEASE_EVIDENCE_DIR/,
+      /release-evidence-temp/,
+      /function existingEvidenceOrRepo/,
+      /production\.env/,
       /Release env summary/,
     ],
     'scripts/verify_release_env.mjs',
@@ -1243,6 +1247,10 @@ try {
     [
       /checkLlmConnectivityAttestation/,
       /LLM_CONNECTIVITY_ATTESTATION_FILE/,
+      /RELEASE_EVIDENCE_DIR/,
+      /release-evidence-temp/,
+      /function existingEvidenceOrRepo/,
+      /llm-attestation\.json/,
       /Release LLM connectivity summary/,
     ],
     'scripts/verify_release_llm.mjs',
