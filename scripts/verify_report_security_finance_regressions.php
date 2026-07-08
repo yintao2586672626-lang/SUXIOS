@@ -100,6 +100,7 @@ $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
 $hotelSource = file_get_contents(__DIR__ . '/../app/controller/Hotel.php');
 $authMiddlewareSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
 $compassViewSource = file_get_contents(__DIR__ . '/../app/view/admin/compass/index.html');
+$publicIndexSource = file_get_contents(__DIR__ . '/../public/index.html');
 
 $logoutSource = extract_method_source_regression($authSource, 'logout');
 $receiveCookiesSource = extract_method_source_regression($cookieEndpointSource, 'receiveCookies');
@@ -123,6 +124,7 @@ assert_regression(str_contains($competitorReportSource, "where('store_id', \$sto
 assert_regression(!str_contains($authMiddlewareSource, "param('token'") && !str_contains($authMiddlewareSource, 'param("token"'), 'Auth middleware must not accept protected-route tokens from URL query parameters');
 assert_regression(!str_contains($compassViewSource, 'save-layout?token='), 'compass layout save must not put token in URL query');
 assert_regression(!str_contains($compassViewSource, "URLSearchParams(location.search).get('token')"), 'compass layout save must not read token from location.search');
+assert_regression(!str_contains($publicIndexSource, 'competitor-wechat-robot?token='), 'competitor robot admin entry must not put token in URL query');
 
 assert_regression(!str_contains($receiveCookiesSource, "param('token'"), 'receiveCookies must not read auth token from URL parameters');
 assert_regression(str_contains($receiveCookiesSource, "header('Access-Control-Allow-Headers: Content-Type, Authorization')"), 'receiveCookies CORS must allow Authorization header');
