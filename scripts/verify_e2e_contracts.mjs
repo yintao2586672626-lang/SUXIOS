@@ -615,8 +615,11 @@ requireText('public/index.html', '@click="checkCtripReviewMatchClosure"', 'Ctrip
 requireText('route/app.php', "Route::post('/ctrip-review-matches/identity-preview'", 'Ctrip review order route exposes the page-side identity preview');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'public function previewCtripReviewOrdererIdentity()', 'Ctrip review order API exposes read-only page identity preview');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "'policy' => 'authorized_page_identity_preview_only'", 'Ctrip review order page preview is explicitly read-only');
-requireText('public/index.html', '@click="copyCtripReviewOrdererAssistScript"', 'Ctrip review order UI exposes page assist script copy action');
-requireText('public/index.html', 'buildCtripReviewOrdererAssistScript', 'Ctrip review order UI builds the page assist script locally');
+requireText('public/index.html', '@click="copyCtripReviewMatchPayloadTemplate"', 'Ctrip review order UI exposes a bounded payload-template copy action');
+requireText('public/index.html', '授权页脚本已禁用，避免把宿析登录 token 暴露到 OTA 页面。', 'Ctrip review order UI explains that token-bearing page scripts are disabled');
+requireNoText('public/index.html', 'buildCtripReviewOrdererAssistScript', 'Ctrip review order UI must not build a token-bearing page assist script');
+requireNoText('public/index.html', 'token: authToken', 'Ctrip review order UI must not copy the main login token into OTA page config');
+requireNoText('public/index.html', "Authorization: String(config.token || '')", 'Ctrip review order UI must not generate an Authorization header from copied page config');
 requireText('public/index.html', '疑似下单人', 'Ctrip review order UI keeps probabilistic identity label');
 requireText('public/index.html', '展开高级补录/复核', 'Ctrip review order keeps manual operations behind an advanced panel');
 requireNoText('public/index.html', "ctripReviewMatchResult.data.next_commands", 'Ctrip review order main UI does not render closure commands');

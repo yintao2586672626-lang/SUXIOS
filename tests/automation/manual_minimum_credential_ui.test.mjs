@@ -703,6 +703,9 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
   assert.match(html, /detail\?partnerId=\.\.\./);
   assert.match(html, /poiId=xxx/);
   assert.match(html, /partnerId=xxx/);
+  assert.match(saveMeituanConfigItem, /const requestHotelId = String\(/);
+  assert.match(saveMeituanConfigItem, /meituanConfigForm\.value\.hotel_id[\s\S]*meituanForm\.value\.hotelId[\s\S]*onlineDataFilter\.value\.hotel_id[\s\S]*user\.value\?\.hotel_id/);
+  assert.match(saveMeituanConfigItem, /hotel_id: requestHotelId/);
   assert.match(saveMeituanConfigItem, /const savedHotelId = String\(/);
   assert.match(saveMeituanConfigItem, /await returnToMeituanRankingAfterConfigSave\(savedHotelId\);/);
   assert.match(saveMeituanConfigItem, /await loadMeituanConfigList\(\{ force: true, applySelectedConfig: false \}\);/);

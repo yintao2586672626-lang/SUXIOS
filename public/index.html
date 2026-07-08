@@ -4743,10 +4743,17 @@
                                     <div>
                                         <div class="text-sm font-semibold text-slate-900">{{ card.title }}</div>
                                         <div class="mt-1 text-xs text-slate-500">{{ card.audience }}</div>
+                                        <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                                            <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-medium text-slate-600">{{ card.handoffType }}</span>
+                                            <span class="rounded-full border border-slate-200 bg-white px-2 py-0.5 font-mono text-slate-500">role: {{ card.roleCode }}</span>
+                                        </div>
                                     </div>
                                     <span :class="['rounded-full border px-2 py-0.5 text-[11px] font-medium', card.badgeClass]">{{ card.badge }}</span>
                                 </div>
                                 <div class="mt-3 grid grid-cols-1 gap-2 text-xs leading-5 text-slate-600 sm:grid-cols-2">
+                                    <div>
+                                        <span class="font-medium text-slate-700">发放类型：</span>{{ card.handoffType }}
+                                    </div>
                                     <div>
                                         <span class="font-medium text-slate-700">门店范围：</span>{{ card.scope }}
                                     </div>
@@ -4761,6 +4768,9 @@
                                     </div>
                                     <div class="sm:col-span-2">
                                         <span class="font-medium text-slate-700">边界：</span>{{ card.boundary }}
+                                    </div>
+                                    <div class="sm:col-span-2">
+                                        <span class="font-medium text-slate-700">数据范围：</span>{{ card.dataBoundary }}
                                     </div>
                                     <div class="sm:col-span-2">
                                         <span class="font-medium text-slate-700">发送前确认：</span>{{ card.sendChecklist }}
@@ -8246,11 +8256,11 @@
                                         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                             <div>
                                                 <h5 class="font-semibold text-gray-900">高级补录/排障</h5>
-                                                <p class="text-xs text-gray-500 mt-1">仅用于授权页辅助采集或单条复核，默认不参与主流程展示。</p>
+                                                <p class="text-xs text-gray-500 mt-1">仅用于授权数据补录或单条复核；不会复制宿析登录 token 到 OTA 页面。</p>
                                             </div>
-                                            <button type="button" @click="copyCtripReviewOrdererAssistScript" :disabled="!!ctripReviewMatchLoading"
+                                            <button type="button" @click="copyCtripReviewMatchPayloadTemplate" :disabled="!!ctripReviewMatchLoading"
                                                 class="px-3 py-2 border border-emerald-300 text-emerald-700 rounded-lg text-sm hover:bg-emerald-50 disabled:text-gray-400 whitespace-nowrap">
-                                                <i class="fas fa-copy mr-1"></i>复制授权页辅助脚本
+                                                <i class="fas fa-copy mr-1"></i>复制疑似下单人补录模板
                                             </button>
                                         </div>
                                     </div>
@@ -17646,8 +17656,10 @@
                             </button>
                         </div>
                         <div v-if="selectedUserRoleGuide" class="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                            <div><span class="font-medium text-slate-700">发放类型：</span>{{ selectedUserRoleGuide.handoffType }}</div>
                             <div><span class="font-medium text-slate-700">发放对象：</span>{{ selectedUserRoleGuide.audience }}</div>
                             <div><span class="font-medium text-slate-700">权限边界：</span>{{ selectedUserRoleGuide.boundary }}</div>
+                            <div><span class="font-medium text-slate-700">数据范围：</span>{{ selectedUserRoleGuide.dataBoundary }}</div>
                             <div><span class="font-medium text-slate-700">可用功能：</span>{{ selectedUserRoleGuide.allowed }}</div>
                             <div><span class="font-medium text-slate-700">不可用功能：</span>{{ selectedUserRoleGuide.denied }}</div>
                             <div><span class="font-medium text-slate-700">门店要求：</span>{{ selectedUserRoleGuide.scope }}</div>
@@ -29278,6 +29290,7 @@
             const roleIssueProfile = (role = {}) => {
                 const roleId = Number(role?.id || 0);
                 const roleName = String(role?.name || '').trim();
+                const roleCode = roleName || (roleId ? String(roleId) : '-');
                 const level = Number(role?.level || 0);
                 const canCollectOta = roleHasAnyPermission(role, ['ota.collect', 'can_fetch_online_data']);
                 const canManageHotels = roleHasAnyPermission(role, ['hotel.create', 'can_manage_own_hotels']);
@@ -29289,6 +29302,8 @@
                     return {
                         key: 'admin',
                         title: '管理员',
+                        handoffType: '内部管理',
+                        roleCode,
                         badge: '内部管理',
                         badgeClass: 'border-red-100 bg-red-50 text-red-700',
                         audience: '仅发给内部系统管理员',
@@ -29297,6 +29312,7 @@
                         allowed: '用户、角色、系统配置、全部门店和高风险管理操作',
                         denied: '不用于内测或外部普通用户发放',
                         boundary: '拥有用户、角色、系统配置和高风险操作权限，不用于内测或外部普通账号。',
+                        dataBoundary: '系统全局管理范围；不得作为内测或普通外发账号使用。',
                         sendChecklist: '仅内部管理员使用；不要复制给内测或普通外部用户。',
                         canCollectOta: true,
                         canManageHotels: true,
@@ -29310,6 +29326,8 @@
                     return {
                         key: 'beta_user',
                         title: '内测用户',
+                        handoffType: '内测发放',
+                        roleCode,
                         badge: canCollectOta ? '可采集' : '仅查看',
                         badgeClass: canCollectOta ? 'border-orange-100 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 text-slate-600',
                         audience: '发给参与内测的酒店经营者或可信运营方',
@@ -29318,6 +29336,7 @@
                         allowed: canCollectOta ? '授权门店 OTA 查看/采集、内测功能体验' : '授权门店 OTA 查看、内测功能体验',
                         denied: '不开放用户/角色管理、系统配置和跨门店数据',
                         boundary: '不开放用户管理、角色权限和系统配置；OTA 结论仍限定在授权门店和 OTA 渠道范围。',
+                        dataBoundary: '仅授权门店的 OTA 渠道数据和内测功能，不代表全酒店经营数据。',
                         sendChecklist: canManageHotels ? '确认内测范围、门店责任人和账号状态；初始密码走单独安全渠道。' : '先分配门店，确认账号状态正常；初始密码走单独安全渠道。',
                         canCollectOta,
                         canManageHotels,
@@ -29331,6 +29350,8 @@
                     return {
                         key: 'normal_user',
                         title: '普通用户',
+                        handoffType: '普通外发',
+                        roleCode,
                         badge: normalExternalIssueBlockers.length ? '需修权限' : '安全查看',
                         badgeClass: normalExternalIssueBlockers.length ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700',
                         audience: '发给外部普通试用者、门店员工或只读体验账号',
@@ -29339,6 +29360,7 @@
                         allowed: '授权门店 OTA 数据查看、基础报表查看',
                         denied: '不开放 OTA 采集、删除/导出、AI 执行、用户/角色管理和系统配置',
                         boundary: normalExternalIssueBlockers.length ? normalExternalIssueBlockers[0] : '不允许新增门店、管理用户、修改系统配置；适合对外发放。',
+                        dataBoundary: '仅授权门店的 OTA 渠道只读数据；不代表全酒店经营数据，也不开放采集执行。',
                         sendChecklist: normalExternalIssueBlockers.length ? '先修角色高风险权限，再分配门店和启用账号。' : '必须分配门店，确认账号状态正常；初始密码走单独安全渠道。',
                         canCollectOta,
                         canManageHotels,
@@ -29351,6 +29373,8 @@
                 return {
                     key: `role_${roleId || roleName || 'custom'}`,
                     title: role?.display_name || roleName || '自定义角色',
+                    handoffType: '自定义发放',
+                    roleCode,
                     badge: canCollectOta ? '含采集' : '自定义',
                     badgeClass: canCollectOta ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-600',
                     audience: '自定义角色，发放前按权限清单复核',
@@ -29359,6 +29383,7 @@
                     allowed: '按角色权限清单生效',
                     denied: '未在本页归类为标准内测或普通外发角色',
                     boundary: '先确认角色权限、门店范围和账号状态，再发给外部用户。',
+                    dataBoundary: '按角色权限和门店授权生效；发放前需人工确认是否可外发。',
                     sendChecklist: '人工复核权限清单、门店范围和账号状态后再发送。',
                     canCollectOta,
                     canManageHotels,
@@ -30120,321 +30145,13 @@
                     },
                 ],
             });
-            const buildCtripReviewOrdererAssistScript = () => {
-                const systemHotelId = resolveCtripReviewMatchSystemHotelId();
-                if (!systemHotelId) {
-                    throw new Error('请选择归属门店');
-                }
-                const authToken = String(token.value || readAuthToken() || '').trim();
-                if (!authToken) {
-                    throw new Error('当前登录 token 为空，请先登录宿析OS');
-                }
-                const config = {
-                    apiBase: window.location.origin,
-                    token: authToken,
-                    systemHotelId,
-                    scope: 'ctrip_ota_channel',
-                    label: '疑似下单人',
-                    endpoints: {
-                        imSessions: '/online-data/ctrip-review-matches/im-sessions',
-                        identityPreview: '/online-data/ctrip-review-matches/identity-preview',
-                    },
-                    usernameSelectors: [
-                        'div.row.u3p7kqv',
-                        '[class*="userName"]',
-                        '[class*="user-name"]',
-                        '[class*="commentUser"]',
-                        '[class*="reviewUser"]',
-                    ],
-                };
-
-                return `;(${function suxiCtripReviewOrdererAssist(config) {
-                    const stateKey = '__SUXI_CTRIP_REVIEW_ORDERER_ASSIST__';
-                    const state = window[stateKey] || {
-                        installed: false,
-                        pending: new Set(),
-                        rendered: new Set(),
-                        toasted: new Set(),
-                    };
-                    window[stateKey] = state;
-
-                    const apiBase = String(config.apiBase || '').replace(/\/+$/, '');
-                    const apiUrl = path => apiBase + '/api' + path;
-                    const headers = {
-                        'Content-Type': 'application/json',
-                        Authorization: String(config.token || ''),
-                    };
-                    const post = async (path, body) => {
-                        const response = await fetch(apiUrl(path), {
-                            method: 'POST',
-                            mode: 'cors',
-                            headers,
-                            body: JSON.stringify(body),
-                        });
-                        const json = await response.json().catch(() => ({}));
-                        if (!response.ok || Number(json.code) !== 200) {
-                            throw new Error(json.message || 'SUXIOS API 请求失败');
-                        }
-                        return json.data || {};
-                    };
-                    const cleanText = value => String(value || '').replace(/\s+/g, ' ').trim();
-                    const looksLikeReviewUsername = text => {
-                        const value = cleanText(text);
-                        return /^_?M?\d{5,}\*{2,}$/i.test(value)
-                            || /^_?[a-z][a-z0-9_-]{2,}\*{2,}$/i.test(value)
-                            || /^1\d{4,}\*{2,}$/.test(value);
-                    };
-                    const normalizeMembers = value => {
-                        if (Array.isArray(value)) {
-                            return value.filter(item => item && typeof item === 'object');
-                        }
-                        if (value && typeof value === 'object') {
-                            return Object.entries(value).map(([uid, member]) => {
-                                if (member && typeof member === 'object') {
-                                    return { uid: member.uid || uid, ...member };
-                                }
-                                return { uid, nickName: String(member || '') };
-                            });
-                        }
-                        return [];
-                    };
-                    const looksLikeMembers = value => {
-                        const members = normalizeMembers(value);
-                        return members.some(member => cleanText(member.uid) || cleanText(member.nickName || member.nickname || member.name));
-                    };
-                    const findMembers = (value, depth = 0) => {
-                        if (depth > 6 || !value || typeof value !== 'object') return [];
-                        for (const key of ['members', 'memberList', 'member_list', 'imMembers']) {
-                            if (looksLikeMembers(value[key])) return normalizeMembers(value[key]);
-                        }
-                        if (Array.isArray(value) && looksLikeMembers(value)) return normalizeMembers(value);
-                        for (const child of Object.values(value)) {
-                            const nested = findMembers(child, depth + 1);
-                            if (nested.length) return nested;
-                        }
-                        return [];
-                    };
-                    const findGroupId = (value, depth = 0) => {
-                        if (depth > 5 || !value || typeof value !== 'object') return '';
-                        for (const key of ['groupId', 'group_id', 'groupid', 'sessionGroupId']) {
-                            const text = cleanText(value[key]);
-                            if (text) return text;
-                        }
-                        for (const child of Object.values(value)) {
-                            const nested = findGroupId(child, depth + 1);
-                            if (nested) return nested;
-                        }
-                        return '';
-                    };
-                    const parseBody = body => {
-                        if (!body) return {};
-                        if (typeof body === 'string') {
-                            try { return JSON.parse(body); } catch (error) { return {}; }
-                        }
-                        if (body instanceof URLSearchParams) return Object.fromEntries(body.entries());
-                        if (body instanceof FormData) return Object.fromEntries(body.entries());
-                        return body && typeof body === 'object' ? body : {};
-                    };
-                    const shouldWatchUrl = url => /queryMessageListByGroupId|queryMessageListV2/i.test(String(url || ''));
-                    const saveImMembers = async (url, body, responsePayload) => {
-                        const requestBody = parseBody(body);
-                        let groupId = findGroupId(requestBody) || findGroupId(responsePayload);
-                        try {
-                            const parsedUrl = new URL(String(url || ''), location.href);
-                            groupId = groupId || parsedUrl.searchParams.get('groupId') || parsedUrl.searchParams.get('group_id') || '';
-                        } catch (error) {
-                            // keep explicit missing-state below
-                        }
-                        const members = findMembers(responsePayload);
-                        if (!groupId || members.length === 0) {
-                            state.lastImStatus = { status: 'not_loaded', reason: !groupId ? 'group_id_missing' : 'members_missing' };
-                            return;
-                        }
-                        await post(config.endpoints.imSessions, {
-                            system_hotel_id: config.systemHotelId,
-                            session: {
-                                groupId,
-                                members,
-                                source: 'suxi_browser_assist_query_message_list',
-                            },
-                        });
-                        state.lastImStatus = { status: 'saved', groupId, member_count: members.length };
-                    };
-
-                    if (!state.installed) {
-                        const originalFetch = window.fetch;
-                        if (typeof originalFetch === 'function') {
-                            window.fetch = async function suxiReviewOrdererFetch(input, init) {
-                                const response = await originalFetch.apply(this, arguments);
-                                try {
-                                    const url = typeof input === 'string' ? input : (input && input.url);
-                                    if (shouldWatchUrl(url)) {
-                                        response.clone().json().then(payload => saveImMembers(url, init && init.body, payload)).catch(() => {});
-                                    }
-                                } catch (error) {
-                                    console.warn('[SUXIOS] 携程 IM fetch 拦截失败', error);
-                                }
-                                return response;
-                            };
-                        }
-                        const xhrProto = window.XMLHttpRequest && window.XMLHttpRequest.prototype;
-                        if (xhrProto && !xhrProto.__suxiReviewOrdererWrapped) {
-                            const originalOpen = xhrProto.open;
-                            const originalSend = xhrProto.send;
-                            xhrProto.open = function suxiReviewOrdererOpen(method, url) {
-                                this.__suxiReviewOrdererUrl = url;
-                                return originalOpen.apply(this, arguments);
-                            };
-                            xhrProto.send = function suxiReviewOrdererSend(body) {
-                                this.addEventListener('loadend', () => {
-                                    const url = this.__suxiReviewOrdererUrl || '';
-                                    if (!shouldWatchUrl(url)) return;
-                                    try {
-                                        saveImMembers(url, body, JSON.parse(this.responseText || '{}')).catch(() => {});
-                                    } catch (error) {
-                                        state.lastImStatus = { status: 'not_loaded', reason: 'response_json_parse_failed' };
-                                    }
-                                });
-                                return originalSend.apply(this, arguments);
-                            };
-                            xhrProto.__suxiReviewOrdererWrapped = true;
-                        }
-                        state.installed = true;
-                    }
-
-                    const closestReviewCard = node => {
-                        const selector = '[data-comment-id],[data-commentid],[class*="comment"],[class*="review"],[class*="item"],li,tr';
-                        const direct = node.closest(selector);
-                        if (direct) return direct;
-                        let current = node;
-                        for (let i = 0; i < 8 && current && current.parentElement; i += 1) {
-                            current = current.parentElement;
-                            const text = cleanText(current.innerText || current.textContent);
-                            if (text.length > 40 && text.length < 5000) return current;
-                        }
-                        return node.parentElement || node;
-                    };
-                    const readDatasetText = (node, keys) => {
-                        let current = node;
-                        for (let i = 0; i < 5 && current; i += 1) {
-                            for (const key of keys) {
-                                const text = cleanText(current.dataset && current.dataset[key]);
-                                if (text) return text;
-                            }
-                            current = current.parentElement;
-                        }
-                        return '';
-                    };
-                    const buildReviewPayload = node => {
-                        const card = closestReviewCard(node);
-                        const text = cleanText(card.innerText || card.textContent || '');
-                        const username = cleanText(node.innerText || node.textContent);
-                        const orderMatch = text.match(/订单[:：\s-]*(\d{8,})/);
-                        const checkinMatch = text.match(/入住\s*(20\d{2}[-/.年]\d{1,2}(?:[-/.月]\d{1,2})?)/);
-                        return {
-                            userName: username,
-                            commentId: readDatasetText(card, ['commentId', 'commentid', 'reviewId', 'reviewid']),
-                            checkinTimeStr: checkinMatch ? checkinMatch[1] : '',
-                            hotelRoomInfo: '',
-                            orderId: orderMatch ? orderMatch[1] : '',
-                            content: text.slice(0, 800),
-                            _dom_text: text.slice(0, 800),
-                            _preview_source: 'authorized_visible_dom',
-                        };
-                    };
-                    const showToast = text => {
-                        const toast = document.createElement('div');
-                        toast.textContent = text;
-                        toast.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#fff;border:1px solid #e2ddcf;border-radius:10px;padding:10px 16px;box-shadow:0 10px 28px rgba(0,0,0,.12);color:#315b52;font-size:13px;';
-                        document.body.appendChild(toast);
-                        setTimeout(() => toast.remove(), 2600);
-                    };
-                    const renderPreview = (node, payload) => {
-                        const data = payload || {};
-                        const identity = data.identity || (data.result && data.result.identity) || {};
-                        const order = data.order || (data.result && data.result.order) || {};
-                        const name = cleanText(identity.guest_name || data.person_name);
-                        const orderId = cleanText(order.order_id || order.orderId);
-                        const container = document.createElement('span');
-                        container.className = 'suxi-review-orderer-tag';
-                        container.style.cssText = 'display:inline-flex;gap:6px;align-items:center;margin-left:8px;vertical-align:middle;flex-wrap:wrap;';
-                        const person = document.createElement('span');
-                        person.textContent = name ? config.label + ': ' + name : '未匹配到下单人';
-                        person.style.cssText = 'background:#e6f5f1;color:#17665a;border:1px solid #b8ded6;border-radius:4px;padding:2px 6px;font-size:12px;font-weight:600;';
-                        container.appendChild(person);
-                        if (orderId) {
-                            const orderTag = document.createElement('span');
-                            orderTag.textContent = '订单: ' + orderId;
-                            orderTag.style.cssText = 'background:#fff3d8;color:#8b5a00;border:1px solid #f0d49c;border-radius:4px;padding:2px 6px;font-size:12px;font-weight:600;';
-                            container.appendChild(orderTag);
-                        }
-                        node.parentElement && node.parentElement.querySelectorAll('.suxi-review-orderer-tag').forEach(item => item.remove());
-                        node.insertAdjacentElement('afterend', container);
-
-                        const card = closestReviewCard(node);
-                        if (card) {
-                            card.querySelectorAll('.suxi-review-orderer-status').forEach(item => item.remove());
-                            const status = document.createElement('div');
-                            status.className = 'suxi-review-orderer-status';
-                            status.textContent = data.order_label || (orderId ? '已查到订单' : '未查到订单');
-                            status.style.cssText = 'margin-top:8px;text-align:right;color:#17665a;font-size:12px;font-weight:600;';
-                            card.appendChild(status);
-                        }
-                        if (orderId) {
-                            const toastKey = orderId + '|' + name;
-                            if (!state.toasted.has(toastKey)) {
-                                state.toasted.add(toastKey);
-                                showToast('精确匹配到订单 ' + orderId + (name ? ' (' + name + ')' : ''));
-                            }
-                        }
-                    };
-                    const collectUsernameNodes = () => {
-                        const nodes = [];
-                        (config.usernameSelectors || []).forEach(selector => {
-                            document.querySelectorAll(selector).forEach(node => nodes.push(node));
-                        });
-                        document.querySelectorAll('span,div,strong,b').forEach(node => {
-                            if (node.children.length > 2) return;
-                            if (looksLikeReviewUsername(node.textContent)) nodes.push(node);
-                        });
-                        const seen = new Set();
-                        return nodes.filter(node => {
-                            const username = cleanText(node.innerText || node.textContent);
-                            if (!looksLikeReviewUsername(username) || seen.has(node)) return false;
-                            seen.add(node);
-                            return true;
-                        });
-                    };
-                    const scan = () => {
-                        collectUsernameNodes().forEach(node => {
-                            const review = buildReviewPayload(node);
-                            const key = review.userName + '|' + review.content.slice(0, 80);
-                            if (state.pending.has(key) || state.rendered.has(key)) return;
-                            state.pending.add(key);
-                            post(config.endpoints.identityPreview, {
-                                system_hotel_id: config.systemHotelId,
-                                review,
-                            }).then(data => {
-                                state.rendered.add(key);
-                                renderPreview(node, data);
-                            }).catch(error => {
-                                console.warn('[SUXIOS] 疑似下单人预览失败', error);
-                            }).finally(() => {
-                                state.pending.delete(key);
-                            });
-                        });
-                    };
-                    state.scan = scan;
-                    scan();
-                    if (!state.scanTimer) {
-                        state.scanTimer = window.setInterval(scan, 4000);
-                    }
-                    console.info('[SUXIOS] 携程评价疑似下单人页面辅助已启动。可执行 window.__SUXI_CTRIP_REVIEW_ORDERER_ASSIST__.scan() 手动重扫。');
-                }.toString()})(${JSON.stringify(config, null, 2)});`;
-            };
             const fillCtripReviewMatchPayloadTemplate = () => {
                 ctripReviewMatchForm.value.rawPayloadJson = JSON.stringify(buildCtripReviewMatchPayloadTemplate(), null, 2);
                 showToast('已填入携程评价匹配 payload 模板');
+            };
+            const copyCtripReviewMatchPayloadTemplate = () => {
+                copyToClipboard(JSON.stringify(buildCtripReviewMatchPayloadTemplate(), null, 2));
+                showToast('已复制携程评价匹配补录模板；授权页脚本已禁用，避免把宿析登录 token 暴露到 OTA 页面。', 'warning');
             };
             const buildCtripReviewMatchCliCommand = (execute = false) => {
                 const systemHotelId = resolveCtripReviewMatchSystemHotelId() || '58';
@@ -30448,13 +30165,6 @@
             };
             const copyCtripReviewMatchCliCommand = (execute = false) => {
                 copyToClipboard(buildCtripReviewMatchCliCommand(execute));
-            };
-            const copyCtripReviewOrdererAssistScript = () => {
-                try {
-                    copyToClipboard(buildCtripReviewOrdererAssistScript());
-                } catch (error) {
-                    showToast(error.message || '生成携程页面显示脚本失败', 'error');
-                }
             };
             const runCtripReviewMatchAction = async (actionLabel, url, buildPayload, successMessage) => {
                 if (ctripReviewMatchLoading.value) return;
@@ -43585,11 +43295,18 @@
                     showToast('请输入临时 Cookie/API 辅助内容', 'error');
                     return;
                 }
+                const requestHotelId = String(
+                    meituanConfigForm.value.hotel_id
+                    || meituanForm.value.hotelId
+                    || onlineDataFilter.value.hotel_id
+                    || user.value?.hotel_id
+                    || ''
+                ).trim();
                 try {
                     const requestBody = {
                         id: meituanConfigForm.value.id,
                         name: meituanConfigAutoName(meituanConfigForm.value),
-                        hotel_id: meituanConfigForm.value.hotel_id,
+                        hotel_id: requestHotelId,
                         partner_id: meituanConfigForm.value.partner_id,
                         poi_id: meituanConfigForm.value.poi_id,
                         hotel_room_count: meituanConfigForm.value.hotel_room_count,
@@ -47001,6 +46718,7 @@
                 openOnlineDataTab,
                 meituanRankMaxDate,
                 fillCtripReviewMatchPayloadTemplate,
+                copyCtripReviewMatchPayloadTemplate,
                 copyCtripReviewMatchCliCommand,
                 runCtripReviewMatchPreflight,
                 runCtripReviewMatchDryRun,
@@ -47052,7 +46770,7 @@
                 getMeituanExposureMetric, getMeituanClickMetric, getMeituanVisitorMetric, getMeituanSubmitMetric, getMeituanFlowRateMetric, isMeituanTrafficDataRow, isMeituanOrderDataRow, isMeituanAdsDataRow,
                 editOnlineDataItem, deleteOnlineDataItem, showOnlineDataEditModal, onlineDataEditForm, saveOnlineDataEdit,
                 toNumber, toFixedSafe, safeDivide, formatNumber, calculateHhi, revenueConcentration, visitConcentration, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
-                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, saveCtripReviewImSession, saveCtripReviewForMatch, saveCtripOrderForMatch, lookupCtripReviewOrderMatch, copyCtripReviewOrdererAssistScript, bindCtripReviewOrderMatch, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, fillCtripCookieApiCorePreset, fillDataConfigCtripCookieApiCorePreset, checkCtripProfileStatus, runCtripCookieApiCapture, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, importMeituanOrderCsvData, copyMeituanOrderCollectorScript, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, runMeituanBrowserCapturePreset, runMeituanBrowserProfileLoginOnly, runMeituanBrowserSupplementCapture, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, downloadCtripBusinessDataImage, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig, triggerCookieConfigAutoFetch, triggerCookieConfigAutoFetchGroup, triggerCookieConfigAutoFetchAll,
+                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, saveCtripReviewImSession, saveCtripReviewForMatch, saveCtripOrderForMatch, lookupCtripReviewOrderMatch, bindCtripReviewOrderMatch, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, fillCtripCookieApiCorePreset, fillDataConfigCtripCookieApiCorePreset, checkCtripProfileStatus, runCtripCookieApiCapture, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, importMeituanOrderCsvData, copyMeituanOrderCollectorScript, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, runMeituanBrowserCapturePreset, runMeituanBrowserProfileLoginOnly, runMeituanBrowserSupplementCapture, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, downloadCtripBusinessDataImage, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig, triggerCookieConfigAutoFetch, triggerCookieConfigAutoFetchGroup, triggerCookieConfigAutoFetchAll,
                 // 携程配置管理
                 ctripConfigForm, ctripConfigList, ctripTargetHotelOptions, ctripConfigListLoading, ctripConfigListLoaded, ctripConfigListLoadFailed, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig, shouldShowCtripRankingManualAuxiliary, normalizeCtripManualAuxiliaryText, canFetchCtripManualData,
                 ctripOverviewFetchActionLoading, ctripOverviewCoreFetchRunning,

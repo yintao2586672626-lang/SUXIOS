@@ -90,6 +90,23 @@ test('browser assist import panel posts supplemental captures through the contra
   assert.doesNotMatch(browserAssistImportAction, /bottomPrice|confirmed_revenue|revenue_amount/);
 });
 
+test('Ctrip review order advanced panel does not expose main-token page assist scripts', () => {
+  const advancedPanel = sliceBetween(
+    html,
+    'showCtripReviewMatchManualPanel',
+    '<h5 class="font-semibold text-gray-900">1. 评价信息</h5>'
+  );
+
+  assert.match(advancedPanel, /copyCtripReviewMatchPayloadTemplate/);
+  assert.match(html, /const copyCtripReviewMatchPayloadTemplate = \(\) =>/);
+  assert.match(html, /授权页脚本已禁用/);
+  assert.doesNotMatch(html, /buildCtripReviewOrdererAssistScript/);
+  assert.doesNotMatch(html, /copyCtripReviewOrdererAssistScript/);
+  assert.doesNotMatch(html, /token:\s*authToken/);
+  assert.doesNotMatch(html, /Authorization:\s*String\(config\.token \|\| ''\)/);
+  assert.doesNotMatch(html, /suxiCtripReviewOrdererAssist/);
+});
+
 test('OTA platform failure reasons are mapped to user-visible blockers', () => {
   assert.match(html, /platformCollectionFailureReasonText\(row\.failureReason, row\)/);
   assert.match(html, /platformCollectionFailureReasonClass\(row\.failureReason, row\)/);
