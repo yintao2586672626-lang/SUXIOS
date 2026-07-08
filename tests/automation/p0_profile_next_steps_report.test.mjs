@@ -34,8 +34,8 @@ test('P0 Profile next-step report exposes only sanitized login and verifier acti
                 last_sync_status: 'waiting_config',
                 manual_login_state_verified: false,
                 profile_login_trigger: {
-                  status: 'available',
-                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  status: 'client_local_authorization_required',
+                  entry: 'https://ebooking.ctrip.com/home/mainland',
                   request_body: {
                     raw_cookie: 'SECRET_COOKIE_VALUE',
                     token: 'SECRET_TOKEN_VALUE',
@@ -60,7 +60,8 @@ test('P0 Profile next-step report exposes only sanitized login and verifier acti
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /P0 OTA Profile 下一步清单/);
-    assert.match(result.stdout, /\/api\/online-data\/profile-login-trigger\/ctrip/);
+    assert.match(result.stdout, /https:\/\/ebooking\.ctrip\.com\/home\/mainland/);
+    assert.doesNotMatch(result.stdout, /\/api\/online-data\/profile-login-trigger\/ctrip/);
     assert.match(result.stdout, /\/api\/online-data\/data-sources\/14\/sync/);
     assert.match(result.stdout, /manual_login_state_verified=false/);
     assert.match(result.stdout, /verify:p0-ota-field-loop/);
@@ -140,8 +141,8 @@ test('P0 Profile next-step report derives verified login count from hotel-scoped
                 data_source_status: 'ready',
                 manual_login_state_verified: true,
                 profile_login_trigger: {
-                  status: 'available',
-                  entry: '/api/online-data/profile-login-trigger/meituan',
+                  status: 'client_local_authorization_required',
+                  entry: 'https://me.meituan.com/ebooking/',
                   after_login_sync: {
                     entry: '/api/online-data/data-sources/18/sync',
                   },
@@ -191,8 +192,8 @@ test('P0 Profile next-step report suppresses sync actions for ready platforms', 
                 last_sync_status: 'success',
                 manual_login_state_verified: true,
                 profile_login_trigger: {
-                  status: 'available',
-                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  status: 'client_local_authorization_required',
+                  entry: 'https://ebooking.ctrip.com/home/mainland',
                   after_login_sync: {
                     entry: '/api/online-data/data-sources/14/sync',
                   },
@@ -265,8 +266,8 @@ test('P0 Profile next-step report keeps hotel steps actionable when platform gat
                 last_sync_status: 'success',
                 manual_login_state_verified: true,
                 profile_login_trigger: {
-                  status: 'available',
-                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  status: 'client_local_authorization_required',
+                  entry: 'https://ebooking.ctrip.com/home/mainland',
                   after_login_sync: {
                     entry: '/api/online-data/data-sources/14/sync',
                   },
@@ -280,8 +281,8 @@ test('P0 Profile next-step report keeps hotel steps actionable when platform gat
                 last_sync_status: 'success',
                 manual_login_state_verified: true,
                 profile_login_trigger: {
-                  status: 'available',
-                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  status: 'client_local_authorization_required',
+                  entry: 'https://ebooking.ctrip.com/home/mainland',
                   after_login_sync: {
                     entry: '/api/online-data/data-sources/15/sync',
                   },
@@ -304,7 +305,7 @@ test('P0 Profile next-step report keeps hotel steps actionable when platform gat
     const payload = JSON.parse(result.stdout);
     assert.equal(payload.platform_summaries[0].platform_ready, false);
     assert.deepEqual(payload.next_steps.map(step => step.platform_ready), [false, false]);
-    assert.deepEqual(payload.next_steps.map(step => step.login_trigger_status), ['available', 'available']);
+    assert.deepEqual(payload.next_steps.map(step => step.login_trigger_status), ['client_local_authorization_required', 'client_local_authorization_required']);
     assert.deepEqual(payload.next_steps.map(step => step.after_login_sync_entry), [
       '/api/online-data/data-sources/14/sync',
       '/api/online-data/data-sources/15/sync',
@@ -446,8 +447,8 @@ test('P0 Profile next-step report exposes target-date traffic and Profile step h
                 last_sync_status: 'success',
                 manual_login_state_verified: true,
                 profile_login_trigger: {
-                  status: 'available',
-                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  status: 'client_local_authorization_required',
+                  entry: 'https://ebooking.ctrip.com/home/mainland',
                   after_login_sync: { entry: '/api/online-data/data-sources/14/sync' },
                 },
               },
@@ -458,8 +459,8 @@ test('P0 Profile next-step report exposes target-date traffic and Profile step h
                 last_sync_status: 'success',
                 manual_login_state_verified: true,
                 profile_login_trigger: {
-                  status: 'available',
-                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  status: 'client_local_authorization_required',
+                  entry: 'https://ebooking.ctrip.com/home/mainland',
                   after_login_sync: { entry: '/api/online-data/data-sources/15/sync' },
                 },
               },
@@ -514,8 +515,8 @@ test('P0 Profile next-step report allows extra reference steps when target traff
                 last_sync_status: 'success',
                 manual_login_state_verified: true,
                 profile_login_trigger: {
-                  status: 'available',
-                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  status: 'client_local_authorization_required',
+                  entry: 'https://ebooking.ctrip.com/home/mainland',
                   after_login_sync: { entry: '/api/online-data/data-sources/14/sync' },
                 },
               },
@@ -526,8 +527,8 @@ test('P0 Profile next-step report allows extra reference steps when target traff
                 last_sync_status: 'success',
                 manual_login_state_verified: true,
                 profile_login_trigger: {
-                  status: 'available',
-                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  status: 'client_local_authorization_required',
+                  entry: 'https://ebooking.ctrip.com/home/mainland',
                   after_login_sync: { entry: '/api/online-data/data-sources/15/sync' },
                 },
               },
@@ -590,8 +591,8 @@ test('P0 Profile next-step report does not inherit platform ready for unproved h
                   target_date_rows_proved: false,
                 },
                 profile_login_trigger: {
-                  status: 'available',
-                  entry: '/api/online-data/profile-login-trigger/ctrip',
+                  status: 'client_local_authorization_required',
+                  entry: 'https://ebooking.ctrip.com/home/mainland',
                   after_login_sync: {
                     entry: '/api/online-data/data-sources/14/sync',
                   },
@@ -622,8 +623,8 @@ test('P0 Profile next-step report does not inherit platform ready for unproved h
     assert.equal(payload.next_steps[0].platform_ready, false);
     assert.equal(payload.next_steps[0].platform_gate_ready, true);
     assert(payload.next_steps[0].blocking_reason_codes.includes('target_date_rows_unproved'));
-    assert.equal(payload.next_steps[0].login_trigger_status, 'available');
-    assert.equal(payload.next_steps[0].login_trigger_entry, '/api/online-data/profile-login-trigger/ctrip');
+    assert.equal(payload.next_steps[0].login_trigger_status, 'client_local_authorization_required');
+    assert.equal(payload.next_steps[0].login_trigger_entry, 'https://ebooking.ctrip.com/home/mainland');
     assert.equal(payload.next_steps[0].after_login_sync_entry, '/api/online-data/data-sources/14/sync');
     assert.equal(payload.completion_gate.current_status, 'incomplete_hotel_scoped_steps');
     assert.equal(payload.downstream_gate.status, 'blocked_by_p0_ota_gate');
@@ -662,8 +663,8 @@ test('P0 Profile next-step report marks operator-skipped platform without sync a
                 data_source_status: 'ready',
                 manual_login_state_verified: true,
                 profile_login_trigger: {
-                  status: 'available',
-                  entry: '/api/online-data/profile-login-trigger/meituan',
+                  status: 'client_local_authorization_required',
+                  entry: 'https://me.meituan.com/ebooking/',
                   after_login_sync: {
                     entry: '/api/online-data/data-sources/18/sync',
                   },

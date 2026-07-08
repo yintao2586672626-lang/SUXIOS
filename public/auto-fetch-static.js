@@ -107,7 +107,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         configuration: '配置',
         cookie_config_tasks: '配置任务',
         day_report_api: '昨日概况',
-        browser_profile: '登录会话',
+        browser_profile: '浏览器 Profile',
         browser_business: '经营',
         browser_traffic: '流量',
         browser_catalog_standard: '标准字段',
@@ -177,7 +177,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             const profile = binding.profile_id || item.profile_key || '-';
             const hotelId = binding.ctrip_hotel_id || binding.hotel_id || '-';
             const name = binding.hotel_name ? ` / ${binding.hotel_name}` : '';
-            return `登录会话 ${profile} / 平台酒店 ${hotelId}${name}`;
+            return `浏览器 Profile ${profile} / 平台酒店 ${hotelId}${name}`;
         }
         if (item?.platform === 'meituan') {
             const storeId = binding.store_id || item.profile_key || '-';
@@ -194,7 +194,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             const hotelConfigured = !!(binding.ctrip_hotel_id || binding.hotel_id);
             const name = String(binding.hotel_name || '').trim();
             return [
-                profileConfigured ? '登录会话已绑定' : '登录会话未绑定',
+                profileConfigured ? '浏览器 Profile 已绑定' : '浏览器 Profile 未绑定',
                 hotelConfigured ? '平台酒店标识已配置' : '平台酒店标识未配置',
                 name ? `酒店 ${name}` : '',
             ].filter(Boolean).join(' / ');
@@ -222,22 +222,22 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         if (statusCode === 'hotel_mismatch') return '重新绑定门店';
         if (statusCode === 'anti_bot') return '人工处理风控';
         if (statusCode === 'resource_busy_login') return '等待当前任务完成';
-        if (statusCode === 'session_expired') return '重新登录平台账号';
-        if (item?.status_code === 'login_expired') return '重新登录平台账号';
-        return item?.platform === 'meituan' ? '登录美团' : '登录携程';
+        if (statusCode === 'session_expired') return '本机重新授权平台账号';
+        if (item?.status_code === 'login_expired') return '本机重新授权平台账号';
+        return item?.platform === 'meituan' ? '本机授权美团' : '本机授权携程';
     };
     const platformProfileNextActionText = (item) => {
         const raw = String(item?.next_action || '').trim();
         const statusCode = String(item?.status_code || '').trim().toLowerCase();
-        if (statusCode === 'cookies_incomplete') return 'Refresh the platform Profile login; the page is reachable but required business cookies are incomplete.';
+        if (statusCode === 'cookies_incomplete') return '账号使用者在本机刷新平台授权；页面可访问，但业务 Cookie/API 辅助内容不完整。';
         if (statusCode === 'anti_bot') return 'Platform risk-control or human verification was detected; stop automated retries and complete verification in the authorized browser Profile.';
         if (statusCode === 'resource_busy_login') return 'A login window or collector lock is active for this platform/store; wait for it to finish before starting another login.';
-        if (statusCode === 'session_expired') return 'The platform session is expired; reopen the authorized browser Profile and verify login before retrying collection.';
+        if (statusCode === 'session_expired') return '平台授权已失效；账号使用者在本机授权浏览器内重新验证后再采集。';
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '当前账号无该门店采集权限，请切换账号或补授权。';
         if (statusCode === 'hotel_mismatch') return 'Profile 登录态存在，但绑定门店与当前门店不匹配，请重新绑定正确门店。';
         if (['logged_in'].includes(statusCode)) return '登录态已验证，不等于数据已入库；请执行目标日同步并检查入库结果。';
         if (['waiting_login', 'login_expired', 'login_required'].includes(statusCode) || /login|auth|cookie|登录|授权|过期|失效/i.test(raw)) {
-            return '完成或刷新平台登录后，再运行现有自动采集';
+            return '账号使用者在本机完成或刷新平台授权后，再运行现有自动采集';
         }
         if (['unconfigured', 'missing_profile', 'needs_profile'].includes(statusCode) || /profile|store|poi|hotel|配置|绑定|标识|缺少|missing/i.test(raw)) {
             return '先补齐平台绑定和 Profile，再运行现有采集入口';
@@ -256,9 +256,9 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         if (sync?.status === 'success' && Number(sync?.saved_count || 0) > 0) return `登录后同步完成，目标日已入库 ${Number(sync.saved_count || 0)} 条`;
         if (sync?.status && sync.status !== 'success' && sync.status !== 'skipped') return `登录已完成，但目标日同步未闭环：${String(sync.message || sync.status).trim()}`;
         const combined = `${statusText} ${status} ${message}`;
-        if (/success|done|logged|完成|成功|已登录|登录态已验证/i.test(combined)) return '登录任务已完成，请刷新状态并运行现有采集';
-        if (/running|pending|wait|启动|等待|处理中|进行中/i.test(combined)) return '登录任务进行中，请在打开的浏览器内完成平台验证';
-        if (/fail|error|expired|timeout|失败|错误|超时|过期/i.test(combined)) return '登录任务异常，请重新触发登录并保留失败原因';
+        if (/success|done|logged|完成|成功|已登录|登录态已验证/i.test(combined)) return '本机授权已完成，请刷新状态并运行现有采集';
+        if (/running|pending|wait|启动|等待|处理中|进行中/i.test(combined)) return '本机授权进行中，请账号使用者在当前浏览器内完成平台验证';
+        if (/fail|error|expired|timeout|失败|错误|超时|过期/i.test(combined)) return '本机授权异常，请账号使用者重新授权并保留失败原因';
         if (message && !platformProfileMachineText(message)) return message;
         return statusText || '登录任务状态待确认';
     };
@@ -289,13 +289,13 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         const text = String(message || '');
         if (!text) return '';
         if (text.includes('browser_runtime_error=spawn EPERM') || text.includes('browser_runtime_error=spawn EACCES')) {
-            return '处理动作：检查服务器/定时任务运行账号是否允许启动浏览器；本次未写入空数据。';
+            return '处理动作：服务器侧不代开平台登录窗口；请账号使用者在本机完成授权后再同步。本次未写入空数据。';
         }
         if (text.includes('login session is not ready') || text.includes('login expired') || text.includes('重新登录')) {
-            return '处理动作：重新登录平台账号后再同步。';
+            return '处理动作：账号使用者在本机重新授权平台账号后再同步。';
         }
         if (text.includes('Profile is not prepared') || text.includes('Profile ID is not configured') || text.includes('store_id is not configured')) {
-            return '处理动作：先配置平台账号并完成首次登录。';
+            return '处理动作：先配置平台账号，并由账号使用者在本机完成首次授权。';
         }
         if (text.includes('no business rows') || text.includes('No business rows')) {
             return '处理动作：检查采集页面、接口命中和字段映射；系统不会写入空数据。';

@@ -2576,18 +2576,18 @@ function p0_hotel_scoped_profile_login_trigger_action(string $platform, string $
     }
 
     return [
-        'status' => 'available',
-        'method' => 'POST',
-        'entry' => '/api/online-data/profile-login-trigger/' . $platform,
-        'request_body' => [
+        'status' => 'client_local_authorization_required',
+        'method' => 'CLIENT_OPEN',
+        'entry' => $platform === 'meituan' ? 'https://me.meituan.com/ebooking/' : 'https://ebooking.ctrip.com/home/mainland',
+        'authorization_policy' => 'account_owner_local_computer_only',
+        'server_browser_launch_disabled' => true,
+        'client_authorization_context' => [
             'data_source_id' => $dataSourceId,
             'system_hotel_id' => $systemHotelId,
             'data_date' => $targetDate,
             'capture_sections' => 'traffic',
-            'bind_data_source' => true,
-            'sync_after_login' => true,
         ],
-        'request_policy' => 'backend_resolves_platform_identity_from_data_source_config; verifier does not expose raw platform identifiers; sync_after_login runs only after manual login succeeds.',
+        'request_policy' => 'account owner completes OTA login, SMS/captcha, and permission checks on their own computer; verifier does not expose raw platform identifiers; sync_after_login runs only after manual_login_state_verified=true.',
         'after_login_sync' => [
             'method' => 'POST',
             'entry' => '/api/online-data/data-sources/' . $dataSourceId . '/sync',

@@ -70,8 +70,8 @@
     </script>
     <script src="vue.global.prod.js?v=20260628-static-router-fix"></script>
     <script src="shared-components.js?v=20260628-static-router-fix"></script>
-    <script src="ctrip-static.js?v=20260708-qunar-retry-business-canvas"></script>
-    <script src="meituan-static.js?v=20260708-ranking-summary-helpers"></script>
+    <script src="ctrip-static.js?v=20260709-cookie-delete-he2f132149b"></script>
+    <script src="meituan-static.js?v=20260709-meituan-bookmarklet-h7809d9d4d1"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
     <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality-action-gates"></script>
     <script src="revenue-ai-static.js?v=20260708-ai-daily-blocking-summary"></script>
@@ -4837,7 +4837,7 @@
                     <div v-if="currentPage === 'users'">
                         <!-- 用户统计卡片 -->
                         <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
-                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            <button type="button" @click="applyUserSummaryFilter('total')" :class="userSummaryCardClass('total')">
                                 <div class="flex items-center justify-between">
                                     <div>
                                         <div class="text-sm text-gray-400 mb-1">用户总数</div>
@@ -4847,8 +4847,8 @@
                                         <i class="fas fa-users text-blue-600 text-xl"></i>
                                     </div>
                                 </div>
-                            </div>
-                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            </button>
+                            <button type="button" @click="applyUserSummaryFilter('active')" :class="userSummaryCardClass('active')">
                                 <div class="flex items-center justify-between">
                                     <div>
                                         <div class="text-sm text-gray-400 mb-1">正常账号</div>
@@ -4858,8 +4858,8 @@
                                         <i class="fas fa-user-check text-green-600 text-xl"></i>
                                     </div>
                                 </div>
-                            </div>
-                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            </button>
+                            <button type="button" @click="applyUserSummaryFilter('beta')" :class="userSummaryCardClass('beta')">
                                 <div class="flex items-center justify-between">
                                     <div>
                                         <div class="text-sm text-gray-400 mb-1">内测用户</div>
@@ -4869,8 +4869,8 @@
                                         <i class="fas fa-user-tag text-orange-600 text-xl"></i>
                                     </div>
                                 </div>
-                            </div>
-                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            </button>
+                            <button type="button" @click="applyUserSummaryFilter('normal')" :class="userSummaryCardClass('normal')">
                                 <div class="flex items-center justify-between">
                                     <div>
                                         <div class="text-sm text-gray-400 mb-1">普通用户</div>
@@ -4880,8 +4880,8 @@
                                         <i class="fas fa-user text-emerald-600 text-xl"></i>
                                     </div>
                                 </div>
-                            </div>
-                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            </button>
+                            <button type="button" @click="applyUserSummaryFilter('disabled')" :class="userSummaryCardClass('disabled')">
                                 <div class="flex items-center justify-between">
                                     <div>
                                         <div class="text-sm text-gray-400 mb-1">待审核/暂停</div>
@@ -4891,8 +4891,8 @@
                                         <i class="fas fa-user-clock text-amber-600 text-xl"></i>
                                     </div>
                                 </div>
-                            </div>
-                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            </button>
+                            <button type="button" @click="applyUserSummaryFilter('unassigned')" :class="userSummaryCardClass('unassigned')">
                                 <div class="flex items-center justify-between">
                                     <div>
                                         <div class="text-sm text-gray-400 mb-1">未分配门店</div>
@@ -4902,7 +4902,7 @@
                                         <i class="fas fa-user-slash text-red-600 text-xl"></i>
                                     </div>
                                 </div>
-                            </div>
+                            </button>
                         </div>
 
                         <div v-if="pendingUserAuthorizationHotel" class="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-4 shadow-sm">
@@ -4920,126 +4920,25 @@
                             </div>
                         </div>
 
-                        <div v-if="roleIssueGuideCards.length" class="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                            <div class="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-                                <div>
-                                    <h3 class="text-sm font-semibold text-slate-900">外发角色矩阵</h3>
-                                    <p class="mt-1 text-xs text-slate-500">只用于内测用户和普通用户发放前复核；管理员账号不对外发放。</p>
-                                </div>
-                                <div class="text-xs text-slate-400">先看结论，再发账号；密码仍走单独安全渠道。</div>
-                            </div>
-                            <div class="overflow-x-auto">
-                                <table class="min-w-full text-sm">
-                                    <thead class="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                        <tr>
-                                            <th class="px-4 py-3 text-left">账号类型</th>
-                                            <th class="px-4 py-3 text-left">发放对象</th>
-                                            <th class="px-4 py-3 text-left">门店/数据范围</th>
-                                            <th class="px-4 py-3 text-left">可用</th>
-                                            <th class="px-4 py-3 text-left">不可用</th>
-                                            <th class="px-4 py-3 text-left">发放结论</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-slate-100">
-                                        <tr v-for="card in roleIssueGuideCards" :key="`matrix-${card.key}`" class="align-top">
-                                            <td class="px-4 py-3">
-                                                <div class="font-semibold text-slate-900">{{ card.title }}</div>
-                                                <div class="mt-1 text-xs text-slate-500">{{ card.handoffType }}</div>
-                                                <span :class="['mt-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium', card.badgeClass]">{{ card.badge }}</span>
-                                            </td>
-                                            <td class="px-4 py-3 text-xs leading-5 text-slate-600">{{ card.audience }}</td>
-                                            <td class="px-4 py-3 min-w-[15rem] text-xs leading-5 text-slate-600">
-                                                <div><span class="font-medium text-slate-700">门店：</span>{{ card.scope }}</div>
-                                                <div class="mt-1"><span class="font-medium text-slate-700">数据：</span>{{ card.dataBoundary }}</div>
-                                            </td>
-                                            <td class="px-4 py-3 min-w-[12rem] text-xs leading-5 text-slate-600">{{ card.allowed }}</td>
-                                            <td class="px-4 py-3 min-w-[12rem] text-xs leading-5 text-slate-600">{{ card.denied }}</td>
-                                            <td class="px-4 py-3 min-w-[13rem]">
-                                                <span :class="['inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium', card.issueBlocked ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700']">
-                                                    {{ card.issueStatusText }}
-                                                </span>
-                                                <div class="mt-1 text-xs leading-5 text-slate-500">{{ card.issueStatusDetail }}</div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <div v-if="roleIssueGuideCards.length" class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-                            <div v-for="card in roleIssueGuideCards" :key="card.key" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                                <div class="flex items-start justify-between gap-3">
-                                    <div>
-                                        <div class="text-sm font-semibold text-slate-900">{{ card.title }}</div>
-                                        <div class="mt-1 text-xs text-slate-500">{{ card.audience }}</div>
-                                        <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-                                            <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-medium text-slate-600">{{ card.handoffType }}</span>
-                                            <span class="rounded-full border border-slate-200 bg-white px-2 py-0.5 font-mono text-slate-500">role: {{ card.roleCode }}</span>
-                                        </div>
-                                    </div>
-                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px] font-medium', card.badgeClass]">{{ card.badge }}</span>
-                                </div>
-                                <div class="mt-3 grid grid-cols-1 gap-2 text-xs leading-5 text-slate-600 sm:grid-cols-2">
-                                    <div>
-                                        <span class="font-medium text-slate-700">发放类型：</span>{{ card.handoffType }}
-                                    </div>
-                                    <div>
-                                        <span class="font-medium text-slate-700">门店范围：</span>{{ card.scope }}
-                                    </div>
-                                    <div>
-                                        <span class="font-medium text-slate-700">OTA权限：</span>{{ card.ota }}
-                                    </div>
-                                    <div>
-                                        <span class="font-medium text-slate-700">可用功能：</span>{{ card.allowed }}
-                                    </div>
-                                    <div>
-                                        <span class="font-medium text-slate-700">不可用功能：</span>{{ card.denied }}
-                                    </div>
-                                    <div class="sm:col-span-2">
-                                        <span class="font-medium text-slate-700">边界：</span>{{ card.boundary }}
-                                    </div>
-                                    <div class="sm:col-span-2">
-                                        <span class="font-medium text-slate-700">数据范围：</span>{{ card.dataBoundary }}
-                                    </div>
-                                    <div class="sm:col-span-2">
-                                        <span class="font-medium text-slate-700">发送前确认：</span>{{ card.sendChecklist }}
-                                    </div>
-                                </div>
-                                <div v-if="card.permissionTags?.length" class="mt-3 flex flex-wrap gap-1.5">
-                                    <span v-for="tag in card.permissionTags" :key="tag.text" :class="['rounded-full border px-2 py-0.5 text-[11px] font-medium', tag.class]">
-                                        {{ tag.text }}
-                                    </span>
-                                </div>
-                                <div :class="['mt-3 rounded-lg border px-3 py-2 text-xs leading-5', card.issueBlocked ? 'border-amber-100 bg-amber-50 text-amber-800' : 'border-emerald-100 bg-emerald-50 text-emerald-800']">
-                                    <div class="font-medium">发放结论：{{ card.issueStatusText }}</div>
-                                    <div class="mt-0.5">{{ card.issueStatusDetail }}</div>
-                                </div>
-                                <div class="mt-3 flex items-center justify-between gap-2 text-xs">
-                                    <span class="text-slate-400">当前账号 {{ card.userCount }} 个</span>
-                                    <button v-if="user?.is_super_admin" type="button" @click="openUserModalWithRole(card.roleId)" :disabled="card.issueBlocked" :title="card.issueBlocked ? card.issueStatusDetail : roleIssueActionText(card)"
-                                        :class="card.issueBlocked ? 'rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 font-medium text-amber-700 cursor-not-allowed opacity-80' : 'rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 font-medium text-blue-700 hover:bg-blue-100'">
-                                        {{ roleIssueActionText(card) }}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div v-if="lastUserIssueGuideText" class="mb-4 rounded-xl border border-blue-100 bg-blue-50/70 p-4 shadow-sm">
-                            <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                <div class="min-w-0">
+                        <div v-if="lastUserIssueGuideText" class="mb-4 rounded-xl border border-blue-100 bg-blue-50/70 p-3 shadow-sm">
+                            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                <div class="flex min-w-0 items-center gap-2">
                                     <div class="text-sm font-semibold text-blue-900">最近发放说明</div>
-                                    <div class="mt-1 text-xs text-blue-700">用于发送给内测或普通用户；不包含初始密码，密码仍需单独安全渠道发送。</div>
+                                    <span class="rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[11px] font-medium text-blue-700">已生成</span>
                                 </div>
                                 <div class="flex shrink-0 items-center gap-2">
                                     <button type="button" @click="copyLastUserIssueGuide" class="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">
                                         <i class="fas fa-copy mr-1"></i>复制说明
+                                    </button>
+                                    <button type="button" @click="showLastUserIssueGuideText = !showLastUserIssueGuideText" class="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">
+                                        {{ showLastUserIssueGuideText ? '收起' : '展开' }}
                                     </button>
                                     <button type="button" @click="clearLastUserIssueGuide" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
                                         关闭
                                     </button>
                                 </div>
                             </div>
-                            <pre class="mt-3 max-h-36 overflow-auto whitespace-pre-wrap rounded-lg border border-blue-100 bg-white p-3 text-xs leading-5 text-slate-700">{{ lastUserIssueGuideText }}</pre>
+                            <pre v-if="showLastUserIssueGuideText" class="mt-3 max-h-36 overflow-auto whitespace-pre-wrap rounded-lg border border-blue-100 bg-white p-3 text-xs leading-5 text-slate-700">{{ lastUserIssueGuideText }}</pre>
                         </div>
 
                         <!-- 员工列表工具栏 -->
@@ -5083,7 +4982,6 @@
                                     :class="Number(filterUserRoleId) === Number(card.roleId) ? 'rounded-full border border-blue-300 bg-blue-50 px-3 py-1 font-medium text-blue-700' : 'rounded-full border border-slate-200 bg-white px-3 py-1 font-medium text-slate-600 hover:bg-slate-50'">
                                     {{ card.title }} · {{ card.userCount }}
                                 </button>
-                                <span class="text-slate-400">普通用户必须有门店范围，内测用户按角色能力发放。</span>
                             </div>
                         </div>
 
@@ -5189,8 +5087,8 @@
                                 <i class="fas fa-users text-gray-300 text-3xl"></i>
                             </div>
                             <h3 class="text-lg font-medium text-gray-800 mb-2">暂无员工数据</h3>
-                            <p class="text-gray-500 text-sm mb-4">{{ searchUser || filterUserRoleId ? '没有符合筛选条件的员工' : '还没有添加任何员工，点击上方按钮添加' }}</p>
-                            <button v-if="user?.is_super_admin && !searchUser && !filterUserRoleId"
+                            <p class="text-gray-500 text-sm mb-4">{{ searchUser || filterUserRoleId || filterUserStatus || filterUserHotelId ? '没有符合筛选条件的员工' : '还没有添加任何员工，点击上方按钮添加' }}</p>
+                            <button v-if="user?.is_super_admin && !searchUser && !filterUserRoleId && !filterUserStatus && !filterUserHotelId"
                                 @click="openUserModal()"
                                 class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
                                 添加员工
@@ -8044,7 +7942,7 @@
                                             <i class="fas fa-chart-pie mr-2"></i>携程今日概况
                                         </h4>
                                         <p class="text-sm text-blue-700">
-                                            使用已保存的 Cookie/API 辅助内容与接口地址同步概况数据；不打开携程页面或登录会话采集。
+                                            使用已保存的 Cookie/API 辅助内容与接口地址同步概况数据；不打开携程页面或本机 Profile 采集。
                                         </p>
                                         <p class="text-xs text-blue-600 mt-2">
                                             目标页面：https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true
@@ -8158,10 +8056,10 @@
                                         <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
                                             <div>
                                                 <h4 class="font-medium text-gray-800 mb-1">
-                                                    <i class="fas fa-window-restore text-gray-500 mr-2"></i>登录会话兜底采集
+                                                    <i class="fas fa-window-restore text-gray-500 mr-2"></i>本机 Profile 兜底采集
                                                 </h4>
                                                 <p class="text-sm text-gray-500">
-                                                    复用本机独立登录会话打开携程后台页面，监听业务响应后按字段目录解析为标准行。
+                                                    复用账号使用者本机独立 Profile 打开携程后台页面，监听业务响应后按字段目录解析为标准行。
                                                 </p>
                                             </div>
                                             <div class="flex flex-wrap gap-2">
@@ -8189,7 +8087,7 @@
                                                 </select>
                                             </div>
                                             <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">登录会话标识</label>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">浏览器 Profile 标识</label>
                                                 <input v-model="ctripBrowserCaptureForm.profileId" type="text"
                                                     class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
                                                     placeholder="默认使用 OTA酒店ID 或系统酒店ID">
@@ -8213,7 +8111,7 @@
                                                 :disabled="ctripBrowserCaptureRunning"
                                                 class="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:bg-gray-400">
                                                 <i :class="ctripBrowserCaptureRunning ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-play mr-2'"></i>
-                                                {{ ctripBrowserCaptureRunning ? '采集中...' : '启动登录会话采集并入库' }}
+                                                {{ ctripBrowserCaptureRunning ? '采集中...' : '启动本机 Profile 采集并入库' }}
                                             </button>
                                             <button type="button" @click="runCtripBrowserCapture({ loginOnly: true, bindDataSource: true })"
                                                 :disabled="ctripBrowserCaptureRunning"
@@ -8230,7 +8128,7 @@
                                         </div>
 
                                         <div v-if="ctripBrowserCaptureRunning" class="mt-3 text-sm text-slate-700 bg-slate-50 border border-slate-100 rounded px-3 py-2">
-                                            正在启动本机携程登录会话。首次使用需要在弹出的浏览器窗口完成登录，系统会监听业务响应并自动解析入库。
+                                            正在启动携程本机 Profile 采集。首次使用需要账号使用者在本机浏览器完成平台验证，系统会监听业务响应并自动解析入库。
                                         </div>
                                         <div v-if="ctripBrowserCaptureResult"
                                             class="mt-4 rounded-lg border p-4"
@@ -9774,11 +9672,8 @@
                                         </button>
                                     </div>
 
-                                    <div v-if="!meituanForm.hotelId || !meituanBrowserCaptureForm.storeId" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                                        请先选择酒店并补齐门店标识；未满足条件时不会发起采集。
-                                    </div>
-                                    <div v-else-if="meituanBrowserCaptureForm.captureSections.includes('ads') && !meituanBrowserCaptureForm.adsUrl" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                                        当前模块包含广告数据，请补充推广通广告入口 URL。
+                                    <div v-if="meituanBrowserCaptureReadinessNotice" :class="meituanBrowserCaptureReadinessNotice.className">
+                                        {{ meituanBrowserCaptureReadinessNotice.message }}
                                     </div>
 
                                     <div class="mt-4 rounded-lg border border-slate-200 bg-white p-3">
@@ -10166,7 +10061,7 @@
                                             <i class="fas fa-signal mr-2"></i>美团流量数据获取
                                         </h4>
                                         <div class="space-y-2 text-sm text-yellow-700">
-                                        <p>高级排障采集：需要平台后台真实请求信息。不启动登录会话采集；运营人员登录美团后台后，复制流量接口地址、Cookie/API 辅助内容、接口标识、门店标识和日期参数，由系统后端直连接口抓取并入库。</p>
+                                        <p>高级排障采集：需要平台后台真实请求信息。不启动本机 Profile 采集；运营人员在本人电脑登录美团后台后，复制流量接口地址、Cookie/API 辅助内容、接口标识、门店标识和日期参数，由系统后端直连接口抓取并入库。</p>
                                             <div class="grid grid-cols-1 lg:grid-cols-3 gap-2 text-xs">
                                                 <div class="bg-white/70 border border-yellow-100 rounded px-3 py-2">
                                                     <div class="font-medium text-yellow-800">人工进入页面</div>
@@ -10255,7 +10150,7 @@
                                         <h4 class="font-medium text-blue-800 mb-2">
                                             <i class="fas fa-receipt mr-2"></i>美团订单数据获取
                                         </h4>
-                                        <p class="text-sm text-blue-700 mb-3">高级排障采集：需要平台后台真实请求信息。不启动登录会话采集；运营人员登录美团后台后，复制订单接口地址、Cookie/API 辅助内容、接口标识、门店标识和日期参数，由系统后端直连接口抓取并入库。</p>
+                                        <p class="text-sm text-blue-700 mb-3">高级排障采集：需要平台后台真实请求信息。不启动本机 Profile 采集；运营人员在本人电脑登录美团后台后，复制订单接口地址、Cookie/API 辅助内容、接口标识、门店标识和日期参数，由系统后端直连接口抓取并入库。</p>
                                         <div class="grid grid-cols-1 lg:grid-cols-3 gap-2 text-xs text-blue-700">
                                             <div class="bg-white/70 border border-blue-100 rounded px-3 py-2">
                                                 <div class="font-medium text-blue-800">人工进入页面</div>
@@ -10377,7 +10272,7 @@
                                         <h4 class="font-medium text-red-800 mb-2">
                                             <i class="fas fa-bullhorn mr-2"></i>美团推广通广告数据获取
                                         </h4>
-                                        <p class="text-sm text-red-700 mb-3">高级排障采集：需要平台后台真实请求信息。不启动登录会话采集；运营人员登录推广通后，复制广告接口地址、Cookie/API 辅助内容、店铺或门店标识和日期参数，由系统后端直连接口抓取并入库。</p>
+                                        <p class="text-sm text-red-700 mb-3">高级排障采集：需要平台后台真实请求信息。不启动本机 Profile 采集；运营人员在本人电脑登录推广通后，复制广告接口地址、Cookie/API 辅助内容、店铺或门店标识和日期参数，由系统后端直连接口抓取并入库。</p>
                                         <div class="grid grid-cols-1 lg:grid-cols-3 gap-2 text-xs text-red-700">
                                             <div class="bg-white/70 border border-red-100 rounded px-3 py-2">
                                                 <div class="font-medium text-red-800">人工进入页面</div>
@@ -14299,15 +14194,7 @@
                                 <p class="text-sm text-gray-400 mt-1">管理系统安全策略</p>
                             </div>
                             <div class="p-6">
-                                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                    <div class="bg-gray-50 rounded-xl p-4 text-center">
-                                        <div class="text-2xl font-bold text-blue-600">{{ systemConfig.login_max_attempts || 5 }}</div>
-                                        <div class="text-sm text-gray-500 mt-1">最大登录尝试</div>
-                                    </div>
-                                    <div class="bg-gray-50 rounded-xl p-4 text-center">
-                                        <div class="text-2xl font-bold text-orange-600">{{ systemConfig.login_lockout_duration || 15 }}分钟</div>
-                                        <div class="text-sm text-gray-500 mt-1">锁定时间</div>
-                                    </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div class="bg-gray-50 rounded-xl p-4 text-center">
                                         <div class="text-2xl font-bold text-green-600">{{ systemConfig.session_timeout || 1440 }}分钟</div>
                                         <div class="text-sm text-gray-500 mt-1">会话超时</div>
@@ -14765,7 +14652,7 @@
                                         <p class="text-sm text-gray-500">登录状态或 Cookie/API 辅助直连接口清单</p>
                                         <div class="mt-4 space-y-1 text-xs text-gray-600">
                                             <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">接口请求地址清单</span></div>
-                                            <div class="flex justify-between gap-3"><span>凭证</span><span class="text-gray-800">Cookie/API 辅助 / 登录会话</span></div>
+                                            <div class="flex justify-between gap-3"><span>凭证</span><span class="text-gray-800">Cookie/API 辅助 / 浏览器 Profile</span></div>
                                         </div>
                                         <div class="mt-3 text-xs text-emerald-600">
                                             <i class="fas fa-cog mr-1"></i>点击配置
@@ -15865,7 +15752,7 @@
                                             <div class="xl:col-span-2 rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
                                                 <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
                                                     <div>
-                                                        <h4 class="text-base font-semibold text-gray-900">Cookie/API 辅助 / 接口 + 登录会话混合采集生命周期</h4>
+                                                        <h4 class="text-base font-semibold text-gray-900">Cookie/API 辅助 / 接口 + 浏览器 Profile 混合采集生命周期</h4>
                                                         <div class="text-xs text-gray-500 mt-1 leading-5">按绑定、授权、试采集、字段资产、质量门禁定位卡点；缺证据时保持未知状态</div>
                                                     </div>
                                                     <span class="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 whitespace-nowrap">
@@ -17278,11 +17165,11 @@
                                         <div class="p-5">
                                             <div class="space-y-4">
                                                 <p class="text-sm text-gray-600">
-                                                    首次使用需要手动登录各平台，系统将保存门店登录会话和授权信息，后续自动采集复用该会话；登录失效时会提示重新登录，不写空数据。
+                                                    首次使用需要账号使用者在自己的电脑登录各平台，系统只保存门店授权证据和登录态确认信息，后续自动采集复用该会话；登录失效时会提示重新授权，不写空数据。
                                                 </p>
                                                 <div class="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
                                                     <i class="fas fa-info-circle mr-2"></i>
-                                                    点击“触发登录”会在服务器本机弹出浏览器窗口；多门店请先选择门店，会话会写入该门店专属登录会话（与定时采集一致）。
+                                                    携程/美团授权必须在账号使用者自己的电脑完成。这里会在当前浏览器打开平台后台，并引导导入浏览器辅助采集 JSON；宿析不会在服务器或管理员电脑弹出平台登录窗口。
                                                 </div>
 
                                                 <div class="max-w-xl">
@@ -17295,14 +17182,14 @@
 
                                                  <div class="flex flex-wrap gap-3">
                                                      <button type="button" @click="triggerPlatformProfileLogin('meituan')"
-                                                         :disabled="platformProfileLoginRunning('meituan') || meituanBrowserCaptureRunning"
+                                                         :disabled="meituanBrowserCaptureRunning"
                                                          class="px-3 py-2 rounded-md border border-blue-600 text-blue-700 bg-white hover:bg-blue-50 disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50 text-sm">
-                                                        <i :class="platformProfileLoginRunning('meituan') ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-globe mr-2'"></i>触发美团登录
+                                                        <i class="fas fa-globe mr-2"></i>本机授权美团
                                                     </button>
                                                     <button type="button" @click="triggerPlatformProfileLogin('ctrip')"
-                                                        :disabled="platformProfileLoginRunning('ctrip') || ctripBrowserCaptureRunning"
+                                                        :disabled="ctripBrowserCaptureRunning"
                                                         class="px-3 py-2 rounded-md border border-blue-600 text-blue-700 bg-white hover:bg-blue-50 disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50 text-sm">
-                                                        <i :class="platformProfileLoginRunning('ctrip') ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-globe mr-2'"></i>触发携程登录
+                                                        <i class="fas fa-globe mr-2"></i>本机授权携程
                                                     </button>
                                                     <button type="button" @click="loadPlatformProfileStatus" :disabled="platformProfileStatusLoading"
                                                         class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 disabled:text-gray-400 disabled:bg-gray-50 text-sm">
@@ -17868,7 +17755,7 @@
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">用户名 *</label>
                         <input v-model="userForm.username" type="text" required
-                            :disabled="!!userForm.id"
+                            :disabled="!canEditUserUsername"
                             class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100">
                     </div>
                     <div v-if="!userForm.id">
@@ -17899,25 +17786,27 @@
                                 {{ card.title }}
                             </button>
                         </div>
-                        <div v-if="selectedUserRoleGuide" class="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
-                            <div><span class="font-medium text-slate-700">发放类型：</span>{{ selectedUserRoleGuide.handoffType }}</div>
-                            <div><span class="font-medium text-slate-700">发放对象：</span>{{ selectedUserRoleGuide.audience }}</div>
-                            <div><span class="font-medium text-slate-700">权限边界：</span>{{ selectedUserRoleGuide.boundary }}</div>
-                            <div><span class="font-medium text-slate-700">数据范围：</span>{{ selectedUserRoleGuide.dataBoundary }}</div>
-                            <div><span class="font-medium text-slate-700">可用功能：</span>{{ selectedUserRoleGuide.allowed }}</div>
-                            <div><span class="font-medium text-slate-700">不可用功能：</span>{{ selectedUserRoleGuide.denied }}</div>
-                            <div><span class="font-medium text-slate-700">门店要求：</span>{{ selectedUserRoleGuide.scope }}</div>
-                            <div><span class="font-medium text-slate-700">发送前确认：</span>{{ selectedUserRoleGuide.sendChecklist }}</div>
-                            <div v-if="selectedUserRoleGuide.permissionTags?.length" class="mt-2 flex flex-wrap gap-1.5">
-                                <span v-for="tag in selectedUserRoleGuide.permissionTags" :key="`selected-${tag.text}`" :class="['rounded-full border px-2 py-0.5 text-[11px] font-medium', tag.class]">
-                                    {{ tag.text }}
-                                </span>
-                            </div>
+                        <div v-if="selectedUserRoleGuide" class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]"
+                            :title="[selectedUserRoleGuide.audience, selectedUserRoleGuide.scope, selectedUserRoleGuide.dataBoundary, selectedUserRoleGuide.boundary, selectedUserRoleGuide.denied].filter(Boolean).join('\n')">
+                            <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-medium text-slate-600">{{ selectedUserRoleGuide.handoffType }}</span>
+                            <span :class="['rounded-full border px-2 py-0.5 font-medium', selectedUserRoleGuide.issueBlocked ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700']">
+                                {{ selectedUserRoleGuide.issueStatusText || '可发放' }}
+                            </span>
+                            <span v-for="tag in selectedUserRoleGuide.permissionTags || []" :key="`selected-${tag.text}`" :class="['rounded-full border px-2 py-0.5 font-medium', tag.class]">
+                                {{ tag.text }}
+                            </span>
                         </div>
                         <p v-if="!user?.is_super_admin" class="text-xs text-gray-500 mt-1">非超级管理员只能创建/查看店员账号</p>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">分配门店</label>
+                        <div class="mb-1 flex items-center justify-between gap-3">
+                            <label class="block text-sm font-medium text-gray-700">分配门店</label>
+                            <button v-if="user?.is_super_admin && allUserHotelIds.length" type="button" @click="toggleAllUserHotels"
+                                class="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">
+                                {{ areAllUserHotelsSelected ? '清空' : '全选' }}
+                            </button>
+                        </div>
+                        <div v-if="allUserHotelIds.length" class="mb-2 text-xs text-gray-500">已选 {{ userAssignedHotelCount }} / {{ allUserHotelIds.length }}</div>
                         <div class="max-h-44 overflow-y-auto rounded-lg border border-gray-200 bg-white px-3 py-2 space-y-2">
                             <label v-for="h in hotels" :key="h.id" class="flex items-center gap-2 text-sm text-gray-700">
                                 <input type="checkbox"
@@ -17929,29 +17818,21 @@
                             </label>
                             <div v-if="!hotels.length" class="text-xs text-gray-400 py-2">暂无可分配门店</div>
                         </div>
-                        <p class="text-xs text-gray-500 mt-1">超级管理员可分配多个门店；未分配则该账号只能看到自己创建的门店。</p>
+                        <p class="text-xs text-gray-500 mt-1">未分配时仅看自己创建的门店。</p>
                     </div>
-                    <div v-if="user?.is_super_admin && selectedUserRoleGuide" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                        <div class="mb-2 flex items-center justify-between gap-3">
-                            <div class="text-sm font-semibold text-slate-800">发号前检查</div>
+                    <div v-if="user?.is_super_admin && selectedUserRoleGuide" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+                        :title="userIssueBlockingReasons.length ? userIssueBlockingReasons.join('；') : '检查通过'">
+                        <div class="flex items-center justify-between gap-3">
                             <div class="flex items-center gap-2">
+                                <span class="text-sm font-semibold text-slate-800">发号检查</span>
                                 <span :class="userIssueBlockingReasons.length ? 'rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700' : 'rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700'">
                                     {{ userIssueBlockingReasons.length ? '需处理' : '可发放' }}
                                 </span>
-                                <button type="button" @click="copyUserIssueGuide" :disabled="userIssueBlockingReasons.length > 0"
-                                    class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
-                                    <i class="fas fa-copy mr-1"></i>复制说明
-                                </button>
                             </div>
-                        </div>
-                        <div class="space-y-1.5">
-                            <div v-for="row in userIssueChecklistRows" :key="row.key" class="flex items-start gap-2 text-xs leading-5">
-                                <i :class="row.level === 'error' ? 'fas fa-times-circle mt-0.5 text-red-500' : (row.level === 'warning' ? 'fas fa-exclamation-circle mt-0.5 text-amber-500' : 'fas fa-check-circle mt-0.5 text-emerald-500')"></i>
-                                <div>
-                                    <span class="font-medium text-slate-700">{{ row.label }}：</span>
-                                    <span :class="row.level === 'error' ? 'text-red-700' : (row.level === 'warning' ? 'text-amber-700' : 'text-slate-600')">{{ row.text }}</span>
-                                </div>
-                            </div>
+                            <button type="button" @click="copyUserIssueGuide" :disabled="userIssueBlockingReasons.length > 0"
+                                class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
+                                <i class="fas fa-copy mr-1"></i>复制说明
+                            </button>
                         </div>
                     </div>
                     <div>
@@ -18611,18 +18492,6 @@
 
                     <!-- 安全设置 -->
                     <div v-if="activeConfigGroup === 'security'" class="space-y-4">
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">登录最大尝试次数</label>
-                                <input v-model="systemConfigForm.login_max_attempts" type="number" min="3" max="10"
-                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">登录锁定时间(分钟)</label>
-                                <input v-model="systemConfigForm.login_lockout_duration" type="number" min="5" max="60"
-                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            </div>
-                        </div>
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">会话超时时间(分钟)</label>
@@ -19516,7 +19385,7 @@
         }
         return component;
     };
-    const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';
+    const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260708-local-auth-copy';
     const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split';
     const PlatformAutoSettingsPanels = {
         name: 'PlatformAutoSettingsPanels',
@@ -20509,6 +20378,14 @@
             const showRawData = ref(false); // 是否展开原始数据
             const createCtripFetchForm = requireCtripStatic('createCtripFetchForm');
             const createCtripConfigForm = requireCtripStatic('createCtripConfigForm');
+            const buildCtripBookmarkletSuccessState = requireCtripStatic('buildCtripBookmarkletSuccessState');
+            const buildCtripBookmarkletFailureState = requireCtripStatic('buildCtripBookmarkletFailureState');
+            const buildCtripBatchDeleteConfigResultState = requireCtripStatic('buildCtripBatchDeleteConfigResultState');
+            const buildCookieConfigRowKey = requireCtripStatic('buildCookieConfigRowKey');
+            const buildCookieConfigDeleteSuccessState = requireCtripStatic('buildCookieConfigDeleteSuccessState');
+            const buildCookieConfigDeleteFailureState = requireCtripStatic('buildCookieConfigDeleteFailureState');
+            const buildCookieConfigBatchDeleteSuccessState = requireCtripStatic('buildCookieConfigBatchDeleteSuccessState');
+            const buildCookieConfigBatchDeleteFailureState = requireCtripStatic('buildCookieConfigBatchDeleteFailureState');
             const createCtripTrafficForm = requireCtripStatic('createCtripTrafficForm');
             const createCtripAdsBrowserCaptureForm = requireCtripStatic('createCtripAdsBrowserCaptureForm');
             const createCtripOverviewForm = requireCtripStatic('createCtripOverviewForm');
@@ -20606,14 +20483,215 @@
             const showCtripCommentSpidertoken = ref(false);
             const showCtripCommentCookies = ref(false);
             const showCtripCommentPayload = ref(false);
-            const meituanStatic = window.SUXI_MEITUAN_STATIC;
-            if (!meituanStatic || typeof meituanStatic !== 'object') {
-                throw new Error('缺少美团静态展示工具：meituan-static.js 未加载');
-            }
+            const meituanStatic = window.SUXI_MEITUAN_STATIC && typeof window.SUXI_MEITUAN_STATIC === 'object'
+                ? window.SUXI_MEITUAN_STATIC
+                : {};
+            const missingMeituanStaticHelpers = [];
+            window.SUXI_MISSING_MEITUAN_STATIC_HELPERS = missingMeituanStaticHelpers;
+            const meituanStaticUnavailableResult = (key) => ({
+                status: 'static_helper_missing',
+                missing_helper: key,
+                message: `美团功能暂不可用：缺少静态工具 ${key}，请刷新页面或联系管理员更新静态资源。`,
+            });
+            const meituanStaticFallbackFor = (key) => {
+                const unavailable = () => {
+                    const result = meituanStaticUnavailableResult(key);
+                    console.warn('[meituan-static]', result.message);
+                    try {
+                        if (typeof showToast === 'function') showToast(result.message, 'warning');
+                    } catch (toastError) {
+                        console.warn('[meituan-static] 缺少工具提示未显示:', toastError?.message || toastError);
+                    }
+                    return result;
+                };
+                if (key === 'defaultMeituanAdsUrl') return () => 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-merchant-product-menu/html/index.html';
+                if (key === 'createEmptyMeituanConfigForm') return () => ({ id: null, name: '', hotel_id: '', partner_id: '', poi_id: '', cookies: '', hotel_room_count: '', competitor_room_count: '' });
+                if (key === 'createEmptyMeituanBusinessSummary') return () => ({ status: 'static_helper_missing', source_notice: '美团静态工具缺失，当前仅保留系统入口。' });
+                if (key === 'buildMeituanConfigDeleteUrl') return (id = '') => `/online-data/delete-meituan-config?id=${encodeURIComponent(String(id ?? '').trim())}`;
+                if (key === 'buildMeituanConfigDeleteSuccessState') return (id = '') => ({ toastMessage: '删除成功', toastLevel: 'success', clearConfigDetailId: id, shouldReloadConfigList: true, reloadOptions: {} });
+                if (key === 'buildMeituanConfigDeleteFailureState') return ({ response = null, error = null } = {}) => ({ toastMessage: error ? `删除失败: ${error?.message || '未知错误'}` : (response?.message || '删除失败'), toastLevel: 'error' });
+                if (key === 'buildMeituanConfigAutoName') return (form = {}) => String(form?.name || '').trim() || '美团配置';
+                if (key === 'buildMeituanConfigSaveRequestBody') return ({ form = {}, requestHotelId = '', name = '', cookies = '' } = {}) => ({ id: form?.id ?? null, name: String(name || '').trim(), hotel_id: String(requestHotelId || '').trim(), partner_id: form?.partner_id || '', poi_id: form?.poi_id || '', hotel_room_count: form?.hotel_room_count || '', competitor_room_count: form?.competitor_room_count || '', cookies: String(cookies || '').trim() });
+                if (key === 'buildMeituanRankingFormPatchFromConfig') return (config = {}, fallbackHotelId = '') => ({ hotelId: config?.hotel_id || config?.system_hotel_id || fallbackHotelId || '', partnerId: config?.partner_id || '', poiId: config?.poi_id || '', cookies: config?.cookies || '', auth_data: config?.auth_data || {}, hotelRoomCount: config?.hotel_room_count || '', competitorRoomCount: config?.competitor_room_count || '' });
+                if (key === 'buildMeituanConfigUseState') return ({ config = {}, fallbackHotelId = '' } = {}) => ({ formPatch: { hotelId: config?.hotel_id || config?.system_hotel_id || fallbackHotelId || '', partnerId: config?.partner_id || '', poiId: config?.poi_id || '', cookies: config?.cookies || '', auth_data: config?.auth_data || {}, hotelRoomCount: config?.hotel_room_count || '', competitorRoomCount: config?.competitor_room_count || '' }, toastMessage: `已应用配置: ${config?.name || ''}`, targetTab: 'meituan-ranking' });
+                if (key === 'buildMeituanConfigEditForm') return (config = {}) => ({ id: config?.id ?? null, name: config?.name || '', hotel_id: config?.hotel_id || config?.system_hotel_id || '', partner_id: config?.partner_id || '', poi_id: config?.poi_id || '', cookies: config?.cookies || '', hotel_room_count: config?.hotel_room_count || '', competitor_room_count: config?.competitor_room_count || '' });
+                if (key === 'buildMeituanConfigEditState') return ({ config = {} } = {}) => ({ form: { id: config?.id ?? null, name: config?.name || '', hotel_id: config?.hotel_id || config?.system_hotel_id || '', partner_id: config?.partner_id || '', poi_id: config?.poi_id || '', cookies: config?.cookies || '', hotel_room_count: config?.hotel_room_count || '', competitor_room_count: config?.competitor_room_count || '' } });
+                if (key === 'buildMeituanBookmarkletSuccessState') return (response = {}) => ({ bookmarklet: response?.data?.bookmarklet || '', toastMessage: response?.data?.message || '旧版美团 Cookie 书签已禁用', toastLevel: 'warning' });
+                if (key === 'buildMeituanBookmarkletFailureState') return ({ error = null } = {}) => ({ toastMessage: `生成失败: ${error?.message || '未知错误'}`, toastLevel: 'error' });
+                if (key === 'resolveSavedMeituanConfigHotelId') return ({ responseData = {}, requestBody = {}, fallbackHotelId = '' } = {}) => String(responseData?.hotel_id || responseData?.system_hotel_id || requestBody?.hotel_id || fallbackHotelId || '').trim();
+                if (key === 'resolveMeituanConfigSaveToastLevel') return () => 'warning';
+                if (key === 'buildMeituanConfigSaveSuccessState') return ({ response = {}, requestBody = {}, fallbackHotelId = '', form = {} } = {}) => {
+                    const responseData = response?.data || {};
+                    const savedHotelId = String(responseData?.hotel_id || responseData?.system_hotel_id || requestBody?.hotel_id || fallbackHotelId || '').trim();
+                    return { savedHotelId, toastMessage: response?.message || '配置保存成功', toastLevel: 'warning', clearConfigDetailId: form?.id ?? null, resetForm: { id: null, name: '', hotel_id: '', partner_id: '', poi_id: '', cookies: '', hotel_room_count: '', competitor_room_count: '' }, shouldReturnToRanking: !!savedHotelId, shouldReloadConfigList: !savedHotelId };
+                };
+                if (key === 'buildMeituanConfigSaveFailureState') return ({ response = null, error = null } = {}) => ({ toastMessage: error ? `保存失败: ${error?.message || '未知错误'}` : (response?.message || '保存失败'), toastLevel: 'error' });
+                if (key === 'findMeituanConfigForHotel') return () => null;
+                if (key === 'resolveMeituanConfigStatus') return () => ({ hasConfig: false, configured: false, name: '', missingFields: [], missingText: '' });
+                if (key === 'resolveCanFetchMeituanRankingData') return ({ form = {}, selectedConfig = null } = {}) => {
+                    const safeForm = form && typeof form === 'object' ? form : {};
+                    if (String(safeForm.cookies || '').trim()) return true;
+                    return !!String(safeForm.hotelId || '').trim() && !!selectedConfig;
+                };
+                if (key === 'resolveMeituanManualFetchConfigProofPending') return ({ form = {}, selectedConfig = null } = {}) => {
+                    const safeForm = form && typeof form === 'object' ? form : {};
+                    return !!String(safeForm.hotelId || '').trim() && !!selectedConfig;
+                };
+                if (key === 'resolveMeituanManualFetchConfigCandidate') return ({ config = null, form = {}, selectedConfig = null } = {}) => {
+                    if (config) return config;
+                    const safeForm = form && typeof form === 'object' ? form : {};
+                    if (!String(safeForm.hotelId || '').trim()) return null;
+                    return selectedConfig || null;
+                };
+                if (key === 'resolveMeituanConfigListResponse') return (res = {}) => {
+                    if (res?.code === 200) return { ok: true, list: res?.data || [], message: '' };
+                    return { ok: false, list: [], message: res?.message || '' };
+                };
+                if (key === 'resolveMeituanConfigListApplyAction') return ({ hotelId = '', shouldApplySelectedConfig = false } = {}) => ({
+                    shouldApply: !!String(hotelId || '').trim() && shouldApplySelectedConfig === true,
+                });
+                if (key === 'resolveMeituanConfigListCachedResult') return ({ force = false, loaded = false, failed = false, cacheFresh = false, list = [] } = {}) => {
+                    if (!force && loaded && !failed && cacheFresh) return { hit: true, list };
+                    return { hit: false, list: null };
+                };
+                if (key === 'resolveMeituanConfigListLoadingAction') return ({ force = false, loadingPromise = null } = {}) => {
+                    if (!loadingPromise) return { status: 'idle', promise: null };
+                    if (!force) return { status: 'reuse', promise: loadingPromise };
+                    return { status: 'await_previous', promise: loadingPromise };
+                };
+                if (key === 'buildMeituanConfigListSuccessState') return ({ list = [], loadedAt = 0 } = {}) => ({
+                    list,
+                    loaded: true,
+                    loadedAt,
+                });
+                if (key === 'buildMeituanConfigListFailureAction') return ({ type = 'api', message = '', error = null } = {}) => {
+                    const exception = type === 'exception';
+                    return {
+                        failed: true,
+                        label: exception ? '[Debug] 加载美团配置列表失败:' : '[Debug] API 返回错误:',
+                        detail: exception ? error : message,
+                    };
+                };
+                if (key === 'buildMeituanConfigListStartState') return () => ({
+                    loading: true,
+                    failed: false,
+                });
+                if (key === 'buildMeituanConfigListFinishState') return () => ({
+                    loading: false,
+                    loadingPromise: null,
+                });
+                if (key === 'getMeituanConfigDetailVersion') return (config = {}) => String(config?.update_time || config?.updated_at || config?.created_at || '');
+                if (key === 'buildMeituanConfigDetailCacheKey') return (id = '') => (id ? String(id) : '');
+                if (key === 'resolveMeituanConfigDetailClearTarget') return (id = '') => {
+                    const cacheKey = id ? String(id) : '';
+                    if (!cacheKey) return { clearAll: true, cacheKey: '' };
+                    return { clearAll: false, cacheKey };
+                };
+                if (key === 'resolveMeituanConfigDetailLoadTarget') return ({ id = '', loadingPromises = null } = {}) => {
+                    const cacheKey = id ? String(id) : '';
+                    if (!cacheKey) return { status: 'missing_key', cacheKey: '', promise: null };
+                    if (loadingPromises && typeof loadingPromises.has === 'function' && typeof loadingPromises.get === 'function' && loadingPromises.has(cacheKey)) {
+                        return { status: 'loading', cacheKey, promise: loadingPromises.get(cacheKey) };
+                    }
+                    return { status: 'ready', cacheKey, promise: null };
+                };
+                if (key === 'buildMeituanConfigDetailRequestUrl') return (cacheKey = '') => `/online-data/get-meituan-config-detail?id=${encodeURIComponent(String(cacheKey || ''))}`;
+                if (key === 'resolveMeituanConfigDetailResponse') return (res = {}) => {
+                    const safeRes = res && typeof res === 'object' ? res : {};
+                    if (safeRes.code !== 200) {
+                        return {
+                            ok: false,
+                            message: safeRes.message || '加载美团完整配置失败',
+                            data: null,
+                        };
+                    }
+                    return {
+                        ok: true,
+                        message: '',
+                        data: safeRes.data || null,
+                    };
+                };
+                if (key === 'shouldSkipMeituanConfigDetailLoad') return (config = null) => !config || !!config.cookies || !config.id || config.has_cookies === false;
+                if (key === 'resolveMeituanConfigDetailCachedResult') return ({ cached = null, listVersion = '' } = {}) => {
+                    if (!cached || typeof cached !== 'object') return { hit: false, data: null };
+                    const expectedVersion = String(listVersion || '');
+                    if (expectedVersion && cached.version !== expectedVersion) return { hit: false, data: null };
+                    return { hit: true, data: cached.data ?? null };
+                };
+                if (key === 'resolveMeituanConfigDetailCacheLookup') return ({ config = null, cache = null } = {}) => {
+                    const cacheKey = config?.id ? String(config.id) : '';
+                    const listVersion = String(config?.update_time || config?.updated_at || config?.created_at || '');
+                    const cached = cacheKey && cache && typeof cache.get === 'function' ? cache.get(cacheKey) : null;
+                    if (!cached || typeof cached !== 'object') return { cacheKey, listVersion, cachedResult: { hit: false, data: null } };
+                    if (listVersion && cached.version !== listVersion) return { cacheKey, listVersion, cachedResult: { hit: false, data: null } };
+                    return { cacheKey, listVersion, cachedResult: { hit: true, data: cached.data ?? null } };
+                };
+                if (key === 'buildMeituanConfigDetailCacheEntry') return ({ detail = null, listVersion = '' } = {}) => {
+                    if (!detail) return null;
+                    return {
+                        version: String(detail?.update_time || detail?.updated_at || detail?.created_at || '') || String(listVersion || ''),
+                        data: detail,
+                    };
+                };
+                if (key === 'resolveMeituanConfigDetailCacheStorePlan') return ({ cacheKey = '', cacheEntry = null } = {}) => ({
+                    shouldStore: !!(cacheKey && cacheEntry),
+                    cacheKey: cacheKey ? String(cacheKey) : '',
+                    cacheEntry,
+                });
+                if (key === 'resolveMeituanConfigDetailFailureAction') return ({ error = null, silent = false } = {}) => {
+                    const message = error?.message || '加载美团完整配置失败';
+                    if (silent) return { type: 'log', label: '[Meituan] 预热完整配置失败:', message, error };
+                    return { type: 'toast', message, level: 'error', error };
+                };
+                if (key === 'resolveMeituanConfigDetailPrewarmPlan') return ({ config = null, delayMs = 80 } = {}) => {
+                    if (!config || !!config.cookies || !config.id || config.has_cookies === false) {
+                        return { shouldPrewarm: false, config: null, delayMs: 0 };
+                    }
+                    return { shouldPrewarm: true, config, delayMs };
+                };
+                if (key === 'resolveMeituanManualDefaultHotelIdFromState') return ({
+                    currentHotelId = '',
+                    autoFetchHotelId = '',
+                    selectedCtripHotelId = '',
+                    onlineDataHotelId = '',
+                    userHotelId = '',
+                    hotelPool = [],
+                } = {}) => {
+                    const firstHotelId = Array.isArray(hotelPool) ? hotelPool?.[0]?.id : '';
+                    return String(currentHotelId || autoFetchHotelId || selectedCtripHotelId || onlineDataHotelId || userHotelId || firstHotelId || '').trim();
+                };
+                if (key === 'resolveMeituanSortState') return (currentField = 'roomNights', currentOrder = 'desc', nextField = '') => ({ field: nextField || currentField, order: nextField && nextField !== currentField ? 'desc' : (currentOrder === 'desc' ? 'asc' : 'desc') });
+                if (key === 'resolveMeituanTablePage') return (page = 1, totalPages = 1) => Math.min(Math.max(Number(page) || 1, 1), Math.max(Number(totalPages) || 1, 1));
+                if (key === 'resolveMeituanRankSourceNotice') return () => '美团静态工具缺失，排名摘要暂不可用。';
+                if (key === 'meituanFallbackNumberText') return (value) => (value > 0 ? String(Math.round(value)) : '-');
+                if (key === 'meituanFallbackMoneyText') return (value) => (value > 0 ? `¥${Math.floor(value)}` : '-');
+                if (key === 'meituanFallbackPercentText') return (value) => (value > 0 ? `${Number(value).toFixed(2)}%` : '-');
+                if (key === 'meituanFallbackMetricText') return () => '-';
+                if (key === 'meituanFallbackCard') return (cardKey, label, value, valueClass, panelClass, level = '', levelClass = 'text-gray-500') => ({ key: cardKey, label, value, valueClass, panelClass, level, levelClass });
+                if (key === 'buildMeituanBusinessSummaryFallbackCards') return () => [];
+                if (key === 'resolveMeituanFallbackMarketInventory') return () => 0;
+                if (key === 'resolveMeituanBusinessSummaryCards') return () => [];
+                if (key === 'resolveMeituanTopSummaryRows') return () => [];
+                if (key === 'buildMeituanBrowserCaptureSelectedSectionsText') return () => '未选择';
+                if (key === 'buildMeituanBrowserCaptureCommand') return () => '请先选择目标酒店并填写美团门店标识';
+                if (key === 'buildMeituanBrowserCaptureReadinessNotice') return () => null;
+                if (key.startsWith('createMeituan')) return () => ({});
+                if (key.startsWith('isMeituan') || key.startsWith('hasMeituan')) return () => false;
+                if (key.includes('Rows') || key.includes('Cards') || key.includes('List') || key.includes('Tasks') || key.includes('Presets') || key.includes('Modules') || key.startsWith('parse') || key === 'buildMeituanDownloadData') return () => [];
+                if (key.includes('Counts') || key.includes('Payload') || key.includes('Context') || key.includes('ResultEntry')) return () => ({});
+                if (key.startsWith('getMeituan') || key.endsWith('MetricNumber') || key.endsWith('Sum') || key.endsWith('Average') || key.endsWith('Hhi') || key.endsWith('PriceSigma')) return () => 0;
+                if (key.startsWith('buildMeituan') || key.startsWith('normalizeMeituan') || key.startsWith('validateMeituan')) return unavailable;
+                if (key.startsWith('runMeituan')) return async () => unavailable();
+                return unavailable;
+            };
             const requireMeituanStatic = (key) => {
                 const value = meituanStatic[key];
                 if (typeof value !== 'function') {
-                    throw new Error(`缺少美团静态展示工具项：${key}`);
+                    if (!missingMeituanStaticHelpers.includes(key)) {
+                        missingMeituanStaticHelpers.push(key);
+                    }
+                    console.warn(`[meituan-static] 缺少静态展示工具项：${key}；系统入口继续加载，相关美团功能将提示不可用。`);
+                    return meituanStaticFallbackFor(key);
                 }
                 return value;
             };
@@ -20639,6 +20717,21 @@
             const getMeituanBrowserCaptureSupplementModules = requireMeituanStatic('getMeituanBrowserCaptureSupplementModules');
             const buildMeituanBrowserCaptureSupplementCounts = requireMeituanStatic('buildMeituanBrowserCaptureSupplementCounts');
             const normalizeMeituanCaptureSections = requireMeituanStatic('normalizeMeituanCaptureSections');
+            const buildMeituanCaptureTabSwitchState = requireMeituanStatic('buildMeituanCaptureTabSwitchState');
+            const buildMeituanBrowserCapturePresetState = requireMeituanStatic('buildMeituanBrowserCapturePresetState');
+            const buildMeituanBrowserCaptureDataPeriodApplyState = requireMeituanStatic('buildMeituanBrowserCaptureDataPeriodApplyState');
+            const buildMeituanBrowserProfileLoginOnlyRunOptions = requireMeituanStatic('buildMeituanBrowserProfileLoginOnlyRunOptions');
+            const resolveMeituanBrowserCaptureSystemHotelId = requireMeituanStatic('resolveMeituanBrowserCaptureSystemHotelId');
+            const resolveMeituanSelectedHotelConfigAction = requireMeituanStatic('resolveMeituanSelectedHotelConfigAction');
+            const buildMeituanRankingReturnTargetState = requireMeituanStatic('buildMeituanRankingReturnTargetState');
+            const buildMeituanBrowserSupplementCaptureState = requireMeituanStatic('buildMeituanBrowserSupplementCaptureState');
+            const buildMeituanBrowserCaptureCopyCommandState = requireMeituanStatic('buildMeituanBrowserCaptureCopyCommandState');
+            const buildMeituanBrowserCaptureClearPayloadState = requireMeituanStatic('buildMeituanBrowserCaptureClearPayloadState');
+            const buildMeituanBrowserCaptureConfigSyncState = requireMeituanStatic('buildMeituanBrowserCaptureConfigSyncState');
+            const buildMeituanBrowserCaptureRunSectionsState = requireMeituanStatic('buildMeituanBrowserCaptureRunSectionsState');
+            const buildMeituanBrowserCaptureSelectedSectionsText = requireMeituanStatic('buildMeituanBrowserCaptureSelectedSectionsText');
+            const buildMeituanBrowserCaptureCommand = requireMeituanStatic('buildMeituanBrowserCaptureCommand');
+            const buildMeituanBrowserCaptureReadinessNotice = requireMeituanStatic('buildMeituanBrowserCaptureReadinessNotice');
             const getMeituanExposureMetric = requireMeituanStatic('getMeituanExposureMetric');
             const getMeituanClickMetric = requireMeituanStatic('getMeituanClickMetric');
             const getMeituanVisitorMetric = requireMeituanStatic('getMeituanVisitorMetric');
@@ -20658,50 +20751,27 @@
             const meituanAdsForm = ref(createMeituanAdsForm());
             const meituanAdsResult = ref(null);
             const defaultCtripLoginUrl = 'https://ebooking.ctrip.com/home/mainland';
+            const defaultMeituanLoginUrl = 'https://me.meituan.com/ebooking/';
             const meituanBrowserCaptureForm = ref(createMeituanBrowserCaptureForm());
             const meituanBrowserCaptureResult = ref(null);
             const meituanBrowserCaptureRunning = ref(false);
             const meituanBrowserCapturePresets = getMeituanBrowserCapturePresets();
             const meituanBrowserCaptureSupplementModules = getMeituanBrowserCaptureSupplementModules();
             const meituanBrowserCaptureSupplementCounts = computed(() => buildMeituanBrowserCaptureSupplementCounts(meituanBrowserCaptureResult.value || {}));
-            const meituanBrowserCaptureSelectedSectionsText = computed(() => {
-                const sectionLabels = {
-                    traffic: '流量',
-                    orders: '订单',
-                    reviews: '评论聚合',
-                    ads: '广告',
-                    peer_rank: '同行排名',
-                    traffic_analysis: '流量分析',
-                    search_keywords: '搜索词',
-                    traffic_forecast: '未来30天预测',
-                };
-                const sections = normalizeMeituanCaptureSections(meituanBrowserCaptureForm.value.captureSections);
-                if (!sections.length) return '未选择';
-                return sections.map(section => sectionLabels[section] || section).join('、');
-            });
-            const meituanBrowserCaptureCommand = computed(() => {
-                const storeId = String(meituanBrowserCaptureForm.value.storeId || meituanForm.value.poiId || '').trim();
-                const hotelId = String(meituanForm.value.hotelId || user.value?.hotel_id || '').trim();
-                if (!storeId || !hotelId) {
-                    return '请先选择目标酒店并填写美团门店标识';
-                }
-                const poiId = String(meituanBrowserCaptureForm.value.poiId || storeId || '').trim();
-                const poiName = String(meituanBrowserCaptureForm.value.poiName || getHotelNameById(meituanForm.value.hotelId) || '').trim();
-                const adsUrl = String(meituanBrowserCaptureForm.value.adsUrl || '').trim();
-                const dataPeriod = String(meituanBrowserCaptureForm.value.dataPeriod || '').trim();
-                const args = [
-                    'node scripts/meituan_browser_capture.mjs',
-                    `--store-id=${storeId}`,
-                    `--system-hotel-id=${hotelId}`,
-                ];
-                if (poiId && poiId !== storeId) args.push(`--poi-id=${poiId}`);
-                if (poiName) args.push(`--poi-name="${poiName.replace(/"/g, '\\"')}"`);
-                const sections = normalizeMeituanCaptureSections(meituanBrowserCaptureForm.value.captureSections);
-                if (sections.length) args.push(`--sections=${sections.join(',')}`);
-                if (dataPeriod) args.push(`--data-period=${dataPeriod}`);
-                if ((sections.includes('ads') || sections.length === 0) && adsUrl) args.push(`--ads-url="${adsUrl.replace(/"/g, '\\"')}"`);
-                return args.join(' ');
-            });
+            const meituanBrowserCaptureSelectedSectionsText = computed(() => (
+                buildMeituanBrowserCaptureSelectedSectionsText(meituanBrowserCaptureForm.value.captureSections)
+            ));
+            const meituanBrowserCaptureCommand = computed(() => buildMeituanBrowserCaptureCommand({
+                form: meituanBrowserCaptureForm.value,
+                rankingForm: meituanForm.value,
+                userHotelId: user.value?.hotel_id,
+                hotelName: getHotelNameById(meituanForm.value.hotelId),
+            }));
+            const meituanBrowserCaptureReadinessNotice = computed(() => buildMeituanBrowserCaptureReadinessNotice({
+                form: meituanBrowserCaptureForm.value,
+                rankingForm: meituanForm.value,
+                userHotelId: user.value?.hotel_id,
+            }));
             // 美团差评获取表单
             const meituanCommentForm = ref({
                 partnerId: '',
@@ -20793,16 +20863,11 @@
             ));
 
             // 美团配置管理
-            const meituanConfigForm = ref({
-                id: null,
-                name: '',
-                hotel_id: '',
-                partner_id: '',
-                poi_id: '',
-                cookies: '',
-                hotel_room_count: '',
-                competitor_room_count: '',
-            });
+            const createEmptyMeituanConfigForm = requireMeituanStatic('createEmptyMeituanConfigForm');
+            const buildMeituanConfigDeleteUrl = requireMeituanStatic('buildMeituanConfigDeleteUrl');
+            const buildMeituanConfigDeleteSuccessState = requireMeituanStatic('buildMeituanConfigDeleteSuccessState');
+            const buildMeituanConfigDeleteFailureState = requireMeituanStatic('buildMeituanConfigDeleteFailureState');
+            const meituanConfigForm = ref(createEmptyMeituanConfigForm());
             const meituanConfigList = ref([]);
             const meituanBookmarklet = ref('');
             const showConfigHelp = ref(false); // 显示配置获取帮助
@@ -20823,199 +20888,41 @@
             const meituanSortField = ref('roomNights'); // 当前排序字段
             const meituanSortOrder = ref('desc'); // 排序方式: asc/desc
             const buildMeituanRankDisplayRows = requireMeituanStatic('buildMeituanRankDisplayRows');
-            const buildMeituanTopSummaryFallbackRows = requireMeituanStatic('buildMeituanTopSummaryFallbackRows');
+            const resolveMeituanTopSummaryRows = requireMeituanStatic('resolveMeituanTopSummaryRows');
             const findMeituanDynamicSelfRankRow = requireMeituanStatic('findMeituanDynamicSelfRankRow');
             const buildMeituanDisplayedHotelsList = requireMeituanStatic('buildMeituanDisplayedHotelsList');
             const resolveMeituanSortState = requireMeituanStatic('resolveMeituanSortState');
             const resolveMeituanTablePage = requireMeituanStatic('resolveMeituanTablePage');
             const meituanRankedHotelsList = computed(() => buildMeituanRankDisplayRows(meituanHotelsList.value, meituanSortField.value));
-            const meituanFallbackMetricNumber = (value) => {
-                const normalized = typeof value === 'string'
-                    ? value.replace(/[,，¥￥%\s]/g, '')
-                    : value;
-                const number = Number(normalized);
-                return Number.isFinite(number) ? number : 0;
-            };
-            const meituanFallbackHasPositiveMetric = (rows, field) => rows.some(row => meituanFallbackMetricNumber(row?.[field]) > 0);
-            const meituanFallbackSum = (rows, field) => rows.reduce((sum, row) => sum + Math.max(0, meituanFallbackMetricNumber(row?.[field])), 0);
-            const meituanFallbackAverage = (rows, field, percent = false) => {
-                const values = rows
-                    .map(row => meituanFallbackMetricNumber(row?.[field]))
-                    .filter(value => value > 0)
-                    .map(value => (percent && value <= 1 ? value * 100 : value));
-                if (!values.length) {
-                    return 0;
-                }
-                return values.reduce((sum, value) => sum + value, 0) / values.length;
-            };
-            const meituanFallbackHhi = (rows, field) => {
-                const values = rows.map(row => Math.max(0, meituanFallbackMetricNumber(row?.[field]))).filter(value => value > 0);
-                const total = values.reduce((sum, value) => sum + value, 0);
-                if (total <= 0) {
-                    return 0;
-                }
-                return values.reduce((sum, value) => sum + Math.pow((value / total) * 100, 2), 0);
-            };
-            const meituanFallbackPriceSigma = (rows) => {
-                const prices = rows
-                    .map(row => {
-                        const explicit = meituanFallbackMetricNumber(row?.avgRoomPrice);
-                        if (explicit > 0) {
-                            return explicit;
-                        }
-                        const revenue = meituanFallbackMetricNumber(row?.roomRevenue);
-                        const nights = meituanFallbackMetricNumber(row?.roomNights);
-                        return revenue > 0 && nights > 0 ? revenue / nights : 0;
-                    })
-                    .filter(value => value > 0);
-                if (prices.length < 2) {
-                    return 0;
-                }
-                const avg = prices.reduce((sum, value) => sum + value, 0) / prices.length;
-                if (avg <= 0) {
-                    return 0;
-                }
-                const variance = prices.reduce((sum, value) => sum + Math.pow(value - avg, 2), 0) / prices.length;
-                return Math.sqrt(variance) / avg * 100;
-            };
-            const meituanFallbackNumberText = (value, decimals = 0) => {
-                if (!(value > 0)) {
-                    return '-';
-                }
-                const normalized = decimals > 0 ? Number(value.toFixed(decimals)) : Math.round(value);
-                return formatNumber(normalized);
-            };
-            const meituanFallbackMoneyText = (value) => (value > 0 ? `¥${formatNumber(Math.floor(value))}` : '-');
-            const meituanFallbackPercentText = (value) => (value > 0 ? `${toFixedSafe(value, 2, '0.00')}%` : '-');
-            const meituanFallbackMetricText = (rows, field, decimals = 0) => (
-                meituanFallbackHasPositiveMetric(rows, field)
-                    ? meituanFallbackNumberText(meituanFallbackSum(rows, field), decimals)
-                    : '-'
-            );
-            const meituanFallbackMarketInventory = () => meituanFallbackMetricNumber(
-                meituanForm.value?.competitorRoomCount
-                || selectedMeituanHotelConfig.value?.competitor_room_count
-                || selectedMeituanHotelConfig.value?.competitorRoomCount
-            );
-            const meituanFallbackRankHealth = (rows) => {
-                const groups = [
-                    ['roomNights', 'roomRevenue', 'avgRoomPrice'],
-                    ['salesRoomNights', 'sales', 'avgSalesPrice'],
-                    ['exposure', 'views', 'orderCount'],
-                    ['viewConversion', 'payConversion', 'absoluteConversion'],
-                ];
-                const readyCount = groups.filter(fields => fields.some(field => meituanFallbackHasPositiveMetric(rows, field))).length;
-                return { readyCount, totalCount: groups.length };
-            };
-            const meituanFallbackPlatformTags = (rows) => {
-                const taggedRows = rows.filter(row => Array.isArray(row?.platformTags) && row.platformTags.length > 0);
-                const vipRows = rows.filter(row => {
-                    if (row?.hasVipTag) {
-                        return true;
-                    }
-                    const tags = Array.isArray(row?.platformTags) ? row.platformTags : [];
-                    return tags.some(tag => String(tag || '').toUpperCase() === 'VIP');
-                });
-                return { returnedCount: taggedRows.length, vipCount: vipRows.length };
-            };
-            const meituanFallbackMarketPriceSignal = (avgRoomPrice, avgSalesPrice) => {
-                if (!(avgRoomPrice > 0) || !(avgSalesPrice > 0)) {
-                    return '数据不足';
-                }
-                const ratio = avgSalesPrice / avgRoomPrice;
-                if (ratio < 0.92) {
-                    return '销售价偏低';
-                }
-                if (ratio > 1.08) {
-                    return '销售价偏高';
-                }
-                return '价格稳定';
-            };
-            const meituanFallbackCard = (key, label, value, valueClass, panelClass, level = '', levelClass = 'text-gray-500') => ({
-                key,
-                label,
-                value,
-                level,
-                panelClass,
-                valueClass,
-                levelClass,
+            const resolveMeituanFallbackMarketInventory = requireMeituanStatic('resolveMeituanFallbackMarketInventory');
+            const resolveMeituanBusinessSummaryCards = requireMeituanStatic('resolveMeituanBusinessSummaryCards');
+            const meituanFallbackMarketInventory = () => resolveMeituanFallbackMarketInventory({
+                form: meituanForm.value,
+                selectedConfig: selectedMeituanHotelConfig.value,
             });
-            const meituanBusinessSummaryCards = computed(() => {
-                const cards = meituanBusinessSummary.value?.cards;
-                if (Array.isArray(cards) && cards.length) {
-                    return cards;
-                }
-
-                const rows = Array.isArray(meituanRankedHotelsList.value) ? meituanRankedHotelsList.value : [];
-                if (!rows.length) {
-                    return [];
-                }
-
-                const selfRow = rows.find(row => row?.isSelf) || null;
-                const rankHealth = meituanFallbackRankHealth(rows);
-                const platformTags = meituanFallbackPlatformTags(rows);
-                const totalRoomNights = meituanFallbackSum(rows, 'roomNights');
-                const totalRoomRevenue = meituanFallbackSum(rows, 'roomRevenue');
-                const totalSalesRoomNights = meituanFallbackSum(rows, 'salesRoomNights');
-                const totalSales = meituanFallbackSum(rows, 'sales');
-                const totalExposure = meituanFallbackSum(rows, 'exposure');
-                const totalViews = meituanFallbackSum(rows, 'views');
-                const avgRoomPrice = totalRoomRevenue > 0 && totalRoomNights > 0 ? totalRoomRevenue / totalRoomNights : 0;
-                const avgSalesPrice = totalSales > 0 && totalSalesRoomNights > 0 ? totalSales / totalSalesRoomNights : 0;
-                const marketInventory = meituanFallbackMarketInventory();
-                const marketVitalityRate = marketInventory > 0 ? totalRoomNights / marketInventory * 100 : 0;
-                const priceSigma = meituanFallbackPriceSigma(rows);
-                const inventoryTurnoverRate = totalRoomNights > 0 && totalSalesRoomNights > 0 ? totalSalesRoomNights / totalRoomNights * 100 : 0;
-                const revenueConcentration = meituanFallbackHhi(rows, 'sales');
-                const visitConcentration = meituanFallbackHhi(rows, 'views');
-                const operationFocus = revenueConcentration > 0 && visitConcentration > 0
-                    ? (revenueConcentration > visitConcentration ? '提高转化率' : '抢曝光流量')
-                    : '数据不足';
-                const marketPriceSignal = meituanFallbackMarketPriceSignal(avgRoomPrice, avgSalesPrice);
-                return [
-                    meituanFallbackCard('fallback-hotel-count', '酒店总数', String(rows.length), 'text-gray-900', 'bg-blue-50 border border-blue-200', '当前表内'),
-                    meituanFallbackCard('fallback-rank-health', '榜单健康度', `${rankHealth.readyCount}/${rankHealth.totalCount}`, 'text-blue-700', 'bg-blue-50 border border-blue-200', '四类榜单'),
-                    meituanFallbackCard('fallback-self-position', '本店圈内位置', selfRow?.circlePositionText || '本店未返回', selfRow ? 'text-emerald-700' : 'text-gray-500', 'bg-emerald-50 border border-emerald-200', selfRow?.gapToLeaderText || '检查 POI 映射', selfRow ? 'text-emerald-600' : 'text-gray-500'),
-                    meituanFallbackCard('fallback-platform-vip-tags', 'VIP竞对标签', platformTags.returnedCount > 0 ? `VIP ${formatNumber(platformTags.vipCount)}家` : '未返回', platformTags.vipCount > 0 ? 'text-orange-700' : 'text-gray-500', 'bg-orange-50 border border-orange-200', platformTags.returnedCount > 0 ? '平台标签' : '平台未返回'),
-                    meituanFallbackCard('fallback-market-inventory', '市场总库存', marketInventory > 0 ? formatNumber(marketInventory) : '-', 'text-indigo-700', 'bg-indigo-50 border border-indigo-200', marketInventory > 0 ? '配置库存' : '需配置库存'),
-                    meituanFallbackCard('fallback-market-vitality', '市场活力', meituanFallbackPercentText(marketVitalityRate), 'text-blue-700', 'bg-blue-50 border border-blue-200', marketInventory > 0 ? '间夜/库存' : '数据不足'),
-                    meituanFallbackCard('fallback-price-sigma', '竞争健康度', meituanFallbackPercentText(priceSigma), 'text-orange-700', 'bg-orange-50 border border-orange-200', priceSigma > 25 ? '分化' : (priceSigma > 0 ? '稳定' : '数据不足'), priceSigma > 25 ? 'text-red-500' : 'text-gray-500'),
-                    meituanFallbackCard('fallback-market-price-signal', '市场价格预估', marketPriceSignal, marketPriceSignal === '数据不足' ? 'text-gray-500' : 'text-amber-700', 'bg-amber-50 border border-amber-200', avgRoomPrice > 0 && avgSalesPrice > 0 ? '销售/入住' : '数据不足'),
-                    meituanFallbackCard('fallback-inventory-turnover', '库存周转率', meituanFallbackPercentText(inventoryTurnoverRate), 'text-cyan-700', 'bg-cyan-50 border border-cyan-200', totalRoomNights > 0 ? '销售/入住' : '数据不足'),
-                    meituanFallbackCard('fallback-revenue-concentration', '收益集中度', meituanFallbackNumberText(revenueConcentration, 2), 'text-orange-700', 'bg-orange-50 border border-orange-200', totalSales > 0 ? '销售额HHI' : '数据不足'),
-                    meituanFallbackCard('fallback-visit-concentration', '浏览/访客集中度', meituanFallbackNumberText(visitConcentration, 2), 'text-orange-700', 'bg-orange-50 border border-orange-200', totalViews > 0 ? '浏览HHI' : '数据不足'),
-                    meituanFallbackCard('fallback-operation-focus', '运营重心', operationFocus, operationFocus === '数据不足' ? 'text-gray-500' : 'text-indigo-700', 'bg-indigo-50 border border-indigo-200'),
-                    meituanFallbackCard('fallback-total-room-nights', '总入住间夜', meituanFallbackMetricText(rows, 'roomNights'), 'text-red-700', 'bg-red-50 border border-red-200'),
-                    meituanFallbackCard('fallback-total-room-revenue', '总房费收入', meituanFallbackMoneyText(totalRoomRevenue), 'text-red-700', 'bg-red-50 border border-red-200'),
-                    meituanFallbackCard('fallback-avg-room-price', '商圈平均房价', meituanFallbackMoneyText(avgRoomPrice), 'text-red-700', 'bg-red-50 border border-red-200'),
-                    meituanFallbackCard('fallback-total-sales-room-nights', '总销售间夜', meituanFallbackMetricText(rows, 'salesRoomNights'), 'text-green-700', 'bg-green-50 border border-green-200'),
-                    meituanFallbackCard('fallback-total-sales', '总销售额', meituanFallbackMoneyText(totalSales), 'text-green-700', 'bg-green-50 border border-green-200'),
-                    meituanFallbackCard('fallback-avg-sales-price', '商圈平均销售房价', meituanFallbackMoneyText(avgSalesPrice), 'text-green-700', 'bg-green-50 border border-green-200'),
-                    meituanFallbackCard('fallback-total-exposure', '总曝光量', meituanFallbackMetricText(rows, 'exposure'), 'text-blue-700', 'bg-blue-50 border border-blue-200'),
-                    meituanFallbackCard('fallback-total-views', '总浏览量', meituanFallbackMetricText(rows, 'views'), 'text-blue-700', 'bg-blue-50 border border-blue-200'),
-                    meituanFallbackCard('fallback-total-order-count', '总订单量', meituanFallbackMetricText(rows, 'orderCount'), 'text-blue-700', 'bg-blue-50 border border-blue-200'),
-                    meituanFallbackCard('fallback-avg-view-conversion', '平均浏览转化率', meituanFallbackPercentText(meituanFallbackAverage(rows, 'viewConversion', true)), 'text-purple-700', 'bg-purple-50 border border-purple-200'),
-                    meituanFallbackCard('fallback-avg-pay-conversion', '平均支付转化率', meituanFallbackPercentText(meituanFallbackAverage(rows, 'payConversion', true)), 'text-purple-700', 'bg-purple-50 border border-purple-200'),
-                    meituanFallbackCard('fallback-avg-absolute-conversion', '绝对转化率', meituanFallbackPercentText(meituanFallbackAverage(rows, 'absoluteConversion', true)), 'text-purple-700', 'bg-purple-50 border border-purple-200'),
-                ];
-            });
+            const meituanBusinessSummaryCards = computed(() => resolveMeituanBusinessSummaryCards({
+                businessSummary: meituanBusinessSummary.value,
+                rankedRows: meituanRankedHotelsList.value,
+                marketInventory: meituanFallbackMarketInventory(),
+                formatNumber,
+                toFixedSafe,
+            }));
             const meituanRankInsightCards = computed(() => buildMeituanRankInsightCards(meituanBusinessSummary.value));
             const meituanVisibleRankInsightCards = computed(() => buildMeituanVisibleRankInsightCards(meituanRankInsightCards.value));
             const meituanRankHealthRows = computed(() => buildMeituanRankHealthRows(meituanBusinessSummary.value));
-            const meituanTopSummaryRows = computed(() => {
-                const rows = meituanBusinessSummary.value?.top_summary_rows;
-                if (Array.isArray(rows) && rows.length) {
-                    return rows;
-                }
-                return buildMeituanTopSummaryFallbackRows(meituanRankedHotelsList.value);
-            });
+            const meituanTopSummaryRows = computed(() => resolveMeituanTopSummaryRows({
+                businessSummary: meituanBusinessSummary.value,
+                rankedRows: meituanRankedHotelsList.value,
+            }));
             const meituanFetchSuccess = ref(false); // 美团获取成功标志
             const meituanSavedCount = ref(0); // 美团保存的数据条数
             const meituanDataFetchTime = ref(''); // 美团数据获取时间
             const isMeituanPendingResult = requireMeituanStatic('isMeituanPendingResult');
             const isMeituanBackgroundResult = requireMeituanStatic('isMeituanBackgroundResult');
-            const meituanFetchInProgress = computed(() => Array.isArray(onlineDataResult.value) && onlineDataResult.value.some(isMeituanPendingResult));
-            const meituanFetchBackgroundAccepted = computed(() => Array.isArray(onlineDataResult.value) && onlineDataResult.value.some(isMeituanBackgroundResult));
+            const hasMeituanPendingResults = requireMeituanStatic('hasMeituanPendingResults');
+            const hasMeituanBackgroundResults = requireMeituanStatic('hasMeituanBackgroundResults');
+            const meituanFetchInProgress = computed(() => hasMeituanPendingResults(onlineDataResult.value));
+            const meituanFetchBackgroundAccepted = computed(() => hasMeituanBackgroundResults(onlineDataResult.value));
             const buildCompetitorSummaryCoreCards = requireMeituanStatic('buildCompetitorSummaryCoreCards');
             const buildHomeCompetitorSummaryCards = requireMeituanStatic('buildHomeCompetitorSummaryCards');
             const runMeituanBatchFetchFlow = requireMeituanStatic('runMeituanBatchFetchFlow');
@@ -21027,6 +20934,43 @@
             const runMeituanManualTabSwitch = requireMeituanStatic('runMeituanManualTabSwitch');
             const isMeituanRankingFormAlignedWithConfig = requireMeituanStatic('isMeituanRankingFormAlignedWithConfig');
             const buildMeituanRankingFetchResetState = requireMeituanStatic('buildMeituanRankingFetchResetState');
+            const resolveMeituanConfigSaveCookieState = requireMeituanStatic('resolveMeituanConfigSaveCookieState');
+            const buildMeituanConfigAutoName = requireMeituanStatic('buildMeituanConfigAutoName');
+            const buildMeituanConfigSaveRequestBody = requireMeituanStatic('buildMeituanConfigSaveRequestBody');
+            const resolveMeituanConfigSaveRequestHotelId = requireMeituanStatic('resolveMeituanConfigSaveRequestHotelId');
+            const buildMeituanConfigSaveSuccessState = requireMeituanStatic('buildMeituanConfigSaveSuccessState');
+            const buildMeituanConfigSaveFailureState = requireMeituanStatic('buildMeituanConfigSaveFailureState');
+            const buildMeituanConfigUseState = requireMeituanStatic('buildMeituanConfigUseState');
+            const buildMeituanConfigEditState = requireMeituanStatic('buildMeituanConfigEditState');
+            const buildMeituanBookmarkletSuccessState = requireMeituanStatic('buildMeituanBookmarkletSuccessState');
+            const buildMeituanBookmarkletFailureState = requireMeituanStatic('buildMeituanBookmarkletFailureState');
+            const findMeituanConfigForHotel = requireMeituanStatic('findMeituanConfigForHotel');
+            const resolveMeituanConfigStatus = requireMeituanStatic('resolveMeituanConfigStatus');
+            const resolveCanFetchMeituanRankingData = requireMeituanStatic('resolveCanFetchMeituanRankingData');
+            const resolveMeituanManualFetchConfigProofPending = requireMeituanStatic('resolveMeituanManualFetchConfigProofPending');
+            const resolveMeituanManualFetchConfigCandidate = requireMeituanStatic('resolveMeituanManualFetchConfigCandidate');
+            const resolveMeituanConfigListResponse = requireMeituanStatic('resolveMeituanConfigListResponse');
+            const resolveMeituanConfigListApplyAction = requireMeituanStatic('resolveMeituanConfigListApplyAction');
+            const resolveMeituanConfigListCachedResult = requireMeituanStatic('resolveMeituanConfigListCachedResult');
+            const resolveMeituanConfigListLoadingAction = requireMeituanStatic('resolveMeituanConfigListLoadingAction');
+            const buildMeituanConfigListSuccessState = requireMeituanStatic('buildMeituanConfigListSuccessState');
+            const buildMeituanConfigListFailureAction = requireMeituanStatic('buildMeituanConfigListFailureAction');
+            const buildMeituanConfigListStartState = requireMeituanStatic('buildMeituanConfigListStartState');
+            const buildMeituanConfigListFinishState = requireMeituanStatic('buildMeituanConfigListFinishState');
+            const getMeituanConfigDetailVersion = requireMeituanStatic('getMeituanConfigDetailVersion');
+            const buildMeituanConfigDetailCacheKey = requireMeituanStatic('buildMeituanConfigDetailCacheKey');
+            const resolveMeituanConfigDetailClearTarget = requireMeituanStatic('resolveMeituanConfigDetailClearTarget');
+            const resolveMeituanConfigDetailLoadTarget = requireMeituanStatic('resolveMeituanConfigDetailLoadTarget');
+            const buildMeituanConfigDetailRequestUrl = requireMeituanStatic('buildMeituanConfigDetailRequestUrl');
+            const resolveMeituanConfigDetailResponse = requireMeituanStatic('resolveMeituanConfigDetailResponse');
+            const shouldSkipMeituanConfigDetailLoad = requireMeituanStatic('shouldSkipMeituanConfigDetailLoad');
+            const resolveMeituanConfigDetailCachedResult = requireMeituanStatic('resolveMeituanConfigDetailCachedResult');
+            const resolveMeituanConfigDetailCacheLookup = requireMeituanStatic('resolveMeituanConfigDetailCacheLookup');
+            const buildMeituanConfigDetailCacheEntry = requireMeituanStatic('buildMeituanConfigDetailCacheEntry');
+            const resolveMeituanConfigDetailCacheStorePlan = requireMeituanStatic('resolveMeituanConfigDetailCacheStorePlan');
+            const resolveMeituanConfigDetailFailureAction = requireMeituanStatic('resolveMeituanConfigDetailFailureAction');
+            const resolveMeituanConfigDetailPrewarmPlan = requireMeituanStatic('resolveMeituanConfigDetailPrewarmPlan');
+            const resolveMeituanManualDefaultHotelIdFromState = requireMeituanStatic('resolveMeituanManualDefaultHotelIdFromState');
             const meituanDynamicSelfRankRow = computed(() => findMeituanDynamicSelfRankRow(meituanRankedHotelsList.value));
             const meituanDisplayedHotelsList = computed(() => buildMeituanDisplayedHotelsList(meituanRankedHotelsList.value, meituanSortField.value, meituanSortOrder.value));
             // 排序函数
@@ -24010,7 +23954,7 @@
             });
             const dailyOpsPrimaryActions = requireCompassStatic('dailyOpsPrimaryActions');
             const autoFetchStaticScript = 'auto-fetch-static.js';
-            const autoFetchStaticVersion = '20260616-display-helpers';
+            const autoFetchStaticVersion = '20260708-local-auth-copy';
             const autoFetchStatic = ref(window.SUXI_AUTO_FETCH_STATIC && typeof window.SUXI_AUTO_FETCH_STATIC === 'object' ? window.SUXI_AUTO_FETCH_STATIC : null);
             const autoFetchStaticLoadError = ref('');
             let autoFetchStaticLoadPromise = null;
@@ -25238,13 +25182,13 @@
                                 key: 'open-login',
                                 label: '打开平台登录',
                                 status: hasConfiguredProfile ? 'done' : 'active',
-                                description: hasConfiguredProfile ? '已存在平台数据源和浏览器 Profile。' : '先补齐平台数据源和授权浏览器 Profile。',
+                                description: hasConfiguredProfile ? '已存在平台数据源；授权仍以账号使用者本机验证为准。' : '账号使用者先在自己的电脑完成平台授权，再导入本机采集证据。',
                             },
                             {
                                 key: 'user-verification',
                                 label: '等待用户验证',
                                 status: loginVerified ? 'done' : (hasConfiguredProfile ? (loginBlocked ? 'blocked' : 'active') : 'pending'),
-                                description: loginVerified ? '用户已在授权浏览器内完成验证。' : '在授权浏览器内完成人工登录、短信或人机验证。',
+                                description: loginVerified ? '用户已在自己的授权浏览器内完成验证。' : '在账号使用者自己的浏览器内完成人工登录、短信或人机验证。',
                             },
                             {
                                 key: 'confirm-login-state',
@@ -25296,9 +25240,9 @@
             );
             const autoFetchRunningHint = computed(() => {
                 const elapsed = autoFetchRunElapsedSeconds.value;
-                if (elapsed < 20) return `正在启动登录会话采集，${autoFetchCtripExecutionText.value}。`;
+                if (elapsed < 20) return `正在启动本机 Profile 采集，${autoFetchCtripExecutionText.value}。`;
                 if (elapsed < 120) return '携程后台页面正在加载并触发业务接口，完成后会自动显示入库事实行和阶段耗时。';
-                return '仍在等待会话采集结果；若长期超过 5 分钟，请刷新状态并检查登录会话是否被占用或登录失效。';
+                return '仍在等待本机 Profile 采集结果；若长期超过 5 分钟，请刷新状态并检查 Profile 是否被占用或授权失效。';
             });
             const startAutoFetchRunTimer = () => {
                 if (autoFetchRunTimer) {
@@ -26767,9 +26711,9 @@
                 return {
                     ...task,
                     status: 'failed',
-                    status_text: '登录任务超时',
+                    status_text: '本机授权任务超时',
                     done: true,
-                    message: '上一次登录任务未继续执行，可重新触发登录',
+                    message: '上一次本机授权未继续执行，请由账号使用者在本机重新授权',
                 };
             };
 
@@ -26909,14 +26853,23 @@
                     });
                     if (taskForView.status === 'logged_in') {
                         const warning = taskForView.data_source_error ? `，但数据源绑定失败：${taskForView.data_source_error}` : '';
-                        showToast((taskForView.message || '平台登录任务已完成') + warning, taskForView.data_source_error ? 'warning' : 'success');
+                        showToast((taskForView.message || '平台本机授权已完成') + warning, taskForView.data_source_error ? 'warning' : 'success');
                     } else {
-                        showToast(taskForView.message || '平台登录失败，请重新登录平台账号', 'error');
+                        showToast(taskForView.message || '平台授权失败，请由账号使用者在本机重新授权', 'error');
                     }
                 } catch (error) {
                     showToast('平台登录状态读取失败: ' + error.message, 'error');
                     retryPoll();
                 }
+            };
+
+            const localPlatformAuthorizationUrl = (platform) => {
+                return platform === 'meituan' ? defaultMeituanLoginUrl : defaultCtripLoginUrl;
+            };
+
+            const clientLocalAuthorizationRequired = (platform) => {
+                const platformName = platform === 'meituan' ? '美团' : '携程';
+                return `${platformName}授权必须在账号使用者自己的电脑完成；宿析不会在服务器或管理员电脑打开平台登录。授权完成后请导入浏览器辅助采集 JSON 或本机采集器证据。`;
             };
 
             const triggerPlatformProfileLogin = async (platform, item = null) => {
@@ -26935,32 +26888,34 @@
                 }
                 const hasDataSourceId = Number(payload.data_source_id || payload.source_id || 0) > 0;
                 if (platform === 'ctrip' && !payload.profile_id && !hasDataSourceId) {
-                    showToast('请填写携程登录会话标识，或先绑定携程登录会话数据源', 'error');
+                    showToast('请填写携程浏览器 Profile 标识，或先绑定账号使用者本机授权数据源', 'error');
                     return;
                 }
                 if (platform === 'meituan' && !payload.store_id && !hasDataSourceId) {
-                    showToast('请填写美团门店标识，或先绑定美团登录会话数据源', 'error');
+                    showToast('请填写美团门店标识，或先绑定账号使用者本机授权数据源', 'error');
                     return;
                 }
 
-                try {
-                    clearPlatformProfileLoginTimer(platform);
-                    const res = await request(`/online-data/profile-login-trigger/${platform}`, {
-                        method: 'POST',
-                        body: JSON.stringify(payload),
-                    });
-                    if (res.code === 200) {
-                        const task = res.data || {};
-                        upsertPlatformProfileLoginTask(platform, task);
-                        showToast(res.message || '平台登录任务已启动');
-                        if (task.task_id) {
-                            platformProfileLoginPollTimers[platform] = setTimeout(() => pollPlatformProfileLoginStatus(platform, task.task_id), 3000);
-                        }
-                    } else {
-                        showToast(res.message || '平台登录任务启动失败', 'error');
-                    }
-                } catch (error) {
-                    showToast('平台登录任务启动失败: ' + error.message, 'error');
+                clearPlatformProfileLoginTimer(platform);
+                browserAssistImportForm.value.system_hotel_id = String(hotelId);
+                currentPage.value = 'online-data';
+                await nextTick();
+                openPlatformSourcesTab({ force: true, delayMs: 0 });
+                openTargetSite(localPlatformAuthorizationUrl(platform));
+                showToast(clientLocalAuthorizationRequired(platform), 'warning');
+                upsertPlatformProfileLoginTask(platform, {
+                    platform,
+                    status: 'blocked',
+                    done: true,
+                    status_code: 'client_local_authorization_required',
+                    error_code: 'client_local_authorization_required',
+                    authorization_policy: 'account_owner_local_computer_only',
+                    server_browser_launch_disabled: true,
+                    message: clientLocalAuthorizationRequired(platform),
+                    updated_at: new Date().toISOString(),
+                });
+                if (payload.data_source_id) {
+                    schedulePlatformDataSourcesRefresh();
                 }
             };
 
@@ -27954,15 +27909,14 @@
             let suppressNextMeituanHotelConfigApply = false;
             const resolveMeituanManualDefaultHotelId = () => {
                 const hotelPool = permittedHotels.value.length ? permittedHotels.value : hotels.value;
-                return String(
-                    meituanForm.value.hotelId
-                    || autoFetchHotelId.value
-                    || selectedCtripHotelId.value
-                    || onlineDataFilter.value.hotel_id
-                    || user.value?.hotel_id
-                    || hotelPool?.[0]?.id
-                    || ''
-                ).trim();
+                return resolveMeituanManualDefaultHotelIdFromState({
+                    currentHotelId: meituanForm.value.hotelId,
+                    autoFetchHotelId: autoFetchHotelId.value,
+                    selectedCtripHotelId: selectedCtripHotelId.value,
+                    onlineDataHotelId: onlineDataFilter.value.hotel_id,
+                    userHotelId: user.value?.hotel_id,
+                    hotelPool,
+                });
             };
             const ensureMeituanManualHotelSelected = () => {
                 const hotelId = resolveMeituanManualDefaultHotelId();
@@ -29216,6 +29170,7 @@
             const userDeleteReferences = ref([]);
             const userDeleteCanForce = ref(false);
             const lastUserIssueGuideText = ref('');
+            const showLastUserIssueGuideText = ref(false);
             const showPermissionModal = ref(false);
             const showSystemConfigModal = ref(false);
             const showDataConfigModal = ref(false);
@@ -29524,6 +29479,31 @@
                 return 'custom';
             };
 
+            const userVipSequenceNumber = (u = {}) => {
+                const match = String(u?.username || '').trim().match(/^VIP(\d+)$/i);
+                return match ? Number(match[1]) : null;
+            };
+
+            const compareUserDisplayOrder = (a = {}, b = {}) => {
+                const isAdminA = userRoleIdentityKey(a) === 'admin';
+                const isAdminB = userRoleIdentityKey(b) === 'admin';
+                if (isAdminA !== isAdminB) return isAdminA ? -1 : 1;
+                if (isAdminA && isAdminB) return Number(a?.id || 0) - Number(b?.id || 0);
+
+                const vipA = userVipSequenceNumber(a);
+                const vipB = userVipSequenceNumber(b);
+                const hasVipA = vipA !== null;
+                const hasVipB = vipB !== null;
+                if (hasVipA !== hasVipB) return hasVipA ? -1 : 1;
+                if (hasVipA && vipA !== vipB) return vipA - vipB;
+
+                const usernameCompare = String(a?.username || '').localeCompare(String(b?.username || ''), 'zh-Hans-CN', {
+                    numeric: true,
+                    sensitivity: 'base',
+                });
+                return usernameCompare || Number(a?.id || 0) - Number(b?.id || 0);
+            };
+
             const userSummary = computed(() => {
                 const rows = users.value.filter(u => u && typeof u === 'object');
                 return {
@@ -29577,7 +29557,16 @@
                 return role ? withRolePermissionTags(roleIssueProfile(role)) : null;
             });
 
+            const canEditUserUsername = computed(() => {
+                if (!userForm.value?.id) return true;
+                if (!user.value?.is_super_admin) return false;
+                return selectedUserRoleGuide.value?.key === 'beta_user';
+            });
+
             const userIssueAssignedHotelIds = computed(() => normalizeUserHotelIds(userForm.value?.hotel_ids || []));
+            const allUserHotelIds = computed(() => normalizeUserHotelIds((Array.isArray(hotels.value) ? hotels.value : []).map(item => item?.id)));
+            const userAssignedHotelCount = computed(() => userIssueAssignedHotelIds.value.length);
+            const areAllUserHotelsSelected = computed(() => allUserHotelIds.value.length > 0 && userAssignedHotelCount.value === allUserHotelIds.value.length);
 
             const userIssueChecklistRows = computed(() => {
                 const profile = selectedUserRoleGuide.value;
@@ -29691,6 +29680,7 @@
                 }
                 const text = buildUserIssueGuideTextForUser(u);
                 lastUserIssueGuideText.value = text;
+                showLastUserIssueGuideText.value = false;
                 copyToClipboard(text);
             };
 
@@ -29701,6 +29691,14 @@
 
             const clearLastUserIssueGuide = () => {
                 lastUserIssueGuideText.value = '';
+                showLastUserIssueGuideText.value = false;
+            };
+
+            const toggleAllUserHotels = () => {
+                if (!user.value?.is_super_admin) return;
+                const nextHotelIds = areAllUserHotelsSelected.value ? [] : [...allUserHotelIds.value];
+                userForm.value.hotel_ids = nextHotelIds;
+                userForm.value.hotel_id = nextHotelIds[0] ? Number(nextHotelIds[0]) : null;
             };
 
             const applyUserIssueRole = (roleId) => {
@@ -29721,11 +29719,75 @@
                 pendingUserAuthorizationHotel.value = null;
             };
 
-            const betaUserRoleIdForFilter = () => {
-                const betaCard = roleIssueGuideCards.value.find(card => card?.key === 'beta_user');
-                if (betaCard?.roleId) return String(betaCard.roleId);
-                const betaRole = roles.value.find(role => roleIssueProfile(role).key === 'beta_user');
-                return betaRole?.id ? String(betaRole.id) : '';
+            const issueRoleIdForFilter = (key = '') => {
+                const normalizedKey = String(key || '').trim();
+                if (!normalizedKey) return '';
+                const matchedCard = roleIssueGuideCards.value.find(card => card?.key === normalizedKey);
+                if (matchedCard?.roleId) return String(matchedCard.roleId);
+                const matchedRole = roles.value.find(role => roleIssueProfile(role).key === normalizedKey);
+                return matchedRole?.id ? String(matchedRole.id) : '';
+            };
+
+            const betaUserRoleIdForFilter = () => issueRoleIdForFilter('beta_user');
+
+            const isUserSummaryFilterActive = (key = '') => {
+                const normalizedKey = String(key || '').trim();
+                if (normalizedKey === 'total') {
+                    return !searchUser.value && !filterUserRoleId.value && filterUserStatus.value === '' && !filterUserHotelId.value;
+                }
+                if (normalizedKey === 'active') {
+                    return !searchUser.value && !filterUserRoleId.value && String(filterUserStatus.value) === '1' && !filterUserHotelId.value;
+                }
+                if (normalizedKey === 'disabled') {
+                    return !searchUser.value && !filterUserRoleId.value && String(filterUserStatus.value) === '0' && !filterUserHotelId.value;
+                }
+                if (normalizedKey === 'beta') {
+                    const roleId = issueRoleIdForFilter('beta_user');
+                    return !!roleId && !searchUser.value && String(filterUserRoleId.value) === roleId && filterUserStatus.value === '' && !filterUserHotelId.value;
+                }
+                if (normalizedKey === 'normal') {
+                    const roleId = issueRoleIdForFilter('normal_user');
+                    return !!roleId && !searchUser.value && String(filterUserRoleId.value) === roleId && filterUserStatus.value === '' && !filterUserHotelId.value;
+                }
+                if (normalizedKey === 'unassigned') {
+                    return !searchUser.value && !filterUserRoleId.value && filterUserStatus.value === '' && filterUserHotelId.value === 'unassigned';
+                }
+                return false;
+            };
+
+            const userSummaryCardClass = (key = '') => [
+                'w-full rounded-xl border bg-white p-4 text-left shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-300',
+                isUserSummaryFilterActive(key)
+                    ? 'border-blue-300 ring-2 ring-blue-100 shadow-md'
+                    : 'border-gray-100 hover:border-blue-200 hover:shadow-md'
+            ].join(' ');
+
+            const applyUserSummaryFilter = (key = '') => {
+                searchUser.value = '';
+                filterUserRoleId.value = '';
+                filterUserStatus.value = '';
+                filterUserHotelId.value = '';
+                pendingUserAuthorizationHotel.value = null;
+                const normalizedKey = String(key || '').trim();
+                if (normalizedKey === 'active') {
+                    filterUserStatus.value = '1';
+                    return;
+                }
+                if (normalizedKey === 'disabled') {
+                    filterUserStatus.value = '0';
+                    return;
+                }
+                if (normalizedKey === 'beta') {
+                    filterUserRoleId.value = issueRoleIdForFilter('beta_user');
+                    return;
+                }
+                if (normalizedKey === 'normal') {
+                    filterUserRoleId.value = issueRoleIdForFilter('normal_user');
+                    return;
+                }
+                if (normalizedKey === 'unassigned') {
+                    filterUserHotelId.value = 'unassigned';
+                }
             };
 
             const openUserAuthorization = async (hotel = null) => {
@@ -29770,12 +29832,7 @@
                             ? hotelIds.length === 0
                             : hotelIds.includes(String(filterUserHotelId.value)));
                     return matchSearch && matchRole && matchStatus && matchHotel;
-                }).sort((a, b) => {
-                    const roleLevelA = Number(a.role?.level ?? a.role_id ?? 999);
-                    const roleLevelB = Number(b.role?.level ?? b.role_id ?? 999);
-                    if (roleLevelA !== roleLevelB) return roleLevelA - roleLevelB;
-                    return Number(a.id) - Number(b.id);
-                });
+                }).sort(compareUserDisplayOrder);
             });
 
             const buildOtaDiagnosisOption = (source, hotel, index) => {
@@ -34492,27 +34549,29 @@
             };
 
             const findMeituanConfigByHotelId = (hotelId) => {
-                if (!hotelId) return null;
-                const idText = String(hotelId);
-                const idMatched = meituanConfigList.value.find(item => String(item.system_hotel_id || item.hotel_id || '') === idText);
-                if (idMatched) return idMatched;
-
-                const hotelName = normalizeOtaConfigHotelName(getHotelNameById(hotelId));
-                if (!hotelName) return null;
-                return meituanConfigList.value.find(item => {
-                    const configHotelName = normalizeOtaConfigHotelName(item.hotel_name || item.hotelName || '');
-                    const configName = normalizeOtaConfigHotelName(item.name || '');
-                    return configHotelName === hotelName || configName === hotelName;
-                }) || null;
+                return findMeituanConfigForHotel({
+                    hotelId,
+                    hotelName: getHotelNameById(hotelId),
+                    configs: meituanConfigList.value,
+                    normalizeHotelName: normalizeOtaConfigHotelName,
+                });
             };
 
             const selectedCtripHotelConfig = computed(() => findCtripConfigByHotelId(selectedCtripHotelId.value));
             const selectedMeituanHotelConfig = computed(() => findMeituanConfigByHotelId(meituanForm.value.hotelId));
 
+            const resolveMeituanConfigStatusByHotelId = (hotelId) => {
+                if (!hotelId) return resolveMeituanConfigStatus();
+                const config = findMeituanConfigByHotelId(hotelId);
+                return resolveMeituanConfigStatus({
+                    config,
+                    missingFields: config ? meituanConfigMissingFields(config) : [],
+                });
+            };
+
             const meituanConfigMissingTextByHotelId = (hotelId) => {
                 if (!hotelId) return '';
-                const config = findMeituanConfigByHotelId(hotelId);
-                return config ? meituanConfigMissingText(config) : '';
+                return resolveMeituanConfigStatusByHotelId(hotelId).missingText || '';
             };
 
             const getBrowserProfileDataSourceByHotelAndPlatform = (hotelId, platform) => {
@@ -34541,15 +34600,15 @@
                 const profileSource = getBrowserProfileDataSourceByHotelAndPlatform(hotelId, platform);
                 if (profileSource) {
                     const profileId = profileSource.config?.profile_id || profileSource.config?.store_id || profileSource.config?.hotel_id || '';
-                    return profileId ? `登录会话 ${profileId}` : '登录会话已绑定';
+                    return profileId ? `浏览器 Profile ${profileId}` : '浏览器 Profile 已绑定';
                 }
                 if (platform === 'ctrip') {
                     const config = findCtripConfigByHotelId(hotelId);
-                    return config ? 'Cookie/API 辅助内容已保存，建议后续绑定登录会话' : '未配置，请触发携程登录';
+                    return config ? 'Cookie/API 辅助内容已保存，建议后续绑定账号使用者本机授权 Profile' : '未配置，请账号使用者本机授权携程';
                 }
                 if (platform === 'meituan') {
                     const config = findMeituanConfigByHotelId(hotelId);
-                    if (!config) return '未配置，请触发美团登录';
+                    if (!config) return '未配置，请账号使用者本机授权美团';
                     const missing = meituanConfigMissingText(config);
                     return missing ? `缺 ${missing}` : 'Cookie/API 辅助内容、接口标识和门店标识已配置';
                 }
@@ -34620,13 +34679,13 @@
                 }
                 if (statusCode === 'login_expired') {
                     return {
-                        text: '平台登录已失效，请重新登录后再采集。',
+                        text: '平台授权已失效，请由账号使用者在本机重新授权后再采集。',
                         className: 'bg-red-50 border-red-100 text-red-700',
                     };
                 }
                 if (statusCode === 'missing_config') {
                     return {
-                        text: '平台账号信息不完整，请在本行操作区打开对应平台配置补齐后，再重新登录。',
+                        text: '平台账号信息不完整，请在本行操作区打开对应平台配置补齐后，再由账号使用者本机重新授权。',
                         className: 'bg-amber-50 border-amber-100 text-amber-700',
                     };
                 }
@@ -35133,7 +35192,7 @@
                         await triggerPlatformProfileLogin('meituan', loginItem);
                         return;
                     }
-                    showToast('美团账号还缺平台门店确认，请点击本行右侧“美团配置”补齐平台门店标识，再重新登录。', 'warning');
+                    showToast('美团账号还缺平台门店确认，请点击本行右侧“美团配置”补齐平台门店标识，再由账号使用者本机重新授权。', 'warning');
                     return;
                 }
                 await openHotelPlatformConsole(hotel, platform);
@@ -35170,8 +35229,7 @@
 
             const getMeituanConfigNameByHotelId = (hotelId) => {
                 if (!hotelId) return '';
-                const config = findMeituanConfigByHotelId(hotelId);
-                return config?.name || '';
+                return resolveMeituanConfigStatusByHotelId(hotelId).name || '';
             };
 
             const hasCtripFetchConfigByHotelId = (hotelId) => {
@@ -35182,8 +35240,7 @@
 
             const hasMeituanFetchConfigByHotelId = (hotelId) => {
                 if (!hotelId) return false;
-                const config = findMeituanConfigByHotelId(hotelId);
-                return !!(config && meituanConfigMissingFields(config).length === 0);
+                return resolveMeituanConfigStatusByHotelId(hotelId).configured === true;
             };
 
             const hasAutoFetchStatusConfigByHotelId = (hotelId) => {
@@ -37830,7 +37887,7 @@
                         ]];
                     }
                     if (/302|authorized fail|Cookie|登录|授权/i.test(message)) {
-                        return ['cookie', 'Cookie失效/需重新登录', '这些门店不能继续采集，但不影响查看已有入库数据。', '重新登录平台并更新 Cookie。', [
+                        return ['cookie', 'Cookie/API 辅助失效', '这些门店不能继续采集，但不影响查看已有入库数据。', '由账号使用者在本机重新授权，或更新临时 Cookie/API 辅助内容。', [
                             { key: 'manual-failures', label: '处理失败项', icon: 'fas fa-tools mr-1' },
                             { key: 'platform-config', label: '编辑配置', icon: 'fas fa-edit mr-1' },
                         ]];
@@ -41271,7 +41328,7 @@
                 }
                 const profileId = resolveCtripCookieApiProfileId(systemHotelId, activeConfig);
                 if (!profileId) {
-                    showToast('请填写登录会话标识，或先选择目标酒店', 'error');
+                    showToast('请填写浏览器 Profile 标识，或先选择目标酒店', 'error');
                     return;
                 }
                 ctripCookieApiForm.value.profileId = profileId;
@@ -41732,28 +41789,31 @@
 
             const meituanConfigDetailCache = new Map();
             const meituanConfigDetailLoadingPromises = new Map();
-            const getMeituanConfigDetailVersion = (config = {}) => String(config.update_time || config.updated_at || config.created_at || '');
             const clearMeituanConfigDetailCache = (id = '') => {
-                if (id) {
-                    meituanConfigDetailCache.delete(String(id));
-                    meituanConfigDetailLoadingPromises.delete(String(id));
+                const clearTarget = resolveMeituanConfigDetailClearTarget(id);
+                if (!clearTarget.clearAll) {
+                    const cacheKey = clearTarget.cacheKey;
+                    meituanConfigDetailCache.delete(cacheKey);
+                    meituanConfigDetailLoadingPromises.delete(cacheKey);
                     return;
                 }
                 meituanConfigDetailCache.clear();
                 meituanConfigDetailLoadingPromises.clear();
             };
             const loadMeituanConfigDetail = async (id) => {
-                if (!id) return null;
-                const cacheKey = String(id);
-                if (meituanConfigDetailLoadingPromises.has(cacheKey)) {
-                    return meituanConfigDetailLoadingPromises.get(cacheKey);
+                const loadTarget = resolveMeituanConfigDetailLoadTarget({ id, loadingPromises: meituanConfigDetailLoadingPromises });
+                if (loadTarget.status === 'missing_key') return null;
+                if (loadTarget.status === 'loading') {
+                    return loadTarget.promise;
                 }
+                const cacheKey = loadTarget.cacheKey;
                 const detailPromise = (async () => {
-                    const res = await request(`/online-data/get-meituan-config-detail?id=${encodeURIComponent(cacheKey)}`);
-                    if (res.code !== 200) {
-                        throw new Error(res.message || '加载美团完整配置失败');
+                    const res = await request(buildMeituanConfigDetailRequestUrl(cacheKey));
+                    const detailResult = resolveMeituanConfigDetailResponse(res);
+                    if (!detailResult.ok) {
+                        throw new Error(detailResult.message);
                     }
-                    return res.data || null;
+                    return detailResult.data;
                 })();
                 meituanConfigDetailLoadingPromises.set(cacheKey, detailPromise);
                 try {
@@ -41793,27 +41853,25 @@
 
             const ensureMeituanConfigSecret = async (config, options = {}) => {
                 if (!config) return null;
-                if (config.cookies || !config.id || config.has_cookies === false) return config;
-                const cacheKey = config.id ? String(config.id) : '';
-                const listVersion = getMeituanConfigDetailVersion(config);
-                const cached = cacheKey ? meituanConfigDetailCache.get(cacheKey) : null;
-                if (cached && (!listVersion || cached.version === listVersion)) {
-                    return cached.data;
+                if (shouldSkipMeituanConfigDetailLoad(config)) return config;
+                const cacheLookup = resolveMeituanConfigDetailCacheLookup({ config, cache: meituanConfigDetailCache });
+                if (cacheLookup.cachedResult.hit) {
+                    return cacheLookup.cachedResult.data;
                 }
                 try {
                     const detail = await loadMeituanConfigDetail(config.id);
-                    if (detail && cacheKey) {
-                        meituanConfigDetailCache.set(cacheKey, {
-                            version: getMeituanConfigDetailVersion(detail) || listVersion,
-                            data: detail,
-                        });
+                    const cacheEntry = buildMeituanConfigDetailCacheEntry({ detail, listVersion: cacheLookup.listVersion });
+                    const storePlan = resolveMeituanConfigDetailCacheStorePlan({ cacheKey: cacheLookup.cacheKey, cacheEntry });
+                    if (storePlan.shouldStore) {
+                        meituanConfigDetailCache.set(storePlan.cacheKey, storePlan.cacheEntry);
                     }
                     return detail;
                 } catch (e) {
-                    if (options.silent) {
-                        console.error('[Meituan] 预热完整配置失败:', e);
+                    const failureAction = resolveMeituanConfigDetailFailureAction({ error: e, silent: options.silent });
+                    if (failureAction.type === 'log') {
+                        console.error(failureAction.label, failureAction.error);
                     } else {
-                        showToast(e.message || '加载美团完整配置失败', 'error');
+                        showToast(failureAction.message, failureAction.level);
                     }
                     return null;
                 }
@@ -41825,8 +41883,9 @@
             };
 
             const prewarmSelectedMeituanConfigSecret = (config = selectedMeituanHotelConfig.value) => {
-                if (!config || config.cookies || !config.id || config.has_cookies === false) return;
-                deferUiTask(() => ensureMeituanConfigSecret(config, { silent: true }), 80);
+                const prewarmPlan = resolveMeituanConfigDetailPrewarmPlan({ config, delayMs: 80 });
+                if (!prewarmPlan.shouldPrewarm) return;
+                deferUiTask(() => ensureMeituanConfigSecret(prewarmPlan.config, { silent: true }), prewarmPlan.delayMs);
             };
 
             const applyCtripConfigObject = (config, showMessage = true) => {
@@ -42335,98 +42394,103 @@
             const syncMeituanBrowserCaptureFromSelectedConfig = async (showMessage = false) => {
                 const hotelId = meituanForm.value.hotelId || user.value?.hotel_id || '';
                 const hotelName = getHotelNameById(hotelId);
-                if (!hotelId) {
-                    meituanBrowserCaptureForm.value.storeId = '';
-                    meituanBrowserCaptureForm.value.poiId = '';
-                    meituanBrowserCaptureForm.value.poiName = '';
+                const config = hotelId ? await ensureMeituanConfigSecret(selectedMeituanHotelConfig.value) : null;
+                const syncState = buildMeituanBrowserCaptureConfigSyncState({
+                    hotelId,
+                    hotelName,
+                    config,
+                    formPoiId: meituanForm.value.poiId,
+                    captureForm: meituanBrowserCaptureForm.value,
+                });
+                Object.assign(meituanBrowserCaptureForm.value, syncState.formUpdates);
+                if (!syncState.hasHotel) {
                     return;
                 }
-
-                const config = await ensureMeituanConfigSecret(selectedMeituanHotelConfig.value);
-                const poiId = firstNonEmptyText(
-                    config?.poi_id,
-                    config?.poiId,
-                    config?.store_id,
-                    config?.storeId,
-                    meituanForm.value.poiId,
-                    meituanBrowserCaptureForm.value.storeId
-                );
-                if (poiId) {
-                    meituanBrowserCaptureForm.value.storeId = poiId;
-                    meituanBrowserCaptureForm.value.poiId = poiId;
-                    meituanForm.value.poiId = poiId;
+                if (syncState.rankingPoiId) {
+                    meituanForm.value.poiId = syncState.rankingPoiId;
                 }
-                meituanBrowserCaptureForm.value.poiName = config?.name || hotelName || meituanBrowserCaptureForm.value.poiName || '';
-                const adsUrl = String(firstDataConfigValue(config?.ads_url, config?.adsUrl, meituanBrowserCaptureForm.value.adsUrl) || '').trim();
-                if (adsUrl) {
-                    meituanBrowserCaptureForm.value.adsUrl = adsUrl;
-                }
-                const dataPeriod = String(firstDataConfigValue(config?.data_period, config?.dataPeriod, meituanBrowserCaptureForm.value.dataPeriod) || '').trim();
-                if (dataPeriod) {
-                    meituanBrowserCaptureForm.value.dataPeriod = dataPeriod;
-                }
-                if (showMessage === true && (poiId || meituanBrowserCaptureForm.value.poiName || adsUrl)) {
+                if (showMessage === true && syncState.shouldNotify) {
                     showToast('已同步美团浏览器抓取配置');
                 }
             };
 
             const switchMeituanCaptureTab = async (tab, sections = []) => {
-                onlineDataTab.value = tab;
-                meituanBrowserCaptureForm.value.captureSections = normalizeMeituanCaptureSections(sections);
-                meituanBrowserCaptureResult.value = null;
+                const switchState = buildMeituanCaptureTabSwitchState({ tab, sections });
+                onlineDataTab.value = switchState.tab;
+                meituanBrowserCaptureForm.value.captureSections = switchState.captureSections;
+                meituanBrowserCaptureResult.value = switchState.captureResult;
                 await loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS });
                 await syncMeituanBrowserCaptureFromSelectedConfig(false);
-                if (tab === 'meituan-traffic') {
+                if (switchState.shouldSyncTrafficConfig) {
                     await syncMeituanTrafficConfigFromSelectedConfig(false);
                 }
             };
 
             const runMeituanBrowserCaptureForSections = async (sections = [], options = {}) => {
-                meituanBrowserCaptureForm.value.captureSections = normalizeMeituanCaptureSections(sections);
+                const runSectionsState = buildMeituanBrowserCaptureRunSectionsState(sections);
+                meituanBrowserCaptureForm.value.captureSections = runSectionsState.captureSections;
                 await runMeituanBrowserCapture(options);
             };
 
             const runMeituanBrowserCapturePreset = async (preset = {}) => {
-                const dataPeriod = String(preset.dataPeriod || preset.data_period || meituanBrowserCaptureForm.value.dataPeriod || 'historical_daily').trim();
-                if (dataPeriod) {
-                    meituanBrowserCaptureForm.value.dataPeriod = dataPeriod;
+                const presetState = buildMeituanBrowserCapturePresetState({
+                    preset,
+                    currentDataPeriod: meituanBrowserCaptureForm.value.dataPeriod,
+                });
+                const dataPeriodApplyState = buildMeituanBrowserCaptureDataPeriodApplyState(presetState.dataPeriod);
+                if (dataPeriodApplyState.shouldApply) {
+                    meituanBrowserCaptureForm.value.dataPeriod = dataPeriodApplyState.dataPeriod;
                 }
                 await loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS });
                 await syncMeituanBrowserCaptureFromSelectedConfig(false);
-                if (dataPeriod) {
-                    meituanBrowserCaptureForm.value.dataPeriod = dataPeriod;
+                if (dataPeriodApplyState.shouldApply) {
+                    meituanBrowserCaptureForm.value.dataPeriod = dataPeriodApplyState.dataPeriod;
                 }
-                await runMeituanBrowserCaptureForSections(preset.sections || [], { dataPeriod });
+                await runMeituanBrowserCaptureForSections(presetState.captureSections, { dataPeriod: dataPeriodApplyState.dataPeriod });
             };
 
             const runMeituanBrowserSupplementCapture = async () => {
-                const hotelId = String(autoFetchHotelId.value || meituanForm.value.hotelId || user.value?.hotel_id || '').trim();
-                if (!hotelId) {
-                    showToast('请先选择酒店', 'error');
+                const supplementState = buildMeituanBrowserSupplementCaptureState({
+                    autoFetchHotelId: autoFetchHotelId.value,
+                    formHotelId: meituanForm.value.hotelId,
+                    userHotelId: user.value?.hotel_id,
+                });
+                if (!supplementState.ok) {
+                    showToast(supplementState.message, supplementState.level);
                     return;
                 }
-                meituanForm.value.hotelId = hotelId;
+                meituanForm.value.hotelId = supplementState.hotelId;
                 await loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS });
                 await syncMeituanBrowserCaptureFromSelectedConfig(false);
-                await runMeituanBrowserCaptureForSections(['full'], { dataPeriod: 'historical_daily' });
+                await runMeituanBrowserCaptureForSections(supplementState.captureSections, { dataPeriod: supplementState.dataPeriod });
             };
 
             const copyMeituanBrowserCaptureCommand = () => {
-                if (!meituanBrowserCaptureForm.value.storeId || !(meituanForm.value.hotelId || user.value?.hotel_id)) {
-                    showToast('请先选择酒店并填写美团门店标识', 'warning');
+                const copyState = buildMeituanBrowserCaptureCopyCommandState({
+                    storeId: meituanBrowserCaptureForm.value.storeId,
+                    formHotelId: meituanForm.value.hotelId,
+                    userHotelId: user.value?.hotel_id,
+                });
+                if (!copyState.canCopy) {
+                    showToast(copyState.message, copyState.level);
                     return;
                 }
                 copyToClipboard(meituanBrowserCaptureCommand.value);
             };
 
             const clearMeituanBrowserCapturePayload = () => {
-                meituanBrowserCaptureForm.value.payloadJson = '';
-                meituanBrowserCaptureResult.value = null;
+                const clearState = buildMeituanBrowserCaptureClearPayloadState();
+                meituanBrowserCaptureForm.value.payloadJson = clearState.payloadJson;
+                meituanBrowserCaptureResult.value = clearState.captureResult;
             };
 
             const runMeituanBrowserCapture = async (options = {}) => runMeituanBrowserCaptureFlow({
                 getForm: () => meituanBrowserCaptureForm.value,
-                getSystemHotelId: () => meituanForm.value.hotelId || autoFetchHotelId.value || user.value?.hotel_id || null,
+                getSystemHotelId: () => resolveMeituanBrowserCaptureSystemHotelId({
+                    formHotelId: meituanForm.value.hotelId,
+                    autoFetchHotelId: autoFetchHotelId.value,
+                    userHotelId: user.value?.hotel_id,
+                }),
                 getFallbackPoiId: () => meituanForm.value.poiId || '',
                 getPartnerId: () => meituanForm.value.partnerId || '',
                 getHotelNameById,
@@ -42448,12 +42512,16 @@
             const runMeituanBrowserProfileLoginOnly = async () => {
                 await loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS });
                 await syncMeituanBrowserCaptureFromSelectedConfig(false);
-                await runMeituanBrowserCapture({ loginOnly: true, bindDataSource: true });
+                const loginOnlyOptions = buildMeituanBrowserProfileLoginOnlyRunOptions();
+                await runMeituanBrowserCapture(loginOnlyOptions);
             };
 
             const saveMeituanCapturedPayload = async () => runMeituanCapturedPayloadSaveFlow({
                 getForm: () => meituanBrowserCaptureForm.value,
-                getSystemHotelId: () => meituanForm.value.hotelId || user.value?.hotel_id || null,
+                getSystemHotelId: () => resolveMeituanBrowserCaptureSystemHotelId({
+                    formHotelId: meituanForm.value.hotelId,
+                    userHotelId: user.value?.hotel_id,
+                }),
                 getHotelNameById,
                 notify: showToast,
                 setFetching: value => { fetchingData.value = value; },
@@ -42467,12 +42535,15 @@
             });
 
             const goConfigureMeituanForSelectedHotel = async () => {
-                const hotel = hotels.value.find(item => String(item.id) === String(meituanForm.value.hotelId));
-                if (!hotel) {
-                    showToast('请先选择要归属数据的酒店', 'warning');
+                const action = resolveMeituanSelectedHotelConfigAction({
+                    hotels: hotels.value,
+                    hotelId: meituanForm.value.hotelId,
+                });
+                if (!action.ok) {
+                    showToast(action.message, action.level);
                     return;
                 }
-                await openHotelManualFetchConfig(hotel, 'meituan');
+                await openHotelManualFetchConfig(action.hotel, action.platform);
             };
 
             const buildHotelOtaConfig = (hotelId, hotelName = '') => {
@@ -42994,17 +43065,12 @@
                     }
                 }));
 
-                const failedIds = results.filter(item => !item.success).map(item => item.id);
-                const deletedCount = results.length - failedIds.length;
-                selectedCtripConfigIds.value = failedIds;
-                if (deletedCount > 0) {
+                const deleteResultState = buildCtripBatchDeleteConfigResultState(results);
+                selectedCtripConfigIds.value = deleteResultState.failedIds;
+                if (deleteResultState.shouldRefresh) {
                     deferUiTask(() => loadCtripConfigList(), 80);
                 }
-                if (failedIds.length > 0) {
-                    showToast(`已删除 ${deletedCount} 个，${failedIds.length} 个失败`, deletedCount > 0 ? 'warning' : 'error');
-                } else {
-                    showToast(`已删除 ${deletedCount} 个配置`);
-                }
+                showToast(deleteResultState.toastMessage, deleteResultState.toastLevel);
             };
 
             const generateCtripBookmarklet = async () => {
@@ -43013,15 +43079,17 @@
                     const res = await request('/online-data/generate-ctrip-bookmarklet');
                     debugLog('response:', res);
                     if (res.code === 200) {
-                        ctripBookmarklet.value = res.data.bookmarklet;
-                        showToast(res.data?.message || '旧版携程 Cookie 书签已禁用', 'warning');
+                        const successState = buildCtripBookmarkletSuccessState(res);
+                        ctripBookmarklet.value = successState.bookmarklet;
+                        showToast(successState.toastMessage, successState.toastLevel);
                     } else {
                         alert('生成失败: ' + (res.message || '未知错误'));
                     }
                 } catch (e) {
                     console.error('error:', e);
-                    alert('请求失败: ' + e.message);
-                    showToast('生成失败: ' + e.message, 'error');
+                    const failureState = buildCtripBookmarkletFailureState({ error: e });
+                    alert(failureState.alertMessage);
+                    showToast(failureState.toastMessage, failureState.toastLevel);
                 }
             };
 
@@ -43034,44 +43102,69 @@
             const loadMeituanConfigList = async (options = {}) => {
                 const force = options.force === true;
                 const shouldApplySelectedConfig = options.applySelectedConfig === true;
-                if (
-                    !force
-                    && meituanConfigListLoaded.value
-                    && !meituanConfigListLoadFailed.value
-                    && isManualConfigListCacheFresh(meituanConfigListLoadedAt, options)
-                ) {
-                    return meituanConfigList.value;
+                const cachedResult = resolveMeituanConfigListCachedResult({
+                    force,
+                    loaded: meituanConfigListLoaded.value,
+                    failed: meituanConfigListLoadFailed.value,
+                    cacheFresh: isManualConfigListCacheFresh(meituanConfigListLoadedAt, options),
+                    list: meituanConfigList.value,
+                });
+                if (cachedResult.hit) {
+                    return cachedResult.list;
                 }
-                if (meituanConfigListLoadingPromise) {
-                    if (!force) {
-                        return meituanConfigListLoadingPromise;
-                    }
-                    await meituanConfigListLoadingPromise.catch(() => []);
+                const loadingAction = resolveMeituanConfigListLoadingAction({
+                    force,
+                    loadingPromise: meituanConfigListLoadingPromise,
+                });
+                if (loadingAction.status === 'reuse') {
+                    return loadingAction.promise;
                 }
-                meituanConfigListLoading.value = true;
-                meituanConfigListLoadFailed.value = false;
+                if (loadingAction.status === 'await_previous') {
+                    await loadingAction.promise.catch(() => []);
+                }
+                const startState = buildMeituanConfigListStartState();
+                meituanConfigListLoading.value = startState.loading;
+                meituanConfigListLoadFailed.value = startState.failed;
                 meituanConfigListLoadingPromise = (async () => {
                     try {
                         const res = await request('/online-data/get-meituan-config-list');
-                        if (res.code === 200) {
-                            meituanConfigList.value = res.data || [];
-                            meituanConfigListLoaded.value = true;
-                            meituanConfigListLoadedAt = Date.now();
-                            if (meituanForm.value.hotelId && shouldApplySelectedConfig) {
+                        const configListResult = resolveMeituanConfigListResponse(res);
+                        if (configListResult.ok) {
+                            const successState = buildMeituanConfigListSuccessState({
+                                list: configListResult.list,
+                                loadedAt: Date.now(),
+                            });
+                            meituanConfigList.value = successState.list;
+                            meituanConfigListLoaded.value = successState.loaded;
+                            meituanConfigListLoadedAt = successState.loadedAt;
+                            const applyAction = resolveMeituanConfigListApplyAction({
+                                hotelId: meituanForm.value.hotelId,
+                                shouldApplySelectedConfig,
+                            });
+                            if (applyAction.shouldApply) {
                                 prewarmSelectedMeituanConfigSecret();
                                 deferUiTask(() => applyMeituanHotelConfig(false, { refreshList: false }), 80);
                             }
                             return meituanConfigList.value;
                         } else {
-                            meituanConfigListLoadFailed.value = true;
-                            console.error('[Debug] API 返回错误:', res.message);
+                            const failureAction = buildMeituanConfigListFailureAction({
+                                type: 'api',
+                                message: configListResult.message,
+                            });
+                            meituanConfigListLoadFailed.value = failureAction.failed;
+                            console.error(failureAction.label, failureAction.detail);
                         }
                     } catch (e) {
-                        meituanConfigListLoadFailed.value = true;
-                        console.error('[Debug] 加载美团配置列表失败:', e);
+                        const failureAction = buildMeituanConfigListFailureAction({
+                            type: 'exception',
+                            error: e,
+                        });
+                        meituanConfigListLoadFailed.value = failureAction.failed;
+                        console.error(failureAction.label, failureAction.detail);
                     } finally {
-                        meituanConfigListLoadingPromise = null;
-                        meituanConfigListLoading.value = false;
+                        const finishState = buildMeituanConfigListFinishState();
+                        meituanConfigListLoadingPromise = finishState.loadingPromise;
+                        meituanConfigListLoading.value = finishState.loading;
                     }
                     return [];
                 })();
@@ -43079,31 +43172,40 @@
             };
 
             const meituanManualFetchConfigProofPending = () => {
-                return !!meituanForm.value.hotelId && !!selectedMeituanHotelConfig.value;
+                return resolveMeituanManualFetchConfigProofPending({
+                    form: meituanForm.value,
+                    selectedConfig: selectedMeituanHotelConfig.value,
+                });
             };
 
             const canFetchMeituanRankingData = () => {
-                const form = meituanForm.value || {};
-                if (String(form.cookies || '').trim()) return true;
-                return !!form.hotelId && !!selectedMeituanHotelConfig.value;
+                return resolveCanFetchMeituanRankingData({
+                    form: meituanForm.value,
+                    selectedConfig: selectedMeituanHotelConfig.value,
+                });
             };
 
             const resolveMeituanManualFetchConfig = async (config) => {
-                if (config) return config;
-                if (!meituanForm.value.hotelId) return null;
-                return selectedMeituanHotelConfig.value;
+                return resolveMeituanManualFetchConfigCandidate({
+                    config,
+                    form: meituanForm.value,
+                    selectedConfig: selectedMeituanHotelConfig.value,
+                });
             };
 
             const returnToMeituanRankingAfterConfigSave = async (hotelId) => {
-                const targetHotelId = String(hotelId || '').trim();
-                if (!targetHotelId) {
+                const returnState = buildMeituanRankingReturnTargetState({
+                    hotelId,
+                    currentHotelId: meituanForm.value.hotelId,
+                });
+                if (!returnState.ok) {
                     return;
                 }
-                currentPage.value = 'meituan-ebooking';
-                onlineDataTab.value = 'meituan-ranking';
-                if (String(meituanForm.value.hotelId || '') !== targetHotelId) {
+                currentPage.value = returnState.page;
+                onlineDataTab.value = returnState.tab;
+                if (returnState.shouldApplyHotelId) {
                     suppressNextMeituanHotelConfigApply = true;
-                    meituanForm.value.hotelId = targetHotelId;
+                    meituanForm.value.hotelId = returnState.targetHotelId;
                 }
                 await nextTick();
                 await Promise.allSettled([
@@ -43111,13 +43213,17 @@
                     loadOnlineDataHotelList({ force: true }),
                     loadMeituanConfigList({ force: true, applySelectedConfig: false }),
                 ]);
-                if (currentPage.value !== 'meituan-ebooking') {
+                if (currentPage.value !== returnState.page) {
                     return;
                 }
-                onlineDataTab.value = 'meituan-ranking';
-                if (String(meituanForm.value.hotelId || '') !== targetHotelId) {
+                onlineDataTab.value = returnState.tab;
+                const afterReloadState = buildMeituanRankingReturnTargetState({
+                    hotelId: returnState.targetHotelId,
+                    currentHotelId: meituanForm.value.hotelId,
+                });
+                if (afterReloadState.shouldApplyHotelId) {
                     suppressNextMeituanHotelConfigApply = true;
-                    meituanForm.value.hotelId = targetHotelId;
+                    meituanForm.value.hotelId = afterReloadState.targetHotelId;
                     await nextTick();
                 }
                 await applyMeituanHotelConfig(false, {
@@ -43155,121 +43261,99 @@
             };
 
             const meituanConfigAutoName = (form = {}) => {
-                const explicit = String(form?.name || '').trim();
-                if (explicit) return explicit;
-                const hotelName = String(getHotelNameById(form?.hotel_id) || '').trim();
-                const poiId = String(form?.poi_id || form?.poiId || '').trim();
-                if (hotelName) return `${hotelName}美团Cookie`;
-                if (poiId) return `美团${poiId}Cookie`;
-                return `美团Cookie ${formatDate(new Date())}`;
+                return buildMeituanConfigAutoName(form, {
+                    hotelName: getHotelNameById(form?.hotel_id),
+                    fallbackDate: formatDate(new Date()),
+                });
             };
 
             const saveMeituanConfigItem = async () => {
-                const cookies = String(meituanConfigForm.value.cookies || '').trim();
-                if (!cookies) {
-                    showToast('请输入临时 Cookie/API 辅助内容', 'error');
+                const cookieState = resolveMeituanConfigSaveCookieState(meituanConfigForm.value.cookies);
+                if (!cookieState.canSave) {
+                    showToast(cookieState.message, cookieState.level);
                     return;
                 }
-                const requestHotelId = String(
-                    meituanConfigForm.value.hotel_id
-                    || meituanForm.value.hotelId
-                    || onlineDataFilter.value.hotel_id
-                    || user.value?.hotel_id
-                    || ''
-                ).trim();
+                const requestHotelId = resolveMeituanConfigSaveRequestHotelId({
+                    formHotelId: meituanConfigForm.value.hotel_id,
+                    rankingHotelId: meituanForm.value.hotelId,
+                    filterHotelId: onlineDataFilter.value.hotel_id,
+                    userHotelId: user.value?.hotel_id,
+                });
                 try {
-                    const requestBody = {
-                        id: meituanConfigForm.value.id,
+                    const requestBody = buildMeituanConfigSaveRequestBody({
+                        form: meituanConfigForm.value,
                         name: meituanConfigAutoName(meituanConfigForm.value),
-                        hotel_id: requestHotelId,
-                        partner_id: meituanConfigForm.value.partner_id,
-                        poi_id: meituanConfigForm.value.poi_id,
-                        hotel_room_count: meituanConfigForm.value.hotel_room_count,
-                        competitor_room_count: meituanConfigForm.value.competitor_room_count,
-                        cookies,
-                    };
+                        requestHotelId,
+                        cookies: cookieState.cookies,
+                    });
                     const res = await request('/online-data/save-meituan-config-item', {
                         method: 'POST',
                         body: JSON.stringify(requestBody),
                     });
                     if (res.code === 200) {
-                        const savedHotelId = String(
-                            res.data?.hotel_id
-                            || res.data?.system_hotel_id
-                            || requestBody.hotel_id
-                            || meituanForm.value.hotelId
-                            || ''
-                        ).trim();
-                        const credentialStatus = res.data?.credential_status || res.data?.credential_requirement?.credential_status || '';
-                        showToast(res.message || '配置保存成功', credentialStatus === 'missing_resource_id' ? 'warning' : 'success');
-                        clearMeituanConfigDetailCache(meituanConfigForm.value.id);
-                        meituanConfigForm.value = {
-                            id: null,
-                            name: '',
-                            hotel_id: '',
-                            partner_id: '',
-                            poi_id: '',
-                            cookies: '',
-                            hotel_room_count: '',
-                            competitor_room_count: '',
-                        };
-                        if (savedHotelId) {
-                            await returnToMeituanRankingAfterConfigSave(savedHotelId);
-                        } else {
+                        const saveSuccessState = buildMeituanConfigSaveSuccessState({
+                            response: res,
+                            requestBody,
+                            fallbackHotelId: meituanForm.value.hotelId,
+                            form: meituanConfigForm.value,
+                        });
+                        showToast(saveSuccessState.toastMessage, saveSuccessState.toastLevel);
+                        clearMeituanConfigDetailCache(saveSuccessState.clearConfigDetailId);
+                        meituanConfigForm.value = saveSuccessState.resetForm;
+                        if (saveSuccessState.shouldReturnToRanking) {
+                            await returnToMeituanRankingAfterConfigSave(saveSuccessState.savedHotelId);
+                        } else if (saveSuccessState.shouldReloadConfigList) {
                             await loadMeituanConfigList({ force: true, applySelectedConfig: false });
                         }
                     } else {
-                        showToast(res.message || '保存失败', 'error');
+                        const saveFailureState = buildMeituanConfigSaveFailureState({ response: res });
+                        showToast(saveFailureState.toastMessage, saveFailureState.toastLevel);
                     }
                 } catch (e) {
-                    showToast('保存失败: ' + e.message, 'error');
+                    const saveFailureState = buildMeituanConfigSaveFailureState({ error: e });
+                    showToast(saveFailureState.toastMessage, saveFailureState.toastLevel);
                 }
             };
 
             const useMeituanConfig = async (config) => {
                 config = await ensureMeituanConfigSecret(config);
                 if (!config) return;
-                meituanForm.value.hotelId = config.hotel_id || config.system_hotel_id || meituanForm.value.hotelId || '';
-                meituanForm.value.partnerId = config.partner_id || '';
-                meituanForm.value.poiId = config.poi_id || '';
-                meituanForm.value.cookies = config.cookies || '';
-                meituanForm.value.auth_data = config.auth_data || {};
-                meituanForm.value.hotelRoomCount = config.hotel_room_count || '';
-                meituanForm.value.competitorRoomCount = config.competitor_room_count || '';
-                showToast(`已应用配置: ${config.name}`);
-                onlineDataTab.value = 'meituan-ranking';
+                const useState = buildMeituanConfigUseState({
+                    config,
+                    fallbackHotelId: meituanForm.value.hotelId,
+                });
+                Object.assign(meituanForm.value, useState.formPatch);
+                showToast(useState.toastMessage);
+                onlineDataTab.value = useState.targetTab;
             };
 
             const editMeituanConfig = async (config) => {
                 config = await ensureMeituanConfigSecret(config);
                 if (!config) return;
-                meituanConfigForm.value = {
-                    id: config.id,
-                    name: config.name,
-                    hotel_id: config.hotel_id || config.system_hotel_id || '',
-                    partner_id: config.partner_id || '',
-                    poi_id: config.poi_id || '',
-                    cookies: config.cookies || '',
-                    hotel_room_count: config.hotel_room_count || '',
-                    competitor_room_count: config.competitor_room_count || '',
-                };
+                const editState = buildMeituanConfigEditState({ config });
+                meituanConfigForm.value = editState.form;
             };
 
             const deleteMeituanConfigItem = async (id) => {
                 if (!confirm('确定要删除此配置吗？')) return;
                 try {
-                    const res = await request(`/online-data/delete-meituan-config?id=${id}`, {
+                    const res = await request(buildMeituanConfigDeleteUrl(id), {
                         method: 'DELETE'
                     });
                     if (res.code === 200) {
-                        showToast('删除成功');
-                        clearMeituanConfigDetailCache(id);
-                        loadMeituanConfigList();
+                        const deleteSuccessState = buildMeituanConfigDeleteSuccessState(id);
+                        showToast(deleteSuccessState.toastMessage, deleteSuccessState.toastLevel);
+                        clearMeituanConfigDetailCache(deleteSuccessState.clearConfigDetailId);
+                        if (deleteSuccessState.shouldReloadConfigList) {
+                            loadMeituanConfigList(deleteSuccessState.reloadOptions);
+                        }
                     } else {
-                        showToast(res.message || '删除失败', 'error');
+                        const deleteFailureState = buildMeituanConfigDeleteFailureState({ response: res });
+                        showToast(deleteFailureState.toastMessage, deleteFailureState.toastLevel);
                     }
                 } catch (e) {
-                    showToast('删除失败: ' + e.message, 'error');
+                    const deleteFailureState = buildMeituanConfigDeleteFailureState({ error: e });
+                    showToast(deleteFailureState.toastMessage, deleteFailureState.toastLevel);
                 }
             };
 
@@ -43277,11 +43361,13 @@
                 try {
                     const res = await request('/online-data/generate-meituan-bookmarklet');
                     if (res.code === 200) {
-                        meituanBookmarklet.value = res.data.bookmarklet;
-                        showToast(res.data?.message || '旧版美团 Cookie 书签已禁用', 'warning');
+                        const successState = buildMeituanBookmarkletSuccessState(res);
+                        meituanBookmarklet.value = successState.bookmarklet;
+                        showToast(successState.toastMessage, successState.toastLevel);
                     }
                 } catch (e) {
-                    showToast('生成失败: ' + e.message, 'error');
+                    const failureState = buildMeituanBookmarkletFailureState({ error: e });
+                    showToast(failureState.toastMessage, failureState.toastLevel);
                 }
             };
 
@@ -43315,7 +43401,7 @@
                 }
             };
 
-            const cookieRowKey = (item) => `${item?.hotel_id || 'global'}::${item?.name || ''}`;
+            const cookieRowKey = buildCookieConfigRowKey;
             const selectedCookieRows = computed(() => {
                 const selected = new Set(selectedCookieKeys.value);
                 return cookiesList.value.filter(item => selected.has(cookieRowKey(item)));
@@ -43389,11 +43475,15 @@
                     body: JSON.stringify({ name, hotel_id: hotelId || '' }),
                 });
                 if (res.code === 200) {
-                    showToast('删除成功');
-                    selectedCookieKeys.value = selectedCookieKeys.value.filter(key => key !== `${hotelId || 'global'}::${name}`);
-                    loadCookiesList();
+                    const deleteSuccessState = buildCookieConfigDeleteSuccessState({ name, hotelId });
+                    showToast(deleteSuccessState.toastMessage, deleteSuccessState.toastLevel);
+                    selectedCookieKeys.value = selectedCookieKeys.value.filter(key => key !== deleteSuccessState.selectedKeyToRemove);
+                    if (deleteSuccessState.shouldReloadList) {
+                        loadCookiesList();
+                    }
                 } else {
-                    showToast(res.message || '删除失败', 'error');
+                    const deleteFailureState = buildCookieConfigDeleteFailureState({ response: res });
+                    showToast(deleteFailureState.toastMessage, deleteFailureState.toastLevel);
                 }
             };
 
@@ -43411,12 +43501,15 @@
                     }),
                 });
                 if (res.code === 200) {
-                    const deletedCount = res.data?.deleted_count ?? rows.length;
-                    showToast(`已删除 ${deletedCount} 条Cookies配置`);
-                    selectedCookieKeys.value = [];
-                    loadCookiesList();
+                    const batchDeleteSuccessState = buildCookieConfigBatchDeleteSuccessState({ response: res, rows });
+                    showToast(batchDeleteSuccessState.toastMessage, batchDeleteSuccessState.toastLevel);
+                    selectedCookieKeys.value = batchDeleteSuccessState.selectedCookieKeys;
+                    if (batchDeleteSuccessState.shouldReloadList) {
+                        loadCookiesList();
+                    }
                 } else {
-                    showToast(res.message || '批量删除失败', 'error');
+                    const batchDeleteFailureState = buildCookieConfigBatchDeleteFailureState({ response: res });
+                    showToast(batchDeleteFailureState.toastMessage, batchDeleteFailureState.toastLevel);
                 }
             };
 
@@ -44372,6 +44465,7 @@
                         showToast(isEdit ? '更新成功' : '创建成功');
                         if (nextIssueGuideText) {
                             lastUserIssueGuideText.value = nextIssueGuideText;
+                            showLastUserIssueGuideText.value = false;
                         }
                         showUserModal.value = false;
                         loadUsers();
@@ -46473,7 +46567,7 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
@@ -46522,7 +46616,7 @@
                 runCtripReviewMatchPreflight,
                 runCtripReviewMatchDryRun,
                 checkCtripReviewMatchClosure,
-                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionBoundaryRows, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionTypeRows, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, browserAssistImporting, browserAssistImportResult, browserAssistImportFileName, browserAssistImportForm, browserAssistImportPackages, browserAssistImportWarnings, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, readBrowserAssistCaptureFile, copyBrowserAssistCollectorScript, importBrowserAssistCaptureFromText, clearBrowserAssistImportForm, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCapturePresets, meituanBrowserCaptureCommand, meituanBrowserCaptureSelectedSectionsText, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionBoundaryRows, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionTypeRows, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, browserAssistImporting, browserAssistImportResult, browserAssistImportFileName, browserAssistImportForm, browserAssistImportPackages, browserAssistImportWarnings, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, readBrowserAssistCaptureFile, copyBrowserAssistCollectorScript, importBrowserAssistCaptureFromText, clearBrowserAssistImportForm, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCapturePresets, meituanBrowserCaptureCommand, meituanBrowserCaptureSelectedSectionsText, meituanBrowserCaptureReadinessNotice, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldConfigPanelReady, ctripProfileFieldConfigPanelBody, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录

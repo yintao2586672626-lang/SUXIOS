@@ -111,7 +111,7 @@ if (chineseReport) {
       'design-handoff-missing': 'Figma / Canva 真实设计交付缺失',
       'ota-credential-rotation-attestation-missing': 'OTA 凭据轮换证明缺失',
       'codex-security-scan-missing': '正式 Codex Security 扫描产物',
-      'local-git-state-open': 'GitHub / 本地交接状态未关闭',
+      'local-git-state-open': 'PR #6 已选中',
     }[id];
     if (!chineseReport.includes(keyword)) {
       fail(`release_problem_report.zh-CN.md must mention ${keyword}`);
@@ -130,7 +130,7 @@ if (chineseReport) {
 
   for (const phrase of [
     '仍不能上线使用',
-    '4 failures',
+    '2 failures',
     '.git/index.lock',
     '不允许用口头说明替代验收命令',
     '不允许把模板文件当作生产证据',

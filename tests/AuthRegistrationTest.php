@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\Auth;
+use app\controller\Base;
 use app\controller\RoleController;
 use app\controller\User as UserController;
 use app\model\Role;
@@ -11,6 +12,7 @@ use app\model\SystemConfig;
 use app\model\User as UserModel;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use ReflectionProperty;
 
 final class AuthRegistrationTest extends TestCase
 {
@@ -354,6 +356,26 @@ final class AuthRegistrationTest extends TestCase
         ]));
     }
 
+    public function testOnlySuperAdminCanEditExistingBetaUsername(): void
+    {
+        $reflection = new ReflectionClass(UserController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('canEditUserUsername');
+        $method->setAccessible(true);
+        $currentUser = new ReflectionProperty(Base::class, 'currentUser');
+        $currentUser->setAccessible(true);
+
+        $betaUser = $this->userWithRole($this->roleWithPermissions(['dashboard.view'], Role::BETA_USER, 'beta_user', 2), Role::BETA_USER);
+        $normalUser = $this->userWithRole($this->roleWithPermissions(['dashboard.view'], Role::NORMAL_USER, 'normal_user', 3), Role::NORMAL_USER);
+
+        $currentUser->setValue($controller, $this->currentUserWithSuperAdminFlag(true));
+        self::assertTrue($method->invoke($controller, $betaUser));
+        self::assertFalse($method->invoke($controller, $normalUser));
+
+        $currentUser->setValue($controller, $this->currentUserWithSuperAdminFlag(false));
+        self::assertFalse($method->invoke($controller, $betaUser));
+    }
+
     public function testAdminLevelAllPermissionStillCountsAsSuperAdmin(): void
     {
         $adminRole = $this->roleWithPermissions(['all'], 99, 'custom_admin', 1);
@@ -427,6 +449,9 @@ final class AuthRegistrationTest extends TestCase
 
         self::assertCount(1, $notices);
         self::assertSame('beta_hotel_binding_deadline', $notices[0]['type']);
+        self::assertArrayNotHasKey('deadline', $notices[0]);
+        self::assertStringContainsString('未绑定或未分配的门店将无法查看', $notices[0]['message']);
+        self::assertStringNotContainsString('2026-07-05', $notices[0]['message']);
     }
 
     /**
@@ -485,6 +510,18 @@ final class AuthRegistrationTest extends TestCase
                 default => null,
             }
         );
+
+        return $user;
+    }
+
+    private function currentUserWithSuperAdminFlag(bool $isSuperAdmin): UserModel
+    {
+        $user = $this->getMockBuilder(UserModel::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['isSuperAdmin'])
+            ->getMock();
+
+        $user->method('isSuperAdmin')->willReturn($isSuperAdmin);
 
         return $user;
     }

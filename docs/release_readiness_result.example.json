@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-06-05T00:00:00.000Z",
+  "generated_at": "2026-07-08T00:00:00.000Z",
   "command": "npm run review:release-readiness",
   "mode": "final",
   "final_release_ready": false,
   "status": "failed",
   "summary": {
-    "passed": 14,
+    "passed": 19,
     "warnings": 4,
-    "failures": 4
+    "failures": 2
   },
   "passes": [
     "APP_DEBUG is false.",
@@ -24,7 +24,12 @@
     "Formal Codex Security scan reports and core coverage artifacts are present.",
     "GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, release evidence intake behavior guard, release readiness behavior guard, non-security review, report/security/finance regression review, and release-status contracts.",
     ".git/index.lock is absent.",
-    "Release staged-scope result has no forbidden staged files (0 staged entries reviewed)."
+    "Release staged-scope result has no forbidden staged files (0 staged entries reviewed).",
+    "Release PR candidate result selected final PR #6.",
+    "Release PR candidate result matches external-state final PR #6.",
+    "Release PR candidate head matches external-state head 166c7ef17e169f852bfca542ed917ea76e3edb80.",
+    "Release external-state local HEAD matches PR head 166c7ef17e169f852bfca542ed917ea76e3edb80.",
+    "Release external-state result is current and proves clean local state plus open, non-draft, mergeable, green final PR #6."
   ],
   "warnings": [
     "Run `git ls-files database/backups` outside this script to confirm no backup file is tracked.",
@@ -34,8 +39,6 @@
   ],
   "failures": [
     "Design handoff manifest was not found: ../release-evidence-temp/design_handoff_manifest.json. Set DESIGN_HANDOFF_MANIFEST_FILE to a controlled manifest JSON before release. Standalone design-token files or screenshots do not prove Figma/Canva source handoff.",
-    "OTA credential rotation attestation was not found: ../release-evidence-temp/ota_credential_rotation_attestation.json. Set OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE to a controlled attestation JSON before release.",
-    "Release PR candidate gate has not passed: failed (1 failures): No open release PR candidates found for base main. Create or reopen a final release PR, then set RELEASE_PR_NUMBER to its number before release handoff.",
-    "Release external-state gate has not passed: failed (3 failures): RELEASE_PR_NUMBER is required. Run npm run review:release-pr-candidates and set RELEASE_PR_NUMBER to the selected open final release PR before release external-state review | local worktree is not clean (55 changed entries; categories: release-docs=19, release-scripts=24, frontend=1, revenue-ai=7, runtime-or-local=2, other=2). Review, commit, or intentionally isolate them before release | external evidence command gh pr view did not exit 0. stderr: RELEASE_PR_NUMBER is required. Run npm run review:release-pr-candidates and set RELEASE_PR_NUMBER to the selected open final release PR before collecting external-state evidence."
+    "OTA credential rotation attestation was not found: ../release-evidence-temp/ota_credential_rotation_attestation.json. Set OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE to a controlled attestation JSON before release."
   ]
 }

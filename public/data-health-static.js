@@ -1628,6 +1628,25 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
     const releaseEvidenceNoClosureText = () => '该面板只展示 release gap pack / operator intake 的证据缺口和下一步；不替代最终设计交付、OTA 凭据轮换证明、PR 外部状态或 review:release-readiness。';
 
+    const releaseEvidenceProjectedInputState = (id = '', payload = {}) => {
+        if (String(id || '').trim() !== 'final_release_pr_and_local_state') return null;
+        const sourceStatus = payload?.source_status || {};
+        const externalState = sourceStatus?.external_state_check || {};
+        const worktree = sourceStatus?.local_worktree_close_plan || {};
+        const externalStatus = String(externalState?.status || '').trim();
+        const worktreeStatus = String(worktree?.status || '').trim();
+        if (externalStatus === 'passing_from_clean_verification_worktree' || worktreeStatus === 'passing_from_clean_verification_worktree' || worktreeStatus === 'clean') {
+            return {
+                status: 'passed',
+                priority: 'ok',
+                acceptanceCommand: 'npm run review:release-external-state',
+                evidenceText: 'review:release-external-state passed from a clean checkout matching the selected release PR head.',
+                nextAction: 'Rerun review:release-pr-candidates, review:release-staged-scope, and review:release-external-state after every PR update.',
+            };
+        }
+        return null;
+    };
+
     const buildReleaseEvidencePanelRows = (payload = {}) => {
         const packet = payload?.operator_intake_packet || payload || {};
         const requirements = Array.isArray(payload?.blocking_requirements) ? payload.blocking_requirements : [];
@@ -1637,18 +1656,21 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         for (const input of inputs) {
             const id = String(input?.id || '').trim();
             if (!id) continue;
+            const projectedState = releaseEvidenceProjectedInputState(id, payload);
+            const inputStatus = String(input?.status || '').trim();
+            const status = inputStatus || projectedState?.status || 'missing';
             byId.set(id, {
                 key: id,
                 id,
                 label: releaseEvidenceInputLabel(id),
-                status: 'missing',
-                statusText: releaseEvidenceStatusText('missing'),
-                priority: 'high',
+                status,
+                statusText: releaseEvidenceStatusText(status),
+                priority: inputStatus ? releaseEvidencePriority(inputStatus) : (projectedState?.priority || 'high'),
                 requiredFile: input?.required_file || input?.required_result_file || '',
                 creationCommand: input?.creation_command || input?.selection_command || '',
-                acceptanceCommand: input?.isolated_review_command || '',
-                evidenceText: input?.success_evidence || input?.success_condition || input?.description || '',
-                nextAction: input?.next_action || input?.creation_command || input?.selection_command || input?.isolated_review_command || '',
+                acceptanceCommand: projectedState?.acceptanceCommand || input?.isolated_review_command || '',
+                evidenceText: input?.success_evidence || projectedState?.evidenceText || input?.success_condition || input?.description || '',
+                nextAction: input?.next_action || projectedState?.nextAction || input?.creation_command || input?.selection_command || input?.isolated_review_command || '',
                 doesNotCloseReleaseReadiness: true,
             });
         }
@@ -1931,7 +1953,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             advertising: '广告投放',
             homepage: '首页快照',
             hotel_homepage: '酒店首页',
-            auth_session: '登录会话',
+            auth_session: '浏览器 Profile',
             response_count: '业务响应数',
             standard_rows: '标准入库行',
             endpoint_coverage: '采集规则覆盖',
@@ -1947,7 +1969,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         if (normalized.includes('quality') || normalized.includes('psi')) return '服务质量';
         if (normalized.includes('ad')) return '广告投放';
         if (normalized.includes('business') || normalized.includes('sales') || normalized.includes('overview')) return '收益经营';
-        if (normalized.includes('auth') || normalized.includes('login')) return '登录会话';
+        if (normalized.includes('auth') || normalized.includes('login')) return '浏览器 Profile';
         if (normalized.includes('endpoint')) return '采集规则覆盖';
         if (normalized.includes('field')) return '字段覆盖';
         if (normalized.includes('standard')) return '标准入库行';
@@ -3191,11 +3213,12 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         if (sourceChainReferenceOnly) parts.push('源证据仅参考');
         if (preImportLabel && (preImportStatus !== 'not_provided' || row?.p0_traffic_gate_status !== 'ready')) parts.push(preImportLabel);
         if (externalEvidenceStatus !== 'not_provided' && preImportPolicy.includes('source proof only')) parts.push('证据不等于闭环');
-        if (profileLoginTriggerAvailableCount > 0) parts.push(`登录触发入口 ${profileLoginTriggerAvailableCount} 项`);
+        if (profileLoginTriggerAvailableCount > 0) parts.push(`本机授权入口 ${profileLoginTriggerAvailableCount} 项`);
         if (afterLoginSyncAvailableCount > 0) parts.push(`登录后同步 ${afterLoginSyncAvailableCount} 项`);
-        if (profileLoginTriggerUnavailableCount > 0) parts.push(`登录入口缺口 ${profileLoginTriggerUnavailableCount} 项`);
+        if (profileLoginTriggerUnavailableCount > 0) parts.push(`本机授权待执行 ${profileLoginTriggerUnavailableCount} 项`);
         if (manualLoginVerifiedCount > 0) parts.push(`登录态已确认 ${manualLoginVerifiedCount} 项`);
         if (profileLoginTriggerPolicy === 'metadata_only_backend_resolves_platform_identity') parts.push('入口不展示平台原始ID');
+        if (profileLoginTriggerPolicy === 'client_local_authorization_only_no_server_browser_launch') parts.push('禁用服务端登录窗口');
         if (payloadCandidateMissingCount > 0) parts.push(`${phase1TrafficPayloadCandidateLabel('missing_expected_payload')} ${payloadCandidateMissingCount} 项`);
         if (payloadCandidateUnverifiedCount > 0) parts.push(`${phase1TrafficPayloadCandidateLabel('expected_payload_present_unverified')} ${payloadCandidateUnverifiedCount} 项`);
         if (payloadCandidateReadyCount > 0) parts.push(`Payload可执行 ${payloadCandidateReadyCount} 项`);

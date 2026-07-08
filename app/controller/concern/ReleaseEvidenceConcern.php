@@ -57,7 +57,7 @@ trait ReleaseEvidenceConcern
             ),
             'operator_intake_packet' => [
                 'does_not_close_release_readiness' => true,
-                'required_external_inputs' => $this->releaseEvidenceRequiredInputs(),
+                'required_external_inputs' => $this->releaseEvidenceRequiredInputs($status),
             ],
             'source_status' => [
                 'release_readiness_check' => $status['release_readiness_check'] ?? [],
@@ -114,30 +114,77 @@ trait ReleaseEvidenceConcern
         ][$id] ?? 'npm run review:release-readiness';
     }
 
-    private function releaseEvidenceRequiredInputs(): array
+    private function releaseEvidenceRequiredInputs(array $status): array
     {
+        $externalStateStatus = (string)($status['external_state_check']['status'] ?? '');
+        $finalPrInputReady = $externalStateStatus === 'passing_from_clean_verification_worktree';
+        $designInputState = $this->releaseEvidenceInputStateFromBlocker($status, 'design-handoff-missing');
+        $otaInputState = $this->releaseEvidenceInputStateFromBlocker($status, 'ota-credential-rotation-attestation-missing');
+
         return [
             [
                 'id' => 'design_handoff_manifest',
+                'status' => $designInputState['status'],
                 'required_file' => '../release-evidence-temp/design_handoff_manifest.json',
                 'creation_command' => 'npm run release:create-design-manifest',
                 'isolated_review_command' => 'npm run review:release-design',
                 'success_condition' => 'real controlled Figma, Canva, Brand Kit, design token path, required flows, owner, review date, and no open issues',
+                'success_evidence' => $designInputState['success_evidence'],
+                'next_action' => $designInputState['next_action'],
             ],
             [
                 'id' => 'ota_credential_rotation_attestation',
+                'status' => $otaInputState['status'],
                 'required_file' => '../release-evidence-temp/ota_credential_rotation_attestation.json',
                 'creation_command' => 'npm run release:create-ota-attestation',
                 'isolated_review_command' => 'npm run review:release-ota-credentials',
                 'success_condition' => 'credential-free Ctrip and Meituan rotation or invalidation attestation reviewed inside the 30-day release evidence window',
+                'success_evidence' => $otaInputState['success_evidence'],
+                'next_action' => $otaInputState['next_action'],
             ],
             [
                 'id' => 'final_release_pr_and_local_state',
+                'status' => $finalPrInputReady ? 'passed' : 'missing',
                 'required_result_file' => '../release-evidence-temp/release-external-state-result.json',
                 'selection_command' => 'npm run review:release-pr-candidates',
                 'isolated_review_command' => 'npm run review:release-external-state',
                 'success_condition' => 'selected open final PR, clean or intentionally isolated worktree, and matching local HEAD evidence',
+                'success_evidence' => $finalPrInputReady
+                    ? 'review:release-external-state passed from a clean checkout matching the selected release PR head'
+                    : '',
+                'next_action' => $finalPrInputReady
+                    ? 'rerun review:release-pr-candidates, review:release-staged-scope, and review:release-external-state after every PR update'
+                    : '',
             ],
+        ];
+    }
+
+    private function releaseEvidenceInputStateFromBlocker(array $status, string $blockerId): array
+    {
+        foreach ((array)($status['blockers'] ?? []) as $blocker) {
+            if (!is_array($blocker) || (string)($blocker['id'] ?? '') !== $blockerId) {
+                continue;
+            }
+
+            if (strtolower((string)($blocker['status'] ?? '')) === 'closed') {
+                return [
+                    'status' => 'passed',
+                    'success_evidence' => (string)($blocker['evidence'] ?? ''),
+                    'next_action' => (string)($blocker['close_condition'] ?? ''),
+                ];
+            }
+
+            return [
+                'status' => 'missing',
+                'success_evidence' => '',
+                'next_action' => (string)($blocker['close_condition'] ?? ''),
+            ];
+        }
+
+        return [
+            'status' => 'missing',
+            'success_evidence' => '',
+            'next_action' => '',
         ];
     }
 

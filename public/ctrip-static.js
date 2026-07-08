@@ -234,6 +234,75 @@ window.SUXI_CTRIP_STATIC = (() => {
         cookies: '',
         ...overrides,
     });
+    const buildCtripBookmarkletSuccessState = (response = {}) => ({
+        bookmarklet: response?.data?.bookmarklet || '',
+        toastMessage: response?.data?.message || '旧版携程 Cookie 书签已禁用',
+        toastLevel: 'warning',
+    });
+    const buildCtripBookmarkletFailureState = ({
+        error = null,
+    } = {}) => ({
+        alertMessage: `请求失败: ${error?.message || '未知错误'}`,
+        toastMessage: `生成失败: ${error?.message || '未知错误'}`,
+        toastLevel: 'error',
+    });
+    const buildCtripBatchDeleteConfigResultState = (results = []) => {
+        const safeResults = Array.isArray(results) ? results : [];
+        const failedIds = safeResults.filter(item => !item?.success).map(item => item?.id).filter(id => id !== undefined && id !== null && id !== '');
+        const deletedCount = safeResults.length - failedIds.length;
+        if (failedIds.length > 0) {
+            return {
+                failedIds,
+                deletedCount,
+                shouldRefresh: deletedCount > 0,
+                toastMessage: `已删除 ${deletedCount} 个，${failedIds.length} 个失败`,
+                toastLevel: deletedCount > 0 ? 'warning' : 'error',
+            };
+        }
+        return {
+            failedIds,
+            deletedCount,
+            shouldRefresh: deletedCount > 0,
+            toastMessage: `已删除 ${deletedCount} 个配置`,
+            toastLevel: 'success',
+        };
+    };
+    const buildCookieConfigRowKey = (item = {}) => `${item?.hotel_id || 'global'}::${item?.name || ''}`;
+    const buildCookieConfigDeleteSuccessState = ({
+        name = '',
+        hotelId = '',
+    } = {}) => ({
+        selectedKeyToRemove: buildCookieConfigRowKey({ name, hotel_id: hotelId }),
+        shouldReloadList: true,
+        toastMessage: '删除成功',
+        toastLevel: 'success',
+    });
+    const buildCookieConfigDeleteFailureState = ({
+        response = null,
+    } = {}) => ({
+        toastMessage: response?.message || '删除失败',
+        toastLevel: 'error',
+    });
+    const buildCookieConfigBatchDeleteSuccessState = ({
+        response = {},
+        rows = [],
+    } = {}) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const deletedCount = response?.data?.deleted_count ?? safeRows.length;
+        return {
+            deletedCount,
+            selectedCookieKeys: [],
+            shouldReloadList: true,
+            toastMessage: `已删除 ${deletedCount} 条Cookies配置`,
+            toastLevel: 'success',
+        };
+    };
+    const buildCookieConfigBatchDeleteFailureState = ({
+        response = null,
+    } = {}) => ({
+        toastMessage: response?.message || '批量删除失败',
+        toastLevel: 'error',
+    });
     const createCtripTrafficForm = () => ({
         url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
         platform: 'Ctrip',
@@ -921,7 +990,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             .filter(Boolean);
         return normalized.length ? normalized : ['default'];
     };
-    const ctripBrowserProfileMissingMessage = '请填写携程登录会话标识，或先绑定携程登录会话数据源';
+    const ctripBrowserProfileMissingMessage = '请填写携程浏览器 Profile 标识，或先绑定账号使用者本机授权数据源';
     const buildCtripBrowserCaptureTargetContext = ({
         selectedCtripHotelId = '',
         autoFetchHotelId = '',
@@ -1970,7 +2039,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         const cookies = String(pastedCookies || activeConfig?.cookies || activeConfig?.cookie || '').trim();
         const profileId = resolveProfileId(systemHotelId, activeConfig);
         if (!profileId && !cookies) {
-            notify('请填写携程登录会话标识，或先绑定携程登录会话数据源', 'error');
+            notify('请填写携程浏览器 Profile 标识，或先绑定账号使用者本机授权数据源', 'error');
             return { status: 'missing_profile' };
         }
         setProfileId(profileId);
@@ -2872,6 +2941,14 @@ window.SUXI_CTRIP_STATIC = (() => {
         normalizeCtripAdsApiType,
         createCtripFetchForm,
         createCtripConfigForm,
+        buildCtripBookmarkletSuccessState,
+        buildCtripBookmarkletFailureState,
+        buildCtripBatchDeleteConfigResultState,
+        buildCookieConfigRowKey,
+        buildCookieConfigDeleteSuccessState,
+        buildCookieConfigDeleteFailureState,
+        buildCookieConfigBatchDeleteSuccessState,
+        buildCookieConfigBatchDeleteFailureState,
         createCtripTrafficForm,
         createCtripAdsBrowserCaptureForm,
         createCtripOverviewForm,

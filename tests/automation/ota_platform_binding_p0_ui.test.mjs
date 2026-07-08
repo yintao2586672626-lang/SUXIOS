@@ -152,6 +152,8 @@ test('OTA platform Profile flow uses login-state and target-date evidence as the
   for (const label of ['打开平台登录', '等待用户验证', '确认登录态', '同步目标日期数据', '验证数据完整性']) {
     assert.match(flowBuilder, new RegExp(label), `missing P0 flow label: ${label}`);
   }
+  assert.match(flowBuilder, /账号使用者先在自己的电脑完成平台授权/);
+  assert.match(flowBuilder, /账号使用者自己的浏览器内完成人工登录/);
   assert.match(flowBuilder, /manual_login_state_verified/);
   assert.match(flowBuilder, /binding_contract/);
   assert.match(flowBuilder, /manualLoginVerified/);

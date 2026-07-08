@@ -45,6 +45,19 @@ function requireNoText(file, needle, label) {
   });
 }
 
+function requireNoTextBetween(file, startNeedle, endNeedle, needle, label) {
+  const source = read(file);
+  const start = source.indexOf(startNeedle);
+  const end = start >= 0 ? source.indexOf(endNeedle, start + startNeedle.length) : -1;
+  const segment = start >= 0 && end >= 0 ? source.slice(start, end) : '';
+  checks.push({
+    file,
+    label,
+    ok: start >= 0 && end >= 0 && !segment.includes(needle),
+    detail: `${startNeedle} .. ${endNeedle}: ${needle}`,
+  });
+}
+
 function requireOrder(file, firstNeedle, secondNeedle, label) {
   const source = read(file);
   const first = source.indexOf(firstNeedle);
@@ -105,6 +118,9 @@ requireText('public/index.html', "const stack = String(error?.stack || '').split
 requireText('public/index.html', "[String(error?.message || error || 'unknown startup error'), stack].filter(Boolean).join('\\n')", 'startup error surface combines message and stack evidence');
 requireText('public/index.html', "if (appRoot.dataset.startupErrorRendered === '1') return;", 'startup error surface is idempotent');
 requireText('public/index.html', "appRoot.dataset.startupErrorRendered = '1';", 'startup error surface marks rendered state');
+requireText('public/index.html', 'window.SUXI_MISSING_MEITUAN_STATIC_HELPERS = missingMeituanStaticHelpers', 'entry records missing Meituan static helpers without blocking unrelated pages');
+requireText('public/index.html', 'return meituanStaticFallbackFor(key)', 'entry degrades missing Meituan static helpers to feature-level failures');
+requireNoText('public/index.html', 'throw new Error(`缺少美团静态展示工具项：${key}`)', 'entry must not block whole-app startup for a missing Meituan static helper');
 requireText('public/index.html', "if (!u || typeof u !== 'object') return false;", 'user search skips invalid user rows');
 requireText('public/index.html', "const username = String(u.username || '');", 'user search normalizes username before matching');
 requireText('public/index.html', "const realname = String(u.realname || '');", 'user search normalizes real name before matching');
@@ -117,11 +133,11 @@ requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user f
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
-requireText('public/index.html', 'ctrip-static.js?v=20260708-qunar-retry-business-canvas', 'entry bumps Ctrip static helper version after Ctrip business canvas extraction');
+requireText('public/index.html', 'ctrip-static.js?v=20260709-cookie-delete-he2f132149b', 'entry bumps Ctrip static helper version after cookie-delete helper extraction');
 requireText('public/ctrip-static.js', 'const buildCtripBusinessCanvas', 'Ctrip static owns business download canvas rendering');
 requireText('public/index.html', "const buildCtripBusinessCanvasStatic = requireCtripStatic('buildCtripBusinessCanvas')", 'entry uses extracted Ctrip business canvas renderer');
 requireText('public/index.html', 'return buildCtripBusinessCanvasStatic({', 'entry keeps Ctrip business canvas rendering as a thin adapter');
-requireText('public/index.html', 'meituan-static.js?v=20260708-ranking-summary-helpers', 'entry bumps Meituan static helper cache version after ranking summary helper extraction');
+requireText('public/index.html', 'meituan-static.js?v=20260709-meituan-bookmarklet-h7809d9d4d1', 'entry bumps Meituan static helper cache version after bookmarklet helper extraction');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -368,9 +384,22 @@ requireText('app/controller/concern/OnlineDataHistoryConcern.php', '当前最新
 requireText('app/controller/concern/OnlineDataHistoryConcern.php', 'ctripLatestBatchKey(array $row, array $columns, bool $includeSystemHotel): string', 'Ctrip latest traffic fallback groups rows by capture batch');
 requireText('public/index.html', "requireCtripStatic('isCtripAdsApiUrl')", 'entry uses extracted Ctrip ads URL guard');
 requireText('public/index.html', "requireCtripStatic('createCtripConfigForm')", 'entry uses extracted Ctrip config default form builder');
+requireText('public/index.html', "requireCtripStatic('buildCtripBookmarkletSuccessState')", 'entry uses extracted Ctrip bookmarklet success state builder');
+requireText('public/index.html', "requireCtripStatic('buildCtripBookmarkletFailureState')", 'entry uses extracted Ctrip bookmarklet failure state builder');
 requireText('public/index.html', "requireCtripStatic('runCtripConfigSaveFlow')", 'entry uses extracted Ctrip config save flow runner');
 requireText('public/index.html', "requireCtripStatic('runCtripManualTabSwitch')", 'entry uses extracted Ctrip manual tab switch helper');
 requireText('public/ctrip-static.js', 'const createCtripConfigForm', 'Ctrip static builds config default forms');
+requireText('public/ctrip-static.js', 'const buildCtripBookmarkletSuccessState = (response = {}) => ({', 'Ctrip static owns bookmarklet success state');
+requireText('public/ctrip-static.js', 'const buildCtripBookmarkletFailureState = ({', 'Ctrip static owns bookmarklet failure state');
+requireText('public/index.html', 'const successState = buildCtripBookmarkletSuccessState(res);', 'entry keeps Ctrip bookmarklet success handling as a thin adapter');
+requireText('public/index.html', 'ctripBookmarklet.value = successState.bookmarklet;', 'Ctrip bookmarklet value comes from static helper state');
+requireText('public/index.html', 'showToast(successState.toastMessage, successState.toastLevel);', 'Ctrip bookmarklet success toast comes from static helper state');
+requireText('public/index.html', 'const failureState = buildCtripBookmarkletFailureState({ error: e });', 'entry keeps Ctrip bookmarklet failure handling as a thin adapter');
+requireText('public/index.html', 'alert(failureState.alertMessage);', 'Ctrip bookmarklet failure alert comes from static helper state');
+requireText('public/index.html', 'showToast(failureState.toastMessage, failureState.toastLevel);', 'Ctrip bookmarklet failure toast comes from static helper state');
+requireNoTextBetween('public/index.html', 'const generateCtripBookmarklet = async () => {', '// 美团配置管理方法', 'ctripBookmarklet.value = res.data.bookmarklet;', 'Ctrip bookmarklet value is not re-inlined');
+requireNoTextBetween('public/index.html', 'const generateCtripBookmarklet = async () => {', '// 美团配置管理方法', "showToast(res.data?.message || '旧版携程 Cookie 书签已禁用', 'warning')", 'Ctrip bookmarklet success toast is not re-inlined');
+requireNoTextBetween('public/index.html', 'const generateCtripBookmarklet = async () => {', '// 美团配置管理方法', "showToast('生成失败: ' + e.message, 'error')", 'Ctrip bookmarklet failure toast is not re-inlined');
 requireText('public/ctrip-static.js', 'const buildCtripConfigSavePayload', 'Ctrip static builds config save payloads');
 requireText('public/ctrip-static.js', 'const validateCtripConfigSaveInput', 'Ctrip static validates config save inputs');
 requireText('public/ctrip-static.js', 'const runCtripConfigSaveFlow', 'Ctrip static runs config save flow');
@@ -500,7 +529,7 @@ requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>'
 requireText('public/index.html', 'const openOnlinePlatformAutoTab = (options = {}) =>', 'cross-page platform auto navigation uses the deduplicated entrypoint');
 requireText('public/index.html', 'const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;', 'platform auto-fetch delays schedule/browser settings behind immediate collect controls');
 requireText('public/index.html', 'const platformAutoSettingsPanelsReady = ref(false);', 'platform auto-fetch tracks settings readiness separately from core controls');
-requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';", 'platform auto-fetch extension panels use a versioned lazy component script');
+requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260708-local-auth-copy';", 'platform auto-fetch extension panels use a versioned lazy component script');
 requireText('public/index.html', 'const ensurePlatformAutoPanelsReady = async () => {', 'platform auto-fetch extension panels load only after the delayed panel timers fire');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')", 'platform auto-fetch settings panel resolves the lazy body component after script load');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')", 'platform auto-fetch secondary panel resolves the lazy body component after script load');
@@ -628,6 +657,11 @@ requireNoText('public/index.html', 'buildCtripReviewOrdererAssistScript', 'Ctrip
 requireNoText('public/index.html', 'token: authToken', 'Ctrip review order UI must not copy the main login token into OTA page config');
 requireNoText('public/index.html', "Authorization: String(config.token || '')", 'Ctrip review order UI must not generate an Authorization header from copied page config');
 requireText('app/controller/concern/CookieEndpointConcern.php', 'legacy_bookmarklet_disabled', 'legacy receive-cookies bookmarklet endpoint is disabled explicitly');
+requireText('route/app.php', "Route::get('api/online-data/daily-workbench-patrol-cron'", 'daily workbench patrol cron remains an explicit public OTA endpoint');
+requireText('app/controller/concern/CookieEndpointConcern.php', "'daily_workbench_patrol_cron_public_failure'", 'public endpoint security summary reads daily-workbench patrol cron audit failures');
+requireText('app/controller/concern/CookieEndpointConcern.php', "$this->buildPublicEndpointSecurityRow('daily_workbench_patrol_cron'", 'public endpoint security summary includes daily-workbench patrol cron');
+requireText('public/data-health-static.js', "daily_workbench_patrol_cron: 'daily-workbench-patrol-cron'", 'public endpoint security card labels daily-workbench patrol cron');
+requireText('public/data-health-static.js', 'cron-trigger、daily-workbench-patrol-cron', 'public endpoint security boundary text mentions both cron public endpoints');
 requireText('app/controller/concern/CookieEndpointConcern.php', 'buildDisabledCookieBookmarkletScript', 'legacy Cookie bookmarklet generation returns a disabled no-token script');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', "'status' => 'disabled_by_policy'", 'Ctrip Cookie bookmarklet endpoint reports disabled_by_policy');
 requireText('app/controller/concern/MeituanConfigConcern.php', "'status' => 'disabled_by_policy'", 'Meituan Cookie bookmarklet endpoint reports disabled_by_policy');
@@ -832,11 +866,32 @@ requireText('public/index.html', 'return loadBookmarklet();\n                }, 
 requireNoText('public/index.html', 'return loadLatestCtripData({ silent: true });\n                }, 2400);', 'Ctrip latest-data refresh must not compete with the first interaction window');
 requireNoText('public/index.html', 'return loadCookiesList();\n                }, 3000);', 'Ctrip cookie-list refresh must not compete with the first interaction window');
 requireNoText('public/index.html', 'return loadBookmarklet();\n                }, 3600);', 'Ctrip bookmarklet loading must not compete with the first interaction window');
+requireText('public/index.html', "const buildCookieConfigRowKey = requireCtripStatic('buildCookieConfigRowKey');", 'entry uses extracted cookie config row-key helper');
+requireText('public/index.html', "const buildCookieConfigDeleteSuccessState = requireCtripStatic('buildCookieConfigDeleteSuccessState');", 'entry uses extracted cookie config delete success state');
+requireText('public/index.html', "const buildCookieConfigDeleteFailureState = requireCtripStatic('buildCookieConfigDeleteFailureState');", 'entry uses extracted cookie config delete failure state');
+requireText('public/index.html', "const buildCookieConfigBatchDeleteSuccessState = requireCtripStatic('buildCookieConfigBatchDeleteSuccessState');", 'entry uses extracted cookie config batch-delete success state');
+requireText('public/index.html', "const buildCookieConfigBatchDeleteFailureState = requireCtripStatic('buildCookieConfigBatchDeleteFailureState');", 'entry uses extracted cookie config batch-delete failure state');
+requireText('public/ctrip-static.js', 'const buildCookieConfigRowKey = (item = {}) =>', 'Ctrip static owns cookie config row-key normalization');
+requireText('public/ctrip-static.js', 'const buildCookieConfigDeleteSuccessState = ({', 'Ctrip static owns cookie config delete success state');
+requireText('public/ctrip-static.js', 'const buildCookieConfigBatchDeleteSuccessState = ({', 'Ctrip static owns cookie config batch-delete success state');
+requireText('public/index.html', 'const cookieRowKey = buildCookieConfigRowKey;', 'entry keeps cookie config row keys as a thin adapter');
+requireText('public/index.html', 'const deleteSuccessState = buildCookieConfigDeleteSuccessState({ name, hotelId });', 'cookie config delete success handling delegates to static helper');
+requireText('public/index.html', 'selectedCookieKeys.value = selectedCookieKeys.value.filter(key => key !== deleteSuccessState.selectedKeyToRemove);', 'cookie config delete removes the helper-owned selected key');
+requireText('public/index.html', 'const deleteFailureState = buildCookieConfigDeleteFailureState({ response: res });', 'cookie config delete failure handling delegates to static helper');
+requireText('public/index.html', 'const batchDeleteSuccessState = buildCookieConfigBatchDeleteSuccessState({ response: res, rows });', 'cookie config batch-delete success handling delegates to static helper');
+requireText('public/index.html', 'selectedCookieKeys.value = batchDeleteSuccessState.selectedCookieKeys;', 'cookie config batch-delete selected keys come from helper state');
+requireText('public/index.html', 'const batchDeleteFailureState = buildCookieConfigBatchDeleteFailureState({ response: res });', 'cookie config batch-delete failure handling delegates to static helper');
+requireNoTextBetween('public/index.html', 'const deleteCookiesConfig = async (name, hotelId) => {', 'const batchDeleteCookiesConfig = async () => {', "showToast('删除成功');", 'cookie config delete success toast is not re-inlined');
+requireNoTextBetween('public/index.html', 'const deleteCookiesConfig = async (name, hotelId) => {', 'const batchDeleteCookiesConfig = async () => {', "selectedCookieKeys.value = selectedCookieKeys.value.filter(key => key !== `${hotelId || 'global'}::${name}`);", 'cookie config delete selected key is not re-inlined');
+requireNoTextBetween('public/index.html', 'const batchDeleteCookiesConfig = async () => {', 'const useCookies = async (item) => {', 'const deletedCount = res.data?.deleted_count ?? rows.length;', 'cookie config batch-delete count state is not re-inlined');
+requireNoTextBetween('public/index.html', 'const batchDeleteCookiesConfig = async () => {', 'const useCookies = async (item) => {', 'selectedCookieKeys.value = [];', 'cookie config batch-delete selected-key state is not re-inlined');
 requireText('public/index.html', 'const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS = 16;', 'Meituan manual startup config-list read starts near immediately without blocking route entry');
 requireText('public/index.html', 'const MEITUAN_EBOOKING_SECONDARY_CONFIG_DELAY_MS = 5200;', 'Meituan manual secondary config refresh stays outside the first interaction window');
 requireText('public/index.html', 'const MEITUAN_EBOOKING_HOTEL_LIST_DELAY_MS = 6400;', 'Meituan manual hotel-list refresh stays outside the first interaction window');
 requireText('public/index.html', 'const scheduleMeituanEbookingDeferredStartupRefresh = () => {\n                ensureMeituanManualHotelSelected();\n                scheduleDelayedPageTask(async () => {', 'Meituan manual startup refresh is delayed outside first paint');
 requireText('public/index.html', 'const resolveMeituanManualDefaultHotelId = () => {', 'Meituan manual fetch resolves a default hotel before fast local config matching');
+requireText('public/index.html', "const resolveMeituanManualDefaultHotelIdFromState = requireMeituanStatic('resolveMeituanManualDefaultHotelIdFromState');", 'Meituan manual default-hotel priority is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanManualDefaultHotelIdFromState = ({', 'Meituan static helper owns manual default-hotel priority');
 requireText('public/index.html', 'const ensureMeituanManualHotelSelected = () => {', 'Meituan manual fetch sets the current hotel context before fast local matching');
 requireText('public/index.html', "onlineDataTab.value = 'meituan-ranking';\n                    ensureMeituanManualHotelSelected();", 'Meituan route entry selects hotel context before startup refresh scheduling');
 requireText('public/index.html', 'const openMeituanManualTab = (tab) => {\n                onlineDataTab.value = tab;\n                ensureMeituanManualHotelSelected();', 'Meituan manual tab switching keeps the hotel context ready for fast local matching');
@@ -1011,15 +1066,26 @@ requireText('public/index.html', "await deleteCtripConfig(configId);\n          
 requireNoText('public/index.html', "await loadCtripConfigList();\n                        await loadDataHealthPanel('light', { force: true });", 'Ctrip health Cookie save must not keep the modal saving state waiting on data-health refresh');
 requireNoText('public/index.html', "await deleteCtripConfig(configId);\n                await loadDataHealthPanel('light', { force: true });", 'Ctrip health Cookie delete must not wait on data-health refresh');
 requireText('public/index.html', 'const results = await Promise.all(ids.map(async (id) => {', 'Ctrip batch config delete runs delete requests in parallel');
+requireText('public/index.html', "const buildCtripBatchDeleteConfigResultState = requireCtripStatic('buildCtripBatchDeleteConfigResultState');", 'entry uses extracted Ctrip batch-delete result state helper');
+requireText('public/ctrip-static.js', 'const buildCtripBatchDeleteConfigResultState = (results = []) => {', 'Ctrip static owns batch-delete result state');
+requireText('public/index.html', 'const deleteResultState = buildCtripBatchDeleteConfigResultState(results);', 'Ctrip batch config delete delegates result state to static helper');
+requireText('public/index.html', 'selectedCtripConfigIds.value = deleteResultState.failedIds;', 'Ctrip batch config delete keeps only failed ids selected');
+requireText('public/index.html', 'if (deleteResultState.shouldRefresh) {', 'Ctrip batch config delete refresh decision comes from static helper state');
 requireText('public/index.html', 'deferUiTask(() => loadCtripConfigList(), 80);', 'Ctrip batch config delete refreshes the config list after feedback is released');
+requireText('public/index.html', 'showToast(deleteResultState.toastMessage, deleteResultState.toastLevel);', 'Ctrip batch config delete uses helper-owned feedback state');
+requireNoTextBetween('public/index.html', 'const batchDeleteCtripConfigs = async () => {', 'const generateCtripBookmarklet = async', 'const failedIds = results.filter(item => !item.success).map(item => item.id);', 'Ctrip batch config delete result state must not stay inline in the entry');
+requireNoTextBetween('public/index.html', 'const batchDeleteCtripConfigs = async () => {', 'const generateCtripBookmarklet = async', 'const deletedCount = results.length - failedIds.length', 'Ctrip batch config delete count state must not stay inline in the entry');
 requireNoText('public/index.html', "if (deletedCount > 0) {\n                    await loadCtripConfigList();\n                }", 'Ctrip batch config delete must not wait on full config-list refresh before showing feedback');
 requireText('public/index.html', 'const scheduleMeituanEbookingDeferredStartupRefresh = () => {', 'Meituan manual page defers config matching and secondary startup refreshes');
 requireText('public/index.html', "if (currentPage.value !== 'meituan-ebooking') return null;", 'deferred Meituan manual startup refresh is scoped to the active page');
 requireText('public/index.html', 'scheduleMeituanEbookingDeferredStartupRefresh();', 'Meituan manual page schedules deferred startup refresh after route entry');
 requireText('public/index.html', 'const ensureMeituanConfigSecret = async (config, options = {}) => {', 'Meituan full config detail loader supports silent background prewarm');
-requireText('public/index.html', "console.error('[Meituan] 预热完整配置失败:', e);", 'Meituan config-detail prewarm failure stays silent to the user');
+requireText('public/index.html', "console.error(failureAction.label, failureAction.error);", 'Meituan config-detail prewarm failure stays silent to the user');
 requireText('public/index.html', 'const prewarmSelectedMeituanConfigSecret = (config = selectedMeituanHotelConfig.value) => {', 'entry can prewarm selected Meituan config detail without blocking manual fetch UI');
-requireText('public/index.html', 'deferUiTask(() => ensureMeituanConfigSecret(config, { silent: true }), 80);', 'Meituan selected config detail prewarm is scheduled outside the current interaction');
+requireText('public/index.html', "const resolveMeituanConfigDetailPrewarmPlan = requireMeituanStatic('resolveMeituanConfigDetailPrewarmPlan');", 'Meituan selected config detail prewarm decision is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailPrewarmPlan = ({', 'Meituan static helper owns config detail prewarm planning');
+requireText('public/index.html', 'const prewarmPlan = resolveMeituanConfigDetailPrewarmPlan({ config, delayMs: 80 });', 'Meituan selected config detail prewarm uses a static helper plan');
+requireText('public/index.html', 'deferUiTask(() => ensureMeituanConfigSecret(prewarmPlan.config, { silent: true }), prewarmPlan.delayMs);', 'Meituan selected config detail prewarm is scheduled outside the current interaction');
 requireText('public/index.html', 'let configSource = options.resolvedConfig || selectedMeituanHotelConfig.value;', 'Meituan config apply can reuse a resolved full config from the fetch flow');
 requireText('public/index.html', 'const config = options.resolvedConfig || await ensureMeituanConfigSecret(configSource);', 'Meituan config apply avoids duplicate full config detail requests when resolved config is already available');
 requireText('public/meituan-static.js', 'if (!isMeituanRankingFormAlignedWithConfig(form, selectedMeituanConfig)) {', 'Meituan batch fetch flow skips repeat config application when the form already matches the resolved config');
@@ -1027,7 +1093,8 @@ requireText('public/meituan-static.js', 'skipIfAligned: true,', 'Meituan batch f
 requireNoText('public/meituan-static.js', 'await applyMeituanHotelConfig(false);', 'Meituan batch fetch flow must not trigger a second full config apply after resolving config');
 requireText('public/index.html', "await loadMeituanConfigList({\n                        cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,\n                    });\n                    if (currentPage.value !== 'meituan-ebooking') return null;\n                    prewarmSelectedMeituanConfigSecret();", 'Meituan manual page prewarms selected config detail during delayed deferred startup refresh through the short config-list cache');
 requireText('public/index.html', 'const shouldApplySelectedConfig = options.applySelectedConfig === true;', 'Meituan config-list loader only applies selected config when explicitly requested');
-requireText('public/index.html', 'if (meituanForm.value.hotelId && shouldApplySelectedConfig) {', 'Meituan config-list loader does not implicitly apply selected config on ordinary tab switches');
+requireText('public/index.html', 'const applyAction = resolveMeituanConfigListApplyAction({', 'Meituan config-list loader delegates selected config apply decision to the static helper');
+requireText('public/index.html', 'if (applyAction.shouldApply) {', 'Meituan config-list loader does not implicitly apply selected config on ordinary tab switches');
 requireNoText('public/index.html', "if (meituanForm.value.hotelId) {\n                                await applyMeituanHotelConfig(false, { refreshList: false });\n                            }\n                            return meituanConfigList.value;", 'Meituan config-list loader must not wait for full config detail application');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => loadMeituanConfigList());", 'Meituan manual page must not synchronously request saved configs from the first-paint loader');
 requireText('public/index.html', 'const openMeituanManualTab = (tab) => {', 'Meituan manual tabs use a non-blocking tab switch helper');
@@ -1047,7 +1114,76 @@ requireText('public/index.html', 'meituanConfigListLoaded && !selectedMeituanHot
 requireNoText('public/index.html', '配置待读取，正在准备美团数据源匹配...', 'Meituan manual page must not show a slow pending data-source match state');
 requireText('public/index.html', ':disabled="fetchingData || !canFetchMeituanRankingData()"', 'Meituan ranking manual fetch button stays disabled until a config is already matched');
 requireText('public/index.html', 'const meituanManualFetchConfigProofPending = () => {', 'Meituan ranking manual fetch keeps the old helper as a non-waiting compatibility boundary');
-requireText('public/index.html', 'return !!meituanForm.value.hotelId && !!selectedMeituanHotelConfig.value;', 'Meituan ranking manual fetch requires an already matched config before submission');
+requireText('public/index.html', "const resolveCanFetchMeituanRankingData = requireMeituanStatic('resolveCanFetchMeituanRankingData');", 'Meituan ranking fetch availability is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveCanFetchMeituanRankingData = ({', 'Meituan static helper owns ranking fetch availability rules');
+requireText('public/index.html', "const resolveMeituanManualFetchConfigProofPending = requireMeituanStatic('resolveMeituanManualFetchConfigProofPending');", 'Meituan manual config proof-pending rule is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanManualFetchConfigProofPending = ({', 'Meituan static helper owns config proof-pending rules');
+requireText('public/index.html', "const resolveMeituanManualFetchConfigCandidate = requireMeituanStatic('resolveMeituanManualFetchConfigCandidate');", 'Meituan manual fetch config candidate resolution is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanManualFetchConfigCandidate = ({', 'Meituan static helper owns manual config candidate resolution');
+requireText('public/index.html', "const resolveMeituanConfigListResponse = requireMeituanStatic('resolveMeituanConfigListResponse');", 'Meituan config-list response handling is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigListResponse = (res = {}) => {', 'Meituan static helper owns config-list response handling');
+requireText('public/index.html', "const resolveMeituanConfigListApplyAction = requireMeituanStatic('resolveMeituanConfigListApplyAction');", 'Meituan config-list selected-config apply decision is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigListApplyAction = ({', 'Meituan static helper owns config-list selected-config apply decision');
+requireText('public/index.html', "const resolveMeituanConfigListCachedResult = requireMeituanStatic('resolveMeituanConfigListCachedResult');", 'Meituan config-list cache-hit decision is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigListCachedResult = ({', 'Meituan static helper owns config-list cache-hit decision');
+requireText('public/index.html', "const resolveMeituanConfigListLoadingAction = requireMeituanStatic('resolveMeituanConfigListLoadingAction');", 'Meituan config-list loading-promise decision is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigListLoadingAction = ({', 'Meituan static helper owns config-list loading-promise decision');
+requireText('public/index.html', "const buildMeituanConfigListSuccessState = requireMeituanStatic('buildMeituanConfigListSuccessState');", 'Meituan config-list success state projection is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanConfigListSuccessState = ({', 'Meituan static helper owns config-list success state projection');
+requireText('public/index.html', "const buildMeituanConfigListFailureAction = requireMeituanStatic('buildMeituanConfigListFailureAction');", 'Meituan config-list failure action is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanConfigListFailureAction = ({', 'Meituan static helper owns config-list failure action');
+requireText('public/index.html', "const buildMeituanConfigListStartState = requireMeituanStatic('buildMeituanConfigListStartState');", 'Meituan config-list start state projection is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanConfigListStartState = () => ({', 'Meituan static helper owns config-list start state projection');
+requireText('public/index.html', "const buildMeituanConfigListFinishState = requireMeituanStatic('buildMeituanConfigListFinishState');", 'Meituan config-list finish state projection is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanConfigListFinishState = () => ({', 'Meituan static helper owns config-list finish state projection');
+requireText('public/index.html', 'const cachedResult = resolveMeituanConfigListCachedResult({', 'entry keeps Meituan config-list cache-hit handling as a thin adapter');
+requireText('public/index.html', 'return cachedResult.list;', 'entry returns static config-list cached data projection');
+requireText('public/index.html', 'const loadingAction = resolveMeituanConfigListLoadingAction({', 'entry keeps Meituan config-list loading-promise handling as a thin adapter');
+requireText('public/index.html', "if (loadingAction.status === 'reuse') {", 'Meituan config-list loader reuses in-flight requests through the static helper decision');
+requireText('public/index.html', "if (loadingAction.status === 'await_previous') {", 'Meituan config-list force reload waits for previous requests through the static helper decision');
+requireText('public/index.html', 'const startState = buildMeituanConfigListStartState();', 'entry keeps Meituan config-list start state as a thin adapter');
+requireText('public/index.html', 'meituanConfigListLoading.value = startState.loading;', 'entry uses static config-list start loading projection');
+requireText('public/index.html', 'meituanConfigListLoadFailed.value = startState.failed;', 'entry uses static config-list start failure projection');
+requireText('public/index.html', 'const configListResult = resolveMeituanConfigListResponse(res);', 'entry keeps Meituan config-list response handling as a thin adapter');
+requireText('public/index.html', 'const successState = buildMeituanConfigListSuccessState({', 'entry keeps Meituan config-list success state projection as a thin adapter');
+requireText('public/index.html', 'meituanConfigList.value = successState.list;', 'entry uses static config-list response data projection');
+requireText('public/index.html', 'const applyAction = resolveMeituanConfigListApplyAction({', 'entry keeps Meituan config-list apply decision as a thin adapter');
+requireText('public/index.html', 'const failureAction = buildMeituanConfigListFailureAction({', 'entry keeps Meituan config-list failure handling as a thin adapter');
+requireText('public/index.html', 'meituanConfigListLoadFailed.value = failureAction.failed;', 'entry uses static config-list failure state projection');
+requireText('public/index.html', 'console.error(failureAction.label, failureAction.detail);', 'entry keeps Meituan config-list failure logs explicit');
+requireText('public/index.html', 'const finishState = buildMeituanConfigListFinishState();', 'entry keeps Meituan config-list finish state as a thin adapter');
+requireText('public/index.html', 'meituanConfigListLoadingPromise = finishState.loadingPromise;', 'entry uses static config-list finish promise projection');
+requireText('public/index.html', 'meituanConfigListLoading.value = finishState.loading;', 'entry uses static config-list finish loading projection');
+requireText('public/index.html', "const getMeituanConfigDetailVersion = requireMeituanStatic('getMeituanConfigDetailVersion');", 'Meituan config detail version resolution is owned by the static helper');
+requireText('public/meituan-static.js', 'const getMeituanConfigDetailVersion = (config = {}) => String(', 'Meituan static helper owns config detail version resolution');
+requireText('public/index.html', "const buildMeituanConfigDetailCacheKey = requireMeituanStatic('buildMeituanConfigDetailCacheKey');", 'Meituan config detail cache-key resolution is owned by the static helper');
+requireText('public/meituan-static.js', "const buildMeituanConfigDetailCacheKey = (id = '') => (id ? String(id) : '');", 'Meituan static helper owns config detail cache-key resolution');
+requireText('public/index.html', "const resolveMeituanConfigDetailClearTarget = requireMeituanStatic('resolveMeituanConfigDetailClearTarget');", 'Meituan config detail cache-clear target resolution is owned by the static helper');
+requireText('public/meituan-static.js', "const resolveMeituanConfigDetailClearTarget = (id = '') => {", 'Meituan static helper owns config detail cache-clear target resolution');
+requireText('public/index.html', 'const clearTarget = resolveMeituanConfigDetailClearTarget(id);', 'entry keeps Meituan config detail cache clearing as a thin adapter');
+requireText('public/index.html', "const resolveMeituanConfigDetailLoadTarget = requireMeituanStatic('resolveMeituanConfigDetailLoadTarget');", 'Meituan config detail load target resolution is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailLoadTarget = ({', 'Meituan static helper owns config detail load target resolution');
+requireText('public/index.html', 'const loadTarget = resolveMeituanConfigDetailLoadTarget({ id, loadingPromises: meituanConfigDetailLoadingPromises });', 'entry keeps Meituan config detail inflight reuse as a thin adapter');
+requireText('public/index.html', "const buildMeituanConfigDetailRequestUrl = requireMeituanStatic('buildMeituanConfigDetailRequestUrl');", 'Meituan config detail request URL is owned by the static helper');
+requireText('public/meituan-static.js', "const buildMeituanConfigDetailRequestUrl = (cacheKey = '') => (", 'Meituan static helper owns config detail request URL construction');
+requireText('public/index.html', "const resolveMeituanConfigDetailResponse = requireMeituanStatic('resolveMeituanConfigDetailResponse');", 'Meituan config detail response parsing is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailResponse = (res = {}) => {', 'Meituan static helper owns config detail response parsing');
+requireText('public/index.html', "const shouldSkipMeituanConfigDetailLoad = requireMeituanStatic('shouldSkipMeituanConfigDetailLoad');", 'Meituan config detail skip-load rule is owned by the static helper');
+requireText('public/meituan-static.js', 'const shouldSkipMeituanConfigDetailLoad = (config = null) => (', 'Meituan static helper owns config detail skip-load rules');
+requireText('public/index.html', "const resolveMeituanConfigDetailCachedResult = requireMeituanStatic('resolveMeituanConfigDetailCachedResult');", 'Meituan config detail cached-result resolution is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailCachedResult = ({', 'Meituan static helper owns config detail cached-result resolution');
+requireText('public/index.html', "const resolveMeituanConfigDetailCacheLookup = requireMeituanStatic('resolveMeituanConfigDetailCacheLookup');", 'Meituan config detail cache lookup is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailCacheLookup = ({', 'Meituan static helper owns config detail cache lookup');
+requireText('public/index.html', 'const cacheLookup = resolveMeituanConfigDetailCacheLookup({ config, cache: meituanConfigDetailCache });', 'entry keeps Meituan config detail cache lookup as a thin adapter');
+requireText('public/index.html', "const buildMeituanConfigDetailCacheEntry = requireMeituanStatic('buildMeituanConfigDetailCacheEntry');", 'Meituan config detail cache-entry construction is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanConfigDetailCacheEntry = ({', 'Meituan static helper owns config detail cache-entry construction');
+requireText('public/index.html', "const resolveMeituanConfigDetailCacheStorePlan = requireMeituanStatic('resolveMeituanConfigDetailCacheStorePlan');", 'Meituan config detail cache store decision is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailCacheStorePlan = ({', 'Meituan static helper owns config detail cache store decision');
+requireText('public/index.html', 'const storePlan = resolveMeituanConfigDetailCacheStorePlan({ cacheKey: cacheLookup.cacheKey, cacheEntry });', 'entry keeps Meituan config detail cache writes as a thin adapter');
+requireText('public/index.html', "const resolveMeituanConfigDetailFailureAction = requireMeituanStatic('resolveMeituanConfigDetailFailureAction');", 'Meituan config detail failure action is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailFailureAction = ({', 'Meituan static helper owns config detail failure action');
+requireText('public/index.html', 'const failureAction = resolveMeituanConfigDetailFailureAction({ error: e, silent: options.silent });', 'entry keeps Meituan config detail failure handling as a thin adapter');
+requireText('public/index.html', "console.error(failureAction.label, failureAction.error);", 'Meituan config-detail prewarm failure stays silent to the user through a static failure action');
 requireText('public/index.html', 'const resolveMeituanManualFetchConfig = async (config) => {', 'Meituan ranking manual fetch resolves config before backend submission');
 requireNoText('public/index.html', 'return !!meituanConfigListLoadingPromise', 'Meituan ranking manual fetch must not reuse an in-flight config-list request as a click-time wait');
 requireNoText('public/index.html', "await loadMeituanConfigList({\n                    cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                    applySelectedConfig: false,\n                });", 'Meituan ranking manual fetch must not wait for config-list loading before backend submission');
@@ -1058,7 +1194,165 @@ requireText('public/index.html', 'let meituanHotelConfigApplyVersion = 0;', 'Mei
 requireText('public/index.html', 'const scheduleMeituanHotelConfigApply = (options = {}) => {', 'Meituan hotel selection uses a deferred config apply scheduler');
 requireText('public/index.html', 'scheduleMeituanHotelConfigApply({ delayMs: 0 });', 'Meituan hotel selection applies already matched config immediately after selection');
 requireNoText('public/index.html', "if (onlineDataTab.value === 'meituan-ranking') {\n                    applyMeituanHotelConfig(false);\n                }", 'Meituan hotel watcher must not directly start config matching on selection change');
-requireText('public/index.html', "const switchMeituanCaptureTab = async (tab, sections = []) => {\n                onlineDataTab.value = tab;\n                meituanBrowserCaptureForm.value.captureSections = normalizeMeituanCaptureSections(sections);\n                meituanBrowserCaptureResult.value = null;\n                await loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS });", 'Meituan browser capture tab switches reuse the short config-list cache');
+requireText('public/index.html', "const buildMeituanCaptureTabSwitchState = requireMeituanStatic('buildMeituanCaptureTabSwitchState');", 'Meituan browser capture tab switch state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanCaptureTabSwitchState = ({', 'Meituan static helper owns browser capture tab switch state');
+requireText('public/index.html', 'const switchState = buildMeituanCaptureTabSwitchState({ tab, sections });', 'entry keeps Meituan browser capture tab switch state as a thin adapter');
+requireText('public/index.html', 'meituanBrowserCaptureForm.value.captureSections = switchState.captureSections;', 'entry applies normalized Meituan browser capture sections from the static helper');
+requireText('public/index.html', 'meituanBrowserCaptureResult.value = switchState.captureResult;', 'entry clears Meituan browser capture result through the static helper state');
+requireText('public/index.html', 'if (switchState.shouldSyncTrafficConfig) {', 'Meituan traffic capture tab still syncs traffic config through the static helper decision');
+requireText('public/index.html', 'await loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS });', 'Meituan browser capture tab switches reuse the short config-list cache');
+requireText('public/index.html', "const buildMeituanBrowserCapturePresetState = requireMeituanStatic('buildMeituanBrowserCapturePresetState');", 'Meituan browser capture preset state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanBrowserCapturePresetState = ({', 'Meituan static helper owns browser capture preset state');
+requireText('public/index.html', 'const presetState = buildMeituanBrowserCapturePresetState({', 'entry keeps Meituan browser capture preset state as a thin adapter');
+requireText('public/index.html', 'currentDataPeriod: meituanBrowserCaptureForm.value.dataPeriod,', 'Meituan browser capture preset state receives current data period explicitly');
+requireText('public/index.html', "const buildMeituanBrowserCaptureDataPeriodApplyState = requireMeituanStatic('buildMeituanBrowserCaptureDataPeriodApplyState');", 'Meituan browser capture data-period apply state is owned by the static helper');
+requireText('public/meituan-static.js', "const buildMeituanBrowserCaptureDataPeriodApplyState = (dataPeriod = '') => {", 'Meituan static helper owns browser capture data-period apply state');
+requireText('public/index.html', 'const dataPeriodApplyState = buildMeituanBrowserCaptureDataPeriodApplyState(presetState.dataPeriod);', 'entry keeps Meituan browser capture data-period apply state as a thin adapter');
+requireText('public/index.html', 'meituanBrowserCaptureForm.value.dataPeriod = dataPeriodApplyState.dataPeriod;', 'Meituan browser capture preset applies normalized data period from the static helper');
+requireText('public/index.html', 'runMeituanBrowserCaptureForSections(presetState.captureSections, { dataPeriod: dataPeriodApplyState.dataPeriod });', 'Meituan browser capture preset uses normalized static helper sections and data period');
+requireNoText('public/index.html', 'preset.dataPeriod || preset.data_period', 'Meituan browser capture preset data-period selection is not re-inlined');
+requireNoText('public/index.html', 'if (presetState.dataPeriod)', 'Meituan browser capture preset data-period apply decision is not re-inlined');
+requireText('public/index.html', "const buildMeituanBrowserSupplementCaptureState = requireMeituanStatic('buildMeituanBrowserSupplementCaptureState');", 'Meituan browser supplement capture state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanBrowserSupplementCaptureState = ({', 'Meituan static helper owns browser supplement capture state');
+requireText('public/index.html', 'const supplementState = buildMeituanBrowserSupplementCaptureState({', 'entry keeps Meituan browser supplement capture state as a thin adapter');
+requireText('public/index.html', 'autoFetchHotelId: autoFetchHotelId.value,', 'Meituan browser supplement capture state receives auto-fetch hotel context explicitly');
+requireText('public/index.html', 'formHotelId: meituanForm.value.hotelId,', 'Meituan browser supplement capture state receives manual hotel context explicitly');
+requireText('public/index.html', 'userHotelId: user.value?.hotel_id,', 'Meituan browser supplement capture state receives user hotel context explicitly');
+requireText('public/index.html', 'runMeituanBrowserCaptureForSections(supplementState.captureSections, { dataPeriod: supplementState.dataPeriod });', 'Meituan browser supplement capture uses normalized static helper sections and data period');
+requireNoText('public/index.html', "runMeituanBrowserCaptureForSections(['full'], { dataPeriod: 'historical_daily' })", 'Meituan browser supplement capture defaults are not re-inlined');
+requireText('public/index.html', "const buildMeituanBrowserCaptureCopyCommandState = requireMeituanStatic('buildMeituanBrowserCaptureCopyCommandState');", 'Meituan browser capture copy-command state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanBrowserCaptureCopyCommandState = ({', 'Meituan static helper owns browser capture copy-command state');
+requireText('public/index.html', 'const copyState = buildMeituanBrowserCaptureCopyCommandState({', 'entry keeps Meituan browser capture copy-command state as a thin adapter');
+requireText('public/index.html', 'storeId: meituanBrowserCaptureForm.value.storeId,', 'Meituan browser capture copy-command state receives store context explicitly');
+requireText('public/index.html', 'showToast(copyState.message, copyState.level);', 'Meituan browser capture copy-command warning comes from static helper state');
+requireNoText('public/index.html', 'if (!meituanBrowserCaptureForm.value.storeId || !(meituanForm.value.hotelId || user.value?.hotel_id))', 'Meituan browser capture copy-command readiness is not re-inlined');
+requireText('public/index.html', "const buildMeituanBrowserCaptureClearPayloadState = requireMeituanStatic('buildMeituanBrowserCaptureClearPayloadState');", 'Meituan browser capture clear-payload state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanBrowserCaptureClearPayloadState = () => ({', 'Meituan static helper owns browser capture clear-payload state');
+requireText('public/index.html', 'const clearState = buildMeituanBrowserCaptureClearPayloadState();', 'entry keeps Meituan browser capture clear-payload state as a thin adapter');
+requireText('public/index.html', 'meituanBrowserCaptureForm.value.payloadJson = clearState.payloadJson;', 'Meituan browser capture clear-payload applies static helper payload state');
+requireText('public/index.html', 'meituanBrowserCaptureResult.value = clearState.captureResult;', 'Meituan browser capture clear-payload applies static helper result state');
+requireNoText('public/index.html', "meituanBrowserCaptureForm.value.payloadJson = '';\n                meituanBrowserCaptureResult.value = null;", 'Meituan browser capture clear-payload state is not re-inlined');
+requireText('public/index.html', "const buildMeituanBrowserCaptureConfigSyncState = requireMeituanStatic('buildMeituanBrowserCaptureConfigSyncState');", 'Meituan browser capture config-sync state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanBrowserCaptureConfigSyncState = ({', 'Meituan static helper owns browser capture config-sync state');
+requireText('public/index.html', 'const syncState = buildMeituanBrowserCaptureConfigSyncState({', 'entry keeps Meituan browser capture config-sync state as a thin adapter');
+requireText('public/index.html', 'formPoiId: meituanForm.value.poiId,', 'Meituan browser capture config-sync receives manual poi context explicitly');
+requireText('public/index.html', 'captureForm: meituanBrowserCaptureForm.value,', 'Meituan browser capture config-sync receives capture form context explicitly');
+requireText('public/index.html', 'Object.assign(meituanBrowserCaptureForm.value, syncState.formUpdates);', 'Meituan browser capture config-sync applies static helper form updates');
+requireText('public/index.html', 'showMessage === true && syncState.shouldNotify', 'Meituan browser capture config-sync notification comes from static helper state');
+requireNoText('public/index.html', 'const poiId = firstNonEmptyText(\n                    config?.poi_id,', 'Meituan browser capture config-sync poi resolution is not re-inlined');
+requireNoText('public/index.html', 'const adsUrl = String(firstDataConfigValue(config?.ads_url, config?.adsUrl, meituanBrowserCaptureForm.value.adsUrl) || \'\').trim();', 'Meituan browser capture config-sync ads URL resolution is not re-inlined');
+requireText('public/index.html', "const buildMeituanBrowserCaptureRunSectionsState = requireMeituanStatic('buildMeituanBrowserCaptureRunSectionsState');", 'Meituan browser capture run-sections state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanBrowserCaptureRunSectionsState = (sections = []) => ({', 'Meituan static helper owns browser capture run-sections state');
+requireText('public/index.html', 'const runSectionsState = buildMeituanBrowserCaptureRunSectionsState(sections);', 'entry keeps Meituan browser capture run-sections state as a thin adapter');
+requireText('public/index.html', 'meituanBrowserCaptureForm.value.captureSections = runSectionsState.captureSections;', 'Meituan browser capture run-sections applies static helper sections');
+requireNoText('public/index.html', 'meituanBrowserCaptureForm.value.captureSections = normalizeMeituanCaptureSections(sections);', 'Meituan browser capture run-sections normalization is not re-inlined');
+requireText('public/index.html', "const buildMeituanBrowserProfileLoginOnlyRunOptions = requireMeituanStatic('buildMeituanBrowserProfileLoginOnlyRunOptions');", 'Meituan browser Profile login-only options are owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanBrowserProfileLoginOnlyRunOptions = () => ({', 'Meituan static helper owns browser Profile login-only run options');
+requireText('public/index.html', 'const loginOnlyOptions = buildMeituanBrowserProfileLoginOnlyRunOptions();', 'entry keeps Meituan browser Profile login-only options as a thin adapter');
+requireText('public/index.html', 'await runMeituanBrowserCapture(loginOnlyOptions);', 'Meituan browser Profile login-only action uses static helper options');
+requireNoText('public/index.html', 'runMeituanBrowserCapture({ loginOnly: true, bindDataSource: true })', 'Meituan browser Profile login-only options are not re-inlined');
+requireText('public/index.html', "const resolveMeituanBrowserCaptureSystemHotelId = requireMeituanStatic('resolveMeituanBrowserCaptureSystemHotelId');", 'Meituan browser capture system hotel id resolution is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanBrowserCaptureSystemHotelId = ({', 'Meituan static helper owns browser capture system hotel id resolution');
+requireText('public/index.html', 'getSystemHotelId: () => resolveMeituanBrowserCaptureSystemHotelId({', 'entry keeps Meituan browser capture system hotel id resolution as a thin adapter');
+requireText('public/index.html', 'autoFetchHotelId: autoFetchHotelId.value,', 'Meituan browser capture system hotel id resolution receives auto-fetch hotel context explicitly');
+requireNoText('public/index.html', 'meituanForm.value.hotelId || autoFetchHotelId.value || user.value?.hotel_id', 'Meituan browser capture system hotel id selection is not re-inlined');
+requireNoTextBetween('public/index.html', 'const saveMeituanCapturedPayload = async () => runMeituanCapturedPayloadSaveFlow({', 'const goConfigureMeituanForSelectedHotel', 'meituanForm.value.hotelId || user.value?.hotel_id', 'Meituan captured payload save system hotel id selection is not re-inlined');
+requireText('public/index.html', "const resolveMeituanSelectedHotelConfigAction = requireMeituanStatic('resolveMeituanSelectedHotelConfigAction');", 'Meituan selected hotel config action is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanSelectedHotelConfigAction = ({', 'Meituan static helper owns selected hotel config action');
+requireText('public/index.html', 'const action = resolveMeituanSelectedHotelConfigAction({', 'entry keeps Meituan selected hotel config action as a thin adapter');
+requireText('public/index.html', 'await openHotelManualFetchConfig(action.hotel, action.platform);', 'Meituan selected hotel config action uses static helper platform');
+requireNoTextBetween('public/index.html', 'const goConfigureMeituanForSelectedHotel = async () => {', 'const buildHotelOtaConfig', 'hotels.value.find', 'Meituan selected hotel lookup is not re-inlined');
+requireNoTextBetween('public/index.html', 'const goConfigureMeituanForSelectedHotel = async () => {', 'const buildHotelOtaConfig', "openHotelManualFetchConfig(hotel, 'meituan')", 'Meituan selected hotel platform is not re-inlined');
+requireText('public/index.html', "const buildMeituanRankingReturnTargetState = requireMeituanStatic('buildMeituanRankingReturnTargetState');", 'Meituan ranking return target state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanRankingReturnTargetState = ({', 'Meituan static helper owns ranking return target state');
+requireText('public/index.html', 'const returnState = buildMeituanRankingReturnTargetState({', 'entry keeps Meituan ranking return target as a thin adapter');
+requireText('public/index.html', 'currentPage.value = returnState.page;', 'Meituan ranking return page comes from static helper state');
+requireText('public/index.html', 'onlineDataTab.value = returnState.tab;', 'Meituan ranking return tab comes from static helper state');
+requireText('public/index.html', 'const afterReloadState = buildMeituanRankingReturnTargetState({', 'Meituan ranking return target is recomputed after config reload');
+requireNoTextBetween('public/index.html', 'const returnToMeituanRankingAfterConfigSave = async (hotelId) => {', 'let manualOnlineFetchConfigReadyPromise', "String(hotelId || '').trim()", 'Meituan ranking return target id trimming is not re-inlined');
+requireNoTextBetween('public/index.html', 'const returnToMeituanRankingAfterConfigSave = async (hotelId) => {', 'let manualOnlineFetchConfigReadyPromise', "currentPage.value = 'meituan-ebooking';", 'Meituan ranking return page literal is not re-inlined');
+requireNoTextBetween('public/index.html', 'const returnToMeituanRankingAfterConfigSave = async (hotelId) => {', 'let manualOnlineFetchConfigReadyPromise', "onlineDataTab.value = 'meituan-ranking';", 'Meituan ranking return tab literal is not re-inlined');
+requireText('public/index.html', "const resolveMeituanConfigSaveCookieState = requireMeituanStatic('resolveMeituanConfigSaveCookieState');", 'Meituan config-save Cookie state is owned by the static helper');
+requireText('public/meituan-static.js', "const resolveMeituanConfigSaveCookieState = (cookies = '') => {", 'Meituan static helper owns config-save Cookie state');
+requireText('public/index.html', 'const cookieState = resolveMeituanConfigSaveCookieState(meituanConfigForm.value.cookies);', 'entry keeps Meituan config-save Cookie state as a thin adapter');
+requireText('public/index.html', 'showToast(cookieState.message, cookieState.level);', 'Meituan config-save empty Cookie prompt comes from static helper state');
+requireText('public/index.html', 'cookies: cookieState.cookies,', 'Meituan config-save request body uses normalized Cookie state');
+requireNoTextBetween('public/index.html', 'const saveMeituanConfigItem = async () => {', 'const useMeituanConfig', "String(meituanConfigForm.value.cookies || '').trim()", 'Meituan config-save Cookie normalization is not re-inlined');
+requireNoTextBetween('public/index.html', 'const saveMeituanConfigItem = async () => {', 'const useMeituanConfig', "showToast('请输入临时 Cookie/API 辅助内容', 'error')", 'Meituan config-save empty Cookie prompt is not re-inlined');
+requireText('public/index.html', "const resolveMeituanConfigSaveRequestHotelId = requireMeituanStatic('resolveMeituanConfigSaveRequestHotelId');", 'Meituan config-save request hotel id selection is owned by the static helper');
+requireText('public/meituan-static.js', 'const resolveMeituanConfigSaveRequestHotelId = ({', 'Meituan static helper owns config-save request hotel id selection');
+requireText('public/index.html', 'const requestHotelId = resolveMeituanConfigSaveRequestHotelId({', 'entry keeps Meituan config-save request hotel id selection as a thin adapter');
+requireText('public/index.html', 'formHotelId: meituanConfigForm.value.hotel_id,', 'Meituan config-save request hotel id selection receives form hotel context');
+requireText('public/index.html', 'rankingHotelId: meituanForm.value.hotelId,', 'Meituan config-save request hotel id selection receives ranking hotel context');
+requireText('public/index.html', 'filterHotelId: onlineDataFilter.value.hotel_id,', 'Meituan config-save request hotel id selection receives online-data filter hotel context');
+requireText('public/index.html', 'userHotelId: user.value?.hotel_id,', 'Meituan config-save request hotel id selection receives user hotel context');
+requireNoTextBetween('public/index.html', 'const saveMeituanConfigItem = async () => {', 'const useMeituanConfig', 'const requestHotelId = String(', 'Meituan config-save request hotel id selection is not re-inlined');
+requireText('public/index.html', "const buildMeituanConfigSaveSuccessState = requireMeituanStatic('buildMeituanConfigSaveSuccessState');", 'Meituan config-save success state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanConfigSaveSuccessState = ({', 'Meituan static helper owns config-save success state');
+requireText('public/index.html', "const buildMeituanConfigSaveFailureState = requireMeituanStatic('buildMeituanConfigSaveFailureState');", 'Meituan config-save failure state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanConfigSaveFailureState = ({', 'Meituan static helper owns config-save failure state');
+requireText('public/index.html', 'const saveSuccessState = buildMeituanConfigSaveSuccessState({', 'entry keeps Meituan config-save success handling as a thin adapter');
+requireText('public/index.html', 'response: res,', 'Meituan config-save success state receives the backend response');
+requireText('public/index.html', 'form: meituanConfigForm.value,', 'Meituan config-save success state receives the current form context');
+requireText('public/index.html', 'showToast(saveSuccessState.toastMessage, saveSuccessState.toastLevel);', 'Meituan config-save success toast comes from static helper state');
+requireText('public/index.html', 'clearMeituanConfigDetailCache(saveSuccessState.clearConfigDetailId);', 'Meituan config-save cache clear target comes from static helper state');
+requireText('public/index.html', 'meituanConfigForm.value = saveSuccessState.resetForm;', 'Meituan config-save reset form comes from static helper state');
+requireText('public/index.html', 'await returnToMeituanRankingAfterConfigSave(saveSuccessState.savedHotelId);', 'Meituan config-save ranking return id comes from static helper state');
+requireText('public/index.html', '} else if (saveSuccessState.shouldReloadConfigList) {', 'Meituan config-save fallback reload decision comes from static helper state');
+requireText('public/index.html', 'const saveFailureState = buildMeituanConfigSaveFailureState({ response: res });', 'Meituan config-save failed response handling is a thin adapter');
+requireText('public/index.html', 'const saveFailureState = buildMeituanConfigSaveFailureState({ error: e });', 'Meituan config-save exception handling is a thin adapter');
+requireText('public/index.html', 'showToast(saveFailureState.toastMessage, saveFailureState.toastLevel);', 'Meituan config-save failure toast comes from static helper state');
+requireNoText('public/index.html', "const resolveSavedMeituanConfigHotelId = requireMeituanStatic('resolveSavedMeituanConfigHotelId');", 'entry does not import saved-hotel helper directly for Meituan config save');
+requireNoText('public/index.html', "const resolveMeituanConfigSaveToastLevel = requireMeituanStatic('resolveMeituanConfigSaveToastLevel');", 'entry does not import save-toast helper directly for Meituan config save');
+requireNoTextBetween('public/index.html', 'const saveMeituanConfigItem = async () => {', 'const useMeituanConfig', 'const savedHotelId = resolveSavedMeituanConfigHotelId({', 'Meituan config-save saved hotel id is not re-inlined');
+requireNoTextBetween('public/index.html', 'const saveMeituanConfigItem = async () => {', 'const useMeituanConfig', 'resolveMeituanConfigSaveToastLevel(res.data)', 'Meituan config-save toast level is not re-inlined');
+requireNoTextBetween('public/index.html', 'const saveMeituanConfigItem = async () => {', 'const useMeituanConfig', 'meituanConfigForm.value = createEmptyMeituanConfigForm();', 'Meituan config-save reset form is not re-inlined');
+requireNoTextBetween('public/index.html', 'const saveMeituanConfigItem = async () => {', 'const useMeituanConfig', "showToast(res.message || '保存失败', 'error')", 'Meituan config-save failed response handling is not re-inlined');
+requireNoTextBetween('public/index.html', 'const saveMeituanConfigItem = async () => {', 'const useMeituanConfig', "showToast('保存失败: ' + e.message, 'error')", 'Meituan config-save exception handling is not re-inlined');
+requireText('public/index.html', "const buildMeituanConfigUseState = requireMeituanStatic('buildMeituanConfigUseState');", 'Meituan config-use state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanConfigUseState = ({', 'Meituan static helper owns config-use state');
+requireText('public/index.html', 'const useState = buildMeituanConfigUseState({', 'entry keeps Meituan config-use handling as a thin adapter');
+requireText('public/index.html', 'fallbackHotelId: meituanForm.value.hotelId,', 'Meituan config-use state receives the current ranking hotel context');
+requireText('public/index.html', 'Object.assign(meituanForm.value, useState.formPatch);', 'Meituan config-use form patch comes from static helper state');
+requireText('public/index.html', 'showToast(useState.toastMessage);', 'Meituan config-use toast comes from static helper state');
+requireText('public/index.html', 'onlineDataTab.value = useState.targetTab;', 'Meituan config-use target tab comes from static helper state');
+requireNoText('public/index.html', "const buildMeituanRankingFormPatchFromConfig = requireMeituanStatic('buildMeituanRankingFormPatchFromConfig');", 'entry does not import Meituan ranking form patch helper directly for config use');
+requireNoTextBetween('public/index.html', 'const useMeituanConfig = async (config) => {', 'const editMeituanConfig', 'buildMeituanRankingFormPatchFromConfig(config, meituanForm.value.hotelId)', 'Meituan config-use form patch is not re-inlined');
+requireNoTextBetween('public/index.html', 'const useMeituanConfig = async (config) => {', 'const editMeituanConfig', "onlineDataTab.value = 'meituan-ranking';", 'Meituan config-use target tab is not re-inlined');
+requireText('public/index.html', "const buildMeituanConfigEditState = requireMeituanStatic('buildMeituanConfigEditState');", 'Meituan config-edit state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanConfigEditState = ({', 'Meituan static helper owns config-edit state');
+requireText('public/index.html', 'const editState = buildMeituanConfigEditState({ config });', 'entry keeps Meituan config-edit handling as a thin adapter');
+requireText('public/index.html', 'meituanConfigForm.value = editState.form;', 'Meituan config-edit form comes from static helper state');
+requireNoText('public/index.html', "const buildMeituanConfigEditForm = requireMeituanStatic('buildMeituanConfigEditForm');", 'entry does not import Meituan config edit form helper directly');
+requireNoTextBetween('public/index.html', 'const editMeituanConfig = async (config) => {', 'const deleteMeituanConfigItem', 'meituanConfigForm.value = buildMeituanConfigEditForm(config);', 'Meituan config-edit form is not re-inlined');
+requireText('public/index.html', "const buildMeituanConfigDeleteSuccessState = requireMeituanStatic('buildMeituanConfigDeleteSuccessState');", 'Meituan config-delete success state is owned by the static helper');
+requireText('public/index.html', "const buildMeituanConfigDeleteFailureState = requireMeituanStatic('buildMeituanConfigDeleteFailureState');", 'Meituan config-delete failure state is owned by the static helper');
+requireText('public/meituan-static.js', "const buildMeituanConfigDeleteSuccessState = (id = '') => ({", 'Meituan static helper owns config-delete success state');
+requireText('public/meituan-static.js', 'const buildMeituanConfigDeleteFailureState = ({', 'Meituan static helper owns config-delete failure state');
+requireText('public/index.html', 'const deleteSuccessState = buildMeituanConfigDeleteSuccessState(id);', 'entry keeps Meituan config-delete success handling as a thin adapter');
+requireText('public/index.html', 'showToast(deleteSuccessState.toastMessage, deleteSuccessState.toastLevel);', 'Meituan config-delete success toast comes from static helper state');
+requireText('public/index.html', 'clearMeituanConfigDetailCache(deleteSuccessState.clearConfigDetailId);', 'Meituan config-delete cache clear target comes from static helper state');
+requireText('public/index.html', 'loadMeituanConfigList(deleteSuccessState.reloadOptions);', 'Meituan config-delete reload options come from static helper state');
+requireText('public/index.html', 'const deleteFailureState = buildMeituanConfigDeleteFailureState({ response: res });', 'Meituan config-delete failed response handling is a thin adapter');
+requireText('public/index.html', 'const deleteFailureState = buildMeituanConfigDeleteFailureState({ error: e });', 'Meituan config-delete exception handling is a thin adapter');
+requireText('public/index.html', 'showToast(deleteFailureState.toastMessage, deleteFailureState.toastLevel);', 'Meituan config-delete failure toast comes from static helper state');
+requireNoTextBetween('public/index.html', 'const deleteMeituanConfigItem = async (id) => {', 'const generateMeituanBookmarklet', "showToast('删除成功')", 'Meituan config-delete success toast is not re-inlined');
+requireNoTextBetween('public/index.html', 'const deleteMeituanConfigItem = async (id) => {', 'const generateMeituanBookmarklet', "showToast(res.message || '删除失败', 'error')", 'Meituan config-delete failed response handling is not re-inlined');
+requireNoTextBetween('public/index.html', 'const deleteMeituanConfigItem = async (id) => {', 'const generateMeituanBookmarklet', "showToast('删除失败: ' + e.message, 'error')", 'Meituan config-delete exception handling is not re-inlined');
+requireNoTextBetween('public/index.html', 'const deleteMeituanConfigItem = async (id) => {', 'const generateMeituanBookmarklet', 'clearMeituanConfigDetailCache(id);', 'Meituan config-delete cache clear target is not re-inlined');
+requireNoTextBetween('public/index.html', 'const deleteMeituanConfigItem = async (id) => {', 'const generateMeituanBookmarklet', 'loadMeituanConfigList();', 'Meituan config-delete reload options are not re-inlined');
+requireText('public/index.html', "const buildMeituanBookmarkletSuccessState = requireMeituanStatic('buildMeituanBookmarkletSuccessState');", 'Meituan bookmarklet success state is owned by the static helper');
+requireText('public/index.html', "const buildMeituanBookmarkletFailureState = requireMeituanStatic('buildMeituanBookmarkletFailureState');", 'Meituan bookmarklet failure state is owned by the static helper');
+requireText('public/meituan-static.js', 'const buildMeituanBookmarkletSuccessState = (response = {}) => ({', 'Meituan static helper owns bookmarklet success state');
+requireText('public/meituan-static.js', 'const buildMeituanBookmarkletFailureState = ({', 'Meituan static helper owns bookmarklet failure state');
+requireText('public/index.html', 'const successState = buildMeituanBookmarkletSuccessState(res);', 'entry keeps Meituan bookmarklet success handling as a thin adapter');
+requireText('public/index.html', 'meituanBookmarklet.value = successState.bookmarklet;', 'Meituan bookmarklet value comes from static helper state');
+requireText('public/index.html', 'showToast(successState.toastMessage, successState.toastLevel);', 'Meituan bookmarklet success toast comes from static helper state');
+requireText('public/index.html', 'const failureState = buildMeituanBookmarkletFailureState({ error: e });', 'entry keeps Meituan bookmarklet failure handling as a thin adapter');
+requireText('public/index.html', 'showToast(failureState.toastMessage, failureState.toastLevel);', 'Meituan bookmarklet failure toast comes from static helper state');
+requireNoTextBetween('public/index.html', 'const generateMeituanBookmarklet = async () => {', 'const fetchCustomData', 'meituanBookmarklet.value = res.data.bookmarklet;', 'Meituan bookmarklet value is not re-inlined');
+requireNoTextBetween('public/index.html', 'const generateMeituanBookmarklet = async () => {', 'const fetchCustomData', "showToast(res.data?.message || '旧版美团 Cookie 书签已禁用', 'warning')", 'Meituan bookmarklet success toast is not re-inlined');
+requireNoTextBetween('public/index.html', 'const generateMeituanBookmarklet = async () => {', 'const fetchCustomData', "showToast('生成失败: ' + e.message, 'error')", 'Meituan bookmarklet failure toast is not re-inlined');
 requireNoText('public/index.html', "const res = await request('/online-data/get-meituan-config-list');\n                            if (res.code === 200) {\n                                meituanConfigList.value = Array.isArray(res.data) ? res.data : [];\n                            }", 'Meituan hotel selection does not bypass config-list loading flags and request dedupe');
 requireText('public/index.html', 'if (!ctripConfigListLoaded.value && !ctripConfigList.value.length)', 'manual online-data config prewarm does not refetch a known-empty Ctrip config list');
 requireText('public/index.html', 'if (!meituanConfigListLoaded.value && !meituanConfigList.value.length)', 'manual online-data config prewarm does not refetch a known-empty Meituan config list');
@@ -2958,6 +3252,16 @@ try {
     filename: 'public/meituan-static.js',
   });
   const meituanStatic = context.window.SUXI_MEITUAN_STATIC || {};
+  const requiredMeituanStaticKeys = [...new Set(
+    [...read('public/index.html').matchAll(/requireMeituanStatic\('([^']+)'\)/g)].map(match => match[1])
+  )].sort();
+  const missingMeituanStaticKeys = requiredMeituanStaticKeys.filter(key => typeof meituanStatic[key] !== 'function');
+  checks.push({
+    file: 'public/index.html + public/meituan-static.js',
+    label: 'entry-required Meituan static helpers are exported before startup',
+    ok: missingMeituanStaticKeys.length === 0,
+    detail: missingMeituanStaticKeys.join(', ') || `${requiredMeituanStaticKeys.length} helpers exported`,
+  });
   const buildMeituanBatchFetchTasks = meituanStatic.buildMeituanBatchFetchTasks;
   const buildMeituanBatchFetchResultEntry = meituanStatic.buildMeituanBatchFetchResultEntry;
   const buildMeituanDisplayModelPayload = meituanStatic.buildMeituanDisplayModelPayload;
@@ -5781,7 +6085,7 @@ try {
         && requestContext.capturePayload.data_date === '2026-06-10'
         && requestContext.capturePayload.sections[0] === 'business_overview'
         && missingProfileContext.ok === false
-        && missingProfileContext.result.message.includes('携程登录会话标识')
+        && missingProfileContext.result.message.includes('携程浏览器 Profile 标识')
         && payload.system_hotel_id === '10'
         && payload.hotel_id === '24588'
         && payload.hotel_name === 'Demo Hotel'
@@ -7142,7 +7446,7 @@ try {
         && cookieExceptionResultPayload.message === 'request blocked'
         && cookieExceptionEvents[0] === 'notify:error:request blocked'
         && cookieMissingProfileResult.status === 'missing_profile'
-        && cookieMissingProfileEvents[0].includes('携程登录会话标识')
+        && cookieMissingProfileEvents[0].includes('携程浏览器 Profile 标识')
         && cookieMissingSourceResult.status === 'missing_request_source'
         && cookieMissingSourceEvents[0].includes('Request URL'),
       detail: 'Ctrip Cookie API flow failure samples',
@@ -7406,7 +7710,8 @@ try {
         && first.menu_online_data_name === '竞对价格监控'
         && first.complaint_mini_page === 'pages/complaint/index'
         && first.complaint_mini_use_scene === '1'
-        && first.login_max_attempts === '5'
+        && !Object.hasOwn(first, 'login_max_attempts')
+        && !Object.hasOwn(first, 'login_lockout_duration')
         && first.notify_email_port === '587',
       detail: 'getSystemConfigDefaults sample',
     });

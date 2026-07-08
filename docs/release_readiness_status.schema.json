@@ -52,7 +52,7 @@
               "const": "../release-evidence-temp/release-pr-candidates-current-result.json"
             },
             "status": {
-              "const": "failed"
+              "enum": ["passed", "failed"]
             },
             "gh_pr_list_checked_at": {
               "type": "string",
@@ -192,7 +192,7 @@
           "const": "npm run review:release-external-state"
         },
         "status": {
-          "const": "failing_as_expected"
+          "enum": ["failing_as_expected", "passing_from_clean_verification_worktree"]
         },
         "evidence_file_template": {
           "const": "docs/release_external_state_evidence.example.json"
@@ -210,7 +210,7 @@
           "const": "npm run review:release-pr-candidates"
         },
         "status": {
-          "const": "failing_as_expected"
+          "enum": ["failing_as_expected", "passing_not_release_closure"]
         },
         "result_file": {
           "const": "../release-evidence-temp/release-pr-candidates-current-result.json"

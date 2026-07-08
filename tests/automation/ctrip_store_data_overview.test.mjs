@@ -452,6 +452,13 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
   assert.match(profileLoginTrigger, /const hasDataSourceId = Number\(payload\.data_source_id \|\| payload\.source_id \|\| 0\) > 0/);
   assert.match(profileLoginTrigger, /platform === 'ctrip' && !payload\.profile_id && !hasDataSourceId/);
   assert.match(profileLoginTrigger, /platform === 'meituan' && !payload\.store_id && !hasDataSourceId/);
+  assert.match(profileLoginTrigger, /browserAssistImportForm\.value\.system_hotel_id = String\(hotelId\)/);
+  assert.match(profileLoginTrigger, /openTargetSite\(localPlatformAuthorizationUrl\(platform\)\)/);
+  assert.match(profileLoginTrigger, /client_local_authorization_required/);
+  assert.match(profileLoginTrigger, /account_owner_local_computer_only/);
+  assert.match(html, /const defaultMeituanLoginUrl = 'https:\/\/me\.meituan\.com\/ebooking\/';/);
+  assert.match(html, /宿析不会在服务器或管理员电脑打开平台登录/);
+  assert.doesNotMatch(profileLoginTrigger, /\/online-data\/profile-login-trigger\/\$\{platform\}/);
   assert.doesNotMatch(profileLoginPayload, /form\.profileId \|\| hotelIdValue \|\| hotelId/);
   assert.match(profileCapture, /resolveProfileId:\s*activeConfig => resolveCtripBrowserProfileId\(\{\s*activeConfig\s*\}\)/);
   assert.doesNotMatch(profileCapture, /form\.profileId \|\| hotelId \|\| systemHotelId/);

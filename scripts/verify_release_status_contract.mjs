@@ -162,7 +162,6 @@ const requiredWorkflowCommands = [
 const requiredOpenFailurePatterns = [
   /figma|canva|design-token|DESIGN_HANDOFF_MANIFEST_FILE|design_handoff_manifest|design_handoff_manifest\.json/i,
   /OTA credential rotation|OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/i,
-  /external-state|review:release-external-state|local worktree|RELEASE_PR_NUMBER|final PR/i,
 ];
 
 const requiredExternalStateFailurePatterns = [
@@ -206,6 +205,7 @@ const closedBlockerIds = [
   'production-env-missing',
   'llm-connectivity-attestation-missing',
   'codex-security-scan-missing',
+  'local-git-state-open',
 ];
 
 const requiredBlockerScopes = {
@@ -1710,18 +1710,31 @@ if (status) {
   }
 
   const currentPrCandidateReview = status.current_pr?.pr_candidate_review || {};
+  const currentPrCandidateStatus = String(currentPrCandidateReview.status || '');
+  const currentPrOpenCount = Number(currentPrCandidateReview.gh_pr_list_open_pr_count);
   if (
     currentPrCandidateReview.command !== 'npm run review:release-pr-candidates'
     || currentPrCandidateReview.result_file !== '../release-evidence-temp/release-pr-candidates-current-result.json'
-    || currentPrCandidateReview.status !== 'failed'
-    || Number(currentPrCandidateReview.gh_pr_list_open_pr_count) !== 0
+    || !['passed', 'failed'].includes(currentPrCandidateStatus)
+    || !Number.isFinite(currentPrOpenCount)
+    || currentPrOpenCount < 0
     || currentPrCandidateReview.source_of_truth_for_current_pr_candidates !== true
     || !checkedAtPattern.test(String(currentPrCandidateReview.gh_pr_list_checked_at || ''))
     || checkedAtDate(currentPrCandidateReview.gh_pr_list_checked_at) !== releaseStatusDate
   ) {
-    fail('current_pr.pr_candidate_review must record the current failing gh pr list result as the PR candidate source of truth');
+    fail('current_pr.pr_candidate_review must record the current gh pr list result as the PR candidate source of truth');
   } else {
-    pass('current_pr.pr_candidate_review records the current failing gh pr list result');
+    pass('current_pr.pr_candidate_review records the current gh pr list result');
+  }
+  if (currentPrCandidateStatus === 'passed') {
+    if (
+      Number(currentPrCandidateReview.selected_release_pr_number) !== Number(status.current_pr?.number)
+      || !/^[a-f0-9]{40}$/i.test(String(currentPrCandidateReview.selected_release_pr_head_sha || ''))
+    ) {
+      fail('passing current_pr.pr_candidate_review must record the selected PR number and head sha');
+    } else {
+      pass('passing current_pr.pr_candidate_review records selected PR number and head sha');
+    }
   }
   const currentPrConnectorDiagnostic = currentPrCandidateReview.connector_diagnostic || {};
   if (
@@ -1782,14 +1795,18 @@ if (status) {
   if (externalStateCheck.result_file_template !== 'docs/release_external_state_result.example.json') {
     fail('external_state_check.result_file_template must reference docs/release_external_state_result.example.json');
   }
-  if (externalStateCheck.status !== 'failing_as_expected') {
-    fail('external_state_check.status must be failing_as_expected while local git blockers remain');
+  if (!['failing_as_expected', 'passing_from_clean_verification_worktree'].includes(String(externalStateCheck.status || ''))) {
+    fail('external_state_check.status must be failing_as_expected or passing_from_clean_verification_worktree');
   }
-  assertArrayContainsPatterns(
-    externalStateCheck.open_failures,
-    requiredExternalStateFailurePatterns,
-    'external_state_check.open_failures',
-  );
+  if (externalStateCheck.status === 'failing_as_expected') {
+    assertArrayContainsPatterns(
+      externalStateCheck.open_failures,
+      requiredExternalStateFailurePatterns,
+      'external_state_check.open_failures',
+    );
+  } else if (Array.isArray(externalStateCheck.open_failures) && externalStateCheck.open_failures.length > 0) {
+    fail('external_state_check.open_failures must be empty when clean verification worktree external-state has passed');
+  }
   const externalStateWarnings = Array.isArray(externalStateCheck.warnings) ? externalStateCheck.warnings.join('\n') : '';
   if (!externalStateWarnings.includes('npm run collect:release-external-state')) {
     fail('external_state_check.warnings must mention npm run collect:release-external-state');
@@ -1799,18 +1816,22 @@ if (status) {
   if (prCandidateCheck.command !== 'npm run review:release-pr-candidates') {
     fail('pr_candidate_check.command must be npm run review:release-pr-candidates');
   }
-  if (prCandidateCheck.status !== 'failing_as_expected') {
-    fail('pr_candidate_check.status must be failing_as_expected while no final PR candidate is available');
+  if (!['failing_as_expected', 'passing_not_release_closure'].includes(String(prCandidateCheck.status || ''))) {
+    fail('pr_candidate_check.status must be failing_as_expected or passing_not_release_closure');
   }
   if (prCandidateCheck.result_file !== '../release-evidence-temp/release-pr-candidates-current-result.json') {
     fail('pr_candidate_check.result_file must reference ../release-evidence-temp/release-pr-candidates-current-result.json');
   }
   const prCandidateOpenFailures = Array.isArray(prCandidateCheck.open_failures) ? prCandidateCheck.open_failures.join('\n') : '';
-  if (!/no open release PR candidates/i.test(prCandidateOpenFailures) || !/current gh pr list checked_at/i.test(prCandidateOpenFailures)) {
-    fail('pr_candidate_check.open_failures must mention no open release PR candidates from current gh pr list');
-  }
-  if (!/diagnostic connector evidence|diagnostic-only connector evidence|does not close PR state/i.test(prCandidateOpenFailures)) {
-    fail('pr_candidate_check.open_failures must keep connector evidence diagnostic-only');
+  if (prCandidateCheck.status === 'failing_as_expected') {
+    if (!/no open release PR candidates/i.test(prCandidateOpenFailures) || !/current gh pr list checked_at/i.test(prCandidateOpenFailures)) {
+      fail('pr_candidate_check.open_failures must mention no open release PR candidates from current gh pr list');
+    }
+    if (!/diagnostic connector evidence|diagnostic-only connector evidence|does not close PR state/i.test(prCandidateOpenFailures)) {
+      fail('pr_candidate_check.open_failures must keep connector evidence diagnostic-only');
+    }
+  } else if (!/PR #\d+|configured release PR/i.test(prCandidateOpenFailures) || !/diagnostic connector evidence|diagnostic-only connector evidence|stale non-closing diagnostic/i.test(prCandidateOpenFailures)) {
+    fail('passing pr_candidate_check.open_failures must record the selected PR and keep stale connector evidence diagnostic-only');
   }
   if (!/RELEASE_PR_NUMBER/.test(String(prCandidateCheck.close_condition || ''))) {
     fail('pr_candidate_check.close_condition must mention RELEASE_PR_NUMBER');
@@ -2059,8 +2080,9 @@ if (releaseStatusSchema) {
   if (schemaProperties.external_state_check?.properties?.command?.const !== 'npm run review:release-external-state') {
     fail('release readiness schema external_state_check.command must be const npm run review:release-external-state');
   }
-  if (schemaProperties.external_state_check?.properties?.status?.const !== 'failing_as_expected') {
-    fail('release readiness schema external_state_check.status must be const failing_as_expected while blockers are open');
+  const externalStateStatusEnum = schemaProperties.external_state_check?.properties?.status?.enum || [];
+  if (!externalStateStatusEnum.includes('failing_as_expected') || !externalStateStatusEnum.includes('passing_from_clean_verification_worktree')) {
+    fail('release readiness schema external_state_check.status must allow failing_as_expected and passing_from_clean_verification_worktree');
   }
   if (schemaProperties.external_state_check?.properties?.evidence_file_template?.const !== 'docs/release_external_state_evidence.example.json') {
     fail('release readiness schema external_state_check.evidence_file_template must be const docs/release_external_state_evidence.example.json');
@@ -2075,8 +2097,9 @@ if (releaseStatusSchema) {
   if (schemaProperties.pr_candidate_check?.properties?.command?.const !== 'npm run review:release-pr-candidates') {
     fail('release readiness schema pr_candidate_check.command must be const npm run review:release-pr-candidates');
   }
-  if (schemaProperties.pr_candidate_check?.properties?.status?.const !== 'failing_as_expected') {
-    fail('release readiness schema pr_candidate_check.status must be const failing_as_expected while blockers are open');
+  const prCandidateStatusEnum = schemaProperties.pr_candidate_check?.properties?.status?.enum || [];
+  if (!prCandidateStatusEnum.includes('failing_as_expected') || !prCandidateStatusEnum.includes('passing_not_release_closure')) {
+    fail('release readiness schema pr_candidate_check.status must allow failing_as_expected and passing_not_release_closure');
   }
   if (schemaProperties.pr_candidate_check?.properties?.result_file?.const !== '../release-evidence-temp/release-pr-candidates-current-result.json') {
     fail('release readiness schema pr_candidate_check.result_file must be const ../release-evidence-temp/release-pr-candidates-current-result.json');
@@ -2263,16 +2286,16 @@ if (readinessResultExample) {
     fail(`docs/release_readiness_result.example.json failures must include at least ${requiredOpenFailurePatterns.length} entries`);
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.passed !== 14) {
-    fail('docs/release_readiness_result.example.json summary.passed must match the current 14 release-readiness passes');
+  if (readinessResultExample.summary?.passed !== 19) {
+    fail('docs/release_readiness_result.example.json summary.passed must match the current 19 release-readiness passes');
     resultComplete = false;
   }
   if (readinessResultExample.summary?.warnings !== 4) {
     fail('docs/release_readiness_result.example.json summary.warnings must match the current 4 release-readiness warnings');
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.failures !== 4) {
-    fail('docs/release_readiness_result.example.json summary.failures must match the current 4 release-readiness failures');
+  if (readinessResultExample.summary?.failures !== 2) {
+    fail('docs/release_readiness_result.example.json summary.failures must match the current 2 release-readiness failures');
     resultComplete = false;
   }
   const readinessPasses = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.join('\n') : '';
@@ -2290,8 +2313,8 @@ if (readinessResultExample) {
     resultComplete = false;
   }
   const readinessFailures = Array.isArray(readinessResultExample.failures) ? readinessResultExample.failures.join('\n') : '';
-  if (!/Release PR candidate gate has not passed/i.test(readinessFailures)) {
-    fail('docs/release_readiness_result.example.json failures must include the PR candidate gate failure');
+  if (/Release PR candidate gate has not passed|Release external-state gate has not passed/i.test(readinessFailures)) {
+    fail('docs/release_readiness_result.example.json failures must not include stale PR candidate or external-state gate failures once PR #6 evidence passes');
     resultComplete = false;
   }
   assertArrayContainsPatterns(
@@ -2590,8 +2613,8 @@ try {
   if (!report.includes('npm run review:functional-readiness')) {
     fail('release_readiness_remaining_issues.md must mention npm run review:functional-readiness');
   }
-  if (!report.includes('4 release-readiness failures')) {
-    fail('release_readiness_remaining_issues.md must state the current 4 release-readiness failures');
+  if (!report.includes('2 release-readiness failures')) {
+    fail('release_readiness_remaining_issues.md must state the current 2 release-readiness failures');
   }
   if (report.includes('3 release-evidence failures')) {
     fail('release_readiness_remaining_issues.md must not use the stale 3 release-evidence failure count');

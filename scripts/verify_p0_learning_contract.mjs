@@ -178,7 +178,7 @@ const checks = [
   {
     name: 'frontend surfaces mixed collection lifecycle and field asset summary',
     pass: publicSource.includes('data-testid="mixed-collection-lifecycle-panel"')
-      && publicSource.includes('Cookie/API 辅助 / 接口 + 登录会话混合采集生命周期')
+      && publicSource.includes('Cookie/API 辅助 / 接口 + 浏览器 Profile 混合采集生命周期')
       && publicSource.includes('data-testid="field-asset-summary-panel"')
       && publicSource.includes('const collectionHealthLifecycleRows = computed')
       && publicSource.includes('const collectionHealthFieldAssetCards = computed'),

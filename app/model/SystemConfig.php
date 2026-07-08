@@ -70,8 +70,6 @@ class SystemConfig extends Model
     const KEY_COMPLAINT_MINI_USE_SCENE = 'complaint_mini_use_scene';
     
     // 安全设置
-    const KEY_LOGIN_MAX_ATTEMPTS = 'login_max_attempts';
-    const KEY_LOGIN_LOCKOUT_DURATION = 'login_lockout_duration';
     const KEY_SESSION_TIMEOUT = 'session_timeout';
     const KEY_PASSWORD_MIN_LENGTH = 'password_min_length';
     const KEY_PASSWORD_REQUIRE_SPECIAL = 'password_require_special';
@@ -283,8 +281,6 @@ class SystemConfig extends Model
             self::KEY_COMPLAINT_MINI_USE_SCENE => '1',
             
             // 安全设置
-            self::KEY_LOGIN_MAX_ATTEMPTS => '10',
-            self::KEY_LOGIN_LOCKOUT_DURATION => '1',
             self::KEY_SESSION_TIMEOUT => '14400',
             self::KEY_PASSWORD_MIN_LENGTH => '6',
             self::KEY_PASSWORD_REQUIRE_SPECIAL => '0',
@@ -369,8 +365,6 @@ class SystemConfig extends Model
                 'title' => '安全设置',
                 'icon' => 'fas fa-shield-alt',
                 'keys' => [
-                    self::KEY_LOGIN_MAX_ATTEMPTS,
-                    self::KEY_LOGIN_LOCKOUT_DURATION,
                     self::KEY_SESSION_TIMEOUT,
                     self::KEY_PASSWORD_MIN_LENGTH,
                     self::KEY_PASSWORD_REQUIRE_SPECIAL,
@@ -433,8 +427,6 @@ class SystemConfig extends Model
             self::KEY_COMPLAINT_MINI_USE_SCENE => '吐槽码小程序使用scene',
             
             // 安全设置
-            self::KEY_LOGIN_MAX_ATTEMPTS => '登录最大尝试次数',
-            self::KEY_LOGIN_LOCKOUT_DURATION => '登录锁定时间(分钟)',
             self::KEY_SESSION_TIMEOUT => '会话超时时间(分钟)',
             self::KEY_PASSWORD_MIN_LENGTH => '密码最小长度',
             self::KEY_PASSWORD_REQUIRE_SPECIAL => '密码要求特殊字符',

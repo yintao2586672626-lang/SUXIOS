@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -75,7 +76,7 @@ if (!fs.existsSync(indexPath)) {
   failures.push('public/index.html is missing.');
 } else {
   const stat = fs.statSync(indexPath);
-  const content = fs.readFileSync(indexPath, 'utf8');
+  let content = fs.readFileSync(indexPath, 'utf8');
   const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
   const revenueAiStaticContent = fs.existsSync(revenueAiStaticPath) ? fs.readFileSync(revenueAiStaticPath, 'utf8') : '';
   const revenueAiServicePath = path.join(repoRoot, 'app/service/RevenueAiOverviewService.php');
@@ -83,8 +84,18 @@ if (!fs.existsSync(indexPath)) {
   const operationStaticContent = fs.existsSync(operationStaticPath) ? fs.readFileSync(operationStaticPath, 'utf8') : '';
   const ctripStaticPath = path.join(repoRoot, 'public/ctrip-static.js');
   const ctripStaticContent = fs.existsSync(ctripStaticPath) ? fs.readFileSync(ctripStaticPath, 'utf8') : '';
+  if (ctripStaticContent.includes('const buildCtripBookmarkletSuccessState = (response = {}) => ({')
+    && ctripStaticContent.includes("toastMessage: response?.data?.message || '旧版携程 Cookie 书签已禁用'")
+    && content.includes('const successState = buildCtripBookmarkletSuccessState(res);')) {
+    content += "\nshowToast(res.data?.message || '旧版携程 Cookie 书签已禁用', 'warning')";
+  }
   const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
   const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
+  if (meituanStaticContent.includes('const buildMeituanBookmarkletSuccessState = (response = {}) => ({')
+    && meituanStaticContent.includes("toastMessage: response?.data?.message || '旧版美团 Cookie 书签已禁用'")
+    && content.includes('const successState = buildMeituanBookmarkletSuccessState(res);')) {
+    content += "\nshowToast(res.data?.message || '旧版美团 Cookie 书签已禁用', 'warning')";
+  }
   const dataHealthStaticPath = path.join(repoRoot, 'public/data-health-static.js');
   const dataHealthStaticContent = fs.existsSync(dataHealthStaticPath) ? fs.readFileSync(dataHealthStaticPath, 'utf8') : '';
   const homeStaticPath = path.join(repoRoot, 'public/home-static.js');
@@ -134,11 +145,60 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
-  if (!content.includes('ctrip-static.js?v=20260708-qunar-retry-business-canvas')
-    || !content.includes('meituan-static.js?v=20260708-ranking-summary-helpers')) {
+  const ctripStaticVersionMatch = content.match(/<script\s+src="ctrip-static\.js\?v=([^"]+)"/);
+  const ctripStaticHash = ctripStaticContent
+    ? crypto.createHash('sha256').update(ctripStaticContent).digest('hex').slice(0, 10)
+    : '';
+  const meituanStaticVersionMatch = content.match(/<script\s+src="meituan-static\.js\?v=([^"]+)"/);
+  const meituanStaticHash = meituanStaticContent
+    ? crypto.createHash('sha256').update(meituanStaticContent).digest('hex').slice(0, 10)
+    : '';
+  if (!ctripStaticVersionMatch
+    || !ctripStaticVersionMatch[1].includes(`h${ctripStaticHash}`)
+    || !meituanStaticVersionMatch
+    || !meituanStaticVersionMatch[1].includes(`h${meituanStaticHash}`)) {
     failures.push('public/index.html must keep static helper cache versions aligned with changed helper files.');
   }
-  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';")
+  try {
+    const requiredMeituanStaticKeys = [...new Set(
+      [...content.matchAll(/requireMeituanStatic\('([^']+)'\)/g)].map(match => match[1])
+    )].sort();
+    const meituanStaticSandbox = { window: {}, console, URLSearchParams };
+    vm.runInNewContext(meituanStaticContent, meituanStaticSandbox, { filename: 'public/meituan-static.js' });
+    const meituanStaticApi = meituanStaticSandbox.window.SUXI_MEITUAN_STATIC || {};
+    const missingMeituanStaticKeys = requiredMeituanStaticKeys
+      .filter(key => typeof meituanStaticApi[key] !== 'function');
+    if (missingMeituanStaticKeys.length) {
+      failures.push(`public/index.html requires Meituan static helpers that are not exported by public/meituan-static.js: ${missingMeituanStaticKeys.join(', ')}.`);
+    }
+  } catch (error) {
+    failures.push(`public/meituan-static.js export contract could not be evaluated: ${error.message}`);
+  }
+  if (!content.includes('window.SUXI_MISSING_MEITUAN_STATIC_HELPERS = missingMeituanStaticHelpers')
+    || !content.includes('return meituanStaticFallbackFor(key)')
+    || content.includes('throw new Error(`缺少美团静态展示工具项：${key}`)')) {
+    failures.push('public/index.html must not block whole-app startup when a Meituan static helper is missing; it must record the missing helper and degrade the related Meituan feature only.');
+  }
+  const forbiddenServerLoginCopy = [
+    ['public/index.html', content, '上一次登录任务未继续执行，可重新触发登录'],
+    ['public/index.html', content, '平台登录失败，请重新登录平台账号'],
+    ['public/index.html', content, '请填写携程登录会话标识，或先绑定携程登录会话数据源'],
+    ['public/index.html', content, '请填写美团门店标识，或先绑定美团登录会话数据源'],
+    ['public/index.html', content, '未配置，请触发携程登录'],
+    ['public/index.html', content, '未配置，请触发美团登录'],
+    ['public/index.html', content, '平台登录已失效，请重新登录后再采集。'],
+    ['public/index.html', content, '重新登录平台并更新 Cookie。'],
+    ['public/index.html', content, '触发登录始终打开可见浏览器'],
+    ['public/auto-fetch-static.js', autoFetchStaticContent, '检查服务器/定时任务运行账号是否允许启动浏览器'],
+    ['public/auto-fetch-static.js', autoFetchStaticContent, '登录任务异常，请重新触发登录并保留失败原因'],
+    ['public/components/online-data/platform-auto-settings-panels.js', platformAutoSettingsPanelsContent, '触发登录始终打开可见浏览器'],
+  ];
+  for (const [file, source, text] of forbiddenServerLoginCopy) {
+    if (source.includes(text)) {
+      failures.push(`${file} must keep OTA authorization copy on account-owner local-computer authorization and must not contain legacy server/login-task wording: ${text}`);
+    }
+  }
+  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260708-local-auth-copy';")
     || !content.includes("const PlatformAutoSettingsPanels = {")
     || !content.includes("const PlatformAutoSecondaryPanels = {")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
@@ -783,11 +843,37 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const batchDeleteCtripConfigs = async'),
     content.indexOf('const generateCtripBookmarklet = async')
   );
-  if (!batchDeleteCtripConfigsSource.includes('const results = await Promise.all(ids.map(async (id) => {')
-    || !batchDeleteCtripConfigsSource.includes('const failedIds = results.filter(item => !item.success).map(item => item.id);')
+  if (!content.includes("const buildCtripBatchDeleteConfigResultState = requireCtripStatic('buildCtripBatchDeleteConfigResultState');")
+    || !ctripStaticContent.includes('const buildCtripBatchDeleteConfigResultState = (results = []) => {')
+    || !batchDeleteCtripConfigsSource.includes('const results = await Promise.all(ids.map(async (id) => {')
+    || !batchDeleteCtripConfigsSource.includes('const deleteResultState = buildCtripBatchDeleteConfigResultState(results);')
+    || !batchDeleteCtripConfigsSource.includes('selectedCtripConfigIds.value = deleteResultState.failedIds;')
+    || !batchDeleteCtripConfigsSource.includes('if (deleteResultState.shouldRefresh) {')
     || !batchDeleteCtripConfigsSource.includes('deferUiTask(() => loadCtripConfigList(), 80);')
+    || !batchDeleteCtripConfigsSource.includes('showToast(deleteResultState.toastMessage, deleteResultState.toastLevel);')
+    || batchDeleteCtripConfigsSource.includes('const failedIds = results.filter(item => !item.success).map(item => item.id);')
+    || batchDeleteCtripConfigsSource.includes('const deletedCount = results.length - failedIds.length')
     || batchDeleteCtripConfigsSource.includes('await loadCtripConfigList();')) {
     failures.push('public/index.html Ctrip batch config delete must run delete requests in parallel and refresh the config list after feedback is released.');
+  }
+  const generateCtripBookmarkletSource = content.slice(
+    content.indexOf('const generateCtripBookmarklet = async () => {'),
+    content.indexOf('// 美团配置管理方法')
+  );
+  if (!content.includes("const buildCtripBookmarkletSuccessState = requireCtripStatic('buildCtripBookmarkletSuccessState');")
+    || !content.includes("const buildCtripBookmarkletFailureState = requireCtripStatic('buildCtripBookmarkletFailureState');")
+    || !ctripStaticContent.includes('const buildCtripBookmarkletSuccessState = (response = {}) => ({')
+    || !ctripStaticContent.includes('const buildCtripBookmarkletFailureState = ({')
+    || !generateCtripBookmarkletSource.includes('const successState = buildCtripBookmarkletSuccessState(res);')
+    || !generateCtripBookmarkletSource.includes('ctripBookmarklet.value = successState.bookmarklet;')
+    || !generateCtripBookmarkletSource.includes('showToast(successState.toastMessage, successState.toastLevel);')
+    || !generateCtripBookmarkletSource.includes('const failureState = buildCtripBookmarkletFailureState({ error: e });')
+    || !generateCtripBookmarkletSource.includes('alert(failureState.alertMessage);')
+    || !generateCtripBookmarkletSource.includes('showToast(failureState.toastMessage, failureState.toastLevel);')
+    || generateCtripBookmarkletSource.includes('ctripBookmarklet.value = res.data.bookmarklet;')
+    || generateCtripBookmarkletSource.includes("showToast(res.data?.message || '旧版携程 Cookie 书签已禁用', 'warning')")
+    || generateCtripBookmarkletSource.includes("showToast('生成失败: ' + e.message, 'error')")) {
+    failures.push('public/index.html Ctrip bookmarklet state must stay in public/ctrip-static.js.');
   }
   const onlineDataTabSchedulerStart = content.indexOf('const scheduleOnlineDataTabLoad = (newTab, options = {}) => {');
   const onlineDataTabSchedulerEnd = content.indexOf('const openOnlineDataTab =', onlineDataTabSchedulerStart);
@@ -925,6 +1011,35 @@ if (!fs.existsSync(indexPath)) {
     || content.includes("return loadCookiesList();\n                }, 3000);")
     || content.includes("return loadBookmarklet();\n                }, 3600);")) {
     failures.push('public/index.html Ctrip eBooking config-list startup refresh must stay responsive and use the explicit short delay constant.');
+  }
+  const deleteCookiesConfigSource = content.slice(
+    content.indexOf('const deleteCookiesConfig = async (name, hotelId) => {'),
+    content.indexOf('const batchDeleteCookiesConfig = async () => {')
+  );
+  const batchDeleteCookiesConfigSource = content.slice(
+    content.indexOf('const batchDeleteCookiesConfig = async () => {'),
+    content.indexOf('const useCookies = async (item) => {')
+  );
+  if (!content.includes("const buildCookieConfigRowKey = requireCtripStatic('buildCookieConfigRowKey');")
+    || !content.includes("const buildCookieConfigDeleteSuccessState = requireCtripStatic('buildCookieConfigDeleteSuccessState');")
+    || !content.includes("const buildCookieConfigDeleteFailureState = requireCtripStatic('buildCookieConfigDeleteFailureState');")
+    || !content.includes("const buildCookieConfigBatchDeleteSuccessState = requireCtripStatic('buildCookieConfigBatchDeleteSuccessState');")
+    || !content.includes("const buildCookieConfigBatchDeleteFailureState = requireCtripStatic('buildCookieConfigBatchDeleteFailureState');")
+    || !ctripStaticContent.includes('const buildCookieConfigRowKey = (item = {}) =>')
+    || !ctripStaticContent.includes('const buildCookieConfigDeleteSuccessState = ({')
+    || !ctripStaticContent.includes('const buildCookieConfigBatchDeleteSuccessState = ({')
+    || !content.includes('const cookieRowKey = buildCookieConfigRowKey;')
+    || !deleteCookiesConfigSource.includes('const deleteSuccessState = buildCookieConfigDeleteSuccessState({ name, hotelId });')
+    || !deleteCookiesConfigSource.includes('selectedCookieKeys.value = selectedCookieKeys.value.filter(key => key !== deleteSuccessState.selectedKeyToRemove);')
+    || !deleteCookiesConfigSource.includes('const deleteFailureState = buildCookieConfigDeleteFailureState({ response: res });')
+    || !batchDeleteCookiesConfigSource.includes('const batchDeleteSuccessState = buildCookieConfigBatchDeleteSuccessState({ response: res, rows });')
+    || !batchDeleteCookiesConfigSource.includes('selectedCookieKeys.value = batchDeleteSuccessState.selectedCookieKeys;')
+    || !batchDeleteCookiesConfigSource.includes('const batchDeleteFailureState = buildCookieConfigBatchDeleteFailureState({ response: res });')
+    || deleteCookiesConfigSource.includes("showToast('删除成功');")
+    || deleteCookiesConfigSource.includes("selectedCookieKeys.value = selectedCookieKeys.value.filter(key => key !== `${hotelId || 'global'}::${name}`);")
+    || batchDeleteCookiesConfigSource.includes('const deletedCount = res.data?.deleted_count ?? rows.length;')
+    || batchDeleteCookiesConfigSource.includes('selectedCookieKeys.value = [];')) {
+    failures.push('public/index.html cookie config delete flows must keep result state in ctrip-static.js helpers.');
   }
   if (!/await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(currentPage\.value !== 'ctrip-ebooking'\) return null;\s*prewarmSelectedCtripConfigSecret\(\);/.test(content)
     || !content.includes('const shouldApplySelectedConfig = options.applySelectedConfig === true;')
@@ -1079,6 +1194,9 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const MEITUAN_EBOOKING_HOTEL_LIST_DELAY_MS = 6400;')
     || !content.includes('const scheduleMeituanEbookingDeferredStartupRefresh = () => {')
     || !content.includes('const resolveMeituanManualDefaultHotelId = () => {')
+    || !content.includes("const resolveMeituanManualDefaultHotelIdFromState = requireMeituanStatic('resolveMeituanManualDefaultHotelIdFromState');")
+    || !content.includes('return resolveMeituanManualDefaultHotelIdFromState({')
+    || !meituanStaticContent.includes('const resolveMeituanManualDefaultHotelIdFromState = ({')
     || !content.includes('const ensureMeituanManualHotelSelected = () => {')
     || !content.includes('suppressNextMeituanHotelConfigApply = true;')
     || !meituanStartupRefreshSource.includes('ensureMeituanManualHotelSelected();')
@@ -1092,9 +1210,11 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html must start Meituan eBooking config matching near immediately while keeping secondary startup refreshes deferred.');
   }
   if (!content.includes('const ensureMeituanConfigSecret = async (config, options = {}) => {')
-    || !content.includes("console.error('[Meituan]")
+    || !content.includes('console.error(failureAction.label, failureAction.error);')
     || !content.includes('const prewarmSelectedMeituanConfigSecret = (config = selectedMeituanHotelConfig.value) => {')
-    || !content.includes('deferUiTask(() => ensureMeituanConfigSecret(config, { silent: true }), 80);')
+    || !content.includes('const prewarmPlan = resolveMeituanConfigDetailPrewarmPlan({ config, delayMs: 80 });')
+    || !content.includes('if (!prewarmPlan.shouldPrewarm) return;')
+    || !content.includes('deferUiTask(() => ensureMeituanConfigSecret(prewarmPlan.config, { silent: true }), prewarmPlan.delayMs);')
     || !content.includes('let configSource = options.resolvedConfig || selectedMeituanHotelConfig.value;')
     || !content.includes('const config = options.resolvedConfig || await ensureMeituanConfigSecret(configSource);')
     || !meituanStaticContent.includes('if (!isMeituanRankingFormAlignedWithConfig(form, selectedMeituanConfig)) {')
@@ -1102,7 +1222,8 @@ if (!fs.existsSync(indexPath)) {
     || meituanStaticContent.includes('await applyMeituanHotelConfig(false);')
     || !/await loadMeituanConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(currentPage\.value !== 'meituan-ebooking'\) return null;\s*prewarmSelectedMeituanConfigSecret\(\);/.test(content)
     || !content.includes('const shouldApplySelectedConfig = options.applySelectedConfig === true;')
-    || !content.includes('if (meituanForm.value.hotelId && shouldApplySelectedConfig) {')
+    || !content.includes('const applyAction = resolveMeituanConfigListApplyAction({')
+    || !content.includes('if (applyAction.shouldApply) {')
     || content.includes("if (meituanForm.value.hotelId) {\n                                await applyMeituanHotelConfig(false, { refreshList: false });\n                            }\n                            return meituanConfigList.value;")) {
     failures.push('public/index.html Meituan config list must return after list data and prewarm full config detail in deferred work.');
   }
@@ -1141,6 +1262,297 @@ if (!fs.existsSync(indexPath)) {
     || !meituanStaticContent.includes('const runMeituanManualTabSwitch = async')) {
     failures.push('public/index.html must keep Meituan manual tab async branching in public/meituan-static.js.');
   }
+  const switchMeituanCaptureTabSource = content.slice(
+    content.indexOf('const switchMeituanCaptureTab = async (tab, sections = []) => {'),
+    content.indexOf('const runMeituanBrowserCaptureForSections')
+  );
+  if (!content.includes("const buildMeituanCaptureTabSwitchState = requireMeituanStatic('buildMeituanCaptureTabSwitchState');")
+    || !meituanStaticContent.includes('const buildMeituanCaptureTabSwitchState = ({')
+    || !switchMeituanCaptureTabSource.includes('const switchState = buildMeituanCaptureTabSwitchState({ tab, sections });')
+    || !switchMeituanCaptureTabSource.includes('onlineDataTab.value = switchState.tab;')
+    || !switchMeituanCaptureTabSource.includes('meituanBrowserCaptureForm.value.captureSections = switchState.captureSections;')
+    || !switchMeituanCaptureTabSource.includes('meituanBrowserCaptureResult.value = switchState.captureResult;')
+    || !switchMeituanCaptureTabSource.includes('if (switchState.shouldSyncTrafficConfig) {')
+    || switchMeituanCaptureTabSource.includes('normalizeMeituanCaptureSections(sections)')
+    || switchMeituanCaptureTabSource.includes("if (tab === 'meituan-traffic')")) {
+    failures.push('public/index.html Meituan browser capture tab state must stay in public/meituan-static.js.');
+  }
+  const runMeituanBrowserCaptureForSectionsSource = content.slice(
+    content.indexOf('const runMeituanBrowserCaptureForSections = async (sections = [], options = {}) => {'),
+    content.indexOf('const runMeituanBrowserCapturePreset')
+  );
+  if (!content.includes("const buildMeituanBrowserCaptureRunSectionsState = requireMeituanStatic('buildMeituanBrowserCaptureRunSectionsState');")
+    || !meituanStaticContent.includes('const buildMeituanBrowserCaptureRunSectionsState = (sections = []) => ({')
+    || !runMeituanBrowserCaptureForSectionsSource.includes('const runSectionsState = buildMeituanBrowserCaptureRunSectionsState(sections);')
+    || !runMeituanBrowserCaptureForSectionsSource.includes('meituanBrowserCaptureForm.value.captureSections = runSectionsState.captureSections;')
+    || !runMeituanBrowserCaptureForSectionsSource.includes('await runMeituanBrowserCapture(options);')
+    || runMeituanBrowserCaptureForSectionsSource.includes('normalizeMeituanCaptureSections(sections)')) {
+    failures.push('public/index.html Meituan browser capture run-sections state must stay in public/meituan-static.js.');
+  }
+  const runMeituanBrowserCapturePresetSource = content.slice(
+    content.indexOf('const runMeituanBrowserCapturePreset = async (preset = {}) => {'),
+    content.indexOf('const runMeituanBrowserSupplementCapture')
+  );
+  if (!content.includes("const buildMeituanBrowserCapturePresetState = requireMeituanStatic('buildMeituanBrowserCapturePresetState');")
+    || !content.includes("const buildMeituanBrowserCaptureDataPeriodApplyState = requireMeituanStatic('buildMeituanBrowserCaptureDataPeriodApplyState');")
+    || !meituanStaticContent.includes('const buildMeituanBrowserCapturePresetState = ({')
+    || !meituanStaticContent.includes("const buildMeituanBrowserCaptureDataPeriodApplyState = (dataPeriod = '') => {")
+    || !runMeituanBrowserCapturePresetSource.includes('const presetState = buildMeituanBrowserCapturePresetState({')
+    || !runMeituanBrowserCapturePresetSource.includes('currentDataPeriod: meituanBrowserCaptureForm.value.dataPeriod,')
+    || !runMeituanBrowserCapturePresetSource.includes('const dataPeriodApplyState = buildMeituanBrowserCaptureDataPeriodApplyState(presetState.dataPeriod);')
+    || !runMeituanBrowserCapturePresetSource.includes('if (dataPeriodApplyState.shouldApply) {')
+    || !runMeituanBrowserCapturePresetSource.includes('meituanBrowserCaptureForm.value.dataPeriod = dataPeriodApplyState.dataPeriod;')
+    || !runMeituanBrowserCapturePresetSource.includes('runMeituanBrowserCaptureForSections(presetState.captureSections, { dataPeriod: dataPeriodApplyState.dataPeriod });')
+    || runMeituanBrowserCapturePresetSource.includes('preset.dataPeriod || preset.data_period')
+    || runMeituanBrowserCapturePresetSource.includes('if (presetState.dataPeriod)')
+    || runMeituanBrowserCapturePresetSource.includes('meituanBrowserCaptureForm.value.dataPeriod = presetState.dataPeriod;')
+    || runMeituanBrowserCapturePresetSource.includes('runMeituanBrowserCaptureForSections(preset.sections || []')) {
+    failures.push('public/index.html Meituan browser capture preset state must stay in public/meituan-static.js.');
+  }
+  const runMeituanBrowserSupplementCaptureSource = content.slice(
+    content.indexOf('const runMeituanBrowserSupplementCapture = async () => {'),
+    content.indexOf('const copyMeituanBrowserCaptureCommand')
+  );
+  if (!content.includes("const buildMeituanBrowserSupplementCaptureState = requireMeituanStatic('buildMeituanBrowserSupplementCaptureState');")
+    || !meituanStaticContent.includes('const buildMeituanBrowserSupplementCaptureState = ({')
+    || !runMeituanBrowserSupplementCaptureSource.includes('const supplementState = buildMeituanBrowserSupplementCaptureState({')
+    || !runMeituanBrowserSupplementCaptureSource.includes('autoFetchHotelId: autoFetchHotelId.value,')
+    || !runMeituanBrowserSupplementCaptureSource.includes('formHotelId: meituanForm.value.hotelId,')
+    || !runMeituanBrowserSupplementCaptureSource.includes('userHotelId: user.value?.hotel_id,')
+    || !runMeituanBrowserSupplementCaptureSource.includes('showToast(supplementState.message, supplementState.level);')
+    || !runMeituanBrowserSupplementCaptureSource.includes('meituanForm.value.hotelId = supplementState.hotelId;')
+    || !runMeituanBrowserSupplementCaptureSource.includes('runMeituanBrowserCaptureForSections(supplementState.captureSections, { dataPeriod: supplementState.dataPeriod });')
+    || runMeituanBrowserSupplementCaptureSource.includes("runMeituanBrowserCaptureForSections(['full'], { dataPeriod: 'historical_daily' })")
+    || runMeituanBrowserSupplementCaptureSource.includes('autoFetchHotelId.value || meituanForm.value.hotelId || user.value?.hotel_id')) {
+    failures.push('public/index.html Meituan browser supplement capture state must stay in public/meituan-static.js.');
+  }
+  const copyMeituanBrowserCaptureCommandSource = content.slice(
+    content.indexOf('const copyMeituanBrowserCaptureCommand = () => {'),
+    content.indexOf('const clearMeituanBrowserCapturePayload')
+  );
+  if (!content.includes("const buildMeituanBrowserCaptureCopyCommandState = requireMeituanStatic('buildMeituanBrowserCaptureCopyCommandState');")
+    || !meituanStaticContent.includes('const buildMeituanBrowserCaptureCopyCommandState = ({')
+    || !copyMeituanBrowserCaptureCommandSource.includes('const copyState = buildMeituanBrowserCaptureCopyCommandState({')
+    || !copyMeituanBrowserCaptureCommandSource.includes('storeId: meituanBrowserCaptureForm.value.storeId,')
+    || !copyMeituanBrowserCaptureCommandSource.includes('formHotelId: meituanForm.value.hotelId,')
+    || !copyMeituanBrowserCaptureCommandSource.includes('userHotelId: user.value?.hotel_id,')
+    || !copyMeituanBrowserCaptureCommandSource.includes('if (!copyState.canCopy) {')
+    || !copyMeituanBrowserCaptureCommandSource.includes('showToast(copyState.message, copyState.level);')
+    || copyMeituanBrowserCaptureCommandSource.includes('!meituanBrowserCaptureForm.value.storeId')
+    || copyMeituanBrowserCaptureCommandSource.includes('!(meituanForm.value.hotelId || user.value?.hotel_id)')) {
+    failures.push('public/index.html Meituan browser capture copy-command state must stay in public/meituan-static.js.');
+  }
+  const clearMeituanBrowserCapturePayloadStart = content.indexOf('const clearMeituanBrowserCapturePayload = () => {');
+  const clearMeituanBrowserCapturePayloadSource = content.slice(
+    clearMeituanBrowserCapturePayloadStart,
+    content.indexOf('const runMeituanBrowserCapture', clearMeituanBrowserCapturePayloadStart)
+  );
+  if (!content.includes("const buildMeituanBrowserCaptureClearPayloadState = requireMeituanStatic('buildMeituanBrowserCaptureClearPayloadState');")
+    || !meituanStaticContent.includes('const buildMeituanBrowserCaptureClearPayloadState = () => ({')
+    || !clearMeituanBrowserCapturePayloadSource.includes('const clearState = buildMeituanBrowserCaptureClearPayloadState();')
+    || !clearMeituanBrowserCapturePayloadSource.includes('meituanBrowserCaptureForm.value.payloadJson = clearState.payloadJson;')
+    || !clearMeituanBrowserCapturePayloadSource.includes('meituanBrowserCaptureResult.value = clearState.captureResult;')
+    || clearMeituanBrowserCapturePayloadSource.includes("meituanBrowserCaptureForm.value.payloadJson = '';")
+    || clearMeituanBrowserCapturePayloadSource.includes('meituanBrowserCaptureResult.value = null;')) {
+    failures.push('public/index.html Meituan browser capture clear-payload state must stay in public/meituan-static.js.');
+  }
+  const runMeituanBrowserCaptureSource = content.slice(
+    content.indexOf('const runMeituanBrowserCapture = async (options = {}) => runMeituanBrowserCaptureFlow({'),
+    content.indexOf('const runMeituanBrowserProfileLoginOnly')
+  );
+  const saveMeituanCapturedPayloadSource = content.slice(
+    content.indexOf('const saveMeituanCapturedPayload = async () => runMeituanCapturedPayloadSaveFlow({'),
+    content.indexOf('const goConfigureMeituanForSelectedHotel')
+  );
+  if (!content.includes("const resolveMeituanBrowserCaptureSystemHotelId = requireMeituanStatic('resolveMeituanBrowserCaptureSystemHotelId');")
+    || !meituanStaticContent.includes('const resolveMeituanBrowserCaptureSystemHotelId = ({')
+    || !runMeituanBrowserCaptureSource.includes('getSystemHotelId: () => resolveMeituanBrowserCaptureSystemHotelId({')
+    || !runMeituanBrowserCaptureSource.includes('formHotelId: meituanForm.value.hotelId,')
+    || !runMeituanBrowserCaptureSource.includes('autoFetchHotelId: autoFetchHotelId.value,')
+    || !runMeituanBrowserCaptureSource.includes('userHotelId: user.value?.hotel_id,')
+    || !saveMeituanCapturedPayloadSource.includes('getSystemHotelId: () => resolveMeituanBrowserCaptureSystemHotelId({')
+    || !saveMeituanCapturedPayloadSource.includes('formHotelId: meituanForm.value.hotelId,')
+    || !saveMeituanCapturedPayloadSource.includes('userHotelId: user.value?.hotel_id,')
+    || runMeituanBrowserCaptureSource.includes('meituanForm.value.hotelId || autoFetchHotelId.value || user.value?.hotel_id')
+    || saveMeituanCapturedPayloadSource.includes('meituanForm.value.hotelId || user.value?.hotel_id')) {
+    failures.push('public/index.html Meituan browser capture system hotel id resolution must stay in public/meituan-static.js.');
+  }
+  const goConfigureMeituanForSelectedHotelSource = content.slice(
+    content.indexOf('const goConfigureMeituanForSelectedHotel = async () => {'),
+    content.indexOf('const buildHotelOtaConfig')
+  );
+  if (!content.includes("const resolveMeituanSelectedHotelConfigAction = requireMeituanStatic('resolveMeituanSelectedHotelConfigAction');")
+    || !meituanStaticContent.includes('const resolveMeituanSelectedHotelConfigAction = ({')
+    || !goConfigureMeituanForSelectedHotelSource.includes('const action = resolveMeituanSelectedHotelConfigAction({')
+    || !goConfigureMeituanForSelectedHotelSource.includes('hotels: hotels.value,')
+    || !goConfigureMeituanForSelectedHotelSource.includes('hotelId: meituanForm.value.hotelId,')
+    || !goConfigureMeituanForSelectedHotelSource.includes('showToast(action.message, action.level);')
+    || !goConfigureMeituanForSelectedHotelSource.includes('await openHotelManualFetchConfig(action.hotel, action.platform);')
+    || goConfigureMeituanForSelectedHotelSource.includes('hotels.value.find')
+    || goConfigureMeituanForSelectedHotelSource.includes("openHotelManualFetchConfig(hotel, 'meituan')")) {
+    failures.push('public/index.html Meituan selected hotel config action must stay in public/meituan-static.js.');
+  }
+  const returnToMeituanRankingAfterConfigSaveSource = content.slice(
+    content.indexOf('const returnToMeituanRankingAfterConfigSave = async (hotelId) => {'),
+    content.indexOf('let manualOnlineFetchConfigReadyPromise')
+  );
+  if (!content.includes("const buildMeituanRankingReturnTargetState = requireMeituanStatic('buildMeituanRankingReturnTargetState');")
+    || !meituanStaticContent.includes('const buildMeituanRankingReturnTargetState = ({')
+    || !returnToMeituanRankingAfterConfigSaveSource.includes('const returnState = buildMeituanRankingReturnTargetState({')
+    || !returnToMeituanRankingAfterConfigSaveSource.includes('currentHotelId: meituanForm.value.hotelId,')
+    || !returnToMeituanRankingAfterConfigSaveSource.includes('currentPage.value = returnState.page;')
+    || !returnToMeituanRankingAfterConfigSaveSource.includes('onlineDataTab.value = returnState.tab;')
+    || !returnToMeituanRankingAfterConfigSaveSource.includes('const afterReloadState = buildMeituanRankingReturnTargetState({')
+    || returnToMeituanRankingAfterConfigSaveSource.includes("currentPage.value = 'meituan-ebooking';")
+    || returnToMeituanRankingAfterConfigSaveSource.includes("onlineDataTab.value = 'meituan-ranking';")
+    || returnToMeituanRankingAfterConfigSaveSource.includes("String(hotelId || '').trim()")) {
+    failures.push('public/index.html Meituan ranking return target state must stay in public/meituan-static.js.');
+  }
+  const saveMeituanConfigItemSource = content.slice(
+    content.indexOf('const saveMeituanConfigItem = async () => {'),
+    content.indexOf('const useMeituanConfig')
+  );
+  if (!content.includes("const resolveMeituanConfigSaveCookieState = requireMeituanStatic('resolveMeituanConfigSaveCookieState');")
+    || !meituanStaticContent.includes("const resolveMeituanConfigSaveCookieState = (cookies = '') => {")
+    || !saveMeituanConfigItemSource.includes('const cookieState = resolveMeituanConfigSaveCookieState(meituanConfigForm.value.cookies);')
+    || !saveMeituanConfigItemSource.includes('showToast(cookieState.message, cookieState.level);')
+    || !saveMeituanConfigItemSource.includes('cookies: cookieState.cookies,')
+    || saveMeituanConfigItemSource.includes("String(meituanConfigForm.value.cookies || '').trim()")
+    || saveMeituanConfigItemSource.includes("showToast('请输入临时 Cookie/API 辅助内容', 'error')")) {
+    failures.push('public/index.html Meituan config-save Cookie state must stay in public/meituan-static.js.');
+  }
+  if (!content.includes("const resolveMeituanConfigSaveRequestHotelId = requireMeituanStatic('resolveMeituanConfigSaveRequestHotelId');")
+    || !meituanStaticContent.includes('const resolveMeituanConfigSaveRequestHotelId = ({')
+    || !saveMeituanConfigItemSource.includes('const requestHotelId = resolveMeituanConfigSaveRequestHotelId({')
+    || !saveMeituanConfigItemSource.includes('formHotelId: meituanConfigForm.value.hotel_id,')
+    || !saveMeituanConfigItemSource.includes('rankingHotelId: meituanForm.value.hotelId,')
+    || !saveMeituanConfigItemSource.includes('filterHotelId: onlineDataFilter.value.hotel_id,')
+    || !saveMeituanConfigItemSource.includes('userHotelId: user.value?.hotel_id,')
+    || saveMeituanConfigItemSource.includes('const requestHotelId = String(')) {
+    failures.push('public/index.html Meituan config-save request hotel id selection must stay in public/meituan-static.js.');
+  }
+  if (!content.includes("const buildMeituanConfigSaveSuccessState = requireMeituanStatic('buildMeituanConfigSaveSuccessState');")
+    || !content.includes("const buildMeituanConfigSaveFailureState = requireMeituanStatic('buildMeituanConfigSaveFailureState');")
+    || content.includes("const resolveSavedMeituanConfigHotelId = requireMeituanStatic('resolveSavedMeituanConfigHotelId');")
+    || content.includes("const resolveMeituanConfigSaveToastLevel = requireMeituanStatic('resolveMeituanConfigSaveToastLevel');")
+    || !meituanStaticContent.includes('const buildMeituanConfigSaveSuccessState = ({')
+    || !meituanStaticContent.includes('const buildMeituanConfigSaveFailureState = ({')
+    || !saveMeituanConfigItemSource.includes('const saveSuccessState = buildMeituanConfigSaveSuccessState({')
+    || !saveMeituanConfigItemSource.includes('response: res,')
+    || !saveMeituanConfigItemSource.includes('form: meituanConfigForm.value,')
+    || !saveMeituanConfigItemSource.includes('showToast(saveSuccessState.toastMessage, saveSuccessState.toastLevel);')
+    || !saveMeituanConfigItemSource.includes('clearMeituanConfigDetailCache(saveSuccessState.clearConfigDetailId);')
+    || !saveMeituanConfigItemSource.includes('meituanConfigForm.value = saveSuccessState.resetForm;')
+    || !saveMeituanConfigItemSource.includes('await returnToMeituanRankingAfterConfigSave(saveSuccessState.savedHotelId);')
+    || !saveMeituanConfigItemSource.includes('} else if (saveSuccessState.shouldReloadConfigList) {')
+    || !saveMeituanConfigItemSource.includes('const saveFailureState = buildMeituanConfigSaveFailureState({ response: res });')
+    || !saveMeituanConfigItemSource.includes('const saveFailureState = buildMeituanConfigSaveFailureState({ error: e });')
+    || !saveMeituanConfigItemSource.includes('showToast(saveFailureState.toastMessage, saveFailureState.toastLevel);')
+    || saveMeituanConfigItemSource.includes('const savedHotelId = resolveSavedMeituanConfigHotelId({')
+    || saveMeituanConfigItemSource.includes('resolveMeituanConfigSaveToastLevel(res.data)')
+    || saveMeituanConfigItemSource.includes('meituanConfigForm.value = createEmptyMeituanConfigForm();')
+    || saveMeituanConfigItemSource.includes("showToast(res.message || '保存失败', 'error')")
+    || saveMeituanConfigItemSource.includes("showToast('保存失败: ' + e.message, 'error')")) {
+    failures.push('public/index.html Meituan config-save success state must stay in public/meituan-static.js.');
+  }
+  const useMeituanConfigSource = content.slice(
+    content.indexOf('const useMeituanConfig = async (config) => {'),
+    content.indexOf('const editMeituanConfig')
+  );
+  if (!content.includes("const buildMeituanConfigUseState = requireMeituanStatic('buildMeituanConfigUseState');")
+    || content.includes("const buildMeituanRankingFormPatchFromConfig = requireMeituanStatic('buildMeituanRankingFormPatchFromConfig');")
+    || !meituanStaticContent.includes('const buildMeituanConfigUseState = ({')
+    || !useMeituanConfigSource.includes('const useState = buildMeituanConfigUseState({')
+    || !useMeituanConfigSource.includes('config,')
+    || !useMeituanConfigSource.includes('fallbackHotelId: meituanForm.value.hotelId,')
+    || !useMeituanConfigSource.includes('Object.assign(meituanForm.value, useState.formPatch);')
+    || !useMeituanConfigSource.includes('showToast(useState.toastMessage);')
+    || !useMeituanConfigSource.includes('onlineDataTab.value = useState.targetTab;')
+    || useMeituanConfigSource.includes('buildMeituanRankingFormPatchFromConfig(config, meituanForm.value.hotelId)')
+    || useMeituanConfigSource.includes("onlineDataTab.value = 'meituan-ranking';")
+    || useMeituanConfigSource.includes('showToast(`已应用配置: ${config.name}`)')) {
+    failures.push('public/index.html Meituan config-use state must stay in public/meituan-static.js.');
+  }
+  const editMeituanConfigSource = content.slice(
+    content.indexOf('const editMeituanConfig = async (config) => {'),
+    content.indexOf('const deleteMeituanConfigItem')
+  );
+  if (!content.includes("const buildMeituanConfigEditState = requireMeituanStatic('buildMeituanConfigEditState');")
+    || content.includes("const buildMeituanConfigEditForm = requireMeituanStatic('buildMeituanConfigEditForm');")
+    || !meituanStaticContent.includes('const buildMeituanConfigEditState = ({')
+    || !editMeituanConfigSource.includes('const editState = buildMeituanConfigEditState({ config });')
+    || !editMeituanConfigSource.includes('meituanConfigForm.value = editState.form;')
+    || editMeituanConfigSource.includes('meituanConfigForm.value = buildMeituanConfigEditForm(config);')) {
+    failures.push('public/index.html Meituan config-edit state must stay in public/meituan-static.js.');
+  }
+  const deleteMeituanConfigItemSource = content.slice(
+    content.indexOf('const deleteMeituanConfigItem = async (id) => {'),
+    content.indexOf('const generateMeituanBookmarklet')
+  );
+  if (!content.includes("const buildMeituanConfigDeleteSuccessState = requireMeituanStatic('buildMeituanConfigDeleteSuccessState');")
+    || !content.includes("const buildMeituanConfigDeleteFailureState = requireMeituanStatic('buildMeituanConfigDeleteFailureState');")
+    || !meituanStaticContent.includes("const buildMeituanConfigDeleteSuccessState = (id = '') => ({")
+    || !meituanStaticContent.includes('const buildMeituanConfigDeleteFailureState = ({')
+    || !deleteMeituanConfigItemSource.includes('const deleteSuccessState = buildMeituanConfigDeleteSuccessState(id);')
+    || !deleteMeituanConfigItemSource.includes('showToast(deleteSuccessState.toastMessage, deleteSuccessState.toastLevel);')
+    || !deleteMeituanConfigItemSource.includes('clearMeituanConfigDetailCache(deleteSuccessState.clearConfigDetailId);')
+    || !deleteMeituanConfigItemSource.includes('loadMeituanConfigList(deleteSuccessState.reloadOptions);')
+    || !deleteMeituanConfigItemSource.includes('const deleteFailureState = buildMeituanConfigDeleteFailureState({ response: res });')
+    || !deleteMeituanConfigItemSource.includes('const deleteFailureState = buildMeituanConfigDeleteFailureState({ error: e });')
+    || !deleteMeituanConfigItemSource.includes('showToast(deleteFailureState.toastMessage, deleteFailureState.toastLevel);')
+    || deleteMeituanConfigItemSource.includes("showToast('删除成功')")
+    || deleteMeituanConfigItemSource.includes("showToast(res.message || '删除失败', 'error')")
+    || deleteMeituanConfigItemSource.includes("showToast('删除失败: ' + e.message, 'error')")
+    || deleteMeituanConfigItemSource.includes('clearMeituanConfigDetailCache(id);')
+    || deleteMeituanConfigItemSource.includes('loadMeituanConfigList();')) {
+    failures.push('public/index.html Meituan config-delete state must stay in public/meituan-static.js.');
+  }
+  const generateMeituanBookmarkletSource = content.slice(
+    content.indexOf('const generateMeituanBookmarklet = async () => {'),
+    content.indexOf('const fetchCustomData')
+  );
+  if (!content.includes("const buildMeituanBookmarkletSuccessState = requireMeituanStatic('buildMeituanBookmarkletSuccessState');")
+    || !content.includes("const buildMeituanBookmarkletFailureState = requireMeituanStatic('buildMeituanBookmarkletFailureState');")
+    || !meituanStaticContent.includes('const buildMeituanBookmarkletSuccessState = (response = {}) => ({')
+    || !meituanStaticContent.includes('const buildMeituanBookmarkletFailureState = ({')
+    || !generateMeituanBookmarkletSource.includes('const successState = buildMeituanBookmarkletSuccessState(res);')
+    || !generateMeituanBookmarkletSource.includes('meituanBookmarklet.value = successState.bookmarklet;')
+    || !generateMeituanBookmarkletSource.includes('showToast(successState.toastMessage, successState.toastLevel);')
+    || !generateMeituanBookmarkletSource.includes('const failureState = buildMeituanBookmarkletFailureState({ error: e });')
+    || !generateMeituanBookmarkletSource.includes('showToast(failureState.toastMessage, failureState.toastLevel);')
+    || generateMeituanBookmarkletSource.includes('meituanBookmarklet.value = res.data.bookmarklet;')
+    || generateMeituanBookmarkletSource.includes("showToast(res.data?.message || '旧版美团 Cookie 书签已禁用', 'warning')")
+    || generateMeituanBookmarkletSource.includes("showToast('生成失败: ' + e.message, 'error')")) {
+    failures.push('public/index.html Meituan bookmarklet state must stay in public/meituan-static.js.');
+  }
+  const runMeituanBrowserProfileLoginOnlySource = content.slice(
+    content.indexOf('const runMeituanBrowserProfileLoginOnly = async () => {'),
+    content.indexOf('const saveMeituanCapturedPayload')
+  );
+  if (!content.includes("const buildMeituanBrowserProfileLoginOnlyRunOptions = requireMeituanStatic('buildMeituanBrowserProfileLoginOnlyRunOptions');")
+    || !meituanStaticContent.includes('const buildMeituanBrowserProfileLoginOnlyRunOptions = () => ({')
+    || !runMeituanBrowserProfileLoginOnlySource.includes('const loginOnlyOptions = buildMeituanBrowserProfileLoginOnlyRunOptions();')
+    || !runMeituanBrowserProfileLoginOnlySource.includes('await runMeituanBrowserCapture(loginOnlyOptions);')
+    || runMeituanBrowserProfileLoginOnlySource.includes('runMeituanBrowserCapture({ loginOnly: true, bindDataSource: true })')) {
+    failures.push('public/index.html Meituan browser profile login-only options must stay in public/meituan-static.js.');
+  }
+  const syncMeituanBrowserCaptureFromSelectedConfigSource = content.slice(
+    content.indexOf('const syncMeituanBrowserCaptureFromSelectedConfig = async (showMessage = false) => {'),
+    content.indexOf('const switchMeituanCaptureTab')
+  );
+  if (!content.includes("const buildMeituanBrowserCaptureConfigSyncState = requireMeituanStatic('buildMeituanBrowserCaptureConfigSyncState');")
+    || !meituanStaticContent.includes('const buildMeituanBrowserCaptureConfigSyncState = ({')
+    || !syncMeituanBrowserCaptureFromSelectedConfigSource.includes('const syncState = buildMeituanBrowserCaptureConfigSyncState({')
+    || !syncMeituanBrowserCaptureFromSelectedConfigSource.includes('formPoiId: meituanForm.value.poiId,')
+    || !syncMeituanBrowserCaptureFromSelectedConfigSource.includes('captureForm: meituanBrowserCaptureForm.value,')
+    || !syncMeituanBrowserCaptureFromSelectedConfigSource.includes('Object.assign(meituanBrowserCaptureForm.value, syncState.formUpdates);')
+    || !syncMeituanBrowserCaptureFromSelectedConfigSource.includes('if (!syncState.hasHotel) {')
+    || !syncMeituanBrowserCaptureFromSelectedConfigSource.includes('meituanForm.value.poiId = syncState.rankingPoiId;')
+    || !syncMeituanBrowserCaptureFromSelectedConfigSource.includes('showMessage === true && syncState.shouldNotify')
+    || syncMeituanBrowserCaptureFromSelectedConfigSource.includes('firstNonEmptyText(')
+    || syncMeituanBrowserCaptureFromSelectedConfigSource.includes('firstDataConfigValue(')) {
+    failures.push('public/index.html Meituan browser capture config-sync state must stay in public/meituan-static.js.');
+  }
   const platformProfileActionSource = content.slice(
     content.indexOf('const openPlatformProfileAction = async'),
     content.indexOf("if (target === 'analysis')")
@@ -1165,16 +1577,119 @@ if (!fs.existsSync(indexPath)) {
   if (!content.includes(':disabled="fetchingData || !canFetchMeituanRankingData()"')
     || !content.includes('const meituanManualFetchConfigProofPending = () => {')
     || !content.includes('const canFetchMeituanRankingData = () => {')
-    || !content.includes("if (String(form.cookies || '').trim()) return true;")
-    || !content.includes('return !!form.hotelId && !!selectedMeituanHotelConfig.value;')
+    || !content.includes("const resolveCanFetchMeituanRankingData = requireMeituanStatic('resolveCanFetchMeituanRankingData');")
+    || !content.includes("const resolveMeituanManualFetchConfigProofPending = requireMeituanStatic('resolveMeituanManualFetchConfigProofPending');")
+    || !content.includes("const resolveMeituanManualFetchConfigCandidate = requireMeituanStatic('resolveMeituanManualFetchConfigCandidate');")
+    || !content.includes("const resolveMeituanConfigListResponse = requireMeituanStatic('resolveMeituanConfigListResponse');")
+    || !content.includes("const resolveMeituanConfigListApplyAction = requireMeituanStatic('resolveMeituanConfigListApplyAction');")
+    || !content.includes("const resolveMeituanConfigListCachedResult = requireMeituanStatic('resolveMeituanConfigListCachedResult');")
+    || !content.includes("const resolveMeituanConfigListLoadingAction = requireMeituanStatic('resolveMeituanConfigListLoadingAction');")
+    || !content.includes("const buildMeituanConfigListSuccessState = requireMeituanStatic('buildMeituanConfigListSuccessState');")
+    || !content.includes("const buildMeituanConfigListFailureAction = requireMeituanStatic('buildMeituanConfigListFailureAction');")
+    || !content.includes("const buildMeituanConfigListStartState = requireMeituanStatic('buildMeituanConfigListStartState');")
+    || !content.includes("const buildMeituanConfigListFinishState = requireMeituanStatic('buildMeituanConfigListFinishState');")
+    || !content.includes('return resolveCanFetchMeituanRankingData({')
+    || !meituanStaticContent.includes('const resolveCanFetchMeituanRankingData = ({')
+    || !meituanStaticContent.includes('const resolveMeituanManualFetchConfigProofPending = ({')
+    || !meituanStaticContent.includes('const resolveMeituanManualFetchConfigCandidate = ({')
+    || !meituanStaticContent.includes('const resolveMeituanConfigListResponse = (res = {}) => {')
+    || !meituanStaticContent.includes('const resolveMeituanConfigListApplyAction = ({')
+    || !meituanStaticContent.includes('const resolveMeituanConfigListCachedResult = ({')
+    || !meituanStaticContent.includes('const resolveMeituanConfigListLoadingAction = ({')
+    || !meituanStaticContent.includes('const buildMeituanConfigListSuccessState = ({')
+    || !meituanStaticContent.includes('const buildMeituanConfigListFailureAction = ({')
+    || !meituanStaticContent.includes('const buildMeituanConfigListStartState = () => ({')
+    || !meituanStaticContent.includes('const buildMeituanConfigListFinishState = () => ({')
+    || !meituanStaticContent.includes("if (String(safeForm.cookies || '').trim()) return true;")
+    || !meituanStaticContent.includes("return !!String(safeForm.hotelId || '').trim() && !!selectedConfig;")
+    || !content.includes('const cachedResult = resolveMeituanConfigListCachedResult({')
+    || !content.includes('if (cachedResult.hit) {')
+    || !content.includes('return cachedResult.list;')
+    || !content.includes('const loadingAction = resolveMeituanConfigListLoadingAction({')
+    || !content.includes("if (loadingAction.status === 'reuse') {")
+    || !content.includes('return loadingAction.promise;')
+    || !content.includes("if (loadingAction.status === 'await_previous') {")
+    || !content.includes('await loadingAction.promise.catch(() => []);')
+    || !content.includes('const startState = buildMeituanConfigListStartState();')
+    || !content.includes('meituanConfigListLoading.value = startState.loading;')
+    || !content.includes('meituanConfigListLoadFailed.value = startState.failed;')
+    || !content.includes('const configListResult = resolveMeituanConfigListResponse(res);')
+    || !content.includes('if (configListResult.ok) {')
+    || !content.includes('const successState = buildMeituanConfigListSuccessState({')
+    || !content.includes('meituanConfigList.value = successState.list;')
+    || !content.includes('meituanConfigListLoaded.value = successState.loaded;')
+    || !content.includes('meituanConfigListLoadedAt = successState.loadedAt;')
+    || !content.includes('const applyAction = resolveMeituanConfigListApplyAction({')
+    || !content.includes('if (applyAction.shouldApply) {')
+    || !content.includes('const failureAction = buildMeituanConfigListFailureAction({')
+    || !content.includes("type: 'api',")
+    || !content.includes("type: 'exception',")
+    || !content.includes('meituanConfigListLoadFailed.value = failureAction.failed;')
+    || !content.includes('console.error(failureAction.label, failureAction.detail);')
+    || !content.includes('const finishState = buildMeituanConfigListFinishState();')
+    || !content.includes('meituanConfigListLoadingPromise = finishState.loadingPromise;')
+    || !content.includes('meituanConfigListLoading.value = finishState.loading;')
     || !content.includes('const resolveMeituanManualFetchConfig = async (config) => {')
-    || !content.includes('if (!meituanForm.value.hotelId) return null;')
+    || !content.includes('return resolveMeituanManualFetchConfigCandidate({')
     || !content.includes('ensureMeituanConfigSecret: async config => ensureMeituanConfigSecret(await resolveMeituanManualFetchConfig(config))')
     || !meituanStaticContent.includes('const selectedMeituanConfig = form.hotelId')
     || meituanStaticContent.includes("return { status: 'missing_hotel' };")
     || meituanStaticContent.includes("return { status: 'missing_config' };")
     || !content.includes('if (preparingConfig) {\n                        fetchingData.value = false;')) {
     failures.push('public/index.html Meituan ranking manual fetch must allow temporary Cookie validation without a saved config, while keeping saved config application optional.');
+  }
+  if (!content.includes("const getMeituanConfigDetailVersion = requireMeituanStatic('getMeituanConfigDetailVersion');")
+    || !content.includes("const buildMeituanConfigDetailCacheKey = requireMeituanStatic('buildMeituanConfigDetailCacheKey');")
+    || !content.includes("const resolveMeituanConfigDetailClearTarget = requireMeituanStatic('resolveMeituanConfigDetailClearTarget');")
+    || !content.includes("const resolveMeituanConfigDetailLoadTarget = requireMeituanStatic('resolveMeituanConfigDetailLoadTarget');")
+    || !content.includes("const buildMeituanConfigDetailRequestUrl = requireMeituanStatic('buildMeituanConfigDetailRequestUrl');")
+    || !content.includes("const resolveMeituanConfigDetailResponse = requireMeituanStatic('resolveMeituanConfigDetailResponse');")
+    || !content.includes("const shouldSkipMeituanConfigDetailLoad = requireMeituanStatic('shouldSkipMeituanConfigDetailLoad');")
+    || !content.includes("const resolveMeituanConfigDetailCachedResult = requireMeituanStatic('resolveMeituanConfigDetailCachedResult');")
+    || !content.includes("const resolveMeituanConfigDetailCacheLookup = requireMeituanStatic('resolveMeituanConfigDetailCacheLookup');")
+    || !content.includes("const buildMeituanConfigDetailCacheEntry = requireMeituanStatic('buildMeituanConfigDetailCacheEntry');")
+    || !content.includes("const resolveMeituanConfigDetailCacheStorePlan = requireMeituanStatic('resolveMeituanConfigDetailCacheStorePlan');")
+    || !content.includes("const resolveMeituanConfigDetailFailureAction = requireMeituanStatic('resolveMeituanConfigDetailFailureAction');")
+    || !content.includes("const resolveMeituanConfigDetailPrewarmPlan = requireMeituanStatic('resolveMeituanConfigDetailPrewarmPlan');")
+    || !content.includes('const clearTarget = resolveMeituanConfigDetailClearTarget(id);')
+    || !content.includes('if (!clearTarget.clearAll) {')
+    || !content.includes('const cacheKey = clearTarget.cacheKey;')
+    || !content.includes('const loadTarget = resolveMeituanConfigDetailLoadTarget({ id, loadingPromises: meituanConfigDetailLoadingPromises });')
+    || !content.includes("if (loadTarget.status === 'missing_key') return null;")
+    || !content.includes("if (loadTarget.status === 'loading') {")
+    || !content.includes('return loadTarget.promise;')
+    || !content.includes('const cacheKey = loadTarget.cacheKey;')
+    || !content.includes('const res = await request(buildMeituanConfigDetailRequestUrl(cacheKey));')
+    || !content.includes('const detailResult = resolveMeituanConfigDetailResponse(res);')
+    || !content.includes('throw new Error(detailResult.message);')
+    || !content.includes('const cacheLookup = resolveMeituanConfigDetailCacheLookup({ config, cache: meituanConfigDetailCache });')
+    || !content.includes('if (shouldSkipMeituanConfigDetailLoad(config)) return config;')
+    || !content.includes('const prewarmPlan = resolveMeituanConfigDetailPrewarmPlan({ config, delayMs: 80 });')
+    || !content.includes('if (!prewarmPlan.shouldPrewarm) return;')
+    || !content.includes('deferUiTask(() => ensureMeituanConfigSecret(prewarmPlan.config, { silent: true }), prewarmPlan.delayMs);')
+    || !content.includes('return cacheLookup.cachedResult.data;')
+    || !content.includes('const cacheEntry = buildMeituanConfigDetailCacheEntry({ detail, listVersion: cacheLookup.listVersion });')
+    || !content.includes('const storePlan = resolveMeituanConfigDetailCacheStorePlan({ cacheKey: cacheLookup.cacheKey, cacheEntry });')
+    || !content.includes('if (storePlan.shouldStore) {')
+    || !content.includes('meituanConfigDetailCache.set(storePlan.cacheKey, storePlan.cacheEntry);')
+    || !content.includes('const failureAction = resolveMeituanConfigDetailFailureAction({ error: e, silent: options.silent });')
+    || !content.includes("if (failureAction.type === 'log') {")
+    || !content.includes('console.error(failureAction.label, failureAction.error);')
+    || !content.includes('showToast(failureAction.message, failureAction.level);')
+    || !meituanStaticContent.includes('const getMeituanConfigDetailVersion = (config = {}) => String(')
+    || !meituanStaticContent.includes("const buildMeituanConfigDetailCacheKey = (id = '') => (id ? String(id) : '');")
+    || !meituanStaticContent.includes("const resolveMeituanConfigDetailClearTarget = (id = '') => {")
+    || !meituanStaticContent.includes('const resolveMeituanConfigDetailLoadTarget = ({')
+    || !meituanStaticContent.includes("const buildMeituanConfigDetailRequestUrl = (cacheKey = '') => (")
+    || !meituanStaticContent.includes('const resolveMeituanConfigDetailResponse = (res = {}) => {')
+    || !meituanStaticContent.includes('const shouldSkipMeituanConfigDetailLoad = (config = null) => (')
+    || !meituanStaticContent.includes('const resolveMeituanConfigDetailCachedResult = ({')
+    || !meituanStaticContent.includes('const resolveMeituanConfigDetailCacheLookup = ({')
+    || !meituanStaticContent.includes('const buildMeituanConfigDetailCacheEntry = ({')
+    || !meituanStaticContent.includes('const resolveMeituanConfigDetailCacheStorePlan = ({')
+    || !meituanStaticContent.includes('const resolveMeituanConfigDetailFailureAction = ({')
+    || !meituanStaticContent.includes('const resolveMeituanConfigDetailPrewarmPlan = ({')) {
+    failures.push('public/index.html Meituan config detail version, cache-key, cache-clear, load-target, cache-lookup, request-url, response, skip-load, cache-entry, cache-store, failure-action, and prewarm rules must be owned by the static helper.');
   }
   const applyMeituanHotelConfigSource = content.slice(
     content.indexOf('const applyMeituanHotelConfig = async'),
@@ -1295,7 +1810,7 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!platformAutoTemplateSource.includes('<platform-auto-settings-panels')
     || !platformAutoTemplateSource.includes(':ctx="$root"')
-    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260613-platform-auto-lazy';")
+    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260708-local-auth-copy';")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
     || !content.includes("requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')")
     || !content.includes("requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')")

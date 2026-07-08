@@ -4,6 +4,8 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const context = { window: {} };
+const cookieEndpointConcern = readFileSync('app/controller/concern/CookieEndpointConcern.php', 'utf8');
+const routeApp = readFileSync('route/app.php', 'utf8');
 vm.runInNewContext(readFileSync('public/data-health-static.js', 'utf8'), context, {
   filename: 'public/data-health-static.js',
 });
@@ -400,6 +402,84 @@ test('release evidence panel accepts backend release status projection', () => {
   assert.equal(summary.doesNotCloseReleaseReadiness, true);
 });
 
+test('release evidence panel does not reopen PR state after clean external-state passes', () => {
+  const payload = {
+    release_ready: false,
+    does_not_close_release_readiness: true,
+    blocking_requirements: [
+      {
+        id: 'design-handoff-missing',
+        status: 'open',
+        evidence: 'missing controlled design manifest',
+        acceptance_command: 'npm run review:release-design',
+      },
+      {
+        id: 'ota-credential-rotation-attestation-missing',
+        status: 'open',
+        evidence: 'missing OTA rotation attestation',
+        acceptance_command: 'npm run review:release-ota-credentials',
+      },
+    ],
+    operator_intake_packet: {
+      does_not_close_release_readiness: true,
+      required_external_inputs: [
+        { id: 'design_handoff_manifest', required_file: '../release-evidence-temp/design_handoff_manifest.json' },
+        { id: 'ota_credential_rotation_attestation', required_file: '../release-evidence-temp/ota_credential_rotation_attestation.json' },
+        { id: 'final_release_pr_and_local_state', required_result_file: '../release-evidence-temp/release-external-state-result.json' },
+      ],
+    },
+    source_status: {
+      external_state_check: {
+        status: 'passing_from_clean_verification_worktree',
+        open_failures: [],
+      },
+      local_worktree_close_plan: {
+        status: 'passing_from_clean_verification_worktree',
+      },
+    },
+  };
+
+  const rows = helpers.buildReleaseEvidencePanelRows(payload);
+  const prRow = rows.find(row => row.id === 'final_release_pr_and_local_state');
+  assert.equal(prRow.status, 'passed');
+  assert.equal(prRow.priority, 'ok');
+  assert.match(prRow.evidenceText, /clean checkout/);
+
+  const summary = helpers.summarizeReleaseEvidencePanel(payload);
+  assert.equal(summary.blockerCount, 2);
+  assert.equal(summary.requiredInputCount, 3);
+});
+
+test('release evidence panel trusts backend required input status', () => {
+  const payload = {
+    release_ready: false,
+    does_not_close_release_readiness: true,
+    blocking_requirements: [
+      { id: 'design-handoff-missing', status: 'open', acceptance_command: 'npm run review:release-design' },
+      { id: 'ota-credential-rotation-attestation-missing', status: 'open', acceptance_command: 'npm run review:release-ota-credentials' },
+    ],
+    operator_intake_packet: {
+      required_external_inputs: [
+        { id: 'design_handoff_manifest', status: 'missing' },
+        { id: 'ota_credential_rotation_attestation', status: 'missing' },
+        {
+          id: 'final_release_pr_and_local_state',
+          status: 'passed',
+          success_evidence: 'external-state passed from clean verification checkout',
+          next_action: 'rerun after PR update',
+        },
+      ],
+    },
+  };
+
+  const rows = helpers.buildReleaseEvidencePanelRows(payload);
+  const prRow = rows.find(row => row.id === 'final_release_pr_and_local_state');
+  assert.equal(prRow.status, 'passed');
+  assert.equal(prRow.priority, 'ok');
+  assert.match(prRow.evidenceText, /external-state passed/);
+  assert.equal(helpers.summarizeReleaseEvidencePanel(payload).blockerCount, 2);
+});
+
 test('public endpoint security summary escalates any unconfigured public token', () => {
   const summary = helpers.summarizePublicEndpointSecurity({
     isSuperAdmin: true,
@@ -419,6 +499,15 @@ test('public endpoint security summary escalates any unconfigured public token',
   assert.equal(summary.failureCount, 0);
   assert.equal(summary.rateLimitedCount, 0);
   assert.equal(summary.unconfiguredTokenCount, 1);
+  assert.equal(helpers.publicEndpointDisplayName('daily_workbench_patrol_cron'), 'daily-workbench-patrol-cron');
+  assert.match(helpers.publicEndpointSecurityBoundaryText(), /daily-workbench-patrol-cron/);
+  assert.equal(helpers.publicEndpointPathText({
+    method: 'GET',
+    path: '/api/online-data/daily-workbench-patrol-cron',
+  }), 'GET /api/online-data/daily-workbench-patrol-cron');
+  assert.match(cookieEndpointConcern, /daily_workbench_patrol_cron/);
+  assert.match(cookieEndpointConcern, /\/api\/online-data\/daily-workbench-patrol-cron/);
+  assert.match(routeApp, /api\/online-data\/daily-workbench-patrol-cron/);
 });
 
 test('manual one-click fetch result helpers keep Ctrip Qunar gaps blocking', () => {

@@ -872,58 +872,21 @@ trait OnlineDataRequestConcern
             return $this->error('不支持的平台登录类型', 400);
         }
 
-        $requestData = $this->requestData();
-        try {
-            $requestData = $this->applyPlatformProfileLoginDataSourceRequest($platform, $requestData);
-        } catch (\RuntimeException $e) {
-            return $this->error($e->getMessage(), 400);
-        }
-        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
-            $requestData['system_hotel_id']
-            ?? $requestData['systemHotelId']
-            ?? $requestData['hotel_id']
-            ?? $requestData['hotelId']
-            ?? null
+        $platformName = $platform === 'ctrip' ? '携程' : '美团';
+        return $this->error(
+            $platformName . '授权必须由账号使用者在自己电脑完成。宿析不会在服务器或管理员电脑打开平台登录窗口；请在当前账号电脑打开平台后台完成短信/验证码/人机验证后，使用浏览器辅助采集 JSON 或本机采集器导入授权证据。',
+            409,
+            [
+                'status' => 'blocked',
+                'status_code' => 'client_local_authorization_required',
+                'error_code' => 'client_local_authorization_required',
+                'platform' => $platform,
+                'platform_name' => $platformName,
+                'authorization_policy' => 'account_owner_local_computer_only',
+                'server_browser_launch_disabled' => true,
+                'next_action' => 'open_platform_on_account_owner_computer_and_import_browser_assist_json',
+            ]
         );
-        if (!$systemHotelId) {
-            return $this->error('请选择酒店后登录平台账号', 400);
-        }
-
-        $profileKey = $this->resolvePlatformProfileLoginProfileKey($platform, $requestData, (int)$systemHotelId);
-        if ($profileKey === '') {
-            return $this->error($platform === 'ctrip' ? '请填写携程 Profile ID 或酒店 ID' : '请填写美团 Store ID / POI ID', 400);
-        }
-
-        $requestData = $this->preparePlatformProfileLoginRequest($platform, $requestData, (int)$systemHotelId, $profileKey);
-
-        try {
-            $task = $this->createPlatformProfileLoginTask($platform, (int)$systemHotelId, $profileKey, $requestData);
-            if (!$this->launchPlatformProfileLoginTask($task)) {
-                $task = array_merge($task, [
-                    'status' => 'failed',
-                    'message' => '无法启动平台登录后台任务，请检查 PHP CLI / think 命令是否可用',
-                    'finished_at' => date('Y-m-d H:i:s'),
-                    'updated_at' => date('Y-m-d H:i:s'),
-                ]);
-                $this->cachePlatformProfileLoginTask($task);
-                return $this->error($task['message'], 500, $this->normalizePlatformProfileLoginTask($task));
-            }
-
-            OperationLog::record(
-                'online_data',
-                'trigger_profile_login',
-                '触发' . ($platform === 'ctrip' ? '携程' : '美团') . '平台账号登录: ' . $profileKey,
-                $this->currentUser->id ?? null,
-                (int)$systemHotelId
-            );
-
-            return $this->success(
-                $this->normalizePlatformProfileLoginTask($task),
-                ($platform === 'ctrip' ? '携程' : '美团') . '登录任务已启动，请在弹出的浏览器中完成验证'
-            );
-        } catch (\Throwable $e) {
-            return $this->error('启动平台登录失败: ' . $e->getMessage(), 500);
-        }
     }
 
     public function platformProfileLoginStatus(string $platform): Response

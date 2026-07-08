@@ -218,6 +218,9 @@ class User extends Base
         if (array_key_exists('username', $data)) {
             $nextUsername = trim((string)$data['username']);
             if ($nextUsername !== (string)$user->username) {
+                if (!$this->canEditUserUsername($user)) {
+                    return $this->error('只有超级管理员可以修改已有内测用户的用户名', 403);
+                }
                 $usernameError = $this->validateUsernamePolicy($nextUsername);
                 if ($usernameError) {
                     return $this->error($usernameError);
@@ -377,6 +380,11 @@ class User extends Base
         }
 
         return null;
+    }
+
+    private function canEditUserUsername(UserModel $targetUser): bool
+    {
+        return $this->currentUser->isSuperAdmin() && $targetUser->isBetaUser();
     }
 
     private function appendUserHotelScope($user): array

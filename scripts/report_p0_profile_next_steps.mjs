@@ -167,7 +167,7 @@ function profileFlowBlockingReasonCodes(step) {
   if (!dataSourceId) codes.push('missing_data_source_id');
   if (dataSourceStatus === 'not_registered') codes.push('data_source_not_registered');
   if (step?.manual_login_state_verified !== true) codes.push('manual_login_state_verified');
-  if (triggerStatus && !['available', 'ready'].includes(triggerStatus)) {
+  if (triggerStatus && !['available', 'ready', 'client_local_authorization_required'].includes(triggerStatus)) {
     codes.push(`profile_login_trigger_${triggerStatus}`);
   }
   if (trigger.reason) codes.push(String(trigger.reason));
@@ -453,7 +453,7 @@ function buildOperatorSequence(rows) {
       data_source_id: step.data_source_id,
       entry: step.login_trigger_entry,
       status: step.login_trigger_status,
-      required_human_action: 'Complete authorized OTA login, captcha/SMS/human verification, and permission confirmation in the opened browser Profile.',
+      required_human_action: 'Account owner opens the OTA backend on their own computer, completes login, captcha/SMS/human verification, then imports browser-assist JSON or local collector evidence.',
       sensitive_values_policy: 'metadata_only_no_cookie_token_profile_path_or_raw_payload',
     });
     sequence.push({
@@ -648,7 +648,7 @@ function renderMarkdown(report) {
         `   - platform_ready=${step.platform_ready ? 'true' : 'false'}`,
         `   - profile_flow_ready=${step.profile_flow_ready ? 'true' : 'false'}, profile_flow_blockers=${step.profile_flow_blocking_reason_codes.length ? step.profile_flow_blocking_reason_codes.join(',') : '-'}`,
         `   - operator_skip_active=${step.operator_skip_active ? 'true' : 'false'}`,
-        `   - 登录触发: ${step.platform_ready ? 'already_ready_no_login' : (step.operator_skip_active && step.manual_login_state_verified ? 'login_verified_reference_only' : (step.login_trigger_entry || '-'))} (${step.login_trigger_status || '-'})`,
+        `   - 本机授权: ${step.platform_ready ? 'already_ready_no_login' : (step.operator_skip_active && step.manual_login_state_verified ? 'login_verified_reference_only' : (step.login_trigger_entry || '-'))} (${step.login_trigger_status || '-'})`,
         `   - 登录后同步: ${step.platform_ready ? 'already_ready_no_sync' : (step.operator_skip_active ? 'skipped_by_operator_no_sync' : (step.after_login_sync_entry || '-'))}`,
         `   - 复验命令: ${step.verifier_command || '-'}`,
       );

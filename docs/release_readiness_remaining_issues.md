@@ -1,12 +1,12 @@
 # Pre-Release Remaining Issues
 
-Updated: 2026-07-06
+Updated: 2026-07-08
 
 Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
 ## Current Conclusion
 
-The existing contract and review checks can pass while the project remains not release-ready. `npm run review:release-readiness` now defaults to `RELEASE_EVIDENCE_DIR` or `../release-evidence-temp` for controlled production env, LLM attestation, PR-candidate, staged-scope, and external-state result evidence, and currently reports 4 release-readiness failures: design handoff, OTA credential rotation attestation, no open final PR candidate, and external-state final handoff. The production env, production LLM attestation, and formal Codex Security scan artifact blockers are closed for the current evidence head and must keep passing on the final head. The `@github` local-state blocker is now also supported by controlled PR-candidate, staged-scope, and external-state result files outside the repository, after `npm run review:release-pr-candidates`, `npm run review:release-staged-scope`, and `npm run review:release-external-state` are rerun from a checkout whose local HEAD matches the actual final PR head.
+The existing contract and review checks can pass while the project remains not release-ready. `npm run review:release-readiness` now defaults to `RELEASE_EVIDENCE_DIR` or `../release-evidence-temp` for controlled production env, LLM attestation, PR-candidate, staged-scope, and external-state result evidence, and currently reports 2 release-readiness failures: design handoff and OTA credential rotation attestation. The production env, production LLM attestation, formal Codex Security scan artifact blocker, and PR #6 external-state evidence are closed for the current evidence head and must keep passing on the final head. The main worktree still has local dirty changes, so release-closing external-state evidence must continue to come from a clean checkout whose local HEAD matches the final PR head.
 
 Machine-readable status: `docs/release_readiness_status.json`.
 
@@ -30,7 +30,6 @@ Optional GitHub/local-state result evidence: run `npm run review:release-pr-cand
 |---:|---|---|---|---|
 | 1 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real controlled manifest is present under `../release-evidence-temp/design_handoff_manifest.json`, via `DESIGN_HANDOFF_MANIFEST_FILE`, or via `docs/design_handoff_manifest.json` with Figma source, Canva source, Brand Kit, design token, flow coverage, review date, and zero open design issues. A 2026-07-06 read-only connector recheck was blocked by Figma/Canva reauthentication requirements. | Reauthenticate Figma and Canva or provide independently controlled accessible source links; then provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, required flow coverage, `last_reviewed_at` inside the 30-day release evidence window, empty `open_issues`, and pass `npm run review:release-design`. |
 | 2 | `@codex-security` | OTA credential rotation attestation is missing | `../release-evidence-temp/ota_credential_rotation_attestation.json` and `docs/ota_credential_rotation_attestation.json` are missing, and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. Current backup text scan reports no credential-shaped matches, but that does not prove real platform credential rotation or invalidation. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, `reviewed_at` inside the 30-day release evidence window, readiness rerun, and pass `npm run review:release-ota-credentials`. |
-| 3 | `@github` | GitHub / local handoff state is not closed | Current `review:release-pr-candidates` finds no open PR candidate for base `main`. Current `review:release-staged-scope` has no forbidden staged files but does not prove a clean worktree. Current `review:release-external-state` refuses an implicit PR #2 fallback and fails because `RELEASE_PR_NUMBER` is not set and the local worktree is dirty; `.git/index.lock` is absent and `database/backups` has no tracked files. | After design and OTA isolated gates pass, create or select the actual open final release PR, pass `review:release-pr-candidates`, set `RELEASE_PR_NUMBER`, pass `review:release-staged-scope` for the final staged bundle, keep local Git clean, pass `review:release-external-state` from a checkout whose local HEAD matches that final PR head, and rerun `review:release-readiness` while it consumes the passing staged-scope and external-state results from outside the repository. |
 
 ## Resolved Or Partially Controlled Items
 
@@ -46,6 +45,7 @@ Optional GitHub/local-state result evidence: run `npm run review:release-pr-cand
 | Production env evidence | Closed for current evidence head | External `RELEASE_ENV_FILE` at `../release-evidence-temp/production.env` passes `npm run review:release-env`; file contents are not committed. |
 | Production LLM connectivity | Closed for current evidence head | External `LLM_CONNECTIVITY_ATTESTATION_FILE` at `../release-evidence-temp/llm-attestation.json` passes `npm run review:release-llm`. |
 | Formal Codex Security scan | Closed for current release-evidence head | `docs/security/codex-security/latest` contains `scan_manifest.json`, `report.md`, `report.html`, threat model, finding discovery report, repository coverage ledger, reviewed surfaces, validation summary, and attack-path analysis report; `npm run review:release-security-scan` passes. |
+| GitHub / local handoff | Closed for current PR #6 verification head | `review:release-pr-candidates` selected PR #6; `review:release-staged-scope` found no forbidden staged files; `review:release-external-state` passed from the clean `HOTEL-release-readiness-verify` checkout at `166c7ef17e169f852bfca542ed917ea76e3edb80`. The main worktree dirty changes are not release-closing evidence. |
 | UI code-side handoff checklist | Added | `docs/ui-handoff/README.md` covers login, OTA data, revenue analysis, AI decision, operations management, and investment decision code-side review points. |
 | Local functional acceptance gate | Added | `npm run review:functional-readiness` checks structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |
 | Release issue register | Added | `docs/release_issue_register.md` lists every open blocker, scope, evidence, acceptance command, and close condition. |
@@ -239,18 +239,18 @@ Required close evidence:
 - `npm run review:release-design` passes against the real manifest.
 - `npm run review:release-readiness` no longer reports the design handoff failure.
 
-### 6. Local Git State Must Be Closed Before Release
+### 6. Local Git State Must Stay Closed Before Release
 
 Scope: `@github`
 
-The previous configured handoff target is stale. Current external-state verification no longer defaults to PR #2; it fails because `RELEASE_PR_NUMBER` is not set and the local worktree is dirty. `.git/index.lock` is absent and `database/backups` has no tracked files, but those two passing checks do not close final handoff without a clean worktree, matching local HEAD, and an actual open final release PR.
+The previous configured handoff target is stale, but current PR evidence now selects PR #6. `review:release-external-state` passes from the clean `HOTEL-release-readiness-verify` checkout where local HEAD matches PR #6 at `166c7ef17e169f852bfca542ed917ea76e3edb80`. The main worktree is still dirty, so it must not be treated as release-closing external-state evidence.
 
 Required close evidence:
 
-- The actual final release PR is selected through `RELEASE_PR_NUMBER` before release handoff.
+- The actual final release PR remains selected through `RELEASE_PR_NUMBER=6` before release handoff.
 - The configured final release PR is open, non-draft, mergeable, and green.
 - `.git/index.lock` remains absent.
-- Local worktree remains clean or contains only intentionally reviewed release changes.
+- The release-closing checkout remains clean; dirty main-worktree changes are resolved or kept explicitly isolated.
 - `npm run review:release-external-state` passes, or `RELEASE_EXTERNAL_STATE_FILE` captures equivalent `git` and `gh` evidence generated by `scripts/collect_release_external_state.ps1`.
 - Captured local `git rev-parse HEAD` matches the final PR head SHA selected by `npm run review:release-pr-candidates`.
 - GitHub Actions are green on the final PR head.

@@ -17,7 +17,6 @@ use think\Response;
 class Auth extends Base
 {
     private const TOKEN_TTL_SECONDS = 86400; // 24 hours
-    private const BETA_HOTEL_BINDING_CUTOFF_DATE = '2026-07-05';
     private const REGISTER_RATE_LIMIT = 12;
     private const REGISTER_RATE_WINDOW_SECONDS = 600;
 
@@ -166,13 +165,6 @@ class Auth extends Base
         // 获取客户端信息
         $ip = $this->request->ip();
         $userAgent = $this->request->header('User-Agent', '');
-        $lockKey = $this->loginLockKey($username, $ip);
-        $lockedUntil = (int) (cache($lockKey . ':locked_until') ?: 0);
-        if ($lockedUntil > time()) {
-            $remainMinutes = max(1, (int) ceil(($lockedUntil - time()) / 60));
-            LoginLog::record(null, $username, 'login', 'failed', '登录已锁定', $ip, $userAgent, $clientInfo);
-            return $this->error('登录失败次数过多，请 ' . $remainMinutes . ' 分钟后再试');
-        }
 
         $user = User::with(['role', 'hotel'])->where('username', $username)->find();
         
@@ -180,7 +172,6 @@ class Auth extends Base
         if (!$user) {
             // 记录失败日志
             LoginLog::record(null, $username, 'login', 'failed', '用户不存在', $ip, $userAgent, $clientInfo);
-            $this->recordLoginFailure($username, $ip);
             return $this->error('用户名或密码错误');
         }
 
@@ -188,7 +179,6 @@ class Auth extends Base
         if (!$user->verifyPassword($password)) {
             // 记录失败日志
             LoginLog::record($user->id, $username, 'login', 'failed', '密码错误', $ip, $userAgent, $clientInfo);
-            $this->recordLoginFailure($username, $ip);
             return $this->error('用户名或密码错误');
         }
 
@@ -217,8 +207,6 @@ class Auth extends Base
         ];
         cache('token_' . $token, $tokenData, self::TOKEN_TTL_SECONDS);
         cache('user_token_' . $user->id, $token, self::TOKEN_TTL_SECONDS);
-        cache($lockKey . ':attempts', null);
-        cache($lockKey . ':locked_until', null);
 
         // 记录登录成功日志
         LoginLog::record($user->id, $username, 'login', 'success', null, $ip, $userAgent, $clientInfo);
@@ -348,15 +336,13 @@ class Auth extends Base
         }
 
         $hotelCount = count($permittedHotels);
-        $deadline = self::BETA_HOTEL_BINDING_CUTOFF_DATE;
         $message = $hotelCount > 0
-            ? "内测用户当前仅可查看已绑定或管理员分配的门店（{$hotelCount}家）。请在 {$deadline} 前确认门店绑定；{$deadline} 之后，未绑定或未分配的门店将无法查看。"
-            : "内测用户当前未绑定或未被管理员分配门店。请在 {$deadline} 前绑定自己的门店或联系超级管理员分配；{$deadline} 之后将无法查看门店数据。";
+            ? "内测用户当前仅可查看已绑定或管理员分配的门店（{$hotelCount}家）。未绑定或未分配的门店将无法查看。"
+            : "内测用户当前未绑定或未被管理员分配门店。请绑定自己的门店或联系超级管理员分配后查看门店数据。";
 
         return [[
             'type' => 'beta_hotel_binding_deadline',
             'level' => 'warning',
-            'deadline' => $deadline,
             'message' => $message,
             'action_page' => 'hotels',
         ]];
@@ -537,11 +523,6 @@ class Auth extends Base
         return hash('sha256', $userId . $time . $random . uniqid('', true));
     }
 
-    private function loginLockKey(string $username, string $ip): string
-    {
-        return 'login_lock_' . sha1(strtolower(trim($username)) . '|' . $ip);
-    }
-
     private function enforceRegistrationRateLimit(): ?Response
     {
         $window = self::REGISTER_RATE_WINDOW_SECONDS;
@@ -570,22 +551,6 @@ class Auth extends Base
 
         cache($key, $count + 1, $window + 5);
         return null;
-    }
-
-    private function recordLoginFailure(string $username, string $ip): void
-    {
-        $maxAttempts = max(3, min(10, (int) SystemConfig::getValue(SystemConfig::KEY_LOGIN_MAX_ATTEMPTS, 10)));
-        $lockMinutes = max(1, min(60, (int) SystemConfig::getValue(SystemConfig::KEY_LOGIN_LOCKOUT_DURATION, 1)));
-        $lockKey = $this->loginLockKey($username, $ip);
-        $attempts = (int) (cache($lockKey . ':attempts') ?: 0) + 1;
-
-        if ($attempts >= $maxAttempts) {
-            cache($lockKey . ':attempts', 0, $lockMinutes * 60);
-            cache($lockKey . ':locked_until', time() + $lockMinutes * 60, $lockMinutes * 60);
-            return;
-        }
-
-        cache($lockKey . ':attempts', $attempts, $lockMinutes * 60);
     }
 
     /**

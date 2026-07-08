@@ -70,6 +70,71 @@ final class OnlineDataTenantScopeTest extends TestCase
         $controller->releaseEvidenceStatus();
     }
 
+    public function testReleaseEvidenceRequiredInputsExposePassedPrState(): void
+    {
+        $controller = $this->controllerWithUser($this->tenantUser([], true));
+
+        $inputs = $this->invokeNonPublic($controller, 'releaseEvidenceRequiredInputs', [[
+            'blockers' => [
+                [
+                    'id' => 'design-handoff-missing',
+                    'status' => 'open',
+                    'close_condition' => 'provide design handoff',
+                ],
+                [
+                    'id' => 'ota-credential-rotation-attestation-missing',
+                    'status' => 'open',
+                    'close_condition' => 'provide OTA credential attestation',
+                ],
+            ],
+            'external_state_check' => [
+                'status' => 'passing_from_clean_verification_worktree',
+            ],
+        ]]);
+        $byId = [];
+        foreach ($inputs as $input) {
+            $byId[(string)$input['id']] = $input;
+        }
+
+        self::assertSame('missing', $byId['design_handoff_manifest']['status']);
+        self::assertSame('missing', $byId['ota_credential_rotation_attestation']['status']);
+        self::assertSame('passed', $byId['final_release_pr_and_local_state']['status']);
+        self::assertStringContainsString('review:release-external-state passed', $byId['final_release_pr_and_local_state']['success_evidence']);
+    }
+
+    public function testReleaseEvidenceRequiredInputsFollowClosedBlockers(): void
+    {
+        $controller = $this->controllerWithUser($this->tenantUser([], true));
+
+        $inputs = $this->invokeNonPublic($controller, 'releaseEvidenceRequiredInputs', [[
+            'blockers' => [
+                [
+                    'id' => 'design-handoff-missing',
+                    'status' => 'closed',
+                    'evidence' => 'controlled design manifest passed review:release-design',
+                    'close_condition' => 'rerun on final head',
+                ],
+                [
+                    'id' => 'ota-credential-rotation-attestation-missing',
+                    'status' => 'open',
+                    'close_condition' => 'provide credential-free attestation',
+                ],
+            ],
+            'external_state_check' => [
+                'status' => 'passing_from_clean_verification_worktree',
+            ],
+        ]]);
+        $byId = [];
+        foreach ($inputs as $input) {
+            $byId[(string)$input['id']] = $input;
+        }
+
+        self::assertSame('passed', $byId['design_handoff_manifest']['status']);
+        self::assertStringContainsString('controlled design manifest', $byId['design_handoff_manifest']['success_evidence']);
+        self::assertSame('missing', $byId['ota_credential_rotation_attestation']['status']);
+        self::assertSame('passed', $byId['final_release_pr_and_local_state']['status']);
+    }
+
     private function controllerWithUser(object $user): OnlineData
     {
         $reflection = new ReflectionClass(OnlineData::class);

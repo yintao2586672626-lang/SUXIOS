@@ -149,7 +149,7 @@ includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data 
   'p0_profile_login_trigger_unavailable_count',
   'p0_after_login_sync_available_count',
   'p0_manual_login_state_verified_count',
-  '登录触发入口',
+  '本机授权入口',
   '登录后同步',
   '入口不展示平台原始ID',
   'p0_external_evidence_status',
@@ -629,7 +629,7 @@ includesAll('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'employee
   'p0_after_login_sync_available_count',
   'p0_manual_login_state_verified_count',
   'phase1P0ProfileLoginTriggerAction',
-  'metadata_only_backend_resolves_platform_identity',
+  'client_local_authorization_only_no_server_browser_launch',
   'p0_external_evidence_status',
   'p0_pre_import_evidence_status',
   'p0_pre_import_evidence_policy',
@@ -750,7 +750,7 @@ includesAll('tests/automation/p0_profile_next_steps_report.test.mjs', 'P0 Profil
   'SECRET_TOKEN_VALUE',
   'doesNotMatch',
   'raw_cookie',
-  'profile-login-trigger',
+  'client_local_authorization_required',
   'data-sources/14/sync',
   'operator_sequence',
   'completion_gate',
@@ -1686,7 +1686,7 @@ check(
     frontendEntry.includes('platformProfileNextActionText') &&
     frontendEntry.includes('platformProfileLoginTaskText') &&
     frontendEntry.includes('登录态已验证，不等于数据已入库；请执行目标日同步并检查入库结果。') &&
-    frontendEntry.includes('登录会话已绑定') &&
+    frontendEntry.includes('浏览器 Profile 已绑定') &&
     frontendEntry.includes('平台门店标识已配置') &&
     platformAutoSettingsPanelsContent.includes('ctx.platformProfileBindingRawText(ctx.meituanPlatformProfileStatusRow)') &&
     platformAutoSettingsPanelsContent.includes('ctx.platformProfileStatusRawText(ctx.meituanPlatformProfileStatusRow)') &&
@@ -1711,7 +1711,7 @@ check(
     frontendEntry.includes('collectionHealthCtripCatalogDetailRows') &&
     frontendEntry.includes('collectionHealthCtripCatalogActionRows') &&
     frontendEntry.includes("capture_gate_missing: '采集门禁缺失'") &&
-    frontendEntry.includes("auth_session: '登录会话'") &&
+    frontendEntry.includes("auth_session: '浏览器 Profile'") &&
     frontendEntry.includes("endpoint_coverage: '采集规则覆盖'") &&
     frontendEntry.includes("field_coverage: '字段覆盖'") &&
     frontendEntry.includes("traffic_report: '流量漏斗'") &&
@@ -2167,7 +2167,7 @@ check(
     acceptanceDoc.includes('skipped_by_operator_no_capture') &&
     acceptanceDoc.includes('skipped_by_operator_no_sync') &&
     acceptanceDoc.includes('operator_skip_platforms') &&
-    acceptanceDoc.includes('不得展示该平台的采集入口、登录触发入口或 after-login sync 入口'),
+    acceptanceDoc.includes('不得展示该平台的采集入口、本机授权入口或 after-login sync 入口'),
   'ready platform verifier-only and operator-skip no action URL boundary'
 );
 check(

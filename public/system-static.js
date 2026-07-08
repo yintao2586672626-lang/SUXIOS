@@ -1095,8 +1095,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
         wechat_mini_secret: '',
         complaint_mini_page: 'pages/complaint/index',
         complaint_mini_use_scene: '1',
-        login_max_attempts: '5',
-        login_lockout_duration: '15',
         session_timeout: '1440',
         password_min_length: '6',
         password_require_special: '0',

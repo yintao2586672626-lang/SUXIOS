@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-07",
+  "updated_at": "2026-07-08",
   "scope": [
     "@github",
     "@openai-developers",
@@ -10,22 +10,25 @@
   ],
   "overall_status": "not_release_ready",
   "current_pr": {
-    "number": null,
-    "status": "not_selected",
-    "checks": "green_on_historical_head; not sufficient for final release handoff",
-    "source_of_truth": "Current npm run review:release-pr-candidates on 2026-07-07T00:36:42+08:00 ran gh pr list for base main and found no open PR candidates; docs/release_github_handoff_evidence.json was rechecked through the GitHub connector at 2026-07-07T00:32:42+08:00 and also reports no open PRs, but remains diagnostic-only and does not replace the current gh result; npm run review:release-external-state requires RELEASE_PR_NUMBER instead of falling back to merged PR #2",
+    "number": 6,
+    "status": "selected_open_pr",
+    "checks": "green_on_current_head",
+    "source_of_truth": "Current npm run review:release-pr-candidates on 2026-07-08T18:29:48+08:00 ran gh pr list for base main, found one viable open non-draft mergeable PR, and selected configured release PR #6 at 166c7ef17e169f852bfca542ed917ea76e3edb80; docs/release_github_handoff_evidence.json remains diagnostic-only and stale for the current gh result.",
     "pr_candidate_review": {
       "command": "npm run review:release-pr-candidates",
       "result_file": "../release-evidence-temp/release-pr-candidates-current-result.json",
-      "status": "failed",
-      "gh_pr_list_checked_at": "2026-07-07T00:36:42+08:00",
-      "gh_pr_list_open_pr_count": 0,
+      "status": "passed",
+      "gh_pr_list_checked_at": "2026-07-08T18:29:48+08:00",
+      "gh_pr_list_open_pr_count": 1,
+      "configured_release_pr_number": "6",
+      "selected_release_pr_number": 6,
+      "selected_release_pr_head_sha": "166c7ef17e169f852bfca542ed917ea76e3edb80",
       "source_of_truth_for_current_pr_candidates": true,
       "connector_diagnostic": {
         "path": "docs/release_github_handoff_evidence.json",
         "checked_at": "2026-07-07T00:32:42+08:00",
-        "current_gh_pr_list_checked_at": "2026-07-07T00:36:42+08:00",
-        "is_stale_for_current_review": false,
+        "current_gh_pr_list_checked_at": "2026-07-08T18:29:48+08:00",
+        "is_stale_for_current_review": true,
         "does_not_close_release_readiness": true
       }
     },
@@ -48,8 +51,8 @@
     "open_failures": [
       "controlled design handoff manifest not provided with real Figma, Canva, Brand Kit, design token, and flow coverage",
       "OTA credential rotation attestation not provided through controlled evidence or OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE",
-      "current gh pr list found no open final release PR candidate for base main through npm run review:release-pr-candidates",
-      "release external-state result under controlled evidence has not passed for the final open PR and clean local worktree"
+      "controlled release readiness still depends on the PR #6 head staying unchanged while design and OTA evidence are closed",
+      "main worktree has local dirty changes that are not part of the clean PR #6 external-state evidence"
     ],
     "warnings": [
       "verify git ls-files database/backups outside the script",
@@ -115,28 +118,25 @@
       "scope": [
         "@github"
       ],
-      "status": "open",
-      "title": "PR handoff state is not closed",
-      "evidence": "Current review:release-pr-candidates ran gh pr list on 2026-07-07T00:36:42+08:00 and found no open PR candidates for base main; docs/release_github_handoff_evidence.json was rechecked through the GitHub connector at 2026-07-07T00:32:42+08:00 and also reports no open PRs, but does not close PR state. Current review:release-staged-scope has no forbidden staged files but does not close clean-worktree or PR handoff; current review:release-external-state requires RELEASE_PR_NUMBER and shows the local worktree is dirty. .git/index.lock is absent and database/backups has no tracked files. Previous PR #2 is merged/stale and must not be reused.",
-      "close_condition": "after design and OTA evidence pass their isolated gates, create or select the actual open non-draft final release PR, pass review:release-pr-candidates, set RELEASE_PR_NUMBER, pass review:release-staged-scope for the final staged bundle, keep the local worktree clean, pass review:release-external-state from a checkout whose local HEAD matches the final PR head, and rerun review:release-readiness while it consumes the passing staged-scope and external-state results from outside the repository"
+      "status": "closed",
+      "title": "PR handoff state is closed for the clean PR #6 verification worktree",
+      "evidence": "Current review:release-pr-candidates selected configured release PR #6 at 166c7ef17e169f852bfca542ed917ea76e3edb80, review:release-staged-scope found no forbidden staged files, and review:release-external-state passed from HOTEL-release-readiness-verify where local HEAD matches PR #6 and the worktree is clean. The main worktree still has local dirty changes and is not the release-closing evidence checkout.",
+      "close_condition": "keep PR #6 open, non-draft, mergeable, green, and unchanged while design and OTA evidence are closed; rerun review:release-pr-candidates, review:release-staged-scope, review:release-external-state from a clean checkout whose local HEAD matches the final PR head, then rerun review:release-readiness"
     }
   ],
   "external_state_check": {
     "command": "npm run review:release-external-state",
-    "status": "failing_as_expected",
+    "status": "passing_from_clean_verification_worktree",
     "evidence_file_template": "docs/release_external_state_evidence.example.json",
     "result_file_template": "docs/release_external_state_result.example.json",
     "resolved": [
       "database/backups is not tracked by git",
       ".git/index.lock is absent",
-      "local external-state evidence can be collected with npm run collect:release-external-state when Node child_process is blocked"
+      "local external-state evidence can be collected with npm run collect:release-external-state when Node child_process is blocked",
+      "configured release PR #6 is open, non-draft, mergeable, green, and matches local HEAD in HOTEL-release-readiness-verify",
+      "release external-state current result from the clean verification worktree has 11 passed, 1 warning, 0 failures"
     ],
-    "open_failures": [
-      "RELEASE_PR_NUMBER is not set to an actual final open release PR",
-      "local worktree is not clean",
-      "final open release PR has not been selected through RELEASE_PR_NUMBER",
-      "gh pr view was not run against a final PR because no release PR number is configured"
-    ],
+    "open_failures": [],
     "warnings": [
       "rerun after every PR update because GitHub state changes outside the repository",
       "if Node child_process is unavailable, run npm run collect:release-external-state and set RELEASE_EXTERNAL_STATE_FILE to the captured JSON evidence"
@@ -144,13 +144,13 @@
   },
   "pr_candidate_check": {
     "command": "npm run review:release-pr-candidates",
-    "status": "failing_as_expected",
+    "status": "passing_not_release_closure",
     "result_file": "../release-evidence-temp/release-pr-candidates-current-result.json",
     "open_failures": [
-      "no open release PR candidates found for base main from current gh pr list checked_at=2026-07-07T00:36:42+08:00",
-      "docs/release_github_handoff_evidence.json is non-closing diagnostic connector evidence and does not close PR state"
+      "configured release PR #6 selected from gh pr list checked_at=2026-07-08T18:29:48+08:00",
+      "docs/release_github_handoff_evidence.json is stale non-closing diagnostic connector evidence and does not replace current gh pr list"
     ],
-    "close_condition": "create or select an open, non-draft, mergeable final release PR with green checks; if multiple viable PRs exist, set RELEASE_PR_NUMBER and rerun review:release-pr-candidates so the result records configured_release_pr_number and selected_release_pr_number before running review:release-staged-scope and review:release-external-state from a checkout whose local HEAD matches that final PR head"
+    "close_condition": "keep PR #6 selected with RELEASE_PR_NUMBER=6, rerun review:release-pr-candidates after every PR update, then run review:release-staged-scope and review:release-external-state from a checkout whose local HEAD matches that final PR head"
   },
   "staged_scope_check": {
     "command": "npm run review:release-staged-scope",
@@ -171,20 +171,19 @@
       "plugin": "@github",
       "status": "partial",
       "resolved": [
-        "configured PR #2 has historical green checks but is no longer the final release PR",
+        "configured release PR #6 is open, non-draft, mergeable, green, and selected by current gh pr list evidence",
         ".git/index.lock is absent",
         "database/backups has no git-tracked files",
         "current review:release-pr-candidates runs gh pr list and records gh_pr_list_checked_at as the PR candidate source of truth",
-        "docs/release_github_handoff_evidence.json records non-closing diagnostic connector evidence from 2026-07-07T00:32:42+08:00 and does not close PR state",
+        "clean verification worktree external-state evidence proves local HEAD matches PR #6 head 166c7ef17e169f852bfca542ed917ea76e3edb80",
+        "docs/release_github_handoff_evidence.json records non-closing diagnostic connector evidence from 2026-07-07T00:32:42+08:00 and is stale for current PR #6 selection",
         "CI runs PHPUnit, guards, functional-readiness review, release issue register review, release evidence intake behavior guard, release readiness behavior guard, non-security review, report/security/finance regression review, release-status contracts, composer audit and npm audit",
         "npm run collect:release-external-state can capture local HEAD, PR head, PR checks, merge state, and database/backups tracking evidence"
       ],
       "open": [
-        "PR #2 is already merged and stale for final handoff",
-        "no open final release PR candidate is currently available from gh pr list checked_at=2026-07-07T00:36:42+08:00",
-        "GitHub connector open_pr_count=0 from 2026-07-07T00:32:42+08:00 is diagnostic evidence only",
-        "local worktree is dirty",
-        "the final open release PR must be selected with RELEASE_PR_NUMBER after design and OTA isolated gates pass, then external-state must pass before final release-readiness"
+        "GitHub connector open_pr_count=0 from 2026-07-07T00:32:42+08:00 is stale diagnostic evidence only",
+        "main worktree is dirty and must not be used as release-closing external-state evidence",
+        "PR #6 external-state must be rerun after every PR update and after design or OTA evidence changes"
       ]
     },
     {
@@ -249,6 +248,6 @@
     "real Figma/Canva/design-token handoff is present and passes review:release-design plus review:release-readiness",
     "Ctrip and Meituan OTA credential rotation attestation is provided and passes review:release-ota-credentials plus review:release-readiness",
     "formal Codex Security scan artifacts remain available on the final head and review:release-security-scan still passes",
-    "review:release-pr-candidates identifies the actual final open release PR, review:release-staged-scope passes for the final staged bundle, that configured final release PR is open, non-draft, mergeable, green, local git state is clean, local HEAD matches the final PR head, and review:release-readiness consumes passing staged-scope and external-state results from outside the repository"
+    "review:release-pr-candidates keeps PR #6 selected, review:release-staged-scope passes for the final staged bundle, git state remains clean in the release-closing verification checkout, that configured final release PR remains open, non-draft, mergeable, green, local HEAD in the clean verification checkout matches the final PR head, and review:release-readiness consumes passing staged-scope and external-state results from outside the repository"
   ]
 }

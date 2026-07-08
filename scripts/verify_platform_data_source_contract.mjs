@@ -126,7 +126,7 @@ for (const [method, label] of [
   ['function syncLogList', 'controller exposes sync log list'],
   ['function platformProfileStatus', 'controller exposes unified platform Profile status'],
   ['function deletePlatformProfileBinding', 'controller exposes platform Profile unbind fallback'],
-  ['function triggerPlatformProfileLogin', 'controller exposes async platform Profile login trigger'],
+  ['function triggerPlatformProfileLogin', 'controller exposes local-authorization guard for legacy Profile login trigger'],
   ['function platformProfileLoginStatus', 'controller exposes async platform Profile login status'],
   ['function meituanProfileStatus', 'controller exposes Meituan Profile status probe'],
   ['function bindBrowserProfileDataSource', 'controller binds successful login-only Profile to data source'],
@@ -141,6 +141,17 @@ for (const [method, label] of [
     'app/controller/concern/PlatformProfileCaptureConcern.php',
   ], label, (source) => source.includes(method), method);
 }
+
+check(
+  'app/controller/concern/OnlineDataRequestConcern.php',
+  'legacy platform Profile login trigger blocks server-side browser launch',
+  (source) => source.includes('client_local_authorization_required')
+    && source.includes('account_owner_local_computer_only')
+    && source.includes('server_browser_launch_disabled')
+    && source.includes('open_platform_on_account_owner_computer_and_import_browser_assist_json')
+    && !source.includes('launchPlatformProfileLoginTask($task)'),
+  'client_local_authorization_required + server_browser_launch_disabled'
+);
 
 for (const [needle, label] of [
   ['function commentCollectionDisabledResponse', 'controller keeps a legacy disabled response helper for disallowed review-detail flows'],
@@ -519,10 +530,14 @@ for (const [needle, label] of [
   ['platformDataSourceConfigPlaceholder', 'frontend shows Ctrip browser Profile config example'],
   ['platformDataSourceSecretPlaceholder', 'frontend keeps optional cookies in secret config'],
   ['platformProfileStatus', 'frontend renders platform Profile account status'],
-  ['profile-login-trigger', 'frontend starts async platform Profile login task'],
+  ['clientLocalAuthorizationRequired', 'frontend labels account-owner local authorization requirement'],
+  ['defaultMeituanLoginUrl', 'frontend opens Meituan eBooking entry in the current client browser'],
+  ['openTargetSite(localPlatformAuthorizationUrl(platform))', 'frontend opens platform authorization on the current client computer'],
+  ['server_browser_launch_disabled', 'frontend records that server-side browser launch is disabled'],
+  ['account_owner_local_computer_only', 'frontend records the account-owner local computer authorization policy'],
   ['profile-login-status', 'frontend polls async platform Profile login status'],
   ['platformProfileLoginTasks', 'frontend tracks async platform Profile login tasks'],
-  ['triggerPlatformProfileLogin', 'frontend uses async platform Profile login trigger'],
+  ['triggerPlatformProfileLogin', 'frontend reuses Profile login action as local authorization guide'],
   ['loginPlatformProfile', 'frontend can start first-login Profile binding flow'],
   ['probePlatformProfileStatus', 'frontend can probe Profile login status'],
   ['deletePlatformProfileBinding', 'frontend can unbind a wrong platform Profile from the selected hotel'],
@@ -540,6 +555,15 @@ for (const [needle, label] of [
 ]) {
   check('public/index.html', label, (source) => source.includes(needle), needle);
 }
+
+check(
+  'public/index.html',
+  'frontend does not call legacy server-side platform Profile login trigger',
+  (source) => !source.includes('`/online-data/profile-login-trigger/${platform}`')
+    && !source.includes("'/online-data/profile-login-trigger/")
+    && !source.includes('"/online-data/profile-login-trigger/'),
+  'no frontend profile-login-trigger request'
+);
 
 check(
   'public/auto-fetch-static.js',

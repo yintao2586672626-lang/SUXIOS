@@ -3436,12 +3436,14 @@ final class OnlineDataTest extends TestCase
             '2026-06-27',
         ]);
 
-        self::assertSame('available', $action['status']);
-        self::assertSame('/api/online-data/profile-login-trigger/ctrip', $action['entry']);
-        self::assertSame(14, $action['request_body']['data_source_id']);
-        self::assertSame(58, $action['request_body']['system_hotel_id']);
-        self::assertSame('2026-06-27', $action['request_body']['data_date']);
-        self::assertTrue($action['request_body']['sync_after_login']);
+        self::assertSame('client_local_authorization_required', $action['status']);
+        self::assertSame('CLIENT_OPEN', $action['method']);
+        self::assertSame('https://ebooking.ctrip.com/home/mainland', $action['entry']);
+        self::assertSame('account_owner_local_computer_only', $action['authorization_policy']);
+        self::assertTrue($action['server_browser_launch_disabled']);
+        self::assertSame(14, $action['client_authorization_context']['data_source_id']);
+        self::assertSame(58, $action['client_authorization_context']['system_hotel_id']);
+        self::assertSame('2026-06-27', $action['client_authorization_context']['data_date']);
         self::assertSame('/api/online-data/data-sources/14/sync', $action['after_login_sync']['entry']);
         self::assertFalse($action['sensitive_values_exposed']);
 

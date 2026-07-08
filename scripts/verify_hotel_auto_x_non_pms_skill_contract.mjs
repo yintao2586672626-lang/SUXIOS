@@ -190,10 +190,17 @@ requireText('app/controller/concern/AutoFetchConcern.php', "'meituan:comments' =
 requireNoText('app/controller/concern/AutoFetchConcern.php', 'commentCollectionDisabledResponse($platform', 'auto-fetch does not disable aggregate comment modules by policy');
 
 requireText('public/index.html', "const defaultCtripLoginUrl = 'https://ebooking.ctrip.com/home/mainland';", 'frontend Ctrip login opens China eBooking entry');
+requireText('public/index.html', "const defaultMeituanLoginUrl = 'https://me.meituan.com/ebooking/';", 'frontend Meituan login opens eBooking entry');
+requireText('public/index.html', 'clientLocalAuthorizationRequired', 'frontend labels account-owner local authorization requirement');
+requireText('public/index.html', 'openTargetSite(localPlatformAuthorizationUrl(platform))', 'frontend opens platform authorization on current client computer');
+requireText('public/index.html', 'server_browser_launch_disabled', 'frontend records server-side browser launch disabled');
+requireText('public/index.html', 'account_owner_local_computer_only', 'frontend records account-owner local computer authorization policy');
+requireNoText('public/index.html', "`/online-data/profile-login-trigger/${platform}`", 'frontend does not trigger server-side Profile login task');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'client_local_authorization_required', 'backend blocks legacy server-side Profile login trigger');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'server_browser_launch_disabled', 'backend reports server-side browser launch disabled');
 requireText('public/index.html', 'fetchCtripComments', 'frontend exposes Ctrip comment fetch');
 requireText('public/index.html', 'runCtripCommentBrowserCapture', 'frontend exposes Ctrip browser comment capture');
 requireText('public/index.html', 'fetchMeituanComments', 'frontend exposes Meituan comment fetch');
-requireText('public/index.html', "`/online-data/profile-login-trigger/${platform}`", 'frontend triggers Profile login task');
 requireText('public/index.html', "`/online-data/profile-login-status/${platform}?${params.toString()}`", 'frontend polls Profile login task');
 requireText('public/index.html', "`/online-data/collection-status?${params.toString()}`", 'frontend refreshes collection status');
 requireText('public/index.html', "stale_running: '任务运行超时'", 'frontend labels stale running collection tasks');

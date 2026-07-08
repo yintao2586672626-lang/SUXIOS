@@ -59,10 +59,10 @@
                             <div class="flex flex-wrap items-center gap-2">
                                 <input type="number" min="1" max="4" step="1" v-model.number="ctx.autoFetchCtripSectionConcurrency"
                                     class="w-24 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                                <span class="text-xs text-slate-500">默认 3；1 为稳定单页，2-4 为同一登录会话下多页面并发，失败板块自动串行补抓。</span>
+                                <span class="text-xs text-slate-500">默认 3；1 为稳定单页，2-4 为同一本机 Profile 下多页面并发，失败板块自动串行补抓。</span>
                             </div>
                         </div>
-                        <div class="text-sm text-amber-600">该开关只影响采集；触发登录始终打开可见浏览器，便于人工验证。</div>
+                        <div class="text-sm text-amber-600">该开关只影响采集；平台授权必须由账号使用者在本机当前浏览器完成，服务器不代开登录窗口。</div>
                         <button type="button" @click="ctx.saveFetchSchedule"
                             :disabled="!ctx.autoFetchHotelId || !ctx.hasAnyPlatformFetchConfigByHotelId(ctx.autoFetchHotelId)"
                             class="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500 text-sm">
@@ -88,7 +88,7 @@
                     <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                         <div>
                             <div class="text-sm font-semibold text-slate-900">采集闭环</div>
-                            <div class="mt-1 text-xs text-slate-500">登录会话 -> 业务响应 -> 标准字段 -> 标准入库</div>
+                            <div class="mt-1 text-xs text-slate-500">账号使用者本机 Profile -> 业务响应 -> 标准字段 -> 标准入库</div>
                         </div>
                         <span class="inline-flex w-fit items-center rounded-md border border-blue-100 bg-white px-2 py-1 text-xs text-blue-700">OTA 渠道口径</span>
                     </div>

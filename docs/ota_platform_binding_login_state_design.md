@@ -13,8 +13,8 @@
 ```text
 系统账号登录
 -> OTA 数据源绑定
--> 打开授权浏览器 Profile
--> 用户人工完成短信/人机验证
+-> 账号使用者在自己的电脑打开平台后台
+-> 用户人工完成短信/验证码/人机验证
 -> 系统记录 manual_login_state_verified
 -> 同步目标日期 OTA 数据
 -> 用真实入库行、字段证据和 verifier 证明闭环
@@ -36,7 +36,7 @@
 | --- | --- | --- | --- |
 | 系统自身登录 | 用户登录宿析 OS，获得系统 token、用户、角色、酒店、租户和权限上下文 | 系统 token、用户 ID、角色、hotelId、tenantId、权限摘要 | 不代表已登录携程/美团 |
 | OTA 数据源授权 | 酒店与携程/美团门店、Profile、采集范围绑定 | 平台、系统酒店 ID、平台门店 ID、Profile 标识、采集范围、状态、失败原因 | 不默认保存 OTA 账号密码 |
-| OTA 登录态 | 用户在授权浏览器 Profile 内完成人工登录和验证 | `manual_login_state_verified`、验证时间、Profile 状态摘要 | 不把 Cookie/API 或 login_status 当作数据闭环 |
+| OTA 登录态 | 账号使用者在自己的电脑完成人工登录和验证 | `manual_login_state_verified`、验证时间、Profile 状态摘要、本机采集证据导入状态 | 不把 Cookie/API、login_status 或服务端弹窗当作数据闭环 |
 | OTA 数据闭环 | 目标日期真实数据已采集、入库、字段可信、UI 显示可追溯 | 目标日期行数、source path、metric key、storage field、verifier 输出 | 不用历史样本、空数据或 fallback 标绿 |
 
 系统登录 token 命名要避免误导。若前端为了兼容保留 `localStorage.token`，新增别名也应表达“系统登录”，例如 `suxios_token`。不建议把宿析 OS 系统 token 命名成 OTA 登录态。
