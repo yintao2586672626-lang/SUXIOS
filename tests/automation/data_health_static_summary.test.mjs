@@ -278,6 +278,27 @@ test('release evidence panel accepts backend release status projection', () => {
   assert.equal(summary.doesNotCloseReleaseReadiness, true);
 });
 
+test('public endpoint security summary escalates any unconfigured public token', () => {
+  const summary = helpers.summarizePublicEndpointSecurity({
+    isSuperAdmin: true,
+    payload: {
+      period: { days: 7 },
+      scan_scope: { scanned_count: 0 },
+    },
+    rows: [
+      { endpoint: 'cron_trigger', token_configured: true, recent_failure_count: 0, rate_limited_count: 0 },
+      { endpoint: 'daily_workbench_patrol_cron', token_configured: false, recent_failure_count: 0, rate_limited_count: 0 },
+      { endpoint: 'competitor_task', token_configured: true, recent_failure_count: 0, rate_limited_count: 0 },
+    ],
+  });
+
+  assert.equal(summary.status, 'high');
+  assert.equal(summary.text, '高优先复核');
+  assert.equal(summary.failureCount, 0);
+  assert.equal(summary.rateLimitedCount, 0);
+  assert.equal(summary.unconfiguredTokenCount, 1);
+});
+
 test('full data health panel refresh includes release evidence status without light refresh', async () => {
   assert.equal(typeof helpers.buildDataHealthPanelRefreshJobs, 'function');
 

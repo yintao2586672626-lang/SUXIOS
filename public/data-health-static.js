@@ -1156,13 +1156,14 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         }
         const failureCount = safeRows.reduce((sum, row) => sum + Number(row?.recent_failure_count || 0), 0);
         const rateLimitedCount = safeRows.reduce((sum, row) => sum + Number(row?.rate_limited_count || 0), 0);
-        const cron = safeRows.find(row => row?.endpoint === 'cron_trigger') || {};
-        const status = cron.token_configured === false ? 'high' : (failureCount > 0 ? 'medium' : 'ok');
+        const unconfiguredTokenCount = safeRows.filter(row => row?.token_configured === false).length;
+        const status = unconfiguredTokenCount > 0 ? 'high' : (failureCount > 0 || rateLimitedCount > 0 ? 'medium' : 'ok');
         return {
             status,
             text: status === 'high' ? '高优先复核' : (status === 'medium' ? '有失败' : '暂无风险'),
             failureCount,
             rateLimitedCount,
+            unconfiguredTokenCount,
             period: payload?.period || {},
             scanScope: payload?.scan_scope || {},
         };
