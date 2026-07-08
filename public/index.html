@@ -73,7 +73,7 @@
     <script src="ctrip-static.js?v=20260708-qunar-retry-business-canvas"></script>
     <script src="meituan-static.js?v=20260708-ranking-summary-helpers"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
-    <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality"></script>
+    <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality-action-gates"></script>
     <script src="revenue-ai-static.js?v=20260708-ai-daily-blocking-summary"></script>
     <script src="system-static.js?v=20260708-hotel-merge"></script>
     <script src="user-admin-static.js?v=20260708-role-issue-helpers"></script>
@@ -21137,8 +21137,13 @@
             const buildManualOneClickFetchCards = requireDataHealthStatic('buildManualOneClickFetchCards');
             const buildManualOneClickFetchEmptyText = requireDataHealthStatic('buildManualOneClickFetchEmptyText');
             const manualOneClickFetchStatusClass = requireDataHealthStatic('manualOneClickFetchStatusClass');
+            const manualOneClickFetchCanEditRow = requireDataHealthStatic('manualOneClickFetchCanEditRow');
+            const manualOneClickFetchCanRetryRow = requireDataHealthStatic('manualOneClickFetchCanRetryRow');
+            const manualOneClickFetchCanDeleteRow = requireDataHealthStatic('manualOneClickFetchCanDeleteRow');
+            const manualOneClickFetchCanSupplementRow = requireDataHealthStatic('manualOneClickFetchCanSupplementRow');
             const sortManualOneClickFetchRows = requireDataHealthStatic('sortManualOneClickFetchRows');
             const manualOneClickFetchMessageIsQunarVisitorZero = requireDataHealthStatic('manualOneClickFetchMessageIsQunarVisitorZero');
+            const manualOneClickFetchHasQunarVisitorZeroFailureInRows = requireDataHealthStatic('manualOneClickFetchHasQunarVisitorZeroFailureInRows');
             const summarizeManualOneClickFetchQunarVisitorQuality = requireDataHealthStatic('summarizeManualOneClickFetchQunarVisitorQuality');
             const manualOneClickFetchQunarVisitorNeedsRetry = requireDataHealthStatic('manualOneClickFetchQunarVisitorNeedsRetry');
             const manualOneClickFetchSavedCount = requireDataHealthStatic('manualOneClickFetchSavedCount');
@@ -35375,22 +35380,16 @@
                 return sortManualOneClickFetchRows(manualOneClickFetchRows.value);
             });
             const canEditManualOneClickFetchRow = (row = {}) => {
-                return canManageOwnHotels()
-                    && ['failed', 'no_saved'].includes(String(row?.status || '').trim());
+                return manualOneClickFetchCanEditRow(row, canManageOwnHotels());
             };
             const canRetryManualOneClickFetchRow = (row = {}) => {
-                return Boolean(String(row?.hotelId || '').trim())
-                    && ['failed', 'no_saved'].includes(String(row?.status || '').trim());
+                return manualOneClickFetchCanRetryRow(row);
             };
             const canDeleteManualOneClickFetchRow = (row = {}) => {
-                return canManageOwnHotels()
-                    && Boolean(String(row?.hotelId || '').trim())
-                    && ['failed', 'no_saved'].includes(String(row?.status || '').trim());
+                return manualOneClickFetchCanDeleteRow(row, canManageOwnHotels());
             };
             const canSupplementManualOneClickFetchRow = (row = {}) => {
-                return canManageOwnHotels()
-                    && Boolean(String(row?.hotelId || '').trim())
-                    && ['failed', 'no_saved'].includes(String(row?.status || '').trim());
+                return manualOneClickFetchCanSupplementRow(row, canManageOwnHotels());
             };
             const manualOneClickFetchHotelFromRow = (row = {}) => {
                 const hotelId = String(row?.hotelId || '').trim();
@@ -35422,13 +35421,10 @@
             };
             const CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT = 3;
             const manualOneClickFetchHasQunarVisitorZeroFailure = (platform, hotelId) => {
-                const wantedPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
-                const wantedHotelId = String(hotelId || '').trim();
-                if (wantedPlatform !== 'ctrip' || !wantedHotelId) return false;
-                return (Array.isArray(manualOneClickFetchRows.value) ? manualOneClickFetchRows.value : []).some(row => {
-                    return (row?.platform === 'meituan' ? 'meituan' : 'ctrip') === wantedPlatform
-                        && String(row?.hotelId || '').trim() === wantedHotelId
-                        && manualOneClickFetchMessageIsQunarVisitorZero(row?.message);
+                return manualOneClickFetchHasQunarVisitorZeroFailureInRows({
+                    rows: manualOneClickFetchRows.value,
+                    platform,
+                    hotelId,
                 });
             };
             const editManualOneClickFetchFailure = async (row = {}) => {

@@ -373,6 +373,24 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.match(helpers.manualOneClickFetchStatusClass('failed'), /red/);
   assert.equal(helpers.manualOneClickFetchPlatformText('ctrip'), '携程');
   assert.equal(helpers.manualOneClickFetchMessageIsQunarVisitorZero('去哪儿访客为 0'), true);
+  assert.equal(helpers.manualOneClickFetchActionableStatus('failed'), true);
+  assert.equal(helpers.manualOneClickFetchActionableStatus('success'), false);
+  assert.equal(helpers.manualOneClickFetchCanEditRow({ status: 'failed' }, true), true);
+  assert.equal(helpers.manualOneClickFetchCanEditRow({ status: 'failed' }, false), false);
+  assert.equal(helpers.manualOneClickFetchCanRetryRow({ status: 'no_saved', hotelId: '7' }), true);
+  assert.equal(helpers.manualOneClickFetchCanRetryRow({ status: 'failed', hotelId: '' }), false);
+  assert.equal(helpers.manualOneClickFetchCanDeleteRow({ status: 'failed', hotelId: '7' }, true), true);
+  assert.equal(helpers.manualOneClickFetchCanSupplementRow({ status: 'success', hotelId: '7' }, true), false);
+  assert.equal(helpers.manualOneClickFetchHasQunarVisitorZeroFailureInRows({
+    platform: 'ctrip',
+    hotelId: '60',
+    rows: [{ platform: 'ctrip', hotelId: '60', message: '去哪儿访客为 0' }],
+  }), true);
+  assert.equal(helpers.manualOneClickFetchHasQunarVisitorZeroFailureInRows({
+    platform: 'meituan',
+    hotelId: '60',
+    rows: [{ platform: 'ctrip', hotelId: '60', message: '去哪儿访客为 0' }],
+  }), false);
   assert.equal(helpers.manualOneClickFetchQunarVisitorNumber({ qunar_detail_visitors: '4' }), 4);
   assert.equal(helpers.manualOneClickFetchQunarVisitorNumber({ qunarDetailVisitors: '-', views: '5' }), 5);
 

@@ -152,6 +152,22 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         skipped: 'border-gray-200 bg-gray-50 text-gray-600',
     }[String(status || '')] || 'border-gray-200 bg-gray-50 text-gray-600');
 
+    const manualOneClickFetchActionableStatus = (status = '') => ['failed', 'no_saved'].includes(String(status || '').trim());
+
+    const manualOneClickFetchRowHasHotel = (row = {}) => Boolean(String(row?.hotelId || '').trim());
+
+    const manualOneClickFetchCanEditRow = (row = {}, canManage = false) => Boolean(canManage)
+        && manualOneClickFetchActionableStatus(row?.status);
+
+    const manualOneClickFetchCanRetryRow = (row = {}) => manualOneClickFetchRowHasHotel(row)
+        && manualOneClickFetchActionableStatus(row?.status);
+
+    const manualOneClickFetchCanDeleteRow = (row = {}, canManage = false) => Boolean(canManage)
+        && manualOneClickFetchRowHasHotel(row)
+        && manualOneClickFetchActionableStatus(row?.status);
+
+    const manualOneClickFetchCanSupplementRow = (row = {}, canManage = false) => manualOneClickFetchCanDeleteRow(row, canManage);
+
     const sortManualOneClickFetchRows = (rows = []) => {
         const statusRank = {
             failed: 0,
@@ -169,6 +185,21 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     };
 
     const manualOneClickFetchMessageIsQunarVisitorZero = (message = '') => /去哪儿?访客.*(?:为|=)?\s*0|qunar.*visitor.*0/i.test(String(message || ''));
+
+    const manualOneClickFetchHasQunarVisitorZeroFailureInRows = ({
+        rows = [],
+        platform = '',
+        hotelId = '',
+    } = {}) => {
+        const wantedPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
+        const wantedHotelId = String(hotelId || '').trim();
+        if (wantedPlatform !== 'ctrip' || !wantedHotelId) return false;
+        return (Array.isArray(rows) ? rows : []).some(row => {
+            return (row?.platform === 'meituan' ? 'meituan' : 'ctrip') === wantedPlatform
+                && String(row?.hotelId || '').trim() === wantedHotelId
+                && manualOneClickFetchMessageIsQunarVisitorZero(row?.message);
+        });
+    };
 
     const manualOneClickFetchQunarVisitorNumber = (row = {}) => {
         const candidates = [
@@ -5748,8 +5779,15 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         buildManualOneClickFetchCards,
         buildManualOneClickFetchEmptyText,
         manualOneClickFetchStatusClass,
+        manualOneClickFetchActionableStatus,
+        manualOneClickFetchRowHasHotel,
+        manualOneClickFetchCanEditRow,
+        manualOneClickFetchCanRetryRow,
+        manualOneClickFetchCanDeleteRow,
+        manualOneClickFetchCanSupplementRow,
         sortManualOneClickFetchRows,
         manualOneClickFetchMessageIsQunarVisitorZero,
+        manualOneClickFetchHasQunarVisitorZeroFailureInRows,
         manualOneClickFetchQunarVisitorNumber,
         summarizeManualOneClickFetchQunarVisitorQuality,
         manualOneClickFetchQunarVisitorNeedsRetry,
