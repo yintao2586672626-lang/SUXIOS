@@ -159,6 +159,7 @@ $authSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
 $authControllerSource = file_get_contents(__DIR__ . '/../app/controller/Auth.php');
 $dailyReportSource = file_get_contents(__DIR__ . '/../app/controller/DailyReport.php');
 $publicEntrySource = file_get_contents(__DIR__ . '/../public/index.html');
+$systemStaticSource = file_get_contents(__DIR__ . '/../public/system-static.js');
 $hotelControllerSource = file_get_contents(__DIR__ . '/../app/controller/Hotel.php');
 $hotelDataMergeSource = file_get_contents(__DIR__ . '/../app/service/HotelDataMergeService.php');
 $platformSyncSource = file_get_contents(__DIR__ . '/../app/service/PlatformDataSyncService.php');
@@ -239,9 +240,9 @@ assert_true(str_contains($hotelDataMergeSource, 'Db::query($sql, [$sourceHotelId
 assert_true(str_contains($hotelDataMergeSource, 'merge_then_remove_source_duplicate_permission'), 'hotel data merge duplicate user grants must be merged before source duplicates are removed');
 assert_true(str_contains($hotelDataMergeSource, 'duplicatePermissionMergeAssignments') && str_contains($hotelDataMergeSource, 'GREATEST(COALESCE(t.'), 'hotel data merge duplicate user grants must merge permission flags');
 assert_true(!str_contains($hotelDataMergeSource, 'skip_source_duplicate_permission'), 'hotel data merge must not describe duplicate grants as simple skips');
-assert_true(substr_count($publicEntrySource, 'deactivate_source: false') >= 2, 'hotel data merge UI must not deactivate the source hotel by default');
+assert_true(str_contains($systemStaticSource, 'const createHotelMergeForm = () => ({') && str_contains($systemStaticSource, 'deactivate_source: false'), 'hotel data merge UI must not deactivate the source hotel by default');
 assert_true(str_contains($publicEntrySource, '系统门店归属和 tenant_id 会改写') && str_contains($publicEntrySource, 'OTA平台酒店ID不会改写'), 'hotel data merge UI must disclose tenant_id retargeting and OTA platform hotel id boundary');
-assert_true(str_contains($publicEntrySource, '先合并源/目标权限位') && str_contains($publicEntrySource, '合并重复授权'), 'hotel data merge UI must disclose duplicate permission merge semantics');
+assert_true(str_contains($publicEntrySource, '先合并源/目标权限位') && str_contains($systemStaticSource, '合并重复授权'), 'hotel data merge UI must disclose duplicate permission merge semantics');
 $tenantScopedTables = [
     'hotels', 'users', 'user_hotel_permissions', 'daily_reports', 'monthly_tasks', 'online_daily_data',
     'operation_logs', 'platform_data_sources', 'platform_data_sync_tasks', 'platform_data_raw_records',

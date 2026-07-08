@@ -75,7 +75,7 @@
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
     <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue"></script>
     <script src="revenue-ai-static.js?v=20260708-ai-daily-blocking-summary"></script>
-    <script src="system-static.js?v=20260630-data-center-label"></script>
+    <script src="system-static.js?v=20260708-hotel-merge"></script>
     <script src="user-admin-static.js?v=20260708-role-issue-helpers"></script>
     <script src="compass-static.js?v=20260704-boss-ia"></script>
     <script src="home-static.js?v=20260628-static-router-fix"></script>
@@ -28979,6 +28979,9 @@
             const userColumns = requireSystemStatic('userColumns');
             const createHotelForm = requireSystemStatic('createHotelForm');
             const buildHotelSavePayload = requireSystemStatic('buildHotelSavePayload');
+            const createHotelMergeForm = requireSystemStatic('createHotelMergeForm');
+            const buildHotelMergeExecutePayload = requireSystemStatic('buildHotelMergeExecutePayload');
+            const hotelMergeSuccessMessage = requireSystemStatic('hotelMergeSuccessMessage');
             const buildHotelOtaCtripConfigSavePayload = requireSystemStatic('buildHotelOtaCtripConfigSavePayload');
             const buildHotelOtaMeituanConfigSavePayload = requireSystemStatic('buildHotelOtaMeituanConfigSavePayload');
             const roles = ref([]);
@@ -29153,32 +29156,20 @@
             const hotelDeleteReferences = ref([]);
             const hotelDeleteCanForce = ref(false);
             const showHotelMergeModal = ref(false);
-            const hotelMergeForm = ref({
-                source_hotel_id: '',
-                target_hotel_id: '',
-                deactivate_source: false,
-                confirmation_text: '',
-            });
+            const hotelMergeForm = ref(createHotelMergeForm());
             const hotelMergePreview = ref(null);
             const hotelMergeLoading = ref(false);
             const hotelMergeExecuting = ref(false);
             const hotelMergeError = ref('');
-            const hotelMergeVisibleItems = computed(() => {
-                const items = Array.isArray(hotelMergePreview.value?.items) ? hotelMergePreview.value.items : [];
-                return items.filter(item => Number(item?.source_count || 0) > 0 || Number(item?.target_count || 0) > 0 || Number(item?.conflict_count || 0) > 0);
-            });
-            const hotelMergeSkippableConflictCount = computed(() => {
-                const items = Array.isArray(hotelMergePreview.value?.items) ? hotelMergePreview.value.items : [];
-                return items.reduce((total, item) => total + Number(item?.skippable_conflict_count || 0), 0);
-            });
-            const hotelMergeCanExecute = computed(() => {
-                const preview = hotelMergePreview.value || {};
-                const expected = String(preview.confirmation_text || '').trim();
-                const actual = String(hotelMergeForm.value.confirmation_text || '').trim();
-                const sameSource = String(preview.source_hotel?.id || '') === String(hotelMergeForm.value.source_hotel_id || '');
-                const sameTarget = String(preview.target_hotel?.id || '') === String(hotelMergeForm.value.target_hotel_id || '');
-                return preview.can_execute === true && sameSource && sameTarget && expected !== '' && actual === expected;
-            });
+            const hotelMergeVisibleItemsStatic = requireSystemStatic('hotelMergeVisibleItems');
+            const hotelMergeSkippableConflictCountStatic = requireSystemStatic('hotelMergeSkippableConflictCount');
+            const hotelMergeCanExecuteStatic = requireSystemStatic('hotelMergeCanExecute');
+            const hotelMergeVisibleItems = computed(() => hotelMergeVisibleItemsStatic(hotelMergePreview.value));
+            const hotelMergeSkippableConflictCount = computed(() => hotelMergeSkippableConflictCountStatic(hotelMergePreview.value));
+            const hotelMergeCanExecute = computed(() => hotelMergeCanExecuteStatic({
+                preview: hotelMergePreview.value,
+                form: hotelMergeForm.value,
+            }));
             const showUserModal = ref(false);
             const showUserStatusConfirmModal = ref(false);
             const userStatusConfirmTarget = ref(null);
@@ -44545,12 +44536,7 @@
             };
 
             const resetHotelMergeState = () => {
-                hotelMergeForm.value = {
-                    source_hotel_id: '',
-                    target_hotel_id: '',
-                    deactivate_source: false,
-                    confirmation_text: '',
-                };
+                hotelMergeForm.value = createHotelMergeForm();
                 hotelMergePreview.value = null;
                 hotelMergeError.value = '';
                 hotelMergeLoading.value = false;
@@ -44632,17 +44618,10 @@
                 try {
                     const res = await request('/hotels/merge-execute', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            source_hotel_id: Number(hotelMergeForm.value.source_hotel_id),
-                            target_hotel_id: Number(hotelMergeForm.value.target_hotel_id),
-                            deactivate_source: hotelMergeForm.value.deactivate_source === true,
-                            confirmation_text: String(hotelMergeForm.value.confirmation_text || '').trim(),
-                        }),
+                        body: JSON.stringify(buildHotelMergeExecutePayload(hotelMergeForm.value)),
                     });
                     if (res.code === 200) {
-                        const updatedTotal = Number(res.data?.updated_total || 0);
-                        const mergedTotal = Number(res.data?.merged_conflict_total || 0);
-                        showToast(`门店数据迁移完成：迁移 ${updatedTotal} 条，合并重复授权 ${mergedTotal} 条`, 'success');
+                        showToast(hotelMergeSuccessMessage(res.data || {}), 'success');
                         closeHotelMergeModal(true);
                         await loadHotels({ force: true, includeInactive: true });
                     } else {

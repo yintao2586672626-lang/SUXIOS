@@ -104,7 +104,7 @@ if (!fs.existsSync(indexPath)) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
   }
 
-  if (!content.includes('system-static.js?v=20260630-data-center-label')
+  if (!content.includes('system-static.js?v=20260708-hotel-merge')
     || !systemStaticContent.includes('const getHotelCodeNumber = (code) => {')
     || !systemStaticContent.includes('const formatHotelCode = (num) =>')
     || !systemStaticContent.includes('const normalizeOtaConfigHotelName = (value = \'\') =>')
@@ -1568,11 +1568,14 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("requireSystemStatic('buildHotelPlatformBindingRows')")
     || !content.includes('hotelForm.value = createHotelForm({ hotel, operatorName, parsedDescription });')
     || !content.includes('const payload = buildHotelSavePayload({')
+    || !content.includes("const createHotelMergeForm = requireSystemStatic('createHotelMergeForm')")
+    || !content.includes("const hotelMergeCanExecuteStatic = requireSystemStatic('hotelMergeCanExecute')")
+    || !content.includes('JSON.stringify(buildHotelMergeExecutePayload(hotelMergeForm.value))')
     || !content.includes('JSON.stringify(buildHotelOtaCtripConfigSavePayload({')
     || !content.includes('JSON.stringify(buildHotelOtaMeituanConfigSavePayload({')
     || !content.includes('return buildHotelPlatformBindingRowsStatic({')
     || content.includes('const meituanIdentifierMissing = [')) {
-    failures.push('public/index.html must use system-static.js helpers for hotel admin forms and save payloads.');
+    failures.push('public/index.html must use system-static.js helpers for hotel admin forms, hotel merge rules, and save payloads.');
   }
   if (!content.includes("requireAppSystemStatic('getRememberedLoginAccount')")
     || !content.includes("requireAppSystemStatic('loadCachedAuthUser')")
@@ -1599,10 +1602,13 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!systemStaticContent.includes('const createHotelForm = ({ hotel = null, operatorName = \'\', code = \'\', parsedDescription = {} } = {}) =>')
     || !systemStaticContent.includes('const buildHotelSavePayload = ({ form = {}, normalizedCode = \'\', operatorName = \'\', description = \'\' } = {}) => ({')
+    || !systemStaticContent.includes('const createHotelMergeForm = () => ({')
+    || !systemStaticContent.includes('const hotelMergeCanExecute = ({ preview = null, form = {} } = {}) => {')
+    || !systemStaticContent.includes('const buildHotelMergeExecutePayload = (form = {}) => ({')
     || !systemStaticContent.includes('const buildHotelOtaCtripConfigSavePayload = ({ hotelIdText = \'\', ctrip = {}, existing = null, fallbackName = \'\', defaultUrl = \'\' } = {}) => ({')
     || !systemStaticContent.includes('const buildHotelOtaMeituanConfigSavePayload = ({ hotelIdText = \'\', meituan = {}, existing = null, fallbackName = \'\' } = {}) => ({')
     || !systemStaticContent.includes('const buildHotelPlatformBindingRows = ({')) {
-    failures.push('public/system-static.js must own hotel admin form defaults and save payload normalization.');
+    failures.push('public/system-static.js must own hotel admin form defaults, hotel merge rules, and save payload normalization.');
   }
   if (!systemStaticContent.includes('const createLoginForm = ({ username = \'\' } = {}) => ({')
     || !systemStaticContent.includes('const getRememberedLoginAccount = (storage) => {')

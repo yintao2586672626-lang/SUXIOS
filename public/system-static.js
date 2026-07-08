@@ -736,6 +736,38 @@ window.SUXI_SYSTEM_STATIC = (() => {
         status: parseInt(form.status),
         description,
     });
+    const createHotelMergeForm = () => ({
+        source_hotel_id: '',
+        target_hotel_id: '',
+        deactivate_source: false,
+        confirmation_text: '',
+    });
+    const hotelMergeVisibleItems = (preview = null) => {
+        const items = Array.isArray(preview?.items) ? preview.items : [];
+        return items.filter(item => Number(item?.source_count || 0) > 0 || Number(item?.target_count || 0) > 0 || Number(item?.conflict_count || 0) > 0);
+    };
+    const hotelMergeSkippableConflictCount = (preview = null) => {
+        const items = Array.isArray(preview?.items) ? preview.items : [];
+        return items.reduce((total, item) => total + Number(item?.skippable_conflict_count || 0), 0);
+    };
+    const hotelMergeCanExecute = ({ preview = null, form = {} } = {}) => {
+        const expected = String(preview?.confirmation_text || '').trim();
+        const actual = String(form.confirmation_text || '').trim();
+        const sameSource = String(preview?.source_hotel?.id || '') === String(form.source_hotel_id || '');
+        const sameTarget = String(preview?.target_hotel?.id || '') === String(form.target_hotel_id || '');
+        return preview?.can_execute === true && sameSource && sameTarget && expected !== '' && actual === expected;
+    };
+    const buildHotelMergeExecutePayload = (form = {}) => ({
+        source_hotel_id: Number(form.source_hotel_id),
+        target_hotel_id: Number(form.target_hotel_id),
+        deactivate_source: form.deactivate_source === true,
+        confirmation_text: String(form.confirmation_text || '').trim(),
+    });
+    const hotelMergeSuccessMessage = (data = {}) => {
+        const updatedTotal = Number(data?.updated_total || 0);
+        const mergedTotal = Number(data?.merged_conflict_total || 0);
+        return `门店数据迁移完成：迁移 ${updatedTotal} 条，合并重复授权 ${mergedTotal} 条`;
+    };
     const buildHotelOtaCtripConfigSavePayload = ({ hotelIdText = '', ctrip = {}, existing = null, fallbackName = '', defaultUrl = '' } = {}) => ({
         id: ctrip.id || existing?.id || null,
         name: ctrip.name || existing?.name || fallbackName,
@@ -1723,6 +1755,12 @@ window.SUXI_SYSTEM_STATIC = (() => {
         validateRegisterRequestPayload,
         createHotelForm,
         buildHotelSavePayload,
+        createHotelMergeForm,
+        hotelMergeVisibleItems,
+        hotelMergeSkippableConflictCount,
+        hotelMergeCanExecute,
+        buildHotelMergeExecutePayload,
+        hotelMergeSuccessMessage,
         buildHotelOtaCtripConfigSavePayload,
         buildHotelOtaMeituanConfigSavePayload,
         getHotelCodeNumber,

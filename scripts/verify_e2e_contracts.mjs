@@ -1232,6 +1232,9 @@ requireText('public/system-static.js', 'const getDataConfigTypeDefaults', 'syste
 requireText('public/system-static.js', 'const getSystemConfigDefaults', 'system static owns system config defaults');
 requireText('public/system-static.js', 'const createHotelForm', 'system static builds hotel admin forms');
 requireText('public/system-static.js', 'const buildHotelSavePayload', 'system static builds hotel save payloads');
+requireText('public/system-static.js', 'const createHotelMergeForm', 'system static builds hotel merge default form');
+requireText('public/system-static.js', 'const hotelMergeCanExecute', 'system static owns hotel merge execution guard');
+requireText('public/system-static.js', 'const buildHotelMergeExecutePayload', 'system static builds hotel merge execution payload');
 requireText('public/system-static.js', 'const buildHotelOtaCtripConfigSavePayload', 'system static builds hotel Ctrip OTA config save payloads');
 requireText('public/system-static.js', 'const buildHotelOtaMeituanConfigSavePayload', 'system static builds hotel Meituan OTA config save payloads');
 requireText('public/system-static.js', 'const getHotelCodeNumber', 'system static parses generated hotel code suffixes');
@@ -1242,7 +1245,7 @@ requireText('public/index.html', "requireAppSystemStatic('getHotelCodeNumber')",
 requireText('public/index.html', "requireAppSystemStatic('formatHotelCode')", 'entry uses extracted hotel-code formatter');
 requireText('public/index.html', "requireAppSystemStatic('normalizeOtaConfigHotelName')", 'entry uses extracted OTA config hotel-name normalizer');
 requireText('public/index.html', "requireAppSystemStatic('formatHotelBindingDate')", 'entry uses extracted hotel binding-date formatter');
-requireText('public/index.html', 'system-static.js?v=20260630-data-center-label', 'entry bumps system static helper version after data center label rename');
+requireText('public/index.html', 'system-static.js?v=20260708-hotel-merge', 'entry bumps system static helper version after hotel merge helper extraction');
 requireText('public/index.html', "requireSystemStatic('buildKnowledgeImportRequestBody')", 'entry uses extracted knowledge import request body builder');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportSuccessMessage')", 'entry uses extracted knowledge import success message');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportErrorMessage')", 'entry uses extracted knowledge import error message');

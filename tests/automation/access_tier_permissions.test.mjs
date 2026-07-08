@@ -261,8 +261,11 @@ assert.match(indexHtml, /v-if="showHotelMergeModal"/, 'hotel data merge must use
 assert.match(indexHtml, /\/hotels\/merge-preview\?source_hotel_id=/, 'hotel data merge preview must call the dedicated preview endpoint');
 assert.match(indexHtml, /\/hotels\/merge-execute/, 'hotel data merge execution must call the dedicated execute endpoint');
 assert.match(indexHtml, /online_daily_data\.hotel_id[\s\S]*OTA 平台酒店ID，不会被改写/, 'hotel data merge UI must state that OTA platform hotel_id is not migrated');
-assert.match(indexHtml, /hotelMergeCanExecute[\s\S]*preview\.source_hotel\?\.id[\s\S]*preview\.target_hotel\?\.id[\s\S]*actual === expected/, 'hotel merge execution must require a current preview and exact confirmation text');
-assert.match(indexHtml, /hotelMergeSkippableConflictCount[\s\S]*\{\{ hotelMergeSkippableConflictCount \}\}[\s\S]*skippable_conflict_count/, 'hotel merge UI must disclose the duplicate user-permission conflict policy');
+assert.match(indexHtml, /const createHotelMergeForm = requireSystemStatic\('createHotelMergeForm'\)/, 'hotel merge form defaults must be owned by system-static.js');
+assert.match(indexHtml, /const hotelMergeCanExecuteStatic = requireSystemStatic\('hotelMergeCanExecute'\)[\s\S]*computed\(\(\) => hotelMergeCanExecuteStatic\(\{[\s\S]*preview: hotelMergePreview\.value,[\s\S]*form: hotelMergeForm\.value/, 'hotel merge execution must delegate current-preview confirmation checks to system-static.js');
+assert.match(systemStatic, /const hotelMergeCanExecute = \(\{ preview = null, form = \{\} \} = \{\}\) => \{[\s\S]*preview\?\.source_hotel\?\.id[\s\S]*preview\?\.target_hotel\?\.id[\s\S]*actual === expected/, 'hotel merge static helper must require a current preview and exact confirmation text');
+assert.match(indexHtml, /hotelMergeSkippableConflictCount[\s\S]*\{\{ hotelMergeSkippableConflictCount \}\}/, 'hotel merge UI must disclose the duplicate user-permission conflict policy');
+assert.match(systemStatic, /const hotelMergeSkippableConflictCount = \(preview = null\) => \{[\s\S]*skippable_conflict_count/, 'hotel merge static helper must count skippable duplicate user-permission conflicts');
 assert.match(routes, /Route::get\('\/merge-preview', 'Hotel\/mergePreview'\);[\s\S]*Route::post\('\/merge-execute', 'Hotel\/mergeExecute'\);[\s\S]*Route::get\('\/:id', 'Hotel\/read'\);/, 'hotel merge routes must be registered before the dynamic hotel id route');
 assert.match(hotelController, /public function mergePreview\(\): Response[\s\S]*\$this->checkPermission\(true\)/, 'hotel merge preview must be super-admin only');
 assert.match(hotelController, /public function mergeExecute\(\): Response[\s\S]*\$this->checkPermission\(true\)/, 'hotel merge execute must be super-admin only');
@@ -281,8 +284,9 @@ assert.match(hotelDataMergeService, /merge_then_remove_source_duplicate_permissi
 assert.match(hotelDataMergeService, /duplicatePermissionMergeAssignments[\s\S]*GREATEST\(COALESCE\(t\./, 'hotel data merge duplicate user grants must preserve stronger permission flags');
 assert.doesNotMatch(hotelDataMergeService, /skip_source_duplicate_permission/, 'hotel data merge must not treat duplicate user grants as a silent skip');
 assert.match(indexHtml, /expected_update_rows/, 'hotel data merge UI must show effective update rows separately from duplicate grants');
-assert.match(indexHtml, /merged_conflict_total/, 'hotel data merge UI must report merged duplicate grants after execution');
-assert.match(indexHtml, /deactivate_source:\s*false/, 'hotel data merge UI must not deactivate the source hotel by default');
+assert.match(indexHtml, /hotelMergeSuccessMessage\(res\.data \|\| \{\}\)/, 'hotel data merge UI must delegate execution success copy to system-static.js');
+assert.match(systemStatic, /const hotelMergeSuccessMessage = \(data = \{\}\) => \{[\s\S]*merged_conflict_total/, 'hotel merge static helper must report merged duplicate grants after execution');
+assert.match(systemStatic, /const createHotelMergeForm = \(\) => \(\{[\s\S]*deactivate_source:\s*false/, 'hotel data merge UI must not deactivate the source hotel by default');
 assert.match(indexHtml, /const pendingUserAuthorizationHotel = ref\(null\);/, 'hotel authorization must keep the target store as context instead of hiding it in a list filter');
 assert.match(indexHtml, /const betaUserRoleIdForFilter = \(\) => \{[\s\S]*key === 'beta_user'[\s\S]*roleIssueProfile\(role\)\.key === 'beta_user'/, 'hotel authorization must locate beta users by role profile');
 assert.match(indexHtml, /const openUserAuthorization = async \(hotel = null\) => \{[\s\S]*user\.value\?\.is_super_admin[\s\S]*filterUserHotelId\.value = '';[\s\S]*pendingUserAuthorizationHotel\.value = hotel\?\.id[\s\S]*currentPage\.value = 'users'[\s\S]*loadUsers\(\)[\s\S]*loadRoles\(\)[\s\S]*loadHotels\(\)[\s\S]*filterUserRoleId\.value = betaRoleId/, 'hotel authorization entry must navigate to existing beta users instead of filtering users already assigned to the store');
