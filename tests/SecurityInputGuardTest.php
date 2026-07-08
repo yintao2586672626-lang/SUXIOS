@@ -69,6 +69,7 @@ final class SecurityInputGuardTest extends TestCase
 
         self::assertSame(388.0, $this->invokeNonPublic($controller, 'extractPrice', ['房型2 标准间 ¥388/晚']));
         self::assertSame(428.0, $this->invokeNonPublic($controller, 'extractPrice', ['价格：428元，含早2份']));
+        self::assertSame(1288.0, $this->invokeNonPublic($controller, 'extractPrice', ['豪华房 ￥1,288/晚']));
     }
 
     public function testTemporaryOtaCookieFilesArePermissionRestricted(): void
