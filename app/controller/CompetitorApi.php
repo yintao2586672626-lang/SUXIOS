@@ -321,20 +321,39 @@ class CompetitorApi extends Base
 
     private function extractPrice(string $text): float
     {
+        $normalizedText = $this->normalizePriceText($text);
         $amountPattern = '(\d{1,3}(?:[,，]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)';
-        if (preg_match('/[¥￥]\s*' . $amountPattern . '/u', $text, $matches)) {
+        if (preg_match('/[¥￥]\s*' . $amountPattern . '/u', $normalizedText, $matches)) {
             return $this->normalizeExtractedPrice($matches[1]);
         }
-        if (preg_match('/(?:价格|房价|售价|到手价|现价|低价|最低价|含税价|优惠价)[^\d]{0,12}' . $amountPattern . '/u', $text, $matches)) {
+        if (preg_match('/(?:价格|房价|售价|到手价|现价|低价|最低价|含税价|优惠价)[^\d]{0,12}' . $amountPattern . '/u', $normalizedText, $matches)) {
             return $this->normalizeExtractedPrice($matches[1]);
         }
-        if (preg_match('/' . $amountPattern . '\s*元/u', $text, $matches)) {
+        if (preg_match('/' . $amountPattern . '\s*元/u', $normalizedText, $matches)) {
             return $this->normalizeExtractedPrice($matches[1]);
         }
-        if (preg_match('/' . $amountPattern . '/u', $text, $matches)) {
+        if (preg_match('/' . $amountPattern . '/u', $normalizedText, $matches)) {
             return $this->normalizeExtractedPrice($matches[1]);
         }
         return 0.0;
+    }
+
+    private function normalizePriceText(string $text): string
+    {
+        return strtr($text, [
+            '０' => '0',
+            '１' => '1',
+            '２' => '2',
+            '３' => '3',
+            '４' => '4',
+            '５' => '5',
+            '６' => '6',
+            '７' => '7',
+            '８' => '8',
+            '９' => '9',
+            '，' => ',',
+            '．' => '.',
+        ]);
     }
 
     private function normalizeExtractedPrice(string $value): float
