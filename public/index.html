@@ -4668,7 +4668,7 @@
                     <!-- 用户管理 -->
                     <div v-if="currentPage === 'users'">
                         <!-- 用户统计卡片 -->
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                        <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
                             <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
                                 <div class="flex items-center justify-between">
                                     <div>
@@ -4688,6 +4688,28 @@
                                     </div>
                                     <div class="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
                                         <i class="fas fa-user-check text-green-600 text-xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm text-gray-400 mb-1">内测用户</div>
+                                        <div class="text-2xl font-bold text-orange-600">{{ userSummary.beta }}</div>
+                                    </div>
+                                    <div class="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center">
+                                        <i class="fas fa-user-tag text-orange-600 text-xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm text-gray-400 mb-1">普通用户</div>
+                                        <div class="text-2xl font-bold text-emerald-600">{{ userSummary.normal }}</div>
+                                    </div>
+                                    <div class="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+                                        <i class="fas fa-user text-emerald-600 text-xl"></i>
                                     </div>
                                 </div>
                             </div>
@@ -4735,10 +4757,15 @@
                                         <span class="font-medium text-slate-700">边界：</span>{{ card.boundary }}
                                     </div>
                                 </div>
+                                <div v-if="card.permissionTags?.length" class="mt-3 flex flex-wrap gap-1.5">
+                                    <span v-for="tag in card.permissionTags" :key="tag.text" :class="['rounded-full border px-2 py-0.5 text-[11px] font-medium', tag.class]">
+                                        {{ tag.text }}
+                                    </span>
+                                </div>
                                 <div class="mt-3 flex items-center justify-between gap-2 text-xs">
                                     <span class="text-slate-400">当前账号 {{ card.userCount }} 个</span>
                                     <button v-if="user?.is_super_admin" type="button" @click="openUserModalWithRole(card.roleId)" class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 font-medium text-blue-700 hover:bg-blue-100">
-                                        发放此角色
+                                        {{ roleIssueActionText(card) }}
                                     </button>
                                 </div>
                             </div>
@@ -4799,13 +4826,14 @@
                                             <td class="px-6 py-4 text-sm font-semibold text-gray-800">{{ u?.username || '-' }}</td>
                                             <td class="px-6 py-4 text-sm text-gray-600">{{ u?.realname || '-' }}</td>
                                             <td class="px-6 py-4">
-                                                <span :class="{
-                                                    'bg-red-100 text-red-700': u?.role?.level === 1,
-                                                    'bg-orange-100 text-orange-700': u?.role?.level === 2,
-                                                    'bg-green-100 text-green-700': u?.role?.level === 3
-                                                }" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
-                                                    {{ u?.role?.display_name || '-' }}
-                                                </span>
+                                                <div class="space-y-1">
+                                                    <span :class="userRoleBadgeClass(u)" class="inline-flex items-center px-2.5 py-0.5 rounded-full border text-xs font-medium">
+                                                        {{ u?.role?.display_name || '-' }}
+                                                    </span>
+                                                    <div class="max-w-[220px] text-[11px] leading-4 text-slate-500" :title="userRoleBoundaryText(u)">
+                                                        {{ userRoleBoundaryText(u) }}
+                                                    </div>
+                                                </div>
                                             </td>
                                             <td class="px-6 py-4 text-sm text-gray-600">
                                                 <span :title="userHotelScopeText(u)">{{ userHotelScopeText(u) }}</span>
@@ -17558,6 +17586,11 @@
                             <div><span class="font-medium text-slate-700">发放对象：</span>{{ selectedUserRoleGuide.audience }}</div>
                             <div><span class="font-medium text-slate-700">权限边界：</span>{{ selectedUserRoleGuide.boundary }}</div>
                             <div><span class="font-medium text-slate-700">门店要求：</span>{{ selectedUserRoleGuide.scope }}</div>
+                            <div v-if="selectedUserRoleGuide.permissionTags?.length" class="mt-2 flex flex-wrap gap-1.5">
+                                <span v-for="tag in selectedUserRoleGuide.permissionTags" :key="`selected-${tag.text}`" :class="['rounded-full border px-2 py-0.5 text-[11px] font-medium', tag.class]">
+                                    {{ tag.text }}
+                                </span>
+                            </div>
                         </div>
                         <p v-if="!user?.is_super_admin" class="text-xs text-gray-500 mt-1">非超级管理员只能创建/查看店员账号</p>
                     </div>
@@ -29070,11 +29103,37 @@
                     .map(id => String(id));
             };
 
+            const roleForUser = (u = {}) => {
+                const inlineRole = u?.role && typeof u.role === 'object' ? u.role : {};
+                const roleId = Number(u?.role_id || inlineRole?.id || 0);
+                const matchedRole = roleId
+                    ? (Array.isArray(roles.value) ? roles.value : []).find(role => Number(role?.id || 0) === roleId)
+                    : null;
+                return {
+                    ...(matchedRole || {}),
+                    ...inlineRole,
+                    id: roleId || inlineRole?.id || matchedRole?.id || 0,
+                };
+            };
+
+            const userRoleIdentityKey = (u = {}) => {
+                const role = roleForUser(u);
+                const roleId = Number(role?.id || u?.role_id || 0);
+                const roleName = String(role?.name || '').trim();
+                const level = Number(role?.level || 0);
+                if (roleId === 1 || roleName === 'admin' || level === 1) return 'admin';
+                if (roleId === 2 || roleName === 'beta_user' || level === 2) return 'beta_user';
+                if (roleId === 3 || roleName === 'normal_user' || level >= 3) return 'normal_user';
+                return 'custom';
+            };
+
             const userSummary = computed(() => {
                 const rows = users.value.filter(u => u && typeof u === 'object');
                 return {
                     total: rows.length,
                     active: rows.filter(u => String(u?.status) === '1').length,
+                    beta: rows.filter(u => userRoleIdentityKey(u) === 'beta_user').length,
+                    normal: rows.filter(u => userRoleIdentityKey(u) === 'normal_user').length,
                     disabled: rows.filter(u => String(u?.status) !== '1').length,
                     unassigned: rows.filter(u => userHotelIdsForFilter(u).length === 0).length,
                 };
@@ -29140,7 +29199,7 @@
                         userCount: 0,
                     };
                 }
-                if (roleId === 3 || roleName === 'normal_user' || level === 3) {
+                if (roleId === 3 || roleName === 'normal_user' || level >= 3) {
                     return {
                         key: 'normal_user',
                         title: '普通用户',
@@ -29174,13 +29233,77 @@
                 };
             };
 
+            const rolePermissionTags = (profile = {}) => {
+                if (profile.key === 'admin') {
+                    return [
+                        { text: '仅内部', class: 'border-red-100 bg-red-50 text-red-700' },
+                        { text: '可管用户/角色', class: 'border-red-100 bg-red-50 text-red-700' },
+                        { text: '不对外发放', class: 'border-slate-200 bg-white text-slate-600' },
+                    ];
+                }
+                if (profile.key === 'beta_user') {
+                    return [
+                        { text: '内测发放', class: 'border-orange-100 bg-orange-50 text-orange-700' },
+                        { text: profile.canCollectOta ? '可OTA采集' : 'OTA只读', class: profile.canCollectOta ? 'border-orange-100 bg-orange-50 text-orange-700' : 'border-slate-200 bg-white text-slate-600' },
+                        { text: profile.canManageHotels ? '可新增门店' : '需分配门店', class: profile.canManageHotels ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-amber-100 bg-amber-50 text-amber-700' },
+                    ];
+                }
+                if (profile.key === 'normal_user') {
+                    return [
+                        { text: '普通外发', class: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+                        { text: profile.canCollectOta ? '含采集需复核' : 'OTA只读', class: profile.canCollectOta ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+                        { text: '必须分配门店', class: 'border-blue-100 bg-blue-50 text-blue-700' },
+                    ];
+                }
+                return [
+                    { text: '自定义角色', class: 'border-slate-200 bg-slate-50 text-slate-600' },
+                    { text: profile.canCollectOta ? '含OTA采集' : '未含采集', class: profile.canCollectOta ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-600' },
+                ];
+            };
+
+            const withRolePermissionTags = (profile = {}) => ({
+                ...profile,
+                permissionTags: rolePermissionTags(profile),
+            });
+
+            const userRoleIssueProfile = (u = {}) => withRolePermissionTags(roleIssueProfile(roleForUser(u)));
+
+            const userRoleBadgeClass = (u = {}) => {
+                const profile = userRoleIssueProfile(u);
+                return profile?.badgeClass || 'border-slate-200 bg-slate-50 text-slate-600';
+            };
+
+            const userRoleBoundaryText = (u = {}) => {
+                const profile = userRoleIssueProfile(u);
+                if (profile.key === 'admin') return '内部管理：不发给内测或外部用户';
+                if (profile.key === 'beta_user') {
+                    return profile.canCollectOta
+                        ? '内测：授权门店内可查看/采集 OTA'
+                        : '内测：授权门店内只读 OTA';
+                }
+                if (profile.key === 'normal_user') {
+                    return profile.canCollectOta
+                        ? '普通：含采集权限，发放前需复核'
+                        : '普通：授权门店只读，不采集 OTA';
+                }
+                return profile.canCollectOta
+                    ? '自定义：含 OTA 采集，发放前复核'
+                    : '自定义：按门店授权查看';
+            };
+
+            const roleIssueActionText = (profile = {}) => {
+                if (profile.key === 'beta_user') return '发内测账号';
+                if (profile.key === 'normal_user') return '发普通账号';
+                return '发放此角色';
+            };
+
             const roleIssueGuideCards = computed(() => {
                 const sourceRoles = (Array.isArray(roles.value) ? roles.value : [])
                     .filter(role => ['beta_user', 'normal_user'].includes(String(role?.name || '').trim()) || [2, 3].includes(Number(role?.id || 0)));
                 return sourceRoles
                     .sort((a, b) => Number(a?.id || 0) - Number(b?.id || 0))
                     .map(role => {
-                        const profile = roleIssueProfile(role);
+                        const profile = withRolePermissionTags(roleIssueProfile(role));
                         return {
                             ...profile,
                             userCount: users.value.filter(item => Number(item?.role_id || 0) === Number(role?.id || 0)).length,
@@ -29192,7 +29315,7 @@
                 const roleId = Number(userForm.value?.role_id || 0);
                 if (!roleId) return null;
                 const role = (Array.isArray(roles.value) ? roles.value : []).find(item => Number(item?.id || 0) === roleId);
-                return role ? roleIssueProfile(role) : null;
+                return role ? withRolePermissionTags(roleIssueProfile(role)) : null;
             });
 
             const userIssueAssignedHotelIds = computed(() => normalizeUserHotelIds(userForm.value?.hotel_ids || []));
@@ -46542,7 +46665,7 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, roleIssueGuideCards, roleIssueProfile, selectedUserRoleGuide, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, roleIssueGuideCards, roleIssueProfile, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, selectedUserRoleGuide, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, getHotelNameById, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
