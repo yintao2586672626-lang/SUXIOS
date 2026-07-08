@@ -374,6 +374,7 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.equal(helpers.manualOneClickFetchPlatformText('ctrip'), '携程');
   assert.equal(helpers.manualOneClickFetchMessageIsQunarVisitorZero('去哪儿访客为 0'), true);
   assert.equal(helpers.manualOneClickFetchQunarVisitorNumber({ qunar_detail_visitors: '4' }), 4);
+  assert.equal(helpers.manualOneClickFetchQunarVisitorNumber({ qunarDetailVisitors: '-', views: '5' }), 5);
 
   const qunarGapQuality = helpers.summarizeManualOneClickFetchQunarVisitorQuality([
     { qunarDetailVisitors: 0 },

@@ -171,8 +171,20 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const manualOneClickFetchMessageIsQunarVisitorZero = (message = '') => /去哪儿?访客.*(?:为|=)?\s*0|qunar.*visitor.*0/i.test(String(message || ''));
 
     const manualOneClickFetchQunarVisitorNumber = (row = {}) => {
-        const value = Number(row?.qunarDetailVisitors ?? row?.qunar_detail_visitors ?? row?.views ?? row?.uv ?? row?.visitorCount ?? row?.detailUv ?? 0);
-        return Number.isFinite(value) ? value : 0;
+        const candidates = [
+            row?.qunarDetailVisitors,
+            row?.qunar_detail_visitors,
+            row?.views,
+            row?.uv,
+            row?.visitorCount,
+            row?.detailUv,
+        ];
+        for (const candidate of candidates) {
+            if (candidate === null || candidate === undefined || String(candidate).trim() === '') continue;
+            const value = Number(candidate);
+            if (Number.isFinite(value) && value >= 0) return value;
+        }
+        return 0;
     };
 
     const summarizeManualOneClickFetchQunarVisitorQuality = (rows = []) => {
