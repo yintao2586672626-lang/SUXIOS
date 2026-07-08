@@ -96,6 +96,7 @@ $baseSource = file_get_contents(__DIR__ . '/../app/controller/Base.php');
 $competitorSource = file_get_contents(__DIR__ . '/../app/controller/CompetitorApi.php');
 $cookieEndpointSource = file_get_contents(__DIR__ . '/../app/controller/concern/CookieEndpointConcern.php');
 $onlineDataRequestSource = file_get_contents(__DIR__ . '/../app/controller/concern/OnlineDataRequestConcern.php');
+$robotControllerSource = file_get_contents(__DIR__ . '/../app/controller/admin/CompetitorWechatRobotController.php');
 $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
 $hotelSource = file_get_contents(__DIR__ . '/../app/controller/Hotel.php');
 $authMiddlewareSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
@@ -104,6 +105,7 @@ $robotListViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competito
 $robotAddViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/add.html');
 $robotEditViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/edit.html');
 $publicIndexSource = file_get_contents(__DIR__ . '/../public/index.html');
+$routeSource = file_get_contents(__DIR__ . '/../route/app.php');
 
 $logoutSource = extract_method_source_regression($authSource, 'logout');
 $receiveCookiesSource = extract_method_source_regression($cookieEndpointSource, 'receiveCookies');
@@ -113,6 +115,9 @@ $bookmarkletSource = extract_method_source_regression($cookieEndpointSource, 'bo
 $ctripBookmarkletSource = extract_method_source_regression($onlineDataRequestSource, 'generateCtripBookmarklet');
 $cookieBookmarkletHelperSource = extract_method_source_regression($cookieEndpointSource, 'buildCookieBookmarkletScript');
 $competitorReportSource = extract_method_source_regression($competitorSource, 'report');
+$robotIndexSource = extract_method_source_regression($robotControllerSource, 'index');
+$robotApiIndexSource = extract_method_source_regression($robotControllerSource, 'apiIndex');
+$robotApiDetailSource = extract_method_source_regression($robotControllerSource, 'apiDetail');
 $userDeleteSource = extract_method_source_regression($userSource, 'delete');
 $hotelDeleteSource = extract_method_source_regression($hotelSource, 'delete');
 
@@ -134,6 +139,15 @@ assert_regression(!str_contains($robotListViewSource, "<?php echo \$item['webhoo
 assert_regression(!str_contains($robotListViewSource . $robotAddViewSource . $robotEditViewSource, "<?php echo \$s['name']; ?>"), 'competitor robot store options must not echo store names without escaping');
 assert_regression(!str_contains($robotEditViewSource, "<?php echo \$robot['name']; ?>"), 'competitor robot edit form must not echo robot names without escaping');
 assert_regression(!str_contains($robotEditViewSource, "<?php echo \$robot['webhook']; ?>"), 'competitor robot edit form must not echo webhooks without escaping');
+assert_regression(str_contains($robotControllerSource, 'formatRobotListRow') && str_contains($robotControllerSource, 'maskRobotWebhook'), 'competitor robot list API must mask stored webhook secrets');
+assert_regression(str_contains($robotIndexSource, 'formatRobotListRow'), 'competitor robot legacy list must use the masked list row formatter');
+assert_regression(str_contains($robotApiIndexSource, 'formatRobotListRow'), 'competitor robot API list must use the masked list row formatter');
+assert_regression(!str_contains($robotApiIndexSource, '$list = $query->page($pagination[\'page\'], $pagination[\'page_size\'])->select()->toArray();'), 'competitor robot API list must not directly paginate raw database rows');
+assert_regression(str_contains($robotApiDetailSource, 'formatRobotDetailRow'), 'competitor robot detail API must isolate full webhook return to explicit detail requests');
+assert_regression(str_contains($routeSource, "Route::get('/detail/:id', 'admin.CompetitorWechatRobotController/apiDetail')"), 'competitor robot detail API route must be explicit');
+assert_regression(str_contains($robotListViewSource, 'webhook_masked'), 'competitor robot legacy list must display masked webhook text');
+assert_regression(!str_contains($publicIndexSource, 'competitorRobotForm.value = { ...item };'), 'competitor robot SPA edit form must not reuse masked list rows as editable secrets');
+assert_regression(str_contains($publicIndexSource, '/admin/competitor-wechat-robot/detail/'), 'competitor robot SPA edit form must fetch full webhook only from the detail API');
 
 assert_regression(!str_contains($receiveCookiesSource, "param('token'"), 'receiveCookies must not read auth token from URL parameters');
 assert_regression(str_contains($receiveCookiesSource, "header('Access-Control-Allow-Headers: Content-Type, Authorization')"), 'receiveCookies CORS must allow Authorization header');

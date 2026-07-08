@@ -30,10 +30,13 @@ class CompetitorWechatRobotController extends Base
         if ($storeId !== '') {
             $query->where('store_id', (int)$storeId);
         }
-        $list = $query->select()->toArray();
+        $maskedList = array_map(
+            fn(array $robot): array => $this->formatRobotListRow($robot),
+            $query->select()->toArray()
+        );
 
         return view('competitor_wechat_robot/index', [
-            'list' => $list,
+            'list' => $maskedList,
             'stores' => $stores,
             'filter_store_id' => $storeId,
         ]);
@@ -194,8 +197,21 @@ class CompetitorWechatRobotController extends Base
         }
         $pagination = $this->getPagination();
         $total = $query->count();
-        $list = $query->page($pagination['page'], $pagination['page_size'])->select()->toArray();
-        return $this->paginate($list, $total, $pagination['page'], $pagination['page_size']);
+        $maskedList = array_map(
+            fn(array $robot): array => $this->formatRobotListRow($robot),
+            $query->page($pagination['page'], $pagination['page_size'])->select()->toArray()
+        );
+        return $this->paginate($maskedList, $total, $pagination['page'], $pagination['page_size']);
+    }
+
+    public function apiDetail(int $id): Response
+    {
+        $this->checkSuperAdmin();
+        $robot = Db::name('competitor_wechat_robot')->where('id', $id)->find();
+        if (!$robot) {
+            return $this->error('记录不存在', 404);
+        }
+        return $this->success($this->formatRobotDetailRow($robot));
     }
 
     /**
@@ -258,6 +274,39 @@ class CompetitorWechatRobotController extends Base
     public function apiTestStore(int $storeId): Response
     {
         return $this->testSendStore($storeId);
+    }
+
+    private function formatRobotListRow(array $robot): array
+    {
+        return [
+            'id' => (int)($robot['id'] ?? 0),
+            'store_id' => (int)($robot['store_id'] ?? 0),
+            'name' => (string)($robot['name'] ?? ''),
+            'webhook_masked' => $this->maskRobotWebhook((string)($robot['webhook'] ?? '')),
+            'webhook_configured' => trim((string)($robot['webhook'] ?? '')) !== '',
+            'status' => (int)($robot['status'] ?? 0),
+            'create_time' => $robot['create_time'] ?? null,
+        ];
+    }
+
+    private function formatRobotDetailRow(array $robot): array
+    {
+        $row = $this->formatRobotListRow($robot);
+        $row['webhook'] = (string)($robot['webhook'] ?? '');
+        return $row;
+    }
+
+    private function maskRobotWebhook(string $webhook): string
+    {
+        $webhook = trim($webhook);
+        if ($webhook === '') {
+            return '';
+        }
+        $length = strlen($webhook);
+        if ($length <= 16) {
+            return str_repeat('*', min(8, $length));
+        }
+        return substr($webhook, 0, 8) . '...' . substr($webhook, -6);
     }
 
     private function postJson(string $url, array $data): array

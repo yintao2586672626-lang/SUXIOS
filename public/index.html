@@ -36968,9 +36968,19 @@
                 }
             };
 
-            const openCompetitorRobotModal = (item = null) => {
+            const openCompetitorRobotModal = async (item = null) => {
                 if (item) {
-                    competitorRobotForm.value = { ...item };
+                    try {
+                        const res = await request(`/admin/competitor-wechat-robot/detail/${item.id}`);
+                        if (res.code !== 200 || !res.data) {
+                            showToast(res.message || '加载机器人配置失败', 'error');
+                            return;
+                        }
+                        competitorRobotForm.value = { ...res.data };
+                    } catch (e) {
+                        showToast('加载机器人配置失败: ' + e.message, 'error');
+                        return;
+                    }
                 } else {
                     competitorRobotForm.value = { id: null, store_id: '', name: '', webhook: '', status: 1 };
                 }
@@ -43999,23 +44009,20 @@
             };
 
             // 复制AI分析结果
-            const copyAiAnalysisResult = () => {
+            const copyAiAnalysisResult = async () => {
                 if (!aiAnalysisResult.value) {
                     showToast('暂不生成经营判断，暂无分析结果可复制', 'warning');
                     return;
                 }
 
-                // 将HTML转换为纯文本
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = aiAnalysisResult.value;
-                const textContent = tempDiv.innerText || tempDiv.textContent;
-
-                copyToClipboard(textContent);
+                await ensureAiAnalysisStaticReady();
+                copyToClipboard(aiReportHtmlToText(aiAnalysisResult.value));
             };
 
             // 查看AI分析历史记录
-            const viewAiAnalysisRecord = (record) => {
-                aiAnalysisResult.value = record.report;
+            const viewAiAnalysisRecord = async (record) => {
+                await ensureAiAnalysisStaticReady();
+                aiAnalysisResult.value = sanitizeAiReportHtml(record.report);
             };
 
             // ==================== 美团AI智能分析相关函数 ====================

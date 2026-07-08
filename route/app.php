@@ -559,6 +559,7 @@ Route::group('api/compass', function () {
 // ==================== 企业微信机器人 API（SPA） ====================
 Route::group('api/admin/competitor-wechat-robot', function () {
     Route::get('/', 'admin.CompetitorWechatRobotController/apiIndex');
+    Route::get('/detail/:id', 'admin.CompetitorWechatRobotController/apiDetail');
     Route::post('/save', 'admin.CompetitorWechatRobotController/apiSave');
     Route::post('/update/:id', 'admin.CompetitorWechatRobotController/apiUpdate');
     Route::post('/delete/:id', 'admin.CompetitorWechatRobotController/apiDelete');

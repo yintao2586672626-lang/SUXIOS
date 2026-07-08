@@ -2103,6 +2103,9 @@ requireText('public/index.html', "requireAiAnalysisStatic('runCapturedOtaAnalysi
 requireText('public/index.html', "requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection')", 'entry uses extracted Ctrip AI analysis hotel selection builder');
 requireText('public/index.html', "requireAiAnalysisStatic('sanitizeAiReportHtml')", 'entry uses extracted AI report sanitizer');
 requireText('public/index.html', "requireAiAnalysisStatic('aiReportHtmlToText')", 'entry uses extracted AI report text converter');
+requireText('public/index.html', 'copyToClipboard(aiReportHtmlToText(aiAnalysisResult.value))', 'captured OTA AI copy uses the sanitized report text converter');
+requireText('public/index.html', 'aiAnalysisResult.value = sanitizeAiReportHtml(record.report)', 'captured OTA AI history records are sanitized before reuse');
+requireNoText('public/index.html', 'tempDiv.innerHTML = aiAnalysisResult.value', 'captured OTA AI copy must not parse unsanitized report HTML inline');
 requireText('public/index.html', "requireAiAnalysisStatic('buildMeituanAiAnalysisHotelList')", 'entry uses extracted Meituan AI hotel list builder');
 requireText('public/index.html', "requireAiAnalysisStatic('resolveMeituanAiSelectedData')", 'entry uses extracted Meituan AI selection resolver');
 requireText('public/index.html', "requireAiAnalysisStatic('buildMeituanAiAnalysisRequestBody')", 'entry uses extracted Meituan AI request builder');

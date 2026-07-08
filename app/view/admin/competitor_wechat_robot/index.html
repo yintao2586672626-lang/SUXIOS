@@ -47,7 +47,7 @@ $escapeRobotValue = static fn($value): string => htmlspecialchars((string)$value
                                 <tr>
                                     <td class="px-3 py-2"><?php echo (int)$item['store_id']; ?></td>
                                     <td class="px-3 py-2"><?php echo $escapeRobotValue($item['name']); ?></td>
-                                    <td class="px-3 py-2 text-gray-500 truncate" style="max-width: 320px;"><?php echo $escapeRobotValue($item['webhook']); ?></td>
+                                    <td class="px-3 py-2 text-gray-500 truncate" style="max-width: 320px;"><?php echo $escapeRobotValue($item['webhook_masked'] ?? ''); ?></td>
                                     <td class="px-3 py-2"><?php echo (int)$item['status'] === 1 ? '启用' : '禁用'; ?></td>
                                     <td class="px-3 py-2 space-x-2">
                                         <a class="text-blue-600" href="<?php echo url('admin/CompetitorWechatRobotController/edit', ['id' => (int)$item['id']]); ?>">编辑</a>
