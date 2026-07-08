@@ -209,6 +209,41 @@ test('manual one-click fetch task builders stay static and skip only proven stor
   });
   assert.equal(fallbackRow.key, 'run-2:ctrip:88');
   assert.equal(fallbackRow.hotelName, 'Fallback Hotel');
+
+  assert.equal(typeof helpers.buildManualOneClickFetchResultRow, 'function');
+  assert.equal(typeof helpers.buildManualOneClickFetchFailureRow, 'function');
+  const resultRow = helpers.buildManualOneClickFetchResultRow({
+    baseRow,
+    resultSummary: {
+      status: 'success',
+      statusText: '已入库',
+      message: 'done',
+      qunarVisitorIncomplete: false,
+    },
+    savedCount: '5',
+    retryCount: '1',
+    attemptCount: '2',
+    ctripQunarQuality: { total: 12 },
+    nowText: 'done-time',
+  });
+  assert.equal(resultRow.status, 'success');
+  assert.equal(resultRow.savedCount, 5);
+  assert.equal(resultRow.retryCount, 1);
+  assert.equal(resultRow.attemptCount, 2);
+  assert.equal(resultRow.qunarVisitorTotal, 12);
+  assert.equal(resultRow.qunarVisitorIncomplete, false);
+  assert.equal(resultRow.timeText, 'done-time');
+
+  const failedRow = helpers.buildManualOneClickFetchFailureRow({
+    baseRow,
+    error: new Error('backend login required'),
+    nowText: 'failed-time',
+  });
+  assert.equal(failedRow.status, 'failed');
+  assert.equal(failedRow.statusText, '失败');
+  assert.equal(failedRow.message, 'backend login required');
+  assert.equal(failedRow.savedCount, 0);
+  assert.equal(failedRow.timeText, 'failed-time');
 });
 
 test('release evidence panel rows keep release readiness blockers non-closing', () => {

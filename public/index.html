@@ -21147,6 +21147,8 @@
             const findManualOneClickFetchExistingStoredRow = requireDataHealthStatic('findManualOneClickFetchExistingStoredRow');
             const buildManualOneClickFetchTasksFromStatic = requireDataHealthStatic('buildManualOneClickFetchTasks');
             const buildManualOneClickFetchBaseRowFromStatic = requireDataHealthStatic('buildManualOneClickFetchBaseRow');
+            const buildManualOneClickFetchResultRow = requireDataHealthStatic('buildManualOneClickFetchResultRow');
+            const buildManualOneClickFetchFailureRow = requireDataHealthStatic('buildManualOneClickFetchFailureRow');
             const summarizeManualOneClickFetchQunarVisitorQuality = requireDataHealthStatic('summarizeManualOneClickFetchQunarVisitorQuality');
             const manualOneClickFetchQunarVisitorNeedsRetry = requireDataHealthStatic('manualOneClickFetchQunarVisitorNeedsRetry');
             const manualOneClickFetchSavedCount = requireDataHealthStatic('manualOneClickFetchSavedCount');
@@ -35611,28 +35613,22 @@
                         qunarRetryCount,
                         qunarVisitorNeedsRetry: platform === 'ctrip' && manualOneClickFetchQunarVisitorNeedsRetry(ctripQunarQuality),
                     });
-                    upsertManualOneClickFetchRow({
-                        ...baseRow,
-                        status: resultSummary.status,
-                        statusText: resultSummary.statusText,
-                        message: resultSummary.message,
+                    upsertManualOneClickFetchRow(buildManualOneClickFetchResultRow({
+                        baseRow,
+                        resultSummary,
                         savedCount,
                         retryCount: qunarRetryCount,
                         attemptCount: attempts,
-                        qunarVisitorTotal: ctripQunarQuality ? ctripQunarQuality.total : undefined,
-                        qunarVisitorIncomplete: resultSummary.qunarVisitorIncomplete,
-                        timeText: manualOneClickFetchNowText(),
-                    });
+                        ctripQunarQuality,
+                        nowText: manualOneClickFetchNowText(),
+                    }));
                     return { status: resultSummary.status, savedCount, retryCount: qunarRetryCount };
                 } catch (error) {
-                    upsertManualOneClickFetchRow({
-                        ...baseRow,
-                        status: 'failed',
-                        statusText: '失败',
-                        message: error?.message || '手动获取失败',
-                        savedCount: 0,
-                        timeText: manualOneClickFetchNowText(),
-                    });
+                    upsertManualOneClickFetchRow(buildManualOneClickFetchFailureRow({
+                        baseRow,
+                        error,
+                        nowText: manualOneClickFetchNowText(),
+                    }));
                     return { status: 'failed', savedCount: 0 };
                 }
             };

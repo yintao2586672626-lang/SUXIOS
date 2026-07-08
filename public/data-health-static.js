@@ -269,6 +269,40 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         };
     };
 
+    const buildManualOneClickFetchResultRow = ({
+        baseRow = {},
+        resultSummary = {},
+        savedCount = 0,
+        retryCount = 0,
+        attemptCount = 0,
+        ctripQunarQuality = null,
+        nowText = manualOneClickFetchNowText(),
+    } = {}) => ({
+        ...baseRow,
+        status: resultSummary.status,
+        statusText: resultSummary.statusText,
+        message: resultSummary.message,
+        savedCount: Number(savedCount || 0),
+        retryCount: Number(retryCount || 0),
+        attemptCount: Number(attemptCount || 0),
+        qunarVisitorTotal: ctripQunarQuality ? ctripQunarQuality.total : undefined,
+        qunarVisitorIncomplete: resultSummary.qunarVisitorIncomplete,
+        timeText: nowText,
+    });
+
+    const buildManualOneClickFetchFailureRow = ({
+        baseRow = {},
+        error = null,
+        nowText = manualOneClickFetchNowText(),
+    } = {}) => ({
+        ...baseRow,
+        status: 'failed',
+        statusText: '失败',
+        message: error?.message || '手动获取失败',
+        savedCount: 0,
+        timeText: nowText,
+    });
+
     const manualOneClickFetchQunarVisitorNumber = (row = {}) => {
         const candidates = [
             row?.qunarDetailVisitors,
@@ -5859,6 +5893,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         findManualOneClickFetchExistingStoredRow,
         buildManualOneClickFetchTasks,
         buildManualOneClickFetchBaseRow,
+        buildManualOneClickFetchResultRow,
+        buildManualOneClickFetchFailureRow,
         manualOneClickFetchQunarVisitorNumber,
         summarizeManualOneClickFetchQunarVisitorQuality,
         manualOneClickFetchQunarVisitorNeedsRetry,
