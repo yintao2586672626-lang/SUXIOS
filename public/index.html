@@ -36829,15 +36829,6 @@
                 }
             };
 
-            const openCompetitorRobotConfig = () => {
-                if (!token.value) {
-                    showToast('请先登录', 'error');
-                    return;
-                }
-                const url = `/admin/competitor-wechat-robot?token=${encodeURIComponent(token.value)}`;
-                window.open(url, '_blank');
-            };
-
             const loadCompetitorStores = async () => {
                 try {
                     const res = await request('/admin/competitor-hotels/stores');
