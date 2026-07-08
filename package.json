@@ -102,6 +102,7 @@
     "verify:ota-diagnosis-auto-fetch": "node scripts/verify_ota_diagnosis_auto_fetch.mjs",
     "verify:hotel-auto-x-non-pms-skills": "node scripts/verify_hotel_auto_x_non_pms_skill_contract.mjs",
     "verify:hotel-auto-x-ctrip-collector": "C:\\xampp\\php\\php.exe scripts\\verify_hotel_auto_x_ctrip_collector_contract.php",
+    "verify:hotel-auto-x-meituan-collector": "C:\\xampp\\php\\php.exe scripts\\verify_hotel_auto_x_meituan_collector_contract.php",
     "verify:e2e-contracts": "node scripts/verify_e2e_contracts.mjs",
     "verify:shared-helpers": "node scripts/verify_shared_helpers_contract.mjs",
     "verify:opening-batch-actions": "node scripts/verify_opening_batch_actions.mjs",
