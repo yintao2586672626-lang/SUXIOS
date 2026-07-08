@@ -34455,7 +34455,7 @@
             };
 
             const hotelConfigTargetText = (form = {}) => {
-                const hotelId = String(form?.hotel_id || form?.hotelId || '').trim();
+                const hotelId = String(form?.hotel_id || form?.hotelId || form?.system_hotel_id || form?.systemHotelId || '').trim();
                 if (!hotelId) return '未关联门店';
                 const hotelName = String(getHotelNameById(hotelId) || '').trim();
                 return hotelName ? `${hotelName}（ID ${hotelId}）` : `门店ID ${hotelId}`;

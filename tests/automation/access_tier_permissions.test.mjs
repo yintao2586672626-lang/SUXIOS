@@ -79,6 +79,7 @@ assert.match(indexHtml, /openHotelManualFetchConfig\(hotel, 'meituan'\)"[\s\S]{0
 assert.match(indexHtml, /当前配置门店：[\s\S]{0,120}hotelConfigTargetText\(ctripConfigForm\)/, '携程新增配置表单必须展示当前关联门店');
 assert.match(indexHtml, /当前配置门店：[\s\S]{0,120}hotelConfigTargetText\(meituanConfigForm\)/, '美团新增配置表单必须展示当前关联门店');
 assert.match(indexHtml, /const hotelConfigTargetText = \(form = \{\}\) => \{[\s\S]*未关联门店[\s\S]*门店ID/, '配置表单门店展示必须明确区分未关联和仅有门店ID的状态');
+assert.match(indexHtml, /form\?\.hotel_id \|\| form\?\.hotelId \|\| form\?\.system_hotel_id \|\| form\?\.systemHotelId/, '配置表单门店展示必须兼容旧配置的 system_hotel_id 字段');
 assert.match(indexHtml, /getHotelNameById, hotelConfigTargetText, userHotelScopeText/, '配置表单门店展示函数必须暴露给 Vue 模板');
 assert.doesNotMatch(indexHtml, /openHotelManualFetchConfig\(hotel, 'ctrip'\)"[\s\S]{0,220}>[\s\S]{0,20}携程配置[\s\S]{0,20}<\/button>/, '右侧操作列不应重复展示携程配置');
 assert.doesNotMatch(indexHtml, /openHotelManualFetchConfig\(hotel, 'meituan'\)"[\s\S]{0,220}>[\s\S]{0,20}美团配置[\s\S]{0,20}<\/button>/, '右侧操作列不应重复展示美团配置');
