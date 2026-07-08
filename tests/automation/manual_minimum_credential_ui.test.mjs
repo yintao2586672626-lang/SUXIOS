@@ -86,6 +86,10 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
     ctripStatic.indexOf('const runCtripConfigSaveFlow = async ({'),
     ctripStatic.indexOf('const runCtripManualTabSwitch')
   );
+  const ctripManualTabSwitch = ctripStatic.slice(
+    ctripStatic.indexOf('const runCtripManualTabSwitch = async ({'),
+    ctripStatic.indexOf('const createCtripProfileFieldForm')
+  );
 
   assert.doesNotMatch(fetchCtripData, /请输入节点ID/);
   assert.match(html, /requireCtripStatic\('runCtripFetchDataFlow'\)/);
@@ -121,6 +125,8 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(loadCtripConfigList, /await ctripConfigListLoadingPromise\.catch\(\(\) => \[\]\);/);
   assert.match(ctripConfigSaveFlow, /afterSave = async \(\) => \{ reloadConfigs\(\); \}/);
   assert.match(ctripConfigSaveFlow, /await afterSave\(\{ response: res, requestBody \}\);/);
+  assert.match(ctripManualTabSwitch, /!\['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-ads', 'ctrip-config'\]\.includes\(tab\)/);
+  assert.match(ctripManualTabSwitch, /await loadConfigList\(\);/);
   assert.match(saveCtripConfig, /afterSave: async \(\{ response, requestBody \}\) => \{/);
   assert.match(saveCtripConfig, /await returnToCtripRankingAfterConfigSave\(savedHotelId\);/);
   assert.match(returnToCtripRankingAfterConfigSave, /currentPage\.value = 'ctrip-ebooking';/);

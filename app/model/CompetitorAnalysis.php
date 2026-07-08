@@ -224,7 +224,7 @@ class CompetitorAnalysis extends Model
         
         return self::where('hotel_id', $hotelId)
             ->where('analysis_date', $today)
-            ->whereRaw("ABS(price_difference) >= {$threshold}")
+            ->whereRaw('ABS(price_difference) >= :threshold', ['threshold' => $threshold])
             ->with('competitorHotel')
             ->order('price_difference', 'desc')
             ->select();

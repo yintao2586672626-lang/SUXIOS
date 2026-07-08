@@ -60,6 +60,10 @@ for (const basicReadRoute of [
   'api/online-data/daily-data-list',
   'api/online-data/daily-data-summary',
   'api/online-data/history',
+  'api/online-data/get-ctrip-config-list',
+  'api/online-data/get-ctrip-config-detail',
+  'api/online-data/get-meituan-config-list',
+  'api/online-data/get-meituan-config-detail',
 ]) {
   assertContract(!service.includes(`'${basicReadRoute}'`) && !service.includes(`"${basicReadRoute}"`), `${basicReadRoute} must stay outside protected core to avoid breaking basic reads`);
 }

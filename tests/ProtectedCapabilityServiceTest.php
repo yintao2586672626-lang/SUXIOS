@@ -124,6 +124,16 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertNull($service->classifyPath('GET', '/api/online-data/history?hotel_id=7'));
     }
 
+    public function testOtaConfigReadPathsStayScopedByControllerPermissions(): void
+    {
+        $service = new ProtectedCapabilityService();
+
+        self::assertNull($service->classifyPath('GET', '/api/online-data/get-ctrip-config-list'));
+        self::assertNull($service->classifyPath('GET', '/api/online-data/get-ctrip-config-detail?id=ctrip_1'));
+        self::assertNull($service->classifyPath('GET', '/api/online-data/get-meituan-config-list'));
+        self::assertNull($service->classifyPath('GET', '/api/online-data/get-meituan-config-detail?id=meituan_1'));
+    }
+
     public function testMutatingDataSourceAndEvidenceDetailPathsRemainProtected(): void
     {
         $service = new ProtectedCapabilityService();

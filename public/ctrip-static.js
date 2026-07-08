@@ -396,7 +396,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 : { status: 'stale_after_load', tab };
         }
 
-        if (!['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-ads'].includes(tab)) {
+        if (!['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-ads', 'ctrip-config'].includes(tab)) {
             return { status: 'noop', tab };
         }
 

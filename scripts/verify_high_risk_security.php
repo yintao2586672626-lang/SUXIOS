@@ -161,6 +161,7 @@ $dailyReportSource = file_get_contents(__DIR__ . '/../app/controller/DailyReport
 $platformSyncSource = file_get_contents(__DIR__ . '/../app/service/PlatformDataSyncService.php');
 $onlineDailyPersistenceSource = file_get_contents(__DIR__ . '/../app/service/OnlineDailyDataPersistenceService.php');
 $competitorSource = file_get_contents(__DIR__ . '/../app/controller/CompetitorApi.php');
+$competitorAnalysisModelSource = file_get_contents(__DIR__ . '/../app/model/CompetitorAnalysis.php');
 $systemConfigControllerSource = file_get_contents(__DIR__ . '/../app/controller/SystemConfigController.php');
 $aiConfigSource = file_get_contents(__DIR__ . '/../app/controller/AiConfig.php');
 $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
@@ -174,6 +175,7 @@ $legacyCronSource = file_get_contents(__DIR__ . '/auto_fetch_online_data.php');
 $competitorTaskSource = extract_method_source($competitorSource, 'task');
 $competitorReportSource = extract_method_source($competitorSource, 'report');
 $competitorReportTokenSource = extract_method_source($competitorSource, 'isValidReportToken');
+$competitorAlertSource = extract_method_source($competitorAnalysisModelSource, 'getAlertCompetitors');
 
 assert_true((bool)preg_match('/function\s+fetchCtrip\s*\([^)]*\)\s*:\s*Response\s*\{\s*\$this->checkPermission\(\);/s', $onlineSource), 'fetchCtrip must check login and hotel binding before reading cookies');
 assert_true((bool)preg_match('/function\s+saveCtripConfig\s*\([^)]*\)\s*:\s*Response\s*\{\s*\$this->checkPermission\(\);/s', $onlineSource), 'saveCtripConfig must check login and hotel binding');
@@ -197,6 +199,9 @@ assert_true(str_contains($competitorSource, 'getimagesizefromstring'), 'competit
 assert_true(str_contains($competitorSource, 'SCREENSHOT_ALLOWED_MIME_EXTENSIONS'), 'competitor report screenshots must enforce image MIME allowlist');
 assert_true(str_contains($competitorTaskSource, "OperationLog::record('competitor', 'task'"), 'competitor task endpoint must write operation audit logs');
 assert_true(str_contains($competitorReportSource, "OperationLog::record('competitor', 'report'"), 'competitor report endpoint must write operation audit logs');
+assert_true(str_contains($competitorAlertSource, "whereRaw('ABS(price_difference) >= :threshold'"), 'competitor alert threshold must use a bound SQL parameter');
+assert_true(str_contains($competitorAlertSource, "'threshold' => \$threshold"), 'competitor alert threshold binding must pass the threshold value separately');
+assert_true(!str_contains($competitorAlertSource, 'whereRaw("ABS(price_difference) >= {$threshold}")'), 'competitor alert threshold must not be interpolated into raw SQL');
 assert_true(str_contains($dailyReportSource, 'EXPORT_BATCH_LIMIT'), 'daily report exports must have a batch download limit');
 assert_true(str_contains($dailyReportSource, 'IMPORT_XLSX_MAX_BYTES'), 'daily report imports must have an upload size limit');
 assert_true(str_contains($dailyReportSource, 'IMPORT_XLSX_MAX_UNCOMPRESSED_BYTES'), 'daily report imports must limit uncompressed XLSX size');
