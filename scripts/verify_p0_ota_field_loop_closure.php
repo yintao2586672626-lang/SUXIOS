@@ -4565,6 +4565,50 @@ function p0_render_markdown(array $result): string
 try {
     $options = p0_parse_args($argv);
     $expectedPlatforms = p0_expected_platforms((string)$options['platform']);
+    $externalTrafficEvidence = p0_external_traffic_evidence($options, $expectedPlatforms);
+    if (($externalTrafficEvidence['status'] ?? 'not_provided') !== 'not_provided'
+        && ($externalTrafficEvidence['status'] ?? '') !== 'valid'
+    ) {
+        $issues = [];
+        p0_add_issue($issues, 'incomplete', 'external_traffic_evidence_not_valid', 'External traffic evidence was supplied but does not satisfy the desensitized traffic evidence contract.', [
+            'status' => (string)($externalTrafficEvidence['status'] ?? 'unknown'),
+            'platforms' => p0_array($externalTrafficEvidence['platforms'] ?? null),
+            'issues' => p0_array($externalTrafficEvidence['issues'] ?? null),
+            'completion_policy' => (string)($externalTrafficEvidence['completion_policy'] ?? ''),
+            'sensitive_values_exposed' => (bool)($externalTrafficEvidence['sensitive_values_exposed'] ?? false),
+        ]);
+        $result = [
+            'script' => 'scripts/verify_p0_ota_field_loop_closure.php',
+            'status' => 'incomplete',
+            'scope' => [
+                'date' => $options['date'],
+                'platforms' => $expectedPlatforms,
+                'system_hotel_id' => (int)($options['system-hotel-id'] ?? 0) > 0 ? (int)$options['system-hotel-id'] : null,
+                'hotel_scope_policy' => (int)($options['system-hotel-id'] ?? 0) > 0 ? 'system_hotel_id' : 'platform_date',
+                'storage_table' => 'online_daily_data',
+                'metric_scope' => 'ota_channel',
+                'source_policy' => 'traffic_evidence_contract_only_db_not_evaluated',
+            ],
+            'global_checks' => [],
+            'platforms' => [],
+            'traffic_evidence_availability' => [],
+            'external_traffic_evidence' => $externalTrafficEvidence,
+            'issues' => $issues,
+            'inspector_status' => 'not_evaluated_invalid_external_traffic_evidence',
+            'summary' => [
+                'platform_count' => 0,
+                'platforms_ready' => 0,
+                'p0_platforms_ready' => 0,
+                'p0_platforms_incomplete' => count($expectedPlatforms),
+                'source_platforms_ready' => 0,
+                'traffic_gates_ready' => 0,
+                'traffic_gates_incomplete' => count($expectedPlatforms),
+                'summary_policy' => 'External evidence contract failures are reported before DB-dependent live checks; P0 completion still requires ingested target-date traffic rows.',
+                'incomplete_issues' => count($issues),
+                'failed_issues' => 0,
+            ],
+        ];
+    } else {
     $inspection = p0_run_inspector($options, $expectedPlatforms);
 
     $issues = [];
@@ -4636,7 +4680,6 @@ try {
 
     $platformMap = p0_platform_map($inspection);
     $sourceSummaryMap = p0_source_summary_map($inspection);
-    $externalTrafficEvidence = p0_external_traffic_evidence($options, $expectedPlatforms);
     if (($externalTrafficEvidence['status'] ?? 'not_provided') !== 'not_provided'
         && ($externalTrafficEvidence['status'] ?? '') !== 'valid'
     ) {
@@ -4792,6 +4835,7 @@ try {
             'failed_issues' => $failedIssueCount,
         ],
     ];
+    }
 } catch (Throwable $e) {
     $result = [
         'script' => 'scripts/verify_p0_ota_field_loop_closure.php',
