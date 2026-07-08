@@ -812,6 +812,39 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         };
     };
 
+    const employeeOtaChecklistPriorityRank = (priority) => ({
+        high: 0,
+        medium: 1,
+        low: 2,
+        ok: 3,
+    }[String(priority || '').toLowerCase()] ?? 4);
+
+    const employeeOtaChecklistCategoryClass = (category) => ({
+        health: 'border-slate-200 bg-slate-50 text-slate-700',
+        gap: 'border-amber-200 bg-amber-50 text-amber-700',
+        anomaly: 'border-red-200 bg-red-50 text-red-700',
+        action: 'border-blue-200 bg-blue-50 text-blue-700',
+    }[String(category || '')] || 'border-gray-200 bg-gray-50 text-gray-600');
+
+    const employeeOtaChecklistCategoryText = (category) => ({
+        health: '健康',
+        gap: '缺口',
+        anomaly: '异常',
+        action: '今日动作',
+    }[String(category || '')] || '待确认');
+
+    const buildEmployeeOtaChecklistHeadline = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const hasHighPriority = safeRows.some(row => String(row?.priority || '').toLowerCase() === 'high');
+        if (hasHighPriority) {
+            return { text: '先处理高优先级', className: dataHealthPriorityClass('high') };
+        }
+        if (safeRows.length) {
+            return { text: `${safeRows.length} 项待处理`, className: dataHealthPriorityClass('medium') };
+        }
+        return { text: '暂无待处理', className: dataHealthPriorityClass('ok') };
+    };
+
     const otaFieldGapQueueStatusText = (status = '') => ({
         complete: '已闭合',
         ready: '已闭合',
@@ -5486,6 +5519,10 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         scheduleDataHealthLightDiagnosticsRefresh,
         buildDataHealthFieldGapActionRows,
         summarizeDataHealthFieldGapActions,
+        employeeOtaChecklistPriorityRank,
+        employeeOtaChecklistCategoryClass,
+        employeeOtaChecklistCategoryText,
+        buildEmployeeOtaChecklistHeadline,
         otaFieldGapQueueStatusText,
         buildOtaFieldGapQueueRows,
         summarizeOtaFieldGapQueue,

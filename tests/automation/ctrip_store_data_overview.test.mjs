@@ -568,6 +568,10 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(dataHealthStatic, /const summarizePublicEndpointSecurity = /);
   assert.match(dataHealthStatic, /const publicEndpointDisplayName = /);
   assert.match(dataHealthStatic, /const publicEndpointSecurityBoundaryText = /);
+  assert.match(dataHealthStatic, /const employeeOtaChecklistPriorityRank = /);
+  assert.match(dataHealthStatic, /const employeeOtaChecklistCategoryClass = /);
+  assert.match(dataHealthStatic, /const employeeOtaChecklistCategoryText = /);
+  assert.match(dataHealthStatic, /const buildEmployeeOtaChecklistHeadline = /);
   assert.match(dataHealthStatic, /const buildOtaFieldGapQueueRows = /);
   assert.match(dataHealthStatic, /const summarizeOtaFieldGapQueue = /);
   assert.match(dataHealthStatic, /const buildReleaseEvidencePanelRows = /);
@@ -590,6 +594,11 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(html, /requireDataHealthStatic\('summarizePublicEndpointSecurity'\)/);
   assert.match(html, /requireDataHealthStatic\('publicEndpointDisplayName'\)/);
   assert.match(html, /requireDataHealthStatic\('publicEndpointSecurityBoundaryText'\)/);
+  assert.match(html, /requireDataHealthStatic\('employeeOtaChecklistPriorityRank'\)/);
+  assert.match(html, /requireDataHealthStatic\('employeeOtaChecklistCategoryClass'\)/);
+  assert.match(html, /requireDataHealthStatic\('employeeOtaChecklistCategoryText'\)/);
+  assert.match(html, /requireDataHealthStatic\('buildEmployeeOtaChecklistHeadline'\)/);
+  assert.match(html, /const employeeOtaChecklistHeadline = computed\(\(\) => buildEmployeeOtaChecklistHeadline\(employeeOtaChecklistRows\.value\)\)/);
   assert.match(html, /requireDataHealthStatic\('buildOtaFieldGapQueueRows'\)/);
   assert.match(html, /requireDataHealthStatic\('summarizeOtaFieldGapQueue'\)/);
   assert.match(html, /const otaFieldGapQueueRows = computed\(\(\) => buildOtaFieldGapQueueRows\(\{/);

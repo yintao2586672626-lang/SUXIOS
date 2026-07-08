@@ -33,6 +33,31 @@ test('data health field-gap summary stays read-only and source-aware', () => {
   assert.equal(summary.hasForbidden, true);
 });
 
+test('employee OTA checklist display helpers stay static and priority aware', () => {
+  assert.equal(typeof helpers.employeeOtaChecklistPriorityRank, 'function');
+  assert.equal(typeof helpers.employeeOtaChecklistCategoryClass, 'function');
+  assert.equal(typeof helpers.employeeOtaChecklistCategoryText, 'function');
+  assert.equal(typeof helpers.buildEmployeeOtaChecklistHeadline, 'function');
+
+  assert.equal(helpers.employeeOtaChecklistPriorityRank('high'), 0);
+  assert.equal(helpers.employeeOtaChecklistPriorityRank('ok'), 3);
+  assert.equal(helpers.employeeOtaChecklistPriorityRank('unknown'), 4);
+  assert.match(helpers.employeeOtaChecklistCategoryClass('gap'), /amber/);
+  assert.match(helpers.employeeOtaChecklistCategoryClass('anomaly'), /red/);
+  assert.equal(helpers.employeeOtaChecklistCategoryText('action'), '今日动作');
+  assert.equal(helpers.employeeOtaChecklistCategoryText('other'), '待确认');
+
+  const high = helpers.buildEmployeeOtaChecklistHeadline([{ priority: 'medium' }, { priority: 'high' }]);
+  assert.equal(high.text, '先处理高优先级');
+  assert.match(high.className, /red|amber/);
+
+  const medium = helpers.buildEmployeeOtaChecklistHeadline([{ priority: 'medium' }, { priority: 'low' }]);
+  assert.equal(medium.text, '2 项待处理');
+
+  const empty = helpers.buildEmployeeOtaChecklistHeadline([]);
+  assert.equal(empty.text, '暂无待处理');
+});
+
 test('OTA field gap queue exposes only unclosed source-to-UI evidence gaps', () => {
   assert.equal(typeof helpers.buildOtaFieldGapQueueRows, 'function');
   assert.equal(typeof helpers.summarizeOtaFieldGapQueue, 'function');
