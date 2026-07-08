@@ -179,6 +179,7 @@ $legacyCronSource = file_get_contents(__DIR__ . '/auto_fetch_online_data.php');
 $competitorTaskSource = extract_method_source($competitorSource, 'task');
 $competitorReportSource = extract_method_source($competitorSource, 'report');
 $competitorReportTokenSource = extract_method_source($competitorSource, 'isValidReportToken');
+$competitorAuditSanitizerSource = extract_method_source($competitorSource, 'sanitizeExternalAuditText');
 $cronTriggerSource = extract_method_source($onlineSource, 'cronTrigger');
 $dailyPatrolCronSource = extract_method_source($onlineSource, 'dailyWorkbenchPatrolCron');
 $competitorAlertSource = extract_method_source($competitorAnalysisModelSource, 'getAlertCompetitors');
@@ -207,6 +208,8 @@ assert_true(str_contains($competitorTaskSource, '$this->extractTaskToken()') && 
 assert_true(!str_contains($competitorTaskSource, "post('token'") && !str_contains($competitorTaskSource, 'post("token"'), 'competitor task endpoint must not read auth token from request body');
 assert_true(str_contains($competitorReportSource, '$this->isValidReportToken($expectedToken)') && str_contains($competitorReportTokenSource, '$this->extractReportToken()') && str_contains($competitorSource, "header('X-Report-Token', '')"), 'competitor report endpoint must read auth token from X-Report-Token header');
 assert_true(!str_contains($competitorReportTokenSource, "post('report_token'") && !str_contains($competitorReportTokenSource, 'post("report_token"') && !str_contains($competitorReportTokenSource, "post('token'") && !str_contains($competitorReportTokenSource, 'post("token"'), 'competitor report endpoint must not read report token from request body');
+assert_true(str_contains($competitorAuditSanitizerSource, 'Authorization') && str_contains($competitorAuditSanitizerSource, 'cookie|token|authorization'), 'competitor public endpoint audit text must redact credential-shaped values');
+assert_true(str_contains($competitorAuditSanitizerSource, '1[3-9]') && str_contains($competitorAuditSanitizerSource, '\\d{12,}'), 'competitor public endpoint audit text must mask phone numbers and long identifiers');
 assert_true(str_contains($cronTriggerSource, "header('X-Cron-Token', '')"), 'cron trigger endpoint must read auth token from X-Cron-Token header');
 assert_true(!str_contains($cronTriggerSource, "get('token'") && !str_contains($cronTriggerSource, 'get("token"'), 'cron trigger endpoint must not read auth token from URL query');
 assert_true(str_contains($cronTriggerSource, 'hash_equals($configToken, $token)'), 'cron trigger endpoint must compare auth token with hash_equals');

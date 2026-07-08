@@ -49,6 +49,20 @@ final class SecurityInputGuardTest extends TestCase
         $this->invokeNonPublic($controller, 'saveBase64Image', [base64_encode('plain text')]);
     }
 
+    public function testCompetitorExternalAuditTextMasksSensitiveValues(): void
+    {
+        $controller = $this->controller(CompetitorApi::class);
+        $input = 'device token=raw-token Cookie: sid=raw-cookie Authorization: Bearer raw-auth 13812345678 123456789012345';
+
+        $masked = $this->invokeNonPublic($controller, 'sanitizeExternalAuditText', [$input]);
+
+        foreach (['raw-token', 'raw-cookie', 'raw-auth', '13812345678', '123456789012345'] as $secret) {
+            self::assertStringNotContainsString($secret, (string)$masked);
+        }
+        self::assertStringContainsString('****', (string)$masked);
+        self::assertLessThanOrEqual(83, mb_strlen((string)$masked, 'UTF-8'));
+    }
+
     public function testSystemConfigImportGuardsValidateFileAndSchema(): void
     {
         $controller = $this->controller(SystemConfigController::class);

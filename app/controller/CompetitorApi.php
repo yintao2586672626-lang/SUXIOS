@@ -293,6 +293,25 @@ class CompetitorApi extends Base
     private function sanitizeExternalAuditText(string $value): string
     {
         $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $patterns = [
+            '/\bAuthorization\s*:\s*Bearer\s+[^\s,;]+/iu' => 'Authorization=****',
+            '/\bBearer\s+[A-Za-z0-9._\-]{8,}/u' => 'Bearer ****',
+            '/\b(cookie|token|authorization|password|secret|spidertoken|mtgsig|usersign|usertoken|api[_-]?key|access[_-]?key|key)\s*[:=]\s*["\']?[^"\'\s,;]+/iu' => '$1=****',
+            '/([?&](?:token|key|api[_-]?key|authorization|spidertoken|mtgsig|usersign|usertoken)=)[^&#\s]+/iu' => '$1****',
+            '/sk-[A-Za-z0-9_-]{8,}/u' => 'sk-****',
+            '/(1[3-9]\d)\d{4}(\d{4})/u' => '$1****$2',
+            '/\b\d{12,}\b/u' => '[编号已隐藏]',
+            '/\s+/u' => ' ',
+        ];
+
+        foreach ($patterns as $pattern => $replacement) {
+            $value = preg_replace($pattern, $replacement, $value) ?? $value;
+        }
+
         if (mb_strlen($value, 'UTF-8') > 80) {
             return mb_substr($value, 0, 80, 'UTF-8') . '...';
         }

@@ -136,6 +136,7 @@ $dailyPatrolCronSource = extract_method_source_regression($operationWorkbenchSou
 $competitorTaskSource = extract_method_source_regression($competitorSource, 'task');
 $competitorReportSource = extract_method_source_regression($competitorSource, 'report');
 $competitorReportTokenSource = extract_method_source_regression($competitorSource, 'isValidReportToken');
+$competitorAuditSanitizerSource = extract_method_source_regression($competitorSource, 'sanitizeExternalAuditText');
 $robotIndexSource = extract_method_source_regression($robotControllerSource, 'index');
 $robotApiIndexSource = extract_method_source_regression($robotControllerSource, 'apiIndex');
 $robotApiDetailSource = extract_method_source_regression($robotControllerSource, 'apiDetail');
@@ -158,6 +159,8 @@ assert_regression(str_contains($competitorTaskSource, '$this->extractTaskToken()
 assert_regression(!str_contains($competitorTaskSource, "post('token'") && !str_contains($competitorTaskSource, 'post("token"'), 'competitor task token must not be accepted from request body');
 assert_regression(str_contains($competitorReportSource, '$this->isValidReportToken($expectedToken)') && str_contains($competitorReportTokenSource, '$this->extractReportToken()') && str_contains($competitorSource, "header('X-Report-Token', '')"), 'competitor report token must be read from X-Report-Token header only');
 assert_regression(!str_contains($competitorReportTokenSource, "post('report_token'") && !str_contains($competitorReportTokenSource, 'post("report_token"') && !str_contains($competitorReportTokenSource, "post('token'") && !str_contains($competitorReportTokenSource, 'post("token"'), 'competitor report_token must not be accepted from request body');
+assert_regression(str_contains($competitorAuditSanitizerSource, 'Authorization') && str_contains($competitorAuditSanitizerSource, 'cookie|token|authorization'), 'competitor public endpoint audit text must redact credential-shaped values');
+assert_regression(str_contains($competitorAuditSanitizerSource, '1[3-9]') && str_contains($competitorAuditSanitizerSource, '\\d{12,}'), 'competitor public endpoint audit text must mask phone numbers and long identifiers');
 assert_regression(str_contains($competitorSource, "\$ipHash = substr(sha1((string)\$this->request->ip()), 0, 16);"), 'competitor public token APIs must rate limit pre-auth attempts by IP hash');
 assert_regression(!str_contains($competitorSource, "\$identity . '|' . (string)\$this->request->ip()"), 'competitor public token APIs must not let request identity bypass pre-auth rate limits');
 assert_regression(str_contains($competitorReportSource, 'CompetitorHotel::where'), 'competitor report must validate the target competitor hotel');
