@@ -25,7 +25,7 @@ const scriptMatch = html.match(/const loadAiModelConfigs = async \(\) => \{[\s\S
 const failures = [];
 const localeSwitchCount = (html.match(/data-locale-switch/g) || []).length;
 const appHeaderMatch = html.match(/<header class="header px-6 py-4 sticky top-0 z-10">[\s\S]*?<\/header>/);
-const initialLocaleMatch = html.match(/const getInitialLocale = \(\) => \{[\s\S]*?\n    \};/);
+const initialLocaleMatch = contractSource.match(/const getInitialLocale = (?:\(\)|\(\{[\s\S]*?\} = \{\}\)) => \{[\s\S]*?\n    \};/);
 
 if (localeSwitchCount < 2) {
   failures.push('global locale switch should appear on login page and app header');
@@ -48,8 +48,12 @@ if (!initialLocaleMatch) {
 } else {
   const localeBlock = initialLocaleMatch[0];
   const langIndex = localeBlock.indexOf("params.get('lang')");
-  const localStorageIndex = localeBlock.indexOf("localStorage.getItem('suxios_locale')");
-  if (langIndex === -1 || localStorageIndex === -1 || langIndex > localStorageIndex) {
+  const cacheIndexes = [
+    localeBlock.indexOf("localStorage.getItem('suxios_locale')"),
+    localeBlock.indexOf("storage?.getItem?.('suxios_locale')"),
+  ].filter((index) => index !== -1);
+  const cacheIndex = cacheIndexes.length > 0 ? Math.min(...cacheIndexes) : -1;
+  if (langIndex === -1 || cacheIndex === -1 || langIndex > cacheIndex) {
     failures.push('URL language parameter should take priority over cached locale');
   }
 }
