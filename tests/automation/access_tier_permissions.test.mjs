@@ -196,6 +196,10 @@ assert.match(indexHtml, /roleId === 3 \|\| roleName === 'normal_user' \|\| level
 assert.match(indexHtml, /openUserModalWithRole\(card\.roleId\)/, 'user management must support issuing beta/normal roles from guide cards');
 assert.match(indexHtml, /roleIssueActionText\(card\)/, 'role issue cards must use explicit beta or normal issue actions');
 assert.match(indexHtml, /发放结论：\{\{ card\.issueStatusText \}\}/, 'role issue cards must show the issuance conclusion before admins create external users');
+assert.match(indexHtml, /可用功能：<\/span>\{\{ card\.allowed \}\}/, 'role issue cards must show allowed capabilities before admins issue beta or normal accounts');
+assert.match(indexHtml, /不可用功能：<\/span>\{\{ selectedUserRoleGuide\.denied \}\}/, 'user modal must show denied capabilities for the selected beta or normal role');
+assert.match(indexHtml, /发送前确认：\$\{profile\?\.sendChecklist \|\| '-'\}/, 'copied issuance guidance must include the pre-send checklist');
+assert.match(indexHtml, /高风险待修/, 'normal external role tags must flag high-risk permission blockers clearly');
 assert.match(indexHtml, /:title="card\.issueBlocked \? card\.issueStatusDetail : roleIssueActionText\(card\)"/, 'blocked role issue cards must expose the blocker detail on the disabled action');
 assert.match(indexHtml, /:disabled="card\.issueBlocked"/, 'unsafe normal-user role cards must not present an enabled external issuance action');
 assert.match(indexHtml, /if \(profile\.issueBlocked\) return '先修角色权限'/, 'blocked normal-user role cards must direct admins to repair the role first');
