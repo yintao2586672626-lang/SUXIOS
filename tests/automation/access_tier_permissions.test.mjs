@@ -93,6 +93,8 @@ assert.doesNotMatch(indexHtml, /美团竞对 \{\{ hotelCompetitorReadiness\(hote
 assert.match(indexHtml, /const hotelCompetitorActionMeta = \(hotel = \{\}\) => \{[\s\S]*openHomeQuickEntry\(\{ page: 'meituan-ebooking', tab: 'meituan-ranking' \}\)/, 'competitor readiness should remain reachable through the next-action flow');
 assert.match(indexHtml, /@click="refreshHotelBindingPanelLight"/, 'top-level status refresh should use the light refresh path');
 assert.match(indexHtml, />受控操作<\/span>[\s\S]*>深度刷新<\/span>[\s\S]*>数据迁移<\/span>[\s\S]*>用户授权<\/span>/, 'migration and authorization actions should be grouped as controlled admin operations');
+assert.doesNotMatch(indexHtml, /hotelAccountHealthText\(hotel\)/, 'store identity cell should not repeat account-health summary already shown by platform cards');
+assert.doesNotMatch(indexHtml, /hotelAccountHealthClass\(hotel\)/, 'store identity cell should not keep a duplicate account-health badge');
 assert.doesNotMatch(indexHtml, /待办：\$\{action\}/, 'hotel account health tag should not repeat the concrete next action in the store info cell');
 assert.doesNotMatch(indexHtml, /return '待办：补齐账号\/采集'/, 'hotel account health fallback should not show vague todo copy in the store info cell');
 assert.match(indexHtml, /OTA采集接入状态 · \{\{ filteredHotels\.length \}\}/, 'hotel account ledger should become OTA collection access status');
@@ -112,7 +114,8 @@ assert.doesNotMatch(indexHtml, /点击登录\/刷新会话|点击卡片登录\/�
 assert.match(indexHtml, />手动Cookie<\/div>[\s\S]*hotelPlatformManualCookieText\(hotel, account\)/, 'hotel channel cards should show manual Cookie readiness');
 assert.match(indexHtml, />采集配置<\/div>[\s\S]*hotelPlatformFetchConfigText\(hotel, account\)/, 'hotel channel cards should show collection config readiness');
 assert.match(indexHtml, />自动化采集<\/div>[\s\S]*hotelPlatformAutomationText\(hotel, account\)/, 'hotel channel cards should show automation collection readiness');
-assert.match(indexHtml, /@click="openHotelSyncLogs\(hotel, account\.platform\)"[\s\S]*查看日志/, 'hotel channel cards should expose sync logs');
+assert.match(indexHtml, /@click="openHotelSyncLogs\(hotel, account\.platform\)"[\s\S]*采集日志/, 'hotel channel cards should expose collection logs with a clear label');
+assert.doesNotMatch(indexHtml, /@click="openHotelSyncLogs\(hotel, account\.platform\)"[\s\S]{0,140}查看日志/, 'hotel channel log action should not use vague view-log copy');
 assert.match(indexHtml, /平台门店：\{\{ account\.accountStoreText \|\| '-' \}\}/, 'hotel channel cards should show the mapped platform store');
 assert.doesNotMatch(indexHtml, /处理：\{\{ hotelNextAction\(hotel\)\.text \}\}/, 'operation column should not duplicate platform-card next actions');
 assert.doesNotMatch(indexHtml, />维护账号<\/button>/, 'operation column should not duplicate platform-card account maintenance');

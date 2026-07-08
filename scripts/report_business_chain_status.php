@@ -703,7 +703,10 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
         if ($source === '') {
             continue;
         }
-        if (($row['target_status'] ?? '') === 'ready') {
+        $operatorSkipped = isset($operatorSkippedLookup[$source]);
+        if ($operatorSkipped) {
+            $targetBlockedPlatforms[] = $source;
+        } elseif (($row['target_status'] ?? '') === 'ready') {
             $targetReadyPlatforms[] = $source;
         } else {
             $targetBlockedPlatforms[] = $source;
@@ -711,7 +714,7 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
         if (($row['reference_status'] ?? '') === 'ready') {
             $referenceReadyPlatforms[] = $source;
         }
-        if (isset($operatorSkippedLookup[$source])) {
+        if ($operatorSkipped) {
             $operatorSkippedReadyPlatforms[] = $source;
         }
     }
@@ -828,6 +831,52 @@ function business_chain_revenue_to_ai_handoff(array $referenceScope, array $reve
     return $handoff;
 }
 
+function business_chain_manual_review_input_key_for_reason(string $reason, string $fallback): string
+{
+    $map = [
+        'available_room_nights_missing' => 'revpar_denominator',
+        'floor_price_missing' => 'floor_price',
+        'manual_review_workflow_not_connected' => 'manual_review_workflow',
+        'operation_execution_not_loaded' => 'operation_feedback_input',
+        'competitor_price_fields_missing' => 'competitor_price',
+        'demand_forecasts_not_loaded' => 'demand_signal_7d',
+        'ota_room_nights_zero' => 'ota_metrics',
+        'ota_revenue_metrics_missing' => 'ota_metrics',
+        'online_daily_data_empty' => 'ota_metrics',
+    ];
+    return $map[$reason] ?? $fallback;
+}
+
+function business_chain_manual_review_blocker_rank(array $blocker): int
+{
+    $reason = (string)($blocker['reason'] ?? '');
+    $key = (string)($blocker['key'] ?? '');
+    $rank = [
+        'available_room_nights_missing' => 10,
+        'floor_price_missing' => 20,
+        'manual_review_workflow_not_connected' => 30,
+        'operation_execution_not_loaded' => 40,
+        'competitor_price_fields_missing' => 50,
+        'demand_forecasts_not_loaded' => 60,
+        'ota_room_nights_zero' => 70,
+        'ota_revenue_metrics_missing' => 70,
+        'online_daily_data_empty' => 70,
+    ];
+    if (isset($rank[$reason])) {
+        return $rank[$reason];
+    }
+    $keyRank = [
+        'revpar_denominator' => 10,
+        'floor_price' => 20,
+        'manual_review_workflow' => 30,
+        'operation_feedback_input' => 40,
+        'competitor_price' => 50,
+        'demand_signal_7d' => 60,
+        'ota_metrics' => 70,
+    ];
+    return $keyRank[$key] ?? 100;
+}
+
 /**
  * @param array<string, mixed> $handoff
  * @param array<string, mixed> $revenueDiagnosis
@@ -846,11 +895,29 @@ function business_chain_manual_review_packet(array $handoff, array $revenueDiagn
     }
     $basis = is_array($firstAction['decision_basis_summary'] ?? null) ? $firstAction['decision_basis_summary'] : [];
     $blockers = [];
+    $seenBlockers = [];
+    $addBlocker = static function (array $blocker) use (&$blockers, &$seenBlockers): void {
+        $reason = trim((string)($blocker['reason'] ?? ''));
+        $key = trim((string)($blocker['key'] ?? ''));
+        if ($reason === '' && $key === '') {
+            return;
+        }
+        if ($key === '') {
+            $key = business_chain_manual_review_input_key_for_reason($reason, $reason);
+            $blocker['key'] = $key;
+        }
+        $dedupeKey = $key . '|' . $reason;
+        if (isset($seenBlockers[$dedupeKey])) {
+            return;
+        }
+        $seenBlockers[$dedupeKey] = true;
+        $blockers[] = $blocker;
+    };
     foreach (business_chain_list($basis['items'] ?? []) as $index => $item) {
         if (!is_array($item) || (string)($item['status'] ?? '') === 'ok') {
             continue;
         }
-        $blockers[] = [
+        $addBlocker([
             'key' => (string)($item['key'] ?? ''),
             'label' => (string)($item['label'] ?? ''),
             'status' => (string)($item['status'] ?? ''),
@@ -862,15 +929,66 @@ function business_chain_manual_review_packet(array $handoff, array $revenueDiagn
             'target_tab' => (string)($item['target_tab'] ?? ''),
             'target_platform' => (string)($item['target_platform'] ?? ''),
             '_order' => $index,
-        ];
+        ]);
+    }
+    foreach (business_chain_list($firstAction['blocking_reasons'] ?? []) as $index => $reasonValue) {
+        $reason = trim((string)$reasonValue);
+        if ($reason === '') {
+            continue;
+        }
+        $addBlocker([
+            'key' => business_chain_manual_review_input_key_for_reason($reason, (string)($firstAction['key'] ?? '')),
+            'label' => '',
+            'status' => 'blocked',
+            'reason' => $reason,
+            'severity' => '',
+            'category' => 'ai_action_blocker',
+            'next_action' => '',
+            'target_page' => '',
+            'target_tab' => '',
+            'target_platform' => '',
+            '_order' => 100 + $index,
+        ]);
+    }
+    $actionResolutionPlan = is_array($firstAction['ai_decision_resolution_plan'] ?? null)
+        ? $firstAction['ai_decision_resolution_plan']
+        : [];
+    foreach (['items', 'skipped_items'] as $listKey) {
+        foreach (business_chain_list($actionResolutionPlan[$listKey] ?? []) as $index => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $reason = trim((string)($item['evidence_code'] ?? ''));
+            if ($reason === '') {
+                continue;
+            }
+            $addBlocker([
+                'key' => business_chain_manual_review_input_key_for_reason($reason, (string)($item['code'] ?? '')),
+                'label' => '',
+                'status' => (string)($item['status'] ?? ($listKey === 'skipped_items' ? 'skipped_by_operator_policy' : 'blocked')),
+                'reason' => $reason,
+                'severity' => (string)($item['severity'] ?? ''),
+                'category' => (string)($item['input_type'] ?? ''),
+                'next_action' => '',
+                'target_page' => (string)($item['target_page'] ?? ''),
+                'target_tab' => (string)($item['target_tab'] ?? ''),
+                'target_platform' => (string)($item['target_platform'] ?? ''),
+                '_order' => 200 + ($listKey === 'skipped_items' ? 100 : 0) + $index,
+            ]);
+        }
     }
     $severityRank = ['high' => 0, 'medium' => 1, 'low' => 2];
     usort($blockers, static function (array $left, array $right) use ($severityRank): int {
-        $leftRank = $severityRank[(string)($left['severity'] ?? '')] ?? 3;
-        $rightRank = $severityRank[(string)($right['severity'] ?? '')] ?? 3;
-        return $leftRank === $rightRank
+        $leftBusinessRank = business_chain_manual_review_blocker_rank($left);
+        $rightBusinessRank = business_chain_manual_review_blocker_rank($right);
+        if ($leftBusinessRank !== $rightBusinessRank) {
+            return $leftBusinessRank <=> $rightBusinessRank;
+        }
+        $leftSeverityRank = $severityRank[(string)($left['severity'] ?? '')] ?? 3;
+        $rightSeverityRank = $severityRank[(string)($right['severity'] ?? '')] ?? 3;
+        return $leftSeverityRank === $rightSeverityRank
             ? ((int)($left['_order'] ?? 0) <=> (int)($right['_order'] ?? 0))
-            : ($leftRank <=> $rightRank);
+            : ($leftSeverityRank <=> $rightSeverityRank);
     });
     $blockers = array_map(static function (array $blocker): array {
         unset($blocker['_order']);
@@ -1706,6 +1824,9 @@ function business_chain_downstream_reference_workflow(array $revenue, array $clo
     $investmentMissing = business_chain_list($investment['operating_data_gate']['missing_evidence'] ?? []);
     $targetReadyPlatforms = business_chain_list($referenceScope['target_ready_platforms'] ?? []);
     $targetBlockedPlatforms = business_chain_list($referenceScope['target_blocked_platforms'] ?? []);
+    $diagnosisSourceChannels = $targetReadyPlatforms !== []
+        ? $targetReadyPlatforms
+        : business_chain_list($revenue['source_channels'] ?? []);
     $hasPartialTargetReadyScope = !$skipP0 && $targetReadyPlatforms !== [] && $targetBlockedPlatforms !== [];
     $hasScopedReadyScope = $p0Ready && $targetReadyPlatforms !== [] && $targetBlockedPlatforms === [];
     $referenceOnly = $skipP0 || $hasPartialTargetReadyScope;
@@ -1714,7 +1835,7 @@ function business_chain_downstream_reference_workflow(array $revenue, array $clo
             ? 'reference_only'
             : ($hasPartialTargetReadyScope ? 'partial_reference_only' : (string)($revenue['data_status'] ?? 'unknown')),
         'data_status' => (string)($revenue['data_status'] ?? ''),
-        'source_channels' => $revenue['source_channels'] ?? [],
+        'source_channels' => $diagnosisSourceChannels,
         'metric_scope' => 'ota_channel',
         'metrics' => [
             'ota_room_revenue' => business_chain_metric_digest($metrics['ota_room_revenue'] ?? []),
@@ -1968,16 +2089,27 @@ function business_chain_report(array $options): array
     $p0Ready = business_chain_p0_execution_plan_ready($p0ExecutionPlan);
     $p0Gate = business_chain_gate($targetDate, $systemHotelId, $skipActive, $options['skip_platforms'], $sources, $p0Ready);
     $downstreamReferenceScope = business_chain_downstream_reference_scope($sourceRows, $options['skip_platforms']);
+    $diagnosisPlatforms = business_chain_list($downstreamReferenceScope['target_ready_platforms'] ?? []);
+    $diagnosisReferenceDataset = $referenceDataset;
+    $diagnosisReferenceDatasets = $referenceDatasets;
+    if ($diagnosisPlatforms !== [] && business_chain_list($downstreamReferenceScope['target_blocked_platforms'] ?? []) !== []) {
+        $diagnosisReferenceDataset = business_chain_filter_dataset_platforms($referenceDataset, $diagnosisPlatforms);
+        $diagnosisReferenceDatasets = array_intersect_key(
+            $referenceDatasets,
+            array_fill_keys(array_values(array_map('strval', $diagnosisPlatforms)), true)
+        );
+    }
+    $diagnosisEnabledChannels = $diagnosisPlatforms !== [] ? $diagnosisPlatforms : $sources;
 
     $revenue = (new RevenueAiOverviewService())->buildOverviewFromDataset(
-        $referenceDataset,
-        $referenceDatasets,
+        $diagnosisReferenceDataset,
+        $diagnosisReferenceDatasets,
         [],
         [
             'business_date' => $targetDate,
             'hotel_id' => $systemHotelId,
             'p0_downstream_gate' => $p0Gate,
-            'enabled_channels' => $sources,
+            'enabled_channels' => $diagnosisEnabledChannels,
         ]
     );
     $closure = (new BusinessClosureOverviewService())->buildOverviewFromSignals(

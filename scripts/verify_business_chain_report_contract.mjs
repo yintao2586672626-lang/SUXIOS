@@ -305,7 +305,7 @@ includesAll('Revenue AI keeps Ctrip data-hit metric gaps distinct from empty dat
 ]);
 
 includesAll('business-chain report runtime test guards Ctrip metric-gap reason', runtimeTest, [
-  'ota_room_nights_zero',
+  'available_room_nights_missing',
   'online_daily_data_empty',
   'blocking_reasons',
 ]);

@@ -4090,11 +4090,6 @@
                                                             <span class="ml-1 font-semibold text-gray-800 truncate" :title="hotelOwnerText(hotel)">{{ hotelOwnerText(hotel) }}</span>
                                                         </div>
                                                     </div>
-                                                    <div class="mt-1.5 flex flex-wrap gap-1.5 text-xs">
-                                                        <span :class="hotelAccountHealthClass(hotel)" class="rounded-md border px-2 py-0.5 whitespace-nowrap">
-                                                            {{ hotelAccountHealthText(hotel) }}
-                                                        </span>
-                                                    </div>
                                                 </div>
                                             </td>
                                             <td class="px-4 py-4 w-[20%]">
@@ -4132,7 +4127,7 @@
                                                     </div>
                                                     <div class="mt-2 flex items-center justify-between gap-2 text-[11px]">
                                                         <span class="text-gray-500">模块 {{ hotelPlatformModuleText(account) }}</span>
-                                                        <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-blue-700 hover:text-blue-900">查看日志</button>
+                                                        <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-blue-700 hover:text-blue-900">采集日志</button>
                                                     </div>
                                                     <div v-if="canManageOwnHotels()" class="mt-2 grid grid-cols-2 gap-1.5">
                                                         <button type="button" @click="openHotelPlatformCardLogin(hotel, account)" class="rounded-md border border-blue-100 bg-white px-2 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">授权登录</button>
@@ -4175,7 +4170,7 @@
                                                     </div>
                                                     <div class="mt-2 flex items-center justify-between gap-2 text-[11px]">
                                                         <span class="text-gray-500">模块 {{ hotelPlatformModuleText(account) }}</span>
-                                                        <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-orange-700 hover:text-orange-900">查看日志</button>
+                                                        <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-orange-700 hover:text-orange-900">采集日志</button>
                                                     </div>
                                                     <div v-if="canManageOwnHotels()" class="mt-2 grid grid-cols-2 gap-1.5">
                                                         <button type="button" @click="openHotelPlatformCardLogin(hotel, account)" class="rounded-md border border-orange-100 bg-white px-2 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-50">授权登录</button>
@@ -4207,9 +4202,6 @@
                                                 <span :class="String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'"
                                                     class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                     {{ String(hotel.status) === '1' ? '营业中' : '已停用' }}
-                                                </span>
-                                                <span :class="hotelAccountHealthClass(hotel)" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                    {{ hotelAccountHealthText(hotel) }}
                                                 </span>
                                             </div>
                                             <div class="mt-2 space-y-1 text-xs">
@@ -4273,7 +4265,7 @@
                                             </div>
                                             <div class="mt-2 flex items-center justify-between gap-2 text-[11px]">
                                                 <span class="text-gray-500">模块 {{ hotelPlatformModuleText(account) }}</span>
-                                                <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-blue-700 hover:text-blue-900">查看日志</button>
+                                                <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-blue-700 hover:text-blue-900">采集日志</button>
                                             </div>
                                             <div v-if="canManageOwnHotels()" class="mt-2 grid grid-cols-2 gap-1.5">
                                                 <button type="button" @click="openHotelPlatformCardLogin(hotel, account)" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">授权登录</button>
