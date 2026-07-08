@@ -333,6 +333,10 @@ requireText('public/ctrip-static.js', 'const isCtripRankingFormAlignedWithConfig
 requireText('app/controller/concern/OnlineDataManualFetchConcern.php', 'private function validateCtripManualBusinessHotelIdentity', 'manual Ctrip business fetch validates returned hotel identity before autosave');
 requireText('app/controller/concern/OnlineDataManualFetchConcern.php', 'expected_platform_hotel_id_missing', 'manual Ctrip business fetch blocks autosave without configured platform hotel id');
 requireText('app/controller/concern/OnlineDataManualFetchConcern.php', 'private function resolveCtripSystemHotelIdentityFromPlatformIds', 'manual Ctrip business fetch can auto-resolve system hotel identity from returned platform hotel id');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'public function fetchCtripCookieApiData(): Response', 'Ctrip Cookie API fetch endpoint exists');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', "$identityCheck['status'] = 'expected_platform_hotel_id_missing';", 'Ctrip Cookie API blocks autosave without configured platform hotel id');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', '$saveBlockedIdentity = $identityCheck;', 'Ctrip Cookie API routes unverifiable hotel identity to save_blocked');
+requireNoText('app/controller/concern/OnlineDataRequestConcern.php', 'cookie_only_without_platform_hotel_id', 'Ctrip Cookie API must not autosave cookie-only data without platform hotel id');
 requireText('public/index.html', "requireCtripStatic('buildLatestCtripSnapshotModel')", 'entry uses extracted Ctrip latest snapshot model builder');
 requireText('public/ctrip-static.js', 'const buildLatestCtripSnapshotModel', 'Ctrip static builds latest snapshot models');
 requireText('public/index.html', "requireCtripStatic('runCtripTrafficFetchFlow')", 'entry uses extracted Ctrip traffic fetch flow runner');
