@@ -6,6 +6,7 @@ namespace app\controller\concern;
 use app\model\OperationLog;
 use app\service\CtripManualFetchRequestService;
 use app\service\CtripTrafficDisplayService;
+use app\service\HotelDataMergeService;
 use app\service\ManualOnlineFetchTaskService;
 use app\service\MeituanManualFetchRequestService;
 use think\Response;
@@ -349,16 +350,13 @@ trait OnlineDataManualFetchConcern
             return $this->shouldBlockCtripCurrentHotelIdConflict((string)($conflict['hotel_id'] ?? ''), $expectedIds);
         })) : [];
         if ($blockingConflicts !== []) {
-            return [
-                'ok' => false,
-                'status' => 'platform_hotel_conflict',
-                'message' => '携程返回酒店ID已绑定到其他系统门店，已取消入库，避免错店数据覆盖。',
-                'target_system_hotel_id' => $systemHotelId,
-                'target_hotel_name' => $targetHotelName,
-                'captured_hotel_ids' => $capturedIds,
-                'expected_hotel_ids' => $expectedIds,
-                'conflicts' => $blockingConflicts,
-            ];
+            return $this->buildCtripPlatformHotelConflictResult(
+                $systemHotelId,
+                $targetHotelName,
+                $capturedIds,
+                $expectedIds,
+                $blockingConflicts
+            );
         }
 
         if ($expectedIds !== [] && array_intersect($expectedIds, $capturedIds) === []) {
@@ -425,21 +423,60 @@ trait OnlineDataManualFetchConcern
         }
 
         $bindingMatches = $this->findCtripSystemHotelMatchesByPlatformIds($capturedIds);
+        $currentBindingMatches = array_values(array_filter($bindingMatches, static function (array $match) use ($systemHotelId): bool {
+            return (int)($match['system_hotel_id'] ?? 0) === $systemHotelId;
+        }));
         $blockingMatches = array_values(array_filter($bindingMatches, static function (array $match) use ($systemHotelId): bool {
             return (int)($match['system_hotel_id'] ?? 0) !== $systemHotelId;
         }));
         $historyConflicts = $this->findCtripPlatformHotelIdConflicts($capturedIds, $systemHotelId);
-        if ($blockingMatches !== [] || $historyConflicts !== []) {
+        $historyConflictHotelIds = $this->extractCtripConflictSystemHotelIds($historyConflicts, $systemHotelId);
+        if (
+            $blockingMatches === []
+            && $historyConflicts !== []
+            && $currentBindingMatches !== []
+            && count($historyConflictHotelIds) === 1
+            && $this->currentUserCanResolveCtripIdentityConflict()
+        ) {
+            $matchedIds = [];
+            foreach ($currentBindingMatches as $match) {
+                foreach (($match['matched_hotel_ids'] ?? []) as $matchedId) {
+                    $matchedId = trim((string)$matchedId);
+                    if ($matchedId !== '') {
+                        $matchedIds[$matchedId] = true;
+                    }
+                }
+            }
+            $resolution = $this->buildCtripAdminHotelMergeResolution(
+                (int)$historyConflictHotelIds[0],
+                $systemHotelId,
+                $historyConflicts,
+                true
+            );
+
             return [
-                'ok' => false,
-                'status' => 'platform_hotel_conflict',
-                'message' => '携程返回酒店ID已绑定到其他系统门店，已取消入库，避免错店数据覆盖。',
+                'ok' => true,
+                'status' => 'admin_allowed_platform_hotel_history_conflict',
+                'warning' => true,
+                'message' => (string)$resolution['message'],
+                'next_action' => (string)$resolution['next_action'],
                 'target_system_hotel_id' => $systemHotelId,
                 'target_hotel_name' => $targetHotelName,
                 'captured_hotel_ids' => $capturedIds,
-                'expected_hotel_ids' => [],
-                'conflicts' => array_values(array_merge($blockingMatches, $historyConflicts)),
+                'expected_hotel_ids' => array_keys($matchedIds ?: array_fill_keys($capturedIds, true)),
+                'conflicts' => $historyConflicts,
+                'admin_resolution' => $resolution,
             ];
+        }
+
+        if ($blockingMatches !== [] || $historyConflicts !== []) {
+            return $this->buildCtripPlatformHotelConflictResult(
+                $systemHotelId,
+                $targetHotelName,
+                $capturedIds,
+                [],
+                array_values(array_merge($blockingMatches, $historyConflicts))
+            );
         }
 
         $platformHotelId = (string)$capturedIds[0];
@@ -467,6 +504,123 @@ trait OnlineDataManualFetchConcern
             'expected_hotel_ids' => [$platformHotelId],
             'conflicts' => [],
             'auto_bound' => true,
+        ];
+    }
+
+    private function buildCtripPlatformHotelConflictResult(
+        int $systemHotelId,
+        string $targetHotelName,
+        array $capturedIds,
+        array $expectedIds,
+        array $conflicts
+    ): array {
+        $result = [
+            'ok' => false,
+            'status' => 'platform_hotel_conflict',
+            'message' => '携程返回酒店ID已绑定到其他系统门店，已取消入库，避免错店数据覆盖。',
+            'target_system_hotel_id' => $systemHotelId,
+            'target_hotel_name' => $targetHotelName,
+            'captured_hotel_ids' => $capturedIds,
+            'expected_hotel_ids' => $expectedIds,
+            'conflicts' => $conflicts,
+        ];
+
+        $resolution = $this->buildCtripAdminIdentityConflictResolution($systemHotelId, $conflicts);
+        if ($resolution !== null) {
+            $result['admin_resolution'] = $resolution;
+            $result['message'] = (string)$resolution['message'];
+            $result['next_action'] = (string)$resolution['next_action'];
+        }
+
+        return $result;
+    }
+
+    private function buildCtripAdminIdentityConflictResolution(int $systemHotelId, array $conflicts): ?array
+    {
+        if (!$this->currentUserCanResolveCtripIdentityConflict()) {
+            return null;
+        }
+
+        $conflictHotelIds = $this->extractCtripConflictSystemHotelIds($conflicts, $systemHotelId);
+        if (count($conflictHotelIds) !== 1) {
+            return [
+                'action' => 'inspect_platform_hotel_conflicts',
+                'scope' => 'admin_only',
+                'can_continue_current_fetch' => false,
+                'source_system_hotel_id' => $systemHotelId,
+                'target_system_hotel_id' => null,
+                'message' => '携程返回酒店ID存在多个系统门店冲突，管理员需先清理重复绑定或历史错店数据，不能直接入库。',
+                'next_action' => '进入酒店管理核对携程 hotelId 绑定和历史数据归属。',
+                'conflicts' => $conflicts,
+            ];
+        }
+
+        return $this->buildCtripAdminHotelMergeResolution(
+            $systemHotelId,
+            (int)$conflictHotelIds[0],
+            $conflicts,
+            false
+        );
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function extractCtripConflictSystemHotelIds(array $conflicts, int $currentSystemHotelId): array
+    {
+        $ids = [];
+        foreach ($conflicts as $conflict) {
+            if (!is_array($conflict)) {
+                continue;
+            }
+            $id = (int)($conflict['system_hotel_id'] ?? 0);
+            if ($id > 0 && $id !== $currentSystemHotelId) {
+                $ids[$id] = $id;
+            }
+        }
+        return array_values($ids);
+    }
+
+    private function currentUserCanResolveCtripIdentityConflict(): bool
+    {
+        return $this->currentUser
+            && method_exists($this->currentUser, 'isSuperAdmin')
+            && $this->currentUser->isSuperAdmin();
+    }
+
+    private function buildCtripAdminHotelMergeResolution(
+        int $sourceSystemHotelId,
+        int $targetSystemHotelId,
+        array $conflicts,
+        bool $canContinueCurrentFetch
+    ): array {
+        $sourceHotelName = $this->getSystemHotelName($sourceSystemHotelId) ?: ('门店ID ' . $sourceSystemHotelId);
+        $targetHotelName = $this->getSystemHotelName($targetSystemHotelId) ?: ('门店ID ' . $targetSystemHotelId);
+        $confirmationText = (new HotelDataMergeService())->confirmationText($sourceSystemHotelId, $targetSystemHotelId);
+        $mergePath = '/hotels/merge-preview?source_hotel_id=' . $sourceSystemHotelId . '&target_hotel_id=' . $targetSystemHotelId;
+
+        if ($canContinueCurrentFetch) {
+            $message = '当前门店已明确绑定该携程 hotelId，管理员本次可继续入库；历史数据仍在【' . $sourceHotelName . '】，请执行门店数据合并到【' . $targetHotelName . '】。';
+            $nextAction = '进入酒店管理的数据迁移，预览并确认：' . $confirmationText;
+        } else {
+            $message = '携程返回酒店ID已归属【' . $targetHotelName . '】；管理员请先把【' . $sourceHotelName . '】的数据合并到【' . $targetHotelName . '】，再重新抓取，避免错店数据覆盖。';
+            $nextAction = '进入酒店管理的数据迁移，预览并确认：' . $confirmationText;
+        }
+
+        return [
+            'action' => 'merge_hotel_data',
+            'scope' => 'admin_only',
+            'can_continue_current_fetch' => $canContinueCurrentFetch,
+            'source_system_hotel_id' => $sourceSystemHotelId,
+            'source_hotel_name' => $sourceHotelName,
+            'target_system_hotel_id' => $targetSystemHotelId,
+            'target_hotel_name' => $targetHotelName,
+            'confirmation_text' => $confirmationText,
+            'merge_preview_endpoint' => $mergePath,
+            'merge_execute_endpoint' => '/hotels/merge-execute',
+            'message' => $message,
+            'next_action' => $nextAction,
+            'conflicts' => $conflicts,
         ];
     }
 

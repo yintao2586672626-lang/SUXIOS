@@ -169,6 +169,8 @@ assert_regression(str_contains($competitorSource, "\$ipHash = substr(sha1((strin
 assert_regression(!str_contains($competitorSource, "\$identity . '|' . (string)\$this->request->ip()"), 'competitor public token APIs must not let request identity bypass pre-auth rate limits');
 assert_regression(str_contains($competitorReportSource, 'CompetitorHotel::where'), 'competitor report must validate the target competitor hotel');
 assert_regression(str_contains($competitorReportSource, "where('store_id', \$storeId)"), 'competitor report must bind store_id to the configured competitor hotel');
+assert_regression(str_contains($competitorReportSource, '$this->isValidReportPrice($price)'), 'competitor report must reject unparseable or zero competitor prices');
+assert_regression(str_contains($competitorReportSource, "'invalid_report_price'"), 'competitor report must audit invalid competitor price text instead of saving price=0');
 foreach ([
     'Ctrip browser Profile adapter' => $ctripBrowserAdapterSource,
     'Meituan browser Profile adapter' => $meituanBrowserAdapterSource,

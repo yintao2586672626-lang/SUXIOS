@@ -68,9 +68,21 @@ final class SecurityInputGuardTest extends TestCase
         $controller = $this->controller(CompetitorApi::class);
 
         self::assertSame(388.0, $this->invokeNonPublic($controller, 'extractPrice', ['房型2 标准间 ¥388/晚']));
+        self::assertSame(388.0, $this->invokeNonPublic($controller, 'extractPrice', ['房型2 标准间 388/晚']));
         self::assertSame(428.0, $this->invokeNonPublic($controller, 'extractPrice', ['价格：428元，含早2份']));
         self::assertSame(1288.0, $this->invokeNonPublic($controller, 'extractPrice', ['豪华房 ￥1,288/晚']));
         self::assertSame(1288.0, $this->invokeNonPublic($controller, 'extractPrice', ['豪华房 ￥１，２８８/晚']));
+    }
+
+    public function testCompetitorReportPriceGuardRejectsMissingOrZeroPrice(): void
+    {
+        $controller = $this->controller(CompetitorApi::class);
+
+        self::assertSame(0.0, $this->invokeNonPublic($controller, 'extractPrice', ['房型2 标准间 暂无报价']));
+        self::assertSame(388.0, $this->invokeNonPublic($controller, 'extractPrice', ['388']));
+        self::assertFalse($this->invokeNonPublic($controller, 'isValidReportPrice', [0.0]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isValidReportPrice', [-1.0]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isValidReportPrice', [388.0]));
     }
 
     public function testTemporaryOtaCookieFilesArePermissionRestricted(): void

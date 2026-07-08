@@ -18,6 +18,11 @@ test('Ctrip manual fetch auto-binds only when returned self hotelId is trusted',
   assert.match(body, /captured_platform_hotel_id_ambiguous/);
   assert.match(body, /findCtripSystemHotelMatchesByPlatformIds\(\$capturedIds\)/);
   assert.match(body, /findCtripPlatformHotelIdConflicts\(\$capturedIds, \$systemHotelId\)/);
+  assert.match(body, /admin_allowed_platform_hotel_history_conflict/);
+  assert.match(body, /admin_resolution/);
+  assert.match(body, /HotelDataMergeService/);
+  assert.match(body, /merge_preview_endpoint/);
+  assert.match(body, /can_continue_current_fetch/);
   assert.match(body, /persistCtripResolvedPlatformHotelIdForSystemHotel\(\$systemHotelId, \$platformHotelId\)/);
   assert.match(body, /platform_hotel_id_auto_bind_failed/);
   assert.match(body, /auto_bound_platform_hotel_id/);
