@@ -253,7 +253,8 @@ class CompetitorApi extends Base
     private function enforceExternalRateLimit(string $scope, string $identity, int $limit, int $window): ?Response
     {
         $identity = $identity !== '' ? $identity : (string)$this->request->ip();
-        $key = sprintf('competitor_api_rate_%s_%s', $scope, sha1($identity . '|' . (string)$this->request->ip()));
+        $ipHash = substr(sha1((string)$this->request->ip()), 0, 16);
+        $key = sprintf('competitor_api_rate_%s_%s', $scope, $ipHash);
         $count = (int)cache($key);
 
         if ($count >= $limit) {
@@ -263,6 +264,7 @@ class CompetitorApi extends Base
                 'limit' => $limit,
                 'window' => $window,
                 'identity' => $this->sanitizeExternalAuditText($identity),
+                'ip_hash' => $ipHash,
             ]);
 
             return json([
