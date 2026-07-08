@@ -330,7 +330,8 @@ includesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip ma
 
 includesAll('public/index.html', 'manual one-click Ctrip fetch retries partial Qunar visitor gaps before success', frontend, [
   'CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT = 3',
-  'ctripQunarVisitorNeedsRetry',
+  'manualOneClickFetchQunarVisitorNeedsRetry',
+  'summarizeManualOneClickFetchQunarVisitorQuality(ctripHotelsList.value)',
   '去哪儿访客仍为 0',
   '自动重抓',
   "const summarizeManualOneClickFetchRows = requireDataHealthStatic('summarizeManualOneClickFetchRows')",
@@ -343,6 +344,8 @@ includesAll('public/data-health-static.js', 'manual one-click fetch display summ
   "if (row.status === 'success') summary.savedCount += Number(row.savedCount || 0);",
   'const buildManualOneClickFetchCards = ({',
   'const sortManualOneClickFetchRows = (rows = []) =>',
+  'const summarizeManualOneClickFetchQunarVisitorQuality = (rows = []) =>',
+  'const manualOneClickFetchQunarVisitorNeedsRetry = (quality = null) =>',
 ]);
 
 includesAll('public/ctrip-static.js', 'single Ctrip fetch warns on partial Qunar visitor gaps without marking success', ctripStatic, [
@@ -367,7 +370,7 @@ excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip ma
 includesAll('public/index.html', 'manual one-click Ctrip fetch does not mark zero-Qunar retry exhaustion as success', frontend, [
   "const summarizeManualOneClickFetchResult = requireDataHealthStatic('summarizeManualOneClickFetchResult')",
   'summarizeManualOneClickFetchResult({',
-  "qunarVisitorNeedsRetry: platform === 'ctrip' && ctripQunarVisitorNeedsRetry(ctripQunarQuality)",
+  "qunarVisitorNeedsRetry: platform === 'ctrip' && manualOneClickFetchQunarVisitorNeedsRetry(ctripQunarQuality)",
   'qunarVisitorIncomplete: resultSummary.qunarVisitorIncomplete',
 ]);
 

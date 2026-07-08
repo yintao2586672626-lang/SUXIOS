@@ -170,6 +170,27 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
     const manualOneClickFetchMessageIsQunarVisitorZero = (message = '') => /去哪儿?访客.*(?:为|=)?\s*0|qunar.*visitor.*0/i.test(String(message || ''));
 
+    const manualOneClickFetchQunarVisitorNumber = (row = {}) => {
+        const value = Number(row?.qunarDetailVisitors ?? row?.qunar_detail_visitors ?? row?.views ?? row?.uv ?? row?.visitorCount ?? row?.detailUv ?? 0);
+        return Number.isFinite(value) ? value : 0;
+    };
+
+    const summarizeManualOneClickFetchQunarVisitorQuality = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const total = safeRows.reduce((sum, row) => sum + Math.max(0, manualOneClickFetchQunarVisitorNumber(row)), 0);
+        return {
+            rowCount: safeRows.length,
+            total,
+            ready: safeRows.length > 0 && total > 0,
+        };
+    };
+
+    const manualOneClickFetchQunarVisitorNeedsRetry = (quality = null) => Boolean(
+        quality
+        && Number(quality.rowCount || 0) > 0
+        && quality.ready !== true
+    );
+
     const manualOneClickFetchSavedCount = (result = {}) => {
         const candidates = [
             result?.saved_count,
@@ -5717,6 +5738,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         manualOneClickFetchStatusClass,
         sortManualOneClickFetchRows,
         manualOneClickFetchMessageIsQunarVisitorZero,
+        manualOneClickFetchQunarVisitorNumber,
+        summarizeManualOneClickFetchQunarVisitorQuality,
+        manualOneClickFetchQunarVisitorNeedsRetry,
         manualOneClickFetchSavedCount,
         manualOneClickFetchResultMessage,
         summarizeManualOneClickFetchResult,

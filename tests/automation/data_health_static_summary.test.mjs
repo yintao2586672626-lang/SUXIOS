@@ -373,6 +373,22 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.match(helpers.manualOneClickFetchStatusClass('failed'), /red/);
   assert.equal(helpers.manualOneClickFetchPlatformText('ctrip'), '携程');
   assert.equal(helpers.manualOneClickFetchMessageIsQunarVisitorZero('去哪儿访客为 0'), true);
+  assert.equal(helpers.manualOneClickFetchQunarVisitorNumber({ qunar_detail_visitors: '4' }), 4);
+
+  const qunarGapQuality = helpers.summarizeManualOneClickFetchQunarVisitorQuality([
+    { qunarDetailVisitors: 0 },
+    { views: '0' },
+  ]);
+  assert.equal(qunarGapQuality.rowCount, 2);
+  assert.equal(qunarGapQuality.total, 0);
+  assert.equal(qunarGapQuality.ready, false);
+  assert.equal(helpers.manualOneClickFetchQunarVisitorNeedsRetry(qunarGapQuality), true);
+
+  const qunarReadyQuality = helpers.summarizeManualOneClickFetchQunarVisitorQuality([
+    { uv: '3' },
+  ]);
+  assert.equal(qunarReadyQuality.ready, true);
+  assert.equal(helpers.manualOneClickFetchQunarVisitorNeedsRetry(qunarReadyQuality), false);
 
   const sorted = helpers.sortManualOneClickFetchRows([
     { status: 'success', key: 'ok', timeText: '2026/7/8 09:02:00' },

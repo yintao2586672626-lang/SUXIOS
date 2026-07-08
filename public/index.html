@@ -73,7 +73,7 @@
     <script src="ctrip-static.js?v=20260708-qunar-retry-business-canvas"></script>
     <script src="meituan-static.js?v=20260708-ranking-summary-helpers"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
-    <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result"></script>
+    <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality"></script>
     <script src="revenue-ai-static.js?v=20260708-ai-daily-blocking-summary"></script>
     <script src="system-static.js?v=20260708-hotel-merge"></script>
     <script src="user-admin-static.js?v=20260708-role-issue-helpers"></script>
@@ -21139,6 +21139,8 @@
             const manualOneClickFetchStatusClass = requireDataHealthStatic('manualOneClickFetchStatusClass');
             const sortManualOneClickFetchRows = requireDataHealthStatic('sortManualOneClickFetchRows');
             const manualOneClickFetchMessageIsQunarVisitorZero = requireDataHealthStatic('manualOneClickFetchMessageIsQunarVisitorZero');
+            const summarizeManualOneClickFetchQunarVisitorQuality = requireDataHealthStatic('summarizeManualOneClickFetchQunarVisitorQuality');
+            const manualOneClickFetchQunarVisitorNeedsRetry = requireDataHealthStatic('manualOneClickFetchQunarVisitorNeedsRetry');
             const manualOneClickFetchSavedCount = requireDataHealthStatic('manualOneClickFetchSavedCount');
             const summarizeManualOneClickFetchResult = requireDataHealthStatic('summarizeManualOneClickFetchResult');
             const buildOnlineHistoryQueryParams = requireDataHealthStatic('buildOnlineHistoryQueryParams');
@@ -35429,24 +35431,6 @@
                         && manualOneClickFetchMessageIsQunarVisitorZero(row?.message);
                 });
             };
-            const ctripQunarVisitorNumber = (row = {}) => {
-                const value = Number(row?.qunarDetailVisitors ?? row?.qunar_detail_visitors ?? row?.views ?? row?.uv ?? row?.visitorCount ?? row?.detailUv ?? 0);
-                return Number.isFinite(value) ? value : 0;
-            };
-            const ctripQunarVisitorFetchQuality = () => {
-                const rows = Array.isArray(ctripHotelsList.value) ? ctripHotelsList.value : [];
-                const total = rows.reduce((sum, row) => sum + Math.max(0, ctripQunarVisitorNumber(row)), 0);
-                return {
-                    rowCount: rows.length,
-                    total,
-                    ready: rows.length > 0 && total > 0,
-                };
-            };
-            const ctripQunarVisitorNeedsRetry = (quality = null) => Boolean(
-                quality
-                && Number(quality.rowCount || 0) > 0
-                && quality.ready !== true
-            );
             const editManualOneClickFetchFailure = async (row = {}) => {
                 if (!canEditManualOneClickFetchRow(row)) return;
                 const platform = row?.platform === 'meituan' ? 'meituan' : 'ctrip';
@@ -35613,8 +35597,8 @@
                             });
                             result = await fetchCtripData();
                             savedCount = Math.max(savedCount, manualOneClickFetchSavedCount(result));
-                            ctripQunarQuality = ctripQunarVisitorFetchQuality();
-                            if (!ctripQunarVisitorNeedsRetry(ctripQunarQuality) || qunarRetryCount >= CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT) {
+                            ctripQunarQuality = summarizeManualOneClickFetchQunarVisitorQuality(ctripHotelsList.value);
+                            if (!manualOneClickFetchQunarVisitorNeedsRetry(ctripQunarQuality) || qunarRetryCount >= CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT) {
                                 break;
                             }
                             qunarRetryCount += 1;
@@ -35636,7 +35620,7 @@
                         savedCount,
                         ctripQunarQuality,
                         qunarRetryCount,
-                        qunarVisitorNeedsRetry: platform === 'ctrip' && ctripQunarVisitorNeedsRetry(ctripQunarQuality),
+                        qunarVisitorNeedsRetry: platform === 'ctrip' && manualOneClickFetchQunarVisitorNeedsRetry(ctripQunarQuality),
                     });
                     upsertManualOneClickFetchRow({
                         ...baseRow,
