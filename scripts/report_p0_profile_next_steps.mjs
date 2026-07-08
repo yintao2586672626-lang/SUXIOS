@@ -425,6 +425,18 @@ function buildOperatorSequence(rows) {
         status: 'p0_traffic_gate_ready',
         boundary: 'Target-date OTA rows and traffic field evidence are already ready; do not start login or after-login sync from this report.',
       });
+      if (!step.profile_flow_ready) {
+        sequence.push({
+          type: 'profile_flow_gap',
+          platform: step.platform,
+          system_hotel_id: step.system_hotel_id,
+          data_source_id: step.data_source_id,
+          status: 'profile_flow_unproved',
+          blocking_reason_codes: step.profile_flow_blocking_reason_codes,
+          required_action: 'Register or repair the hotel-scoped browser Profile traffic data source; do not treat ready target-date rows as reusable login/collection flow proof.',
+          boundary: 'P0 target-date rows can be ready while reusable Profile/data-source flow is incomplete.',
+        });
+      }
       sequence.push({
         type: 'single_scope_verifier',
         platform: step.platform,
@@ -682,6 +694,8 @@ function renderMarkdown(report) {
       lines.push(`- 同步: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.entry || '-'}，前置=${item.requires}`);
     } else if (item.type === 'already_ready') {
       lines.push(`- already_ready: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.status}; ${item.boundary}`);
+    } else if (item.type === 'profile_flow_gap') {
+      lines.push(`- profile_flow_gap: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.status}; blockers=${item.blocking_reason_codes?.length ? item.blocking_reason_codes.join(',') : '-'}; ${item.boundary}`);
     } else if (item.type === 'operator_skip') {
       lines.push(`- operator_skip: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.status}; ${item.boundary}`);
     } else if (item.type === 'single_scope_verifier') {

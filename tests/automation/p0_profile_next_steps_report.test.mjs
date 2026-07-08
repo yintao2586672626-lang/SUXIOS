@@ -405,6 +405,12 @@ test('P0 Profile next-step report separates P0 data readiness from missing Profi
     assert.equal(payload.collection_flow_gate.status, 'blocked_by_profile_flow_gap');
     assert(payload.collection_flow_gate.blocking_missing_inputs.includes('ctrip_profile_flow_unproved'));
     assert(payload.collection_flow_gate.blocking_missing_inputs.includes('data_source_not_registered'));
+    assert.deepEqual(payload.operator_sequence.map(item => item.type), ['already_ready', 'profile_flow_gap', 'single_scope_verifier']);
+    assert.equal(payload.operator_sequence[1].system_hotel_id, 107);
+    assert.equal(payload.operator_sequence[1].data_source_id, null);
+    assert.equal(payload.operator_sequence[1].status, 'profile_flow_unproved');
+    assert(payload.operator_sequence[1].blocking_reason_codes.includes('missing_data_source_id'));
+    assert(payload.operator_sequence[1].blocking_reason_codes.includes('data_source_not_registered'));
 
     const markdownResult = spawnSync(process.execPath, ['scripts/report_p0_profile_next_steps.mjs', `--input=${input}`], {
       cwd: process.cwd(),
@@ -416,6 +422,7 @@ test('P0 Profile next-step report separates P0 data readiness from missing Profi
     assert.match(markdownResult.stdout, /blocked_by_profile_flow_gap/);
     assert.match(markdownResult.stdout, /target_traffic_hotels=107/);
     assert.match(markdownResult.stdout, /profile_flow_ready=false/);
+    assert.match(markdownResult.stdout, /profile_flow_gap: .*system_hotel_id=107 data_source_id=null/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
