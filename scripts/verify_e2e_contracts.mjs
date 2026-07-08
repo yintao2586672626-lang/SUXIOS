@@ -210,7 +210,9 @@ requireText('public/index.html', "if (range === 'realtime') return '昨日';", '
 requireText('public/index.html', "if (range === 'yesterday') return '前日';", 'AI workbench yesterday metrics compare with the day before yesterday');
 requireText('public/index.html', "if (range === '7d') return '前7天';", 'AI workbench seven-day metrics compare with the previous seven days');
 requireText('public/index.html', "if (range === '30d') return '上一个30天';", 'AI workbench thirty-day metrics compare with the previous thirty days');
-requireText('public/index.html', "return `相对${period}：未返回`;", 'AI workbench does not invent previous-period movement when comparison data is missing');
+requireText('public/index.html', "if (currentText === '待更新') {\n                    return `相对${period}：目标日未同步`;", 'AI workbench labels unsynced target-day comparison state explicitly');
+requireText('public/index.html', "if (currentText === '未返回') {\n                    return `相对${period}：接口未返回当前指标`;", 'AI workbench labels current metric API-missing comparison state explicitly');
+requireNoText('public/index.html', "return `相对${period}：未返回`;", 'AI workbench must not collapse comparison-missing states into 未返回');
 requireNoText('public/index.html', "title: String(filterReportHotel.value || '').trim() ? '当前门店' : '当前筛选',", 'AI workbench no longer labels the own-store metrics column as current-store status');
 requireNoText('public/index.html', "dualOtaMetric('查询门店', dualOtaSelectedHotelLabel.value, '当前表单门店')", 'AI workbench current-store column no longer renders a query-store status card');
 requireNoText('public/index.html', "dualOtaMissingMetric('携程明细行', '本次快照按当前表单门店查询，但未返回本店明细行')", 'AI workbench current-store column no longer renders a Ctrip detail-row status card');

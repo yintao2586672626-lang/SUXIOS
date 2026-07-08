@@ -22035,8 +22035,11 @@
                 if ((currentText === '未返回' || currentText === '待更新') && metric.note) {
                     return dualOtaCurrentMetricMissingComparisonText(metric, period, currentText);
                 }
-                if (currentText === '未返回' || currentText === '待更新') {
-                    return `相对${period}：未返回`;
+                if (currentText === '待更新') {
+                    return `相对${period}：目标日未同步`;
+                }
+                if (currentText === '未返回') {
+                    return `相对${period}：接口未返回当前指标`;
                 }
                 const reason = String(metric.comparisonMissingReason || metric.comparison_missing_reason || '').trim();
                 const reasonText = dualOtaComparisonMissingReasonText(reason, period);
