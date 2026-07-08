@@ -18,6 +18,8 @@ class Auth extends Base
 {
     private const TOKEN_TTL_SECONDS = 86400; // 24 hours
     private const BETA_HOTEL_BINDING_CUTOFF_DATE = '2026-07-05';
+    private const REGISTER_RATE_LIMIT = 12;
+    private const REGISTER_RATE_WINDOW_SECONDS = 600;
 
     /**
      * Public self-registration.
@@ -28,6 +30,11 @@ class Auth extends Base
      */
     public function register(): Response
     {
+        $rateLimitResponse = $this->enforceRegistrationRateLimit();
+        if ($rateLimitResponse !== null) {
+            return $rateLimitResponse;
+        }
+
         if (!$this->isEnabledConfigValue(SystemConfig::getValue(SystemConfig::KEY_ENABLE_REGISTRATION, '1'))) {
             return $this->error('系统已关闭自助注册，请联系管理员创建账号', 403);
         }
@@ -533,6 +540,36 @@ class Auth extends Base
     private function loginLockKey(string $username, string $ip): string
     {
         return 'login_lock_' . sha1(strtolower(trim($username)) . '|' . $ip);
+    }
+
+    private function enforceRegistrationRateLimit(): ?Response
+    {
+        $window = self::REGISTER_RATE_WINDOW_SECONDS;
+        $limit = self::REGISTER_RATE_LIMIT;
+        $bucket = (int)floor(time() / $window);
+        $ipHash = substr(sha1((string)$this->request->ip()), 0, 16);
+        $key = sprintf('register_rate_%s_%d', $ipHash, $bucket);
+        $count = (int)(cache($key) ?: 0);
+
+        if ($count >= $limit) {
+            $retryAfter = max(1, (($bucket + 1) * $window) - time());
+            try {
+                OperationLog::record('auth', 'register_rate_limited', '自助注册触发限流', null, null, 'HTTP 429', [
+                    'audit_type' => 'security',
+                    'ip_hash' => $ipHash,
+                    'limit' => $limit,
+                    'window' => $window,
+                    'retry_after' => $retryAfter,
+                ]);
+            } catch (\Throwable $logError) {
+                // Preserve the public error boundary even if audit logging fails.
+            }
+
+            return $this->error('注册请求过于频繁，请稍后再试', 429)->header(['Retry-After' => (string)$retryAfter]);
+        }
+
+        cache($key, $count + 1, $window + 5);
+        return null;
     }
 
     private function recordLoginFailure(string $username, string $ip): void

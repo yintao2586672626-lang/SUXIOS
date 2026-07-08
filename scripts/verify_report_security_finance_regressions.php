@@ -146,6 +146,9 @@ $hotelDeleteSource = extract_method_source_regression($hotelSource, 'delete');
 
 assert_regression(str_contains($baseSource, 'return json($result, $httpStatus)'), 'Base::error must pass HTTP status into json()');
 assert_regression((bool)preg_match('/Bearer\s*\\\\s\+/', $logoutSource) || str_contains($logoutSource, 'extractTokenFromAuthorizationHeader'), 'logout must strip Bearer prefix before cache deletion');
+assert_regression(str_contains($authSource, '$this->enforceRegistrationRateLimit()'), 'public self-registration must enforce a route-local rate limit before validation');
+assert_regression(str_contains($authSource, "register_rate_") && str_contains($authSource, "\$ipHash = substr(sha1((string)\$this->request->ip()), 0, 16);"), 'public self-registration rate limit must be keyed by IP hash');
+assert_regression(str_contains($authSource, "'register_rate_limited'"), 'rate-limited self-registration attempts must be audited');
 
 assert_regression(!str_contains($competitorSource, 'DEV_FALLBACK_TOKEN'), 'competitor API must not keep a fixed fallback token');
 assert_regression(!str_contains($competitorSource, 'isLocalOrDevEnvironment'), 'competitor API token validation must not depend on debug/local fallback');
