@@ -76,7 +76,7 @@ class Auth extends Base
         }
 
         if (User::where('username', $username)->find()) {
-            return $this->error('用户名已存在', 409);
+            return $this->error('注册申请无法提交，请联系管理员确认账号状态', 409);
         }
 
         $role = $this->resolveSelfRegistrationRole();

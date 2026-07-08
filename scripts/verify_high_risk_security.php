@@ -195,6 +195,7 @@ assert_true(str_contains($authControllerSource, 'private const TOKEN_TTL_SECONDS
 assert_true(str_contains($authControllerSource, '$this->enforceRegistrationRateLimit()'), 'public self-registration must enforce a route-local rate limit before validation');
 assert_true(str_contains($authControllerSource, "register_rate_") && str_contains($authControllerSource, "\$ipHash = substr(sha1((string)\$this->request->ip()), 0, 16);"), 'public self-registration rate limit must be keyed by IP hash');
 assert_true(str_contains($authControllerSource, "'register_rate_limited'"), 'rate-limited self-registration attempts must be audited');
+assert_true(!str_contains($authControllerSource, "return \$this->error('用户名已存在', 409);"), 'public self-registration must not disclose username existence');
 assert_true(str_contains($authSource, 'private const TOKEN_MAX_AGE_SECONDS = 86400'), 'auth middleware must reject tokens older than 24 hours');
 assert_true(str_contains($authSource, 'isTokenExpiredByAge'), 'auth middleware must enforce token created_at age');
 assert_true(str_contains($competitorSource, 'enforceExternalRateLimit'), 'public competitor token APIs must enforce route-local rate limits');
