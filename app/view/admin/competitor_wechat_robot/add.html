@@ -1,3 +1,6 @@
+<?php
+$escapeRobotValue = static fn($value): string => htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+?>
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -19,7 +22,7 @@
                     <select name="store_id" required class="w-full px-3 py-2 border rounded-lg">
                         <option value="">请选择门店</option>
                         <?php foreach ($stores as $s): ?>
-                            <option value="<?php echo $s['id']; ?>"><?php echo $s['name']; ?></option>
+                            <option value="<?php echo (int)$s['id']; ?>"><?php echo $escapeRobotValue($s['name']); ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>

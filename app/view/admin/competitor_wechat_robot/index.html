@@ -1,3 +1,6 @@
+<?php
+$escapeRobotValue = static fn($value): string => htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+?>
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -19,8 +22,8 @@
                     <select name="store_id" class="px-3 py-2 border rounded-lg">
                         <option value="">全部</option>
                         <?php foreach ($stores as $s): ?>
-                            <option value="<?php echo $s['id']; ?>" <?php echo ($filter_store_id !== '' && (int)$filter_store_id === (int)$s['id']) ? 'selected' : ''; ?>>
-                                <?php echo $s['name']; ?>
+                            <option value="<?php echo (int)$s['id']; ?>" <?php echo ($filter_store_id !== '' && (int)$filter_store_id === (int)$s['id']) ? 'selected' : ''; ?>>
+                                <?php echo $escapeRobotValue($s['name']); ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
@@ -42,14 +45,14 @@
                         <tbody class="divide-y">
                             <?php foreach ($list as $item): ?>
                                 <tr>
-                                    <td class="px-3 py-2"><?php echo $item['store_id']; ?></td>
-                                    <td class="px-3 py-2"><?php echo $item['name']; ?></td>
-                                    <td class="px-3 py-2 text-gray-500 truncate" style="max-width: 320px;"><?php echo $item['webhook']; ?></td>
+                                    <td class="px-3 py-2"><?php echo (int)$item['store_id']; ?></td>
+                                    <td class="px-3 py-2"><?php echo $escapeRobotValue($item['name']); ?></td>
+                                    <td class="px-3 py-2 text-gray-500 truncate" style="max-width: 320px;"><?php echo $escapeRobotValue($item['webhook']); ?></td>
                                     <td class="px-3 py-2"><?php echo (int)$item['status'] === 1 ? '启用' : '禁用'; ?></td>
                                     <td class="px-3 py-2 space-x-2">
-                                        <a class="text-blue-600" href="<?php echo url('admin/CompetitorWechatRobotController/edit', ['id' => $item['id']]); ?>">编辑</a>
-                                        <button class="text-green-600" onclick="testSendStore(<?php echo $item['store_id']; ?>)">测试发送</button>
-                                        <button class="text-red-600" onclick="deleteRobot(<?php echo $item['id']; ?>)">删除</button>
+                                        <a class="text-blue-600" href="<?php echo url('admin/CompetitorWechatRobotController/edit', ['id' => (int)$item['id']]); ?>">编辑</a>
+                                        <button class="text-green-600" onclick="testSendStore(<?php echo (int)$item['store_id']; ?>)">测试发送</button>
+                                        <button class="text-red-600" onclick="deleteRobot(<?php echo (int)$item['id']; ?>)">删除</button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

@@ -100,6 +100,9 @@ $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
 $hotelSource = file_get_contents(__DIR__ . '/../app/controller/Hotel.php');
 $authMiddlewareSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
 $compassViewSource = file_get_contents(__DIR__ . '/../app/view/admin/compass/index.html');
+$robotListViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/index.html');
+$robotAddViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/add.html');
+$robotEditViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/edit.html');
 $publicIndexSource = file_get_contents(__DIR__ . '/../public/index.html');
 
 $logoutSource = extract_method_source_regression($authSource, 'logout');
@@ -125,6 +128,12 @@ assert_regression(!str_contains($authMiddlewareSource, "param('token'") && !str_
 assert_regression(!str_contains($compassViewSource, 'save-layout?token='), 'compass layout save must not put token in URL query');
 assert_regression(!str_contains($compassViewSource, "URLSearchParams(location.search).get('token')"), 'compass layout save must not read token from location.search');
 assert_regression(!str_contains($publicIndexSource, 'competitor-wechat-robot?token='), 'competitor robot admin entry must not put token in URL query');
+assert_regression(str_contains($robotListViewSource . $robotAddViewSource . $robotEditViewSource, 'htmlspecialchars'), 'competitor robot admin views must HTML-escape stored text fields');
+assert_regression(!str_contains($robotListViewSource, "<?php echo \$item['name']; ?>"), 'competitor robot list must not echo stored robot names without escaping');
+assert_regression(!str_contains($robotListViewSource, "<?php echo \$item['webhook']; ?>"), 'competitor robot list must not echo stored webhooks without escaping');
+assert_regression(!str_contains($robotListViewSource . $robotAddViewSource . $robotEditViewSource, "<?php echo \$s['name']; ?>"), 'competitor robot store options must not echo store names without escaping');
+assert_regression(!str_contains($robotEditViewSource, "<?php echo \$robot['name']; ?>"), 'competitor robot edit form must not echo robot names without escaping');
+assert_regression(!str_contains($robotEditViewSource, "<?php echo \$robot['webhook']; ?>"), 'competitor robot edit form must not echo webhooks without escaping');
 
 assert_regression(!str_contains($receiveCookiesSource, "param('token'"), 'receiveCookies must not read auth token from URL parameters');
 assert_regression(str_contains($receiveCookiesSource, "header('Access-Control-Allow-Headers: Content-Type, Authorization')"), 'receiveCookies CORS must allow Authorization header');
