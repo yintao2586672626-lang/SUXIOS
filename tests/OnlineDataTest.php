@@ -85,6 +85,77 @@ final class OnlineDataTest extends TestCase
         self::assertStringNotContainsString('plain-cookie-value', $encoded);
     }
 
+    public function testPublicEndpointSecuritySummaryIncludesCompetitorPublicApis(): void
+    {
+        $controller = $this->controller();
+        $logs = [
+            [
+                'id' => 20,
+                'action' => 'external_rate_limited',
+                'create_time' => '2026-07-08 10:00:00',
+                'error_info' => 'HTTP 429',
+                'extra_data' => json_encode([
+                    'audit_type' => 'operation',
+                    'scope' => 'task',
+                    'limit' => 30,
+                    'window' => 60,
+                    'identity' => 'device-a|ctrip',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 21,
+                'action' => 'report_denied',
+                'create_time' => '2026-07-08 10:01:00',
+                'error_info' => 'invalid_report_token',
+                'extra_data' => json_encode([
+                    'audit_type' => 'operation',
+                    'device_id' => 'device-b',
+                    'platform' => 'meituan',
+                    'token' => 'plain-report-token',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ];
+
+        $taskRow = $this->invokeNonPublic($controller, 'buildPublicEndpointSecurityRow', [
+            'competitor_task',
+            $logs,
+            [
+                'method' => 'POST',
+                'path' => '/api/competitor/task',
+                'auth' => 'COMPETITOR_TASK_TOKEN request token',
+                'rate_limit' => ['limit' => 30, 'window_seconds' => 60],
+                'token_configured' => true,
+                'failure_actions' => ['task_denied', 'external_rate_limited'],
+                'failure_scope' => 'task',
+            ],
+        ]);
+        $reportRow = $this->invokeNonPublic($controller, 'buildPublicEndpointSecurityRow', [
+            'competitor_report',
+            $logs,
+            [
+                'method' => 'POST',
+                'path' => '/api/competitor/report',
+                'auth' => 'COMPETITOR_REPORT_TOKEN request token',
+                'rate_limit' => ['limit' => 60, 'window_seconds' => 60],
+                'token_configured' => true,
+                'failure_actions' => ['report_denied', 'external_rate_limited'],
+                'failure_scope' => 'report',
+            ],
+        ]);
+
+        self::assertSame('competitor_task', $taskRow['endpoint']);
+        self::assertSame(1, $taskRow['recent_failure_count']);
+        self::assertSame(1, $taskRow['rate_limited_count']);
+        self::assertSame('rate_limited', $taskRow['last_failure']['reason']);
+        self::assertSame(429, $taskRow['last_failure']['status']);
+        self::assertSame('competitor_report', $reportRow['endpoint']);
+        self::assertSame(1, $reportRow['recent_failure_count']);
+        self::assertSame(0, $reportRow['rate_limited_count']);
+        self::assertSame('invalid_report_token', $reportRow['last_failure']['reason']);
+        $encoded = json_encode([$taskRow, $reportRow], JSON_UNESCAPED_UNICODE);
+        self::assertStringNotContainsString('plain-report-token', $encoded);
+    }
+
     public function testCollectionStatusMarksStaleRunningTaskExplicitly(): void
     {
         $controller = $this->controller();

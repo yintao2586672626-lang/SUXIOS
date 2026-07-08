@@ -1145,9 +1145,11 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         receive_cookies: 'receive-cookies',
         cron_trigger: 'cron-trigger',
         daily_workbench_patrol_cron: 'daily-workbench-patrol-cron',
+        competitor_task: 'competitor-task',
+        competitor_report: 'competitor-report',
     }[endpoint] || endpoint || '-');
 
-    const publicEndpointSecurityBoundaryText = () => 'receive-cookies、cron-trigger 与 daily-workbench-patrol-cron 不走常规登录中间件，仅展示脱敏审计、限流和令牌配置状态。';
+    const publicEndpointSecurityBoundaryText = () => 'receive-cookies、cron-trigger、daily-workbench-patrol-cron 与 competitor task/report 不走常规登录中间件，仅展示脱敏审计、限流和令牌配置状态。';
 
     const publicEndpointSecurityEvidenceText = () => '证据来自 operation_logs 中的公开入口失败审计；Cookie、token、Authorization、spidertoken、mtgsig 等敏感值只保留遮罩状态，不展示原文。';
 

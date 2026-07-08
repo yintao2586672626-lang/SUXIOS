@@ -201,16 +201,30 @@ trait CookieEndpointConcern
 
     private function buildPublicEndpointSecurityRow(string $endpoint, array $logs, array $meta): array
     {
+        $failureActions = array_values(array_filter(array_map(
+            'strval',
+            (array)($meta['failure_actions'] ?? [$endpoint . '_public_failure'])
+        )));
+        $failureScope = (string)($meta['failure_scope'] ?? '');
         $endpointLogs = array_values(array_filter(
             $logs,
-            static fn(array $log): bool => (string)($log['action'] ?? '') === $endpoint . '_public_failure'
+            function (array $log) use ($failureActions, $failureScope): bool {
+                if (!in_array((string)($log['action'] ?? ''), $failureActions, true)) {
+                    return false;
+                }
+                if ($failureScope === '' || (string)($log['action'] ?? '') !== 'external_rate_limited') {
+                    return true;
+                }
+                $extra = $this->decodePublicEndpointFailureExtra($log);
+                return (string)($extra['scope'] ?? '') === $failureScope;
+            }
         ));
         $reasonCounts = [];
         $statusCounts = [];
         foreach ($endpointLogs as $log) {
             $extra = $this->decodePublicEndpointFailureExtra($log);
-            $reason = (string)($extra['reason'] ?? 'unknown');
-            $status = (string)($extra['status'] ?? ($log['error_info'] ?? 'unknown'));
+            $reason = $this->publicEndpointFailureReason($log, $extra);
+            $status = $this->publicEndpointFailureStatus($log, $extra);
             $reasonCounts[$reason] = ($reasonCounts[$reason] ?? 0) + 1;
             $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
         }
@@ -225,21 +239,21 @@ trait CookieEndpointConcern
             'token_configured' => $meta['token_configured'],
             'recent_failure_count' => count($endpointLogs),
             'rate_limited_count' => (int)($reasonCounts['rate_limited'] ?? 0),
-            'last_failure' => isset($endpointLogs[0]) ? $this->serializePublicEndpointFailureLog($endpointLogs[0]) : null,
+            'last_failure' => isset($endpointLogs[0]) ? $this->serializePublicEndpointFailureLog($endpointLogs[0], $endpoint) : null,
             'reason_counts' => $reasonCounts,
             'status_counts' => $statusCounts,
             'security_note' => 'Audited failures store endpoint, reason, status, method, origin and hashed IP only; secrets are masked.',
         ];
     }
 
-    private function serializePublicEndpointFailureLog(array $log): array
+    private function serializePublicEndpointFailureLog(array $log, string $endpoint = ''): array
     {
         $extra = $this->decodePublicEndpointFailureExtra($log);
         return [
             'id' => (int)($log['id'] ?? 0),
-            'endpoint' => (string)($extra['endpoint'] ?? str_replace('_public_failure', '', (string)($log['action'] ?? ''))),
-            'reason' => (string)($extra['reason'] ?? 'unknown'),
-            'status' => (int)($extra['status'] ?? 0),
+            'endpoint' => (string)($extra['endpoint'] ?? ($endpoint !== '' ? $endpoint : str_replace('_public_failure', '', (string)($log['action'] ?? '')))),
+            'reason' => $this->publicEndpointFailureReason($log, $extra),
+            'status' => (int)$this->publicEndpointFailureStatus($log, $extra),
             'method' => (string)($extra['method'] ?? ''),
             'origin' => (string)($extra['origin'] ?? ''),
             'ip_hash' => (string)($extra['ip_hash'] ?? ''),
@@ -256,6 +270,32 @@ trait CookieEndpointConcern
         }
         $decoded = json_decode($raw, true);
         return is_array($decoded) ? $decoded : [];
+    }
+
+    private function publicEndpointFailureReason(array $log, array $extra): string
+    {
+        $reason = trim((string)($extra['reason'] ?? ''));
+        if ($reason !== '') {
+            return $reason;
+        }
+        if ((string)($log['action'] ?? '') === 'external_rate_limited') {
+            return 'rate_limited';
+        }
+        $errorInfo = trim((string)($log['error_info'] ?? ''));
+        return $errorInfo !== '' ? $errorInfo : 'unknown';
+    }
+
+    private function publicEndpointFailureStatus(array $log, array $extra): string
+    {
+        $status = trim((string)($extra['status'] ?? ''));
+        if ($status !== '') {
+            return $status;
+        }
+        $errorInfo = (string)($log['error_info'] ?? '');
+        if (preg_match('/HTTP\s+(\d{3})/i', $errorInfo, $matches)) {
+            return $matches[1];
+        }
+        return 'unknown';
     }
 
 
@@ -431,6 +471,11 @@ trait CookieEndpointConcern
             'cron_trigger_public_failure',
             'daily_workbench_patrol_cron_public_failure',
         ];
+        $competitorActions = [
+            'task_denied',
+            'report_denied',
+            'external_rate_limited',
+        ];
 
         $logs = OperationLog::where('module', 'online_data')
             ->whereIn('action', $actions)
@@ -439,6 +484,16 @@ trait CookieEndpointConcern
             ->limit(100)
             ->select()
             ->toArray();
+        $competitorLogs = OperationLog::where('module', 'competitor')
+            ->whereIn('action', $competitorActions)
+            ->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->order('create_time', 'desc')
+            ->limit(100)
+            ->select()
+            ->toArray();
+        $logs = array_merge($logs, $competitorLogs);
+        usort($logs, static fn(array $a, array $b): int => strcmp((string)($b['create_time'] ?? ''), (string)($a['create_time'] ?? '')));
+        $logs = array_slice($logs, 0, 100);
 
         return $this->success([
             'period' => [
@@ -446,7 +501,7 @@ trait CookieEndpointConcern
                 'end_date' => $endDate,
                 'days' => $days,
             ],
-            'scope' => 'public OTA collection endpoints; status only, no Cookie/token/header values',
+            'scope' => 'public OTA collection and competitor collector endpoints; status only, no Cookie/token/header values',
             'endpoints' => [
                 $this->buildPublicEndpointSecurityRow('receive_cookies', $logs, [
                     'method' => 'POST|OPTIONS',
@@ -468,6 +523,24 @@ trait CookieEndpointConcern
                     'auth' => 'X-Cron-Token or token query parameter',
                     'rate_limit' => ['limit' => 10, 'window_seconds' => 60],
                     'token_configured' => trim((string)\think\facade\Env::get('CRON_TOKEN', '')) !== '',
+                ]),
+                $this->buildPublicEndpointSecurityRow('competitor_task', $logs, [
+                    'method' => 'POST',
+                    'path' => '/api/competitor/task',
+                    'auth' => 'COMPETITOR_TASK_TOKEN request token',
+                    'rate_limit' => ['limit' => 30, 'window_seconds' => 60],
+                    'token_configured' => trim((string)\think\facade\Env::get('COMPETITOR_TASK_TOKEN', '')) !== '',
+                    'failure_actions' => ['task_denied', 'external_rate_limited'],
+                    'failure_scope' => 'task',
+                ]),
+                $this->buildPublicEndpointSecurityRow('competitor_report', $logs, [
+                    'method' => 'POST',
+                    'path' => '/api/competitor/report',
+                    'auth' => 'COMPETITOR_REPORT_TOKEN request token',
+                    'rate_limit' => ['limit' => 60, 'window_seconds' => 60],
+                    'token_configured' => trim((string)\think\facade\Env::get('COMPETITOR_REPORT_TOKEN', '')) !== '',
+                    'failure_actions' => ['report_denied', 'external_rate_limited'],
+                    'failure_scope' => 'report',
                 ]),
             ],
             'recent_failures' => array_slice(array_map([$this, 'serializePublicEndpointFailureLog'], $logs), 0, $limit),

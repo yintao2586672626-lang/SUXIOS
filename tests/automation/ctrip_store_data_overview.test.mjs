@@ -573,6 +573,8 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(dataHealthStatic, /const buildReleaseEvidencePanelRows = /);
   assert.match(dataHealthStatic, /const summarizeReleaseEvidencePanel = /);
   assert.match(dataHealthStatic, /daily_workbench_patrol_cron/);
+  assert.match(dataHealthStatic, /competitor_task/);
+  assert.match(dataHealthStatic, /competitor_report/);
   assert.match(dataHealthStatic, /const buildCollectionHealthAuthorizationRowsReadable = /);
   assert.match(dataHealthStatic, /const buildCollectionHealthPendingActionRows = /);
   assert.match(dataHealthStatic, /const buildCollectionHealthFieldAssetCards = /);
