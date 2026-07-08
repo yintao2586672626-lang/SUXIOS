@@ -63,6 +63,14 @@ final class SecurityInputGuardTest extends TestCase
         self::assertLessThanOrEqual(83, mb_strlen((string)$masked, 'UTF-8'));
     }
 
+    public function testCompetitorPriceExtractionPrefersPriceOverRoomCounts(): void
+    {
+        $controller = $this->controller(CompetitorApi::class);
+
+        self::assertSame(388.0, $this->invokeNonPublic($controller, 'extractPrice', ['房型2 标准间 ¥388/晚']));
+        self::assertSame(428.0, $this->invokeNonPublic($controller, 'extractPrice', ['价格：428元，含早2份']));
+    }
+
     public function testTemporaryOtaCookieFilesArePermissionRestricted(): void
     {
         $projectRoot = dirname(__DIR__);

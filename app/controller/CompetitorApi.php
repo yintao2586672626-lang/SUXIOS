@@ -321,7 +321,16 @@ class CompetitorApi extends Base
 
     private function extractPrice(string $text): float
     {
-        if (preg_match('/(\d+(?:\.\d+)?)/', $text, $matches)) {
+        if (preg_match('/[¥￥]\s*(\d+(?:\.\d+)?)/u', $text, $matches)) {
+            return (float)$matches[1];
+        }
+        if (preg_match('/(?:价格|房价|售价|到手价|现价|低价|最低价|含税价|优惠价)[^\d]{0,12}(\d+(?:\.\d+)?)/u', $text, $matches)) {
+            return (float)$matches[1];
+        }
+        if (preg_match('/(\d+(?:\.\d+)?)\s*元/u', $text, $matches)) {
+            return (float)$matches[1];
+        }
+        if (preg_match('/(\d+(?:\.\d+)?)/u', $text, $matches)) {
             return (float)$matches[1];
         }
         return 0.0;
