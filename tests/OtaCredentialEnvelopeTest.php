@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\OtaCredentialEnvelope;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -88,6 +89,22 @@ final class OtaCredentialEnvelopeTest extends TestCase
         );
     }
 
+    public function testRecursiveCredentialsAreRejectedWithoutLeakingSecrets(): void
+    {
+        $key = $this->key('primary-key');
+        $secret = 'recursive-credential-secret';
+        $credentials = ['password' => $secret];
+        $credentials['recursive'] = &$credentials;
+
+        $this->assertRuntimeExceptionWithoutSecrets(
+            fn () => $this->service($key, 'ota-primary')->encrypt(
+                $credentials,
+                'ctrip:hotel:58'
+            ),
+            [$key, $secret]
+        );
+    }
+
     public function testEncryptionBindsExactAadPrefixAndScope(): void
     {
         $keyBase64 = $this->key('primary-key');
@@ -117,7 +134,14 @@ final class OtaCredentialEnvelopeTest extends TestCase
         self::assertNotFalse($plaintext);
         self::assertSame(
             json_encode(
-                $credentials,
+                [
+                    'header' => [
+                        'v' => 1,
+                        'alg' => 'AES-256-GCM',
+                        'kid' => 'ota-primary',
+                    ],
+                    'credentials' => $credentials,
+                ],
                 JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
             ),
             $plaintext
@@ -146,6 +170,22 @@ final class OtaCredentialEnvelopeTest extends TestCase
         );
     }
 
+    public function testOuterKeyIdentifierCannotBeReboundWhenKeyBytesAreShared(): void
+    {
+        $key = $this->key('shared-key');
+        $scope = 'ctrip:hotel:58';
+        $credentials = ['password' => 'kid-binding-secret'];
+        $kidA = $this->service($key, 'kid-a');
+        $kidB = $this->service($key, 'kid-b');
+        $metadata = $this->decodeEnvelope($kidA->encrypt($credentials, $scope));
+        $metadata['kid'] = 'kid-b';
+
+        $this->assertRuntimeExceptionWithoutSecrets(
+            fn () => $kidB->decrypt($this->encodeEnvelope($metadata), $scope),
+            [$key, $credentials['password']]
+        );
+    }
+
     public function testTamperedNonceCiphertextAndTagAreRejectedWithoutLeakingSecrets(): void
     {
         $key = $this->key('primary-key');
@@ -165,6 +205,37 @@ final class OtaCredentialEnvelopeTest extends TestCase
                 [$key, $credentials['cookie']]
             );
         }
+    }
+
+    #[DataProvider('invalidCryptographicMetadataProvider')]
+    public function testInvalidCryptographicMetadataFieldsAreRejected(
+        string $field,
+        mixed $value,
+        string $operation
+    ): void {
+        $key = $this->key('primary-key');
+        $secret = 'invalid-field-secret';
+        $scope = 'ctrip:hotel:58';
+        $service = $this->service($key, 'ota-primary');
+        $metadata = $this->decodeEnvelope(
+            $service->encrypt(['password' => $secret], $scope)
+        );
+
+        if ($operation === 'unset') {
+            unset($metadata[$field]);
+        } elseif ($operation === 'strip-padding') {
+            self::assertIsString($metadata[$field]);
+            $nonCanonical = rtrim($metadata[$field], '=');
+            self::assertNotSame($metadata[$field], $nonCanonical);
+            $metadata[$field] = $nonCanonical;
+        } else {
+            $metadata[$field] = $value;
+        }
+
+        $this->assertRuntimeExceptionWithoutSecrets(
+            fn () => $service->decrypt($this->encodeEnvelope($metadata), $scope),
+            [$key, $secret]
+        );
     }
 
     public function testUnsupportedVersionAlgorithmAndMalformedBase64AreRejected(): void
@@ -224,6 +295,41 @@ final class OtaCredentialEnvelopeTest extends TestCase
             fn () => $service->decrypt(self::PREFIX . $invalidJsonPayload, 'ctrip:hotel:58'),
             []
         );
+    }
+
+    /**
+     * @return iterable<string, array{0: string, 1: mixed, 2: string}>
+     */
+    public static function invalidCryptographicMetadataProvider(): iterable
+    {
+        yield 'nonce is 11 bytes' => [
+            'nonce',
+            base64_encode(str_repeat('n', 11)),
+            'set',
+        ];
+        yield 'nonce is 13 bytes' => [
+            'nonce',
+            base64_encode(str_repeat('n', 13)),
+            'set',
+        ];
+        yield 'tag is 15 bytes' => [
+            'tag',
+            base64_encode(str_repeat('t', 15)),
+            'set',
+        ];
+        yield 'tag is 17 bytes' => [
+            'tag',
+            base64_encode(str_repeat('t', 17)),
+            'set',
+        ];
+        yield 'ciphertext is empty' => ['ciphertext', '', 'set'];
+        yield 'nonce is missing' => ['nonce', null, 'unset'];
+        yield 'ciphertext is missing' => ['ciphertext', null, 'unset'];
+        yield 'tag is missing' => ['tag', null, 'unset'];
+        yield 'nonce has wrong type' => ['nonce', [], 'set'];
+        yield 'ciphertext has wrong type' => ['ciphertext', false, 'set'];
+        yield 'tag has wrong type' => ['tag', 16, 'set'];
+        yield 'tag Base64 is noncanonical' => ['tag', null, 'strip-padding'];
     }
 
     private function service(string $keyBase64, string $keyId): OtaCredentialEnvelope

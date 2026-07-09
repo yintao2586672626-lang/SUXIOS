@@ -39,9 +39,18 @@ final class OtaCredentialEnvelope
     /** @param array<string|int, mixed> $credentials */
     public function encrypt(array $credentials, string $scope): string
     {
+        $payload = [
+            'header' => [
+                'v' => self::VERSION,
+                'alg' => self::ALGORITHM,
+                'kid' => $this->keyId,
+            ],
+            'credentials' => $credentials,
+        ];
+
         try {
             $plaintext = json_encode(
-                $credentials,
+                $payload,
                 JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
             );
         } catch (JsonException) {
@@ -126,15 +135,35 @@ final class OtaCredentialEnvelope
         }
 
         try {
-            $credentials = json_decode($plaintext, true, 512, JSON_THROW_ON_ERROR);
+            $payload = json_decode($plaintext, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             throw new RuntimeException('OTA credential envelope plaintext is invalid.');
         }
-        if (!is_array($credentials)) {
+        if (
+            !is_array($payload)
+            || !isset($payload['header'])
+            || !is_array($payload['header'])
+            || !array_key_exists('credentials', $payload)
+            || !is_array($payload['credentials'])
+        ) {
             throw new RuntimeException('OTA credential envelope plaintext is invalid.');
         }
 
-        return $credentials;
+        $header = $payload['header'];
+        if (
+            !array_key_exists('v', $header)
+            || $header['v'] !== $metadata['v']
+            || !array_key_exists('alg', $header)
+            || $header['alg'] !== $metadata['alg']
+            || !isset($header['kid'])
+            || !is_string($header['kid'])
+            || !hash_equals($metadata['kid'], $header['kid'])
+            || !hash_equals($this->keyId, $header['kid'])
+        ) {
+            throw new RuntimeException('OTA credential envelope authenticated metadata is invalid.');
+        }
+
+        return $payload['credentials'];
     }
 
     /** @return array<string, mixed> */
