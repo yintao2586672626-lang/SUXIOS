@@ -6,7 +6,7 @@ Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
 ## Current Conclusion
 
-The existing contract and review checks can pass while the project remains not release-ready. `npm run review:release-readiness` now defaults to `RELEASE_EVIDENCE_DIR` or `../release-evidence-temp` for controlled production env, LLM attestation, PR-candidate, staged-scope, and external-state result evidence, and currently reports 2 release-readiness failures: design handoff and OTA credential rotation attestation. The production env, production LLM attestation, formal Codex Security scan artifact blocker, and PR #6 external-state evidence are closed for the current evidence head and must keep passing on the final head. The release-closing checkout is currently clean at PR #6 head `9c424fbffa0020f824087830e44b5712620ffd9d`; rerun external-state after any PR update.
+The existing contract and review checks can pass while the project remains not release-ready. `npm run review:release-readiness` now defaults to `RELEASE_EVIDENCE_DIR` or `../release-evidence-temp` for controlled production env, LLM attestation, PR-candidate, staged-scope, and external-state result evidence, and currently reports 2 release-readiness failures: design handoff and OTA credential rotation attestation. The production env, production LLM attestation, formal Codex Security scan artifact blocker, and PR #6 external-state evidence are closed for the current evidence head and must keep passing on the final head. The release-closing checkout is currently clean at PR #6 head `e874b686a73bfe07d57a29bf85eba0dc6702a699`; rerun external-state after any PR update.
 
 Machine-readable status: `docs/release_readiness_status.json`.
 
@@ -45,7 +45,7 @@ Optional GitHub/local-state result evidence: run `npm run review:release-pr-cand
 | Production env evidence | Closed for current evidence head | External `RELEASE_ENV_FILE` at `../release-evidence-temp/production.env` passes `npm run review:release-env`; file contents are not committed. |
 | Production LLM connectivity | Closed for current evidence head | External `LLM_CONNECTIVITY_ATTESTATION_FILE` at `../release-evidence-temp/llm-attestation.json` passes `npm run review:release-llm`. |
 | Formal Codex Security scan | Closed for current release-evidence head | `docs/security/codex-security/latest` contains `scan_manifest.json`, `report.md`, `report.html`, threat model, finding discovery report, repository coverage ledger, reviewed surfaces, validation summary, and attack-path analysis report; `npm run review:release-security-scan` passes. |
-| GitHub / local handoff | Closed for current PR #6 verification head | `review:release-pr-candidates` selected PR #6; `review:release-staged-scope` found no forbidden staged files; `review:release-external-state` passed from a clean checkout at `9c424fbffa0020f824087830e44b5712620ffd9d`. |
+| GitHub / local handoff | Closed for current PR #6 verification head | `review:release-pr-candidates` selected PR #6; `review:release-staged-scope` found no forbidden staged files; `review:release-external-state` passed from a clean checkout at `e874b686a73bfe07d57a29bf85eba0dc6702a699`. |
 | UI code-side handoff checklist | Added | `docs/ui-handoff/README.md` covers login, OTA data, revenue analysis, AI decision, operations management, and investment decision code-side review points. |
 | Local functional acceptance gate | Added | `npm run review:functional-readiness` checks structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |
 | Release issue register | Added | `docs/release_issue_register.md` lists every open blocker, scope, evidence, acceptance command, and close condition. |
@@ -243,7 +243,7 @@ Required close evidence:
 
 Scope: `@github`
 
-The previous configured handoff target is stale, but current PR evidence now selects PR #6. `review:release-external-state` passes from a clean checkout where local HEAD matches PR #6 at `9c424fbffa0020f824087830e44b5712620ffd9d`. This must be rerun after any PR update.
+The previous configured handoff target is stale, but current PR evidence now selects PR #6. `review:release-external-state` passes from a clean checkout where local HEAD matches PR #6 at `e874b686a73bfe07d57a29bf85eba0dc6702a699`. This must be rerun after any PR update.
 
 Required close evidence:
 

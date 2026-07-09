@@ -106,7 +106,10 @@ class PlatformProfileLogin extends Command
         $payload = is_file($outputPath) ? json_decode((string)file_get_contents($outputPath), true) : [];
         $payload = is_array($payload) ? $payload : [];
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
-        $loggedIn = ($result['success'] || is_file($outputPath)) && ($authStatus === [] || !empty($authStatus['ok']));
+        $authStatusCode = strtolower(trim((string)($authStatus['status'] ?? '')));
+        $loggedIn = $result['success']
+            && !empty($authStatus['ok'])
+            && in_array($authStatusCode, ['logged_in', 'authorized'], true);
 
         if (!$loggedIn) {
             $message = $platform === 'ctrip' ? '重新登录携程平台账号' : '重新登录美团平台账号';
@@ -126,7 +129,7 @@ class PlatformProfileLogin extends Command
 
         $profileStatus = [
             'checked_at' => date('Y-m-d H:i:s'),
-            'auth_status' => $authStatus !== [] ? $authStatus : ['ok' => true, 'status' => 'logged_in'],
+            'auth_status' => $authStatus,
             'capture_gate' => $payload['capture_gate'] ?? null,
             'status_code' => 'logged_in',
             'output' => $outputPath,
@@ -611,9 +614,10 @@ class PlatformProfileLogin extends Command
 
     private function compactProfileLoginAuthStatus(array $authStatus): array
     {
+        $status = trim((string)($authStatus['status'] ?? ''));
         $compact = [
-            'ok' => (bool)($authStatus['ok'] ?? true),
-            'status' => trim((string)($authStatus['status'] ?? 'logged_in')) ?: 'logged_in',
+            'ok' => (bool)($authStatus['ok'] ?? false),
+            'status' => $status !== '' ? $status : 'unknown',
         ];
         if (array_key_exists('message', $authStatus)) {
             $compact['message'] = mb_substr(trim((string)$authStatus['message']), 0, 200);

@@ -6,8 +6,8 @@
   "final_release_ready": false,
   "status": "failed",
   "summary": {
-    "passed": 19,
-    "warnings": 4,
+    "passed": 20,
+    "warnings": 3,
     "failures": 2
   },
   "passes": [
@@ -19,6 +19,7 @@
     "Production LLM connectivity attestation is present and passed.",
     "database/backups is listed in .gitignore.",
     "database/backups is excluded from git archive exports.",
+    "database/backups has no git-tracked files.",
     "No OTA credential-shaped fields were found in database/backups text files.",
     "Release package sensitive-path ignore rules are present.",
     "Formal Codex Security scan reports and core coverage artifacts are present.",
@@ -27,12 +28,11 @@
     "Release staged-scope result has no forbidden staged files (0 staged entries reviewed).",
     "Release PR candidate result selected final PR #6.",
     "Release PR candidate result matches external-state final PR #6.",
-    "Release PR candidate head matches external-state head 9c424fbffa0020f824087830e44b5712620ffd9d.",
-    "Release external-state local HEAD matches PR head 9c424fbffa0020f824087830e44b5712620ffd9d.",
+    "Release PR candidate head matches external-state head e874b686a73bfe07d57a29bf85eba0dc6702a699.",
+    "Release external-state local HEAD matches PR head e874b686a73bfe07d57a29bf85eba0dc6702a699.",
     "Release external-state result is current and proves clean local state plus open, non-draft, mergeable, green final PR #6."
   ],
   "warnings": [
-    "Run `git ls-files database/backups` outside this script to confirm no backup file is tracked.",
     "Confirm GitHub Actions ran `composer audit --no-interaction` and `npm audit --audit-level=moderate` on the current PR head.",
     "Run `git status --short --branch` before release; local cleanliness is intentionally verified outside this script.",
     "Release staged-scope warning: This does not prove the local worktree is clean and does not close the release external-state gate."

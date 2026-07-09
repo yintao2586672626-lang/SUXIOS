@@ -17,6 +17,7 @@ class Hotel extends Model
     protected $type = [
         'id' => 'integer',
         'status' => 'integer',
+        'ota_channel_strategy' => 'string',
         'owner_user_id' => 'integer',
         'created_by' => 'integer',
     ];

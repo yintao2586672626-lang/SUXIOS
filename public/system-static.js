@@ -713,6 +713,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
                 contact_person: hotel.contact_person || operatorName,
                 contact_phone: hotel.contact_phone || '',
                 status: hotel.status ?? 1,
+                ota_channel_strategy: hotel.ota_channel_strategy || 'dual',
                 description: parsedDescription.description || '',
             };
         }
@@ -724,6 +725,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             contact_person: operatorName,
             contact_phone: '',
             status: 1,
+            ota_channel_strategy: 'dual',
             description: '',
         };
     };
@@ -734,6 +736,9 @@ window.SUXI_SYSTEM_STATIC = (() => {
         contact_person: String(form.contact_person || '').trim() || operatorName,
         contact_phone: String(form.contact_phone || '').trim(),
         status: parseInt(form.status),
+        ota_channel_strategy: ['ctrip_only', 'dual', 'meituan_only'].includes(String(form.ota_channel_strategy || 'dual'))
+            ? String(form.ota_channel_strategy || 'dual')
+            : 'dual',
         description,
     });
     const createHotelMergeForm = () => ({

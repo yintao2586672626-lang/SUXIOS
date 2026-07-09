@@ -26,6 +26,28 @@ for (const target of scanTargets.filter((item) => item.exists)) {
 const readyCandidates = results.filter((item) => item.status === 'ready_to_import');
 const blockedCandidates = results.filter((item) => item.status !== 'ready_to_import');
 const blockedIssueSummary = summarizeBlockedIssues(blockedCandidates);
+const missingPayloads = scanTargets.filter((item) => !item.exists).map((item) => ({
+  platform: item.platform,
+  system_hotel_id: item.systemHotelId,
+  payload: item.payload,
+}));
+const readyCandidateActions = readyCandidates.map((item) => ({
+  platform: item.platform,
+  system_hotel_id: item.system_hotel_id,
+  payload: item.payload,
+  command: `npm.cmd run import:p0-ota-traffic-payload:execute -- --platform=${item.platform} --date=${options.date} --system-hotel-id=${item.system_hotel_id} --payload=${item.payload} --format=json`,
+  verification: `npm.cmd run verify:p0-ota-field-loop -- --date=${options.date} --platform=${item.platform} --system-hotel-id=${item.system_hotel_id}`,
+}));
+const requiredPayloadAction = {
+  status: 'requires_authorized_traffic_payload',
+  missing_payloads: missingPayloads,
+  required_inputs: [
+    'authorized Ctrip/Meituan traffic JSON payload for the target date',
+    'explicit OTA platform hotel identifier',
+    'row-level source_path and desensitized source_trace_id/source_url_hash evidence',
+    'manual_login_state_verified when using browser profile capture',
+  ],
+};
 const summary = {
   expected_candidate_count: scanTargets.length,
   candidate_file_count: scanTargets.filter((item) => item.exists).length,
@@ -53,28 +75,10 @@ const output = {
   ready_candidates: readyCandidates,
   blocked_candidates: blockedCandidates,
   blocked_issue_summary: blockedIssueSummary,
-  next_actions: readyCandidates.length > 0
-    ? readyCandidates.map((item) => ({
-        platform: item.platform,
-        system_hotel_id: item.system_hotel_id,
-        payload: item.payload,
-        command: `npm.cmd run import:p0-ota-traffic-payload:execute -- --platform=${item.platform} --date=${options.date} --system-hotel-id=${item.system_hotel_id} --payload=${item.payload} --format=json`,
-        verification: `npm.cmd run verify:p0-ota-field-loop -- --date=${options.date} --platform=${item.platform} --system-hotel-id=${item.system_hotel_id}`,
-      }))
-    : [{
-        status: 'requires_authorized_traffic_payload',
-        missing_payloads: scanTargets.filter((item) => !item.exists).map((item) => ({
-          platform: item.platform,
-          system_hotel_id: item.systemHotelId,
-          payload: item.payload,
-        })),
-        required_inputs: [
-          'authorized Ctrip/Meituan traffic JSON payload for the target date',
-          'explicit OTA platform hotel identifier',
-          'row-level source_path and desensitized source_trace_id/source_url_hash evidence',
-          'manual_login_state_verified when using browser profile capture',
-        ],
-      }],
+  next_actions: [
+    ...readyCandidateActions,
+    ...(missingPayloads.length > 0 || readyCandidateActions.length === 0 ? [requiredPayloadAction] : []),
+  ],
 };
 
 if (options.format === 'markdown') {
@@ -495,9 +499,8 @@ function renderMarkdown(data) {
   for (const row of [...data.ready_candidates, ...data.blocked_candidates]) {
     lines.push(`| ${row.platform} | ${row.system_hotel_id} | ${row.payload} | ${row.status} | ${row.target_date_rows ?? 0} | ${row.traffic_evidence_rows ?? 0} | ${row.evidence_structured_source_path_rows ?? 0}/${row.evidence_source_path_rows ?? 0} | ${row.evidence_raw_data_field_facts_rows ?? 0} | ${(row.issue_codes || []).join(',')} |`);
   }
-  const missingPayloads = Array.isArray(data.next_actions?.[0]?.missing_payloads)
-    ? data.next_actions[0].missing_payloads
-    : [];
+  const missingPayloads = (Array.isArray(data.next_actions) ? data.next_actions : [])
+    .flatMap((action) => (Array.isArray(action?.missing_payloads) ? action.missing_payloads : []));
   if (missingPayloads.length > 0) {
     lines.push('', '## Missing Authorized Payloads');
     for (const item of missingPayloads) {
@@ -534,7 +537,7 @@ function renderMarkdown(data) {
   }
   if (data.ready_candidates.length > 0) {
     lines.push('', '## Ready Execute Commands');
-    for (const action of data.next_actions) {
+    for (const action of data.next_actions.filter((item) => item?.command)) {
       lines.push(`- ${action.command}`);
       lines.push(`  verify: ${action.verification}`);
     }

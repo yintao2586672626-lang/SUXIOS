@@ -4017,17 +4017,17 @@
                                     :class="filterHotelAccountHealth === 'ctrip' ? 'border-blue-200 bg-blue-50/80 ring-1 ring-blue-100' : 'border-blue-100 bg-blue-50/50 hover:bg-blue-50'"
                                     class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
                                     <span class="text-xs text-blue-700">携程可采</span>
-                                    <span class="text-lg font-semibold text-blue-700">{{ hotelBindingOverview.ctripBound }}</span>
+                                    <span class="text-lg font-semibold text-blue-700">{{ hotelBindingOverview.ctripBound }}/{{ hotelBindingOverview.ctripApplicable }}</span>
                                 </button>
                                 <button type="button" @click="applyHotelQuickFilter('meituan', '1')"
                                     :class="filterHotelAccountHealth === 'meituan' ? 'border-orange-200 bg-orange-50/80 ring-1 ring-orange-100' : 'border-orange-100 bg-orange-50/50 hover:bg-orange-50'"
                                     class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
                                     <span class="text-xs text-orange-700">美团可采</span>
-                                    <span class="text-lg font-semibold text-orange-700">{{ hotelBindingOverview.meituanBound }}</span>
+                                    <span class="text-lg font-semibold text-orange-700">{{ hotelBindingOverview.meituanBound }}/{{ hotelBindingOverview.meituanApplicable }}</span>
                                 </button>
                             </div>
                             <div class="text-xs text-gray-500 leading-relaxed">
-                                说明：账号待补=营业中门店还有携程/美团账号绑定、登录或采集配置问题；美团竞对榜单不作为本页主筛选，在同圈对比入口和处理动作中处理。这里只代表 OTA 渠道状态，不代表全酒店经营口径。
+                                说明：账号待补只统计门店 OTA 策略适用的平台；携程独家不把美团缺配置算异常，主美团不把携程缺配置算异常。这里只代表 OTA 渠道状态，不代表全酒店经营口径。
                             </div>
                             <div class="flex flex-wrap gap-3 items-center">
                                 <div class="flex-1 min-w-[220px]">
@@ -4089,10 +4089,15 @@
                                                             <span class="text-gray-400">负责人</span>
                                                             <span class="ml-1 font-semibold text-gray-800 truncate" :title="hotelOwnerText(hotel)">{{ hotelOwnerText(hotel) }}</span>
                                                         </div>
+                                                        <div class="rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                                                            <span class="text-gray-400">OTA策略</span>
+                                                            <span :class="hotelOtaStrategyClass(hotel)" class="ml-1 inline-flex rounded-md border px-1.5 py-0.5 font-semibold">{{ hotelOtaStrategyText(hotel) }}</span>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td class="px-4 py-4 w-[20%]">
+                                                <template v-if="hotelPlatformApplicable(hotel, 'ctrip')">
                                                 <div v-for="account in [hotelPlatformRow(hotel, 'ctrip')]" :key="`${hotel.id}-ctrip-status`"
                                                     class="w-full rounded-lg border border-blue-100 bg-blue-50/30 p-3 text-left text-xs">
                                                     <div class="flex items-center justify-between gap-2">
@@ -4134,8 +4139,14 @@
                                                         <button type="button" @click="openHotelManualFetchConfig(hotel, 'ctrip')" class="rounded-md border border-blue-100 bg-white px-2 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">手动配置</button>
                                                     </div>
                                                 </div>
+                                                </template>
+                                                <div v-else class="w-full rounded-lg border border-gray-100 bg-gray-50 px-3 py-3 text-xs text-gray-500">
+                                                    <div class="font-semibold text-gray-700">携程不适用</div>
+                                                    <div class="mt-1 leading-relaxed">{{ hotelInactivePlatformText(hotel, 'ctrip') }}</div>
+                                                </div>
                                             </td>
                                             <td class="px-4 py-4 w-[20%]">
+                                                <template v-if="hotelPlatformApplicable(hotel, 'meituan')">
                                                 <div v-for="account in [hotelPlatformRow(hotel, 'meituan')]" :key="`${hotel.id}-meituan-status`"
                                                     class="w-full rounded-lg border border-orange-100 bg-orange-50/30 p-3 text-left text-xs">
                                                     <div class="flex items-center justify-between gap-2">
@@ -4177,6 +4188,11 @@
                                                         <button type="button" @click="openHotelManualFetchConfig(hotel, 'meituan')" class="rounded-md border border-orange-100 bg-white px-2 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-50">手动配置</button>
                                                     </div>
                                                 </div>
+                                                </template>
+                                                <div v-else class="w-full rounded-lg border border-gray-100 bg-gray-50 px-3 py-3 text-xs text-gray-500">
+                                                    <div class="font-semibold text-gray-700">美团不适用</div>
+                                                    <div class="mt-1 leading-relaxed">{{ hotelInactivePlatformText(hotel, 'meituan') }}</div>
+                                                </div>
                                             </td>
                                             <td class="px-4 py-4 w-[22%] text-right">
                                                 <div v-if="canManageOwnHotels()" class="space-y-2">
@@ -4213,6 +4229,10 @@
                                                     <span class="text-gray-400">负责人</span>
                                                     <span class="ml-1 font-semibold text-gray-800 truncate" :title="hotelOwnerText(hotel)">{{ hotelOwnerText(hotel) }}</span>
                                                 </div>
+                                                <div class="rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+                                                    <span class="text-gray-400">OTA策略</span>
+                                                    <span :class="hotelOtaStrategyClass(hotel)" class="ml-1 inline-flex rounded-md border px-1.5 py-0.5 font-semibold">{{ hotelOtaStrategyText(hotel) }}</span>
+                                                </div>
                                             </div>
                                         </div>
                                         <div v-if="canManageOwnHotels()" class="shrink-0 w-[128px] space-y-1.5">
@@ -4228,7 +4248,7 @@
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        <div v-for="account in hotelPlatformBindingRows(hotel)" :key="`mobile-${hotel.id}-${account.platform}`"
+                                        <div v-for="account in hotelApplicablePlatformBindingRows(hotel)" :key="`mobile-${hotel.id}-${account.platform}`"
                                             class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-left">
                                             <div class="flex items-center justify-between gap-2">
                                                 <div class="flex items-center gap-2 min-w-0">
@@ -4969,7 +4989,6 @@
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">角色</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">门店范围</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">状态</th>
-                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">发放状态</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">上次登录</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
                                         </tr>
@@ -4984,9 +5003,6 @@
                                                     <span :class="userRoleBadgeClass(u)" class="inline-flex items-center px-2.5 py-0.5 rounded-full border text-xs font-medium">
                                                         {{ u?.role?.display_name || '-' }}
                                                     </span>
-                                                    <div class="max-w-[220px] text-[11px] leading-4 text-slate-500" :title="userRoleBoundaryText(u)">
-                                                        {{ userRoleBoundaryText(u) }}
-                                                    </div>
                                                 </div>
                                             </td>
                                             <td class="px-6 py-4 text-sm text-gray-600">
@@ -4997,17 +5013,6 @@
                                                     class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
                                                     {{ String(u?.status) === '1' ? '正常' : '待审核/暂停' }}
                                                 </span>
-                                            </td>
-                                            <td class="px-6 py-4">
-                                                <div class="max-w-[220px] space-y-1">
-                                                    <span :class="['inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium', userIssueStatus(u).class]">
-                                                        <i :class="userIssueStatus(u).icon"></i>
-                                                        {{ userIssueStatus(u).label }}
-                                                    </span>
-                                                    <div class="text-[11px] leading-4 text-slate-500" :title="userIssueStatus(u).detail">
-                                                        {{ userIssueStatus(u).detail }}
-                                                    </div>
-                                                </div>
                                             </td>
                                             <td class="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{{ userLastLoginText(u) }}</td>
                                             <td class="px-6 py-4">
@@ -18081,6 +18086,28 @@
                             </div>
                         </div>
 
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">OTA 渠道策略</label>
+                            <div class="grid grid-cols-3 rounded-lg border border-gray-200 bg-gray-50 p-1 text-sm">
+                                <button type="button" @click="hotelForm.ota_channel_strategy = 'ctrip_only'"
+                                    :class="hotelOtaStrategyButtonClass(hotelForm.ota_channel_strategy, 'ctrip_only')"
+                                    class="rounded-md px-3 py-2 font-medium transition-colors">
+                                    携程
+                                </button>
+                                <button type="button" @click="hotelForm.ota_channel_strategy = 'dual'"
+                                    :class="hotelOtaStrategyButtonClass(hotelForm.ota_channel_strategy, 'dual')"
+                                    class="rounded-md px-3 py-2 font-medium transition-colors">
+                                    双渠道
+                                </button>
+                                <button type="button" @click="hotelForm.ota_channel_strategy = 'meituan_only'"
+                                    :class="hotelOtaStrategyButtonClass(hotelForm.ota_channel_strategy, 'meituan_only')"
+                                    class="rounded-md px-3 py-2 font-medium transition-colors">
+                                    主美团
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-400 mt-1">未选择或旧数据默认双渠道；独家渠道不会把另一平台缺配置计入账号待补。</p>
+                        </div>
+
                         <div v-if="hotelForm.id" class="pt-4 border-t border-gray-100">
                             <button type="button" @click="showHotelOtaConfig = !showHotelOtaConfig"
                                 class="w-full flex items-center justify-between text-left rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:bg-gray-100 transition-colors">
@@ -18097,7 +18124,7 @@
                                     正在加载平台账号配置...
                                 </div>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div v-for="account in hotelPlatformBindingRows(hotelFormAccountHotel())" :key="`modal-${hotelForm.id}-${account.platform}`"
+                                    <div v-for="account in hotelApplicablePlatformBindingRows(hotelFormAccountHotel())" :key="`modal-${hotelForm.id}-${account.platform}`"
                                         :class="['rounded-xl border p-4 min-w-0', hotelPlatformCardClass(account.platform)]">
                                         <div class="flex items-start justify-between gap-3">
                                             <div class="flex items-center gap-2 min-w-0">
@@ -23603,6 +23630,9 @@
                 return Array.isArray(insights) ? insights.find(item => item.key === key) : null;
             };
             const competitorSummaryReadiness = (summary, hotel = null) => {
+                if (hotel && !hotelPlatformApplicable(hotel, 'meituan')) {
+                    return { status: 'not_applicable', label: '不适用', detail: '当前门店 OTA 策略不纳入美团竞对榜单', next_action: '无需处理' };
+                }
                 const readiness = summary?.readiness || {};
                 if (readiness.label) return readiness;
                 if (!summary || summary.data_status === 'missing') {
@@ -25120,10 +25150,8 @@
                         : (profileExists || !!dataSourceId || !['', 'unconfigured', 'missing_profile', 'needs_profile'].includes(statusCode));
                     const manualLoginVerified = hasBindingContract
                         ? bindingContract.manual_login_state_verified === true
-                        : (profile.manual_login_state_verified === true || profile.manualLoginStateVerified === true || statusCode === 'logged_in' || /manual_login_state_verified|logged_in|已登录|授权可用/i.test(currentStatus));
-                    const loginVerified = hasBindingContract
-                        ? (manualLoginVerified && statusCode === 'logged_in')
-                        : (statusCode === 'logged_in' || /manual_login_state_verified|logged_in|已登录|授权可用/i.test(currentStatus));
+                        : (profile.manual_login_state_verified === true || profile.manualLoginStateVerified === true || /manual_login_state_verified/i.test(currentStatus));
+                    const loginVerified = manualLoginVerified && statusCode === 'logged_in';
                     const loginBlocked = ['session_expired', 'login_expired', 'anti_bot', 'resource_busy_login', 'cookies_incomplete', 'capture_failed', 'permission_denied', 'hotel_mismatch'].includes(statusCode);
                     const collectionStatus = String(collectionRow?.collectionStatus || '').trim().toLowerCase();
                     const storedRows = Number(collectionRow?.storedRowCount || 0);
@@ -29326,7 +29354,7 @@
                 return rows.filter((row) => String(row.value || '').trim() !== '');
             };
             const hotelBackgroundProfileForm = ref(getEmptyHotelBackgroundProfile());
-            const hotelForm = ref({ id: null, name: '', code: '', address: '', contact_person: '', contact_phone: '', status: 1, description: '' });
+            const hotelForm = ref({ id: null, name: '', code: '', address: '', contact_person: '', contact_phone: '', status: 1, ota_channel_strategy: 'dual', description: '' });
             const showHotelOtaConfig = ref(false);
             const hotelOtaConfigLoading = ref(false);
             const hotelOtaConfig = ref({
@@ -29352,6 +29380,7 @@
                 name: hotelForm.value.name,
                 code: hotelForm.value.code,
                 status: hotelForm.value.status,
+                ota_channel_strategy: hotelForm.value.ota_channel_strategy || 'dual',
             });
             const userForm = ref({ id: null, username: '', password: '', realname: '', role_id: '', hotel_id: null, hotel_ids: [], status: 1 });
             const getSystemConfigDefaults = requireSystemStatic('getSystemConfigDefaults');
@@ -34461,6 +34490,45 @@
                 return hotelName ? `${hotelName}（ID ${hotelId}）` : `门店ID ${hotelId}`;
             };
 
+            const normalizeHotelOtaStrategy = (value) => {
+                const strategy = String(value || '').trim();
+                return ['ctrip_only', 'dual', 'meituan_only'].includes(strategy) ? strategy : 'dual';
+            };
+
+            const hotelOtaStrategyText = (hotel = {}) => ({
+                ctrip_only: '携程独家',
+                dual: '双渠道',
+                meituan_only: '主美团',
+            }[normalizeHotelOtaStrategy(hotel?.ota_channel_strategy)] || '双渠道');
+
+            const hotelOtaStrategyClass = (hotel = {}) => ({
+                ctrip_only: 'bg-blue-50 text-blue-700 border-blue-100',
+                dual: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                meituan_only: 'bg-orange-50 text-orange-700 border-orange-100',
+            }[normalizeHotelOtaStrategy(hotel?.ota_channel_strategy)] || 'bg-emerald-50 text-emerald-700 border-emerald-100');
+
+            const hotelOtaStrategyButtonClass = (current, target) => {
+                const active = normalizeHotelOtaStrategy(current) === target;
+                if (!active) return 'text-gray-500 hover:bg-white hover:text-gray-700';
+                if (target === 'ctrip_only') return 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-100';
+                if (target === 'meituan_only') return 'bg-white text-orange-700 shadow-sm ring-1 ring-orange-100';
+                return 'bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100';
+            };
+
+            const hotelPlatformApplicable = (hotel = {}, platform = '') => {
+                const key = String(platform || '').toLowerCase();
+                const strategy = normalizeHotelOtaStrategy(hotel?.ota_channel_strategy);
+                if (strategy === 'ctrip_only') return key === 'ctrip';
+                if (strategy === 'meituan_only') return key === 'meituan';
+                return ['ctrip', 'meituan'].includes(key);
+            };
+
+            const hotelInactivePlatformText = (hotel = {}, platform = '') => {
+                const strategyText = hotelOtaStrategyText(hotel);
+                const platformText = String(platform || '').toLowerCase() === 'ctrip' ? '携程' : '美团';
+                return `${strategyText}门店，${platformText}不纳入账号异常、待补和采集统计。`;
+            };
+
             const normalizeUserHotelIds = (value) => {
                 const source = Array.isArray(value) ? value : (value ? [value] : []);
                 return [...new Set(source
@@ -34728,6 +34796,10 @@
                 });
             };
 
+            const hotelApplicablePlatformBindingRows = (hotel = {}) => {
+                return hotelPlatformBindingRows(hotel).filter(row => hotelPlatformApplicable(hotel, row.platform));
+            };
+
             const hotelOwnerText = (hotel = {}) => firstNonEmptyText(
                 hotel.contact_person,
                 hotel.manager_name,
@@ -34779,7 +34851,7 @@
                     }];
                 }
 
-                const rows = hotelPlatformBindingRows(hotel)
+                const rows = hotelApplicablePlatformBindingRows(hotel)
                     .map(account => ({
                         key: account.platform || account.label,
                         label: account.label,
@@ -34789,7 +34861,7 @@
                     .filter(row => row.text);
 
                 const competitor = hotelCompetitorReadiness(hotel);
-                if (!hotelCompetitorIsReady(hotel)) {
+                if (!['ok', 'success', 'not_applicable'].includes(String(competitor?.status || ''))) {
                     rows.push({
                         key: 'competitor',
                         label: '竞对',
@@ -34803,7 +34875,8 @@
 
             const hotelAccountHealthKey = (hotel = {}) => {
                 if (String(hotel?.status) !== '1') return 'inactive';
-                const rows = hotelPlatformBindingRows(hotel);
+                const rows = hotelApplicablePlatformBindingRows(hotel);
+                if (rows.length === 0) return 'todo';
                 const hasBlockingIssue = rows.some(row => {
                     return ['mismatch', 'login_expired'].includes(row.statusCode) || row.captureStatusText === '最近采集失败';
                 });
@@ -34832,7 +34905,7 @@
                 if (String(hotel?.status) !== '1') {
                     return { text: '-', weight: 100, className: 'bg-gray-50 text-gray-500 border-gray-200' };
                 }
-                const rows = hotelPlatformBindingRows(hotel)
+                const rows = hotelApplicablePlatformBindingRows(hotel)
                     .map(row => ({
                         text: row.nextActionText || '正常',
                         weight: Number(row.nextActionWeight || 99),
@@ -34842,6 +34915,9 @@
                         platform: row.platform || '',
                         account: row,
                     }));
+                if (rows.length === 0) {
+                    return { text: '核对OTA策略', weight: 35, className: 'bg-amber-50 text-amber-700 border-amber-200' };
+                }
                 const competitorAction = hotelCompetitorActionMeta(hotel);
                 if (!['正常', '-'].includes(competitorAction.text)) {
                     rows.push(competitorAction);
@@ -34853,12 +34929,12 @@
             const hotelMatchesAccountHealth = (hotel = {}, filter = '') => {
                 const key = String(filter || '');
                 if (!key) return true;
-                const rows = hotelPlatformBindingRows(hotel);
+                const rows = hotelApplicablePlatformBindingRows(hotel);
                 if (key === 'ctrip' || key === 'meituan') {
                     return rows.some(row => row.platform === key && row.level === 'ready');
                 }
                 if (key === 'competitor') {
-                    return hotelCompetitorIsReady(hotel);
+                    return hotelPlatformApplicable(hotel, 'meituan') && hotelCompetitorIsReady(hotel);
                 }
                 if (key === 'todo') {
                     return hotelAccountHealthKey(hotel) === 'todo';
@@ -34936,11 +35012,14 @@
                 : 'bg-amber-50 text-amber-700 border-amber-100';
 
             const hotelAccountSummary = (hotel = {}) => {
-                const rows = hotelPlatformBindingRows(hotel);
+                const rows = hotelApplicablePlatformBindingRows(hotel);
+                if (rows.length === 0) {
+                    return { statusText: '策略待确认', className: 'bg-amber-50 text-amber-700 border-amber-100' };
+                }
                 const readyCount = rows.filter(row => row.level === 'ready').length;
                 const partialCount = rows.filter(row => row.level === 'partial').length;
                 if (readyCount === rows.length) {
-                    return { statusText: '双平台可用', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+                    return { statusText: `${hotelOtaStrategyText(hotel)}可用`, className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
                 }
                 if (readyCount > 0) {
                     return { statusText: `${readyCount}/${rows.length} 可用`, className: 'bg-blue-50 text-blue-700 border-blue-100' };
@@ -34958,10 +35037,15 @@
                 const activeHotels = hotels.value.filter(h => String(h.status) === '1');
                 const error = activeHotels.filter(h => hotelAccountHealthKey(h) === 'error').length;
                 const todo = activeHotels.filter(h => hotelAccountHealthKey(h) === 'todo').length;
-                const ctripBound = activeHotels.filter(h => hotelPlatformBindingRows(h).some(row => row.platform === 'ctrip' && row.level === 'ready')).length;
-                const meituanBound = activeHotels.filter(h => hotelPlatformBindingRows(h).some(row => row.platform === 'meituan' && row.level === 'ready')).length;
-                const fullBound = activeHotels.filter(h => hotelPlatformBindingRows(h).every(row => row.level === 'ready')).length;
-                return { total, active, error, todo, ctripBound, meituanBound, fullBound };
+                const ctripApplicable = activeHotels.filter(h => hotelPlatformApplicable(h, 'ctrip')).length;
+                const meituanApplicable = activeHotels.filter(h => hotelPlatformApplicable(h, 'meituan')).length;
+                const ctripBound = activeHotels.filter(h => hotelPlatformApplicable(h, 'ctrip') && hotelPlatformBindingRows(h).some(row => row.platform === 'ctrip' && row.level === 'ready')).length;
+                const meituanBound = activeHotels.filter(h => hotelPlatformApplicable(h, 'meituan') && hotelPlatformBindingRows(h).some(row => row.platform === 'meituan' && row.level === 'ready')).length;
+                const fullBound = activeHotels.filter(h => {
+                    const rows = hotelApplicablePlatformBindingRows(h);
+                    return rows.length > 0 && rows.every(row => row.level === 'ready');
+                }).length;
+                return { total, active, error, todo, ctripBound, meituanBound, ctripApplicable, meituanApplicable, fullBound };
             });
             const hotelCompetitorSummaryMeta = (hotel) => {
                 const summary = hotelCompetitorSummary(hotel);
@@ -34981,7 +35065,7 @@
             const hotelCompetitorActionMeta = (hotel = {}) => {
                 const readiness = hotelCompetitorReadiness(hotel);
                 const status = String(readiness?.status || '');
-                if (['ok', 'success'].includes(status)) {
+                if (['ok', 'success', 'not_applicable'].includes(status)) {
                     return { text: '正常', weight: 99, className: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
                 }
                 const label = String(readiness?.label || '');
@@ -46623,7 +46707,7 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, getHotelNameById, hotelConfigTargetText, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelPlatformReadyPillClass, hotelPlatformManualCookieReady, hotelPlatformManualCookieText, hotelPlatformFetchConfigReady, hotelPlatformFetchConfigText, hotelPlatformAutomationReady, hotelPlatformAutomationText, hotelPlatformCollectionReadyText, hotelPlatformCollectionReadyClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, openHotelSyncLogs, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, getHotelNameById, hotelConfigTargetText, normalizeHotelOtaStrategy, hotelOtaStrategyText, hotelOtaStrategyClass, hotelOtaStrategyButtonClass, hotelPlatformApplicable, hotelInactivePlatformText, hotelApplicablePlatformBindingRows, userHotelScopeText, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelPlatformReadyPillClass, hotelPlatformManualCookieReady, hotelPlatformManualCookieText, hotelPlatformFetchConfigReady, hotelPlatformFetchConfigText, hotelPlatformAutomationReady, hotelPlatformAutomationText, hotelPlatformCollectionReadyText, hotelPlatformCollectionReadyClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, openHotelSyncLogs, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,

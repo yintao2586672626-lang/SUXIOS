@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { isPlaceholder } from './release_env_checks.mjs';
 
 const RELEASE_EVIDENCE_MAX_AGE_DAYS = 30;
@@ -49,6 +50,35 @@ function walkFiles(repoRoot, dir, warnings, output = []) {
     }
   }
   return output;
+}
+
+function checkGitTrackedBackups(repoRoot, warnings, failures, passes) {
+  const result = spawnSync('git', ['ls-files', 'database/backups'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  });
+
+  if (result.error) {
+    warnings.push(`git ls-files database/backups could not run: ${result.error.message}`);
+    return;
+  }
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || '').trim();
+    warnings.push(`git ls-files database/backups did not complete; verify backup tracking manually${detail ? `: ${detail}` : '.'}`);
+    return;
+  }
+
+  const tracked = String(result.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (tracked.length > 0) {
+    failures.push(`database/backups has git-tracked files: ${tracked.join(', ')}. Remove backup files from Git/release scope before release.`);
+    return;
+  }
+
+  passes.push('database/backups has no git-tracked files.');
 }
 
 function isRedactedSecretValue(value) {
@@ -217,7 +247,7 @@ export function checkBackupCredentialFields({ repoRoot }) {
     failures.push('database/backups is not marked export-ignore in .gitattributes.');
   }
 
-  warnings.push('Run `git ls-files database/backups` outside this script to confirm no backup file is tracked.');
+  checkGitTrackedBackups(repoRoot, warnings, failures, passes);
 
   const backupDir = path.join(repoRoot, 'database/backups');
   if (!fs.existsSync(backupDir)) {

@@ -4,7 +4,7 @@
 
 范围：`@github`、`@openai-developers`、`@codex-security`、`@figma`、`@canva`
 
-结论：当前项目功能结构已具备本地验收基础，但仍不能上线使用。接入仓库外生产 env、LLM attestation、PR candidate、staged-scope 和当前 external-state 结果后，`npm run review:release-readiness` 当前结果为 `19 passed, 4 warnings, 2 failures`；剩余失败项为真实设计交付、OTA 凭据轮换证明。当前 PR #6 已由 `review:release-pr-candidates` 选中，且 `review:release-external-state` 已在干净 checkout 中通过；release-closing checkout 当前匹配 PR #6 head `9c424fbffa0020f824087830e44b5712620ffd9d`。
+结论：当前项目功能结构已具备本地验收基础，但仍不能上线使用。接入仓库外生产 env、LLM attestation、PR candidate、staged-scope 和当前 external-state 结果后，`npm run review:release-readiness` 当前结果为 `20 passed, 3 warnings, 2 failures`；剩余失败项为真实设计交付、OTA 凭据轮换证明。当前 PR #6 已由 `review:release-pr-candidates` 选中，且 `review:release-external-state` 已在干净 checkout 中通过；release-closing checkout 当前匹配 PR #6 head `e874b686a73bfe07d57a29bf85eba0dc6702a699`。
 
 证据采集清单：`docs/release_evidence_collection.zh-CN.md`。
 

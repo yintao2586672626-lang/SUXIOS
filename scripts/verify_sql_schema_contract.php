@@ -244,22 +244,76 @@ function add_column_ref(array &$refs, string $table, string $column, string $loc
 function parse_field_list(string $fields): array
 {
     $result = [];
+    foreach (parse_field_references($fields) as $reference) {
+        $result[] = $reference['column'];
+    }
+    return array_values(array_unique($result));
+}
+
+function normalize_field_reference(string $field): string
+{
+    $field = preg_replace('/\s+as\s+[A-Za-z_][A-Za-z0-9_]*$/i', '', $field) ?? $field;
+    return trim($field, " \t\n\r\0\x0B`");
+}
+
+function parse_field_references(string $fields): array
+{
+    $result = [];
+    $seen = [];
     foreach (explode(',', $fields) as $field) {
-        $field = trim($field, " \t\n\r\0\x0B`");
+        $field = normalize_field_reference($field);
         if ($field === '' || str_contains($field, '(')) {
             continue;
         }
-        if (preg_match('/\s+as\s+([A-Za-z_][A-Za-z0-9_]*)$/i', $field, $alias)) {
-            $field = $alias[1];
-        } elseif (str_contains($field, '.')) {
-            $field = substr($field, strrpos($field, '.') + 1);
+        $tableAlias = '';
+        if (str_contains($field, '.')) {
+            [$tableAlias, $field] = explode('.', $field, 2);
         }
+        $tableAlias = trim($tableAlias, '` ');
         $field = trim($field, '` ');
         if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $field)) {
-            $result[] = $field;
+            $key = $tableAlias . '.' . $field;
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $result[] = ['alias' => $tableAlias, 'column' => $field];
+            }
         }
     }
-    return array_values(array_unique($result));
+    return $result;
+}
+
+function query_alias_tables(string $baseTable, string $chain): array
+{
+    $aliases = ['' => $baseTable];
+    if (preg_match('/->alias\(\s*[\'"]([A-Za-z_][A-Za-z0-9_]*)[\'"]\s*\)/', $chain, $alias)) {
+        $aliases[$alias[1]] = $baseTable;
+    }
+
+    if (preg_match_all('/->(?:leftJoin|rightJoin|join)\(\s*[\'"]([^\'"]+)[\'"]/', $chain, $joins)) {
+        foreach ($joins[1] as $joinTarget) {
+            $joinTarget = trim($joinTarget);
+            if (preg_match('/^`?([A-Za-z_][A-Za-z0-9_]*)`?(?:\s+(?:as\s+)?`?([A-Za-z_][A-Za-z0-9_]*)`?)?$/i', $joinTarget, $match)) {
+                $table = $match[1];
+                $alias = $match[2] ?? $table;
+                $aliases[$alias] = $table;
+                $aliases[$table] = $table;
+            }
+        }
+    }
+
+    return $aliases;
+}
+
+function add_query_field_refs(array &$columns, string $baseTable, string $chain, string $fieldText, string $location): void
+{
+    $aliasTables = query_alias_tables($baseTable, $chain);
+    foreach (parse_field_references($fieldText) as $reference) {
+        $alias = $reference['alias'];
+        if ($alias !== '' && !isset($aliasTables[$alias])) {
+            continue;
+        }
+        add_column_ref($columns, $aliasTables[$alias] ?? $baseTable, $reference['column'], $location);
+    }
 }
 
 function top_level_array_keys(string $body): array
@@ -362,16 +416,12 @@ function collect_code_refs(array $modelMap, array $criticalColumns): array
                     $chain = $match['chain'];
                     if (preg_match_all('/->(?:where|whereOr|whereIn|whereNotIn|whereBetween|whereNull|whereNotNull|order|group|column)\(\s*[\'"]([^\'"]+)[\'"]/', $chain, $fieldMatches)) {
                         foreach ($fieldMatches[1] as $fieldText) {
-                            foreach (parse_field_list($fieldText) as $column) {
-                                add_column_ref($columns, $table, $column, "{$relative}:query");
-                            }
+                            add_query_field_refs($columns, $table, $chain, $fieldText, "{$relative}:query");
                         }
                     }
                     if (preg_match_all('/->field\(\s*[\'"]([^\'"]+)[\'"]/', $chain, $fieldMatches)) {
                         foreach ($fieldMatches[1] as $fieldText) {
-                            foreach (parse_field_list($fieldText) as $column) {
-                                add_column_ref($columns, $table, $column, "{$relative}:field");
-                            }
+                            add_query_field_refs($columns, $table, $chain, $fieldText, "{$relative}:field");
                         }
                     }
                     if (preg_match_all('/->(?:insert|insertGetId|update)\(\s*\[(?P<body>.*?)\]\s*\)/s', $chain, $arrayMatches, PREG_SET_ORDER)) {

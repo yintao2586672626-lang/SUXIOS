@@ -925,6 +925,9 @@ trait OnlineDataRequestConcern
                     'message' => '暂无登录任务',
                 ], '暂无登录任务');
             }
+            if (!$this->currentUserCanViewOnlineDataHotel((int)$systemHotelId)) {
+                return $this->error('No permission to view this hotel profile login task', 403);
+            }
             $task = $this->readPlatformProfileLoginCurrentTask($platform, (int)$systemHotelId, $profileKey);
             if ($task === []) {
                 return $this->success([
@@ -939,16 +942,33 @@ trait OnlineDataRequestConcern
             }
         }
 
+        $taskHotelId = (int)($task['system_hotel_id'] ?? 0);
+        if ($taskHotelId <= 0) {
+            return $this->error('Profile login task is missing hotel scope', 409);
+        }
+        if (!$this->currentUserCanViewOnlineDataHotel($taskHotelId)) {
+            return $this->error('无权查看该酒店登录任务', 403);
+        }
+
         if (($task['platform'] ?? '') !== $platform) {
             return $this->error('登录任务平台不匹配', 400);
         }
 
-        $taskHotelId = (int)($task['system_hotel_id'] ?? 0);
-        if ($taskHotelId > 0 && $this->resolveOnlineDataSystemHotelId($taskHotelId) !== $taskHotelId) {
-            return $this->error('无权查看该酒店登录任务', 403);
+        return $this->success($this->normalizePlatformProfileLoginTask($task), '平台登录任务状态已读取');
+    }
+
+    private function currentUserCanViewOnlineDataHotel(int $hotelId): bool
+    {
+        if ($hotelId <= 0 || !$this->currentUser) {
+            return false;
         }
 
-        return $this->success($this->normalizePlatformProfileLoginTask($task), '平台登录任务状态已读取');
+        if (method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin()) {
+            return true;
+        }
+
+        return method_exists($this->currentUser, 'hasHotelPermission')
+            && $this->currentUser->hasHotelPermission($hotelId, 'can_view_online_data');
     }
 
     public function fetchCtripCookieApiData(): Response

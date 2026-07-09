@@ -15,6 +15,8 @@ use think\facade\Db;
 
 class Hotel extends Base
 {
+    private const OTA_CHANNEL_STRATEGIES = ['ctrip_only', 'dual', 'meituan_only'];
+
     /**
      * 酒店列表
      */
@@ -71,8 +73,13 @@ class Hotel extends Base
             return $creatorColumnError;
         }
 
+        $fields = 'id, name, code, status';
+        if ($this->tableColumnExists('hotels', 'ota_channel_strategy')) {
+            $fields .= ', ota_channel_strategy';
+        }
+
         $query = HotelModel::where('status', HotelModel::STATUS_ENABLED)
-            ->field('id, name, code, status')
+            ->field($fields)
             ->order('id', 'asc');
 
         // 非超级管理员只能看到有权限的酒店
@@ -141,6 +148,11 @@ class Hotel extends Base
         }
 
         $data = $this->requestData();
+        try {
+            $otaChannelStrategy = $this->normalizeOtaChannelStrategy($data);
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
         $code = $this->normalizeHotelCode($data['code'] ?? null);
         $data['code'] = $code ?? '';
 
@@ -169,6 +181,9 @@ class Hotel extends Base
         $hotel->contact_phone = $data['contact_phone'] ?? '';
         $hotel->description = $data['description'] ?? '';
         $hotel->status = $data['status'] ?? HotelModel::STATUS_ENABLED;
+        if ($this->tableColumnExists('hotels', 'ota_channel_strategy')) {
+            $hotel->ota_channel_strategy = $otaChannelStrategy;
+        }
         if ($hasOwnerColumn) {
             $hotel->owner_user_id = $this->resolveOwnerUserId($data);
         }
@@ -211,6 +226,11 @@ class Hotel extends Base
         }
 
         $data = $this->requestData();
+        try {
+            $otaChannelStrategy = $this->normalizeOtaChannelStrategy($data, (string)($hotel->ota_channel_strategy ?? 'dual'));
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
         $code = $this->normalizeHotelCode($data['code'] ?? null);
         $data['code'] = $code ?? '';
 
@@ -249,6 +269,9 @@ class Hotel extends Base
         $hotel->contact_person = $data['contact_person'] ?? '';
         $hotel->contact_phone = $data['contact_phone'] ?? '';
         $hotel->description = $data['description'] ?? '';
+        if ($this->tableColumnExists('hotels', 'ota_channel_strategy')) {
+            $hotel->ota_channel_strategy = $otaChannelStrategy;
+        }
         if (isset($data['status'])) {
             $hotel->status = $data['status'];
         }
@@ -628,6 +651,22 @@ class Hotel extends Base
     private function isTruthy($value): bool
     {
         return $value === true || $value === 1 || $value === '1' || $value === 'true';
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function normalizeOtaChannelStrategy(array $data, string $default = 'dual'): string
+    {
+        $value = trim((string)($data['ota_channel_strategy'] ?? $data['otaChannelStrategy'] ?? $default));
+        if ($value === '') {
+            return in_array($default, self::OTA_CHANNEL_STRATEGIES, true) ? $default : 'dual';
+        }
+        if (!in_array($value, self::OTA_CHANNEL_STRATEGIES, true)) {
+            throw new InvalidArgumentException('OTA渠道策略无效，仅支持 ctrip_only、dual、meituan_only');
+        }
+
+        return $value;
     }
 
     private function countReferenceRows(string $table, string $column, int $value): int

@@ -3491,7 +3491,9 @@ trait Phase1EmployeeConsoleConcern
         $payloadKeys = $stats['payload_keys'] ?? [];
         $payloadKeyCount = is_array($payloadKeys) ? count($payloadKeys) : 0;
         $effectiveStatus = $this->phase1EffectiveSyncTaskStatus($task);
-        $messageCode = $this->phase1P0SyncTaskMessageCode($task, $stats);
+        $taskTargetDate = $this->phase1P0SyncTaskTargetDate($stats);
+        $targetDateMatchesTask = $taskTargetDate === '' ? null : $taskTargetDate === $targetDate;
+        $messageCode = $this->phase1P0SyncTaskMessageCode($task, $stats, $targetDate);
 
         return [
             'status' => $effectiveStatus,
@@ -3499,6 +3501,8 @@ trait Phase1EmployeeConsoleConcern
             'task_id' => (int)($task['id'] ?? 0),
             'trigger_type' => (string)($task['trigger_type'] ?? ''),
             'target_date' => $targetDate,
+            'task_target_date' => $taskTargetDate,
+            'target_date_matches_task' => $targetDateMatchesTask,
             'started_at_present' => trim((string)($task['started_at'] ?? '')) !== '',
             'finished_at_present' => trim((string)($task['finished_at'] ?? '')) !== '',
             'message_present' => trim((string)($task['message'] ?? '')) !== '',
@@ -3514,12 +3518,45 @@ trait Phase1EmployeeConsoleConcern
         ];
     }
 
-    private function phase1P0SyncTaskMessageCode(array $task, array $stats): string
+    private function phase1P0SyncTaskTargetDate(array $stats): string
+    {
+        $diagnostics = is_array($stats['sync_diagnostics'] ?? null) ? $stats['sync_diagnostics'] : [];
+        foreach ([
+            $diagnostics['target_date'] ?? null,
+            $diagnostics['data_date'] ?? null,
+            $stats['target_date'] ?? null,
+            $stats['data_date'] ?? null,
+            $stats['default_data_date'] ?? null,
+        ] as $value) {
+            $date = $this->phase1P0NormalizeTaskDate($value);
+            if ($date !== '') {
+                return $date;
+            }
+        }
+
+        return '';
+    }
+
+    private function phase1P0NormalizeTaskDate($value): string
+    {
+        $text = trim((string)$value);
+        if ($text === '') {
+            return '';
+        }
+        if (preg_match('/\d{4}-\d{2}-\d{2}/', $text, $matches) === 1) {
+            return $matches[0];
+        }
+        $timestamp = strtotime($text);
+        return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+    }
+
+    private function phase1P0SyncTaskMessageCode(array $task, array $stats, string $targetDate): string
     {
         $status = strtolower(trim((string)($task['status'] ?? '')));
         $message = strtolower(trim((string)($task['message'] ?? '')));
         $savedCount = max(0, (int)($stats['saved_count'] ?? 0));
         $normalizedCount = max(0, (int)($stats['normalized_count'] ?? 0));
+        $taskTargetDate = $this->phase1P0SyncTaskTargetDate($stats);
 
         if ($status === '') {
             return 'task_status_missing';
@@ -3529,6 +3566,9 @@ trait Phase1EmployeeConsoleConcern
         }
         if (in_array($status, ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'], true)) {
             return 'sync_running';
+        }
+        if ($status === 'success' && $savedCount > 0 && $taskTargetDate !== '' && $taskTargetDate !== $targetDate) {
+            return 'sync_task_target_date_mismatch';
         }
         if ($status === 'success' && $savedCount > 0) {
             return 'sync_reported_saved_rows_requires_target_date_verifier';
@@ -3612,6 +3652,7 @@ trait Phase1EmployeeConsoleConcern
     private function phase1P0SyncTaskDiagnosis(string $messageCode): string
     {
         return match ($messageCode) {
+            'sync_task_target_date_mismatch' => 'sync_task_saved_rows_for_different_target_date',
             'sync_reported_saved_rows_requires_target_date_verifier' => 'sync_task_saved_rows_but_requires_p0_target_date_verifier',
             'sync_normalized_without_saved_rows' => 'parser_returned_rows_but_storage_saved_zero',
             'sync_completed_without_saved_rows' => 'sync_finished_without_importable_rows',
@@ -3688,12 +3729,7 @@ trait Phase1EmployeeConsoleConcern
                 return true;
             }
         }
-        $profileStatus = strtolower(trim((string)($config['profile_status'] ?? $config['login_status'] ?? '')));
-        if (in_array($profileStatus, ['logged_in', 'login_verified', 'verified'], true)) {
-            return true;
-        }
-        $authStatus = $config['auth_status'] ?? null;
-        return is_array($authStatus) && ($authStatus['ok'] ?? false) === true;
+        return false;
     }
 
     private function phase1TrafficPlatformHotelIdentifierPresent(string $platform, array $config): bool

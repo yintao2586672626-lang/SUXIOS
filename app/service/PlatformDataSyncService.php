@@ -1354,12 +1354,12 @@ final class PlatformDataSyncService
     private function latestCatalogTask(array $tasks): ?array
     {
         $latest = null;
-        $latestTime = '';
+        $latestTimestamp = null;
         foreach ($tasks as $task) {
-            $time = (string)($task['finished_at'] ?? $task['started_at'] ?? $task['update_time'] ?? $task['create_time'] ?? '');
-            if ($latest === null || strcmp($time, $latestTime) > 0) {
+            $timestamp = self::syncTaskLatestTimestamp($task, ['finished_at', 'update_time', 'updated_at', 'started_at', 'create_time', 'created_at']);
+            if ($latest === null || ($timestamp !== null && ($latestTimestamp === null || $timestamp > $latestTimestamp))) {
                 $latest = $task;
-                $latestTime = $time;
+                $latestTimestamp = $timestamp;
             }
         }
         return $latest;
@@ -1405,24 +1405,40 @@ final class PlatformDataSyncService
             return null;
         }
 
-        $timeText = trim((string)(
-            $task['update_time']
-            ?? $task['updated_at']
-            ?? $task['started_at']
-            ?? $task['create_time']
-            ?? $task['created_at']
-            ?? ''
-        ));
-        if ($timeText === '') {
-            return null;
-        }
-
-        $timestamp = strtotime($timeText);
-        if ($timestamp === false) {
+        $timestamp = self::syncTaskLatestTimestamp($task, ['update_time', 'updated_at', 'started_at', 'create_time', 'created_at']);
+        if ($timestamp === null) {
             return null;
         }
 
         return max(0, time() - $timestamp);
+    }
+
+    /**
+     * @param array<string, mixed>|null $task
+     * @param array<int, string> $keys
+     */
+    private static function syncTaskLatestTimestamp(?array $task, array $keys): ?int
+    {
+        if (empty($task)) {
+            return null;
+        }
+
+        $latest = null;
+        foreach ($keys as $key) {
+            $timeText = trim((string)($task[$key] ?? ''));
+            if ($timeText === '') {
+                continue;
+            }
+            $timestamp = strtotime($timeText);
+            if ($timestamp === false) {
+                continue;
+            }
+            if ($latest === null || $timestamp > $latest) {
+                $latest = $timestamp;
+            }
+        }
+
+        return $latest;
     }
 
     /**

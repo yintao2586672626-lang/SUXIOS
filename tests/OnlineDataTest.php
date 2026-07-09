@@ -3464,39 +3464,49 @@ final class OnlineDataTest extends TestCase
         ], [
             'saved_count' => 3,
             'normalized_count' => 3,
-        ]]);
+            'sync_diagnostics' => ['target_date' => '2026-07-09'],
+        ], '2026-07-09']);
+        $mismatched = $this->invokeNonPublic($controller, 'phase1P0SyncTaskMessageCode', [[
+            'status' => 'success',
+            'message' => 'Platform data synchronized.',
+        ], [
+            'saved_count' => 3,
+            'normalized_count' => 3,
+            'sync_diagnostics' => ['target_date' => '2026-07-08'],
+        ], '2026-07-09']);
         $zeroSaved = $this->invokeNonPublic($controller, 'phase1P0SyncTaskMessageCode', [[
             'status' => 'partial_success',
             'message' => 'Ctrip browser capture completed but no business rows were parsed.',
         ], [
             'saved_count' => 0,
             'normalized_count' => 0,
-        ]]);
+        ], '2026-07-09']);
         $login = $this->invokeNonPublic($controller, 'phase1P0SyncTaskMessageCode', [[
             'status' => 'waiting_config',
             'message' => 'Ctrip browser Profile is not prepared: storage/ctrip_profile_system_60',
-        ], []]);
+        ], [], '2026-07-09']);
         $dependency = $this->invokeNonPublic($controller, 'phase1P0SyncTaskMessageCode', [[
             'status' => 'failed',
             'message' => "Cannot find package 'cloakbrowser' imported from D:\\project\\capture.mjs",
-        ], []]);
+        ], [], '2026-07-09']);
         $freshRunning = $this->invokeNonPublic($controller, 'phase1P0SyncTaskMessageCode', [[
             'status' => 'running',
             'update_time' => date('Y-m-d H:i:s', time() - 120),
-        ], []]);
+        ], [], '2026-07-09']);
         $staleRunning = $this->invokeNonPublic($controller, 'phase1P0SyncTaskMessageCode', [[
             'status' => 'running',
             'update_time' => date('Y-m-d H:i:s', time() - 7200),
-        ], []]);
+        ], [], '2026-07-09']);
 
         self::assertSame('sync_reported_saved_rows_requires_target_date_verifier', $saved);
+        self::assertSame('sync_task_target_date_mismatch', $mismatched);
         self::assertSame('sync_completed_without_saved_rows', $zeroSaved);
         self::assertSame('login_or_profile_not_ready', $login);
         self::assertSame('browser_dependency_missing', $dependency);
         self::assertSame('sync_running', $freshRunning);
         self::assertSame('stale_running', $staleRunning);
 
-        $encoded = json_encode([$saved, $zeroSaved, $login, $dependency, $freshRunning, $staleRunning], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $encoded = json_encode([$saved, $mismatched, $zeroSaved, $login, $dependency, $freshRunning, $staleRunning], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         self::assertStringNotContainsString('storage/ctrip_profile_system_60', (string)$encoded);
         self::assertStringNotContainsString('cloakbrowser', strtolower((string)$encoded));
     }

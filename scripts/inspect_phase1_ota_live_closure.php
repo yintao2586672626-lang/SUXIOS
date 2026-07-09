@@ -3763,22 +3763,22 @@ function inspection_traffic_source_p0_payload_candidate(string $platform, string
     ], $dryRun);
 }
 
-function inspection_traffic_source_latest_sync_task_summary(int $dataSourceId): array
+function inspection_traffic_source_latest_sync_task_summary(int $dataSourceId, string $targetDate): array
 {
     if ($dataSourceId <= 0) {
-        return ['status' => 'not_available', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+        return ['status' => 'not_available', 'target_date' => $targetDate, 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
     }
     try {
         if (!table_exists('platform_data_sync_tasks')) {
-            return ['status' => 'task_table_missing', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+            return ['status' => 'task_table_missing', 'target_date' => $targetDate, 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
         }
     } catch (Throwable $e) {
-        return ['status' => 'task_read_failed', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+        return ['status' => 'task_read_failed', 'target_date' => $targetDate, 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
     }
 
     $fields = existing_columns('platform_data_sync_tasks', ['id', 'data_source_id', 'status', 'started_at', 'message', 'stats_json', 'create_time', 'update_time']);
     if (!in_array('id', $fields, true) || !in_array('data_source_id', $fields, true)) {
-        return ['status' => 'task_schema_missing', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+        return ['status' => 'task_schema_missing', 'target_date' => $targetDate, 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
     }
 
     try {
@@ -3788,29 +3788,66 @@ function inspection_traffic_source_latest_sync_task_summary(int $dataSourceId): 
             ->order('id', 'desc')
             ->find();
     } catch (Throwable $e) {
-        return ['status' => 'task_read_failed', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+        return ['status' => 'task_read_failed', 'target_date' => $targetDate, 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
     }
     if (!is_array($task) || $task === []) {
-        return ['status' => 'no_sync_task', 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
+        return ['status' => 'no_sync_task', 'target_date' => $targetDate, 'message_code' => '', 'saved_count' => 0, 'normalized_count' => 0, 'sensitive_values_exposed' => false];
     }
 
     $stats = json_decode((string)($task['stats_json'] ?? ''), true);
     $stats = is_array($stats) ? $stats : [];
+    $taskTargetDate = inspection_traffic_source_sync_task_target_date($stats);
     return [
         'status' => inspection_traffic_source_effective_sync_task_status($task),
-        'message_code' => inspection_traffic_source_sync_task_message_code($task, $stats),
+        'target_date' => $targetDate,
+        'task_target_date' => $taskTargetDate,
+        'target_date_matches_task' => $taskTargetDate === '' ? null : $taskTargetDate === $targetDate,
+        'message_code' => inspection_traffic_source_sync_task_message_code($task, $stats, $targetDate),
         'saved_count' => max(0, (int)($stats['saved_count'] ?? 0)),
         'normalized_count' => max(0, (int)($stats['normalized_count'] ?? 0)),
         'sensitive_values_exposed' => false,
     ];
 }
 
-function inspection_traffic_source_sync_task_message_code(array $task, array $stats): string
+function inspection_traffic_source_sync_task_target_date(array $stats): string
+{
+    $diagnostics = is_array($stats['sync_diagnostics'] ?? null) ? $stats['sync_diagnostics'] : [];
+    foreach ([
+        $diagnostics['target_date'] ?? null,
+        $diagnostics['data_date'] ?? null,
+        $stats['target_date'] ?? null,
+        $stats['data_date'] ?? null,
+        $stats['default_data_date'] ?? null,
+    ] as $value) {
+        $date = inspection_traffic_source_normalize_task_date($value);
+        if ($date !== '') {
+            return $date;
+        }
+    }
+
+    return '';
+}
+
+function inspection_traffic_source_normalize_task_date($value): string
+{
+    $text = trim((string)$value);
+    if ($text === '') {
+        return '';
+    }
+    if (preg_match('/\d{4}-\d{2}-\d{2}/', $text, $matches) === 1) {
+        return $matches[0];
+    }
+    $timestamp = strtotime($text);
+    return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+}
+
+function inspection_traffic_source_sync_task_message_code(array $task, array $stats, string $targetDate): string
 {
     $status = strtolower(trim((string)($task['status'] ?? '')));
     $message = strtolower(trim((string)($task['message'] ?? '')));
     $savedCount = max(0, (int)($stats['saved_count'] ?? 0));
     $normalizedCount = max(0, (int)($stats['normalized_count'] ?? 0));
+    $taskTargetDate = inspection_traffic_source_sync_task_target_date($stats);
     if ($status === '') {
         return 'task_status_missing';
     }
@@ -3819,6 +3856,9 @@ function inspection_traffic_source_sync_task_message_code(array $task, array $st
     }
     if (in_array($status, ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'], true)) {
         return 'sync_running';
+    }
+    if ($status === 'success' && $savedCount > 0 && $taskTargetDate !== '' && $taskTargetDate !== $targetDate) {
+        return 'sync_task_target_date_mismatch';
     }
     if ($status === 'success' && $savedCount > 0) {
         return 'sync_reported_saved_rows_requires_target_date_verifier';
@@ -4143,7 +4183,7 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
         }
         inspection_traffic_source_accumulate_latest_sync_task(
             $base,
-            inspection_traffic_source_latest_sync_task_summary((int)($row['id'] ?? 0))
+            inspection_traffic_source_latest_sync_task_summary((int)($row['id'] ?? 0), $targetDate)
         );
 
         $config = json_decode((string)($row['config_json'] ?? ''), true);

@@ -615,8 +615,9 @@ check(
 check(
   'app/controller/Hotel.php',
   'lightweight hotel option list carries status for dashboard counts',
-  (source) => source.includes("->field('id, name, code, status')"),
-  "->field('id, name, code, status')"
+  (source) => source.includes("$fields = 'id, name, code, status';")
+    && source.includes('->field($fields)'),
+  "$fields = 'id, name, code, status'; ... ->field($fields)"
 );
 
 check(

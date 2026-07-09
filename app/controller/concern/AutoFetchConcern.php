@@ -1744,17 +1744,12 @@ trait AutoFetchConcern
             if (is_numeric($value) && (int)$value === 1) {
                 return true;
             }
-            if (in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on', 'logged_in'], true)) {
+            if (in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on'], true)) {
                 return true;
             }
         }
 
-        $status = strtolower(trim((string)($config['profile_status'] ?? $config['login_status'] ?? '')));
-        if ($status === 'logged_in') {
-            return true;
-        }
-        $authStatus = is_array($config['auth_status'] ?? null) ? $config['auth_status'] : [];
-        return !empty($authStatus['ok']);
+        return false;
     }
 
     private function platformProfileSourceHasLoginExpiredError(?array $source): bool

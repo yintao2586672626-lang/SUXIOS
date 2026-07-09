@@ -3069,6 +3069,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         browser_dependency_missing: '浏览器依赖缺失',
         sync_completed_without_saved_rows: '同步完成但未入库',
         sync_normalized_without_saved_rows: '已标准化但未入库',
+        sync_task_target_date_mismatch: '任务日期不匹配',
         sync_reported_saved_rows_requires_target_date_verifier: '已报保存需复验',
         no_rows_parsed: '未解析到业务行',
         sync_running: '同步未完成',

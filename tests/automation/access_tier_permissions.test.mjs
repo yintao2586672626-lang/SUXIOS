@@ -24,6 +24,7 @@ const hotelDataMergeService = read('app/service/HotelDataMergeService.php');
 const permissionService = read('app/service/PermissionService.php');
 const compassController = read('app/controller/admin/Compass.php');
 const migration = read('database/migrations/20260614_add_access_tier_hotel_owner_scope.sql');
+const hotelOtaStrategyMigration = read('database/migrations/20260709_add_hotel_ota_channel_strategy.sql');
 const initFull = read('database/init_full.sql');
 const seedSql = read('database/hotel_admin_mysql.sql');
 const seedNormalRoleLine = seedSql.split(/\r?\n/).find(line => line.includes("'normal_user'")) || '';
@@ -52,6 +53,20 @@ assert.match(
 const systemStaticSandbox = { window: {}, console, setTimeout, clearTimeout };
 vm.runInNewContext(systemStatic, systemStaticSandbox, { filename: 'public/system-static.js' });
 const systemStaticApi = systemStaticSandbox.window.SUXI_SYSTEM_STATIC;
+const createdHotelForm = systemStaticApi.createHotelForm({ operatorName: '管理员', code: '0001' });
+const editedHotelForm = systemStaticApi.createHotelForm({
+  hotel: { id: 60, name: '敦煌漠蓝', code: '0001', status: 1, ota_channel_strategy: 'ctrip_only' },
+  operatorName: '管理员',
+});
+const invalidStrategyPayload = systemStaticApi.buildHotelSavePayload({
+  form: { name: '敦煌漠蓝', status: '1', ota_channel_strategy: 'invalid' },
+  normalizedCode: '0001',
+  operatorName: '管理员',
+  description: '',
+});
+assert.equal(createdHotelForm.ota_channel_strategy, 'dual', 'new hotel forms must default to dual OTA channels');
+assert.equal(editedHotelForm.ota_channel_strategy, 'ctrip_only', 'hotel edit forms must echo the saved OTA channel strategy');
+assert.equal(invalidStrategyPayload.ota_channel_strategy, 'dual', 'invalid UI OTA channel strategy must fall back to dual before save');
 const flattenMenu = (items = []) => items.flatMap(item => [item, ...flattenMenu(item.children || [])]);
 const visiblePathsFor = (currentUser) => flattenMenu(systemStaticApi.filterVisibleMenuItems(systemStaticApi.menuItemDefinitions, currentUser))
   .map(item => item.path)
@@ -80,7 +95,7 @@ assert.match(indexHtml, /当前配置门店：[\s\S]{0,120}hotelConfigTargetText
 assert.match(indexHtml, /当前配置门店：[\s\S]{0,120}hotelConfigTargetText\(meituanConfigForm\)/, '美团新增配置表单必须展示当前关联门店');
 assert.match(indexHtml, /const hotelConfigTargetText = \(form = \{\}\) => \{[\s\S]*未关联门店[\s\S]*门店ID/, '配置表单门店展示必须明确区分未关联和仅有门店ID的状态');
 assert.match(indexHtml, /form\?\.hotel_id \|\| form\?\.hotelId \|\| form\?\.system_hotel_id \|\| form\?\.systemHotelId/, '配置表单门店展示必须兼容旧配置的 system_hotel_id 字段');
-assert.match(indexHtml, /getHotelNameById, hotelConfigTargetText, userHotelScopeText/, '配置表单门店展示函数必须暴露给 Vue 模板');
+assert.match(indexHtml, /getHotelNameById,[\s\S]*hotelConfigTargetText,[\s\S]*userHotelScopeText/, '配置表单门店展示函数必须暴露给 Vue 模板');
 assert.doesNotMatch(indexHtml, /openHotelManualFetchConfig\(hotel, 'ctrip'\)"[\s\S]{0,220}>[\s\S]{0,20}携程配置[\s\S]{0,20}<\/button>/, '右侧操作列不应重复展示携程配置');
 assert.doesNotMatch(indexHtml, /openHotelManualFetchConfig\(hotel, 'meituan'\)"[\s\S]{0,220}>[\s\S]{0,20}美团配置[\s\S]{0,20}<\/button>/, '右侧操作列不应重复展示美团配置');
 assert.match(indexHtml, /onlineDataTab === 'ctrip-config' && canManageOwnHotels\(\)/, '携程配置面板不能只限制超级管理员，门店管理账号也要能补 Cookie');
@@ -91,8 +106,26 @@ assert.doesNotMatch(indexHtml, /testid:\s*'nav-lean-hotel-knowledge'[\s\S]{0,160
 assert.match(indexHtml, />全部门店<\/span>/, 'hotel account filter should distinguish total stores from active-store metrics');
 assert.match(indexHtml, /营业中 \{\{ hotelBindingOverview\.active \}\}/, 'hotel account filter should expose active-store count beside total stores');
 assert.match(indexHtml, />账号待补<\/span>/, 'hotel account filter should keep pending work scoped to account collection readiness');
-assert.match(indexHtml, /说明：账号待补=营业中门店还有携程\/美团账号绑定、登录或采集配置问题；美团竞对榜单不作为本页主筛选，在同圈对比入口和处理动作中处理。/, 'hotel account filter should keep competitor ranking out of the main KPI cards and store identity cells');
+assert.match(indexHtml, /说明：账号待补只统计门店 OTA 策略适用的平台；携程独家不把美团缺配置算异常，主美团不把携程缺配置算异常。/, 'hotel account filter should keep pending work scoped to applicable OTA platforms');
 assert.match(indexHtml, /const todo = activeHotels\.filter\(h => hotelAccountHealthKey\(h\) === 'todo'\)\.length;/, 'todo count should only reflect account collection readiness');
+assert.match(indexHtml, /OTA 渠道策略[\s\S]*hotelForm\.ota_channel_strategy = 'ctrip_only'[\s\S]*携程[\s\S]*hotelForm\.ota_channel_strategy = 'dual'[\s\S]*双渠道[\s\S]*hotelForm\.ota_channel_strategy = 'meituan_only'[\s\S]*主美团/, 'hotel form must expose left-middle-right OTA strategy controls with dual as the default path');
+assert.match(indexHtml, /const hotelPlatformApplicable = \(hotel = \{\}, platform = ''\) => \{[\s\S]*ctrip_only[\s\S]*key === 'ctrip'[\s\S]*meituan_only[\s\S]*key === 'meituan'/, 'OTA strategy must define which platform is applicable for account readiness');
+assert.match(indexHtml, /const hotelApplicablePlatformBindingRows = \(hotel = \{\}\) => \{[\s\S]*hotelPlatformBindingRows\(hotel\)\.filter\(row => hotelPlatformApplicable\(hotel, row\.platform\)\)/, 'account health rows must filter out non-applicable OTA platforms');
+assert.match(indexHtml, /const hotelAccountHealthKey = \(hotel = \{\}\) => \{[\s\S]*if \(rows\.length === 0\) return 'todo';/, 'empty applicable OTA platform rows must not be treated as ready');
+assert.match(indexHtml, /const hotelNextAction = \(hotel = \{\}\) => \{[\s\S]*if \(rows\.length === 0\) \{[\s\S]*核对OTA策略/, 'empty applicable OTA platform rows must expose an explicit next action');
+assert.match(indexHtml, /const hotelAccountSummary = \(hotel = \{\}\) => \{[\s\S]*if \(rows\.length === 0\) \{[\s\S]*策略待确认/, 'empty applicable OTA platform rows must not show a ready account summary');
+assert.match(indexHtml, /const fullBound = activeHotels\.filter\(h => \{[\s\S]*return rows\.length > 0 && rows\.every\(row => row\.level === 'ready'\);[\s\S]*\}\)\.length;/, 'full-bound KPI must not count empty applicable platform rows as ready');
+assert.match(indexHtml, /const manualLoginVerified = hasBindingContract[\s\S]*bindingContract\.manual_login_state_verified === true[\s\S]*profile\.manual_login_state_verified === true \|\| profile\.manualLoginStateVerified === true \|\| \/manual_login_state_verified\/i\.test\(currentStatus\)/, 'Profile flow must require explicit manual_login_state_verified evidence for manual verification');
+assert.match(indexHtml, /const loginVerified = manualLoginVerified && statusCode === 'logged_in';/, 'Profile flow must not treat logged_in alone as manual login verification');
+assert.match(indexHtml, /\{\{ hotelBindingOverview\.ctripBound \}\}\/\{\{ hotelBindingOverview\.ctripApplicable \}\}/, 'Ctrip readiness KPI must show applicable denominator');
+assert.match(indexHtml, /\{\{ hotelBindingOverview\.meituanBound \}\}\/\{\{ hotelBindingOverview\.meituanApplicable \}\}/, 'Meituan readiness KPI must show applicable denominator');
+assert.match(indexHtml, />OTA策略<\/span>[\s\S]*hotelOtaStrategyText\(hotel\)/, 'store identity must expose the selected OTA strategy');
+assert.match(indexHtml, />携程不适用<\/div>[\s\S]*hotelInactivePlatformText\(hotel, 'ctrip'\)/, 'Ctrip-exclusive and Meituan-main layouts must show compact non-applicable Ctrip state instead of full card');
+assert.match(indexHtml, />美团不适用<\/div>[\s\S]*hotelInactivePlatformText\(hotel, 'meituan'\)/, 'Ctrip-exclusive and Meituan-main layouts must show compact non-applicable Meituan state instead of full card');
+assert.match(indexHtml, /v-for="account in hotelApplicablePlatformBindingRows\(hotel\)"/, 'mobile hotel platform cards must omit non-applicable OTA platforms');
+assert.match(indexHtml, /v-for="account in hotelApplicablePlatformBindingRows\(hotelFormAccountHotel\(\)\)"/, 'hotel modal platform cards must omit non-applicable OTA platforms');
+assert.match(indexHtml, /hotel && !hotelPlatformApplicable\(hotel, 'meituan'\)[\s\S]*status: 'not_applicable'/, 'Meituan competitor readiness must not create work for Ctrip-exclusive hotels');
+assert.match(indexHtml, /\['ok', 'success', 'not_applicable'\]\.includes\(status\)/, 'not-applicable competitor readiness must not become a next-action item');
 assert.doesNotMatch(indexHtml, /applyHotelQuickFilter\('competitor', '1'\)/, 'competitor ranking should not be a top-level hotel-management filter card');
 assert.doesNotMatch(indexHtml, /美团竞对 \{\{ hotelCompetitorReadiness\(hotel\)\.label \}\}/, 'competitor readiness should not appear in the store identity cell');
 assert.match(indexHtml, /const hotelCompetitorActionMeta = \(hotel = \{\}\) => \{[\s\S]*openHomeQuickEntry\(\{ page: 'meituan-ebooking', tab: 'meituan-ranking' \}\)/, 'competitor readiness should remain reachable through the next-action flow');
@@ -269,12 +302,13 @@ assert.match(indexHtml, /selectedUserRoleGuide/, 'user modal must show the selec
 assert.match(indexHtml, /selectedUserRoleGuide\.permissionTags/, 'user modal must show selected role permission tags');
 assert.match(indexHtml, /const userIssueChecklistRows = computed\(\(\) =>/, 'user modal must keep the issuance checklist validation contract before external accounts are saved');
 assert.match(indexHtml, /:title="userIssueBlockingReasons\.length \? userIssueBlockingReasons\.join\('；'\) : '检查通过'"/, 'user modal must expose compact issuance blockers without printing the full checklist');
-assert.match(indexHtml, /const userRoleBoundaryText = \(u = \{\}\) =>/, 'user table must show per-account issue boundary text');
-assert.match(indexHtml, /userRoleBoundaryText\(u\)/, 'user table role column must render per-account issue boundary text');
-assert.match(indexHtml, />发放状态<\/th>[\s\S]*userIssueStatus\(u\)/, 'user management table must expose a row-level issuance status');
-assert.match(indexHtml, /const userIssueStatus = \(u = \{\}\) =>/, 'user table issuance status must be derived from the same blocker rules as copy guidance');
-assert.match(indexHtml, /existingUserIssueGuideBlocker\(u\)[\s\S]*userIssueStatusFromProfile\(profile, blocker\)/, 'row-level issuance status must surface blocker details instead of allowing blind external sends');
-assert.match(indexHtml, /userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide/, 'row-level issuance status helper must be returned to the Vue template');
+assert.match(indexHtml, /const userRoleBoundaryText = \(u = \{\}\) =>/, 'user table keeps per-account issue boundary text available for non-table guidance');
+assert.doesNotMatch(indexHtml, /userRoleBoundaryText\(u\)/, 'user table role column must not render per-account issue boundary text');
+assert.doesNotMatch(indexHtml, />发放状态<\/th>/, 'user management table must not render the issuance status column');
+assert.doesNotMatch(indexHtml, /userIssueStatus\(u\)/, 'user management table must not render row-level issuance status badges');
+assert.match(indexHtml, /const userIssueStatus = \(u = \{\}\) =>/, 'issuance status helper must stay derived from the same blocker rules as copy guidance');
+assert.match(indexHtml, /existingUserIssueGuideBlocker\(u\)[\s\S]*userIssueStatusFromProfile\(profile, blocker\)/, 'existing user copy guidance must surface blocker details instead of allowing blind external sends');
+assert.match(indexHtml, /userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide/, 'issuance helper state must remain returned for non-table guidance');
 assert.match(indexHtml, /const validateUserIssueBeforeSave = \(data = \{\}, assignedHotelIds = \[\]\) =>/, 'user saves must validate issuance boundaries before calling the API');
 assert.match(userAdminStatic, /profile\.key === 'normal_user' && profile\.canCollectOta/, 'normal-user issuance must flag OTA collection as unsafe for external accounts');
 assert.match(userAdminStatic, /profile\.requiresHotelAssignment && normalizedHotelIds\.length === 0/, 'external account issuance must block missing hotel scope');
@@ -353,6 +387,12 @@ assert.match(routes, /Route::post\('api\/hotels\/', 'Hotel\/create'\)->middlewar
 
 assert.match(hotelController, /owner_user_id/, 'hotel controller must write owner_user_id');
 assert.match(migration, /ADD COLUMN IF NOT EXISTS `owner_user_id`/, 'migration must add hotels.owner_user_id');
+assert.match(hotelController, /normalizeOtaChannelStrategy/, 'hotel controller must validate OTA channel strategy before save');
+assert.match(hotelController, /ota_channel_strategy/, 'hotel controller must persist OTA channel strategy when the column exists');
+assert.match(hotelController, /normalizeOtaChannelStrategy\(\$data, \(string\)\(\$hotel->ota_channel_strategy \?\? 'dual'\)\)/, 'hotel updates must preserve an existing OTA channel strategy when old clients omit the new field');
+assert.match(hotelController, /if \(\$value === ''\) \{[\s\S]*return in_array\(\$default, self::OTA_CHANNEL_STRATEGIES, true\) \? \$default : 'dual';[\s\S]*\}/, 'blank OTA channel strategy updates must preserve the existing strategy instead of resetting to dual');
+assert.match(hotelOtaStrategyMigration, /ADD COLUMN IF NOT EXISTS `ota_channel_strategy`/, 'migration must add hotels.ota_channel_strategy');
+assert.match(initFull, /20260709_add_hotel_ota_channel_strategy\.sql/, 'full initialization must include hotel OTA channel strategy migration');
 assert.match(migration, /can_fetch_online_data` = CASE WHEN u\.`role_id` = 2 THEN 1 ELSE 0 END/, 'normal users must not collect OTA by default');
 assert.doesNotMatch(seedNormalRoleLine, /can_fetch_online_data/, 'legacy MySQL seed normal_user role must not include OTA collection permission');
 assert.match(

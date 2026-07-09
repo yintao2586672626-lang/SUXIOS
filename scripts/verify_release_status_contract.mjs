@@ -2286,12 +2286,12 @@ if (readinessResultExample) {
     fail(`docs/release_readiness_result.example.json failures must include at least ${requiredOpenFailurePatterns.length} entries`);
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.passed !== 19) {
-    fail('docs/release_readiness_result.example.json summary.passed must match the current 19 release-readiness passes');
+  if (readinessResultExample.summary?.passed !== 20) {
+    fail('docs/release_readiness_result.example.json summary.passed must match the current 20 release-readiness passes');
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.warnings !== 4) {
-    fail('docs/release_readiness_result.example.json summary.warnings must match the current 4 release-readiness warnings');
+  if (readinessResultExample.summary?.warnings !== 3) {
+    fail('docs/release_readiness_result.example.json summary.warnings must match the current 3 release-readiness warnings');
     resultComplete = false;
   }
   if (readinessResultExample.summary?.failures !== 2) {

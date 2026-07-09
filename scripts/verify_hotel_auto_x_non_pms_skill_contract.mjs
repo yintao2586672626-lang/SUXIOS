@@ -38,6 +38,35 @@ function requireRegex(file, regex, label) {
   add(file, label, exists(file) && regex.test(read(file)), regex.toString());
 }
 
+function requireTextBefore(file, beforeNeedle, afterNeedle, label) {
+  const source = exists(file) ? read(file) : '';
+  const beforeIndex = source.indexOf(beforeNeedle);
+  const afterIndex = source.indexOf(afterNeedle);
+  add(file, label, beforeIndex !== -1 && afterIndex !== -1 && beforeIndex < afterIndex, `${beforeNeedle} before ${afterNeedle}`);
+}
+
+function requireFunctionBodyNoText(file, functionName, needle, label) {
+  const source = exists(file) ? read(file) : '';
+  const start = source.indexOf(`function ${functionName}`);
+  const open = start === -1 ? -1 : source.indexOf('{', start);
+  let depth = 0;
+  let end = -1;
+  if (open !== -1) {
+    for (let index = open; index < source.length; index += 1) {
+      if (source[index] === '{') depth += 1;
+      if (source[index] === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          end = index;
+          break;
+        }
+      }
+    }
+  }
+  const body = start === -1 || end === -1 ? '' : source.slice(start, end + 1);
+  add(file, label, body !== '' && !body.includes(needle), `${functionName}: ${needle}`);
+}
+
 function readFiles(files) {
   return files.map((file) => read(file)).join('\n');
 }
@@ -67,6 +96,76 @@ requireFile('plugins/suxi-os-toolkit/skills/hotel-auto-x-ctrip-collector/SKILL.m
 requireFile('plugins/suxi-os-toolkit/skills/hotel-auto-x-meituan-collector/SKILL.md', 'toolkit Meituan collector Skill is packaged');
 requireFile('scripts/verify_hotel_auto_x_ctrip_collector_contract.php', 'Ctrip collector contract verifier is tracked');
 requireFile('scripts/verify_hotel_auto_x_meituan_collector_contract.php', 'Meituan collector contract verifier is tracked');
+requireFile('scripts/verify_hotel_ota_login_eligibility.php', 'hotel OTA login eligibility verifier is tracked');
+requireFile('scripts/verify_hotel_ota_login_eligibility_behavior.mjs', 'hotel OTA login eligibility behavior verifier is tracked');
+requireText('package.json', 'node scripts/verify_hotel_ota_login_eligibility_behavior.mjs', 'non-PMS skill verification runs eligibility behavior checks');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'scope' => 'ota_channel_only'", 'eligibility verifier keeps OTA scope explicit');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'source_policy' => 'read_platform_data_sources_metadata_only'", 'eligibility verifier reads platform metadata only');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'sensitive_values_exposed' => false", 'eligibility verifier does not expose sensitive values');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "hotel_ota_applicable_platforms", 'eligibility verifier respects hotel OTA channel strategy');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "can_fetch_online_data", 'eligibility verifier checks store fetch permission');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "profile_login_verified", 'eligibility verifier checks Profile login verification');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', '$manualVerified && $statusVerified && $lastVerifiedAt !== \'\'', 'eligibility verifier requires manual login verification, logged-in status, and timestamp together');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', '$sourceProfileVerified = hotel_ota_profile_verified($config)', 'eligibility verifier derives timestamp evidence only after Profile verification');
+requireNoText('scripts/verify_hotel_ota_login_eligibility.php', "auth_status", 'eligibility verifier does not treat auth_status alone as runnable Profile evidence');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "sync_task_running", 'eligibility verifier blocks manual login while same platform task is running');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "orphan_platform_data_source", 'eligibility verifier reports orphan platform data-source rows');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'next_action' => $nextAction", 'eligibility verifier emits a concrete next action per platform');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'recheck_command' => $recheckCommand", 'eligibility verifier emits a single-store recheck command');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', '--format=json --strict', 'eligibility verifier emits strict single-store recheck commands');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'manual_login_entry' => $status === 'ready_for_manual_login'", 'eligibility verifier only emits login entry for manual-login-ready rows');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "hotel_ota_next_action", 'eligibility verifier maps blockers to operator actions');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'hotel_lifecycle_state' => $hotelLifecycleState", 'eligibility verifier exposes hotel lifecycle state');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'inactive_hotel_blocks_ota_flow' => $inactiveHotelBlocksOtaFlow", 'eligibility verifier marks inactive hotels as OTA-flow blockers');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'downstream_setup_suppressed' => $inactiveHotelBlocksOtaFlow", 'eligibility verifier suppresses downstream setup for inactive hotels');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "hotel_ota_primary_blocker", 'eligibility verifier maps final status to a primary blocker');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'primary_blocker' => hotel_ota_primary_blocker($status, $blockers)", 'eligibility verifier emits status-aligned primary blocker');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "hotel_ota_strategy_candidate", 'eligibility verifier separates missing source from OTA strategy candidates');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'strategy_candidates' => $strategyCandidates", 'eligibility verifier emits store-level strategy candidates');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'strategy_adjustment_candidate' => false", 'eligibility verifier marks platform rows before any strategy candidate override');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', 'candidate only; confirm business OTA channel before updating strategy.', 'eligibility verifier requires business confirmation before strategy updates');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', 'Strategy candidate checks need same-hotel sibling platform metadata even for --platform output filters.', 'eligibility verifier keeps sibling platform context for single-platform checks');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', '$visibleStrategyCandidate', 'eligibility verifier only exposes strategy candidates relevant to the requested platform');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'platform_filter' => $platformFilter", 'eligibility verifier reports requested platform filter');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'rollup_scope' => $rollupScope", 'eligibility verifier labels whether rollup is all-platform or requested-platform only');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'strategy_context_scope' => 'same_hotel_all_applicable_platforms'", 'eligibility verifier labels sibling platform context as read-only strategy evidence');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', '$hasNotApplicableSpecificRequest', 'eligibility verifier tracks explicit single-store platform requests excluded by strategy');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', 'platform_not_applicable_to_strategy', 'eligibility verifier reports requested platforms excluded by OTA strategy');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', 'do not treat an empty platform report as login-ready', 'eligibility verifier prevents empty not-applicable platform reports from reading as login-ready');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "($hotelIdFilter !== '' && $hotels === []) || $hasNotApplicableSpecificRequest", 'eligibility verifier exits non-zero for invalid explicit hotel or platform requests');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "hotel_ota_task_evidence", 'eligibility verifier exposes task evidence for running and stale-running blockers');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "function hotel_ota_task_activity_reference_at", 'eligibility verifier uses latest task activity for stale-running checks');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "$reference = hotel_ota_task_activity_reference_at($task);", 'eligibility verifier stale-running check uses activity reference instead of start time only');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "return hotel_ota_task_activity_reference_at($task);", 'eligibility verifier stale task evidence reports the same activity reference');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "Task blockers stay ahead of permission/source blockers", 'eligibility verifier keeps collector-lock blockers ahead of setup blockers');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'blocking_task_ids' => $taskEvidence['blocking_task_ids']", 'eligibility verifier includes blocking sync task ids');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'oldest_stale_task_at' => $taskEvidence['oldest_stale_task_at']", 'eligibility verifier includes oldest stale task timestamp');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'missing_task_id_count' => $taskEvidence['missing_task_id_count']", 'eligibility verifier reports incomplete task id evidence');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'task_id_evidence_complete' => $taskEvidence['task_id_evidence_complete']", 'eligibility verifier labels whether task id evidence is complete');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "不能凭状态批量清理", 'eligibility verifier forbids cleanup when stale task ids are incomplete');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "LOWER(p.`platform`) IN ('ctrip', 'meituan')", 'eligibility verifier keeps orphan source scope to Ctrip and Meituan');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'orphan_source_scope' => $platformFilter === 'all' ? 'ctrip_meituan_only' : $platformFilter", 'eligibility verifier labels orphan source scope');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "$row['flow_included'] = false", 'eligibility verifier excludes orphan sources from OTA login and collection flow');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "未确认前不得进入 OTA 登录/采集流程", 'eligibility verifier gives a safe action for orphan sources');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "hotel_ota_permission_blocker_reason", 'eligibility verifier explains fetch-permission blockers');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'permission_user_count' => $permissionEvidence['permission_user_count']", 'eligibility verifier reports total hotel permission users');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'fetch_permission_user_count' => $permissionEvidence['fetch_permission_user_count']", 'eligibility verifier reports users granted OTA fetch permission');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "'permission_blocker_reason' => $permissionEvidence['permission_blocker_reason']", 'eligibility verifier reports permission blocker reason');
+requireText('scripts/verify_hotel_ota_login_eligibility.php', "&& !in_array('inactive_hotel', $blockers, true)", 'eligibility verifier does not suggest permission repair as the next action for inactive hotels');
+requireRegex('scripts/verify_p0_ota_field_loop_closure.php', /function p0_traffic_profile_login_state_verified\(array \$config\): bool[\s\S]*?manual_login_state_verified[\s\S]*?return false;\n}/, 'P0 field-loop verifier only treats explicit manual login state as verified');
+requireRegex('app/controller/concern/Phase1EmployeeConsoleConcern.php', /function phase1TrafficProfileLoginStateVerified\(array \$config\): bool[\s\S]*?manual_login_state_verified[\s\S]*?return false;\n    }/, 'employee console only treats explicit manual login state as verified');
+requireRegex('app/controller/concern/AutoFetchConcern.php', /function platformProfileConfigHasVerifiedLogin\(array \$config\): bool[\s\S]*?manual_login_state_verified[\s\S]*?return false;\n    }/, 'AutoFetch Profile config check only treats explicit manual login state as verified');
+requireText('public/index.html', 'profile.manual_login_state_verified === true || profile.manualLoginStateVerified === true || /manual_login_state_verified/i.test(currentStatus)', 'frontend Profile flow requires explicit manual login verification evidence');
+requireText('public/index.html', "const loginVerified = manualLoginVerified && statusCode === 'logged_in';", 'frontend Profile flow does not treat logged_in alone as manual verification');
+for (const [file, functionName] of [
+  ['scripts/verify_p0_ota_field_loop_closure.php', 'p0_traffic_profile_login_state_verified'],
+  ['app/controller/concern/Phase1EmployeeConsoleConcern.php', 'phase1TrafficProfileLoginStateVerified'],
+  ['app/controller/concern/AutoFetchConcern.php', 'platformProfileConfigHasVerifiedLogin'],
+]) {
+  requireFunctionBodyNoText(file, functionName, 'profile_status', `${functionName} does not use profile_status as login proof`);
+  requireFunctionBodyNoText(file, functionName, 'login_status', `${functionName} does not use login_status as login proof`);
+  requireFunctionBodyNoText(file, functionName, 'auth_status', `${functionName} does not use auth_status as login proof`);
+}
 
 for (const [route, label] of [
   ["Route::post('/profile-login-trigger/:platform', 'OnlineData/triggerPlatformProfileLogin');", 'Profile login trigger route exists'],
@@ -96,6 +195,13 @@ requireText('app/command/PlatformProfileLogin.php', "return 'login_expired';", '
 requireText('app/command/PlatformProfileLogin.php', "return 'anti_bot';", 'Profile login preserves anti_bot failures');
 requireText('app/command/PlatformProfileLogin.php', "return 'session_expired';", 'Profile login preserves session_expired failures');
 requireText('app/command/PlatformProfileLogin.php', "'status_code' => 'logged_in'", 'Profile login success is explicit');
+requireText('app/command/PlatformProfileLogin.php', "$authStatusCode = strtolower(trim((string)($authStatus['status'] ?? '')));", 'Profile login success extracts explicit auth status code');
+requireText('app/command/PlatformProfileLogin.php', "&& !empty($authStatus['ok'])", 'Profile login success requires explicit auth_status.ok evidence');
+requireText('app/command/PlatformProfileLogin.php', "&& in_array($authStatusCode, ['logged_in', 'authorized'], true);", 'Profile login success requires a verified logged-in auth status');
+requireNoText('app/command/PlatformProfileLogin.php', "$authStatus === [] || !empty($authStatus['ok'])", 'Profile login does not treat missing auth_status as logged in');
+requireNoText('app/command/PlatformProfileLogin.php', "['ok' => true, 'status' => 'logged_in']", 'Profile login does not synthesize logged_in auth_status when auth evidence is missing');
+requireText('app/command/PlatformProfileLogin.php', "'ok' => (bool)($authStatus['ok'] ?? false)", 'Profile login auth status compression defaults missing ok to false');
+requireText('app/command/PlatformProfileLogin.php', "'status' => $status !== '' ? $status : 'unknown'", 'Profile login auth status compression defaults missing status to unknown');
 requireText('app/command/PlatformProfileLogin.php', "'manual_login_state_verified' => true", 'Profile login records manual login verification');
 requireText('app/command/PlatformProfileLogin.php', "$config['profile_status'] = 'logged_in';", 'Profile login records logged-in Profile status');
 requireText('app/command/PlatformProfileLogin.php', "$config['last_login_verified_at'] = $now;", 'Profile login records last verification time');
@@ -105,6 +211,9 @@ requireText('app/service/PlatformDataSyncService.php', "$missing[] = 'manual_log
 requireText('app/service/PlatformDataSyncService.php', "$missing[] = 'profile_status_logged_in';", 'background Profile sync requires logged-in Profile status');
 requireText('app/service/PlatformDataSyncService.php', "$missing[] = 'last_login_verified_at';", 'background Profile sync requires last login verification time');
 requireText('app/service/PlatformDataSyncService.php', "return self::isStaleRunningSyncTask($task) ? 'stale_running' : $status;", 'stale running sync tasks stay explicit');
+requireText('app/service/PlatformDataSyncService.php', "private static function syncTaskLatestTimestamp", 'runtime sync task freshness uses latest valid timestamp helper');
+requireText('app/service/PlatformDataSyncService.php', "self::syncTaskLatestTimestamp($task, ['update_time', 'updated_at', 'started_at', 'create_time', 'created_at'])", 'runtime stale-running age prefers latest update timestamp over started_at');
+requireText('app/service/PlatformDataSyncService.php', "self::syncTaskLatestTimestamp($task, ['finished_at', 'update_time', 'updated_at', 'started_at', 'create_time', 'created_at'])", 'runtime latest task ordering uses latest known activity timestamp');
 requireText('app/controller/concern/PlatformDataSourceConcern.php', "'stale_running_task'", 'collection-status reports stale running task reason');
 requireText('app/controller/concern/Phase1EmployeeConsoleConcern.php', "return $this->phase1SyncTaskIsStaleRunning($task) ? 'stale_running' : $status;", 'Phase1 P0 sync tasks classify stale running explicitly');
 requireText('scripts/verify_p0_ota_field_loop_closure.php', "return p0_sync_task_is_stale_running($task) ? 'stale_running' : $status;", 'P0 verifier classifies stale running sync tasks explicitly');
@@ -198,6 +307,13 @@ requireText('public/index.html', 'account_owner_local_computer_only', 'frontend 
 requireNoText('public/index.html', "`/online-data/profile-login-trigger/${platform}`", 'frontend does not trigger server-side Profile login task');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', 'client_local_authorization_required', 'backend blocks legacy server-side Profile login trigger');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', 'server_browser_launch_disabled', 'backend reports server-side browser launch disabled');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'private function currentUserCanViewOnlineDataHotel(int $hotelId): bool', 'Profile login status has a hotel-scoped OTA view permission helper');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', "$this->currentUser->hasHotelPermission($hotelId, 'can_view_online_data')", 'Profile login status helper checks can_view_online_data for the target hotel');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'if (!$this->currentUserCanViewOnlineDataHotel((int)$systemHotelId))', 'Profile login current-task lookup checks target hotel OTA view permission');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'if ($taskHotelId <= 0)', 'Profile login task-id lookup rejects tasks without hotel scope');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'Profile login task is missing hotel scope', 'Profile login task-id lookup exposes missing hotel scope as an explicit blocker');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'if (!$this->currentUserCanViewOnlineDataHotel($taskHotelId))', 'Profile login task-id lookup checks task hotel OTA view permission');
+requireTextBefore('app/controller/concern/OnlineDataRequestConcern.php', 'if (!$this->currentUserCanViewOnlineDataHotel($taskHotelId))', "if (($task['platform'] ?? '') !== $platform)", 'Profile login task-id lookup checks hotel permission before exposing platform mismatch');
 requireText('public/index.html', 'fetchCtripComments', 'frontend exposes Ctrip comment fetch');
 requireText('public/index.html', 'runCtripCommentBrowserCapture', 'frontend exposes Ctrip browser comment capture');
 requireText('public/index.html', 'fetchMeituanComments', 'frontend exposes Meituan comment fetch');
@@ -211,7 +327,8 @@ requireText('public/auto-fetch-static.js', "if (statusCode === 'resource_busy_lo
 requireText('public/auto-fetch-static.js', "cookies_incomplete: 'bg-red-50 text-red-700 border-red-200'", 'auto-fetch UI badges cookies_incomplete');
 requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'auto-fetch can queue Ctrip aggregate comments through browser Profile', 'existing diagnosis verifier covers Ctrip aggregate comments');
 requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'auto-fetch can queue Meituan aggregate comments through browser Profile', 'existing diagnosis verifier covers Meituan aggregate comments');
-requireText('package.json', '"verify:hotel-auto-x-non-pms-skills": "node scripts/verify_hotel_auto_x_non_pms_skill_contract.mjs"', 'package script exposes this contract verifier');
+requireText('package.json', '"verify:hotel-auto-x-non-pms-skills": "node scripts/verify_hotel_auto_x_non_pms_skill_contract.mjs && node scripts/verify_hotel_ota_login_eligibility_behavior.mjs"', 'package script runs static and behavior eligibility verifiers');
+requireText('package.json', '"verify:hotel-ota-login-eligibility": "C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_hotel_ota_login_eligibility.php"', 'package script exposes hotel OTA login eligibility verifier');
 requireText('package.json', '"verify:hotel-auto-x-ctrip-collector": "C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_hotel_auto_x_ctrip_collector_contract.php"', 'package script exposes Ctrip collector contract verifier');
 requireText('package.json', '"verify:hotel-auto-x-meituan-collector": "C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_hotel_auto_x_meituan_collector_contract.php"', 'package script exposes Meituan collector contract verifier');
 
