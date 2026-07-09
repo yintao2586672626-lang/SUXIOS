@@ -5,7 +5,6 @@ namespace Tests;
 
 use app\service\OtaCredentialEnvelope;
 use PHPUnit\Framework\TestCase;
-use ReflectionClass;
 use RuntimeException;
 
 final class OtaCredentialEnvelopeTest extends TestCase
@@ -89,18 +88,39 @@ final class OtaCredentialEnvelopeTest extends TestCase
         );
     }
 
-    public function testAadPrefixConstantIsExactAndComposesWithScope(): void
+    public function testEncryptionBindsExactAadPrefixAndScope(): void
     {
+        $keyBase64 = $this->key('primary-key');
+        $key = base64_decode($keyBase64, true);
         $scope = 'ctrip:hotel:58';
-        $constant = (new ReflectionClass(OtaCredentialEnvelope::class))
-            ->getReflectionConstant('AAD_PREFIX');
+        $credentials = [
+            'username' => 'operator',
+            'password' => 'aad-secret',
+            'options' => ['remember' => true],
+        ];
+        $metadata = $this->decodeEnvelope(
+            $this->service($keyBase64, 'ota-primary')->encrypt($credentials, $scope)
+        );
 
-        self::assertNotFalse($constant);
-        self::assertTrue($constant->isPrivate());
-        self::assertSame('suxios:ota-credential:v1:', $constant->getValue());
+        self::assertNotFalse($key);
+        self::assertSame(32, strlen($key));
+        $plaintext = openssl_decrypt(
+            $this->decodeBase64Field($metadata, 'ciphertext'),
+            'aes-256-gcm',
+            $key,
+            OPENSSL_RAW_DATA,
+            $this->decodeBase64Field($metadata, 'nonce'),
+            $this->decodeBase64Field($metadata, 'tag'),
+            'suxios:ota-credential:v1:' . $scope
+        );
+
+        self::assertNotFalse($plaintext);
         self::assertSame(
-            'suxios:ota-credential:v1:ctrip:hotel:58',
-            $constant->getValue() . $scope
+            json_encode(
+                $credentials,
+                JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            ),
+            $plaintext
         );
     }
 
