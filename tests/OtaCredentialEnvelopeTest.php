@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\OtaCredentialEnvelope;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 use RuntimeException;
 
 final class OtaCredentialEnvelopeTest extends TestCase
@@ -69,6 +70,37 @@ final class OtaCredentialEnvelopeTest extends TestCase
         $this->assertRuntimeExceptionWithoutSecrets(
             fn () => $this->service($shortKey, 'ota-primary'),
             [$shortKey]
+        );
+    }
+
+    public function testConstructorRejectsEmptyAndWhitespaceOnlyKeyIdentifiers(): void
+    {
+        $key = $this->key('primary-key');
+
+        $this->assertRuntimeExceptionWithoutSecrets(
+            fn () => $this->service($key, ''),
+            [$key]
+        );
+
+        $whitespaceKeyId = " \t\r\n";
+        $this->assertRuntimeExceptionWithoutSecrets(
+            fn () => $this->service($key, $whitespaceKeyId),
+            [$key, $whitespaceKeyId]
+        );
+    }
+
+    public function testAadPrefixConstantIsExactAndComposesWithScope(): void
+    {
+        $scope = 'ctrip:hotel:58';
+        $constant = (new ReflectionClass(OtaCredentialEnvelope::class))
+            ->getReflectionConstant('AAD_PREFIX');
+
+        self::assertNotFalse($constant);
+        self::assertTrue($constant->isPrivate());
+        self::assertSame('suxios:ota-credential:v1:', $constant->getValue());
+        self::assertSame(
+            'suxios:ota-credential:v1:ctrip:hotel:58',
+            $constant->getValue() . $scope
         );
     }
 
@@ -145,6 +177,32 @@ final class OtaCredentialEnvelopeTest extends TestCase
         $this->assertRuntimeExceptionWithoutSecrets(
             fn () => $service->decrypt(self::PREFIX . '***', 'ctrip:hotel:58'),
             ['session=secret']
+        );
+    }
+
+    public function testInvalidPrefixIsRejected(): void
+    {
+        $service = $this->service($this->key('primary-key'), 'ota-primary');
+        $validEnvelope = $service->encrypt(
+            ['cookie' => 'session=secret'],
+            'ctrip:hotel:58'
+        );
+        $payload = substr($validEnvelope, strlen(self::PREFIX));
+
+        $this->assertRuntimeExceptionWithoutSecrets(
+            fn () => $service->decrypt('invalid-prefix:' . $payload, 'ctrip:hotel:58'),
+            ['session=secret']
+        );
+    }
+
+    public function testValidPrefixAndBase64WithInvalidJsonAreRejected(): void
+    {
+        $service = $this->service($this->key('primary-key'), 'ota-primary');
+        $invalidJsonPayload = rtrim(strtr(base64_encode('{invalid-json'), '+/', '-_'), '=');
+
+        $this->assertRuntimeExceptionWithoutSecrets(
+            fn () => $service->decrypt(self::PREFIX . $invalidJsonPayload, 'ctrip:hotel:58'),
+            []
         );
     }
 
