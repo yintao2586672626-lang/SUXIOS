@@ -19,7 +19,7 @@ final class OtaCredentialVaultTest extends TestCase
     {
         parent::setUp();
         Db::execute('CREATE TABLE IF NOT EXISTS hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(100), create_time INTEGER, update_time INTEGER)');
-        Db::execute('CREATE TABLE IF NOT EXISTS ota_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id VARCHAR(100) NOT NULL, encrypted_payload TEXT NOT NULL, payload_version INTEGER NOT NULL, key_id VARCHAR(100) NOT NULL, secret_mask VARCHAR(255) NOT NULL, credential_status VARCHAR(20) NOT NULL, created_by INTEGER NOT NULL, rotated_at INTEGER, create_time INTEGER, update_time INTEGER, UNIQUE(tenant_id,system_hotel_id,platform,config_id))');
+        Db::execute('CREATE TABLE IF NOT EXISTS ota_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id VARCHAR(100) NOT NULL, encrypted_payload TEXT NOT NULL, payload_version INTEGER NOT NULL, key_id VARCHAR(100) NOT NULL, secret_mask VARCHAR(255) NOT NULL, credential_status VARCHAR(20) NOT NULL, created_by INTEGER NOT NULL, rotated_at DATETIME, create_time DATETIME, update_time DATETIME, UNIQUE(tenant_id,system_hotel_id,platform,config_id))');
         Db::name('hotels')->where('id', 'in', [101, 102])->delete();
         Db::name('hotels')->insertAll([['id'=>101,'tenant_id'=>7,'name'=>'A'],['id'=>102,'tenant_id'=>8,'name'=>'B']]);
     }
@@ -47,4 +47,14 @@ final class OtaCredentialVaultTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $v->metadata(8, 101, 'ctrip', 'main');
     }
+
+    public function testInvalidPlatformAndConfigAreRejected(): void { $this->expectException(\RuntimeException::class); $this->vault()->store(7, 101, 'other', 'main', [], 3); }
+    public function testMissingHotelIsRejected(): void { $this->expectException(\RuntimeException::class); $this->vault()->store(7, 999, 'ctrip', 'main', [], 3); }
+    public function testWrongTenantIsRejected(): void { $this->expectException(\RuntimeException::class); $this->vault()->store(8, 101, 'ctrip', 'main', [], 3); }
+    public function testUpdateSameScopeKeepsUniqueRow(): void { $v=$this->vault(); $a=$v->store(7,101,'ctrip','main',['token'=>'a'],3); $b=$v->store(7,101,'ctrip','main',['token'=>'b'],4); self::assertSame($a['credential_ref'],$b['credential_ref']); self::assertSame('b',$v->withPayloadForExecution(7,101,'ctrip','main',fn(array $p)=>$p['token'])); }
+    public function testMetadataIncludesKeyAndStatus(): void { $m=$this->vault()->store(7,101,'ctrip','main',['token'=>'secret'],3); self::assertSame('test-key',$m['key_id']); self::assertSame('ready',$m['credential_status']); }
+    public function testTamperedCiphertextFails(): void { $v=$this->vault(); $v->store(7,101,'ctrip','main',['token'=>'secret'],3); Db::name('ota_credentials')->where('tenant_id',7)->update(['encrypted_payload'=>'tampered']); $this->expectException(\RuntimeException::class); $v->withPayloadForExecution(7,101,'ctrip','main',fn()=>null); }
+    public function testRevokeIsIdempotentAndMetadataVisible(): void { $v=$this->vault(); $v->store(7,101,'ctrip','main',['token'=>'secret'],3); self::assertSame('revoked',$v->revoke(7,101,'ctrip','main')['credential_status']); self::assertSame('revoked',$v->revoke(7,101,'ctrip','main')['credential_status']); self::assertSame('revoked',$v->metadata(7,101,'ctrip','main')['credential_status']); }
+    public function testRevokedExecutionIsBlocked(): void { $v=$this->vault(); $v->store(7,101,'ctrip','main',['token'=>'secret'],3); $v->revoke(7,101,'ctrip','main'); $this->expectException(\RuntimeException::class); $v->withPayloadForExecution(7,101,'ctrip','main',fn()=>null); }
+    public function testDeleteRevoked(): void { $v=$this->vault(); $v->store(7,101,'ctrip','main',['token'=>'secret'],3); $v->revoke(7,101,'ctrip','main'); self::assertTrue($v->delete(7,101,'ctrip','main')); }
 }
