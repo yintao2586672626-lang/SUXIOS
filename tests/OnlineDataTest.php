@@ -131,7 +131,7 @@ final class OnlineDataTest extends TestCase
         self::assertFalse($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfig', [64]));
     }
 
-    public function testOtaConfigMaintenanceAllowsOwnedConfigWithoutHotelDeletePermission(): void
+    public function testOtaConfigMaintenanceBlocksOwnedConfigWithoutHotelScope(): void
     {
         $controller = $this->controller();
         $this->setControllerCurrentUser($controller, new class {
@@ -160,8 +160,8 @@ final class OnlineDataTest extends TestCase
 
         $config = ['user_id' => 7, 'system_hotel_id' => 118];
 
-        self::assertTrue($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfigItem', [$config]));
-        self::assertTrue($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfigItem', [$config, 118]));
+        self::assertFalse($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfigItem', [$config]));
+        self::assertFalse($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfigItem', [$config, 118]));
     }
 
     public function testOtaConfigMaintenanceBlocksOwnedConfigRebindingWithoutHotelPermission(): void
@@ -226,6 +226,20 @@ final class OnlineDataTest extends TestCase
         $config = ['system_hotel_id' => 118];
 
         self::assertTrue($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfigItem', [$config]));
+    }
+
+    public function testOtaConfigBindingConflictIsRejectedEverywhere(): void
+    {
+        $controller = $this->controller();
+        $conflict = ['system_hotel_id' => 58, 'hotel_id' => 64];
+        self::assertTrue($this->invokeNonPublic($controller, 'otaConfigHasHotelBindingConflict', [$conflict]));
+        self::assertFalse($this->invokeNonPublic($controller, 'currentUserCanMaintainOtaConfigItem', [$conflict]));
+        $user = new class {
+            public int $id = 1;
+            public function isSuperAdmin(): bool { return false; }
+            public function getPermittedHotelIds(): array { return [58, 64]; }
+        };
+        self::assertFalse($this->invokeNonPublic($controller, 'isOtaConfigVisibleToUser', [$conflict, $user]));
     }
 
     public function testPublicEndpointSecuritySummaryUsesSanitizedAuditRows(): void
@@ -4773,7 +4787,7 @@ final class OnlineDataTest extends TestCase
         ], $query->calls);
     }
 
-    public function testOtaConfigListForUserKeepsOnlyVisibleHotelMappings(): void
+    public function testOtaConfigListForUserKeepsOnlyPermittedHotelMappings(): void
     {
         $controller = $this->controller();
         $user = new class {
@@ -4797,7 +4811,7 @@ final class OnlineDataTest extends TestCase
             ['user_id' => 12, 'poi_id' => 'OWNED'],
         ], $user]);
 
-        self::assertSame(['VISIBLE', 'VISIBLE_LEGACY', 'OWNED'], array_column($filtered, 'poi_id'));
+        self::assertSame(['VISIBLE', 'VISIBLE_LEGACY'], array_column($filtered, 'poi_id'));
     }
 
     public function testOnlineDataQualityFlagsMissingAndAbnormalMetrics(): void

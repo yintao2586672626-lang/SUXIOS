@@ -58,4 +58,43 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
         );
         self::assertStringNotContainsString('meituan', $gate['required_gate_command']);
     }
+
+    public function testP0GateProjectsCanonicalCollectionQualityWithoutCredentials(): void
+    {
+        $service = new P0OtaDownstreamGateService();
+        $blocked = $service->blockedForDataset('2026-06-27', 7, [
+            'fact_ota_daily' => [],
+            'fact_ota_traffic' => [],
+        ]);
+
+        $quality = $service->collectionQuality($blocked);
+        self::assertSame('unverified', $quality['primary_quality_state']);
+        self::assertSame('ota_channel', $quality['metric_scope']);
+        self::assertContains('p0_field_loop_verifier_ready', $quality['quality_flags']);
+        self::assertArrayNotHasKey('raw_payload', $quality);
+        self::assertArrayNotHasKey('token', $quality);
+
+        $readyQuality = $service->collectionQuality($service->normalize(['status' => 'ready'], '2026-06-27', 7));
+        self::assertSame('available', $readyQuality['primary_quality_state']);
+        self::assertSame([], $readyQuality['quality_flags']);
+    }
+
+    public function testP0QualityProjectionKeepsSpecificFailureClasses(): void
+    {
+        $service = new P0OtaDownstreamGateService();
+        foreach ([
+            'poi_missing' => 'binding_missing',
+            'permission_denied' => 'permission_denied',
+            'snapshot_not_saved' => 'collection_failed',
+            'stale_target_date_data' => 'stale',
+        ] as $flag => $expectedState) {
+            $quality = $service->collectionQuality([
+                'status' => 'blocked_by_p0_ota_gate',
+                'blocking_missing_inputs' => [$flag],
+            ]);
+
+            self::assertSame($expectedState, $quality['primary_quality_state'], $flag);
+            self::assertSame([$flag], $quality['quality_flags'], $flag);
+        }
+    }
 }

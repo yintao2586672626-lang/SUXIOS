@@ -2153,6 +2153,103 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testSyncTaskCollectionQualitySnapshotRequiresVerifiedBrowserProfileEvidence(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'buildSyncTaskCollectionQualitySnapshot');
+        $method->setAccessible(true);
+
+        $quality = $method->invoke($service, 'success', [
+            'id' => 91,
+            'platform' => 'ctrip',
+            'system_hotel_id' => 58,
+            'ingestion_method' => 'browser_profile',
+            'config' => [
+                'ota_hotel_id' => 'ctrip-hotel-58',
+                'profile_id' => 'profile-58',
+                'manual_login_state_verified' => true,
+                'profile_status' => 'logged_in',
+                'last_login_verified_at' => '2026-07-10 08:00:00',
+            ],
+        ], [
+            'target_date' => '2026-07-09',
+            'p0_status' => 'ready',
+            'target_date_rows' => 2,
+            'target_date_traffic_rows' => 1,
+            'field_fact_status' => 'ready',
+            'missing_inputs' => [],
+            'adapter_message' => 'token=must-not-be-persisted-in-quality-snapshot',
+        ], 2, 2, '2026-07-10 08:01:00');
+
+        self::assertSame('available', $quality['primary_quality_state']);
+        self::assertSame('ota_channel', $quality['metric_scope']);
+        self::assertSame('sync_task', $quality['evidence_scope']);
+        self::assertSame('2026-07-09', $quality['target_date']);
+        self::assertSame('2026-07-09', $quality['data_as_of']);
+        self::assertSame(2, $quality['evidence']['saved_count']);
+        self::assertArrayNotHasKey('adapter_message', $quality['evidence']);
+        self::assertStringNotContainsString('token=', (string)json_encode($quality, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    public function testSyncTaskCollectionQualitySnapshotKeepsPartialFailureAndManualImportHonest(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'buildSyncTaskCollectionQualitySnapshot');
+        $method->setAccessible(true);
+        $verifiedSource = [
+            'id' => 92,
+            'platform' => 'meituan',
+            'system_hotel_id' => 58,
+            'ingestion_method' => 'browser_profile',
+            'config' => [
+                'store_id' => 'meituan-store-58',
+                'profile_id' => 'profile-58',
+                'manual_login_state_verified' => true,
+                'profile_status' => 'logged_in',
+                'last_login_verified_at' => '2026-07-10 08:00:00',
+            ],
+        ];
+
+        $partial = $method->invoke($service, 'success', $verifiedSource, [
+            'target_date' => '2026-07-09',
+            'p0_status' => 'ready',
+            'target_date_rows' => 2,
+            'target_date_traffic_rows' => 1,
+            'field_fact_status' => 'partial',
+            'missing_inputs' => [],
+        ], 2, 2, '2026-07-10 08:01:00');
+        self::assertSame('partial', $partial['primary_quality_state']);
+        self::assertContains('target_date_field_facts_partial', $partial['quality_flags']);
+
+        $failed = $method->invoke($service, 'failed', $verifiedSource, [
+            'target_date' => '2026-07-09',
+            'p0_status' => 'blocked',
+            'target_date_rows' => 0,
+            'target_date_traffic_rows' => 0,
+            'field_fact_status' => 'not_loaded',
+            'missing_inputs' => ['target_date_traffic_rows'],
+        ], 0, 0, '2026-07-10 08:01:00');
+        self::assertSame('collection_failed', $failed['primary_quality_state']);
+        self::assertContains('task_status_failed', $failed['quality_flags']);
+
+        $manualImport = $method->invoke($service, 'success', [
+            'id' => 93,
+            'platform' => 'ctrip',
+            'system_hotel_id' => 58,
+            'ingestion_method' => 'manual',
+            'config' => ['hotel_id' => 'ctrip-hotel-58'],
+        ], [
+            'target_date' => '2026-07-09',
+            'p0_status' => 'not_required',
+            'target_date_rows' => 1,
+            'target_date_traffic_rows' => 1,
+            'field_fact_status' => 'ready',
+            'missing_inputs' => [],
+        ], 1, 1, '2026-07-10 08:01:00');
+        self::assertSame('unverified', $manualImport['primary_quality_state']);
+        self::assertContains('manual_import_provenance_unverified', $manualImport['quality_flags']);
+    }
+
     private function ctripBrowserProfileSource(): array
     {
         return [

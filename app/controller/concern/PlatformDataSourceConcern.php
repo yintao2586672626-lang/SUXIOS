@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\service\OtaBrowserAssistImportService;
+use app\service\OtaCollectionQualityStateService;
 use app\service\PlatformDataSyncService;
 use think\Response;
 use think\facade\Db;
@@ -504,6 +505,7 @@ trait PlatformDataSourceConcern
         $profileRow = $this->collectionStatusProfileRow($profileStatus, $platform);
         $latestTaskStats = $latestTask ? $this->collectionStatusDecodeJson($latestTask['stats_json'] ?? '') : [];
         $syncDiagnostics = is_array($latestTaskStats['sync_diagnostics'] ?? null) ? $latestTaskStats['sync_diagnostics'] : [];
+        $taskCollectionQuality = $this->collectionStatusTaskCollectionQuality($latestTaskStats['collection_quality'] ?? null);
         $targetDate = (string)($dailySummary['target_date'] ?? $syncDiagnostics['target_date'] ?? '');
         $targetDateRows = (int)($dailySummary['target_date_rows'] ?? 0);
         $targetDateTrafficRows = (int)($dailySummary['target_date_traffic_rows'] ?? 0);
@@ -512,6 +514,23 @@ trait PlatformDataSourceConcern
         $dataCollected = $targetDateTrafficRows > 0 && $fieldFactStatus === 'ready';
         $collectionStatus = $this->resolveCollectionStatus($dataCollected, $hasStoredData, $latestTask, $resourceStatuses, $dailySummary, $profileRow);
         $failureReason = $this->collectionStatusFailureReason($collectionStatus, $latestTask, $latestSource, $profileRow, $resourceStatuses, $dataCollected, $dailySummary, $syncDiagnostics);
+        $bindingContract = is_array($profileRow['binding_contract'] ?? null) ? $profileRow['binding_contract'] : [];
+        $quality = (new OtaCollectionQualityStateService())->evaluate([
+            'binding_contract_status' => $bindingContract['status'] ?? '',
+            'binding_check_status' => $profileRow['binding_check_status'] ?? '',
+            'binding_missing_requirements' => $bindingContract['missing_requirements'] ?? [],
+            'profile_status' => $profileRow['status_code'] ?? '',
+            'collection_status' => $collectionStatus,
+            'target_date' => $targetDate,
+            'latest_data_date' => $dailySummary['end_date'] ?? '',
+            'latest_collected_at' => $dailySummary['latest_collected_at'] ?? '',
+            'target_date_rows' => $targetDateRows,
+            'target_date_traffic_rows' => $targetDateTrafficRows,
+            'field_fact_status' => $fieldFactStatus,
+            'has_stored_data' => $hasStoredData,
+            'source_count' => count($platformSources),
+            'failure_reason' => $failureReason,
+        ]);
 
         return [
             'platform' => $platform,
@@ -534,6 +553,7 @@ trait PlatformDataSourceConcern
             'fieldFactsMissing' => (int)($dailySummary['target_date_traffic_field_fact_missing_count'] ?? 0),
             'fieldFactStatus' => $fieldFactStatus,
             'failureReason' => $failureReason,
+            'quality' => $quality,
             'dataScope' => 'ota_channel',
             'reviewCollection' => [
                 'status' => 'aggregate_enabled',
@@ -565,6 +585,7 @@ trait PlatformDataSourceConcern
                 'staleAgeSeconds' => PlatformDataSyncService::syncTaskAgeSeconds($latestTask),
                 'message' => $this->redactCollectionStatusText((string)($latestTask['message'] ?? '')),
                 'syncDiagnostics' => $syncDiagnostics,
+                'collectionQuality' => $taskCollectionQuality,
                 'targetDate' => (string)($syncDiagnostics['target_date'] ?? ''),
                 'startedAt' => (string)($latestTask['started_at'] ?? ''),
                 'finishedAt' => (string)($latestTask['finished_at'] ?? ''),
@@ -876,6 +897,145 @@ trait PlatformDataSourceConcern
         }
         $decoded = json_decode($value, true);
         return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Limits persisted task quality data to the contract used by the status UI.
+     * Do not pass raw task stats, platform responses, or source configuration
+     * through this projection.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function collectionStatusTaskCollectionQuality(mixed $value): ?array
+    {
+        if (!is_array($value)) {
+            return null;
+        }
+
+        $states = [
+            'available',
+            'partial',
+            'stale',
+            'unverified',
+            'binding_missing',
+            'permission_denied',
+            'collection_failed',
+        ];
+        $state = strtolower(trim((string)($value['primary_quality_state'] ?? '')));
+        $isValid = in_array($state, $states, true);
+        if (!$isValid) {
+            $state = 'unverified';
+        }
+
+        $allowedFlags = [
+            'manual_login_state_verified',
+            'profile_status_logged_in',
+            'last_login_verified_at',
+            'target_date_traffic_rows',
+            'traffic_field_facts',
+            'system_hotel_id_missing',
+            'data_source_id_missing',
+            'ota_store_id_missing',
+            'profile_id_missing',
+            'non_ota_platform_source',
+            'platform_permission_denied',
+            'task_status_failed',
+            'manual_import_provenance_unverified',
+            'source_ingestion_method_unverified',
+            'platform_session_not_verified',
+            'target_date_missing',
+            'p0_target_date_evidence_not_ready',
+            'saved_rows_missing',
+            'target_date_rows_missing',
+            'target_date_traffic_rows_missing',
+            'target_date_field_facts_partial',
+            'task_partial_success',
+            'task_quality_not_verified',
+        ];
+        $qualityFlags = [];
+        foreach ((array)($value['quality_flags'] ?? []) as $flag) {
+            $flag = strtolower(trim((string)$flag));
+            if (in_array($flag, $allowedFlags, true)) {
+                $qualityFlags[] = $flag;
+            }
+        }
+        if (!$isValid) {
+            $qualityFlags[] = 'task_quality_not_verified';
+        }
+
+        $metricScope = strtolower(trim((string)($value['metric_scope'] ?? '')));
+        if (!in_array($metricScope, ['ota_channel', 'unknown'], true)) {
+            $metricScope = 'unknown';
+        }
+        $evidence = is_array($value['evidence'] ?? null) ? $value['evidence'] : [];
+        $taskStatus = strtolower(trim((string)($evidence['task_status'] ?? '')));
+        if (!in_array($taskStatus, ['success', 'partial_success', 'failed', 'capture_failed', 'permission_denied', 'unknown'], true)) {
+            $taskStatus = 'unknown';
+        }
+        $ingestionMethod = strtolower(trim((string)($evidence['ingestion_method'] ?? '')));
+        if (!in_array($ingestionMethod, ['browser_profile', 'profile_browser', 'manual', 'api', 'unknown'], true)) {
+            $ingestionMethod = 'unknown';
+        }
+        $p0Status = strtolower(trim((string)($evidence['p0_status'] ?? '')));
+        if (!in_array($p0Status, ['ready', 'blocked', 'not_required', 'not_loaded', 'unknown'], true)) {
+            $p0Status = 'unknown';
+        }
+        $fieldFactStatus = strtolower(trim((string)($evidence['field_fact_status'] ?? '')));
+        if (!in_array($fieldFactStatus, ['ready', 'partial', 'missing', 'not_loaded', 'unknown'], true)) {
+            $fieldFactStatus = 'unknown';
+        }
+
+        $nextAction = strtolower(trim((string)($value['next_action'] ?? '')));
+        $allowedActions = [
+            '',
+            'complete_hotel_poi_binding',
+            'restore_platform_permission',
+            'inspect_collection_failure',
+            'verify_task_source_scope',
+            'verify_manual_import_provenance',
+            'verify_collection_method',
+            'verify_platform_login_state',
+            'select_target_date',
+            'verify_target_date_evidence',
+            'collect_target_date_data',
+            'complete_missing_target_date_evidence',
+        ];
+        if (!in_array($nextAction, $allowedActions, true)) {
+            $nextAction = 'verify_target_date_evidence';
+        }
+
+        return [
+            'primary_quality_state' => $state,
+            'quality_flags' => array_values(array_unique($qualityFlags)),
+            'metric_scope' => $metricScope,
+            'evidence_scope' => 'sync_task',
+            'target_date' => $this->collectionStatusTaskQualityDate($value['target_date'] ?? ''),
+            'data_as_of' => $this->collectionStatusTaskQualityDate($value['data_as_of'] ?? ''),
+            'collected_at' => $this->collectionStatusTaskQualityCollectedAt($value['collected_at'] ?? ''),
+            'evidence' => [
+                'task_status' => $taskStatus,
+                'ingestion_method' => $ingestionMethod,
+                'p0_status' => $p0Status,
+                'target_date_rows' => max(0, (int)($evidence['target_date_rows'] ?? 0)),
+                'target_date_traffic_rows' => max(0, (int)($evidence['target_date_traffic_rows'] ?? 0)),
+                'field_fact_status' => $fieldFactStatus,
+                'normalized_count' => max(0, (int)($evidence['normalized_count'] ?? 0)),
+                'saved_count' => max(0, (int)($evidence['saved_count'] ?? 0)),
+            ],
+            'next_action' => $nextAction,
+        ];
+    }
+
+    private function collectionStatusTaskQualityDate(mixed $value): string
+    {
+        $value = trim((string)$value);
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1 ? $value : '';
+    }
+
+    private function collectionStatusTaskQualityCollectedAt(mixed $value): string
+    {
+        $value = trim((string)$value);
+        return preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:?\d{2})?$/', $value) === 1 ? $value : '';
     }
 
     private function redactCollectionStatusText(string $text): string

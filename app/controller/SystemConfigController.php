@@ -21,6 +21,7 @@ class SystemConfigController extends Base
 
         $requestedKey = trim((string)$this->request->get('key', ''));
         if ($requestedKey !== '') {
+            $this->guardProtectedOtaKey($requestedKey);
             if (!$this->canReadConfigKey($requestedKey)) {
                 abort(403, 'Forbidden');
             }
@@ -45,17 +46,13 @@ class SystemConfigController extends Base
             return $this->success($configs);
         }
 
-        $configs = SystemConfig::getAllConfigs();
+        $configs = $this->getAllConfigsWithoutProtectedOtaCache();
 
         // 合并默认值
         foreach ($defaults as $key => $value) {
             if (!isset($configs[$key])) {
                 $configs[$key] = $value;
             }
-        }
-
-        if (!$this->currentUser->isSuperAdmin()) {
-            $configs = $this->filterPublicConfigs($configs);
         }
 
         return $this->success($configs);
@@ -72,7 +69,8 @@ class SystemConfigController extends Base
 
         // 支持自定义配置项（如数据配置）
         if (isset($data['config_key']) && isset($data['config_value'])) {
-            $key = $data['config_key'];
+            $key = trim((string)$data['config_key']);
+            $this->guardProtectedOtaKey($key);
             $value = $data['config_value'];
             $description = $data['description'] ?? '自定义配置';
 
@@ -82,6 +80,8 @@ class SystemConfigController extends Base
 
             return $this->success(null, '配置更新成功');
         }
+
+        $this->guardProtectedOtaKeys($data);
 
         // 获取所有配置项描述
         $descriptions = SystemConfig::getConfigDescriptions();
@@ -95,7 +95,7 @@ class SystemConfigController extends Base
 
         OperationLog::record('system_config', 'update', '更新系统配置', $this->currentUser->id);
 
-        return $this->success(SystemConfig::getAllConfigs(), '配置更新成功');
+        return $this->success($this->getAllConfigsWithoutProtectedOtaCache(), '配置更新成功');
     }
 
     /**
@@ -113,7 +113,42 @@ class SystemConfigController extends Base
      */
     private function canReadConfigKey(string $key): bool
     {
-        return $this->currentUser->isSuperAdmin() || in_array($key, $this->publicConfigKeys(), true);
+        return !SystemConfig::isProtectedOtaKey($key)
+            && ($this->currentUser->isSuperAdmin() || in_array($key, $this->publicConfigKeys(), true));
+    }
+
+    private function guardProtectedOtaKey(string $key): void
+    {
+        if (SystemConfig::isProtectedOtaKey($key)) {
+            abort(403, 'Forbidden');
+        }
+    }
+
+    private function guardProtectedOtaKeys(array $configs): void
+    {
+        foreach (array_keys($configs) as $key) {
+            $this->guardProtectedOtaKey((string)$key);
+        }
+    }
+
+    private function filterProtectedOtaConfigs(array $configs): array
+    {
+        foreach (array_keys($configs) as $key) {
+            if (SystemConfig::isProtectedOtaKey((string)$key)) {
+                unset($configs[$key]);
+            }
+        }
+
+        return $configs;
+    }
+
+    private function getAllConfigsWithoutProtectedOtaCache(): array
+    {
+        try {
+            return $this->filterProtectedOtaConfigs(SystemConfig::getAllConfigs());
+        } finally {
+            SystemConfig::clearProtectedOtaCaches();
+        }
     }
 
     private function filterPublicConfigs(array $configs): array
@@ -168,7 +203,10 @@ class SystemConfigController extends Base
         $this->checkSuperAdmin();
 
         $redactionStats = ['redacted_count' => 0];
-        $configs = $this->redactExportConfigs(SystemConfig::getAllConfigs(), $redactionStats);
+        $configs = $this->redactExportConfigs(
+            $this->getAllConfigsWithoutProtectedOtaCache(),
+            $redactionStats
+        );
         $generatedAt = date('Y-m-d H:i:s');
         $requestId = trim((string)($this->request->request_id ?? $this->request->header('X-Request-ID', '')));
         if ($requestId === '') {
@@ -343,6 +381,8 @@ class SystemConfigController extends Base
         if ($dataError !== null) {
             return $this->error($dataError, 422);
         }
+
+        $this->guardProtectedOtaKeys($data['configs']);
 
         $descriptions = SystemConfig::getConfigDescriptions();
         $imported = 0;

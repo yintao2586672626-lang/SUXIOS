@@ -74,6 +74,35 @@ class P0OtaDownstreamGateService
     }
 
     /**
+     * Converts an already-normalized P0 gate into a safe, canonical quality summary.
+     * It contains only blocker codes and scope metadata; no raw response or credentials.
+     *
+     * @param array<string, mixed> $gate
+     * @return array<string, mixed>
+     */
+    public function collectionQuality(array $gate): array
+    {
+        $normalized = $this->normalize($gate);
+        $gateStatus = (string)($normalized['status'] ?? 'blocked_by_p0_ota_gate');
+        $flags = $this->stringList($normalized['blocking_missing_inputs'] ?? []);
+
+        return [
+            'primary_quality_state' => $gateStatus === 'ready'
+                ? 'available'
+                : $this->collectionQualityState($flags),
+            'quality_flags' => $flags,
+            'metric_scope' => 'ota_channel',
+            'evidence' => [
+                'p0_downstream_gate_status' => $gateStatus,
+                'current_upstream_status' => (string)($normalized['current_upstream_status'] ?? ''),
+            ],
+            'next_action' => $gateStatus === 'ready'
+                ? ''
+                : 'run_p0_ota_field_loop_verifier',
+        ];
+    }
+
+    /**
      * @param array<int, string> $missingInputs
      * @return array<string, mixed>
      */
@@ -160,6 +189,59 @@ class P0OtaDownstreamGateService
             }
         }
         return array_values(array_unique($items));
+    }
+
+    /**
+     * @param array<int, string> $flags
+     */
+    private function collectionQualityState(array $flags): string
+    {
+        $normalized = array_map(static fn(string $flag): string => strtolower(trim($flag)), $flags);
+        if ($this->hasFlagFragment($normalized, ['binding', 'poi', 'platform_hotel_identifier'])) {
+            return 'binding_missing';
+        }
+        if ($this->hasFlagFragment($normalized, ['permission_denied', 'unauthorized'])) {
+            return 'permission_denied';
+        }
+        if ($this->hasFlagFragment($normalized, ['collection_failed', 'sync_completed_without_saved_rows', 'etl_write_not_confirmed', 'snapshot_not_saved', 'parse_failed'])) {
+            return 'collection_failed';
+        }
+        if ($normalized !== [] && $this->hasOnlyStaleFlags($normalized)) {
+            return 'stale';
+        }
+
+        return 'unverified';
+    }
+
+    /**
+     * @param array<int, string> $flags
+     * @param array<int, string> $fragments
+     */
+    private function hasFlagFragment(array $flags, array $fragments): bool
+    {
+        foreach ($flags as $flag) {
+            foreach ($fragments as $fragment) {
+                if (str_contains($flag, $fragment)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, string> $flags
+     */
+    private function hasOnlyStaleFlags(array $flags): bool
+    {
+        foreach ($flags as $flag) {
+            if (!str_contains($flag, 'stale')) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

@@ -6,10 +6,12 @@ namespace Tests;
 use app\controller\CompetitorApi;
 use app\controller\OperationLogController;
 use app\controller\SystemConfigController;
+use app\model\SystemConfig;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\ReflectionHelper;
+use think\exception\HttpException;
 
 final class SecurityInputGuardTest extends TestCase
 {
@@ -129,6 +131,105 @@ final class SecurityInputGuardTest extends TestCase
         self::assertTrue($this->invokeNonPublic($controller, 'containsRedactedExportSecretPlaceholder', [['cookie' => '[REDACTED]']]));
         self::assertFalse($this->invokeNonPublic($controller, 'containsRedactedExportSecretPlaceholder', ['normal config value']));
         self::assertFalse($this->invokeNonPublic($controller, 'containsRedactedExportSecretPlaceholder', ['{"label":"normal"}']));
+    }
+
+    public function testProtectedOtaConfigKeysAreCaseInsensitiveAndFilteredFromGeneralResponses(): void
+    {
+        $controller = $this->controller(SystemConfigController::class);
+        $configs = [
+            'system_name' => 'SUXIOS',
+            'ctrip_config_list' => 'ctrip-cookie-secret',
+            'meituan_config_list' => 'meituan-token-secret',
+        ];
+
+        self::assertTrue(SystemConfig::isProtectedOtaKey('ctrip_config_list'));
+        self::assertTrue(SystemConfig::isProtectedOtaKey(' MEITUAN_CONFIG_LIST '));
+        self::assertFalse(SystemConfig::isProtectedOtaKey('system_name'));
+        self::assertFalse($this->invokeNonPublic($controller, 'canReadConfigKey', ['ctrip_config_list']));
+        self::assertSame(
+            ['system_name' => 'SUXIOS'],
+            $this->invokeNonPublic($controller, 'filterProtectedOtaConfigs', [$configs])
+        );
+    }
+
+    public function testGeneralConfigGuardRejectsProtectedOtaKeyWith403(): void
+    {
+        $controller = $this->controller(SystemConfigController::class);
+
+        try {
+            $this->invokeNonPublic($controller, 'guardProtectedOtaKey', ['ctrip_config_list']);
+            self::fail('Protected OTA config key must be rejected');
+        } catch (HttpException $exception) {
+            self::assertSame(403, $exception->getStatusCode());
+        }
+    }
+
+    public function testGeneralConfigBulkGuardRejectsProtectedOtaKeyBeforeWrites(): void
+    {
+        $controller = $this->controller(SystemConfigController::class);
+
+        $this->expectException(HttpException::class);
+        $this->expectExceptionMessage('Forbidden');
+        $this->invokeNonPublic($controller, 'guardProtectedOtaKeys', [[
+            'system_name' => 'renamed-before-guard',
+            'meituan_config_list' => 'meituan-token-secret',
+        ]]);
+    }
+
+    public function testClearingProtectedOtaCachesPreservesUnrelatedProcessCacheEntries(): void
+    {
+        $reflection = new ReflectionClass(SystemConfig::class);
+        $property = $reflection->getProperty('valueCache');
+        $property->setAccessible(true);
+        $original = $property->getValue();
+        $property->setValue(null, [
+            'ctrip_config_list' => ['found' => true, 'value' => 'ctrip-cookie-secret'],
+            'meituan_config_list' => ['found' => true, 'value' => 'meituan-token-secret'],
+            'CTRIP_CONFIG_LIST' => ['found' => true, 'value' => 'uppercase-ctrip-secret'],
+            ' meituan_config_list ' => ['found' => true, 'value' => 'spaced-meituan-secret'],
+            'system_name' => ['found' => true, 'value' => 'SUXIOS'],
+        ]);
+
+        try {
+            SystemConfig::clearProtectedOtaCaches();
+            $cache = $property->getValue();
+            self::assertArrayNotHasKey('ctrip_config_list', $cache);
+            self::assertArrayNotHasKey('meituan_config_list', $cache);
+            self::assertArrayNotHasKey('CTRIP_CONFIG_LIST', $cache);
+            self::assertArrayNotHasKey(' meituan_config_list ', $cache);
+            self::assertSame(['found' => true, 'value' => 'SUXIOS'], $cache['system_name']);
+        } finally {
+            $property->setValue(null, $original);
+        }
+    }
+
+    public function testGeneralConfigFullReadsUseProtectedCacheClearingWrapper(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/SystemConfigController.php');
+        $helper = 'getAllConfigsWithoutProtectedOtaCache';
+
+        self::assertSame(1, substr_count($source, 'SystemConfig::getAllConfigs()'));
+        self::assertSame(3, substr_count($source, '$this->' . $helper . '()'));
+        $helperPosition = strpos($source, 'private function ' . $helper . '()');
+        $finallyPosition = strpos($source, 'finally', (int)$helperPosition);
+        $clearPosition = strpos($source, 'SystemConfig::clearProtectedOtaCaches();', (int)$helperPosition);
+        self::assertNotFalse($helperPosition);
+        self::assertNotFalse($finallyPosition);
+        self::assertNotFalse($clearPosition);
+        self::assertLessThan($clearPosition, $finallyPosition);
+    }
+
+    public function testSystemConfigImportGuardsProtectedKeysBeforeWrites(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/SystemConfigController.php');
+        $importPosition = strpos($source, 'public function import()');
+        $guardPosition = strpos($source, '$this->guardProtectedOtaKeys($data[\'configs\']);', (int)$importPosition);
+        $writeLoopPosition = strpos($source, 'foreach ($data[\'configs\'] as $key => $value)', (int)$importPosition);
+
+        self::assertNotFalse($importPosition);
+        self::assertNotFalse($guardPosition);
+        self::assertNotFalse($writeLoopPosition);
+        self::assertLessThan($writeLoopPosition, $guardPosition);
     }
 
     public function testHighRiskOperationLogSummaryRowsAreWhitelistedAndRedacted(): void

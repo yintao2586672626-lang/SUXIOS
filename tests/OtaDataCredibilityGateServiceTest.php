@@ -191,6 +191,7 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
         self::assertTrue($gate['human_review_required']);
         self::assertFalse($gate['evidence']['data_quality_present']);
         self::assertSame(1, $gate['evidence']['fact_rows']);
+        self::assertFalse($gate['evidence']['collection_quality']['provided']);
     }
 
     public function testP0DownstreamGateBlocksDownstreamDecisionUseEvenWhenMetricsLookReady(): void
@@ -237,5 +238,127 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
         self::assertSame('blocked_by_p0_ota_gate', $gate['evidence']['p0_downstream_gate']['status']);
         self::assertFalse($metrics['p1_revenue_closure']['calculation_allowed']);
         self::assertSame('blocked_by_p0_ota_gate', $metrics['p1_revenue_closure']['decision_use']['status']);
+    }
+
+    public function testExplicitBlockingCollectionQualityStatesCannotBeOverriddenByReadyRows(): void
+    {
+        foreach (['stale', 'unverified', 'binding_missing', 'permission_denied', 'collection_failed'] as $qualityState) {
+            $gate = (new OtaDataCredibilityGateService())->evaluate(
+                $this->readyDatasetWithCollectionQuality($qualityState),
+                $this->readyMetrics()
+            );
+
+            self::assertSame('blocked', $gate['status'], $qualityState);
+            self::assertContains('ota_collection_quality:' . $qualityState, $gate['reason_codes'], $qualityState);
+            self::assertFalse($gate['decision_use']['revenue_analysis']['allowed'], $qualityState);
+            self::assertSame('blocked_by_collection_quality', $gate['decision_use']['ai_decision_support']['status'], $qualityState);
+            self::assertSame($qualityState, $gate['evidence']['collection_quality']['primary_quality_state'], $qualityState);
+        }
+    }
+
+    public function testPartialCollectionQualityKeepsOnlyWarningLevelDecisionUse(): void
+    {
+        $gate = (new OtaDataCredibilityGateService())->evaluate(
+            $this->readyDatasetWithCollectionQuality('partial', ['target_date_field_facts_partial']),
+            $this->readyMetrics()
+        );
+
+        self::assertSame('warning', $gate['status']);
+        self::assertContains('ota_collection_quality_partial', $gate['warnings']);
+        self::assertTrue($gate['decision_use']['revenue_analysis']['allowed']);
+        self::assertSame('allowed_with_human_review', $gate['decision_use']['ai_decision_support']['status']);
+        self::assertSame(['target_date_field_facts_partial'], $gate['evidence']['collection_quality']['quality_flags']);
+    }
+
+    public function testRevenueMetricPathBlocksP1ClosureForExplicitCollectionFailure(): void
+    {
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset([
+            'status' => 'ready',
+            'collection_quality' => [
+                'primary_quality_state' => 'collection_failed',
+                'quality_flags' => ['snapshot_not_saved'],
+                'metric_scope' => 'ota_channel',
+            ],
+            'data_quality' => [
+                'input_rows' => 1,
+                'accepted_rows' => 1,
+                'rejected_rows' => [],
+            ],
+            'fact_ota_daily' => [[
+                'id' => 901,
+                'platform_key' => 'ctrip',
+                'hotel_key' => 'system:7',
+                'revenue' => 1200.0,
+                'room_revenue' => 1200.0,
+                'room_nights' => 6.0,
+                'source_trace' => [
+                    'saved_success' => true,
+                    'failure_reasons' => [],
+                ],
+            ]],
+        ]);
+
+        self::assertSame('blocked', $metrics['credibility_gate']['status']);
+        self::assertContains('ota_collection_quality:collection_failed', $metrics['credibility_gate']['reason_codes']);
+        self::assertSame('blocked_by_collection_quality', $metrics['p1_revenue_closure']['decision_use']['status']);
+        self::assertFalse($metrics['p1_revenue_closure']['calculation_allowed']);
+    }
+
+    public function testUnknownOrNonOtaCollectionQualityCannotSilentlyPassTheGate(): void
+    {
+        $unknown = (new OtaDataCredibilityGateService())->evaluate(
+            $this->readyDatasetWithCollectionQuality('not_a_quality_state'),
+            $this->readyMetrics()
+        );
+        self::assertSame('blocked', $unknown['status']);
+        self::assertContains('ota_collection_quality_state_unknown', $unknown['reason_codes']);
+        self::assertSame('blocked_by_collection_quality', $unknown['decision_use']['revenue_analysis']['status']);
+
+        $wrongScope = $this->readyDatasetWithCollectionQuality('available');
+        $wrongScope['collection_quality']['metric_scope'] = 'whole_hotel';
+        $scopeGate = (new OtaDataCredibilityGateService())->evaluate($wrongScope, $this->readyMetrics());
+        self::assertSame('blocked', $scopeGate['status']);
+        self::assertContains('ota_collection_quality_scope_invalid', $scopeGate['reason_codes']);
+        self::assertSame('blocked_by_collection_quality', $scopeGate['decision_use']['revenue_analysis']['status']);
+    }
+
+    /**
+     * @param array<int, string> $qualityFlags
+     * @return array<string, mixed>
+     */
+    private function readyDatasetWithCollectionQuality(string $qualityState, array $qualityFlags = []): array
+    {
+        return [
+            'status' => 'ready',
+            'collection_quality' => [
+                'primary_quality_state' => $qualityState,
+                'quality_flags' => $qualityFlags,
+                'metric_scope' => 'ota_channel',
+                'target_date' => '2026-07-09',
+                'data_as_of' => '2026-07-09',
+            ],
+            'data_quality' => [
+                'input_rows' => 1,
+                'accepted_rows' => 1,
+                'rejected_rows' => [],
+            ],
+            'fact_ota_daily' => [['id' => 1]],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function readyMetrics(): array
+    {
+        return [
+            'status' => 'ready',
+            'metric_trust' => [
+                'totals.revenue' => ['saved_success' => true, 'failure_reasons' => []],
+                'totals.room_nights' => ['saved_success' => true, 'failure_reasons' => []],
+                'totals.adr' => ['saved_success' => true, 'failure_reasons' => []],
+            ],
+            'data_gaps' => [],
+        ];
     }
 }

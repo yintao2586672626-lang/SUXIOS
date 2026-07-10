@@ -19,7 +19,8 @@ class SystemConfig extends Model
     private static array $valueCache = [];
 
     private const DURABLE_VALUE_CACHE_TTL = 300;
-    private const DURABLE_VALUE_CACHE_KEYS = [
+    private const DURABLE_VALUE_CACHE_KEYS = [];
+    private const PROTECTED_OTA_KEYS = [
         'ctrip_config_list' => true,
         'meituan_config_list' => true,
     ];
@@ -99,7 +100,6 @@ class SystemConfig extends Model
             self::$valueCache[$key] = $cached;
             return $cached['found'] ? $cached['value'] : $default;
         }
-
         $config = self::where('config_key', $key)->field('config_value')->find();
         $found = $config !== null;
         $value = $found ? $config->config_value : null;
@@ -237,6 +237,28 @@ class SystemConfig extends Model
     private static function durableValueCacheKey(string $key): string
     {
         return 'system_config_value_' . sha1($key);
+    }
+
+    public static function isProtectedOtaKey(string $key): bool
+    {
+        return isset(self::PROTECTED_OTA_KEYS[strtolower(trim($key))]);
+    }
+
+    public static function clearProtectedOtaCaches(): void
+    {
+        foreach (array_keys(self::$valueCache) as $cachedKey) {
+            if (self::isProtectedOtaKey((string)$cachedKey)) {
+                unset(self::$valueCache[$cachedKey]);
+            }
+        }
+
+        foreach (array_keys(self::PROTECTED_OTA_KEYS) as $key) {
+            try {
+                cache('system_config_value_' . sha1($key), null);
+            } catch (\Throwable $e) {
+                // Runtime cache availability must not block protected cache clearing.
+            }
+        }
     }
 
     /**

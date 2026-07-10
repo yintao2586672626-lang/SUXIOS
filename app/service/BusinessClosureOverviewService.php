@@ -204,7 +204,7 @@ class BusinessClosureOverviewService
             if (($module['roi_ready'] ?? false) === true) {
                 $roiReadyModules++;
             }
-            if (in_array((string)($module['status'] ?? ''), ['not_loaded', 'blocked', 'blocked_by_p0_ota_gate'], true)) {
+            if (in_array((string)($module['status'] ?? ''), ['not_loaded', 'blocked', 'blocked_by_p0_ota_gate', 'blocked_by_ai_summary_failure'], true)) {
                 $blocked++;
             }
             if (($module['status'] ?? '') === 'record_only') {
@@ -298,10 +298,19 @@ class BusinessClosureOverviewService
         $reviewed = max(0, (int)($signal['reviewed_count'] ?? 0));
         $roiReady = max(0, (int)($signal['roi_ready_count'] ?? 0));
         $blocked = max(0, (int)($signal['blocked_count'] ?? 0));
+        $aiSummaryFailures = max(0, (int)($signal['ai_summary_failure_count'] ?? 0));
         $rejected = max(0, (int)($signal['rejected_count'] ?? 0));
         $dataGaps = array_values(array_filter((array)($signal['data_gaps'] ?? []), 'is_array'));
 
-        if ($tableStatus !== 'ok') {
+        if ($aiSummaryFailures > 0) {
+            $status = 'blocked_by_ai_summary_failure';
+            $nextAction = 'review_ai_summary_failure';
+            $score = 0;
+            $dataGaps[] = [
+                'code' => 'blocked_by_ai_summary_failure',
+                'message' => 'AI summary failed; fallback content is investigation-only and cannot support execution or closure claims.',
+            ];
+        } elseif ($tableStatus !== 'ok') {
             $status = 'not_loaded';
             $nextAction = 'run_migration_or_verify_table';
             $score = 0;
@@ -353,8 +362,8 @@ class BusinessClosureOverviewService
                 'message' => 'Source records exist, but no operation execution intent/evidence/ROI is linked.',
             ];
         }
-        $processClosed = $reviewed > 0 || $roiReady > 0;
-        $roiReadyFlag = $roiReady > 0;
+        $processClosed = $aiSummaryFailures === 0 && ($reviewed > 0 || $roiReady > 0);
+        $roiReadyFlag = $aiSummaryFailures === 0 && $roiReady > 0;
         $processStatus = $processClosed ? 'closed' : 'not_closed';
         $roiStatus = $roiReadyFlag ? 'ready' : 'not_ready';
 
@@ -371,7 +380,7 @@ class BusinessClosureOverviewService
             'closure_target' => $profile['closure_target'],
             'status' => $status,
             'status_label' => $this->statusLabel($status),
-            'closed_loop' => $status === 'roi_ready',
+            'closed_loop' => $status === 'roi_ready' && $aiSummaryFailures === 0,
             'process_closed_loop' => $processClosed,
             'process_status' => $processStatus,
             'roi_ready' => $roiReadyFlag,
@@ -388,6 +397,7 @@ class BusinessClosureOverviewService
             'reviewed_count' => $reviewed,
             'roi_ready_count' => $roiReady,
             'blocked_count' => $blocked,
+            'ai_summary_failure_count' => $aiSummaryFailures,
             'latest_at' => (string)($signal['latest_at'] ?? ''),
             'data_gaps' => $dataGaps,
             'detail' => (string)($signal['detail'] ?? ''),
@@ -421,7 +431,11 @@ class BusinessClosureOverviewService
             $signal['record_count'] = (int)(clone $query)->count();
             $signal['latest_at'] = (string)((clone $query)->max('updated_at') ?: '');
             if ($signal['record_count'] > 0) {
-                $readiness = (new AiDailyReportService())->readinessSummaryFromRows((clone $query)->order('id', 'desc')->limit(30)->select()->toArray(), $hotelIds, $hotelId);
+                $reportRows = (clone $query)->order('id', 'desc')->limit(30)->select()->toArray();
+                $signal['ai_summary_failure_count'] = count(array_filter($reportRows, static function (array $row): bool {
+                    return (string)($row['decision_status'] ?? '') === 'blocked_by_ai_summary_failure';
+                }));
+                $readiness = (new AiDailyReportService())->readinessSummaryFromRows($reportRows, $hotelIds, $hotelId);
                 $signal['detail'] = 'best_readiness=' . (string)($readiness['best_status_label'] ?? '')
                     . ', score=' . (int)($readiness['best_score'] ?? 0)
                     . ', transferred=' . (int)($readiness['transferred_count'] ?? 0)
@@ -1123,6 +1137,7 @@ class BusinessClosureOverviewService
             'reviewed_no_roi' => '已复盘缺效果证据',
             'roi_ready' => '已闭环',
             'blocked_by_p0_ota_gate' => 'P0未就绪',
+            'blocked_by_ai_summary_failure' => 'AI汇总失败',
             'blocked' => '阻塞',
             'rejected' => '已驳回',
         ][$status] ?? $status;
@@ -1143,6 +1158,7 @@ class BusinessClosureOverviewService
             'keep_reviewing' => '持续复盘',
             'verify_p0_ota_gate' => '复验P0 OTA门禁',
             'fix_blocked_reason' => '处理阻塞原因',
+            'review_ai_summary_failure' => '复核 AI 汇总失败',
             'rework_or_archive' => '重做或归档',
         ][$nextAction] ?? $nextAction;
     }

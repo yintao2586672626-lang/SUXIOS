@@ -200,6 +200,11 @@ class RevenueAiOverviewService
                 $enabledChannels
             );
         }
+        if (!is_array($dataset['collection_quality'] ?? null)
+            && !is_array($dataset['quality'] ?? null)
+            && is_array($dataset['p0_downstream_gate'] ?? null)) {
+            $dataset['collection_quality'] = $p0GateService->collectionQuality($dataset['p0_downstream_gate']);
+        }
         $metricsSummary = (new OtaRevenueMetricService())->summarizeDataset($dataset);
         $dailyFacts = $this->list($dataset['fact_ota_daily'] ?? []);
         $actualScopedSourceChannels = $this->sourceChannels($dataset, $channelDatasets);

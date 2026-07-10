@@ -1837,6 +1837,14 @@ final class PlatformDataSyncService
         if (is_array($payload['sync_diagnostics'] ?? null)) {
             $stats['sync_diagnostics'] = $payload['sync_diagnostics'];
         }
+        $stats['collection_quality'] = $this->buildSyncTaskCollectionQualitySnapshot(
+            $status,
+            $source,
+            is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : [],
+            $normalizedCount,
+            $savedCount,
+            $now
+        );
         foreach (['data_period', 'snapshot_time', 'snapshot_bucket'] as $periodKey) {
             if (!empty($payload[$periodKey])) {
                 $stats[$periodKey] = (string)$payload[$periodKey];
@@ -1880,7 +1888,220 @@ final class PlatformDataSyncService
             'next_retry_at' => $nextRetryAt,
             'timing' => $timing,
             'sync_diagnostics' => is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : null,
+            'collection_quality' => $stats['collection_quality'],
         ];
+    }
+
+    /**
+     * Builds a safe, task-level collection-quality snapshot for task stats.
+     * This is evidence for one synchronization task only; the live platform
+     * status remains responsible for cross-task freshness and downstream use.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $diagnostics
+     * @return array<string, mixed>
+     */
+    private function buildSyncTaskCollectionQualitySnapshot(
+        string $status,
+        array $source,
+        array $diagnostics,
+        int $normalizedCount,
+        int $savedCount,
+        string $collectedAt
+    ): array {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $isOtaPlatform = in_array($platform, ['ctrip', 'meituan'], true);
+        $ingestionMethod = strtolower(trim((string)($source['ingestion_method'] ?? '')));
+        $safeIngestionMethod = in_array($ingestionMethod, ['browser_profile', 'profile_browser', 'manual', 'api'], true)
+            ? $ingestionMethod
+            : 'unknown';
+        $isBrowserProfile = in_array($ingestionMethod, ['browser_profile', 'profile_browser'], true);
+        $isManualImport = $ingestionMethod === 'manual';
+        $config = $this->decodeConfig($source['config'] ?? $source['config_json'] ?? []);
+        $taskStatus = strtolower(trim($status));
+        if (!in_array($taskStatus, ['success', 'partial_success', 'failed', 'capture_failed', 'permission_denied'], true)) {
+            $taskStatus = 'unknown';
+        }
+        $targetDate = $this->normalizeDate($diagnostics['target_date'] ?? null) ?? '';
+        $targetRows = max(0, (int)($diagnostics['target_date_rows'] ?? 0));
+        $targetTrafficRows = max(0, (int)($diagnostics['target_date_traffic_rows'] ?? 0));
+        $fieldFactStatus = strtolower(trim((string)($diagnostics['field_fact_status'] ?? '')));
+        if (!in_array($fieldFactStatus, ['ready', 'partial', 'missing', 'not_loaded'], true)) {
+            $fieldFactStatus = 'unknown';
+        }
+        $p0Status = strtolower(trim((string)($diagnostics['p0_status'] ?? '')));
+        if (!in_array($p0Status, ['ready', 'blocked', 'not_required', 'not_loaded'], true)) {
+            $p0Status = 'unknown';
+        }
+
+        $qualityFlags = $this->syncTaskQualityMissingInputFlags($diagnostics['missing_inputs'] ?? []);
+        $bindingFlags = [];
+        if ($isOtaPlatform && (int)($source['system_hotel_id'] ?? 0) <= 0) {
+            $bindingFlags[] = 'system_hotel_id_missing';
+        }
+        if ($isOtaPlatform && (int)($source['id'] ?? 0) <= 0) {
+            $bindingFlags[] = 'data_source_id_missing';
+        }
+        if ($isBrowserProfile && $this->syncTaskOtaStoreIdentifier($platform, $config) === '') {
+            $bindingFlags[] = 'ota_store_id_missing';
+        }
+        if ($isBrowserProfile && $this->syncTaskProfileIdentifier($config) === '') {
+            $bindingFlags[] = 'profile_id_missing';
+        }
+
+        $profileStatus = strtolower(trim((string)($config['profile_status'] ?? $config['login_status'] ?? '')));
+        $permissionDenied = in_array($taskStatus, ['permission_denied'], true)
+            || in_array($profileStatus, ['permission_denied', 'no_permission', 'unauthorized'], true);
+        $profileLoginVerified = $this->truthy($config['manual_login_state_verified'] ?? null)
+            && in_array($profileStatus, ['logged_in', 'authorized'], true)
+            && $this->syncTaskLastLoginVerifiedAt($config) !== '';
+        $taskFailed = in_array($taskStatus, ['failed', 'capture_failed'], true);
+
+        $state = 'unverified';
+        $nextAction = 'verify_target_date_evidence';
+        if (!$isOtaPlatform) {
+            $qualityFlags[] = 'non_ota_platform_source';
+            $nextAction = 'verify_task_source_scope';
+        } elseif ($bindingFlags !== []) {
+            $qualityFlags = array_merge($qualityFlags, $bindingFlags);
+            $state = 'binding_missing';
+            $nextAction = 'complete_hotel_poi_binding';
+        } elseif ($permissionDenied) {
+            $qualityFlags[] = 'platform_permission_denied';
+            $state = 'permission_denied';
+            $nextAction = 'restore_platform_permission';
+        } elseif ($taskFailed) {
+            $qualityFlags[] = 'task_status_failed';
+            $state = 'collection_failed';
+            $nextAction = 'inspect_collection_failure';
+        } elseif ($isManualImport) {
+            $qualityFlags[] = 'manual_import_provenance_unverified';
+            $nextAction = 'verify_manual_import_provenance';
+        } elseif (!$isBrowserProfile) {
+            $qualityFlags[] = 'source_ingestion_method_unverified';
+            $nextAction = 'verify_collection_method';
+        } elseif (!$profileLoginVerified) {
+            $qualityFlags[] = 'platform_session_not_verified';
+            $nextAction = 'verify_platform_login_state';
+        } elseif ($targetDate === '') {
+            $qualityFlags[] = 'target_date_missing';
+            $nextAction = 'select_target_date';
+        } elseif ($p0Status !== 'ready') {
+            $qualityFlags[] = 'p0_target_date_evidence_not_ready';
+            $nextAction = 'verify_target_date_evidence';
+        } elseif ($savedCount <= 0 || $targetRows <= 0 || $targetTrafficRows <= 0) {
+            if ($savedCount <= 0) {
+                $qualityFlags[] = 'saved_rows_missing';
+            }
+            if ($targetRows <= 0) {
+                $qualityFlags[] = 'target_date_rows_missing';
+            }
+            if ($targetTrafficRows <= 0) {
+                $qualityFlags[] = 'target_date_traffic_rows_missing';
+            }
+            $nextAction = 'collect_target_date_data';
+        } elseif ($fieldFactStatus === 'partial' || $taskStatus === 'partial_success') {
+            if ($fieldFactStatus === 'partial') {
+                $qualityFlags[] = 'target_date_field_facts_partial';
+            }
+            if ($taskStatus === 'partial_success') {
+                $qualityFlags[] = 'task_partial_success';
+            }
+            $state = 'partial';
+            $nextAction = 'complete_missing_target_date_evidence';
+        } elseif ($taskStatus === 'success' && $fieldFactStatus === 'ready') {
+            $state = 'available';
+            $nextAction = '';
+        } else {
+            $qualityFlags[] = 'task_quality_not_verified';
+        }
+
+        return [
+            'primary_quality_state' => $state,
+            'quality_flags' => array_values(array_unique($qualityFlags)),
+            'metric_scope' => $isOtaPlatform ? 'ota_channel' : 'unknown',
+            'evidence_scope' => 'sync_task',
+            'target_date' => $targetDate,
+            'data_as_of' => $targetRows > 0 && $savedCount > 0 ? $targetDate : '',
+            'collected_at' => trim($collectedAt),
+            'evidence' => [
+                'task_status' => $taskStatus,
+                'ingestion_method' => $safeIngestionMethod,
+                'p0_status' => $p0Status,
+                'target_date_rows' => $targetRows,
+                'target_date_traffic_rows' => $targetTrafficRows,
+                'field_fact_status' => $fieldFactStatus,
+                'normalized_count' => max(0, $normalizedCount),
+                'saved_count' => max(0, $savedCount),
+            ],
+            'next_action' => $nextAction,
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function syncTaskQualityMissingInputFlags(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $allowed = [
+            'manual_login_state_verified',
+            'profile_status_logged_in',
+            'last_login_verified_at',
+            'target_date_traffic_rows',
+            'traffic_field_facts',
+        ];
+        $flags = [];
+        foreach ($value as $item) {
+            $flag = strtolower(trim((string)$item));
+            if (in_array($flag, $allowed, true)) {
+                $flags[] = $flag;
+            }
+        }
+
+        return array_values(array_unique($flags));
+    }
+
+    private function syncTaskOtaStoreIdentifier(string $platform, array $config): string
+    {
+        $keys = $platform === 'meituan'
+            ? ['store_id', 'storeId', 'poi_id', 'poiId']
+            : ['ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId', 'hotel_code', 'hotelCode', 'hotel_id', 'hotelId'];
+        foreach ($keys as $key) {
+            $value = trim((string)($config[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    private function syncTaskProfileIdentifier(array $config): string
+    {
+        foreach (['profile_id', 'profileId', 'stable_profile_id', 'stableProfileId', 'profile_binding_key', 'profileBindingKey'] as $key) {
+            $value = trim((string)($config[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    private function syncTaskLastLoginVerifiedAt(array $config): string
+    {
+        foreach (['last_login_verified_at', 'lastLoginVerifiedAt', 'login_verified_at', 'loginVerifiedAt', 'last_verified_at', 'lastVerifiedAt'] as $key) {
+            $value = trim((string)($config[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
     }
 
     /**

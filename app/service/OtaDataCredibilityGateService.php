@@ -6,6 +6,18 @@ namespace app\service;
 class OtaDataCredibilityGateService
 {
     private const DEFAULT_CRITICAL_METRICS = ['totals.revenue', 'totals.room_nights', 'totals.adr'];
+    private const BLOCKING_COLLECTION_QUALITY_STATES = [
+        'stale',
+        'unverified',
+        'binding_missing',
+        'permission_denied',
+        'collection_failed',
+    ];
+    private const KNOWN_COLLECTION_QUALITY_STATES = [
+        'available',
+        'partial',
+        ...self::BLOCKING_COLLECTION_QUALITY_STATES,
+    ];
 
     /**
      * @param array<string, mixed> $dataset
@@ -28,6 +40,8 @@ class OtaDataCredibilityGateService
         $rejectedRows = $this->list($quality['rejected_rows'] ?? []);
         $datasetStatus = trim((string)($dataset['status'] ?? ''));
         $metricStatus = trim((string)($metrics['status'] ?? ''));
+        $collectionQuality = $this->collectionQuality($dataset);
+        $collectionQualityState = (string)($collectionQuality['primary_quality_state'] ?? '');
         $reasonCodes = [];
         $warnings = [];
 
@@ -48,6 +62,18 @@ class OtaDataCredibilityGateService
         }
         if ($acceptedRows <= 0) {
             $reasonCodes[] = 'accepted_rows_missing';
+        }
+        if (($collectionQuality['provided'] ?? false) === true) {
+            if ($collectionQualityState === 'unknown') {
+                $reasonCodes[] = 'ota_collection_quality_state_unknown';
+            } elseif (in_array($collectionQualityState, self::BLOCKING_COLLECTION_QUALITY_STATES, true)) {
+                $reasonCodes[] = 'ota_collection_quality:' . $collectionQualityState;
+            } elseif ($collectionQualityState === 'partial') {
+                $warnings[] = 'ota_collection_quality_partial';
+            }
+            if (($collectionQuality['metric_scope'] ?? '') !== 'ota_channel') {
+                $reasonCodes[] = 'ota_collection_quality_scope_invalid';
+            }
         }
 
         $metricTrust = is_array($metrics['metric_trust'] ?? null) ? $metrics['metric_trust'] : [];
@@ -107,7 +133,15 @@ class OtaDataCredibilityGateService
             ? 'blocked'
             : ($this->hasOperationalWarnings($warnings) ? 'warning' : 'ready');
         $dataUsable = $status !== 'blocked';
-        $blockedDecisionStatus = $p0Blocked ? 'blocked_by_p0_ota_gate' : 'blocked';
+        $collectionQualityBlocked = ($collectionQuality['provided'] ?? false) === true
+            && (
+                $collectionQualityState === 'unknown'
+                || in_array($collectionQualityState, self::BLOCKING_COLLECTION_QUALITY_STATES, true)
+                || ($collectionQuality['metric_scope'] ?? '') !== 'ota_channel'
+            );
+        $blockedDecisionStatus = $p0Blocked
+            ? 'blocked_by_p0_ota_gate'
+            : ($collectionQualityBlocked ? 'blocked_by_collection_quality' : 'blocked');
 
         return [
             'status' => $status,
@@ -144,6 +178,7 @@ class OtaDataCredibilityGateService
                 'data_gap_codes' => $dataGapCodes,
                 'critical_metrics' => $criticalMetrics,
                 'failed_critical_metrics' => $failedCriticalMetrics,
+                'collection_quality' => $collectionQuality,
                 'p0_downstream_gate' => $p0DownstreamGate,
             ],
         ];
@@ -217,6 +252,35 @@ class OtaDataCredibilityGateService
             return (int)$value === 1;
         }
         return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    /**
+     * @param array<string, mixed> $dataset
+     * @return array<string, mixed>
+     */
+    private function collectionQuality(array $dataset): array
+    {
+        $raw = $dataset['collection_quality'] ?? $dataset['quality'] ?? null;
+        if (!is_array($raw)) {
+            return [
+                'provided' => false,
+                'primary_quality_state' => '',
+                'quality_flags' => [],
+                'metric_scope' => '',
+            ];
+        }
+
+        $state = strtolower(trim((string)($raw['primary_quality_state'] ?? $raw['quality_state'] ?? '')));
+        if (!in_array($state, self::KNOWN_COLLECTION_QUALITY_STATES, true)) {
+            $state = 'unknown';
+        }
+
+        return [
+            'provided' => true,
+            'primary_quality_state' => $state,
+            'quality_flags' => $this->stringList($raw['quality_flags'] ?? []),
+            'metric_scope' => strtolower(trim((string)($raw['metric_scope'] ?? ''))),
+        ];
     }
 
     /**

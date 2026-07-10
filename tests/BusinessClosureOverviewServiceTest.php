@@ -26,6 +26,40 @@ final class BusinessClosureOverviewServiceTest extends TestCase
         self::assertSame('transfer_investment_execution_bridge_missing', $module['data_gaps'][0]['code']);
     }
 
+    public function testAiSummaryFailureBlocksClosureEvenWhenExecutionCountsLookComplete(): void
+    {
+        $service = new BusinessClosureOverviewService();
+
+        $module = $service->summarizeModuleClosure([
+            'key' => 'ai_daily_report',
+            'record_count' => 1,
+            'linked_execution_count' => 1,
+            'approved_count' => 1,
+            'executed_count' => 1,
+            'evidence_ready_count' => 1,
+            'reviewed_count' => 1,
+            'roi_ready_count' => 1,
+            'ai_summary_failure_count' => 1,
+        ]);
+
+        self::assertSame('blocked_by_ai_summary_failure', $module['status']);
+        self::assertFalse($module['closed_loop']);
+        self::assertFalse($module['process_closed_loop']);
+        self::assertFalse($module['roi_ready']);
+        self::assertContains('blocked_by_ai_summary_failure', array_column($module['data_gaps'], 'code'));
+        self::assertSame('AI汇总失败', $module['status_label']);
+        self::assertSame('复核 AI 汇总失败', $module['next_action_label']);
+    }
+
+    public function testOverviewCountsAiSummaryFailureAsBlocked(): void
+    {
+        $overview = (new BusinessClosureOverviewService())->buildOverviewFromSignals([
+            ['key' => 'ai_daily_report', 'record_count' => 1, 'linked_execution_count' => 1, 'roi_ready_count' => 1, 'ai_summary_failure_count' => 1],
+        ]);
+
+        self::assertSame(1, $overview['summary']['blocked_count']);
+    }
+
     public function testRoiReadyIsTheOnlyClosedLoopStatus(): void
     {
         $service = new BusinessClosureOverviewService();

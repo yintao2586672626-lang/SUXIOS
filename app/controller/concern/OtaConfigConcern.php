@@ -28,40 +28,144 @@ trait OtaConfigConcern
             $item['missing_text'] = $credentialStatus['missing_text'];
         }
 
-        foreach (['cookies', 'cookie'] as $field) {
-            if (array_key_exists($field, $item)) {
-                $value = (string)$item[$field];
-                $item['has_cookies'] = trim($value) !== '';
-                $item['cookies_preview'] = $this->maskSecretValue($value);
-                unset($item[$field]);
-            }
+        [$metadata, $secretPayload] = $this->splitOtaConfigSecrets($item);
+        if ($this->otaSecretPayloadContainsCookie($secretPayload)) {
+            $metadata['has_cookies'] = $this->otaSecretPayloadHasNonEmptyCookie($secretPayload);
+        }
+        if ($this->otaSecretPayloadHasNonEmptyScalar($secretPayload)) {
+            $metadata['secret_mask'] = '********';
         }
 
-        foreach (['token', 'spidertoken', 'mtgsig'] as $field) {
-            if (array_key_exists($field, $item)) {
-                $value = (string)$item[$field];
-                $item["has_{$field}"] = trim($value) !== '';
-                $item["{$field}_preview"] = $this->maskSecretValue($value);
-                unset($item[$field]);
-            }
-        }
-
-        return $item;
+        return $metadata;
     }
 
-    private function maskSecretValue(string $value): string
+    /**
+     * @return array{0: array<mixed>, 1: array<mixed>}
+     */
+    private function splitOtaConfigSecrets(array $config): array
     {
-        $value = trim($value);
-        if ($value === '') {
-            return '';
+        $metadata = [];
+        $secretPayload = [];
+
+        foreach ($config as $key => $value) {
+            if (is_string($key) && $this->isOtaSecretConfigKey($key)) {
+                $secretPayload[$key] = $value;
+                continue;
+            }
+
+            if (is_array($value)) {
+                if ($value === []) {
+                    $metadata[$key] = [];
+                    continue;
+                }
+                [$nestedMetadata, $nestedSecrets] = $this->splitOtaConfigSecrets($value);
+                if ($nestedMetadata !== []) {
+                    $metadata[$key] = $nestedMetadata;
+                }
+                if ($nestedSecrets !== []) {
+                    $secretPayload[$key] = $nestedSecrets;
+                }
+                continue;
+            }
+
+            $metadata[$key] = $value;
         }
 
-        $length = strlen($value);
-        if ($length <= 8) {
-            return str_repeat('*', $length);
+        return [$metadata, $secretPayload];
+    }
+
+    private function isOtaSecretConfigKey(string $key): bool
+    {
+        $normalized = strtolower((string)preg_replace('/[^a-z0-9]+/i', '_', trim($key)));
+        $normalized = trim($normalized, '_');
+        $compact = str_replace('_', '', $normalized);
+
+        return in_array($normalized, [
+            'cookies',
+            'cookie',
+            'auth_data',
+            'authorization',
+            'authorization_header',
+            'token',
+            'spidertoken',
+            'mtgsig',
+            'usertoken',
+            'usersign',
+            'password',
+            'secret',
+            'api_key',
+            'secret_json',
+            'auth_token',
+            'headers',
+            'headers_json',
+            'set_cookie',
+            'access_token',
+            'refresh_token',
+            'encrypted_payload',
+            'ciphertext',
+        ], true) || in_array($compact, [
+            'authdata',
+            'apikey',
+            'secretjson',
+            'authtoken',
+            'authorizationheader',
+            'headersjson',
+            'setcookie',
+            'accesstoken',
+            'refreshtoken',
+            'encryptedpayload',
+        ], true);
+    }
+
+    private function otaSecretPayloadContainsCookie(array $secretPayload): bool
+    {
+        foreach ($secretPayload as $key => $value) {
+            if (is_string($key) && in_array(strtolower(str_replace(['-', '_'], '', $key)), ['cookie', 'cookies', 'setcookie'], true)) {
+                return true;
+            }
+            if (is_array($value) && $this->otaSecretPayloadContainsCookie($value)) {
+                return true;
+            }
         }
 
-        return substr($value, 0, 4) . '...' . substr($value, -4);
+        return false;
+    }
+
+    private function otaSecretPayloadHasNonEmptyCookie(array $secretPayload): bool
+    {
+        foreach ($secretPayload as $key => $value) {
+            if (is_string($key) && in_array(strtolower(str_replace(['-', '_'], '', $key)), ['cookie', 'cookies', 'setcookie'], true)) {
+                if ($this->otaSecretValueHasNonEmptyScalar($value)) {
+                    return true;
+                }
+                continue;
+            }
+            if (is_array($value) && $this->otaSecretPayloadHasNonEmptyCookie($value)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function otaSecretPayloadHasNonEmptyScalar(array $secretPayload): bool
+    {
+        return $this->otaSecretValueHasNonEmptyScalar($secretPayload);
+    }
+
+    private function otaSecretValueHasNonEmptyScalar($value): bool
+    {
+        if (is_array($value)) {
+            foreach ($value as $nestedValue) {
+                if ($this->otaSecretValueHasNonEmptyScalar($nestedValue)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return is_scalar($value) && trim((string)$value) !== '';
     }
 
     /**
@@ -238,8 +342,18 @@ trait OtaConfigConcern
         return null;
     }
 
+    private function otaConfigHasHotelBindingConflict(array $item): bool
+    {
+        $systemHotelId = $this->positiveOtaConfigHotelId($item['system_hotel_id'] ?? null);
+        $hotelId = $this->positiveOtaConfigHotelId($item['hotel_id'] ?? null);
+        return $systemHotelId !== null && $hotelId !== null && $systemHotelId !== $hotelId;
+    }
+
     private function currentUserCanMaintainOtaConfigItem(array $item, ?int $targetHotelId = null): bool
     {
+        if ($this->otaConfigHasHotelBindingConflict($item)) {
+            return false;
+        }
         if (!$this->currentUserHasOtaConfigMaintenanceCapability()) {
             return false;
         }
@@ -249,24 +363,23 @@ trait OtaConfigConcern
         }
 
         $existingHotelId = $this->otaConfigBoundSystemHotelId($item);
-        $effectiveTargetHotelId = $targetHotelId ?? $existingHotelId;
-        if ($effectiveTargetHotelId !== null && $this->currentUserCanMaintainOtaConfig($effectiveTargetHotelId)) {
-            return true;
+        if ($existingHotelId !== null) {
+            if ($targetHotelId !== null && $targetHotelId !== $existingHotelId) {
+                return false;
+            }
+
+            return $this->currentUserCanMaintainOtaConfig($existingHotelId);
         }
 
         if (!$this->isOtaConfigOwnedByCurrentUser($item)) {
             return false;
         }
 
-        if ($targetHotelId !== null && $existingHotelId !== null && $targetHotelId !== $existingHotelId) {
-            return false;
+        if ($targetHotelId !== null) {
+            return $this->currentUserCanMaintainOtaConfig($targetHotelId);
         }
 
-        if ($targetHotelId !== null && $existingHotelId === null) {
-            return false;
-        }
-
-        return true;
+        return false;
     }
 
     private function checkOtaConfigMaintenancePermission(?int $hotelId = null): void
@@ -282,6 +395,9 @@ trait OtaConfigConcern
 
     private function isOtaConfigVisibleToUser(array $item, $user, ?array $permittedHotelIdSet = null): bool
     {
+        if ($this->otaConfigHasHotelBindingConflict($item)) {
+            return false;
+        }
         if (!$user || !isset($user->id) || !$user->id) {
             return false;
         }
@@ -290,17 +406,10 @@ trait OtaConfigConcern
             return true;
         }
 
-        $itemUserId = $item['user_id'] ?? null;
-        if ($itemUserId !== null && $itemUserId !== '' && (string)$itemUserId === (string)$user->id) {
-            return true;
-        }
-
         $permittedHotelIdSet = $permittedHotelIdSet ?? $this->getPermittedHotelIdSetForUser($user);
-        foreach (['system_hotel_id', 'hotel_id'] as $hotelIdField) {
-            $systemHotelId = trim((string)($item[$hotelIdField] ?? ''));
-            if ($systemHotelId !== '' && isset($permittedHotelIdSet[$systemHotelId])) {
-                return true;
-            }
+        $systemHotelId = $this->otaConfigBoundSystemHotelId($item);
+        if ($systemHotelId !== null && isset($permittedHotelIdSet[(string)$systemHotelId])) {
+            return true;
         }
 
         return false;
@@ -325,6 +434,12 @@ trait OtaConfigConcern
     {
         $resolvedConfig = [];
         foreach ($this->getStoredCtripConfigList() as $config) {
+            if ($this->otaConfigHasHotelBindingConflict($config)) {
+                if ((int)($config['hotel_id'] ?? 0) === $hotelId || (int)($config['system_hotel_id'] ?? 0) === $hotelId) {
+                    return [];
+                }
+                continue;
+            }
             $configHotelId = (string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? '');
             if ($configHotelId !== '' && (string)$hotelId === $configHotelId) {
                 $resolvedConfig = $config;
@@ -364,6 +479,12 @@ trait OtaConfigConcern
     private function resolveMeituanFetchConfigForHotel(int $hotelId): array
     {
         foreach ($this->getStoredMeituanConfigList() as $config) {
+            if ($this->otaConfigHasHotelBindingConflict($config)) {
+                if ((int)($config['hotel_id'] ?? 0) === $hotelId || (int)($config['system_hotel_id'] ?? 0) === $hotelId) {
+                    return [];
+                }
+                continue;
+            }
             $configHotelId = (string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? '');
             if ($configHotelId !== '' && (string)$hotelId === $configHotelId) {
                 return $config;
@@ -377,6 +498,12 @@ trait OtaConfigConcern
     {
         $resolvedConfig = [];
         foreach ($this->getStoredCtripConfigListRaw() as $config) {
+            if ($this->otaConfigHasHotelBindingConflict($config)) {
+                if ((int)($config['hotel_id'] ?? 0) === $hotelId || (int)($config['system_hotel_id'] ?? 0) === $hotelId) {
+                    return [];
+                }
+                continue;
+            }
             $configHotelId = (string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? '');
             if ($configHotelId !== '' && (string)$hotelId === $configHotelId) {
                 $resolvedConfig = $config;
@@ -411,6 +538,12 @@ trait OtaConfigConcern
     private function resolveMeituanFetchConfigForHotelLight(int $hotelId): array
     {
         foreach ($this->getStoredMeituanConfigListRaw() as $config) {
+            if ($this->otaConfigHasHotelBindingConflict($config)) {
+                if ((int)($config['hotel_id'] ?? 0) === $hotelId || (int)($config['system_hotel_id'] ?? 0) === $hotelId) {
+                    return [];
+                }
+                continue;
+            }
             $configHotelId = (string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? '');
             if ($configHotelId !== '' && (string)$hotelId === $configHotelId) {
                 return $config;
@@ -633,25 +766,30 @@ trait OtaConfigConcern
 
     private function normalizeOtaConfigHotelBinding(array $config, string $platform, ?array $hotels = null): array
     {
-        $hotels = $hotels ?? $this->getHotelsForOtaConfigMatching();
-        $match = $this->findOtaConfigHotelMatch($config, $hotels);
-
-        if (!$match) {
-            $config['hotel_id'] = $config['hotel_id'] ?? '';
-            $config['hotel_name'] = $config['hotel_name'] ?? '';
+        if ($this->otaConfigHasHotelBindingConflict($config)) {
+            $config['migration_required'] = true;
             return $config;
         }
 
-        $hotelId = (string)($match['id'] ?? '');
-        if ($hotelId === '') {
+        $explicitHotelId = $this->positiveOtaConfigHotelId($config['system_hotel_id'] ?? null);
+        if ($explicitHotelId === null) {
+            $explicitHotelId = $this->positiveOtaConfigHotelId($config['hotel_id'] ?? null);
+        }
+        if ($explicitHotelId !== null) {
+            foreach ($hotels ?? [] as $hotel) {
+                if ((int)($hotel['id'] ?? 0) === $explicitHotelId) {
+                    $config['system_hotel_id'] = (string)$explicitHotelId;
+                    $config['hotel_id'] = (string)$explicitHotelId;
+                    $config['hotel_name'] = (string)($hotel['name'] ?? $config['hotel_name'] ?? '');
+                    $config['platform'] = $config['platform'] ?? $platform;
+                    return $config;
+                }
+            }
+            $config['migration_required'] = true;
             return $config;
         }
 
-        $config['hotel_id'] = $hotelId;
-        $config['system_hotel_id'] = $hotelId;
-        $config['hotel_name'] = (string)($match['name'] ?? $config['hotel_name'] ?? '');
-        $config['platform'] = $config['platform'] ?? $platform;
-
+        $config['migration_required'] = true;
         return $config;
     }
 
@@ -666,7 +804,6 @@ trait OtaConfigConcern
             return $list;
         }
 
-        $changed = false;
         $normalizedList = [];
 
         foreach ($list as $index => $item) {
@@ -676,17 +813,7 @@ trait OtaConfigConcern
             }
 
             $normalized = $this->normalizeOtaConfigHotelBinding($item, $platform, $hotels);
-            if ($normalized != $item) {
-                $changed = true;
-            }
             $normalizedList[$index] = $normalized;
-        }
-
-        if ($changed) {
-            Db::name($table)->where('config_key', $key)->update([
-                'config_value' => json_encode($normalizedList, JSON_UNESCAPED_UNICODE),
-                'update_time' => date('Y-m-d H:i:s'),
-            ]);
         }
 
         return $normalizedList;

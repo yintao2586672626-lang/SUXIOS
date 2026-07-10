@@ -273,6 +273,9 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertFalse($overview['p1_revenue_closure']['calculation_allowed']);
         self::assertSame('blocked_by_p0_ota_gate', $gate['evidence']['p0_downstream_gate']['status']);
         self::assertContains('investment_judgment', $gate['evidence']['p0_downstream_gate']['blocked_stage_keys']);
+        self::assertTrue($gate['evidence']['collection_quality']['provided']);
+        self::assertSame('unverified', $gate['evidence']['collection_quality']['primary_quality_state']);
+        self::assertContains('manual_login_state_verified', $gate['evidence']['collection_quality']['quality_flags']);
     }
 
     public function testRequiredP0DownstreamGateBlocksRevenueAiClosureWithoutVerifierEvidence(): void
