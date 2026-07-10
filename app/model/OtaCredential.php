@@ -8,5 +8,6 @@ class OtaCredential extends Model
     protected $hidden=['encrypted_payload'];
     protected $autoWriteTimestamp=true;
     protected $createTime='create_time'; protected $updateTime='update_time';
-    protected $type=['id'=>'integer','tenant_id'=>'integer','system_hotel_id'=>'integer','payload_version'=>'integer','created_by'=>'integer','rotated_at'=>'integer'];
+    protected $type=['id'=>'integer','tenant_id'=>'integer','system_hotel_id'=>'integer','payload_version'=>'integer','created_by'=>'integer'];
 }
+
