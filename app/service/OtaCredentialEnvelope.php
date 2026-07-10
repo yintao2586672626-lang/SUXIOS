@@ -36,6 +36,11 @@ final class OtaCredentialEnvelope
         $this->key = $key;
     }
 
+    public function keyId(): string
+    {
+        return $this->keyId;
+    }
+
     /** @param array<string|int, mixed> $credentials */
     public function encrypt(array $credentials, string $scope): string
     {

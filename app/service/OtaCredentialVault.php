@@ -7,19 +7,16 @@ use RuntimeException;
 
 final class OtaCredentialVault
 {
-    public function __construct(private readonly ?OtaCredentialEnvelope $envelope = null, private readonly ?string $keyId = null)
-    {
-        if ($this->envelope === null) {
-            $this->envelope = new OtaCredentialEnvelope((string) env('OTA_CREDENTIAL_KEY_B64', ''), (string) env('OTA_CREDENTIAL_KEY_ID', ''));
-        }
-        if (trim((string) ($this->keyId ?? $this->envelopeKeyId())) === '') {
-            throw new RuntimeException('OTA credential key identifier is required.');
-        }
-    }
+    private OtaCredentialEnvelope $envelope;
+    private string $keyId;
 
-    private function envelopeKeyId(): string
+    public function __construct(?OtaCredentialEnvelope $envelope = null, ?string $keyId = null)
     {
-        return (string) env('OTA_CREDENTIAL_KEY_ID', '');
+        $this->envelope = $envelope ?? new OtaCredentialEnvelope((string) env('OTA_CREDENTIAL_KEY_B64', ''), (string) env('OTA_CREDENTIAL_KEY_ID', ''));
+        $this->keyId = $keyId ?? $this->envelope->keyId();
+        if (trim($this->keyId) === '' || !hash_equals($this->envelope->keyId(), $this->keyId)) {
+            throw new RuntimeException('OTA credential key identifier does not match envelope.');
+        }
     }
 
     private function scope(int $t, int $h, string $p, string $c): string
@@ -35,13 +32,14 @@ final class OtaCredentialVault
         }
     }
 
-    private function locate(int $t, int $h, string $p, string $c, bool $allowRevoked = false): OtaCredential
+    private function locate(int $t, int $h, string $p, string $c, bool $allowRevoked = false, bool $lock = false): OtaCredential
     {
         $this->scope($t, $h, $p, $c);
         if (!Hotel::where('id', $h)->where('tenant_id', $t)->find()) {
             throw new RuntimeException('Hotel scope not found.');
         }
-        $r = OtaCredential::where('tenant_id', $t)->where('system_hotel_id', $h)->where('platform', $p)->where('config_id', $c)->find();
+        $query = OtaCredential::where('tenant_id', $t)->where('system_hotel_id', $h)->where('platform', $p)->where('config_id', $c);
+        $r = $query->lock($lock)->find();
         if (!$r) {
             throw new RuntimeException('Credential not found.');
         }
@@ -60,15 +58,17 @@ final class OtaCredentialVault
         $mask = '';
         foreach (['cookies', 'cookie', 'token', 'spidertoken', 'mtgsig'] as $key) {
             if (!empty($payload[$key])) {
-                $secret = (string) $payload[$key];
-                $mask = substr($secret, 0, 2) . '****';
+                $value = $payload[$key];
+                $secret = is_scalar($value) ? (string) $value : json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $length = strlen((string) $secret);
+                $mask = $length <= 8 ? str_repeat('*', $length ?: 1) : substr((string) $secret, 0, 2) . '****' . substr((string) $secret, -2);
                 break;
             }
         }
         $data = [
             'tenant_id' => $tenantId, 'system_hotel_id' => $hotelId, 'platform' => $platform, 'config_id' => $configId,
             'encrypted_payload' => $this->envelope->encrypt($payload, $scope), 'payload_version' => 1,
-            'key_id' => (string) ($this->keyId ?? env('OTA_CREDENTIAL_KEY_ID', '')), 'secret_mask' => $mask,
+            'key_id' => $this->keyId, 'secret_mask' => $mask,
             'credential_status' => 'ready', 'created_by' => $actorId, 'rotated_at' => $now, 'update_time' => $now,
         ];
         $r = \think\facade\Db::transaction(function () use ($data, $tenantId, $hotelId, $platform, $configId, $now): OtaCredential {
@@ -110,26 +110,21 @@ final class OtaCredentialVault
 
     public function revoke(int $t, int $h, string $p, string $c): array
     {
-        $r = $this->locate($t, $h, $p, $c, true);
-        if ((string) $r->credential_status !== 'revoked') {
-            $r->credential_status = 'revoked';
-            $r->save();
-        }
-        return $this->meta($r);
+        return \think\facade\Db::transaction(function () use ($t, $h, $p, $c): array {
+            $r = $this->locate($t, $h, $p, $c, true, true);
+            if ((string) $r->credential_status !== 'revoked') { $r->credential_status = 'revoked'; $r->save(); }
+            return $this->meta($r);
+        });
     }
 
     public function delete(int $t, int $h, string $p, string $c): bool
     {
-        $this->scope($t, $h, $p, $c);
-        if (!Hotel::where('id', $h)->where('tenant_id', $t)->find()) {
-            throw new RuntimeException('Hotel scope not found.');
-        }
-        $r = OtaCredential::where('tenant_id', $t)
-            ->where('system_hotel_id', $h)
-            ->where('platform', $p)
-            ->where('config_id', $c)
-            ->find();
-        return $r ? (bool) $r->delete() : false;
+        return \think\facade\Db::transaction(function () use ($t, $h, $p, $c): bool {
+            $this->scope($t, $h, $p, $c);
+            if (!Hotel::where('id', $h)->where('tenant_id', $t)->find()) { throw new RuntimeException('Hotel scope not found.'); }
+            $r = OtaCredential::where('tenant_id', $t)->where('system_hotel_id', $h)->where('platform', $p)->where('config_id', $c)->lock(true)->find();
+            return $r ? (bool) $r->delete() : false;
+        });
     }
 }
 
