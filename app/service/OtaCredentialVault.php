@@ -79,11 +79,58 @@ final class OtaCredentialVault
         });
         return $this->meta($r);
     }
-    private function meta(OtaCredential $r): array { return ['credential_ref'=>(int)$r->id,'tenant_id'=>(int)$r->tenant_id,'system_hotel_id'=>(int)$r->system_hotel_id,'platform'=>(string)$r->platform,'config_id'=>(string)$r->config_id,'payload_version'=>(int)$r->payload_version,'key_id'=>(string)$r->key_id,'secret_mask'=>(string)$r->secret_mask,'credential_status'=>(string)$r->credential_status,'rotated_at'=>$r->rotated_at,'create_time'=>$r->create_time,'update_time'=>$r->update_time]; }
-    public function metadata(int $t,int $h,string $p,string $c): array { return $this->meta($this->locate($t,$h,$p,$c,true)); }
-    public function withPayloadForExecution(int $t,int $h,string $p,string $c,callable $consumer): mixed { $r=$this->locate($t,$h,$p,$c); return $consumer($this->envelope->decrypt((string)$r->encrypted_payload,$this->scope($t,$h,$p,$c))); }
-    public function revoke(int $t,int $h,string $p,string $c): array { $r=$this->locate($t,$h,$p,$c,true); if ((string) $r->credential_status !== 'revoked') { $r->credential_status = 'revoked'; $r->save(); } return $this->meta($r); }
-    public function delete(int $t,int $h,string $p,string $c): bool { $r=$this->locate($t,$h,$p,$c,true); return (bool) $r->delete(); }
+    private function meta(OtaCredential $r): array
+    {
+        return [
+            'credential_ref' => (int) $r->id,
+            'tenant_id' => (int) $r->tenant_id,
+            'system_hotel_id' => (int) $r->system_hotel_id,
+            'platform' => (string) $r->platform,
+            'config_id' => (string) $r->config_id,
+            'payload_version' => (int) $r->payload_version,
+            'key_id' => (string) $r->key_id,
+            'secret_mask' => (string) $r->secret_mask,
+            'credential_status' => (string) $r->credential_status,
+            'rotated_at' => $r->rotated_at,
+            'create_time' => $r->create_time,
+            'update_time' => $r->update_time,
+        ];
+    }
+
+    public function metadata(int $t, int $h, string $p, string $c): array
+    {
+        return $this->meta($this->locate($t, $h, $p, $c, true));
+    }
+
+    public function withPayloadForExecution(int $t, int $h, string $p, string $c, callable $consumer): mixed
+    {
+        $r = $this->locate($t, $h, $p, $c);
+        return $consumer($this->envelope->decrypt((string) $r->encrypted_payload, $this->scope($t, $h, $p, $c)));
+    }
+
+    public function revoke(int $t, int $h, string $p, string $c): array
+    {
+        $r = $this->locate($t, $h, $p, $c, true);
+        if ((string) $r->credential_status !== 'revoked') {
+            $r->credential_status = 'revoked';
+            $r->save();
+        }
+        return $this->meta($r);
+    }
+
+    public function delete(int $t, int $h, string $p, string $c): bool
+    {
+        $this->scope($t, $h, $p, $c);
+        if (!Hotel::where('id', $h)->where('tenant_id', $t)->find()) {
+            throw new RuntimeException('Hotel scope not found.');
+        }
+        $r = OtaCredential::where('tenant_id', $t)
+            ->where('system_hotel_id', $h)
+            ->where('platform', $p)
+            ->where('config_id', $c)
+            ->find();
+        return $r ? (bool) $r->delete() : false;
+    }
 }
 
 
